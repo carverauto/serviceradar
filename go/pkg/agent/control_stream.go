@@ -17,6 +17,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -171,14 +172,15 @@ type addonRunCommandPayload struct {
 // become the awx plugin's run_check config; the credential broker grant
 // stays host-side so the API token never enters the Wasm module.
 type awxCommandPayload struct {
-	Schema             string                 `json:"schema,omitempty"`
-	Verb               string                 `json:"verb"`
-	Args               map[string]any         `json:"args,omitempty"`
-	BaseURL            string                 `json:"base_url"`
-	ControllerID       string                 `json:"controller_id,omitempty"`
-	ControllerName     string                 `json:"controller_name,omitempty"`
-	InsecureSkipVerify bool                   `json:"insecure_skip_verify,omitempty"`
-	CredentialBroker   *credentialBrokerGrant `json:"credential_broker,omitempty"`
+	Schema                       string                 `json:"schema,omitempty"`
+	Verb                         string                 `json:"verb"`
+	Args                         map[string]any         `json:"args,omitempty"`
+	BaseURL                      string                 `json:"base_url"`
+	ControllerID                 string                 `json:"controller_id,omitempty"`
+	ControllerName               string                 `json:"controller_name,omitempty"`
+	InsecureSkipVerify           bool                   `json:"insecure_skip_verify,omitempty"`
+	CredentialBroker             *credentialBrokerGrant `json:"credential_broker,omitempty"`
+	CallbackCredentialBindingRaw json.RawMessage        `json:"callback_credential_binding,omitempty"`
 }
 
 type credentialBrokerACL = coreaddon.CredentialBrokerACL
@@ -854,7 +856,7 @@ func (p *PushLoop) handleAWXCommand(ctx context.Context, cmd *proto.CommandReque
 	_ = sender.Send(commandProgress(cmd, 10, "starting awx verb"))
 
 	grants := []credentialBrokerGrant{*payload.CredentialBroker}
-	resultBytes, err := pluginManager.RunPluginVerb(ctx, awxPluginID, configJSON, grants, timeout)
+	resultBytes, err := p.runAWXPluginVerb(ctx, pluginManager, cmd, payload, configJSON, grants, timeout)
 	if err != nil {
 		message := err.Error()
 		if errors.Is(err, errPluginAssignmentNotFound) {
@@ -866,6 +868,77 @@ func (p *PushLoop) handleAWXCommand(ctx context.Context, cmd *proto.CommandReque
 
 	success, message, resultPayload := parseAWXPluginResult(resultBytes)
 	_ = sender.Send(commandResult(cmd, success, message, resultPayload))
+}
+
+func (p *PushLoop) runAWXPluginVerb(
+	ctx context.Context,
+	pluginManager *PluginManager,
+	cmd *proto.CommandRequest,
+	payload awxCommandPayload,
+	configJSON []byte,
+	grants []credentialBrokerGrant,
+	timeout time.Duration,
+) ([]byte, error) {
+	verb := strings.TrimSpace(payload.Verb)
+	if verb == "" {
+		verb = strings.TrimSpace(cmd.CommandType)
+	}
+	isCreate := verb == "awx.create_callback_credential"
+	isDelete := verb == "awx.delete_callback_credential"
+	if !isCreate && !isDelete {
+		if len(bytes.TrimSpace(payload.CallbackCredentialBindingRaw)) > 0 {
+			return nil, errAWXCallbackCredentialBindingInvalid
+		}
+		return pluginManager.RunPluginVerb(ctx, awxPluginID, configJSON, grants, timeout)
+	}
+	if strings.TrimSpace(cmd.CommandType) != verb {
+		return nil, errAWXCallbackCredentialBindingInvalid
+	}
+	if err := validateAWXCallbackCredentialCommandArgs(payload.Args, isDelete); err != nil {
+		return nil, err
+	}
+
+	binding, err := decodeAWXCallbackCredentialBinding(payload.CallbackCredentialBindingRaw)
+	if err != nil {
+		return nil, err
+	}
+	binding, err = validateAWXCallbackCredentialBinding(
+		binding,
+		cmd.CommandId,
+		p.agentID(),
+		payload.ControllerID,
+		payload.Args,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if isDelete {
+		credentialID, ok := awxCallbackArgInt(payload.Args, "credential_id")
+		if !ok || !positiveAWXID(credentialID) {
+			return nil, errAWXCallbackCredentialBindingInvalid
+		}
+		return pluginManager.RunPluginVerb(ctx, awxPluginID, configJSON, grants, timeout)
+	}
+
+	callbackInput, err := resolveAWXCallbackCredentialMemoryInput(
+		ctx,
+		pluginManager.awxCallbackCredentialEnvelopeResolver(),
+		binding,
+		pluginManager.credentialNowTime(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer callbackInput.destroy()
+
+	return pluginManager.RunPluginVerbWithAWXCallbackCredential(
+		ctx,
+		awxPluginID,
+		configJSON,
+		grants,
+		callbackInput,
+		timeout,
+	)
 }
 
 // buildAWXPluginConfig translates a serviceradar.awx_command.v1 payload into

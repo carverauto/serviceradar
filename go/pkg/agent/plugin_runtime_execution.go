@@ -30,20 +30,21 @@ import (
 )
 
 type pluginExecution struct {
-	manager          *PluginManager
-	assignment       *pluginAssignment
-	mode             pluginExecutionMode
-	configJSON       []byte
-	actionResult     []byte
-	mediaBridge      *pluginCameraMediaBridge
-	consoleBridge    *pluginProxmoxConsoleBridge
-	credentialGrants []credentialBrokerGrant
-	mu               sync.Mutex
-	conns            map[uint32]net.Conn
-	wsConns          map[uint32]*websocket.Conn
-	artifactStreams  map[uint32]*pluginArtifactStream
-	nextHandle       uint32
-	submitted        bool
+	manager               *PluginManager
+	assignment            *pluginAssignment
+	mode                  pluginExecutionMode
+	configJSON            []byte
+	actionResult          []byte
+	mediaBridge           *pluginCameraMediaBridge
+	consoleBridge         *pluginProxmoxConsoleBridge
+	credentialGrants      []credentialBrokerGrant
+	awxCallbackCredential *awxCallbackCredentialMemoryInput
+	mu                    sync.Mutex
+	conns                 map[uint32]net.Conn
+	wsConns               map[uint32]*websocket.Conn
+	artifactStreams       map[uint32]*pluginArtifactStream
+	nextHandle            uint32
+	submitted             bool
 }
 
 func newPluginExecution(manager *PluginManager, assignment *pluginAssignment) *pluginExecution {

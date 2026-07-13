@@ -104,6 +104,12 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	if err != nil {
 		return pluginErrInvalid
 	}
+	body, err = e.rewriteAWXCallbackCredentialBody(method, reqURL, body)
+	if err != nil {
+		e.logPluginHostHTTPDenied(err, reqURL, method)
+		return pluginErrDenied
+	}
+	defer clear(body)
 
 	timeout := pluginDefaultHTTPTimeout
 	if payload.TimeoutMS > 0 {
@@ -130,7 +136,13 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		return pluginErrDenied
 	}
 
-	resp, err := pluginHTTPClient(e.manager.httpClient, payload.InsecureSkipVerify, timeout).Do(httpReq)
+	httpClient := pluginHTTPClient(e.manager.httpClient, payload.InsecureSkipVerify, timeout)
+	if awxCredentialEndpoint(reqURL) || awxReviewedCredentialTypeEndpoint(reqURL) {
+		httpClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+	}
+	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			e.logPluginHostHTTPFailure(err, reqURL, method, "timeout")

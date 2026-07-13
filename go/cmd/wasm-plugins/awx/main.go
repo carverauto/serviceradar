@@ -126,6 +126,10 @@ func dispatch(cfg Config) *sdk.Result {
 		return runCurrentUser(cfg)
 	case "awx.launch_job":
 		return runLaunchJob(cfg)
+	case "awx.create_callback_credential":
+		return runCreateCallbackCredential(cfg)
+	case "awx.delete_callback_credential":
+		return runDeleteCallbackCredential(cfg)
 	case "awx.fetch_job":
 		return runFetchJob(cfg)
 	case "awx.list_recent_jobs":
@@ -139,6 +143,502 @@ func dispatch(cfg Config) *sdk.Result {
 	default:
 		return sdk.Critical(fmt.Sprintf("unknown verb %q", verb))
 	}
+}
+
+const (
+	callbackCredentialInputSentinel   = "__SERVICERADAR_CALLBACK_CREDENTIAL_INPUT__"
+	callbackCredentialDescription     = "ServiceRadar ephemeral automation callback credential"
+	callbackCredentialContractSchema  = "serviceradar.awx_callback_credential_type"
+	callbackCredentialContractVersion = 1
+	maxCallbackCredentialNameBytes    = 128
+)
+
+var callbackCredentialInputKeys = [...]string{
+	"callback_url",
+	"callback_grant",
+	"callback_idempotency_key",
+	"callback_allowed_origin",
+	"callback_manifest_sha256",
+	"scm_revision",
+	"content_sha256",
+	"callback_phase",
+	"callback_operation",
+	"callback_state",
+}
+
+var allowedCreateCallbackCredentialArgs = map[string]struct{}{
+	"credential_type_id": {},
+	"organization_id":    {},
+	"credential_name":    {},
+	"injector_sha256":    {},
+}
+
+var allowedDeleteCallbackCredentialArgs = map[string]struct{}{
+	"credential_id":      {},
+	"credential_type_id": {},
+	"organization_id":    {},
+	"credential_name":    {},
+}
+
+type awxCallbackCredentialSummary struct {
+	ID             int    `json:"id"`
+	Name           string `json:"name"`
+	CredentialType int    `json:"credential_type"`
+	Organization   int    `json:"organization"`
+}
+
+// runCreateCallbackCredential creates exactly one reviewed ephemeral AWX
+// custom credential. The Wasm module deliberately sends sentinel input values;
+// the selected agent's trusted HTTP host boundary replaces them from a
+// single-resolution, memory-only launch envelope. A missing host-side input
+// therefore cannot degrade into a plaintext command/config fallback.
+func runCreateCallbackCredential(cfg Config) *sdk.Result {
+	if err := validateExactArgs(cfg.Args, allowedCreateCallbackCredentialArgs); err != nil {
+		return errorResult("awx.create_callback_credential", err)
+	}
+
+	credentialTypeID, ok := positiveArgID(cfg.Args, "credential_type_id")
+	if !ok {
+		return errorResult("awx.create_callback_credential", fmt.Errorf("args.credential_type_id is required"))
+	}
+	organizationID, ok := positiveArgID(cfg.Args, "organization_id")
+	if !ok {
+		return errorResult("awx.create_callback_credential", fmt.Errorf("args.organization_id is required"))
+	}
+	credentialName, ok := boundedCallbackCredentialName(cfg.Args)
+	if !ok {
+		return errorResult("awx.create_callback_credential", fmt.Errorf("args.credential_name is invalid"))
+	}
+	injectorSHA256, ok := argString(cfg.Args, "injector_sha256")
+	if !ok || !lowerHexString(injectorSHA256, 64) {
+		return errorResult("awx.create_callback_credential", fmt.Errorf("args.injector_sha256 is invalid"))
+	}
+	if err := verifyCallbackCredentialType(cfg, credentialTypeID, injectorSHA256); err != nil {
+		return errorResult("awx.create_callback_credential", err)
+	}
+
+	existing, err := preflightCallbackCredential(cfg, credentialName, credentialTypeID, organizationID)
+	if err != nil {
+		return errorResult("awx.create_callback_credential", err)
+	}
+	if existing != nil {
+		return callbackCredentialConflictResult(*existing)
+	}
+
+	inputs := make(map[string]string, len(callbackCredentialInputKeys))
+	for _, key := range callbackCredentialInputKeys {
+		inputs[key] = callbackCredentialInputSentinel
+	}
+
+	body := map[string]any{
+		"name":            credentialName,
+		"description":     callbackCredentialDescription,
+		"credential_type": credentialTypeID,
+		"organization":    organizationID,
+		"inputs":          inputs,
+	}
+	resp, err := postJSON(cfg, "/api/v2/credentials/", body)
+	if err != nil {
+		return errorResult("awx.create_callback_credential", err)
+	}
+
+	credential, err := decodeAndVerifyCallbackCredential(
+		resp.Body,
+		0,
+		credentialName,
+		credentialTypeID,
+		organizationID,
+	)
+	if err != nil {
+		return errorResult("awx.create_callback_credential", err)
+	}
+
+	payload := map[string]any{
+		"verb":               "awx.create_callback_credential",
+		"ok":                 true,
+		"credential_id":      credential.ID,
+		"credential_type_id": credential.CredentialType,
+		"organization_id":    credential.Organization,
+		"credential_name":    credential.Name,
+		"injector_sha256":    injectorSHA256,
+	}
+	out, _ := json.Marshal(payload)
+	return sdk.Ok(fmt.Sprintf("created ephemeral callback credential %d", credential.ID)).
+		WithDetails(string(out)).
+		WithLabel("verb", "awx.create_callback_credential")
+}
+
+type awxCallbackCredentialTypeField struct {
+	ID     string `json:"id"`
+	Type   string `json:"type"`
+	Secret bool   `json:"secret"`
+}
+
+type normalizedCallbackCredentialType struct {
+	CredentialTypeID int
+	Kind             string
+	Fields           []awxCallbackCredentialTypeField
+	Required         []string
+	Environment      map[string]string
+}
+
+func verifyCallbackCredentialType(cfg Config, credentialTypeID int, expectedDigest string) error {
+	resp, err := getJSON(cfg, fmt.Sprintf("/api/v2/credential_types/%d/", credentialTypeID))
+	if err != nil {
+		return err
+	}
+	contract, err := normalizeCallbackCredentialType(resp.Body, credentialTypeID)
+	if err != nil {
+		return err
+	}
+	encoded, err := canonicalCallbackCredentialTypeDocument(contract)
+	if err != nil {
+		return fmt.Errorf("encode callback credential type contract: %w", err)
+	}
+	digest := fmt.Sprintf("%x", sha256.Sum256(encoded))
+	if digest != expectedDigest {
+		return fmt.Errorf("callback credential type injector digest mismatch")
+	}
+	return nil
+}
+
+func normalizeCallbackCredentialType(body []byte, expectedID int) (normalizedCallbackCredentialType, error) {
+	var raw struct {
+		ID        int             `json:"id"`
+		Kind      string          `json:"kind"`
+		Managed   bool            `json:"managed"`
+		Inputs    json.RawMessage `json:"inputs"`
+		Injectors json.RawMessage `json:"injectors"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return normalizedCallbackCredentialType{}, fmt.Errorf("decode callback credential type: %w", err)
+	}
+	if raw.ID != expectedID || raw.Kind != "cloud" || raw.Managed {
+		return normalizedCallbackCredentialType{}, fmt.Errorf("AWX returned an unreviewed callback credential type")
+	}
+
+	var inputs struct {
+		Fields   []awxCallbackCredentialTypeField `json:"fields"`
+		Required []string                         `json:"required"`
+	}
+	if err := json.Unmarshal(raw.Inputs, &inputs); err != nil {
+		return normalizedCallbackCredentialType{}, fmt.Errorf("decode callback credential type inputs: %w", err)
+	}
+	if len(inputs.Fields) != len(callbackCredentialInputKeys) || len(inputs.Required) != len(callbackCredentialInputKeys) {
+		return normalizedCallbackCredentialType{}, fmt.Errorf("callback credential type inputs do not match the reviewed contract")
+	}
+	expectedSecret := map[string]bool{
+		"callback_grant":           true,
+		"callback_idempotency_key": true,
+	}
+	seenFields := make(map[string]struct{}, len(inputs.Fields))
+	for _, field := range inputs.Fields {
+		secret := expectedSecret[field.ID]
+		if field.Type != "string" || field.Secret != secret {
+			return normalizedCallbackCredentialType{}, fmt.Errorf("callback credential type field %q is unreviewed", field.ID)
+		}
+		if _, duplicate := seenFields[field.ID]; duplicate {
+			return normalizedCallbackCredentialType{}, fmt.Errorf("callback credential type contains duplicate fields")
+		}
+		seenFields[field.ID] = struct{}{}
+	}
+	for _, key := range callbackCredentialInputKeys {
+		if _, present := seenFields[key]; !present {
+			return normalizedCallbackCredentialType{}, fmt.Errorf("callback credential type is missing field %q", key)
+		}
+	}
+	sort.Slice(inputs.Fields, func(i, j int) bool { return inputs.Fields[i].ID < inputs.Fields[j].ID })
+	sort.Strings(inputs.Required)
+	expectedRequired := append([]string(nil), callbackCredentialInputKeys[:]...)
+	sort.Strings(expectedRequired)
+	if !stringSlicesEqual(inputs.Required, expectedRequired) {
+		return normalizedCallbackCredentialType{}, fmt.Errorf("callback credential type required fields are unreviewed")
+	}
+
+	var injectorRoot map[string]json.RawMessage
+	if err := json.Unmarshal(raw.Injectors, &injectorRoot); err != nil || len(injectorRoot) != 1 {
+		return normalizedCallbackCredentialType{}, fmt.Errorf("callback credential type injector is unreviewed")
+	}
+	var environment map[string]string
+	if err := json.Unmarshal(injectorRoot["env"], &environment); err != nil ||
+		!stringMapsEqual(environment, expectedCallbackCredentialEnvironment()) {
+		return normalizedCallbackCredentialType{}, fmt.Errorf("callback credential type environment injector is unreviewed")
+	}
+
+	return normalizedCallbackCredentialType{
+		CredentialTypeID: raw.ID,
+		Kind:             raw.Kind,
+		Fields:           inputs.Fields,
+		Required:         inputs.Required,
+		Environment:      environment,
+	}, nil
+}
+
+// canonicalCallbackCredentialTypeDocument serializes the reviewed credential
+// type contract independently of Go struct declaration order. The
+// language-neutral format is UTF-8, minified JSON with recursively
+// lexicographically sorted object keys. Fields and required values are sorted
+// lexicographically by input ID before encoding. The document has these exact
+// top-level keys: schema, version, credential_type_id, kind, fields, required,
+// and environment. Numbers are base-10 JSON integers and strings use standard
+// JSON escaping. A fixed byte-and-SHA-256 conformance vector lives in the test
+// suite so the Elixir/operator implementation can produce identical bytes.
+func canonicalCallbackCredentialTypeDocument(contract normalizedCallbackCredentialType) ([]byte, error) {
+	fields := append([]awxCallbackCredentialTypeField(nil), contract.Fields...)
+	sort.Slice(fields, func(i, j int) bool { return fields[i].ID < fields[j].ID })
+	canonicalFields := make([]map[string]any, 0, len(fields))
+	for _, field := range fields {
+		canonicalFields = append(canonicalFields, map[string]any{
+			"id":     field.ID,
+			"secret": field.Secret,
+			"type":   field.Type,
+		})
+	}
+	required := append([]string(nil), contract.Required...)
+	sort.Strings(required)
+	environment := make(map[string]string, len(contract.Environment))
+	for key, value := range contract.Environment {
+		environment[key] = value
+	}
+
+	// encoding/json sorts string map keys recursively. Building this document
+	// solely from maps avoids tying the digest to Go struct field order.
+	document := map[string]any{
+		"schema":             callbackCredentialContractSchema,
+		"version":            callbackCredentialContractVersion,
+		"credential_type_id": contract.CredentialTypeID,
+		"kind":               contract.Kind,
+		"fields":             canonicalFields,
+		"required":           required,
+		"environment":        environment,
+	}
+	return json.Marshal(document)
+}
+
+func expectedCallbackCredentialEnvironment() map[string]string {
+	return map[string]string{
+		"SERVICERADAR_CALLBACK_URL":             "{{ callback_url }}",
+		"SERVICERADAR_CALLBACK_GRANT":           "{{ callback_grant }}",
+		"SERVICERADAR_CALLBACK_IDEMPOTENCY_KEY": "{{ callback_idempotency_key }}",
+		"SERVICERADAR_CALLBACK_ALLOWED_ORIGIN":  "{{ callback_allowed_origin }}",
+		"SERVICERADAR_CALLBACK_MANIFEST_SHA256": "{{ callback_manifest_sha256 }}",
+		"SERVICERADAR_SCM_REVISION":             "{{ scm_revision }}",
+		"SERVICERADAR_CONTENT_SHA256":           "{{ content_sha256 }}",
+		"SERVICERADAR_CALLBACK_PHASE":           "{{ callback_phase }}",
+		"SERVICERADAR_CALLBACK_OPERATION":       "{{ callback_operation }}",
+		"SERVICERADAR_CALLBACK_STATE":           "{{ callback_state }}",
+	}
+}
+
+func stringMapsEqual(left, right map[string]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key, value := range right {
+		if left[key] != value {
+			return false
+		}
+	}
+	return true
+}
+
+func stringSlicesEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func lowerHexString(value string, size int) bool {
+	if len(value) != size {
+		return false
+	}
+	for _, char := range value {
+		if !((char >= 'a' && char <= 'f') || (char >= '0' && char <= '9')) {
+			return false
+		}
+	}
+	return true
+}
+
+func preflightCallbackCredential(
+	cfg Config,
+	credentialName string,
+	credentialTypeID int,
+	organizationID int,
+) (*awxCallbackCredentialSummary, error) {
+	query := url.Values{}
+	query.Set("name", credentialName)
+	query.Set("credential_type", strconv.Itoa(credentialTypeID))
+	query.Set("organization", strconv.Itoa(organizationID))
+	query.Set("page_size", "2")
+	resp, err := getJSON(cfg, "/api/v2/credentials/?"+query.Encode())
+	if err != nil {
+		return nil, err
+	}
+	var page awxPage
+	if err := json.Unmarshal(resp.Body, &page); err != nil {
+		return nil, fmt.Errorf("decode callback credential preflight: %w", err)
+	}
+	if page.Count == 0 && len(page.Results) == 0 && page.Next == "" {
+		return nil, nil
+	}
+	if page.Count != 1 || len(page.Results) != 1 || page.Next != "" {
+		return nil, fmt.Errorf("callback credential preflight returned an ambiguous existing set")
+	}
+	existing, err := decodeAndVerifyCallbackCredential(
+		page.Results[0],
+		0,
+		credentialName,
+		credentialTypeID,
+		organizationID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &existing, nil
+}
+
+func callbackCredentialConflictResult(credential awxCallbackCredentialSummary) *sdk.Result {
+	payload := map[string]any{
+		"verb":               "awx.create_callback_credential",
+		"ok":                 false,
+		"error":              "existing ephemeral callback credential requires cleanup before reissue",
+		"cleanup_status":     "cleanup_required",
+		"credential_id":      credential.ID,
+		"credential_type_id": credential.CredentialType,
+		"organization_id":    credential.Organization,
+		"credential_name":    credential.Name,
+	}
+	out, _ := json.Marshal(payload)
+	return sdk.Critical("awx.create_callback_credential: existing credential requires cleanup").
+		WithDetails(string(out)).
+		WithLabel("verb", "awx.create_callback_credential")
+}
+
+// runDeleteCallbackCredential verifies the exact reviewed credential identity
+// before deleting it. A 404 during verification is an idempotent success; a
+// credential with a mismatched name, type, or organization is never deleted.
+func runDeleteCallbackCredential(cfg Config) *sdk.Result {
+	if err := validateExactArgs(cfg.Args, allowedDeleteCallbackCredentialArgs); err != nil {
+		return errorResult("awx.delete_callback_credential", err)
+	}
+
+	credentialID, ok := positiveArgID(cfg.Args, "credential_id")
+	if !ok {
+		return errorResult("awx.delete_callback_credential", fmt.Errorf("args.credential_id is required"))
+	}
+	credentialTypeID, ok := positiveArgID(cfg.Args, "credential_type_id")
+	if !ok {
+		return errorResult("awx.delete_callback_credential", fmt.Errorf("args.credential_type_id is required"))
+	}
+	organizationID, ok := positiveArgID(cfg.Args, "organization_id")
+	if !ok {
+		return errorResult("awx.delete_callback_credential", fmt.Errorf("args.organization_id is required"))
+	}
+	credentialName, ok := boundedCallbackCredentialName(cfg.Args)
+	if !ok {
+		return errorResult("awx.delete_callback_credential", fmt.Errorf("args.credential_name is invalid"))
+	}
+
+	path := fmt.Sprintf("/api/v2/credentials/%d/", credentialID)
+	resp, absent, err := getJSONAllowNotFound(cfg, path)
+	if err != nil {
+		return errorResult("awx.delete_callback_credential", err)
+	}
+	if absent {
+		return callbackCredentialDeleteResult(credentialID, credentialTypeID, "already_absent")
+	}
+
+	if _, err := decodeAndVerifyCallbackCredential(
+		resp.Body,
+		credentialID,
+		credentialName,
+		credentialTypeID,
+		organizationID,
+	); err != nil {
+		return errorResult("awx.delete_callback_credential", err)
+	}
+
+	deleteResp, err := deleteJSON(cfg, path)
+	if err != nil {
+		return errorResult("awx.delete_callback_credential", err)
+	}
+	if deleteResp.Status == http.StatusNotFound {
+		return callbackCredentialDeleteResult(credentialID, credentialTypeID, "already_absent")
+	}
+	return callbackCredentialDeleteResult(credentialID, credentialTypeID, "deleted")
+}
+
+func callbackCredentialDeleteResult(credentialID, credentialTypeID int, cleanupStatus string) *sdk.Result {
+	payload := map[string]any{
+		"verb":               "awx.delete_callback_credential",
+		"ok":                 true,
+		"credential_id":      credentialID,
+		"credential_type_id": credentialTypeID,
+		"cleanup_status":     cleanupStatus,
+	}
+	out, _ := json.Marshal(payload)
+	return sdk.Ok(fmt.Sprintf("callback credential %d cleanup: %s", credentialID, cleanupStatus)).
+		WithDetails(string(out)).
+		WithLabel("verb", "awx.delete_callback_credential")
+}
+
+func validateExactArgs(args map[string]any, allowed map[string]struct{}) error {
+	for key := range args {
+		if _, ok := allowed[key]; !ok {
+			return fmt.Errorf("args.%s is not allowed", key)
+		}
+	}
+	return nil
+}
+
+func positiveArgID(args map[string]any, key string) (int, bool) {
+	value, ok := argInt(args, key)
+	return value, ok && value > 0 && value <= math.MaxInt32
+}
+
+func boundedCallbackCredentialName(args map[string]any) (string, bool) {
+	name, ok := argString(args, "credential_name")
+	if !ok || len(name) == 0 || len(name) > maxCallbackCredentialNameBytes || strings.TrimSpace(name) != name {
+		return "", false
+	}
+	if !strings.HasPrefix(name, "sr-callback-") {
+		return "", false
+	}
+	for _, char := range name {
+		if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char == '-' {
+			continue
+		}
+		return "", false
+	}
+	return name, true
+}
+
+func decodeAndVerifyCallbackCredential(
+	body []byte,
+	expectedID int,
+	expectedName string,
+	expectedCredentialTypeID int,
+	expectedOrganizationID int,
+) (awxCallbackCredentialSummary, error) {
+	var credential awxCallbackCredentialSummary
+	if err := json.Unmarshal(body, &credential); err != nil {
+		return credential, fmt.Errorf("decode callback credential response: %w", err)
+	}
+	if credential.ID <= 0 || (expectedID > 0 && credential.ID != expectedID) {
+		return credential, fmt.Errorf("AWX returned a mismatched callback credential ID")
+	}
+	if credential.Name != expectedName || credential.CredentialType != expectedCredentialTypeID ||
+		credential.Organization != expectedOrganizationID {
+		return credential, fmt.Errorf("AWX returned a mismatched callback credential binding")
+	}
+	return credential, nil
 }
 
 func notImplemented(verb string) *sdk.Result {
@@ -1015,6 +1515,40 @@ func postJSON(cfg Config, path string, body any) (*sdk.HTTPResponse, error) {
 	return resp, nil
 }
 
+// deleteJSON performs an authenticated DELETE. A 404 is returned to the caller
+// as a valid idempotent-cleanup state; other non-2xx responses fail closed.
+func deleteJSON(cfg Config, path string) (*sdk.HTTPResponse, error) {
+	timeoutMS := cfg.TimeoutMS
+	if timeoutMS <= 0 {
+		timeoutMS = defaultTimeoutMS
+	}
+
+	req := sdk.HTTPRequest{
+		Method: http.MethodDelete,
+		URL:    strings.TrimRight(cfg.BaseURL, "/") + path,
+		Headers: map[string]string{
+			"Authorization": "Bearer " + cfg.APIToken,
+			"Accept":        "application/json",
+		},
+		TimeoutMS:          timeoutMS,
+		InsecureSkipVerify: cfg.InsecureSkipVerify,
+	}
+	resp, err := awxHTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Status == http.StatusNotFound {
+		return resp, nil
+	}
+	if resp.Status < 200 || resp.Status >= 300 {
+		if resp.Status == http.StatusUnauthorized || resp.Status == http.StatusForbidden {
+			return nil, fmt.Errorf("AWX rejected the request: %d (check controller token)", resp.Status)
+		}
+		return nil, fmt.Errorf("AWX HTTP %d", resp.Status)
+	}
+	return resp, nil
+}
+
 // awxPingResponse mirrors the relevant subset of /api/v2/ping/.
 type awxPingResponse struct {
 	Version     string         `json:"version"`
@@ -1446,6 +1980,38 @@ func getJSON(cfg Config, path string) (*sdk.HTTPResponse, error) {
 		return nil, fmt.Errorf("AWX HTTP %d", resp.Status)
 	}
 	return resp, nil
+}
+
+func getJSONAllowNotFound(cfg Config, path string) (*sdk.HTTPResponse, bool, error) {
+	timeoutMS := cfg.TimeoutMS
+	if timeoutMS <= 0 {
+		timeoutMS = defaultTimeoutMS
+	}
+
+	req := sdk.HTTPRequest{
+		Method: http.MethodGet,
+		URL:    strings.TrimRight(cfg.BaseURL, "/") + path,
+		Headers: map[string]string{
+			"Authorization": "Bearer " + cfg.APIToken,
+			"Accept":        "application/json",
+		},
+		TimeoutMS:          timeoutMS,
+		InsecureSkipVerify: cfg.InsecureSkipVerify,
+	}
+	resp, err := awxHTTP.Do(req)
+	if err != nil {
+		return nil, false, err
+	}
+	if resp.Status == http.StatusNotFound {
+		return resp, true, nil
+	}
+	if resp.Status < 200 || resp.Status >= 300 {
+		if resp.Status == http.StatusUnauthorized || resp.Status == http.StatusForbidden {
+			return nil, false, fmt.Errorf("AWX rejected the request: %d (check controller token)", resp.Status)
+		}
+		return nil, false, fmt.Errorf("AWX HTTP %d", resp.Status)
+	}
+	return resp, false, nil
 }
 
 // sanitizeError strips any embedded URL so a sloppy upstream error doesn't

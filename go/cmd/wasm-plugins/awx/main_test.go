@@ -1,8 +1,11 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -15,6 +18,21 @@ type fakeHTTPClient struct {
 	requests  []sdk.HTTPRequest
 	responses map[string]*sdk.HTTPResponse
 	err       error
+}
+
+type scriptedHTTPClient struct {
+	requests  []sdk.HTTPRequest
+	responses []*sdk.HTTPResponse
+}
+
+func (f *scriptedHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+	f.requests = append(f.requests, req)
+	if len(f.responses) == 0 {
+		return &sdk.HTTPResponse{Status: http.StatusNotFound, Body: []byte(`{}`)}, nil
+	}
+	response := f.responses[0]
+	f.responses = f.responses[1:]
+	return response, nil
 }
 
 func (f *fakeHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
@@ -394,6 +412,351 @@ func TestRunLaunchJobRejectsUnsafeOrMalformedFields(t *testing.T) {
 				t.Errorf("malformed launch must not contact AWX")
 			}
 		})
+	}
+}
+
+func TestRunCreateCallbackCredentialUsesOnlySentinelsAndReturnsSanitizedBinding(t *testing.T) {
+	response := []byte(`{
+		"id":401,
+		"name":"sr-callback-018f3f56-1111-7222-8333-123456789abc",
+		"credential_type":91,
+		"organization":2,
+		"inputs":{"callback_grant":"$encrypted$"},
+		"related":{"activity_stream":"/api/v2/activity_stream/"}
+	}`)
+	fake := &scriptedHTTPClient{responses: []*sdk.HTTPResponse{
+		{Status: http.StatusOK, Body: callbackCredentialTypeBody(t)},
+		{Status: http.StatusOK, Body: []byte(`{"count":0,"next":null,"results":[]}`)},
+		{Status: http.StatusCreated, Body: response},
+	}}
+	swapHTTP(t, fake)
+
+	res := dispatch(Config{
+		BaseURL: "https://awx.example.com", APIToken: "controller-token",
+		Verb: "awx.create_callback_credential",
+		Args: map[string]any{
+			"credential_type_id": float64(91),
+			"organization_id":    float64(2),
+			"credential_name":    "sr-callback-018f3f56-1111-7222-8333-123456789abc",
+			"injector_sha256":    callbackCredentialTypeDigest(t),
+		},
+	})
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("expected OK, got %s: %s", res.Status, res.Summary)
+	}
+	if len(fake.requests) != 3 {
+		t.Fatalf("requests = %d, want type GET + preflight GET + create POST", len(fake.requests))
+	}
+	if fake.requests[0].Method != http.MethodGet ||
+		fake.requests[0].URL != "https://awx.example.com/api/v2/credential_types/91/" {
+		t.Fatalf("unexpected credential type request: %s %s", fake.requests[0].Method, fake.requests[0].URL)
+	}
+	preflight := fake.requests[1]
+	preflightURL, err := url.Parse(preflight.URL)
+	if err != nil {
+		t.Fatalf("parse preflight URL: %v", err)
+	}
+	if preflight.Method != http.MethodGet || preflightURL.Path != "/api/v2/credentials/" ||
+		preflightURL.Query().Get("name") != "sr-callback-018f3f56-1111-7222-8333-123456789abc" ||
+		preflightURL.Query().Get("credential_type") != "91" ||
+		preflightURL.Query().Get("organization") != "2" || preflightURL.Query().Get("page_size") != "2" {
+		t.Fatalf("unexpected preflight request: %s %s", preflight.Method, preflight.URL)
+	}
+	req := fake.requests[2]
+	if req.Method != http.MethodPost || req.URL != "https://awx.example.com/api/v2/credentials/" {
+		t.Fatalf("request = %s %s", req.Method, req.URL)
+	}
+	var body struct {
+		Name           string            `json:"name"`
+		Description    string            `json:"description"`
+		CredentialType int               `json:"credential_type"`
+		Organization   int               `json:"organization"`
+		Inputs         map[string]string `json:"inputs"`
+	}
+	if err := json.Unmarshal(req.Body, &body); err != nil {
+		t.Fatalf("decode request: %v", err)
+	}
+	if body.Name != "sr-callback-018f3f56-1111-7222-8333-123456789abc" ||
+		body.Description != callbackCredentialDescription || body.CredentialType != 91 || body.Organization != 2 {
+		t.Fatalf("unexpected bounded credential body: %#v", body)
+	}
+	if len(body.Inputs) != len(callbackCredentialInputKeys) {
+		t.Fatalf("inputs = %#v", body.Inputs)
+	}
+	for _, key := range callbackCredentialInputKeys {
+		if body.Inputs[key] != callbackCredentialInputSentinel {
+			t.Fatalf("input %q = %q, want host-boundary sentinel", key, body.Inputs[key])
+		}
+	}
+
+	for _, prohibited := range []string{"$encrypted$", "callback_grant", "inputs", "activity_stream", "controller-token"} {
+		if strings.Contains(res.Details, prohibited) {
+			t.Fatalf("sanitized response leaked %q: %s", prohibited, res.Details)
+		}
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(res.Details), &payload); err != nil {
+		t.Fatalf("decode details: %v", err)
+	}
+	if payload["credential_id"] != float64(401) || payload["credential_type_id"] != float64(91) ||
+		payload["organization_id"] != float64(2) ||
+		payload["credential_name"] != "sr-callback-018f3f56-1111-7222-8333-123456789abc" {
+		t.Fatalf("unexpected sanitized details: %#v", payload)
+	}
+}
+
+func TestRunCreateCallbackCredentialRequiresCleanupBeforeReissue(t *testing.T) {
+	existing := []byte(`{
+		"count":1,
+		"next":null,
+		"results":[{
+			"id":401,
+			"name":"sr-callback-018f3f56-1111-7222-8333-123456789abc",
+			"credential_type":91,
+			"organization":2,
+			"inputs":{"callback_grant":"$encrypted$"}
+		}]
+	}`)
+	fake := &scriptedHTTPClient{responses: []*sdk.HTTPResponse{
+		{Status: http.StatusOK, Body: callbackCredentialTypeBody(t)},
+		{Status: http.StatusOK, Body: existing},
+	}}
+	swapHTTP(t, fake)
+
+	res := dispatch(Config{
+		BaseURL: "https://awx.example.com", APIToken: "controller-token",
+		Verb: "awx.create_callback_credential",
+		Args: map[string]any{
+			"credential_type_id": float64(91),
+			"organization_id":    float64(2),
+			"credential_name":    "sr-callback-018f3f56-1111-7222-8333-123456789abc",
+			"injector_sha256":    callbackCredentialTypeDigest(t),
+		},
+	})
+	if res.Status != sdk.StatusCritical || len(fake.requests) != 2 || fake.requests[1].Method != http.MethodGet {
+		t.Fatalf("existing credential must stop before POST: status=%s requests=%#v", res.Status, fake.requests)
+	}
+	for _, required := range []string{
+		`"cleanup_status":"cleanup_required"`,
+		`"credential_id":401`,
+		`"credential_type_id":91`,
+		`"organization_id":2`,
+	} {
+		if !strings.Contains(res.Details, required) {
+			t.Fatalf("conflict response missing %s: %s", required, res.Details)
+		}
+	}
+	if strings.Contains(res.Details, "$encrypted$") || strings.Contains(res.Details, "inputs") {
+		t.Fatalf("conflict response leaked AWX inputs: %s", res.Details)
+	}
+}
+
+func TestRunCreateCallbackCredentialRejectsUnreviewedInputsBeforeHTTP(t *testing.T) {
+	fake := &fakeHTTPClient{}
+	swapHTTP(t, fake)
+
+	res := dispatch(Config{
+		BaseURL: "https://awx.example.com", APIToken: "controller-token",
+		Verb: "awx.create_callback_credential",
+		Args: map[string]any{
+			"credential_type_id": float64(91),
+			"organization_id":    float64(2),
+			"credential_name":    "sr-callback-018f3f56-1111-7222-8333-123456789abc",
+			"injector_sha256":    callbackCredentialTypeDigest(t),
+			"inputs":             map[string]any{"callback_grant": "direct-secret"},
+		},
+	})
+	if res.Status != sdk.StatusCritical || len(fake.requests) != 0 {
+		t.Fatalf("unreviewed input must fail before HTTP: status=%s requests=%d", res.Status, len(fake.requests))
+	}
+	if strings.Contains(res.Details, "direct-secret") {
+		t.Fatalf("error details leaked direct input: %s", res.Details)
+	}
+}
+
+func TestRunCreateCallbackCredentialRejectsInjectorDriftBeforeSecretPost(t *testing.T) {
+	typeBody := callbackCredentialTypeBody(t)
+	var decoded map[string]any
+	if err := json.Unmarshal(typeBody, &decoded); err != nil {
+		t.Fatalf("decode credential type fixture: %v", err)
+	}
+	injectors := decoded["injectors"].(map[string]any)
+	injectors["extra_vars"] = map[string]any{"SERVICERADAR_CALLBACK_GRANT": "{{ callback_grant }}"}
+	drifted, _ := json.Marshal(decoded)
+	fake := &scriptedHTTPClient{responses: []*sdk.HTTPResponse{{Status: http.StatusOK, Body: drifted}}}
+	swapHTTP(t, fake)
+
+	res := dispatch(Config{
+		BaseURL: "https://awx.example.com", APIToken: "controller-token",
+		Verb: "awx.create_callback_credential",
+		Args: map[string]any{
+			"credential_type_id": float64(91),
+			"organization_id":    float64(2),
+			"credential_name":    "sr-callback-018f3f56-1111-7222-8333-123456789abc",
+			"injector_sha256":    callbackCredentialTypeDigest(t),
+		},
+	})
+	if res.Status != sdk.StatusCritical || len(fake.requests) != 1 ||
+		fake.requests[0].URL != "https://awx.example.com/api/v2/credential_types/91/" {
+		t.Fatalf("drift must fail after only credential type GET: status=%s requests=%#v", res.Status, fake.requests)
+	}
+}
+
+func TestRunCreateCallbackCredentialRejectsReviewedContractDigestMismatch(t *testing.T) {
+	fake := &scriptedHTTPClient{responses: []*sdk.HTTPResponse{{Status: http.StatusOK, Body: callbackCredentialTypeBody(t)}}}
+	swapHTTP(t, fake)
+
+	res := dispatch(Config{
+		BaseURL: "https://awx.example.com", APIToken: "controller-token",
+		Verb: "awx.create_callback_credential",
+		Args: map[string]any{
+			"credential_type_id": float64(91),
+			"organization_id":    float64(2),
+			"credential_name":    "sr-callback-018f3f56-1111-7222-8333-123456789abc",
+			"injector_sha256":    strings.Repeat("0", 64),
+		},
+	})
+	if res.Status != sdk.StatusCritical || len(fake.requests) != 1 ||
+		fake.requests[0].URL != "https://awx.example.com/api/v2/credential_types/91/" {
+		t.Fatalf("digest mismatch must fail after only credential type GET: status=%s requests=%#v", res.Status, fake.requests)
+	}
+}
+
+func TestRunDeleteCallbackCredentialVerifiesThenDeletes(t *testing.T) {
+	credential := []byte(`{
+		"id":401,
+		"name":"sr-callback-018f3f56-1111-7222-8333-123456789abc",
+		"credential_type":91,
+		"organization":2,
+		"inputs":{"callback_grant":"$encrypted$"}
+	}`)
+	fake := &scriptedHTTPClient{responses: []*sdk.HTTPResponse{
+		{Status: http.StatusOK, Body: credential},
+		{Status: http.StatusNoContent},
+	}}
+	swapHTTP(t, fake)
+
+	res := dispatch(callbackCredentialDeleteConfig())
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("expected OK, got %s: %s", res.Status, res.Summary)
+	}
+	if len(fake.requests) != 2 || fake.requests[0].Method != http.MethodGet || fake.requests[1].Method != http.MethodDelete {
+		t.Fatalf("requests = %#v, want GET then DELETE", fake.requests)
+	}
+	for _, req := range fake.requests {
+		if req.URL != "https://awx.example.com/api/v2/credentials/401/" {
+			t.Fatalf("unexpected cleanup URL: %s", req.URL)
+		}
+	}
+	if strings.Contains(res.Details, "$encrypted$") || strings.Contains(res.Details, "inputs") {
+		t.Fatalf("cleanup response leaked credential detail: %s", res.Details)
+	}
+	if !strings.Contains(res.Details, `"cleanup_status":"deleted"`) {
+		t.Fatalf("cleanup status missing: %s", res.Details)
+	}
+}
+
+func TestRunDeleteCallbackCredentialIsIdempotentWhenAlreadyAbsent(t *testing.T) {
+	fake := &scriptedHTTPClient{responses: []*sdk.HTTPResponse{{Status: http.StatusNotFound, Body: []byte(`{}`)}}}
+	swapHTTP(t, fake)
+
+	res := dispatch(callbackCredentialDeleteConfig())
+	if res.Status != sdk.StatusOK || len(fake.requests) != 1 || fake.requests[0].Method != http.MethodGet {
+		t.Fatalf("already absent cleanup must be one successful GET: status=%s requests=%#v", res.Status, fake.requests)
+	}
+	if !strings.Contains(res.Details, `"cleanup_status":"already_absent"`) {
+		t.Fatalf("already_absent status missing: %s", res.Details)
+	}
+}
+
+func TestRunDeleteCallbackCredentialRefusesBindingMismatch(t *testing.T) {
+	credential := []byte(`{
+		"id":401,
+		"name":"unrelated-static-credential",
+		"credential_type":91,
+		"organization":2
+	}`)
+	fake := &scriptedHTTPClient{responses: []*sdk.HTTPResponse{{Status: http.StatusOK, Body: credential}}}
+	swapHTTP(t, fake)
+
+	res := dispatch(callbackCredentialDeleteConfig())
+	if res.Status != sdk.StatusCritical || len(fake.requests) != 1 || fake.requests[0].Method != http.MethodGet {
+		t.Fatalf("mismatch must stop before DELETE: status=%s requests=%#v", res.Status, fake.requests)
+	}
+}
+
+func callbackCredentialDeleteConfig() Config {
+	return Config{
+		BaseURL: "https://awx.example.com", APIToken: "controller-token",
+		Verb: "awx.delete_callback_credential",
+		Args: map[string]any{
+			"credential_id":      float64(401),
+			"credential_type_id": float64(91),
+			"organization_id":    float64(2),
+			"credential_name":    "sr-callback-018f3f56-1111-7222-8333-123456789abc",
+		},
+	}
+}
+
+func callbackCredentialTypeBody(t *testing.T) []byte {
+	t.Helper()
+	fields := make([]map[string]any, 0, len(callbackCredentialInputKeys))
+	required := make([]string, 0, len(callbackCredentialInputKeys))
+	for _, id := range callbackCredentialInputKeys {
+		fields = append(fields, map[string]any{
+			"id":     id,
+			"type":   "string",
+			"secret": id == "callback_grant" || id == "callback_idempotency_key",
+		})
+		required = append(required, id)
+	}
+	body, err := json.Marshal(map[string]any{
+		"id":      91,
+		"kind":    "cloud",
+		"managed": false,
+		"inputs": map[string]any{
+			"fields":   fields,
+			"required": required,
+		},
+		"injectors": map[string]any{
+			"env": expectedCallbackCredentialEnvironment(),
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal callback credential type fixture: %v", err)
+	}
+	return body
+}
+
+func callbackCredentialTypeDigest(t *testing.T) string {
+	t.Helper()
+	contract, err := normalizeCallbackCredentialType(callbackCredentialTypeBody(t), 91)
+	if err != nil {
+		t.Fatalf("normalize callback credential type fixture: %v", err)
+	}
+	encoded, err := canonicalCallbackCredentialTypeDocument(contract)
+	if err != nil {
+		t.Fatalf("marshal callback credential type contract: %v", err)
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(encoded))
+}
+
+func TestCallbackCredentialTypeCanonicalConformanceVector(t *testing.T) {
+	contract, err := normalizeCallbackCredentialType(callbackCredentialTypeBody(t), 91)
+	if err != nil {
+		t.Fatalf("normalize callback credential type fixture: %v", err)
+	}
+	encoded, err := canonicalCallbackCredentialTypeDocument(contract)
+	if err != nil {
+		t.Fatalf("encode callback credential type contract: %v", err)
+	}
+	const expectedCanonical = `{"credential_type_id":91,"environment":{"SERVICERADAR_CALLBACK_ALLOWED_ORIGIN":"{{ callback_allowed_origin }}","SERVICERADAR_CALLBACK_GRANT":"{{ callback_grant }}","SERVICERADAR_CALLBACK_IDEMPOTENCY_KEY":"{{ callback_idempotency_key }}","SERVICERADAR_CALLBACK_MANIFEST_SHA256":"{{ callback_manifest_sha256 }}","SERVICERADAR_CALLBACK_OPERATION":"{{ callback_operation }}","SERVICERADAR_CALLBACK_PHASE":"{{ callback_phase }}","SERVICERADAR_CALLBACK_STATE":"{{ callback_state }}","SERVICERADAR_CALLBACK_URL":"{{ callback_url }}","SERVICERADAR_CONTENT_SHA256":"{{ content_sha256 }}","SERVICERADAR_SCM_REVISION":"{{ scm_revision }}"},"fields":[{"id":"callback_allowed_origin","secret":false,"type":"string"},{"id":"callback_grant","secret":true,"type":"string"},{"id":"callback_idempotency_key","secret":true,"type":"string"},{"id":"callback_manifest_sha256","secret":false,"type":"string"},{"id":"callback_operation","secret":false,"type":"string"},{"id":"callback_phase","secret":false,"type":"string"},{"id":"callback_state","secret":false,"type":"string"},{"id":"callback_url","secret":false,"type":"string"},{"id":"content_sha256","secret":false,"type":"string"},{"id":"scm_revision","secret":false,"type":"string"}],"kind":"cloud","required":["callback_allowed_origin","callback_grant","callback_idempotency_key","callback_manifest_sha256","callback_operation","callback_phase","callback_state","callback_url","content_sha256","scm_revision"],"schema":"serviceradar.awx_callback_credential_type","version":1}`
+	if string(encoded) != expectedCanonical {
+		t.Fatalf("canonical document mismatch:\n got: %s\nwant: %s", encoded, expectedCanonical)
+	}
+	digest := fmt.Sprintf("%x", sha256.Sum256(encoded))
+	if digest != "cd42bea50b45fcb010c1cc1e89243b8d9d0230bc2fe0b6bb9d49839d17f5a263" {
+		t.Fatalf("canonical digest = %s", digest)
 	}
 }
 

@@ -195,6 +195,8 @@ func credentialBrokerPathAllowed(patterns []string, requested string) bool {
 		switch {
 		case pattern == "":
 			continue
+		case strings.HasPrefix(pattern, "=") && strings.TrimPrefix(pattern, "=") == requested:
+			return true
 		case pattern == requested:
 			return true
 		case strings.HasSuffix(pattern, "*") && strings.HasPrefix(requested, strings.TrimSuffix(pattern, "*")):
