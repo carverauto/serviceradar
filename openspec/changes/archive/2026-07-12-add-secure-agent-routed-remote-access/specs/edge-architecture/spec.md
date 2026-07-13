@@ -91,8 +91,9 @@ The remote-access tunnel SHALL separate session lifecycle and routing from proto
 #### Scenario: Generic SSH uses session-present credentials before certificate issuance is available
 - **GIVEN** an operator opens an SSH terminal for a general inventory device
 - **WHEN** short-lived certificate issuance is not yet available for that target
-- **THEN** the browser SHALL collect the private key or password for that session only
+- **THEN** user-present custody SHALL supply the private key or password to the current attach flow
 - **AND** the platform SHALL forward it through the remote-access tunnel without persisting it in core, gateway, database, object storage, or plugin configuration
+- **AND** any explicitly policy-enabled client-only remembered-key storage SHALL remain outside platform custody
 - **AND** the agent SHALL discard the credential when the session ends.
 
 #### Scenario: OT protocol adapter can be added later
@@ -192,7 +193,7 @@ Generic SSH remote access SHALL support an enterprise certificate flow where Ser
 - **AND** ServiceRadar RBAC maps those claims to allowed SSH principals for a registered target
 - **AND** the target trusts the ServiceRadar SSH user CA through OpenSSH `TrustedUserCAKeys`
 - **WHEN** the operator opens an SSH remote-access session
-- **THEN** ServiceRadar SHALL sign a per-session public key with a TTL selected from trusted session policy and bounded by the deployment maximum
+- **THEN** ServiceRadar SHALL issue a per-session certificate for the submitted public key with a TTL selected from trusted session policy and bounded by the deployment maximum
 - **AND** the session authorization and route SHALL be scoped to the actor, registered target, selected agent, protocol, and session while the certificate is limited to the approved principal set and TTL
 - **AND** no shared bastion account, reusable target password, generic agent-local target private key, or LDAP password pass-through secret SHALL be required.
 
