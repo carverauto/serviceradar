@@ -1,0 +1,106 @@
+defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher.AshAdapter do
+  @moduledoc false
+  @behaviour ServiceRadar.Automation.Ansible.SecureChildLauncher.Adapter
+
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Automation.Ansible.AutomationTargetHold
+  alias ServiceRadar.Automation.Ansible.AwxHostMembership
+  alias ServiceRadar.Automation.Ansible.AwxTemplateBinding
+  alias ServiceRadar.Automation.Ansible.Controller
+  alias ServiceRadar.Automation.Ansible.HardenedRunLauncher
+  alias ServiceRadar.Automation.Ansible.Playbook
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.User
+
+  @actor SystemActor.system(:ansible_secure_child_launcher)
+
+  @impl true
+  def load_current_actor(actor_id) do
+    actor_id
+    |> User.get_by_id(actor: @actor)
+    |> required(:actor_not_found)
+  end
+
+  @impl true
+  def fresh_authorization(%User{} = actor) do
+    case RBAC.effective_profile(actor, @actor) do
+      {:ok, nil} ->
+        {:error, :role_profile_not_found}
+
+      {:ok, profile} ->
+        {:ok,
+         %{
+           permissions: MapSet.new(profile.permissions),
+           profile_id: profile.id,
+           profile_updated_at: profile.updated_at
+         }}
+
+      {:error, reason} ->
+        {:error, {:fresh_authorization_failed, reason}}
+    end
+  rescue
+    error -> {:error, {:fresh_authorization_failed, error}}
+  end
+
+  def fresh_authorization(_actor), do: {:error, :fresh_authorization_required}
+
+  @impl true
+  def load_playbook(playbook_id) do
+    playbook_id
+    |> Playbook.get_by_id(actor: @actor)
+    |> required(:playbook_not_found)
+  end
+
+  @impl true
+  def load_memberships(membership_ids) do
+    membership_ids
+    |> Enum.reduce_while({:ok, []}, fn membership_id, {:ok, memberships} ->
+      case AwxHostMembership.get_by_id(membership_id, actor: @actor) do
+        {:ok, nil} -> {:halt, {:error, {:membership_not_found, membership_id}}}
+        {:ok, membership} -> {:cont, {:ok, [membership | memberships]}}
+        {:error, reason} -> {:halt, {:error, {:membership_lookup_failed, reason}}}
+      end
+    end)
+    |> case do
+      {:ok, memberships} -> {:ok, Enum.reverse(memberships)}
+      error -> error
+    end
+  end
+
+  @impl true
+  def load_binding(controller_id, job_template_id) do
+    controller_id
+    |> AwxTemplateBinding.get_current_for_template(job_template_id, actor: @actor)
+    |> required(:binding_not_found)
+  end
+
+  @impl true
+  def load_controller(controller_id) do
+    controller_id
+    |> Controller.get_by_id(actor: @actor)
+    |> required(:controller_not_found)
+  end
+
+  @impl true
+  def active_hold_device_uids(device_uids) do
+    device_uids
+    |> Enum.reduce_while({:ok, []}, fn device_uid, {:ok, held} ->
+      case AutomationTargetHold.get_active_for_device(device_uid, actor: @actor) do
+        {:ok, nil} -> {:cont, {:ok, held}}
+        {:ok, hold} -> {:cont, {:ok, [hold.canonical_device_uid | held]}}
+        {:error, reason} -> {:halt, {:error, {:target_hold_lookup_failed, reason}}}
+      end
+    end)
+    |> case do
+      {:ok, held} -> {:ok, held |> Enum.uniq() |> Enum.sort()}
+      error -> error
+    end
+  end
+
+  @impl true
+  def launch(plan, controller), do: HardenedRunLauncher.launch(plan, controller)
+
+  defp required({:ok, nil}, error), do: {:error, error}
+  defp required({:ok, value}, _error), do: {:ok, value}
+  defp required({:error, reason}, _error), do: {:error, reason}
+end
