@@ -193,8 +193,10 @@ defmodule ServiceRadar.Automation.Ansible.TargetingTest do
           project_update_on_launch: false,
           project_id: 3,
           scm_revision: String.duplicate("a", 40),
+          content_sha256: String.duplicate("b", 64),
           execution_environment_id: 4,
           credential_ids: [5],
+          machine_credential_id: 5,
           job_type: "run",
           awx_created_by_id: 11,
           inventory_group_names: ["linux"]
@@ -234,5 +236,12 @@ defmodule ServiceRadar.Automation.Ansible.TargetingTest do
       assert {:error, :binding_job_type_mismatch} =
                Targeting.validate_binding(reviewed_binding(), plan, :check)
     end
+  end
+
+  test "snapshot_digest/1 is stable across map key order" do
+    first = %{targets: [%{host: 7, device: "sr:a"}], actor: %{id: "user-1"}}
+    second = %{"actor" => %{"id" => "user-1"}, "targets" => [%{"device" => "sr:a", "host" => 7}]}
+
+    assert Targeting.snapshot_digest(first) == Targeting.snapshot_digest(second)
   end
 end

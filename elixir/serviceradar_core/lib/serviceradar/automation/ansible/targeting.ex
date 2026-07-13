@@ -125,7 +125,9 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
   def validate_binding(binding, plan, mode)
       when is_map(binding) and is_map(plan) and mode in [:run, :check] do
     scm_revision = value(binding, :scm_revision)
+    content_sha256 = value(binding, :content_sha256)
     credential_ids = value(binding, :credential_ids)
+    machine_credential_id = positive_integer(value(binding, :machine_credential_id))
     job_type = Atom.to_string(mode)
 
     cond do
@@ -147,6 +149,9 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
       not is_binary(scm_revision) or not Regex.match?(@scm_revision, scm_revision) ->
         {:error, :binding_scm_revision_not_immutable}
 
+      not is_binary(content_sha256) or not Regex.match?(@sha256_hex, content_sha256) ->
+        {:error, :binding_content_digest_required}
+
       is_nil(positive_integer(value(binding, :project_id))) ->
         {:error, :binding_project_required}
 
@@ -155,6 +160,9 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
 
       not positive_integer_list?(credential_ids) ->
         {:error, :binding_credentials_required}
+
+      is_nil(machine_credential_id) or machine_credential_id not in credential_ids ->
+        {:error, :binding_machine_credential_required}
 
       value(binding, :job_type) != job_type ->
         {:error, :binding_job_type_mismatch}
@@ -168,8 +176,10 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
            inventory_id: plan.inventory_id,
            project_id: positive_integer(value(binding, :project_id)),
            scm_revision: scm_revision,
+           content_sha256: content_sha256,
            execution_environment_id: positive_integer(value(binding, :execution_environment_id)),
            credential_ids: Enum.sort(credential_ids),
+           machine_credential_id: machine_credential_id,
            job_type: job_type,
            awx_created_by_id: positive_integer(value(binding, :awx_created_by_id)),
            inventory_group_names:
@@ -218,6 +228,16 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
         "\0"
       )
     end)
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  @doc "Returns a deterministic SHA-256 digest for a public/internal snapshot."
+  @spec snapshot_digest(map()) :: String.t()
+  def snapshot_digest(snapshot) when is_map(snapshot) do
+    snapshot
+    |> canonical_term()
+    |> :erlang.term_to_binary([:deterministic])
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
   end
@@ -413,6 +433,15 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
   end
 
   defp positive_integer_list?(_), do: false
+
+  defp canonical_term(value) when is_map(value) do
+    value
+    |> Enum.map(fn {key, item} -> {to_string(key), canonical_term(item)} end)
+    |> Enum.sort_by(&elem(&1, 0))
+  end
+
+  defp canonical_term(value) when is_list(value), do: Enum.map(value, &canonical_term/1)
+  defp canonical_term(value), do: value
 
   defp blank?(value), do: not is_binary(value) or String.trim(value) == ""
   defp empty_to_nil(""), do: nil
