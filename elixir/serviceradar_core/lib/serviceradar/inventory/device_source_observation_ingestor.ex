@@ -10,8 +10,6 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
   import Ecto.Query
 
   alias ServiceRadar.Inventory.DeviceIdentifier
-  alias ServiceRadar.Inventory.DeviceSourceObservation
-  alias ServiceRadar.Inventory.DeviceSourceSnapshot
   alias ServiceRadar.Repo
 
   require Logger
@@ -19,6 +17,9 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
   @max_devices 100_000
   @max_metadata_bytes 16 * 1024
   @lookup_chunk_size 5_000
+  @db_prefix "platform"
+  @observations_table "device_source_observations"
+  @snapshots_table "device_source_snapshots"
   @hash_pattern ~r/^[0-9a-f]{64}$/i
   @instance_pattern ~r/^[A-Za-z0-9._-]{1,128}$/
   @replace_observation_fields [
@@ -313,14 +314,23 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
 
   defp check_snapshot(snapshot) do
     current =
-      Repo.one(
-        from(source_snapshot in DeviceSourceSnapshot,
-          where:
-            source_snapshot.partition == ^snapshot.partition and
-              source_snapshot.source == ^snapshot.source and
-              source_snapshot.source_instance == ^snapshot.source_instance
-        )
+      from(source_snapshot in @snapshots_table,
+        where:
+          source_snapshot.partition == ^snapshot.partition and
+            source_snapshot.source == ^snapshot.source and
+            source_snapshot.source_instance == ^snapshot.source_instance,
+        select: %{
+          id: source_snapshot.id,
+          collection_id: source_snapshot.collection_id,
+          content_hash: source_snapshot.content_hash,
+          query_hash: source_snapshot.query_hash,
+          observed_at: source_snapshot.observed_at,
+          absent_count: source_snapshot.absent_count,
+          inserted_at: source_snapshot.inserted_at
+        }
       )
+      |> Repo.one(prefix: @db_prefix)
+      |> normalize_snapshot_row()
 
     case snapshot_disposition(current, snapshot) do
       :activate -> {:ok, :process}
@@ -335,15 +345,24 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
     _ = Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [lock_key])
 
     current =
-      Repo.one(
-        from(source_snapshot in DeviceSourceSnapshot,
-          where:
-            source_snapshot.partition == ^snapshot.partition and
-              source_snapshot.source == ^snapshot.source and
-              source_snapshot.source_instance == ^snapshot.source_instance,
-          lock: "FOR UPDATE"
-        )
+      from(source_snapshot in @snapshots_table,
+        where:
+          source_snapshot.partition == ^snapshot.partition and
+            source_snapshot.source == ^snapshot.source and
+            source_snapshot.source_instance == ^snapshot.source_instance,
+        select: %{
+          id: source_snapshot.id,
+          collection_id: source_snapshot.collection_id,
+          content_hash: source_snapshot.content_hash,
+          query_hash: source_snapshot.query_hash,
+          observed_at: source_snapshot.observed_at,
+          absent_count: source_snapshot.absent_count,
+          inserted_at: source_snapshot.inserted_at
+        },
+        lock: "FOR UPDATE"
       )
+      |> Repo.one(prefix: @db_prefix)
+      |> normalize_snapshot_row()
 
     case snapshot_disposition(current, snapshot) do
       :idempotent ->
@@ -353,13 +372,14 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
         records =
           Enum.map(observations, fn observation ->
             observation
-            |> Map.put(:id, Ecto.UUID.generate())
+            |> Map.put(:id, Ecto.UUID.bingenerate())
             |> Map.put(:inserted_at, now)
             |> Map.put(:updated_at, now)
           end)
 
         if records != [] do
-          Repo.insert_all(DeviceSourceObservation, records,
+          Repo.insert_all(@observations_table, records,
+            prefix: @db_prefix,
             on_conflict: {:replace, @replace_observation_fields},
             conflict_target: [:partition, :source, :source_instance, :source_object_id]
           )
@@ -367,7 +387,7 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
 
         {absent_count, _} =
           Repo.update_all(
-            from(observation in DeviceSourceObservation,
+            from(observation in @observations_table,
               where:
                 observation.partition == ^snapshot.partition and
                   observation.source == ^snapshot.source and
@@ -375,7 +395,8 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
                   observation.present == true and
                   observation.collection_id != ^snapshot.collection_id
             ),
-            set: [present: false, absent_since: snapshot.observed_at, updated_at: now]
+            [set: [present: false, absent_since: snapshot.observed_at, updated_at: now]],
+            prefix: @db_prefix
           )
 
         snapshot_record = %{
@@ -395,7 +416,8 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
           updated_at: now
         }
 
-        Repo.insert_all(DeviceSourceSnapshot, [snapshot_record],
+        Repo.insert_all(@snapshots_table, [snapshot_record],
+          prefix: @db_prefix,
           on_conflict: {:replace, @replace_snapshot_fields},
           conflict_target: [:partition, :source, :source_instance]
         )
@@ -427,10 +449,23 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
     end
   end
 
-  defp current_id(nil), do: Ecto.UUID.generate()
+  defp current_id(nil), do: Ecto.UUID.bingenerate()
   defp current_id(current), do: current.id
   defp current_inserted_at(nil, now), do: now
   defp current_inserted_at(current, _now), do: current.inserted_at
+
+  defp normalize_snapshot_row(nil), do: nil
+
+  defp normalize_snapshot_row(row) do
+    row
+    |> Map.update!(:observed_at, &as_utc_datetime/1)
+    |> Map.update!(:inserted_at, &as_utc_datetime/1)
+  end
+
+  defp as_utc_datetime(nil), do: nil
+  defp as_utc_datetime(%DateTime{} = value), do: value
+
+  defp as_utc_datetime(%NaiveDateTime{} = value), do: DateTime.from_naive!(value, "Etc/UTC")
 
   defp normalize_activation_result(:ok), do: :ok
   defp normalize_activation_result({:ok, _result}), do: :ok

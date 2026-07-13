@@ -7,6 +7,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   import Ecto.Query
 
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.Sync.DeviceRecords
   alias ServiceRadar.Inventory.Sync.SourcePolicy
@@ -16,6 +17,14 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   @inventory_rollup_refresh_lock_key 20_240_306
   @default_inventory_rollup_bulk_refresh_threshold 100
+  @identity_anchor_types [
+    :agent_id,
+    :armis_device_id,
+    :integration_id,
+    :netbox_device_id,
+    :hardware_serial,
+    :mac
+  ]
 
   # DB connection's search_path determines the schema
   def bulk_upsert_devices(records, strong_uids \\ MapSet.new()) do
@@ -111,12 +120,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         query =
           from(d in Device,
             where: d.ip in ^ips and is_nil(d.deleted_at),
-            select: {d.ip, d.uid}
+            select: {d.ip, %{uid: d.uid, metadata: d.metadata}}
           )
 
         query |> Repo.all() |> Map.new()
       end
 
+    anchored_uids = anchored_device_uids(existing_by_ip)
     incoming_ip_owners = incoming_ip_owners(records)
 
     {remapped_records, {remap, conflicts}} =
@@ -127,25 +137,27 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           nil ->
             drop_batch_conflicting_ip(record, incoming_ip_owners, strong_uids, remap, conflicts)
 
-          existing_uid when existing_uid == record.uid ->
+          %{uid: existing_uid} when existing_uid == record.uid ->
             {record, {remap, conflicts}}
 
-          existing_uid ->
+          %{uid: existing_uid} = existing ->
             if MapSet.member?(strong_uids, record.uid) do
-              # The record's identity comes from strong identifiers — it must
-              # NOT be remapped onto whichever device happens to hold the IP
-              # (that adoption collapsed distinct integration devices and stole
-              # agent identities). Drop the conflicting IP instead; alias
-              # processing records the sighting and reconciliation converges
-              # the devices when real evidence supports it.
-              Logger.info(
-                "SyncIngestor: dropping conflicting IP #{ip} from strong-identified " <>
-                  "device #{record.uid} (held by #{existing_uid})"
-              )
+              if provisional_ip_seed?(existing, anchored_uids) do
+                {Map.put(record, :uid, existing_uid),
+                 {Map.put(remap, record.uid, existing_uid), conflicts}}
+              else
+                # Strong identities never adopt an arbitrary IP owner. A
+                # truly provisional seed is the sole exception and is safe
+                # only while it has no registered identity anchor.
+                Logger.info(
+                  "SyncIngestor: dropping conflicting IP #{ip} from strong-identified " <>
+                    "device #{record.uid} (held by #{existing_uid})"
+                )
 
-              conflict = SourceIdentityDrift.build_active_ip_conflict(record, existing_uid, ip)
+                conflict = SourceIdentityDrift.build_active_ip_conflict(record, existing_uid, ip)
 
-              {Map.put(record, :ip, nil), {remap, prepend_conflict(conflicts, conflict)}}
+                {Map.put(record, :ip, nil), {remap, prepend_conflict(conflicts, conflict)}}
+              end
             else
               {Map.put(record, :uid, existing_uid),
                {Map.put(remap, record.uid, existing_uid), conflicts}}
@@ -157,6 +169,26 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     _ = SourceIdentityDrift.record_conflicts(Enum.reverse(conflicts))
 
     {remapped_records, remap}
+  end
+
+  defp anchored_device_uids(existing_by_ip) do
+    uids = existing_by_ip |> Map.values() |> Enum.map(& &1.uid) |> Enum.uniq()
+
+    if uids == [] do
+      MapSet.new()
+    else
+      DeviceIdentifier
+      |> where([identifier], identifier.device_id in ^uids)
+      |> where([identifier], identifier.identifier_type in ^@identity_anchor_types)
+      |> select([identifier], identifier.device_id)
+      |> Repo.all()
+      |> MapSet.new()
+    end
+  end
+
+  defp provisional_ip_seed?(%{uid: uid, metadata: metadata}, anchored_uids) do
+    is_map(metadata) and metadata["identity_state"] == "provisional" and
+      not MapSet.member?(anchored_uids, uid)
   end
 
   # A failed INSERT can be caused by two previously-unseen records in the same

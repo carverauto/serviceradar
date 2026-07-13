@@ -10,14 +10,15 @@ defmodule ServiceRadar.Inventory.SourceInventoryReader do
   import Ecto.Query
 
   alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.Inventory.DeviceSourceObservation
-  alias ServiceRadar.Inventory.DeviceSourceSnapshot
   alias ServiceRadar.Repo
 
   require Logger
 
   @api_version "v1"
   @schema_version "serviceradar.source_inventory.v1"
+  @db_prefix "platform"
+  @observations_table "device_source_observations"
+  @snapshots_table "device_source_snapshots"
   @default_limit 100
   @max_limit 500
   @max_cursor_bytes 1_024
@@ -94,7 +95,8 @@ defmodule ServiceRadar.Inventory.SourceInventoryReader do
          {:ok, presence} <- parse_presence(cursor["presence"]),
          {:ok, collection} <- parse_required_identifier(cursor["collection"], @opaque_id_pattern),
          {:ok, observed_at, 0} <- DateTime.from_iso8601(cursor["last_observed_at"]),
-         {:ok, id} <- Ecto.UUID.cast(cursor["id"]) do
+         {:ok, id} <- Ecto.UUID.cast(cursor["id"]),
+         {:ok, binary_id} <- Ecto.UUID.dump(id) do
       {:ok,
        %{
          source: source,
@@ -103,7 +105,7 @@ defmodule ServiceRadar.Inventory.SourceInventoryReader do
          presence: presence,
          collection: collection,
          last_observed_at: DateTime.truncate(observed_at, :microsecond),
-         id: id
+         id: binary_id
        }}
     else
       _ -> {:error, {:invalid_query, :invalid_cursor}}
@@ -127,22 +129,22 @@ defmodule ServiceRadar.Inventory.SourceInventoryReader do
   end
 
   defp current_snapshot(opts) do
-    Repo.one(
-      from(snapshot in DeviceSourceSnapshot,
-        where:
-          snapshot.partition == ^opts.partition and snapshot.source == ^opts.source and
-            snapshot.source_instance == ^opts.instance,
-        select: %{
-          collection_id: snapshot.collection_id,
-          content_hash: snapshot.content_hash,
-          query_hash: snapshot.query_hash,
-          observed_at: snapshot.observed_at,
-          activated_at: snapshot.activated_at,
-          device_count: snapshot.device_count,
-          absent_count: snapshot.absent_count
-        }
-      )
+    from(snapshot in @snapshots_table,
+      where:
+        snapshot.partition == ^opts.partition and snapshot.source == ^opts.source and
+          snapshot.source_instance == ^opts.instance,
+      select: %{
+        collection_id: snapshot.collection_id,
+        content_hash: snapshot.content_hash,
+        query_hash: snapshot.query_hash,
+        observed_at: snapshot.observed_at,
+        activated_at: snapshot.activated_at,
+        device_count: snapshot.device_count,
+        absent_count: snapshot.absent_count
+      }
     )
+    |> Repo.one(prefix: @db_prefix)
+    |> normalize_snapshot_row()
   end
 
   defp ensure_current_collection(opts, snapshot) do
@@ -162,12 +164,13 @@ defmodule ServiceRadar.Inventory.SourceInventoryReader do
   end
 
   defp observation_page(opts, current_collection) do
-    DeviceSourceObservation
+    @observations_table
     |> base_observation_query(opts)
     |> filter_presence(opts.presence, current_collection)
     |> filter_cursor(opts.cursor)
     |> limit(^(opts.limit + 1))
-    |> Repo.all()
+    |> Repo.all(prefix: @db_prefix)
+    |> Enum.map(&normalize_observation_row/1)
   end
 
   defp base_observation_query(queryable, opts) do
@@ -308,7 +311,7 @@ defmodule ServiceRadar.Inventory.SourceInventoryReader do
       "presence" => opts.presence,
       "collection" => collection,
       "last_observed_at" => iso8601(row.last_observed_at),
-      "id" => row.cursor_id
+      "id" => Ecto.UUID.load!(row.cursor_id)
     }
     |> Jason.encode!()
     |> Base.url_encode64(padding: false)
@@ -393,6 +396,25 @@ defmodule ServiceRadar.Inventory.SourceInventoryReader do
 
   defp cursor_collection(nil), do: nil
   defp cursor_collection(cursor), do: cursor.collection
+
+  defp normalize_snapshot_row(nil), do: nil
+
+  defp normalize_snapshot_row(row) do
+    row
+    |> Map.update!(:observed_at, &as_utc_datetime/1)
+    |> Map.update!(:activated_at, &as_utc_datetime/1)
+  end
+
+  defp normalize_observation_row(row) do
+    Enum.reduce([:first_observed_at, :last_observed_at, :absent_since], row, fn key, acc ->
+      Map.update!(acc, key, &as_utc_datetime/1)
+    end)
+  end
+
+  defp as_utc_datetime(nil), do: nil
+  defp as_utc_datetime(%DateTime{} = value), do: value
+
+  defp as_utc_datetime(%NaiveDateTime{} = value), do: DateTime.from_naive!(value, "Etc/UTC")
 
   defp iso8601(nil), do: nil
   defp iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
