@@ -197,6 +197,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		interval = defaultPushInterval
 	}
 	configurePluginCredentialBroker(server, gateway)
+	configureAutomationLaunchEnvelopeResolver(server, gateway)
 	configurePluginArtifactUploader(server)
 	debounce, heartbeat := clampStatusIntervals(interval, defaultStatusHeartbeatInterval, interval)
 	cameraRelayManager := newCameraRelayManager(gateway, log)
@@ -264,6 +265,21 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 	}
 
 	return pushLoop
+}
+
+func configureAutomationLaunchEnvelopeResolver(server *Server, gateway *agentgateway.GatewayClient) {
+	if server == nil || gateway == nil {
+		return
+	}
+
+	resolver := newControlPlaneAutomationLaunchEnvelopeResolver(gateway, serverAgentID(server))
+	if resolver == nil {
+		return
+	}
+
+	server.mu.Lock()
+	server.launchEnvelopes = resolver
+	server.mu.Unlock()
 }
 
 func configurePluginArtifactUploader(server *Server) {

@@ -12,7 +12,10 @@ filegroup(
 
 filegroup(
     name = "monitoring_proto_src",
-    srcs = ["monitoring.proto"],
+    srcs = [
+        "automation_launch_envelope.proto",
+        "monitoring.proto",
+    ],
     visibility = ["//visibility:public"],
 )
 
@@ -43,6 +46,7 @@ filegroup(
 go_library(
     name = "proto",
     srcs = [
+        "automation_launch_envelope.pb.go",
         "core_service.pb.go",
         "core_service_grpc.pb.go",
         "camera_media.pb.go",

@@ -506,6 +506,9 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 		proto/core_service.proto
 	@protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
+		proto/automation_launch_envelope.proto
+	@protoc -I=proto -I=. \
+		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/monitoring.proto
 	@protoc -I=proto -I=. \
@@ -570,6 +573,7 @@ generate-proto-elixir: install-protoc-gen-elixir ## Generate Elixir code from pr
 	@PATH="$(dir $(PROTOC_GEN_ELIXIR)):$$PATH" protoc -I=proto -I=. \
 		--elixir_out=plugins=grpc:$(ELIXIR_PROTO_OUT) \
 		proto/flow/flow.proto \
+		proto/automation_launch_envelope.proto \
 		proto/core_service.proto \
 		proto/kv.proto \
 		proto/monitoring.proto \

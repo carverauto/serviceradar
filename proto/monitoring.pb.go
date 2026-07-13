@@ -7670,7 +7670,7 @@ var File_monitoring_proto protoreflect.FileDescriptor
 const file_monitoring_proto_rawDesc = "" +
 	"\n" +
 	"\x10monitoring.proto\x12\n" +
-	"monitoring\"0\n" +
+	"monitoring\x1a automation_launch_envelope.proto\"0\n" +
 	"\x13DeviceStatusRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\"\xbd\x01\n" +
 	"\rStatusRequest\x12!\n" +
@@ -8499,7 +8499,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\tGetStatus\x12\x19.monitoring.StatusRequest\x1a\x1a.monitoring.StatusResponse\"\x00\x12G\n" +
 	"\n" +
 	"GetResults\x12\x1a.monitoring.ResultsRequest\x1a\x1b.monitoring.ResultsResponse\"\x00\x12I\n" +
-	"\rStreamResults\x12\x1a.monitoring.ResultsRequest\x1a\x18.monitoring.ResultsChunk\"\x000\x012\xfe\x04\n" +
+	"\rStreamResults\x12\x1a.monitoring.ResultsRequest\x1a\x18.monitoring.ResultsChunk\"\x000\x012\x8d\x06\n" +
 	"\x13AgentGatewayService\x12H\n" +
 	"\x05Hello\x12\x1d.monitoring.AgentHelloRequest\x1a\x1e.monitoring.AgentHelloResponse\"\x00\x12N\n" +
 	"\tGetConfig\x12\x1e.monitoring.AgentConfigRequest\x1a\x1f.monitoring.AgentConfigResponse\"\x00\x12P\n" +
@@ -8508,7 +8508,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"PushStatus\x12 .monitoring.GatewayStatusRequest\x1a!.monitoring.GatewayStatusResponse\"\x00\x12U\n" +
 	"\fStreamStatus\x12\x1e.monitoring.GatewayStatusChunk\x1a!.monitoring.GatewayStatusResponse\"\x00(\x01\x12Z\n" +
 	"\rControlStream\x12 .monitoring.ControlStreamRequest\x1a!.monitoring.ControlStreamResponse\"\x00(\x010\x01\x12s\n" +
-	"\x16ResolveCredentialGrant\x12*.monitoring.CredentialBrokerResolveRequest\x1a+.monitoring.CredentialBrokerResolveResponse\"\x00B*Z(github.com/carverauto/serviceradar/protob\x06proto3"
+	"\x16ResolveCredentialGrant\x12*.monitoring.CredentialBrokerResolveRequest\x1a+.monitoring.CredentialBrokerResolveResponse\"\x00\x12\x8c\x01\n" +
+	"\x1fResolveAutomationLaunchEnvelope\x122.monitoring.AutomationLaunchEnvelopeResolveRequest\x1a3.monitoring.AutomationLaunchEnvelopeResolveResponse\"\x00B*Z(github.com/carverauto/serviceradar/protob\x06proto3"
 
 var (
 	file_monitoring_proto_rawDescOnce sync.Once
@@ -8612,6 +8613,8 @@ var file_monitoring_proto_goTypes = []any{
 	nil,                                                  // 84: monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntry
 	nil,                                                  // 85: monitoring.SysmonConfig.ThresholdsEntry
 	nil,                                                  // 86: monitoring.AgentCheckConfig.SettingsEntry
+	(*AutomationLaunchEnvelopeResolveRequest)(nil),       // 87: monitoring.AutomationLaunchEnvelopeResolveRequest
+	(*AutomationLaunchEnvelopeResolveResponse)(nil),      // 88: monitoring.AutomationLaunchEnvelopeResolveResponse
 }
 var file_monitoring_proto_depIdxs = []int32{
 	15, // 0: monitoring.ResultsRequest.completion_status:type_name -> monitoring.SweepCompletionStatus
@@ -8699,18 +8702,20 @@ var file_monitoring_proto_depIdxs = []int32{
 	20, // 82: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
 	37, // 83: monitoring.AgentGatewayService.ControlStream:input_type -> monitoring.ControlStreamRequest
 	39, // 84: monitoring.AgentGatewayService.ResolveCredentialGrant:input_type -> monitoring.CredentialBrokerResolveRequest
-	9,  // 85: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
-	11, // 86: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
-	14, // 87: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
-	23, // 88: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
-	25, // 89: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
-	28, // 90: monitoring.AgentGatewayService.StreamConfig:output_type -> monitoring.AgentConfigChunk
-	18, // 91: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
-	18, // 92: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
-	38, // 93: monitoring.AgentGatewayService.ControlStream:output_type -> monitoring.ControlStreamResponse
-	40, // 94: monitoring.AgentGatewayService.ResolveCredentialGrant:output_type -> monitoring.CredentialBrokerResolveResponse
-	85, // [85:95] is the sub-list for method output_type
-	75, // [75:85] is the sub-list for method input_type
+	87, // 85: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:input_type -> monitoring.AutomationLaunchEnvelopeResolveRequest
+	9,  // 86: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
+	11, // 87: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
+	14, // 88: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
+	23, // 89: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
+	25, // 90: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
+	28, // 91: monitoring.AgentGatewayService.StreamConfig:output_type -> monitoring.AgentConfigChunk
+	18, // 92: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
+	18, // 93: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
+	38, // 94: monitoring.AgentGatewayService.ControlStream:output_type -> monitoring.ControlStreamResponse
+	40, // 95: monitoring.AgentGatewayService.ResolveCredentialGrant:output_type -> monitoring.CredentialBrokerResolveResponse
+	88, // 96: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:output_type -> monitoring.AutomationLaunchEnvelopeResolveResponse
+	86, // [86:97] is the sub-list for method output_type
+	75, // [75:86] is the sub-list for method input_type
 	75, // [75:75] is the sub-list for extension type_name
 	75, // [75:75] is the sub-list for extension extendee
 	0,  // [0:75] is the sub-list for field type_name
@@ -8721,6 +8726,7 @@ func file_monitoring_proto_init() {
 	if File_monitoring_proto != nil {
 		return
 	}
+	file_automation_launch_envelope_proto_init()
 	file_monitoring_proto_msgTypes[31].OneofWrappers = []any{
 		(*ControlStreamRequest_Hello)(nil),
 		(*ControlStreamRequest_CommandAck)(nil),

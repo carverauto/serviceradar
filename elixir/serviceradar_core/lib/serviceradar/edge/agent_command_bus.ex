@@ -5,6 +5,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
+  alias ServiceRadar.Automation.LaunchEnvelopes.CommandPayload
   alias ServiceRadar.Camera.RelaySourceResolver
   alias ServiceRadar.ControlRepo
   alias ServiceRadar.Credentials.CredentialRedactor
@@ -37,6 +38,20 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   @endpoint_inventory_force_fresh_rate_window_seconds 300
 
   def dispatch(agent_id, command_type, payload, opts \\ []) do
+    payload_map = normalize_payload(payload)
+
+    with {:ok, command_id} <-
+           canonical_optional_command_id(
+             command_type,
+             Keyword.get(opts, :command_id),
+             payload_map
+           ),
+         :ok <- validate_preallocated_transmit_payload(command_type, payload_map, opts) do
+      do_dispatch(agent_id, command_type, payload, opts, command_id)
+    end
+  end
+
+  defp do_dispatch(agent_id, command_type, payload, opts, command_id) do
     ttl_seconds = Keyword.get(opts, :ttl_seconds, @default_ttl_seconds)
     created_at = System.system_time(:second)
     required_partition = Keyword.get(opts, :required_partition)
@@ -48,15 +63,20 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     transmit_payload = Keyword.get(opts, :transmit_payload, payload)
     payload_map = normalize_payload(payload)
 
-    command_attrs = %{
-      command_type: command_type,
-      agent_id: agent_id,
-      partition_id: partition_id,
-      payload: payload_map,
-      context: context,
-      ttl_seconds: ttl_seconds,
-      requested_by: requested_by_id(Keyword.get(opts, :actor))
-    }
+    command_attrs =
+      maybe_put(
+        %{
+          command_type: command_type,
+          agent_id: agent_id,
+          partition_id: partition_id,
+          payload: payload_map,
+          context: context,
+          ttl_seconds: ttl_seconds,
+          requested_by: requested_by_id(Keyword.get(opts, :actor))
+        },
+        :command_id,
+        command_id
+      )
 
     ash_opts = [actor: SystemActor.system(:agent_command_bus)]
 
@@ -1526,7 +1546,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp create_command(attrs, ash_opts) do
     if control_repo_available?() do
-      command_id = Ecto.UUID.generate()
+      command_id = Map.get(attrs, :command_id) || Ecto.UUID.generate()
       ttl_seconds = Map.get(attrs, :ttl_seconds) || 60
 
       expires_at =
@@ -1589,9 +1609,57 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
           {:error, reason}
       end
     else
-      AgentCommand.create_command(attrs, ash_opts)
+      case Map.get(attrs, :command_id) do
+        nil ->
+          AgentCommand.create_command(attrs, ash_opts)
+
+        command_id ->
+          AgentCommand
+          |> Ash.Changeset.for_create(:create_with_id, Map.put(attrs, :command_id, command_id))
+          |> Ash.create(ash_opts)
+      end
     end
   end
+
+  defp canonical_optional_command_id("awx.create_callback_credential", nil, _payload),
+    do: {:error, :preallocated_command_id_required}
+
+  defp canonical_optional_command_id(_command_type, nil, _payload), do: {:ok, nil}
+
+  defp canonical_optional_command_id("awx.create_callback_credential", value, payload)
+       when is_binary(value) do
+    with {:ok, command_id} <- canonical_command_id(value),
+         {:ok, _reference} <- CommandPayload.parse(payload) do
+      {:ok, command_id}
+    end
+  end
+
+  defp canonical_optional_command_id("awx.create_callback_credential", _value, _payload),
+    do: {:error, :invalid_command_id}
+
+  defp canonical_optional_command_id(_command_type, _value, _payload),
+    do: {:error, :preallocated_command_id_not_allowed}
+
+  defp canonical_command_id(value) do
+    case Ecto.UUID.cast(String.trim(value)) do
+      {:ok, command_id} -> {:ok, command_id}
+      :error -> {:error, :invalid_command_id}
+    end
+  end
+
+  defp validate_preallocated_transmit_payload("awx.create_callback_credential", payload, opts) do
+    case Keyword.fetch(opts, :transmit_payload) do
+      :error ->
+        :ok
+
+      {:ok, transmit_payload} ->
+        if normalize_payload(transmit_payload) == payload,
+          do: :ok,
+          else: {:error, :callback_credential_payload_override_forbidden}
+    end
+  end
+
+  defp validate_preallocated_transmit_payload(_command_type, _payload, _opts), do: :ok
 
   defp mark_sent(command, attrs, _ash_opts) do
     update_command_status(

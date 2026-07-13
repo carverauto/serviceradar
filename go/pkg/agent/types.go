@@ -55,6 +55,7 @@ type Server struct {
 	mapperService      *MapperService
 	pluginManager      *PluginManager
 	credentialBroker   CredentialBrokerResolver
+	launchEnvelopes    *controlPlaneAutomationLaunchEnvelopeResolver
 	artifactUploader   PluginArtifactUploader
 	sidecarStatus      sidecarStatusProvider
 	sidecarManager     sidecarLifecycleManager

@@ -216,13 +216,14 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	AgentGatewayService_Hello_FullMethodName                  = "/monitoring.AgentGatewayService/Hello"
-	AgentGatewayService_GetConfig_FullMethodName              = "/monitoring.AgentGatewayService/GetConfig"
-	AgentGatewayService_StreamConfig_FullMethodName           = "/monitoring.AgentGatewayService/StreamConfig"
-	AgentGatewayService_PushStatus_FullMethodName             = "/monitoring.AgentGatewayService/PushStatus"
-	AgentGatewayService_StreamStatus_FullMethodName           = "/monitoring.AgentGatewayService/StreamStatus"
-	AgentGatewayService_ControlStream_FullMethodName          = "/monitoring.AgentGatewayService/ControlStream"
-	AgentGatewayService_ResolveCredentialGrant_FullMethodName = "/monitoring.AgentGatewayService/ResolveCredentialGrant"
+	AgentGatewayService_Hello_FullMethodName                           = "/monitoring.AgentGatewayService/Hello"
+	AgentGatewayService_GetConfig_FullMethodName                       = "/monitoring.AgentGatewayService/GetConfig"
+	AgentGatewayService_StreamConfig_FullMethodName                    = "/monitoring.AgentGatewayService/StreamConfig"
+	AgentGatewayService_PushStatus_FullMethodName                      = "/monitoring.AgentGatewayService/PushStatus"
+	AgentGatewayService_StreamStatus_FullMethodName                    = "/monitoring.AgentGatewayService/StreamStatus"
+	AgentGatewayService_ControlStream_FullMethodName                   = "/monitoring.AgentGatewayService/ControlStream"
+	AgentGatewayService_ResolveCredentialGrant_FullMethodName          = "/monitoring.AgentGatewayService/ResolveCredentialGrant"
+	AgentGatewayService_ResolveAutomationLaunchEnvelope_FullMethodName = "/monitoring.AgentGatewayService/ResolveAutomationLaunchEnvelope"
 )
 
 // AgentGatewayServiceClient is the client API for AgentGatewayService service.
@@ -248,6 +249,10 @@ type AgentGatewayServiceClient interface {
 	ControlStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ControlStreamRequest, ControlStreamResponse], error)
 	// ResolveCredentialGrant resolves a scoped broker grant for agent-owned execution.
 	ResolveCredentialGrant(ctx context.Context, in *CredentialBrokerResolveRequest, opts ...grpc.CallOption) (*CredentialBrokerResolveResponse, error)
+	// ResolveAutomationLaunchEnvelope releases one callback bearer to the exact
+	// mTLS-authenticated agent and command. It is intentionally separate from
+	// the reusable credential-broker contract.
+	ResolveAutomationLaunchEnvelope(ctx context.Context, in *AutomationLaunchEnvelopeResolveRequest, opts ...grpc.CallOption) (*AutomationLaunchEnvelopeResolveResponse, error)
 }
 
 type agentGatewayServiceClient struct {
@@ -343,6 +348,16 @@ func (c *agentGatewayServiceClient) ResolveCredentialGrant(ctx context.Context, 
 	return out, nil
 }
 
+func (c *agentGatewayServiceClient) ResolveAutomationLaunchEnvelope(ctx context.Context, in *AutomationLaunchEnvelopeResolveRequest, opts ...grpc.CallOption) (*AutomationLaunchEnvelopeResolveResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AutomationLaunchEnvelopeResolveResponse)
+	err := c.cc.Invoke(ctx, AgentGatewayService_ResolveAutomationLaunchEnvelope_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentGatewayServiceServer is the server API for AgentGatewayService service.
 // All implementations must embed UnimplementedAgentGatewayServiceServer
 // for forward compatibility.
@@ -366,6 +381,10 @@ type AgentGatewayServiceServer interface {
 	ControlStream(grpc.BidiStreamingServer[ControlStreamRequest, ControlStreamResponse]) error
 	// ResolveCredentialGrant resolves a scoped broker grant for agent-owned execution.
 	ResolveCredentialGrant(context.Context, *CredentialBrokerResolveRequest) (*CredentialBrokerResolveResponse, error)
+	// ResolveAutomationLaunchEnvelope releases one callback bearer to the exact
+	// mTLS-authenticated agent and command. It is intentionally separate from
+	// the reusable credential-broker contract.
+	ResolveAutomationLaunchEnvelope(context.Context, *AutomationLaunchEnvelopeResolveRequest) (*AutomationLaunchEnvelopeResolveResponse, error)
 	mustEmbedUnimplementedAgentGatewayServiceServer()
 }
 
@@ -396,6 +415,9 @@ func (UnimplementedAgentGatewayServiceServer) ControlStream(grpc.BidiStreamingSe
 }
 func (UnimplementedAgentGatewayServiceServer) ResolveCredentialGrant(context.Context, *CredentialBrokerResolveRequest) (*CredentialBrokerResolveResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResolveCredentialGrant not implemented")
+}
+func (UnimplementedAgentGatewayServiceServer) ResolveAutomationLaunchEnvelope(context.Context, *AutomationLaunchEnvelopeResolveRequest) (*AutomationLaunchEnvelopeResolveResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResolveAutomationLaunchEnvelope not implemented")
 }
 func (UnimplementedAgentGatewayServiceServer) mustEmbedUnimplementedAgentGatewayServiceServer() {}
 func (UnimplementedAgentGatewayServiceServer) testEmbeddedByValue()                             {}
@@ -515,6 +537,24 @@ func _AgentGatewayService_ResolveCredentialGrant_Handler(srv interface{}, ctx co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentGatewayService_ResolveAutomationLaunchEnvelope_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AutomationLaunchEnvelopeResolveRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentGatewayServiceServer).ResolveAutomationLaunchEnvelope(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentGatewayService_ResolveAutomationLaunchEnvelope_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentGatewayServiceServer).ResolveAutomationLaunchEnvelope(ctx, req.(*AutomationLaunchEnvelopeResolveRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentGatewayService_ServiceDesc is the grpc.ServiceDesc for AgentGatewayService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -537,6 +577,10 @@ var AgentGatewayService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResolveCredentialGrant",
 			Handler:    _AgentGatewayService_ResolveCredentialGrant_Handler,
+		},
+		{
+			MethodName: "ResolveAutomationLaunchEnvelope",
+			Handler:    _AgentGatewayService_ResolveAutomationLaunchEnvelope_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

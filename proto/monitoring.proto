@@ -20,6 +20,8 @@ package monitoring;
 
 option go_package = "github.com/carverauto/serviceradar/proto";
 
+import "automation_launch_envelope.proto";
+
 service AgentService {
   rpc GetStatus(StatusRequest) returns (StatusResponse) {}
   rpc GetResults(ResultsRequest) returns (ResultsResponse) {}
@@ -45,6 +47,10 @@ service AgentGatewayService {
   rpc ControlStream(stream ControlStreamRequest) returns (stream ControlStreamResponse) {}
   // ResolveCredentialGrant resolves a scoped broker grant for agent-owned execution.
   rpc ResolveCredentialGrant(CredentialBrokerResolveRequest) returns (CredentialBrokerResolveResponse) {}
+  // ResolveAutomationLaunchEnvelope releases one callback bearer to the exact
+  // mTLS-authenticated agent and command. It is intentionally separate from
+  // the reusable credential-broker contract.
+  rpc ResolveAutomationLaunchEnvelope(AutomationLaunchEnvelopeResolveRequest) returns (AutomationLaunchEnvelopeResolveResponse) {}
 }
 
 message DeviceStatusRequest {

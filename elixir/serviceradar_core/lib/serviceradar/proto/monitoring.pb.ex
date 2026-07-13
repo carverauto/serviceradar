@@ -1663,6 +1663,12 @@ defmodule Monitoring.AgentGatewayService.Service do
     Monitoring.CredentialBrokerResolveRequest,
     Monitoring.CredentialBrokerResolveResponse
   )
+
+  rpc(
+    :ResolveAutomationLaunchEnvelope,
+    Monitoring.AutomationLaunchEnvelopeResolveRequest,
+    Monitoring.AutomationLaunchEnvelopeResolveResponse
+  )
 end
 
 defmodule Monitoring.AgentGatewayService.Stub do

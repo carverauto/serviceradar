@@ -13,6 +13,7 @@ defmodule ServiceRadar.Automation.Callbacks do
     resource ServiceRadar.Automation.Callbacks.Grant
     resource ServiceRadar.Automation.Callbacks.Use
     resource ServiceRadar.Automation.Callbacks.AuditEvent
+    resource ServiceRadar.Automation.Callbacks.LaunchEnvelope
   end
 
   authorization do

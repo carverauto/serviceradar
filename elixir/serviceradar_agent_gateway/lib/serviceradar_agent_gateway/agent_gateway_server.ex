@@ -247,6 +247,74 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   @doc """
+  Resolve a single-use automation launch envelope for an authenticated agent.
+
+  The mTLS certificate, not the request body, establishes the agent identity.
+  Only the opaque reference and command correlation cross this RPC boundary.
+  """
+  @spec resolve_automation_launch_envelope(
+          Monitoring.AutomationLaunchEnvelopeResolveRequest.t(),
+          GRPC.Server.Stream.t()
+        ) :: Monitoring.AutomationLaunchEnvelopeResolveResponse.t()
+  def resolve_automation_launch_envelope(request, stream) do
+    identity = extract_identity_from_stream(stream)
+    agent_id = identity |> Map.fetch!(:component_id) |> required_agent_id()
+    {identity, _component_type} = resolve_component_type!(identity, agent_id)
+    enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+
+    enforce_component_identity!(
+      identity,
+      required_agent_id(request.agent_id),
+      @agent_gateway_component_types
+    )
+
+    request_map = %{
+      agent_id: agent_id,
+      envelope_ref: request.envelope_ref,
+      command_id: request.command_id
+    }
+
+    AgentGatewaySync
+    |> core_call(:resolve_automation_launch_envelope, [request_map], 15_000)
+    |> automation_launch_envelope_response(agent_id, request.command_id)
+  end
+
+  @doc false
+  def automation_launch_envelope_response(core_result, agent_id, command_id) do
+    case core_result do
+      {:ok, {:ok, material}} ->
+        %Monitoring.AutomationLaunchEnvelopeResolveResponse{
+          success: true,
+          message: "automation launch envelope resolved",
+          bearer: Map.get(material, :bearer, <<>>),
+          idempotency_key: Map.get(material, :idempotency_key, <<>>),
+          callback_grant_id: Map.get(material, :callback_grant_id, ""),
+          expires_at_unix: expires_at_unix(Map.get(material, :expires_at))
+        }
+
+      {:ok, {:error, reason}} ->
+        automation_launch_envelope_denied_response(agent_id, command_id, reason)
+
+      {:error, reason} ->
+        automation_launch_envelope_denied_response(agent_id, command_id, reason)
+    end
+  end
+
+  defp automation_launch_envelope_denied_response(agent_id, command_id, reason) do
+    Logger.warning(
+      "Automation launch envelope resolution denied: agent_id=#{agent_id}, command_id=#{command_id}, reason=#{inspect(reason)}"
+    )
+
+    %Monitoring.AutomationLaunchEnvelopeResolveResponse{
+      success: false,
+      message: "automation launch envelope resolution denied"
+    }
+  end
+
+  defp expires_at_unix(%DateTime{} = expires_at), do: DateTime.to_unix(expires_at, :second)
+  defp expires_at_unix(_expires_at), do: 0
+
+  @doc """
   Stream an agent config response in bounded chunks.
 
   The payload chunks contain the protobuf-encoded AgentConfigResponse that unary

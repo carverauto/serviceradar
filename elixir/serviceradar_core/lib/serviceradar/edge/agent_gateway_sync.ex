@@ -12,6 +12,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias Ash.Error.Invalid
   alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Automation.LaunchEnvelopes
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Edge.AgentArtifactDelivery
@@ -215,6 +216,22 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   def resolve_credential_broker_grant(_request), do: {:error, :invalid_credential_broker_request}
+
+  @spec resolve_automation_launch_envelope(map()) :: {:ok, map()} | {:error, term()}
+  def resolve_automation_launch_envelope(%{} = request) do
+    reference = string_value(map_value(request, :envelope_ref))
+    command_id = string_value(map_value(request, :command_id))
+    agent_id = string_value(map_value(request, :agent_id))
+
+    with :ok <- present_required(reference, :envelope_ref),
+         :ok <- present_required(command_id, :command_id),
+         :ok <- present_required(agent_id, :agent_id) do
+      LaunchEnvelopes.resolve(reference, %{agent_id: agent_id, command_id: command_id})
+    end
+  end
+
+  def resolve_automation_launch_envelope(_request),
+    do: {:error, :invalid_automation_launch_envelope_request}
 
   @doc """
   Ensure a device record exists for the agent's host.

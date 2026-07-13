@@ -10,6 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "../../proto/monitoring.proto"
     };
     let proto_dir = Path::new(proto_path).parent().unwrap();
+    let automation_launch_envelope_proto = proto_dir.join("automation_launch_envelope.proto");
 
     tonic_build::configure()
         .build_server(true)
@@ -18,6 +19,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute(".", "#[allow(clippy::large_enum_variant)]")
         .compile_protos(&[proto_path], &[proto_dir])?;
     println!("cargo:rerun-if-changed={proto_path}");
+    println!(
+        "cargo:rerun-if-changed={}",
+        automation_launch_envelope_proto.display()
+    );
 
     // Compile KV proto for client usage
     let kv_proto_path = if Path::new("proto/kv.proto").exists() {
