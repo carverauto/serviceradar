@@ -26,7 +26,8 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycle do
           required(:execution) => map() | struct(),
           required(:target) => map() | struct(),
           required(:action) => String.t(),
-          required(:policy_digest) => String.t()
+          required(:policy_digest) => String.t(),
+          required(:deadline_at) => DateTime.t()
         }
 
   @doc """
@@ -185,6 +186,7 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycle do
     target = value(context, :target)
     action = value(context, :action)
     policy_digest = value(context, :policy_digest)
+    deadline_at = value(context, :deadline_at)
 
     cond do
       not is_map(execution) or not is_map(target) ->
@@ -211,7 +213,7 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycle do
       blank?(value(target, :canonical_device_uid)) or not is_integer(value(target, :awx_host_id)) ->
         {:error, :invalid_mutation_target}
 
-      blank?(action) or blank?(policy_digest) ->
+      blank?(action) or not sha256_hex?(policy_digest) or not date_time?(deadline_at) ->
         {:error, :mutation_authority_snapshot_required}
 
       true ->
@@ -231,8 +233,8 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycle do
          {:ok, idempotency_key} <- required_string(decoded, :idempotency_key),
          {:ok, action} <- required_string(decoded, :action),
          {:ok, scm_revision} <- required_string(decoded, :scm_revision),
-         {:ok, policy_digest} <- required_string(decoded, :policy_digest),
-         {:ok, outcome_digest} <- required_string(decoded, :outcome_digest),
+         {:ok, policy_digest} <- required_sha256(decoded, :policy_digest),
+         {:ok, outcome_digest} <- required_sha256(decoded, :outcome_digest),
          {:ok, phase} <- required_phase(decoded, :phase),
          {:ok, previous_phase} <- optional_phase(decoded, :previous_phase),
          {:ok, deadline_at} <- required_datetime(decoded, :deadline_at),
@@ -284,6 +286,8 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycle do
       {:mutation_template_mismatch, evidence.template_id == value(execution, :job_template_id)},
       {:mutation_revision_mismatch, evidence.scm_revision == value(execution, :scm_revision)},
       {:mutation_policy_mismatch, evidence.policy_digest == value(context, :policy_digest)},
+      {:mutation_deadline_mismatch,
+       DateTime.compare(evidence.deadline_at, value(context, :deadline_at)) == :eq},
       {:mutation_generation_invalid, is_integer(evidence.generation)}
     ]
 
@@ -302,11 +306,15 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycle do
       source_value(source, :source_kind) == "awx_controller_lifecycle",
       source_value(source, :transport) == "mtls_edge_command",
       source_value(source, :execution_id) == value(execution, :id),
+      source_value(source, :execution_target_id) == value(target, :id),
       source_value(source, :controller_id) == value(execution, :controller_id),
+      source_value(source, :inventory_id) == value(execution, :inventory_id),
       source_value(source, :awx_job_id) == value(execution, :awx_job_id),
       source_value(source, :awx_host_id) == value(target, :awx_host_id),
       source_value(source, :template_id) == value(execution, :job_template_id),
       source_value(source, :scm_revision) == value(execution, :scm_revision),
+      source_value(source, :action) == value(context, :action),
+      source_value(source, :policy_digest) == value(context, :policy_digest),
       not blank?(source_value(source, :command_id))
     ]
 
@@ -315,21 +323,31 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycle do
        Map.take(source, [
          :source_kind,
          :transport,
+         :authenticated,
          :execution_id,
+         :execution_target_id,
          :controller_id,
+         :inventory_id,
          :awx_job_id,
          :awx_host_id,
          :template_id,
          :scm_revision,
+         :action,
+         :policy_digest,
          :command_id,
          "source_kind",
          "transport",
+         "authenticated",
          "execution_id",
+         "execution_target_id",
          "controller_id",
+         "inventory_id",
          "awx_job_id",
          "awx_host_id",
          "template_id",
          "scm_revision",
+         "action",
+         "policy_digest",
          "command_id"
        ])}
     else
@@ -434,6 +452,18 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycle do
     end
   end
 
+  defp required_sha256(map, key) do
+    case value(map, key) do
+      value when is_binary(value) ->
+        if sha256_hex?(value),
+          do: {:ok, value},
+          else: {:error, {:mutation_field_invalid, key}}
+
+      _ ->
+        {:error, {:mutation_field_invalid, key}}
+    end
+  end
+
   defp required_phase(map, key) do
     case phase_atom(value(map, key)) do
       phase when phase in @phases -> {:ok, phase}
@@ -492,6 +522,12 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycle do
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
   end
+
+  defp sha256_hex?(value) when is_binary(value) do
+    byte_size(value) == 64 and String.match?(value, ~r/\A[0-9a-f]{64}\z/)
+  end
+
+  defp sha256_hex?(_), do: false
 
   defp blank?(value), do: value in [nil, ""]
 

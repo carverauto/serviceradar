@@ -38,7 +38,8 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycleTest do
         canonical_device_uid: "sr:device-7"
       },
       action: "remote_access.ssh_ca.trust.install",
-      policy_digest: String.duplicate("b", 64)
+      policy_digest: String.duplicate("b", 64),
+      deadline_at: @deadline
     }
 
     Map.merge(base, overrides)
@@ -51,11 +52,15 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycleTest do
         source_kind: "awx_controller_lifecycle",
         transport: "mtls_edge_command",
         execution_id: @execution_id,
+        execution_target_id: @target_id,
         controller_id: @controller_id,
+        inventory_id: 34,
         awx_job_id: 77,
         awx_host_id: 7,
         template_id: 42,
         scm_revision: String.duplicate("a", 40),
+        action: "remote_access.ssh_ca.trust.install",
+        policy_digest: String.duplicate("b", 64),
         command_id: "018f3f56-1111-7222-8333-123456789ac1"
       },
       overrides
