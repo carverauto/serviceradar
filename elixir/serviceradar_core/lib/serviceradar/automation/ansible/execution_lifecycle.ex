@@ -116,10 +116,10 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
     expected_credentials =
       execution
       |> value(:credential_snapshot)
-      |> value(:credential_ids)
-      |> normalize_positive_integer_list()
+      |> value(:credentials)
+      |> normalize_credential_refs()
 
-    actual_credentials = accepted_credential_ids(job)
+    actual_credentials = job |> value(:credentials) |> normalize_credential_refs()
     expected_created_by_id = execution |> value(:metadata) |> value(:awx_created_by_id)
     actual_created_by_id = job |> value(:launched_by) |> value(:id) |> positive_integer()
 
@@ -186,7 +186,8 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
            "project_id" => value(execution, :project_id),
            "scm_revision" => value(execution, :scm_revision),
            "execution_environment_id" => value(execution, :execution_environment_id),
-           "credential_ids" => expected_credentials,
+           "credentials" => expected_credentials,
+           "credential_ids" => Enum.map(expected_credentials, & &1["id"]),
            "awx_created_by_id" => positive_integer(expected_created_by_id),
            "job_type" => expected_mode,
            "serviceradar_dispatch_id" => value(execution, :dispatch_id),
@@ -330,29 +331,30 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
     |> Base.encode16(case: :lower)
   end
 
-  defp normalize_positive_integer_list(values) when is_list(values) do
-    if Enum.all?(values, &(is_integer(&1) and &1 > 0)) do
-      Enum.sort(values)
-    else
-      :invalid
+  defp normalize_credential_refs(values) when is_list(values) and values != [] do
+    values
+    |> Enum.reduce_while({:ok, []}, fn credential, {:ok, acc} ->
+      id = credential |> value(:id) |> positive_integer()
+      kind = value(credential, :kind)
+
+      if is_integer(id) and is_binary(kind) and kind != "" do
+        {:cont, {:ok, [%{"id" => id, "kind" => kind} | acc]}}
+      else
+        {:halt, :invalid}
+      end
+    end)
+    |> case do
+      {:ok, refs} ->
+        refs = Enum.sort_by(refs, & &1["id"])
+        ids = Enum.map(refs, & &1["id"])
+        if length(ids) == MapSet.size(MapSet.new(ids)), do: refs, else: :invalid
+
+      :invalid ->
+        :invalid
     end
   end
 
-  defp normalize_positive_integer_list(_), do: :invalid
-
-  defp accepted_credential_ids(job) do
-    case value(job, :credential_ids) do
-      values when is_list(values) ->
-        normalize_positive_integer_list(values)
-
-      _ ->
-        job
-        |> value(:credentials)
-        |> List.wrap()
-        |> Enum.map(&(&1 |> value(:id) |> positive_integer()))
-        |> normalize_positive_integer_list()
-    end
-  end
+  defp normalize_credential_refs(_values), do: :invalid
 
   defp normalize_job_type(type) when type in [:run, "run"], do: "run"
   defp normalize_job_type(type) when type in [:check, "check"], do: "check"

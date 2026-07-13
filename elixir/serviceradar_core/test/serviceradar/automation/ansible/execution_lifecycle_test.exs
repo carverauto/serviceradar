@@ -24,7 +24,13 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycleTest do
         project_id: 3,
         scm_revision: String.duplicate("a", 40),
         execution_environment_id: 4,
-        credential_snapshot: %{"credential_ids" => [9, 5]},
+        credential_snapshot: %{
+          "credential_ids" => [9, 5],
+          "credentials" => [
+            %{"id" => 9, "kind" => "cloud"},
+            %{"id" => 5, "kind" => "ssh"}
+          ]
+        },
         check_mode: false,
         host_limit: "farm01-pve01,farm01-node01",
         dispatch_id: "018f3f56-1111-7222-8333-123456789abe",
@@ -102,6 +108,12 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycleTest do
     assert snapshot["controller_id"] == @controller_id
     assert snapshot["awx_job_id"] == 77
     assert snapshot["credential_ids"] == [5, 9]
+
+    assert snapshot["credentials"] == [
+             %{"id" => 5, "kind" => "ssh"},
+             %{"id" => 9, "kind" => "cloud"}
+           ]
+
     refute_receive {:reject_scope, _, _, _}
   end
 
@@ -114,6 +126,8 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycleTest do
       {"scm_revision", String.duplicate("c", 40), :accepted_scm_revision_mismatch},
       {"execution_environment", 5, :accepted_execution_environment_mismatch},
       {"credentials", [%{"id" => 5, "kind" => "ssh"}], :accepted_credentials_mismatch},
+      {"credentials", [%{"id" => 5, "kind" => "vault"}, %{"id" => 9, "kind" => "cloud"}],
+       :accepted_credentials_mismatch},
       {"launched_by", %{"id" => 12, "type" => "user"}, :accepted_integration_identity_mismatch},
       {"job_type", "check", :accepted_mode_mismatch},
       {"dispatch_markers", %{}, :accepted_dispatch_id_mismatch}

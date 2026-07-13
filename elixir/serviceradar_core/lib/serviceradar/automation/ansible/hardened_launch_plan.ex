@@ -97,6 +97,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
         "scm_revision" => binding.scm_revision,
         "content_sha256" => binding.content_sha256,
         "execution_environment_id" => binding.execution_environment_id,
+        "credentials" => binding.credentials,
         "credential_ids" => binding.credential_ids,
         "machine_credential_id" => binding.machine_credential_id,
         "job_type" => binding.job_type
@@ -155,6 +156,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
         execution_environment_id: binding.execution_environment_id,
         machine_credential_id: binding.machine_credential_id,
         credential_snapshot: %{
+          "credentials" => binding.credentials,
           "credential_ids" => binding.credential_ids,
           "dynamic_callback_slot" => value(intent, :dynamic_callback_slot)
         },

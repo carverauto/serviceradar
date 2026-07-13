@@ -57,6 +57,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlanTest do
         content_sha256: String.duplicate("b", 64),
         execution_environment_id: 4,
         credential_ids: [5],
+        credentials: [%{"id" => 5, "kind" => "ssh"}],
         machine_credential_id: 5,
         job_type: "run",
         awx_created_by_id: 11,
@@ -106,6 +107,10 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlanTest do
     assert plan.launch_opts.inventory_id == 34
     assert plan.launch_opts.host_limit == "farm01-pve01"
     assert plan.launch_opts.credential_ids == [5]
+
+    assert plan.execution.credential_snapshot["credentials"] == [
+             %{"id" => 5, "kind" => "ssh"}
+           ]
 
     assert plan.launch_opts.extra_vars["version"] == "1.2.3"
 

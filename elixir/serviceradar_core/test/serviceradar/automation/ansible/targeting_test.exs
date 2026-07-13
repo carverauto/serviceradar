@@ -196,6 +196,7 @@ defmodule ServiceRadar.Automation.Ansible.TargetingTest do
           content_sha256: String.duplicate("b", 64),
           execution_environment_id: 4,
           credential_ids: [5],
+          credentials: [%{"id" => 5, "kind" => "ssh"}],
           machine_credential_id: 5,
           job_type: "run",
           awx_created_by_id: 11,
@@ -210,6 +211,7 @@ defmodule ServiceRadar.Automation.Ansible.TargetingTest do
       assert {:ok, validated} = Targeting.validate_binding(reviewed_binding(), plan, :run)
       assert validated.scm_revision == String.duplicate("a", 40)
       assert validated.credential_ids == [5]
+      assert validated.credentials == [%{"id" => 5, "kind" => "ssh"}]
       assert validated.awx_created_by_id == 11
     end
 
@@ -235,6 +237,20 @@ defmodule ServiceRadar.Automation.Ansible.TargetingTest do
 
       assert {:error, :binding_job_type_mismatch} =
                Targeting.validate_binding(reviewed_binding(), plan, :check)
+
+      assert {:error, :binding_credential_references_mismatch} =
+               Targeting.validate_binding(
+                 reviewed_binding(%{credentials: [%{"id" => 6, "kind" => "ssh"}]}),
+                 plan,
+                 :run
+               )
+
+      assert {:error, :binding_machine_credential_kind_mismatch} =
+               Targeting.validate_binding(
+                 reviewed_binding(%{credentials: [%{"id" => 5, "kind" => "vault"}]}),
+                 plan,
+                 :run
+               )
     end
   end
 

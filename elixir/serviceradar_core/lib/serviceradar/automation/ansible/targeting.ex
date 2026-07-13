@@ -12,6 +12,7 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
   @host_token ~r/\A[A-Za-z0-9][A-Za-z0-9._-]{0,254}\z/
   @sha256_hex ~r/\A[0-9a-f]{64}\z/
   @scm_revision ~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/
+  @credential_kind ~r/\A[a-z][a-z0-9_.-]{0,63}\z/
   @reserved_pattern_names MapSet.new(["all", "ungrouped"])
   @reserved_input_names MapSet.new([
                           "serviceradar_dispatch_id",
@@ -127,6 +128,7 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
     scm_revision = value(binding, :scm_revision)
     content_sha256 = value(binding, :content_sha256)
     credential_ids = value(binding, :credential_ids)
+    credential_refs = normalize_credential_refs(value(binding, :credentials))
     machine_credential_id = positive_integer(value(binding, :machine_credential_id))
     job_type = Atom.to_string(mode)
 
@@ -161,8 +163,17 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
       not positive_integer_list?(credential_ids) ->
         {:error, :binding_credentials_required}
 
+      credential_refs == :invalid ->
+        {:error, :binding_credential_references_required}
+
+      Enum.sort(credential_ids) != Enum.map(credential_refs, & &1["id"]) ->
+        {:error, :binding_credential_references_mismatch}
+
       is_nil(machine_credential_id) or machine_credential_id not in credential_ids ->
         {:error, :binding_machine_credential_required}
+
+      Enum.find(credential_refs, &(&1["id"] == machine_credential_id))["kind"] != "ssh" ->
+        {:error, :binding_machine_credential_kind_mismatch}
 
       value(binding, :job_type) != job_type ->
         {:error, :binding_job_type_mismatch}
@@ -179,6 +190,7 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
            content_sha256: content_sha256,
            execution_environment_id: positive_integer(value(binding, :execution_environment_id)),
            credential_ids: Enum.sort(credential_ids),
+           credentials: credential_refs,
            machine_credential_id: machine_credential_id,
            job_type: job_type,
            awx_created_by_id: positive_integer(value(binding, :awx_created_by_id)),
@@ -433,6 +445,31 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
   end
 
   defp positive_integer_list?(_), do: false
+
+  defp normalize_credential_refs(values) when is_list(values) and values != [] do
+    values
+    |> Enum.reduce_while({:ok, []}, fn credential, {:ok, acc} ->
+      id = positive_integer(value(credential, :id))
+      kind = value(credential, :kind)
+
+      if is_integer(id) and is_binary(kind) and Regex.match?(@credential_kind, kind) do
+        {:cont, {:ok, [%{"id" => id, "kind" => kind} | acc]}}
+      else
+        {:halt, :invalid}
+      end
+    end)
+    |> case do
+      {:ok, credentials} ->
+        credentials = Enum.sort_by(credentials, & &1["id"])
+        ids = Enum.map(credentials, & &1["id"])
+        if length(ids) == MapSet.size(MapSet.new(ids)), do: credentials, else: :invalid
+
+      :invalid ->
+        :invalid
+    end
+  end
+
+  defp normalize_credential_refs(_values), do: :invalid
 
   defp canonical_term(value) when is_map(value) do
     value
