@@ -176,8 +176,25 @@ func TestRunLaunchJobSuccess(t *testing.T) {
 		Verb:     "awx.launch_job",
 		Args: map[string]any{
 			"template_id": float64(42),
-			"extra_vars":  map[string]any{"version": "1.2.3"},
-			"host_limit":  "web01,web02",
+			"extra_vars": map[string]any{
+				"version":                      "1.2.3",
+				"serviceradar_dispatch_id":     "dispatch-018f",
+				"serviceradar_snapshot_digest": "sha256:abc123",
+			},
+			"host_limit":               "web01,web02",
+			"inventory_id":             float64(7),
+			"credential_ids":           []any{float64(101), float64(102)},
+			"execution_environment_id": float64(9),
+			"job_type":                 "check",
+			"diff_mode":                true,
+			"verbosity":                float64(3),
+			"forks":                    float64(20),
+			"job_slice_count":          float64(2),
+			"timeout":                  float64(900),
+			"job_tags":                 "enrollment,canary",
+			"skip_tags":                "destructive",
+			"labels":                   []any{float64(301)},
+			"instance_group_ids":       []any{float64(401)},
 		},
 	}
 	res := dispatch(cfg)
@@ -206,10 +223,31 @@ func TestRunLaunchJobSuccess(t *testing.T) {
 	if sentBody["limit"] != "web01,web02" {
 		t.Errorf("body.limit = %v, want web01,web02", sentBody["limit"])
 	}
+	if sentBody["inventory"] != float64(7) {
+		t.Errorf("body.inventory = %v, want 7", sentBody["inventory"])
+	}
 	extra, ok := sentBody["extra_vars"].(map[string]any)
 	if !ok || extra["version"] != "1.2.3" {
 		t.Errorf("body.extra_vars = %v", sentBody["extra_vars"])
 	}
+	if extra["serviceradar_dispatch_id"] != "dispatch-018f" ||
+		extra["serviceradar_snapshot_digest"] != "sha256:abc123" {
+		t.Errorf("reserved dispatch markers not forwarded exactly: %v", extra)
+	}
+	assertJSONNumber(t, sentBody, "execution_environment", 9)
+	assertJSONNumber(t, sentBody, "verbosity", 3)
+	assertJSONNumber(t, sentBody, "forks", 20)
+	assertJSONNumber(t, sentBody, "job_slice_count", 2)
+	assertJSONNumber(t, sentBody, "timeout", 900)
+	if sentBody["job_type"] != "check" || sentBody["diff_mode"] != true {
+		t.Errorf("mode fields not forwarded: %v", sentBody)
+	}
+	if sentBody["job_tags"] != "enrollment,canary" || sentBody["skip_tags"] != "destructive" {
+		t.Errorf("tag fields not forwarded: %v", sentBody)
+	}
+	assertJSONNumberSlice(t, sentBody, "credentials", []float64{101, 102})
+	assertJSONNumberSlice(t, sentBody, "labels", []float64{301})
+	assertJSONNumberSlice(t, sentBody, "instance_groups", []float64{401})
 
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(res.Details), &payload); err != nil {
@@ -220,6 +258,31 @@ func TestRunLaunchJobSuccess(t *testing.T) {
 	}
 	if payload["job"] == nil {
 		t.Errorf("payload.job missing")
+	}
+}
+
+func assertJSONNumber(t *testing.T, body map[string]any, key string, want float64) {
+	t.Helper()
+	if got := body[key]; got != want {
+		t.Errorf("body.%s = %v, want %v", key, got, want)
+	}
+}
+
+func assertJSONNumberSlice(t *testing.T, body map[string]any, key string, want []float64) {
+	t.Helper()
+	got, ok := body[key].([]any)
+	if !ok {
+		t.Errorf("body.%s = %T, want array", key, body[key])
+		return
+	}
+	if len(got) != len(want) {
+		t.Errorf("body.%s len = %d, want %d", key, len(got), len(want))
+		return
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("body.%s[%d] = %v, want %v", key, i, got[i], want[i])
+		}
 	}
 }
 
@@ -260,6 +323,80 @@ func TestRunLaunchJobOmitsEmptyOptionalArgs(t *testing.T) {
 	}
 }
 
+func TestRunLaunchJobRejectsUnsafeOrMalformedFields(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]any
+		want string
+	}{
+		{
+			name: "credential passwords are prohibited",
+			args: map[string]any{"template_id": 1, "credential_passwords": map[string]any{"ssh_password": "secret"}},
+			want: "not an allowed AWX launch field",
+		},
+		{
+			name: "moving scm branch is prohibited",
+			args: map[string]any{"template_id": 1, "scm_branch": "main"},
+			want: "not an allowed AWX launch field",
+		},
+		{
+			name: "fractional inventory ID",
+			args: map[string]any{"template_id": 1, "inventory_id": 7.5},
+			want: "inventory_id",
+		},
+		{
+			name: "empty explicit limit",
+			args: map[string]any{"template_id": 1, "host_limit": "  "},
+			want: "must not be empty",
+		},
+		{
+			name: "invalid check mode",
+			args: map[string]any{"template_id": 1, "job_type": "dry-run"},
+			want: "job_type",
+		},
+		{
+			name: "duplicate credential IDs",
+			args: map[string]any{"template_id": 1, "credential_ids": []any{2.0, 2.0}},
+			want: "duplicate",
+		},
+		{
+			name: "non-string dispatch marker",
+			args: map[string]any{
+				"template_id": 1,
+				"extra_vars":  map[string]any{"serviceradar_dispatch_id": 123},
+			},
+			want: "serviceradar_dispatch_id",
+		},
+		{
+			name: "unbounded timeout",
+			args: map[string]any{"template_id": 1, "timeout": maxLaunchTimeoutSecond + 1},
+			want: "timeout",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := &fakeHTTPClient{}
+			swapHTTP(t, fake)
+			res := dispatch(Config{
+				BaseURL:  "https://awx.example.com",
+				APIToken: "tok",
+				Verb:     "awx.launch_job",
+				Args:     tt.args,
+			})
+			if res.Status != sdk.StatusCritical {
+				t.Fatalf("expected CRITICAL, got %s", res.Status)
+			}
+			if !strings.Contains(res.Summary, tt.want) {
+				t.Errorf("summary %q does not contain %q", res.Summary, tt.want)
+			}
+			if len(fake.requests) != 0 {
+				t.Errorf("malformed launch must not contact AWX")
+			}
+		})
+	}
+}
+
 func TestRunFetchJob(t *testing.T) {
 	body := []byte(`{"id": 7331, "status": "successful", "started": "2026-05-10T11:00:00Z", "finished": "2026-05-10T11:02:00Z"}`)
 	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
@@ -288,12 +425,364 @@ func TestRunFetchJob(t *testing.T) {
 	}
 }
 
+func TestRunFetchJobReturnsOnlyReconciliationFieldsAndNonSecretMarkers(t *testing.T) {
+	body := []byte(`{
+		"id": 7331,
+		"status": "running",
+		"job_template": 42,
+		"inventory": 7,
+		"project": 8,
+		"scm_revision": "84bf9c8",
+		"execution_environment": 9,
+		"job_type": "run",
+		"diff_mode": false,
+		"limit": "web01",
+		"instance_group": 3,
+		"extra_vars": "{\"serviceradar_dispatch_id\":\"dispatch-1\",\"serviceradar_snapshot_digest\":\"sha256:abc\",\"password\":\"do-not-return\"}",
+		"job_env": {"TOKEN": "do-not-return"},
+		"job_args": "--vault-password-file do-not-return",
+		"artifacts": {"private": "do-not-return"},
+		"result_traceback": "do-not-return",
+		"launched_by": {"id": 17, "name": "integration", "type": "user", "url": "/api/v2/users/17/"},
+		"summary_fields": {
+			"credentials": [{"id":101,"name":"machine","kind":"ssh","description":"internal"}],
+			"labels": {"count":1,"results":[{"id":301,"name":"canary"}]}
+		}
+	}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/jobs/7331/": {Status: http.StatusOK, Body: body},
+	}}
+	swapHTTP(t, fake)
+	res := dispatch(Config{
+		BaseURL: "https://awx.example.com", APIToken: "tok",
+		Verb: "awx.fetch_job", Args: map[string]any{"job_id": 7331},
+	})
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("got %s: %s", res.Status, res.Summary)
+	}
+	for _, prohibited := range []string{
+		"do-not-return", "job_env", "job_args", "artifacts", "result_traceback", `"password"`,
+	} {
+		if strings.Contains(res.Details, prohibited) {
+			t.Errorf("response leaked prohibited job detail %q: %s", prohibited, res.Details)
+		}
+	}
+	var payload struct {
+		Job map[string]any `json:"job"`
+	}
+	if err := json.Unmarshal([]byte(res.Details), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	markers, ok := payload.Job["dispatch_markers"].(map[string]any)
+	if !ok || markers["serviceradar_dispatch_id"] != "dispatch-1" ||
+		markers["serviceradar_snapshot_digest"] != "sha256:abc" {
+		t.Errorf("safe markers missing: %v", payload.Job)
+	}
+	credentials, ok := payload.Job["credentials"].([]any)
+	if !ok || len(credentials) != 1 {
+		t.Fatalf("credential references missing: %v", payload.Job["credentials"])
+	}
+	credential := credentials[0].(map[string]any)
+	if credential["id"] != float64(101) || credential["kind"] != "ssh" || len(credential) != 2 {
+		t.Errorf("credential summary was not minimized: %v", credential)
+	}
+}
+
 func TestRunFetchJobRequiresJobID(t *testing.T) {
 	swapHTTP(t, &fakeHTTPClient{})
 	cfg := Config{BaseURL: "https://awx.example.com", APIToken: "tok", Verb: "awx.fetch_job"}
 	res := dispatch(cfg)
 	if res.Status != sdk.StatusCritical {
 		t.Fatalf("expected CRITICAL, got %s", res.Status)
+	}
+}
+
+func TestRunCurrentUserReturnsNumericIntegrationIdentity(t *testing.T) {
+	body := []byte(`{
+		"count": 1,
+		"next": null,
+		"results": [{"id": 17, "username": "serviceradar-awx", "email": "not-returned@example.invalid"}]
+	}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/me/?page_size=2": {Status: http.StatusOK, Body: body},
+	}}
+	swapHTTP(t, fake)
+
+	res := dispatch(Config{
+		BaseURL:  "https://awx.example.com",
+		APIToken: "tok",
+		Verb:     "awx.current_user",
+	})
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("got %s: %s", res.Status, res.Summary)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(res.Details), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload["user_id"] != float64(17) {
+		t.Errorf("user_id = %v, want 17", payload["user_id"])
+	}
+	if payload["username"] != "serviceradar-awx" {
+		t.Errorf("username = %v", payload["username"])
+	}
+	if strings.Contains(res.Details, "not-returned@example.invalid") {
+		t.Errorf("current-user response should expose only bounded identity fields")
+	}
+}
+
+func TestRunCurrentUserFailsClosedWithoutExactlyOneNumericID(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "empty", body: `{"count":0,"next":null,"results":[]}`},
+		{name: "multiple", body: `{"count":2,"next":null,"results":[{"id":1},{"id":2}]}`},
+		{name: "missing ID", body: `{"count":1,"next":null,"results":[{"username":"integration"}]}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+				"/api/v2/me/?page_size=2": {Status: http.StatusOK, Body: []byte(tt.body)},
+			}}
+			swapHTTP(t, fake)
+			res := dispatch(Config{BaseURL: "https://awx.example.com", APIToken: "tok", Verb: "awx.current_user"})
+			if res.Status != sdk.StatusCritical {
+				t.Fatalf("expected CRITICAL, got %s", res.Status)
+			}
+		})
+	}
+}
+
+func TestRunListRecentJobsUsesBoundedAWXFiltersAndReturnsMarkersForCaller(t *testing.T) {
+	body := []byte(`{
+		"count": 2,
+		"next": null,
+		"results": [
+			{"id":7332,"created":"2026-07-12T21:03:00Z","job_template":42,"inventory":7,"launched_by":{"id":17,"type":"user"},"extra_vars":"{\"serviceradar_dispatch_id\":\"other\"}"},
+			{"id":7331,"created":"2026-07-12T21:02:00Z","job_template":42,"inventory":7,"launched_by":{"id":17,"type":"user"},"extra_vars":"{\"serviceradar_dispatch_id\":\"dispatch-018f\",\"serviceradar_snapshot_digest\":\"sha256:abc\"}"}
+		]
+	}`)
+	createdAfter := "2026-07-12T16:00:00-05:00"
+	wantPath := "/api/v2/jobs/?created__gte=2026-07-12T21%3A00%3A00Z&created_by=17&inventory=7&job_template=42&order_by=-created&page_size=25"
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		wantPath: {Status: http.StatusOK, Body: body},
+	}}
+	swapHTTP(t, fake)
+
+	res := dispatch(Config{
+		BaseURL:  "https://awx.example.com",
+		APIToken: "tok",
+		Verb:     "awx.list_recent_jobs",
+		Args: map[string]any{
+			"template_id":   42.0,
+			"inventory_id":  7.0,
+			"created_by_id": 17.0,
+			"created_after": createdAfter,
+			"page_size":     25.0,
+		},
+	})
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("got %s: %s", res.Status, res.Summary)
+	}
+	if len(fake.requests) != 1 || !strings.HasSuffix(fake.requests[0].URL, wantPath) {
+		t.Fatalf("unexpected recent-job request: %+v", fake.requests)
+	}
+	var payload struct {
+		Count     int               `json:"count"`
+		Truncated bool              `json:"truncated"`
+		Jobs      []json.RawMessage `json:"jobs"`
+	}
+	if err := json.Unmarshal([]byte(res.Details), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.Count != 2 || payload.Truncated || len(payload.Jobs) != 2 {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+	if !strings.Contains(string(payload.Jobs[1]), "dispatch-018f") {
+		t.Errorf("jobs must retain marker-bearing extra_vars for exact caller-side comparison")
+	}
+}
+
+func TestRunListRecentJobsMarksTruncatedCandidateSet(t *testing.T) {
+	body := []byte(`{
+		"count": 101,
+		"next": "/api/v2/jobs/?page=2",
+		"results": [{"id":7331,"created":"2026-07-12T16:01:00Z","job_template":42,"inventory":7,"launched_by":{"id":17,"type":"user"},"extra_vars":"{}"}]
+	}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"page_size=1": {Status: http.StatusOK, Body: body},
+	}}
+	swapHTTP(t, fake)
+	res := dispatch(Config{
+		BaseURL:  "https://awx.example.com",
+		APIToken: "tok",
+		Verb:     "awx.list_recent_jobs",
+		Args: map[string]any{
+			"template_id":   42,
+			"inventory_id":  7,
+			"created_by_id": 17,
+			"created_after": "2026-07-12T16:00:00Z",
+			"page_size":     1,
+		},
+	})
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("got %s: %s", res.Status, res.Summary)
+	}
+	var payload struct {
+		Truncated bool `json:"truncated"`
+	}
+	_ = json.Unmarshal([]byte(res.Details), &payload)
+	if !payload.Truncated {
+		t.Errorf("incomplete candidate set must be marked truncated")
+	}
+}
+
+func TestRunListRecentJobsRequiresExactScope(t *testing.T) {
+	base := map[string]any{
+		"template_id":   42,
+		"inventory_id":  7,
+		"created_by_id": 17,
+		"created_after": "2026-07-12T16:00:00Z",
+	}
+	for _, key := range []string{"template_id", "inventory_id", "created_by_id", "created_after"} {
+		t.Run(key, func(t *testing.T) {
+			args := make(map[string]any, len(base))
+			for k, v := range base {
+				args[k] = v
+			}
+			delete(args, key)
+			fake := &fakeHTTPClient{}
+			swapHTTP(t, fake)
+			res := dispatch(Config{
+				BaseURL: "https://awx.example.com", APIToken: "tok",
+				Verb: "awx.list_recent_jobs", Args: args,
+			})
+			if res.Status != sdk.StatusCritical || len(fake.requests) != 0 {
+				t.Fatalf("missing %s must fail before AWX contact", key)
+			}
+		})
+	}
+}
+
+func TestRunListRecentJobsRejectsControllerResponseOutsideExactScope(t *testing.T) {
+	body := []byte(`{
+		"count": 1,
+		"next": null,
+		"results": [{
+			"id":7331,
+			"created":"2026-07-12T16:01:00Z",
+			"job_template":99,
+			"inventory":7,
+			"launched_by":{"id":17,"type":"user"},
+			"extra_vars":"{}"
+		}]
+	}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"page_size=50": {Status: http.StatusOK, Body: body},
+	}}
+	swapHTTP(t, fake)
+	res := dispatch(Config{
+		BaseURL: "https://awx.example.com", APIToken: "tok",
+		Verb: "awx.list_recent_jobs",
+		Args: map[string]any{
+			"template_id":   42,
+			"inventory_id":  7,
+			"created_by_id": 17,
+			"created_after": "2026-07-12T16:00:00Z",
+		},
+	})
+	if res.Status != sdk.StatusCritical {
+		t.Fatalf("expected CRITICAL, got %s", res.Status)
+	}
+	if !strings.Contains(res.Summary, "outside the requested exact scope") {
+		t.Errorf("unexpected summary: %q", res.Summary)
+	}
+}
+
+func TestRunFetchJobHostSummariesPaginatesAndPreservesHostIDs(t *testing.T) {
+	page1 := []byte(`{
+		"count": 3,
+		"next": "/api/v2/jobs/7331/job_host_summaries/?order_by=id&page=2&page_size=200",
+		"results": [
+			{"id":1,"job":7331,"host":100,"constructed_host":null,"host_name":"pve01","changed":1,"dark":0,"failures":0,"ok":9,"processed":10,"skipped":0,"failed":false,"ignored":0,"rescued":0},
+			{"id":2,"job":7331,"host":101,"constructed_host":null,"host_name":"pve01","changed":0,"dark":1,"failures":0,"ok":0,"processed":1,"skipped":0,"failed":true,"ignored":0,"rescued":0}
+		]
+	}`)
+	page2 := []byte(`{
+		"count": 3,
+		"next": null,
+		"results": [
+			{"id":3,"job":7331,"host":null,"constructed_host":202,"host_name":"constructed01","changed":0,"dark":0,"failures":0,"ok":2,"processed":2,"skipped":0,"failed":false,"ignored":0,"rescued":0}
+		]
+	}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/jobs/7331/job_host_summaries/?page_size=200&order_by=id":        {Status: http.StatusOK, Body: page1},
+		"/api/v2/jobs/7331/job_host_summaries/?order_by=id&page=2&page_size=200": {Status: http.StatusOK, Body: page2},
+	}}
+	swapHTTP(t, fake)
+
+	res := dispatch(Config{
+		BaseURL: "https://awx.example.com", APIToken: "tok",
+		Verb: "awx.fetch_job_host_summaries",
+		Args: map[string]any{"job_id": 7331.0, "max_hosts": 3.0},
+	})
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("got %s: %s", res.Status, res.Summary)
+	}
+	var payload struct {
+		Count     int                    `json:"count"`
+		Summaries []jobHostSummaryResult `json:"summaries"`
+	}
+	if err := json.Unmarshal([]byte(res.Details), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.Count != 3 || len(payload.Summaries) != 3 {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+	if payload.Summaries[0].HostID == nil || *payload.Summaries[0].HostID != 100 {
+		t.Errorf("first host ID = %v", payload.Summaries[0].HostID)
+	}
+	if payload.Summaries[1].HostID == nil || *payload.Summaries[1].HostID != 101 {
+		t.Errorf("duplicate display names must preserve distinct IDs: %+v", payload.Summaries[:2])
+	}
+	if payload.Summaries[2].HostID != nil || payload.Summaries[2].ConstructedHostID == nil {
+		t.Errorf("missing source host must remain missing, not be inferred from name: %+v", payload.Summaries[2])
+	}
+}
+
+func TestRunFetchJobHostSummariesFailsOnBoundOrCrossJobResult(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     string
+		maxHosts int
+	}{
+		{
+			name:     "controller count exceeds bound",
+			body:     `{"count":2,"next":null,"results":[]}`,
+			maxHosts: 1,
+		},
+		{
+			name:     "summary belongs to another job",
+			body:     `{"count":1,"next":null,"results":[{"id":1,"job":9999,"host":100,"host_name":"web01"}]}`,
+			maxHosts: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+				"/api/v2/jobs/7331/job_host_summaries/?page_size=200&order_by=id": {Status: http.StatusOK, Body: []byte(tt.body)},
+			}}
+			swapHTTP(t, fake)
+			res := dispatch(Config{
+				BaseURL: "https://awx.example.com", APIToken: "tok",
+				Verb: "awx.fetch_job_host_summaries",
+				Args: map[string]any{"job_id": 7331, "max_hosts": tt.maxHosts},
+			})
+			if res.Status != sdk.StatusCritical {
+				t.Fatalf("expected CRITICAL, got %s", res.Status)
+			}
+		})
 	}
 }
 
@@ -912,6 +1401,66 @@ func TestRunListHostsHappyPath(t *testing.T) {
 	}
 	if payload.Count != 2 {
 		t.Errorf("count = %d, want 2", payload.Count)
+	}
+}
+
+func TestRunListInventoryGroupsReturnsExactNamesForLimitCollisionChecks(t *testing.T) {
+	body := []byte(`{
+		"count": 3,
+		"next": null,
+		"results": [
+			{"id": 201, "name": "linux"},
+			{"id": 202, "name": "pve01", "variables": "api_token: do-not-return"},
+			{"id": 203, "name": "windows"}
+		]
+	}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/inventories/7/groups/?page_size=200&order_by=id": {Status: http.StatusOK, Body: body},
+	}}
+	swapHTTP(t, fake)
+
+	res := dispatch(Config{
+		BaseURL: "https://awx.example.com", APIToken: "tok",
+		Verb: "awx.list_inventory_groups",
+		Args: map[string]any{"inventory_id": 7.0, "max_groups": 10.0},
+	})
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("got %s: %s", res.Status, res.Summary)
+	}
+	var payload listResultPayload
+	if err := json.Unmarshal([]byte(res.Details), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.Count != 3 || len(payload.Results) != 3 {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+	if !strings.Contains(string(payload.Results[1]), `"name":"pve01"`) {
+		t.Errorf("group names must remain available for exact host/group collision checks")
+	}
+	if strings.Contains(res.Details, "do-not-return") || strings.Contains(res.Details, "variables") {
+		t.Errorf("group inventory variables must not enter reconciliation command results")
+	}
+	// `all` and `ungrouped` are implicit Ansible tokens and therefore are not
+	// synthesized by this AWX endpoint. The launch planner must reject them
+	// independently even when they do not appear in this result.
+}
+
+func TestRunListInventoryGroupsFailsWhenControllerCountExceedsBound(t *testing.T) {
+	body := []byte(`{"count":2,"next":null,"results":[{"id":201,"name":"linux"}]}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/inventories/7/groups/?page_size=200&order_by=id": {Status: http.StatusOK, Body: body},
+	}}
+	swapHTTP(t, fake)
+	res := dispatch(Config{
+		BaseURL: "https://awx.example.com", APIToken: "tok",
+		Verb: "awx.list_inventory_groups",
+		Args: map[string]any{"inventory_id": 7, "max_groups": 1},
+	})
+	if res.Status != sdk.StatusCritical {
+		t.Fatalf("expected CRITICAL, got %s", res.Status)
+	}
+	if !strings.Contains(res.Summary, "exceeds bound") {
+		t.Errorf("expected bound failure, got %q", res.Summary)
 	}
 }
 

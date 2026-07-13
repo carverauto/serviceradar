@@ -21,7 +21,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -110,16 +112,24 @@ func dispatch(cfg Config) *sdk.Result {
 		return runListInventories(cfg)
 	case "awx.list_hosts":
 		return runListHosts(cfg)
+	case "awx.list_inventory_groups":
+		return runListInventoryGroups(cfg)
 	case "awx.list_projects":
 		return runListProjects(cfg)
 	case "awx.list_templates":
 		return runListTemplates(cfg)
 	case "awx.fetch_template":
 		return runFetchTemplate(cfg)
+	case "awx.current_user":
+		return runCurrentUser(cfg)
 	case "awx.launch_job":
 		return runLaunchJob(cfg)
 	case "awx.fetch_job":
 		return runFetchJob(cfg)
+	case "awx.list_recent_jobs":
+		return runListRecentJobs(cfg)
+	case "awx.fetch_job_host_summaries":
+		return runFetchJobHostSummaries(cfg)
 	case "awx.cancel_job":
 		return runCancelJob(cfg)
 	case "awx.fetch_events_for_jobs":
@@ -135,27 +145,35 @@ func notImplemented(verb string) *sdk.Result {
 
 // runLaunchJob handles `awx.launch_job` verb.
 //
-// Required args: template_id (int).
-// Optional args: extra_vars (map), host_limit (string), inventory_id (int).
+// Required args: template_id (positive int).
+// Optional args are an explicit, typed allowlist of AWX 24.6.1
+// JobLaunchSerializer fields:
+//
+//   - extra_vars (map), host_limit (string), inventory_id (positive int)
+//   - credential_ids, labels, instance_group_ids (positive int arrays)
+//   - execution_environment_id (positive int)
+//   - job_type ("run" or "check"), diff_mode (bool), verbosity (0..5)
+//   - forks, job_slice_count, timeout (bounded positive ints)
+//   - job_tags, skip_tags (bounded strings)
+//
+// The API also accepts credential_passwords and scm_branch. They are
+// deliberately not supported: ServiceRadar must not transport launch-time
+// credential secrets or moving SCM references. Reserved dispatch values in
+// extra_vars are non-secret, server-owned correlation markers; this plugin
+// forwards them but never logs request bodies or credentials.
 //
 // AWX accepts a `limit:` parameter that scopes the run to a comma-joined list
 // of host names — this is what the Device Actions modal sends when running
 // against a specific selection of devices.
 func runLaunchJob(cfg Config) *sdk.Result {
 	templateID, ok := argInt(cfg.Args, "template_id")
-	if !ok {
+	if !ok || templateID <= 0 {
 		return errorResult("awx.launch_job", fmt.Errorf("args.template_id is required"))
 	}
 
-	reqBody := map[string]any{}
-	if extraVars, ok := argMap(cfg.Args, "extra_vars"); ok && len(extraVars) > 0 {
-		reqBody["extra_vars"] = extraVars
-	}
-	if limit, ok := argString(cfg.Args, "host_limit"); ok && limit != "" {
-		reqBody["limit"] = limit
-	}
-	if inv, ok := argInt(cfg.Args, "inventory_id"); ok && inv > 0 {
-		reqBody["inventory"] = inv
+	reqBody, err := buildLaunchBody(cfg.Args)
+	if err != nil {
+		return errorResult("awx.launch_job", err)
 	}
 
 	resp, err := postJSON(cfg, fmt.Sprintf("/api/v2/job_templates/%d/launch/", templateID), reqBody)
@@ -163,8 +181,8 @@ func runLaunchJob(cfg Config) *sdk.Result {
 		return errorResult("awx.launch_job", err)
 	}
 
-	var job json.RawMessage
-	if err := json.Unmarshal(resp.Body, &job); err != nil {
+	job, err := sanitizeJobForReconciliation(resp.Body)
+	if err != nil {
 		return errorResult("awx.launch_job", fmt.Errorf("decode launch response: %w", err))
 	}
 
@@ -180,6 +198,356 @@ func runLaunchJob(cfg Config) *sdk.Result {
 		WithLabel("verb", "awx.launch_job")
 }
 
+var reconciliationJobFields = [...]string{
+	"id",
+	"job",
+	"status",
+	"created",
+	"modified",
+	"started",
+	"finished",
+	"canceled_on",
+	"launch_type",
+	"job_template",
+	"inventory",
+	"project",
+	"scm_revision",
+	"execution_environment",
+	"job_type",
+	"diff_mode",
+	"verbosity",
+	"forks",
+	"job_slice_count",
+	"job_slice_number",
+	"timeout",
+	"limit",
+	"job_tags",
+	"skip_tags",
+	"instance_group",
+	"failed",
+}
+
+// sanitizeJobForReconciliation keeps only fields required for lifecycle and
+// accepted-job equality. In particular, AWX job detail can contain job_env,
+// job_args, artifacts, result_traceback, password prompt names, and arbitrary
+// extra_vars. None of those are returned through the plugin. Only the two
+// non-secret, server-owned dispatch markers are extracted from extra_vars.
+func sanitizeJobForReconciliation(raw []byte) (map[string]any, error) {
+	var source map[string]any
+	if err := json.Unmarshal(raw, &source); err != nil {
+		return nil, err
+	}
+	job := make(map[string]any, len(reconciliationJobFields)+4)
+	for _, field := range reconciliationJobFields {
+		if value, present := source[field]; present {
+			job[field] = value
+		}
+	}
+
+	markers, err := dispatchMarkersFromJob(source["extra_vars"])
+	if err != nil {
+		return nil, err
+	}
+	if len(markers) > 0 {
+		job["dispatch_markers"] = markers
+	}
+
+	if launchedBy, ok := source["launched_by"].(map[string]any); ok {
+		identity := make(map[string]any, 2)
+		for _, key := range []string{"id", "type"} {
+			if value, present := launchedBy[key]; present {
+				identity[key] = value
+			}
+		}
+		if len(identity) > 0 {
+			job["launched_by"] = identity
+		}
+	}
+
+	if summaries, ok := source["summary_fields"].(map[string]any); ok {
+		job["credentials"] = sanitizedCredentialSummaries(summaries["credentials"])
+		labelIDs, labelCount := sanitizedLabelSummary(summaries["labels"])
+		job["labels"] = labelIDs
+		job["label_count"] = labelCount
+	}
+
+	return job, nil
+}
+
+func dispatchMarkersFromJob(raw any) (map[string]string, error) {
+	if raw == nil || raw == "" {
+		return nil, nil
+	}
+	var extraVars map[string]any
+	switch value := raw.(type) {
+	case string:
+		if err := json.Unmarshal([]byte(value), &extraVars); err != nil {
+			return nil, fmt.Errorf("decode AWX job extra_vars markers: %w", err)
+		}
+	case map[string]any:
+		extraVars = value
+	default:
+		return nil, fmt.Errorf("AWX job extra_vars has unexpected type")
+	}
+	markers := make(map[string]string, len(reservedDispatchVars))
+	for _, key := range reservedDispatchVars {
+		if rawMarker, present := extraVars[key]; present {
+			marker, ok := rawMarker.(string)
+			if !ok || strings.TrimSpace(marker) == "" || len(marker) > maxLaunchMarkerBytes {
+				return nil, fmt.Errorf("AWX job marker %s is invalid", key)
+			}
+			markers[key] = marker
+		}
+	}
+	return markers, nil
+}
+
+func sanitizedCredentialSummaries(raw any) []map[string]any {
+	values, ok := raw.([]any)
+	if !ok {
+		return []map[string]any{}
+	}
+	credentials := make([]map[string]any, 0, len(values))
+	for _, value := range values {
+		credential, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		safe := make(map[string]any, 2)
+		for _, key := range []string{"id", "kind"} {
+			if field, present := credential[key]; present {
+				safe[key] = field
+			}
+		}
+		if len(safe) > 0 {
+			credentials = append(credentials, safe)
+		}
+	}
+	return credentials
+}
+
+func sanitizedLabelSummary(raw any) ([]any, int) {
+	labels, ok := raw.(map[string]any)
+	if !ok {
+		return []any{}, 0
+	}
+	count, countOK := argInt(labels, "count")
+	values, ok := labels["results"].([]any)
+	if !ok {
+		return []any{}, 0
+	}
+	ids := make([]any, 0, len(values))
+	for _, value := range values {
+		if label, ok := value.(map[string]any); ok {
+			if id, present := label["id"]; present {
+				ids = append(ids, id)
+			}
+		}
+	}
+	if !countOK || count < len(ids) {
+		count = len(ids)
+	}
+	return ids, count
+}
+
+const (
+	maxLaunchLimitBytes    = 16 * 1024
+	maxLaunchTagBytes      = 4 * 1024
+	maxLaunchMarkerBytes   = 512
+	maxLaunchIDCount       = 128
+	maxLaunchForks         = 10_000
+	maxLaunchJobSlices     = 10_000
+	maxLaunchTimeoutSecond = 7 * 24 * 60 * 60
+)
+
+var reservedDispatchVars = [...]string{
+	"serviceradar_dispatch_id",
+	"serviceradar_snapshot_digest",
+}
+
+var allowedLaunchArgs = map[string]struct{}{
+	"template_id":              {},
+	"extra_vars":               {},
+	"host_limit":               {},
+	"inventory_id":             {},
+	"credential_ids":           {},
+	"execution_environment_id": {},
+	"job_type":                 {},
+	"diff_mode":                {},
+	"verbosity":                {},
+	"forks":                    {},
+	"job_slice_count":          {},
+	"timeout":                  {},
+	"job_tags":                 {},
+	"skip_tags":                {},
+	"labels":                   {},
+	"instance_group_ids":       {},
+}
+
+func buildLaunchBody(args map[string]any) (map[string]any, error) {
+	for key := range args {
+		if _, allowed := allowedLaunchArgs[key]; !allowed {
+			return nil, fmt.Errorf("args.%s is not an allowed AWX launch field", key)
+		}
+	}
+	body := make(map[string]any)
+
+	if raw, present := args["extra_vars"]; present {
+		extraVars, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("args.extra_vars must be an object")
+		}
+		if err := validateDispatchMarkers(extraVars); err != nil {
+			return nil, err
+		}
+		if len(extraVars) > 0 {
+			body["extra_vars"] = extraVars
+		}
+	}
+
+	if raw, present := args["host_limit"]; present {
+		limit, ok := raw.(string)
+		if !ok {
+			return nil, fmt.Errorf("args.host_limit must be a string")
+		}
+		if strings.TrimSpace(limit) == "" {
+			return nil, fmt.Errorf("args.host_limit must not be empty when provided")
+		}
+		if len(limit) > maxLaunchLimitBytes {
+			return nil, fmt.Errorf("args.host_limit exceeds %d bytes", maxLaunchLimitBytes)
+		}
+		body["limit"] = limit
+	}
+
+	if err := putPositiveInt(args, body, "inventory_id", "inventory", math.MaxInt32); err != nil {
+		return nil, err
+	}
+	if err := putPositiveInt(args, body, "execution_environment_id", "execution_environment", math.MaxInt32); err != nil {
+		return nil, err
+	}
+	if err := putPositiveIntSlice(args, body, "credential_ids", "credentials"); err != nil {
+		return nil, err
+	}
+	if err := putPositiveIntSlice(args, body, "labels", "labels"); err != nil {
+		return nil, err
+	}
+	if err := putPositiveIntSlice(args, body, "instance_group_ids", "instance_groups"); err != nil {
+		return nil, err
+	}
+
+	if raw, present := args["job_type"]; present {
+		jobType, ok := raw.(string)
+		if !ok || (jobType != "run" && jobType != "check") {
+			return nil, fmt.Errorf("args.job_type must be %q or %q", "run", "check")
+		}
+		body["job_type"] = jobType
+	}
+	if raw, present := args["diff_mode"]; present {
+		diffMode, ok := raw.(bool)
+		if !ok {
+			return nil, fmt.Errorf("args.diff_mode must be a boolean")
+		}
+		body["diff_mode"] = diffMode
+	}
+	if err := putBoundedInt(args, body, "verbosity", "verbosity", 0, 5); err != nil {
+		return nil, err
+	}
+	if err := putBoundedInt(args, body, "forks", "forks", 1, maxLaunchForks); err != nil {
+		return nil, err
+	}
+	if err := putBoundedInt(args, body, "job_slice_count", "job_slice_count", 1, maxLaunchJobSlices); err != nil {
+		return nil, err
+	}
+	if err := putBoundedInt(args, body, "timeout", "timeout", 1, maxLaunchTimeoutSecond); err != nil {
+		return nil, err
+	}
+	if err := putBoundedString(args, body, "job_tags", "job_tags", maxLaunchTagBytes); err != nil {
+		return nil, err
+	}
+	if err := putBoundedString(args, body, "skip_tags", "skip_tags", maxLaunchTagBytes); err != nil {
+		return nil, err
+	}
+
+	return body, nil
+}
+
+func validateDispatchMarkers(extraVars map[string]any) error {
+	for _, key := range reservedDispatchVars {
+		raw, present := extraVars[key]
+		if !present {
+			continue
+		}
+		marker, ok := raw.(string)
+		if !ok || strings.TrimSpace(marker) == "" {
+			return fmt.Errorf("args.extra_vars.%s must be a non-empty string", key)
+		}
+		if len(marker) > maxLaunchMarkerBytes {
+			return fmt.Errorf("args.extra_vars.%s exceeds %d bytes", key, maxLaunchMarkerBytes)
+		}
+	}
+	return nil
+}
+
+func putPositiveInt(args, body map[string]any, argKey, awxKey string, max int) error {
+	if _, present := args[argKey]; !present {
+		return nil
+	}
+	return putBoundedInt(args, body, argKey, awxKey, 1, max)
+}
+
+func putBoundedInt(args, body map[string]any, argKey, awxKey string, min, max int) error {
+	if _, present := args[argKey]; !present {
+		return nil
+	}
+	value, ok := argInt(args, argKey)
+	if !ok || value < min || value > max {
+		return fmt.Errorf("args.%s must be an integer between %d and %d", argKey, min, max)
+	}
+	body[awxKey] = value
+	return nil
+}
+
+func putPositiveIntSlice(args, body map[string]any, argKey, awxKey string) error {
+	if _, present := args[argKey]; !present {
+		return nil
+	}
+	values, ok := argIntSlice(args, argKey)
+	if !ok || len(values) == 0 || len(values) > maxLaunchIDCount {
+		return fmt.Errorf("args.%s must contain 1..%d positive integer IDs", argKey, maxLaunchIDCount)
+	}
+	seen := make(map[int]struct{}, len(values))
+	for _, value := range values {
+		if value <= 0 {
+			return fmt.Errorf("args.%s must contain 1..%d positive integer IDs", argKey, maxLaunchIDCount)
+		}
+		if _, duplicate := seen[value]; duplicate {
+			return fmt.Errorf("args.%s must not contain duplicate IDs", argKey)
+		}
+		seen[value] = struct{}{}
+	}
+	body[awxKey] = values
+	return nil
+}
+
+func putBoundedString(args, body map[string]any, argKey, awxKey string, maxBytes int) error {
+	raw, present := args[argKey]
+	if !present {
+		return nil
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return fmt.Errorf("args.%s must be a string", argKey)
+	}
+	if value == "" {
+		return nil
+	}
+	if len(value) > maxBytes {
+		return fmt.Errorf("args.%s exceeds %d bytes", argKey, maxBytes)
+	}
+	body[awxKey] = value
+	return nil
+}
+
 // runFetchJob handles `awx.fetch_job` verb. Required arg: job_id.
 //
 // RunPulseWorker uses this to detect terminal-status transitions when no
@@ -187,15 +555,15 @@ func runLaunchJob(cfg Config) *sdk.Result {
 // job may have finished).
 func runFetchJob(cfg Config) *sdk.Result {
 	jobID, ok := argInt(cfg.Args, "job_id")
-	if !ok {
+	if !ok || jobID <= 0 {
 		return errorResult("awx.fetch_job", fmt.Errorf("args.job_id is required"))
 	}
 	resp, err := getJSON(cfg, fmt.Sprintf("/api/v2/jobs/%d/", jobID))
 	if err != nil {
 		return errorResult("awx.fetch_job", err)
 	}
-	var job json.RawMessage
-	if err := json.Unmarshal(resp.Body, &job); err != nil {
+	job, err := sanitizeJobForReconciliation(resp.Body)
+	if err != nil {
 		return errorResult("awx.fetch_job", fmt.Errorf("decode job: %w", err))
 	}
 	payload := map[string]any{
@@ -208,6 +576,264 @@ func runFetchJob(cfg Config) *sdk.Result {
 	return sdk.Ok(fmt.Sprintf("fetched job %d", jobID)).
 		WithDetails(string(out)).
 		WithLabel("verb", "awx.fetch_job")
+}
+
+// runCurrentUser handles `awx.current_user`: GET /api/v2/me/.
+//
+// The returned numeric AWX user ID is snapshotted by the control plane and is
+// later required by awx.list_recent_jobs. Usernames are display text, never a
+// dispatch-reconciliation identity.
+func runCurrentUser(cfg Config) *sdk.Result {
+	resp, err := getJSON(cfg, "/api/v2/me/?page_size=2")
+	if err != nil {
+		return errorResult("awx.current_user", err)
+	}
+	var page awxPage
+	if err := json.Unmarshal(resp.Body, &page); err != nil {
+		return errorResult("awx.current_user", fmt.Errorf("decode current user: %w", err))
+	}
+	if page.Count != 1 || len(page.Results) != 1 {
+		return errorResult("awx.current_user", fmt.Errorf("AWX current-user response must contain exactly one user"))
+	}
+	var user struct {
+		ID       int    `json:"id"`
+		Username string `json:"username"`
+	}
+	if err := json.Unmarshal(page.Results[0], &user); err != nil || user.ID <= 0 {
+		return errorResult("awx.current_user", fmt.Errorf("AWX current-user response is missing a numeric ID"))
+	}
+	payload := map[string]any{
+		"verb":     "awx.current_user",
+		"ok":       true,
+		"user_id":  user.ID,
+		"username": user.Username,
+	}
+	out, _ := json.Marshal(payload)
+	return sdk.Ok("fetched AWX integration identity").
+		WithDetails(string(out)).
+		WithLabel("verb", "awx.current_user")
+}
+
+const maxRecentJobsPageSize = 100
+
+// runListRecentJobs handles `awx.list_recent_jobs`.
+//
+// Required args: template_id, inventory_id, created_by_id (positive ints) and
+// created_after (RFC3339 timestamp). Optional page_size is 1..100 (default 50).
+// The plugin intentionally does not filter by dispatch marker: AWX 24.6.1
+// marks extra_vars non-searchable. It returns one bounded, newest-first page;
+// the trusted control plane compares exact retained markers and accepted-job
+// fields. `truncated=true` is a fail-closed ambiguity signal, not permission to
+// select a candidate from an incomplete set.
+func runListRecentJobs(cfg Config) *sdk.Result {
+	templateID, templateOK := argInt(cfg.Args, "template_id")
+	inventoryID, inventoryOK := argInt(cfg.Args, "inventory_id")
+	createdByID, createdByOK := argInt(cfg.Args, "created_by_id")
+	createdAfter, createdAfterOK := argString(cfg.Args, "created_after")
+	if !templateOK || templateID <= 0 {
+		return errorResult("awx.list_recent_jobs", fmt.Errorf("args.template_id is required"))
+	}
+	if !inventoryOK || inventoryID <= 0 {
+		return errorResult("awx.list_recent_jobs", fmt.Errorf("args.inventory_id is required"))
+	}
+	if !createdByOK || createdByID <= 0 {
+		return errorResult("awx.list_recent_jobs", fmt.Errorf("args.created_by_id is required"))
+	}
+	createdAt, err := time.Parse(time.RFC3339, createdAfter)
+	if !createdAfterOK || err != nil {
+		return errorResult("awx.list_recent_jobs", fmt.Errorf("args.created_after must be RFC3339"))
+	}
+	pageSize := 50
+	if _, present := cfg.Args["page_size"]; present {
+		var ok bool
+		pageSize, ok = argInt(cfg.Args, "page_size")
+		if !ok || pageSize <= 0 || pageSize > maxRecentJobsPageSize {
+			return errorResult(
+				"awx.list_recent_jobs",
+				fmt.Errorf("args.page_size must be an integer between 1 and %d", maxRecentJobsPageSize),
+			)
+		}
+	}
+
+	query := url.Values{}
+	query.Set("job_template", strconv.Itoa(templateID))
+	query.Set("inventory", strconv.Itoa(inventoryID))
+	query.Set("created_by", strconv.Itoa(createdByID))
+	query.Set("created__gte", createdAt.UTC().Format(time.RFC3339Nano))
+	query.Set("order_by", "-created")
+	query.Set("page_size", strconv.Itoa(pageSize))
+	path := "/api/v2/jobs/?" + query.Encode()
+
+	resp, err := getJSON(cfg, path)
+	if err != nil {
+		return errorResult("awx.list_recent_jobs", err)
+	}
+	var page awxPage
+	if err := json.Unmarshal(resp.Body, &page); err != nil {
+		return errorResult("awx.list_recent_jobs", fmt.Errorf("decode recent jobs: %w", err))
+	}
+	if len(page.Results) > pageSize {
+		return errorResult("awx.list_recent_jobs", fmt.Errorf("AWX returned more jobs than the requested bound"))
+	}
+	if page.Count < len(page.Results) {
+		return errorResult("awx.list_recent_jobs", fmt.Errorf("AWX recent-job count is inconsistent"))
+	}
+	jobs := make([]map[string]any, 0, len(page.Results))
+	for _, rawJob := range page.Results {
+		job, err := sanitizeJobForReconciliation(rawJob)
+		if err != nil {
+			return errorResult("awx.list_recent_jobs", fmt.Errorf("decode recent job: %w", err))
+		}
+		if err := validateRecentJobScope(job, templateID, inventoryID, createdByID, createdAt); err != nil {
+			return errorResult("awx.list_recent_jobs", err)
+		}
+		jobs = append(jobs, job)
+	}
+	payload := map[string]any{
+		"verb":          "awx.list_recent_jobs",
+		"ok":            true,
+		"template_id":   templateID,
+		"inventory_id":  inventoryID,
+		"created_by_id": createdByID,
+		"created_after": createdAt.UTC().Format(time.RFC3339Nano),
+		"page_size":     pageSize,
+		"count":         page.Count,
+		"truncated":     page.Next != "" || page.Count > len(page.Results),
+		"jobs":          jobs,
+	}
+	out, _ := json.Marshal(payload)
+	return sdk.Ok(fmt.Sprintf("listed %d recent jobs", len(page.Results))).
+		WithDetails(string(out)).
+		WithLabel("verb", "awx.list_recent_jobs")
+}
+
+func validateRecentJobScope(job map[string]any, templateID, inventoryID, createdByID int, createdAfter time.Time) error {
+	jobID, jobOK := argInt(job, "id")
+	gotTemplateID, templateOK := argInt(job, "job_template")
+	gotInventoryID, inventoryOK := argInt(job, "inventory")
+	launchedBy, launchedByOK := job["launched_by"].(map[string]any)
+	gotCreatedByID, createdByOK := argInt(launchedBy, "id")
+	created, createdOK := job["created"].(string)
+	createdAt, createdErr := time.Parse(time.RFC3339, created)
+	if !jobOK || jobID <= 0 || !templateOK || gotTemplateID != templateID ||
+		!inventoryOK || gotInventoryID != inventoryID ||
+		!launchedByOK || !createdByOK || gotCreatedByID != createdByID ||
+		!createdOK || createdErr != nil || createdAt.Before(createdAfter) {
+		return fmt.Errorf("AWX returned a recent job outside the requested exact scope")
+	}
+	return nil
+}
+
+const (
+	defaultMaxJobHostSummaries = 1_000
+	maxJobHostSummaries        = 10_000
+)
+
+type awxJobHostSummary struct {
+	ID                int    `json:"id"`
+	JobID             int    `json:"job"`
+	HostID            *int   `json:"host"`
+	ConstructedHostID *int   `json:"constructed_host"`
+	HostName          string `json:"host_name"`
+	Changed           int    `json:"changed"`
+	Dark              int    `json:"dark"`
+	Failures          int    `json:"failures"`
+	OK                int    `json:"ok"`
+	Processed         int    `json:"processed"`
+	Skipped           int    `json:"skipped"`
+	Failed            bool   `json:"failed"`
+	Ignored           int    `json:"ignored"`
+	Rescued           int    `json:"rescued"`
+}
+
+type jobHostSummaryResult struct {
+	SummaryID         int    `json:"summary_id"`
+	JobID             int    `json:"job_id"`
+	HostID            *int   `json:"host_id,omitempty"`
+	ConstructedHostID *int   `json:"constructed_host_id,omitempty"`
+	HostName          string `json:"host_name"`
+	Changed           int    `json:"changed"`
+	Dark              int    `json:"dark"`
+	Failures          int    `json:"failures"`
+	OK                int    `json:"ok"`
+	Processed         int    `json:"processed"`
+	Skipped           int    `json:"skipped"`
+	Failed            bool   `json:"failed"`
+	Ignored           int    `json:"ignored"`
+	Rescued           int    `json:"rescued"`
+}
+
+// runFetchJobHostSummaries handles `awx.fetch_job_host_summaries`.
+//
+// It fully paginates /jobs/{id}/job_host_summaries/ only while the controller
+// reported count stays within max_hosts (default 1000, hard cap 10000). The
+// normalized output preserves AWX host IDs and constructed-host IDs separately;
+// a missing host ID remains missing and is never guessed from host_name.
+func runFetchJobHostSummaries(cfg Config) *sdk.Result {
+	jobID, ok := argInt(cfg.Args, "job_id")
+	if !ok || jobID <= 0 {
+		return errorResult("awx.fetch_job_host_summaries", fmt.Errorf("args.job_id is required"))
+	}
+	maxHosts := defaultMaxJobHostSummaries
+	if _, present := cfg.Args["max_hosts"]; present {
+		maxHosts, ok = argInt(cfg.Args, "max_hosts")
+		if !ok || maxHosts <= 0 || maxHosts > maxJobHostSummaries {
+			return errorResult(
+				"awx.fetch_job_host_summaries",
+				fmt.Errorf("args.max_hosts must be an integer between 1 and %d", maxJobHostSummaries),
+			)
+		}
+	}
+
+	path := fmt.Sprintf("/api/v2/jobs/%d/job_host_summaries/?page_size=200&order_by=id", jobID)
+	rawSummaries, total, err := listAWXPathBounded(cfg, path, maxHosts)
+	if err != nil {
+		return errorResult("awx.fetch_job_host_summaries", err)
+	}
+	summaries := make([]jobHostSummaryResult, 0, len(rawSummaries))
+	for _, raw := range rawSummaries {
+		var summary awxJobHostSummary
+		if err := json.Unmarshal(raw, &summary); err != nil {
+			return errorResult("awx.fetch_job_host_summaries", fmt.Errorf("decode job host summary: %w", err))
+		}
+		if summary.ID <= 0 || summary.JobID != jobID {
+			return errorResult("awx.fetch_job_host_summaries", fmt.Errorf("AWX returned a host summary outside job %d", jobID))
+		}
+		if summary.HostID != nil && *summary.HostID <= 0 {
+			return errorResult("awx.fetch_job_host_summaries", fmt.Errorf("AWX returned an invalid host ID for job %d", jobID))
+		}
+		if summary.ConstructedHostID != nil && *summary.ConstructedHostID <= 0 {
+			return errorResult("awx.fetch_job_host_summaries", fmt.Errorf("AWX returned an invalid constructed host ID for job %d", jobID))
+		}
+		summaries = append(summaries, jobHostSummaryResult{
+			SummaryID:         summary.ID,
+			JobID:             summary.JobID,
+			HostID:            summary.HostID,
+			ConstructedHostID: summary.ConstructedHostID,
+			HostName:          summary.HostName,
+			Changed:           summary.Changed,
+			Dark:              summary.Dark,
+			Failures:          summary.Failures,
+			OK:                summary.OK,
+			Processed:         summary.Processed,
+			Skipped:           summary.Skipped,
+			Failed:            summary.Failed,
+			Ignored:           summary.Ignored,
+			Rescued:           summary.Rescued,
+		})
+	}
+
+	payload := map[string]any{
+		"verb":      "awx.fetch_job_host_summaries",
+		"ok":        true,
+		"job_id":    jobID,
+		"count":     total,
+		"summaries": summaries,
+	}
+	out, _ := json.Marshal(payload)
+	return sdk.Ok(fmt.Sprintf("fetched %d host summaries for job %d", total, jobID)).
+		WithDetails(string(out)).
+		WithLabel("verb", "awx.fetch_job_host_summaries")
 }
 
 // runCancelJob handles `awx.cancel_job` verb. Required arg: job_id.
@@ -467,22 +1093,36 @@ type awxPage struct {
 	Results  []json.RawMessage `json:"results"`
 }
 
-// maxPaginationPages caps how far we walk a paginated endpoint per verb
-// invocation. With AWX's default page_size of 200 this allows up to 10k
-// records, which exceeds the practical inventory sizes we expect; if it
-// ever becomes a problem we'll switch to an explicit since-cursor verb.
-const maxPaginationPages = 50
+// Pagination is bounded and exact: callers either receive the whole result set
+// inside their declared cap or a typed error. Partial inventory/group/host
+// lists cannot safely prove target equality.
+const (
+	awxPageSize        = 200
+	maxPaginationPages = 50
+	maxPaginatedRows   = awxPageSize * maxPaginationPages
+)
 
 // listAWXPath walks /api/v2/<resource>/?... following the `next` link until
 // it's null or we hit `maxPaginationPages`. Returns the aggregated raw
 // results and the controller-reported total count.
 func listAWXPath(cfg Config, path string) ([]json.RawMessage, int, error) {
+	return listAWXPathBounded(cfg, path, maxPaginatedRows)
+}
+
+func listAWXPathBounded(cfg Config, path string, maxResults int) ([]json.RawMessage, int, error) {
+	if maxResults <= 0 || maxResults > maxPaginatedRows {
+		return nil, 0, fmt.Errorf("AWX pagination bound must be between 1 and %d", maxPaginatedRows)
+	}
 	var (
 		all   []json.RawMessage
 		total int
 		next  = path
 	)
-	for page := 0; page < maxPaginationPages && next != ""; page++ {
+	pagesWalked := 0
+	for next != "" {
+		if pagesWalked >= maxPaginationPages {
+			return nil, total, fmt.Errorf("AWX pagination exceeded %d pages", maxPaginationPages)
+		}
 		resp, err := getJSON(cfg, next)
 		if err != nil {
 			return nil, 0, err
@@ -491,15 +1131,25 @@ func listAWXPath(cfg Config, path string) ([]json.RawMessage, int, error) {
 		if err := json.Unmarshal(resp.Body, &pageBody); err != nil {
 			return nil, 0, fmt.Errorf("decode %s: %w", next, err)
 		}
-		if page == 0 {
+		if pagesWalked == 0 {
 			total = pageBody.Count
+			if total > maxResults {
+				return nil, total, fmt.Errorf("AWX result count %d exceeds bound %d", total, maxResults)
+			}
+		}
+		if len(all)+len(pageBody.Results) > maxResults {
+			return nil, total, fmt.Errorf("AWX results exceed bound %d", maxResults)
 		}
 		all = append(all, pageBody.Results...)
+		pagesWalked++
 
 		// AWX returns `next` either as null or as a path like
 		// "/api/v2/inventories/?page=2". We always strip the host so
 		// the same host:port the operator configured is reused.
 		next = relativizeAWXPath(pageBody.Next)
+	}
+	if len(all) != total {
+		return nil, total, fmt.Errorf("AWX pagination returned %d of %d results", len(all), total)
 	}
 	return all, total, nil
 }
@@ -569,7 +1219,7 @@ func runListInventories(cfg Config) *sdk.Result {
 
 func runListHosts(cfg Config) *sdk.Result {
 	inventoryID, ok := argInt(cfg.Args, "inventory_id")
-	if !ok {
+	if !ok || inventoryID <= 0 {
 		return errorResult("awx.list_hosts", fmt.Errorf("args.inventory_id is required"))
 	}
 	path := fmt.Sprintf("/api/v2/inventories/%d/hosts/?page_size=200", inventoryID)
@@ -581,6 +1231,49 @@ func runListHosts(cfg Config) *sdk.Result {
 	return sdk.Ok(fmt.Sprintf("listed %d hosts in inventory %d", total, inventoryID)).
 		WithDetails(encodeListPayload("awx.list_hosts", results, total, extra)).
 		WithLabel("verb", "awx.list_hosts")
+}
+
+// runListInventoryGroups handles `awx.list_inventory_groups` by returning the
+// exact bounded set from /api/v2/inventories/{id}/groups/. The hardened launch
+// planner uses group names to reject literal host tokens that AWX could instead
+// interpret as a group. It must also independently reject Ansible's reserved
+// `all` and `ungrouped` tokens; this endpoint does not synthesize them.
+func runListInventoryGroups(cfg Config) *sdk.Result {
+	inventoryID, ok := argInt(cfg.Args, "inventory_id")
+	if !ok || inventoryID <= 0 {
+		return errorResult("awx.list_inventory_groups", fmt.Errorf("args.inventory_id is required"))
+	}
+	maxGroups := maxPaginatedRows
+	if _, present := cfg.Args["max_groups"]; present {
+		maxGroups, ok = argInt(cfg.Args, "max_groups")
+		if !ok || maxGroups <= 0 || maxGroups > maxPaginatedRows {
+			return errorResult(
+				"awx.list_inventory_groups",
+				fmt.Errorf("args.max_groups must be an integer between 1 and %d", maxPaginatedRows),
+			)
+		}
+	}
+	path := fmt.Sprintf("/api/v2/inventories/%d/groups/?page_size=200&order_by=id", inventoryID)
+	results, total, err := listAWXPathBounded(cfg, path, maxGroups)
+	if err != nil {
+		return errorResult("awx.list_inventory_groups", err)
+	}
+	safeResults := make([]json.RawMessage, 0, len(results))
+	for _, raw := range results {
+		var group struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(raw, &group); err != nil || group.ID <= 0 || strings.TrimSpace(group.Name) == "" {
+			return errorResult("awx.list_inventory_groups", fmt.Errorf("AWX returned an invalid inventory group"))
+		}
+		safe, _ := json.Marshal(group)
+		safeResults = append(safeResults, safe)
+	}
+	extra := map[string]any{"inventory_id": inventoryID}
+	return sdk.Ok(fmt.Sprintf("listed %d groups in inventory %d", total, inventoryID)).
+		WithDetails(encodeListPayload("awx.list_inventory_groups", safeResults, total, extra)).
+		WithLabel("verb", "awx.list_inventory_groups")
 }
 
 func runListProjects(cfg Config) *sdk.Result {
@@ -652,13 +1345,57 @@ func argInt(args map[string]any, key string) (int, bool) {
 	}
 	switch n := v.(type) {
 	case float64:
-		return int(n), true
+		if math.IsNaN(n) || math.IsInf(n, 0) || n != math.Trunc(n) {
+			return 0, false
+		}
+		converted := int(n)
+		if float64(converted) != n {
+			return 0, false
+		}
+		return converted, true
 	case int:
 		return n, true
 	case int64:
-		return int(n), true
+		converted := int(n)
+		if int64(converted) != n {
+			return 0, false
+		}
+		return converted, true
+	case json.Number:
+		parsed, err := strconv.ParseInt(string(n), 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		converted := int(parsed)
+		if int64(converted) != parsed {
+			return 0, false
+		}
+		return converted, true
 	}
 	return 0, false
+}
+
+func argIntSlice(args map[string]any, key string) ([]int, bool) {
+	raw, ok := args[key]
+	if !ok {
+		return nil, false
+	}
+	switch values := raw.(type) {
+	case []int:
+		return append([]int(nil), values...), true
+	case []any:
+		out := make([]int, 0, len(values))
+		for _, rawValue := range values {
+			value, ok := argInt(map[string]any{"value": rawValue}, "value")
+			if !ok {
+				return nil, false
+			}
+			out = append(out, value)
+		}
+		return out, true
+	default:
+		return nil, false
+	}
 }
 
 // errorResult builds a structured CRITICAL result for a verb call that
