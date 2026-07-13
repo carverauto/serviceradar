@@ -74,7 +74,15 @@ defmodule ServiceRadar.Edge.AgentCommand do
     create :create do
       accept @command_fields
 
+      argument :command_id, :uuid, allow_nil?: true
+
       change fn changeset, _context ->
+        changeset =
+          case Ash.Changeset.get_argument(changeset, :command_id) do
+            nil -> changeset
+            command_id -> Ash.Changeset.change_attribute(changeset, :id, command_id)
+          end
+
         ttl = Ash.Changeset.get_attribute(changeset, :ttl_seconds) || 60
 
         expires_at =

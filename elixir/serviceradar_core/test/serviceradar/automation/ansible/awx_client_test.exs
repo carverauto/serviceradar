@@ -4,6 +4,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
   alias ServiceRadar.Automation.Ansible.AwxClient
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Credentials.CredentialBrokerGrant
+  alias ServiceRadar.Edge.AgentCommandBus
+
+  @callback_command_id "018f3f56-aaaa-4bbb-8ccc-123456789abc"
 
   defmodule FakeCommandBus do
     @moduledoc false
@@ -42,6 +45,24 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
 
     {:ok, CredentialBrokerGrant.to_payload(grant)}
   end
+
+  defp callback_credential_binding(overrides \\ %{}) do
+    Map.merge(
+      %{
+        envelope_ref: "launch-envelope:v1:abcdefghijklmnopqrstuvwxyz012345",
+        child_execution_id: "018f3f56-1111-7222-8333-123456789abc",
+        inventory_id: 7,
+        job_template_id: 42,
+        credential_type_id: 91,
+        organization_id: 2,
+        credential_slot: "ssh_ca_callback",
+        injector_sha256: String.duplicate("a", 64)
+      },
+      overrides
+    )
+  end
+
+  defp callback_dispatch_opts, do: dispatch_opts() ++ [command_id: @callback_command_id]
 
   describe "dispatchability validation" do
     test "rejects controller with missing agent_id" do
@@ -215,6 +236,149 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       assert {:ok, _} = AwxClient.launch_job(controller(), 1, %{}, dispatch_opts())
       assert_receive {:dispatch, "agent-a", "awx.launch_job", payload, _opts}
       assert payload["args"] == %{"template_id" => 1}
+    end
+  end
+
+  describe "ephemeral callback credentials" do
+    test "create carries only an opaque envelope binding and exact credential endpoint grant" do
+      assert {:ok, _} =
+               AwxClient.create_callback_credential(
+                 controller(),
+                 callback_credential_binding(),
+                 callback_dispatch_opts()
+               )
+
+      assert_receive {:dispatch, "agent-a", "awx.create_callback_credential", payload, opts}
+      assert opts[:command_id] == @callback_command_id
+
+      assert payload["args"] == %{
+               "credential_type_id" => 91,
+               "organization_id" => 2,
+               "credential_name" => "sr-callback-018f3f56-1111-7222-8333-123456789abc",
+               "injector_sha256" => String.duplicate("a", 64)
+             }
+
+      assert payload["callback_credential_binding"] == %{
+               "schema" => "serviceradar.awx_callback_credential_binding.v1",
+               "envelope_ref" => "launch-envelope:v1:abcdefghijklmnopqrstuvwxyz012345",
+               "dispatch_agent_id" => "agent-a",
+               "controller_id" => "ctrl-uuid-1",
+               "child_execution_id" => "018f3f56-1111-7222-8333-123456789abc",
+               "inventory_id" => 7,
+               "job_template_id" => 42,
+               "credential_type_id" => 91,
+               "organization_id" => 2,
+               "credential_name" => "sr-callback-018f3f56-1111-7222-8333-123456789abc",
+               "credential_slot" => "ssh_ca_callback",
+               "injector_sha256" => String.duplicate("a", 64)
+             }
+
+      grant = payload["credential_broker"]
+      assert grant["allow"]["methods"] == ["GET", "POST"]
+
+      assert grant["allow"]["paths"] == [
+               "=/api/v2/credential_types/91/",
+               "=/api/v2/credentials/"
+             ]
+
+      serialized = inspect(payload)
+      refute serialized =~ "callback_grant"
+      refute serialized =~ "idempotency_key"
+      refute serialized =~ "user_token"
+      refute serialized =~ "Bearer "
+    end
+
+    test "delete is exact-ID scoped and carries deterministic cleanup identity" do
+      assert {:ok, _} =
+               AwxClient.delete_callback_credential(
+                 controller(),
+                 401,
+                 callback_credential_binding(),
+                 dispatch_opts()
+               )
+
+      assert_receive {:dispatch, "agent-a", "awx.delete_callback_credential", payload, _opts}
+
+      assert payload["args"] == %{
+               "credential_id" => 401,
+               "credential_type_id" => 91,
+               "organization_id" => 2,
+               "credential_name" => "sr-callback-018f3f56-1111-7222-8333-123456789abc"
+             }
+
+      assert payload["credential_broker"]["allow"] == %{
+               "hosts" => ["awx.example.com"],
+               "methods" => ["GET", "DELETE"],
+               "paths" => ["=/api/v2/credentials/401/"]
+             }
+    end
+
+    test "requires exact reviewed binding including explicit organization" do
+      for invalid <- [
+            callback_credential_binding(%{organization_id: nil}),
+            callback_credential_binding(%{credential_type_id: 0}),
+            callback_credential_binding(%{credential_slot: "arbitrary"}),
+            callback_credential_binding(%{injector_sha256: "moving"}),
+            Map.put(callback_credential_binding(), :callback_grant, "must-not-pass")
+          ] do
+        assert {:error, :invalid_callback_credential_binding} =
+                 AwxClient.create_callback_credential(
+                   controller(),
+                   invalid,
+                   callback_dispatch_opts()
+                 )
+
+        refute_received {:dispatch, _, _, _, _}
+      end
+    end
+
+    test "create requires the command ID sealed into the launch envelope" do
+      assert {:error, :preallocated_callback_command_id_required} =
+               AwxClient.create_callback_credential(
+                 controller(),
+                 callback_credential_binding(),
+                 dispatch_opts()
+               )
+
+      refute_received {:dispatch, _, _, _, _}
+    end
+
+    test "command bus reserves explicit IDs for callback credential creation" do
+      assert {:error, :preallocated_command_id_required} =
+               AgentCommandBus.dispatch(
+                 "agent-a",
+                 "awx.create_callback_credential",
+                 %{}
+               )
+
+      assert {:error, :invalid_preallocated_command_id} =
+               AgentCommandBus.dispatch(
+                 "agent-a",
+                 "awx.create_callback_credential",
+                 %{},
+                 command_id: "not-a-uuid"
+               )
+
+      assert {:error, :preallocated_command_id_denied} =
+               AgentCommandBus.dispatch(
+                 "agent-a",
+                 "awx.launch_job",
+                 %{},
+                 command_id: @callback_command_id
+               )
+    end
+
+    test "returned credential ID remains an ordinary reviewed launch credential ID" do
+      assert {:ok, _} =
+               AwxClient.launch_job(
+                 controller(),
+                 42,
+                 %{credential_ids: [5, 401]},
+                 dispatch_opts()
+               )
+
+      assert_receive {:dispatch, "agent-a", "awx.launch_job", payload, _opts}
+      assert payload["args"]["credential_ids"] == [5, 401]
     end
   end
 

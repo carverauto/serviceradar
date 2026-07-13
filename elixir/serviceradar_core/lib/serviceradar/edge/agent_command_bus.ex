@@ -45,6 +45,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     partition_id = resolve_partition(opts, required_partition)
     context = opts |> Keyword.get(:context, %{}) |> normalize_context()
     required_gateway_node = resolve_required_gateway_node(opts, context)
+    requested_command_id = Keyword.get(opts, :command_id)
     transmit_payload = Keyword.get(opts, :transmit_payload, payload)
     payload_map = normalize_payload(payload)
 
@@ -60,7 +61,10 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
     ash_opts = [actor: SystemActor.system(:agent_command_bus)]
 
-    with :ok <- reject_sensitive_transmit_payload(transmit_payload),
+    with {:ok, command_id} <-
+           normalize_preallocated_command_id(command_type, requested_command_id),
+         command_attrs = maybe_put(command_attrs, :command_id, command_id),
+         :ok <- reject_sensitive_transmit_payload(transmit_payload),
          :ok <- reject_endpoint_inventory_blob_payload(command_type, transmit_payload),
          :ok <- ensure_dispatch_capacity(agent_id, command_type, source, ash_opts),
          {:ok, command} <- create_command(command_attrs, ash_opts) do
@@ -93,6 +97,22 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       {:error, :sensitive_transmit_payload_denied}
     end
   end
+
+  defp normalize_preallocated_command_id("awx.create_callback_credential", nil),
+    do: {:error, :preallocated_command_id_required}
+
+  defp normalize_preallocated_command_id(_command_type, nil), do: {:ok, nil}
+
+  defp normalize_preallocated_command_id("awx.create_callback_credential", command_id)
+       when is_binary(command_id) do
+    case Ecto.UUID.cast(command_id) do
+      {:ok, normalized} -> {:ok, normalized}
+      :error -> {:error, :invalid_preallocated_command_id}
+    end
+  end
+
+  defp normalize_preallocated_command_id(_command_type, _command_id),
+    do: {:error, :preallocated_command_id_denied}
 
   defp reject_endpoint_inventory_blob_payload(command_type, payload) do
     if endpoint_inventory_command_type?(command_type) and
@@ -1526,7 +1546,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp create_command(attrs, ash_opts) do
     if control_repo_available?() do
-      command_id = Ecto.UUID.generate()
+      command_id = Map.get(attrs, :command_id) || Ecto.UUID.generate()
       ttl_seconds = Map.get(attrs, :ttl_seconds) || 60
 
       expires_at =

@@ -97,25 +97,26 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 	}
 
 	return &PluginManager{
-		logger:             cfg.Logger,
-		cacheDir:           cacheDir,
-		localStoreDir:      localStoreDir,
-		httpClient:         client,
-		artifactHTTPClient: artifactClient,
-		compilationCache:   wazero.NewCompilationCache(),
-		credentialBroker:   cfg.CredentialBroker,
-		artifactUploader:   cfg.ArtifactUploader,
-		credentialCache:    make(map[string]credentialBrokerCacheEntry),
-		credentialNow:      time.Now,
-		ctx:                rootCtx,
-		cancel:             cancel,
-		runners:            make(map[string]*pluginRunner),
-		streams:            make(map[string]*pluginAssignment),
-		results:            make(chan PluginResult, 1024),
-		signals:            make(chan PluginSignalTelemetry, 1024),
-		conditions:         newPluginConditionDebouncer(time.Now),
-		states:             make(map[string]*assignmentState),
-		stateNow:           time.Now,
+		logger:                        cfg.Logger,
+		cacheDir:                      cacheDir,
+		localStoreDir:                 localStoreDir,
+		httpClient:                    client,
+		artifactHTTPClient:            artifactClient,
+		compilationCache:              wazero.NewCompilationCache(),
+		credentialBroker:              cfg.CredentialBroker,
+		awxCallbackCredentialResolver: cfg.AWXCallbackCredentialResolver,
+		artifactUploader:              cfg.ArtifactUploader,
+		credentialCache:               make(map[string]credentialBrokerCacheEntry),
+		credentialNow:                 time.Now,
+		ctx:                           rootCtx,
+		cancel:                        cancel,
+		runners:                       make(map[string]*pluginRunner),
+		streams:                       make(map[string]*pluginAssignment),
+		results:                       make(chan PluginResult, 1024),
+		signals:                       make(chan PluginSignalTelemetry, 1024),
+		conditions:                    newPluginConditionDebouncer(time.Now),
+		states:                        make(map[string]*assignmentState),
+		stateNow:                      time.Now,
 	}
 }
 
@@ -139,6 +140,21 @@ func (m *PluginManager) SetCredentialBroker(resolver CredentialBrokerResolver) {
 	m.credentialMu.Lock()
 	defer m.credentialMu.Unlock()
 	m.credentialBroker = resolver
+}
+
+// SetAWXCallbackCredentialEnvelopeResolver installs the selected-agent,
+// single-resolution launch-envelope boundary. Resolved callback inputs remain
+// memory-only and are never added to AgentCommandBus payloads or plugin config.
+func (m *PluginManager) SetAWXCallbackCredentialEnvelopeResolver(
+	resolver AWXCallbackCredentialEnvelopeResolver,
+) {
+	if m == nil {
+		return
+	}
+
+	m.awxCallbackCredentialMu.Lock()
+	defer m.awxCallbackCredentialMu.Unlock()
+	m.awxCallbackCredentialResolver = resolver
 }
 
 // ApplyConfig applies plugin assignments from config, replacing existing runners.
@@ -959,7 +975,7 @@ func (m *PluginManager) RunAction(ctx context.Context, assignmentID string, invo
 		return nil, err
 	}
 
-	result, err := m.executeActionWithWasm(runCtx, assignment, wasm, configJSON, credentialGrants)
+	result, err := m.executeActionWithWasm(runCtx, assignment, wasm, configJSON, credentialGrants, nil)
 	m.recordExecution(err == nil)
 	return result, err
 }
@@ -975,6 +991,34 @@ func (m *PluginManager) RunPluginVerb(
 	pluginID string,
 	configJSON json.RawMessage,
 	credentialGrants []credentialBrokerGrant,
+	timeout time.Duration,
+) ([]byte, error) {
+	return m.runPluginVerb(ctx, pluginID, configJSON, credentialGrants, nil, timeout)
+}
+
+// RunPluginVerbWithAWXCallbackCredential runs one AWX verb with a memory-only
+// credential input available solely to the exact /api/v2/credentials/ POST
+// rewrite in the trusted host HTTP boundary.
+func (m *PluginManager) RunPluginVerbWithAWXCallbackCredential(
+	ctx context.Context,
+	pluginID string,
+	configJSON json.RawMessage,
+	credentialGrants []credentialBrokerGrant,
+	callbackCredential *awxCallbackCredentialMemoryInput,
+	timeout time.Duration,
+) ([]byte, error) {
+	if callbackCredential == nil {
+		return nil, errAWXCallbackCredentialInputMissing
+	}
+	return m.runPluginVerb(ctx, pluginID, configJSON, credentialGrants, callbackCredential, timeout)
+}
+
+func (m *PluginManager) runPluginVerb(
+	ctx context.Context,
+	pluginID string,
+	configJSON json.RawMessage,
+	credentialGrants []credentialBrokerGrant,
+	callbackCredential *awxCallbackCredentialMemoryInput,
 	timeout time.Duration,
 ) ([]byte, error) {
 	if m == nil {
@@ -1008,7 +1052,14 @@ func (m *PluginManager) RunPluginVerb(
 		return nil, err
 	}
 
-	result, err := m.executeActionWithWasm(runCtx, assignment, wasm, configJSON, credentialGrants)
+	result, err := m.executeActionWithWasm(
+		runCtx,
+		assignment,
+		wasm,
+		configJSON,
+		credentialGrants,
+		callbackCredential,
+	)
 	m.recordExecution(err == nil)
 	return result, err
 }

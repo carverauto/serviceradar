@@ -79,13 +79,14 @@ var (
 
 // PluginManagerConfig configures the Wasm plugin manager.
 type PluginManagerConfig struct {
-	CacheDir           string
-	LocalStoreDir      string
-	Logger             logger.Logger
-	HTTPClient         *http.Client
-	ArtifactHTTPClient *http.Client
-	CredentialBroker   CredentialBrokerResolver
-	ArtifactUploader   PluginArtifactUploader
+	CacheDir                      string
+	LocalStoreDir                 string
+	Logger                        logger.Logger
+	HTTPClient                    *http.Client
+	ArtifactHTTPClient            *http.Client
+	CredentialBroker              CredentialBrokerResolver
+	AWXCallbackCredentialResolver AWXCallbackCredentialEnvelopeResolver
+	ArtifactUploader              PluginArtifactUploader
 }
 
 // CredentialBrokerResolver resolves a validated broker grant for agent-owned
@@ -100,18 +101,20 @@ type CredentialBrokerMaterial = coreaddon.CredentialBrokerMaterial
 
 // PluginManager manages Wasm plugin assignments and execution.
 type PluginManager struct {
-	logger             logger.Logger
-	cacheDir           string
-	localStoreDir      string
-	httpClient         *http.Client
-	artifactHTTPClient *http.Client
-	compilationCache   wazero.CompilationCache
-	credentialBroker   CredentialBrokerResolver
-	artifactUploader   PluginArtifactUploader
-	credentialCache    map[string]credentialBrokerCacheEntry
-	credentialNow      func() time.Time
-	credentialMu       sync.Mutex
-	artifactMu         sync.Mutex
+	logger                        logger.Logger
+	cacheDir                      string
+	localStoreDir                 string
+	httpClient                    *http.Client
+	artifactHTTPClient            *http.Client
+	compilationCache              wazero.CompilationCache
+	credentialBroker              CredentialBrokerResolver
+	awxCallbackCredentialResolver AWXCallbackCredentialEnvelopeResolver
+	artifactUploader              PluginArtifactUploader
+	credentialCache               map[string]credentialBrokerCacheEntry
+	credentialNow                 func() time.Time
+	credentialMu                  sync.Mutex
+	awxCallbackCredentialMu       sync.Mutex
+	artifactMu                    sync.Mutex
 
 	ctx    context.Context
 	cancel context.CancelFunc
