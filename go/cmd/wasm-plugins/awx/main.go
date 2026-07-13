@@ -128,6 +128,8 @@ func dispatch(cfg Config) *sdk.Result {
 		return runLaunchJob(cfg)
 	case "awx.create_callback_credential":
 		return runCreateCallbackCredential(cfg)
+	case "awx.fetch_callback_credential":
+		return runFetchCallbackCredential(cfg)
 	case "awx.delete_callback_credential":
 		return runDeleteCallbackCredential(cfg)
 	case "awx.fetch_job":
@@ -171,6 +173,12 @@ var allowedCreateCallbackCredentialArgs = map[string]struct{}{
 	"organization_id":    {},
 	"credential_name":    {},
 	"injector_sha256":    {},
+}
+
+var allowedFetchCallbackCredentialArgs = map[string]struct{}{
+	"credential_type_id": {},
+	"organization_id":    {},
+	"credential_name":    {},
 }
 
 var allowedDeleteCallbackCredentialArgs = map[string]struct{}{
@@ -266,6 +274,54 @@ func runCreateCallbackCredential(cfg Config) *sdk.Result {
 	return sdk.Ok(fmt.Sprintf("created ephemeral callback credential %d", credential.ID)).
 		WithDetails(string(out)).
 		WithLabel("verb", "awx.create_callback_credential")
+}
+
+// runFetchCallbackCredential performs read-only reconciliation of the
+// deterministic ephemeral credential after an ambiguous create transport.
+// It never creates, updates, or deletes a credential.
+func runFetchCallbackCredential(cfg Config) *sdk.Result {
+	if err := validateExactArgs(cfg.Args, allowedFetchCallbackCredentialArgs); err != nil {
+		return errorResult("awx.fetch_callback_credential", err)
+	}
+
+	credentialTypeID, ok := positiveArgID(cfg.Args, "credential_type_id")
+	if !ok {
+		return errorResult("awx.fetch_callback_credential", fmt.Errorf("args.credential_type_id is required"))
+	}
+	organizationID, ok := positiveArgID(cfg.Args, "organization_id")
+	if !ok {
+		return errorResult("awx.fetch_callback_credential", fmt.Errorf("args.organization_id is required"))
+	}
+	credentialName, ok := boundedCallbackCredentialName(cfg.Args)
+	if !ok {
+		return errorResult("awx.fetch_callback_credential", fmt.Errorf("args.credential_name is invalid"))
+	}
+
+	credential, err := preflightCallbackCredential(
+		cfg,
+		credentialName,
+		credentialTypeID,
+		organizationID,
+	)
+	if err != nil {
+		return errorResult("awx.fetch_callback_credential", err)
+	}
+
+	payload := map[string]any{
+		"verb":               "awx.fetch_callback_credential",
+		"ok":                 true,
+		"found":              credential != nil,
+		"credential_type_id": credentialTypeID,
+		"organization_id":    organizationID,
+		"credential_name":    credentialName,
+	}
+	if credential != nil {
+		payload["credential_id"] = credential.ID
+	}
+	out, _ := json.Marshal(payload)
+	return sdk.Ok("reconciled ephemeral callback credential").
+		WithDetails(string(out)).
+		WithLabel("verb", "awx.fetch_callback_credential")
 }
 
 type awxCallbackCredentialTypeField struct {

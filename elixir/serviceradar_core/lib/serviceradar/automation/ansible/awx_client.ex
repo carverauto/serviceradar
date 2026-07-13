@@ -233,6 +233,19 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
     end
   end
 
+  @doc "Fetches the deterministic callback credential without creating or mutating it."
+  @spec fetch_callback_credential(Controller.t(), map(), keyword()) ::
+          {:ok, struct()} | {:error, term()}
+  def fetch_callback_credential(controller, request, opts \\ []) when is_map(request) do
+    args = %{
+      "credential_type_id" => fetch_positive_int!(request, :credential_type_id),
+      "organization_id" => fetch_positive_int!(request, :organization_id),
+      "credential_name" => fetch_nonempty_string!(request, :credential_name)
+    }
+
+    dispatch_verb(controller, "awx.fetch_callback_credential", args, opts)
+  end
+
   @spec fetch_job(Controller.t(), integer(), keyword()) :: {:ok, struct()} | {:error, term()}
   def fetch_job(controller, job_id, opts \\ []) when is_integer(job_id) do
     dispatch_verb(controller, "awx.fetch_job", %{"job_id" => job_id}, opts)

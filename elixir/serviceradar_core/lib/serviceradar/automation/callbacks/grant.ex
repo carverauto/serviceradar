@@ -21,6 +21,8 @@ defmodule ServiceRadar.Automation.Callbacks.Grant do
     repo ServiceRadar.Repo
     schema "platform"
 
+    identity_wheres_to_sql one_live_grant_per_partition: "state IN ('pending', 'active')"
+
     identity_index_names unique_token_verifier: "automation_callback_grants_token_verifier_uidx",
                          unique_idempotency_key_verifier:
                            "automation_callback_grants_idempotency_verifier_uidx",
@@ -40,6 +42,7 @@ defmodule ServiceRadar.Automation.Callbacks.Grant do
     define :get_by_verifier, action: :by_verifier, args: [:token_verifier]
     define :list_for_execution, action: :for_execution, args: [:execution_id]
     define :create_pending, action: :create_pending
+    define :bind_job_pending, action: :bind_job_pending
     define :activate_bound, action: :activate_bound
     define :record_consumed, action: :record_consumed
     define :record_revoked, action: :record_revoked
@@ -128,6 +131,12 @@ defmodule ServiceRadar.Automation.Callbacks.Grant do
       accept [:awx_job_id, :activated_at]
       filter expr(state == :pending)
       change set_attribute(:state, :active)
+    end
+
+    update :bind_job_pending do
+      require_atomic? true
+      accept [:awx_job_id]
+      filter expr(state == :pending)
     end
 
     update :record_consumed do

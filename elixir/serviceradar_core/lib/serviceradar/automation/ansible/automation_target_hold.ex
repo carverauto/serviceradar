@@ -25,6 +25,8 @@ defmodule ServiceRadar.Automation.Ansible.AutomationTargetHold do
     repo ServiceRadar.Repo
     schema "platform"
 
+    identity_wheres_to_sql one_active_hold_per_device: "active = true"
+
     identity_index_names one_active_hold_per_device:
                            "ansible_automation_target_holds_active_device_uidx"
 

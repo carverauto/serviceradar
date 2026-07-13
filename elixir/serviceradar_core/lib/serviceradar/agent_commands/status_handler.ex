@@ -7,6 +7,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentCommands.PubSub
+  alias ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator
   alias ServiceRadar.Automation.Ansible.EventIngestor, as: AnsibleEventIngestor
   alias ServiceRadar.Automation.CallbackGrants.CleanupReconciler
 
@@ -29,12 +30,36 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
   @impl true
   def init(opts) do
-    PubSub.subscribe()
+    PubSub.subscribe_ingress()
 
     {:ok,
      %{
        actor: SystemActor.system(:agent_command_status),
-       cleanup_reconciler: Keyword.get(opts, :cleanup_reconciler, CleanupReconciler)
+       cleanup_reconciler: Keyword.get(opts, :cleanup_reconciler, CleanupReconciler),
+       callback_result_coordinator:
+         Keyword.get(opts, :callback_result_coordinator, CallbackCommandResultCoordinator),
+       result_persister: Keyword.get(opts, :result_persister, &persist_result/2),
+       persisted_result_broadcaster:
+         Keyword.get(opts, :persisted_result_broadcaster, &PubSub.broadcast_persisted_result/1),
+       result_consumers:
+         Keyword.get(opts, :result_consumers, [
+           &safe_maybe_ingest_mtr_result/1,
+           fn data ->
+             AgentReleaseManager.handle_command_result(data,
+               actor: SystemActor.system(:agent_command_status)
+             )
+           end,
+           fn data ->
+             AnsibleEventIngestor.handle_command_result(data,
+               actor: SystemActor.system(:agent_command_status)
+             )
+           end,
+           fn data ->
+             NorthboundCommandResultHandler.handle_command_result(data,
+               actor: SystemActor.system(:agent_command_status)
+             )
+           end
+         ])
      }}
   end
 
@@ -54,16 +79,27 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
   def handle_info({:command_result, data}, state) do
     safe_data = sanitize_cleanup_result(data)
-    persisted? = persist_result(safe_data, state.actor) == :ok
+    persisted? = persist_result_with(safe_data, state) == :ok
 
     if persisted? do
-      safe_reconcile_callback_cleanup(data, state.cleanup_reconciler)
+      safe_broadcast_persisted_result(
+        safe_data,
+        Map.get(state, :persisted_result_broadcaster, &PubSub.broadcast_persisted_result/1)
+      )
+
+      safe_reconcile_callback_cleanup(
+        data,
+        Map.get(state, :cleanup_reconciler, CleanupReconciler)
+      )
+
+      safe_coordinate_callback_result(
+        data,
+        Map.get(state, :callback_result_coordinator, CallbackCommandResultCoordinator)
+      )
+
+      Enum.each(Map.get(state, :result_consumers, []), &safe_call_result_consumer(&1, safe_data))
     end
 
-    safe_maybe_ingest_mtr_result(safe_data)
-    AgentReleaseManager.handle_command_result(safe_data, actor: state.actor)
-    AnsibleEventIngestor.handle_command_result(safe_data, actor: state.actor)
-    NorthboundCommandResultHandler.handle_command_result(safe_data, actor: state.actor)
     {:noreply, state}
   end
 
@@ -81,6 +117,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
       %{
         command_id: map_get_any(data, [:command_id, "command_id"], nil),
         command_type: command_type,
+        agent_id: map_get_any(data, [:agent_id, "agent_id"], nil),
         success: success?
       }
       |> Map.put(:payload, safe_cleanup_payload(command_type, payload))
@@ -180,6 +217,104 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
       :ok
   end
 
+  defp safe_coordinate_callback_result(data, coordinator) do
+    cond do
+      is_function(coordinator, 1) -> coordinator.(data)
+      is_atom(coordinator) -> coordinator.handle_command_result(data)
+      true -> {:error, :callback_result_coordinator_unavailable}
+    end
+
+    :ok
+  rescue
+    exception ->
+      Logger.warning("AgentCommandStatusHandler: callback result coordination failed",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        command_type: map_get_any(data, [:command_type, "command_type"], nil),
+        exception: exception.__struct__
+      )
+
+      :ok
+  catch
+    kind, _reason ->
+      Logger.warning("AgentCommandStatusHandler: callback result coordination failed",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        command_type: map_get_any(data, [:command_type, "command_type"], nil),
+        failure_kind: kind
+      )
+
+      :ok
+  end
+
+  defp safe_call_result_consumer(consumer, data) when is_function(consumer, 1) do
+    consumer.(data)
+    :ok
+  rescue
+    exception ->
+      Logger.warning("AgentCommandStatusHandler: persisted result consumer failed",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        exception: exception.__struct__
+      )
+
+      :ok
+  catch
+    kind, _reason ->
+      Logger.warning("AgentCommandStatusHandler: persisted result consumer threw",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        failure_kind: kind
+      )
+
+      :ok
+  end
+
+  defp safe_call_result_consumer(_consumer, _data), do: :ok
+
+  defp safe_broadcast_persisted_result(data, broadcaster) when is_function(broadcaster, 1) do
+    broadcaster.(data)
+    :ok
+  rescue
+    exception ->
+      Logger.warning("AgentCommandStatusHandler: persisted result broadcast failed",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        exception: exception.__struct__
+      )
+
+      :ok
+  catch
+    kind, _reason ->
+      Logger.warning("AgentCommandStatusHandler: persisted result broadcast threw",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        failure_kind: kind
+      )
+
+      :ok
+  end
+
+  defp safe_broadcast_persisted_result(_data, _broadcaster), do: :ok
+
+  defp persist_result_with(data, state) do
+    persister = Map.get(state, :result_persister, &persist_result/2)
+
+    if is_function(persister, 2),
+      do: persister.(data, Map.get(state, :actor)),
+      else: {:error, :command_result_persister_unavailable}
+  rescue
+    exception ->
+      Logger.warning("AgentCommandStatusHandler: command result persistence raised",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        exception: exception.__struct__
+      )
+
+      {:error, :command_result_persistence_failed}
+  catch
+    kind, _reason ->
+      Logger.warning("AgentCommandStatusHandler: command result persistence threw",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        failure_kind: kind
+      )
+
+      {:error, :command_result_persistence_failed}
+  end
+
   defp persist_ack(%{command_id: command_id} = data, _actor) do
     command_id_text = normalize_command_id(command_id)
 
@@ -239,35 +374,65 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
     end
   end
 
-  defp persist_result(%{command_id: command_id} = data, _actor) do
+  defp persist_result(data, _actor) when is_map(data) do
+    command_id = map_get_any(data, [:command_id, "command_id"], nil)
     command_id_text = normalize_command_id(command_id)
+    authenticated_agent_id = map_get_any(data, [:agent_id, "agent_id"], nil)
+    reported_command_type = map_get_any(data, [:command_type, "command_type"], nil)
 
-    if command_id_text do
-      success? = Map.get(data, :success) == true
+    if not is_nil(command_id_text) and is_binary(authenticated_agent_id) and
+         authenticated_agent_id != "" and
+         is_binary(reported_command_type) and reported_command_type != "" do
+      success? = map_get_any(data, [:success, "success"], false) == true
+      status = if(success?, do: "completed", else: "failed")
+      result_payload = json_param(map_get_any(data, [:payload, "payload"], nil))
 
-      control_query(
+      failure_reason =
+        if(success?,
+          do: nil,
+          else: map_get_any(data, [:failure_reason, "failure_reason"], nil) || "command_failed"
+        )
+
+      control_query_exact(
         """
         UPDATE platform.agent_commands
         SET
           status = $2,
           completed_at = COALESCE(completed_at, now() AT TIME ZONE 'utc'),
-          message = $3,
+          message = CASE
+            WHEN status IN ('completed', 'failed', 'expired', 'canceled', 'offline') THEN message
+            ELSE $3
+          END,
           result_payload = $4::jsonb,
           failure_reason = $5,
           updated_at = now() AT TIME ZONE 'utc'
         WHERE command_id = $1::text::uuid
-          AND status NOT IN ('completed', 'failed', 'expired', 'canceled', 'offline')
+          AND agent_id = $6
+          AND command_type = $7
+          AND (
+            status NOT IN ('completed', 'failed', 'expired', 'canceled', 'offline')
+            OR (
+              status = $2
+              AND result_payload IS NOT DISTINCT FROM $4::jsonb
+              AND failure_reason IS NOT DISTINCT FROM $5
+            )
+          )
+        RETURNING command_id
         """,
         [
           command_id_text,
-          if(success?, do: "completed", else: "failed"),
-          Map.get(data, :message),
-          json_param(Map.get(data, :payload)),
-          if(success?, do: nil, else: Map.get(data, :failure_reason) || "command_failed")
+          status,
+          map_get_any(data, [:message, "message"], nil),
+          result_payload,
+          failure_reason,
+          authenticated_agent_id,
+          reported_command_type
         ],
         "persist command result",
         command_id_text
       )
+    else
+      {:error, :command_result_provenance_required}
     end
   end
 
@@ -600,6 +765,37 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
     case control_repo().query(sql, params) do
       {:ok, _result} ->
         :ok
+
+      {:error, reason} ->
+        Logger.warning("AgentCommandStatusHandler: failed to #{action}",
+          command_id: command_id,
+          reason: inspect(reason)
+        )
+
+        {:error, reason}
+    end
+  end
+
+  defp control_query_exact(sql, params, action, command_id) do
+    case control_repo().query(sql, params) do
+      {:ok, %{num_rows: 1}} ->
+        :ok
+
+      {:ok, %{num_rows: 0}} ->
+        Logger.warning("AgentCommandStatusHandler: refused to #{action}",
+          command_id: command_id,
+          reason: "missing, terminal-conflicting, or provenance-mismatched command"
+        )
+
+        {:error, :command_result_not_persisted}
+
+      {:ok, %{num_rows: count}} ->
+        Logger.error("AgentCommandStatusHandler: non-unique #{action}",
+          command_id: command_id,
+          row_count: count
+        )
+
+        {:error, :command_result_non_unique}
 
       {:error, reason} ->
         Logger.warning("AgentCommandStatusHandler: failed to #{action}",

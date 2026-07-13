@@ -58,6 +58,8 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycleTest do
         "credentials" => [%{"id" => 5, "kind" => "ssh"}, %{"id" => 9, "kind" => "cloud"}],
         "launched_by" => %{"id" => 11, "type" => "user"},
         "job_type" => "run",
+        "job_slice_count" => 1,
+        "job_slice_number" => 0,
         "dispatch_markers" => %{
           "serviceradar_dispatch_id" => "018f3f56-1111-7222-8333-123456789abe",
           "serviceradar_snapshot_digest" => String.duplicate("b", 64)
@@ -365,6 +367,64 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycleTest do
              )
 
     assert_receive {:reject_scope, _, [], %{callback_ready?: false}}
+  end
+
+  test "rejects sliced jobs before accepting callback authority" do
+    assert {:error, :accepted_job_slice_count_mismatch} =
+             ExecutionLifecycle.accepted_job_snapshot(
+               execution(),
+               @controller_id,
+               accepted_job(%{"job_slice_count" => 2, "job_slice_number" => 1})
+             )
+
+    assert {:error, :accepted_job_slice_number_mismatch} =
+             ExecutionLifecycle.accepted_job_snapshot(
+               execution(),
+               @controller_id,
+               accepted_job(%{"job_slice_number" => 2})
+             )
+  end
+
+  test "classifies only a strict expected subset as retryable host evidence" do
+    accepted = execution(%{awx_job_id: 77, state: :launching})
+    host7 = %{"job_id" => 77, "host_id" => 7, "host_name" => "farm01-pve01"}
+    host8 = %{"job_id" => 77, "host_id" => 8, "host_name" => "farm01-node01"}
+
+    assert {:retry, :host_scope_incomplete} =
+             ExecutionLifecycle.classify_host_scope(
+               accepted,
+               targets(),
+               @controller_id,
+               77,
+               [host7]
+             )
+
+    assert {:ok, :exact} =
+             ExecutionLifecycle.classify_host_scope(
+               accepted,
+               targets(),
+               @controller_id,
+               77,
+               [host8, host7]
+             )
+
+    assert {:error, :job_host_scope_mismatch} =
+             ExecutionLifecycle.classify_host_scope(
+               accepted,
+               targets(),
+               @controller_id,
+               77,
+               [host7, %{"job_id" => 77, "host_id" => 9, "host_name" => "foreign"}]
+             )
+
+    assert {:error, :duplicate_job_host_summary_id} =
+             ExecutionLifecycle.classify_host_scope(
+               accepted,
+               targets(),
+               @controller_id,
+               77,
+               [host7, %{host7 | "host_name" => "farm01-node01"}]
+             )
   end
 
   test "marks callback ready only after exact post-start host-ID scope is persisted" do

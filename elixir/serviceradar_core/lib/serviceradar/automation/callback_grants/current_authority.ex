@@ -80,7 +80,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
 
   @impl true
   def current_authority(stage, grant, context)
-      when stage in [:issue, :bind_credential, :activate, :use, :replay] and is_map(grant) do
+      when stage in [:issue, :bind_credential, :bind_job, :activate, :use, :replay] and
+             is_map(grant) do
     source = source(context)
     now = now(context)
     principal_type = normalize_principal_type(value(grant, :principal_type))

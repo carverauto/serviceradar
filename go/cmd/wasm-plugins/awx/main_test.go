@@ -551,6 +551,100 @@ func TestRunCreateCallbackCredentialRequiresCleanupBeforeReissue(t *testing.T) {
 	}
 }
 
+func TestRunFetchCallbackCredentialReturnsExactFoundIdentity(t *testing.T) {
+	existing := []byte(`{
+		"count":1,
+		"next":null,
+		"results":[{
+			"id":401,
+			"name":"sr-callback-018f3f56-1111-7222-8333-123456789abc",
+			"credential_type":91,
+			"organization":2
+		}]
+	}`)
+	fake := &scriptedHTTPClient{responses: []*sdk.HTTPResponse{{Status: http.StatusOK, Body: existing}}}
+	swapHTTP(t, fake)
+
+	res := dispatch(callbackCredentialFetchConfig())
+	if res.Status != sdk.StatusOK || len(fake.requests) != 1 || fake.requests[0].Method != http.MethodGet {
+		t.Fatalf("expected one read-only lookup: status=%s requests=%#v", res.Status, fake.requests)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(res.Details), &payload); err != nil {
+		t.Fatalf("decode details: %v", err)
+	}
+	if payload["verb"] != "awx.fetch_callback_credential" || payload["ok"] != true ||
+		payload["found"] != true || payload["credential_id"] != float64(401) ||
+		payload["credential_type_id"] != float64(91) || payload["organization_id"] != float64(2) {
+		t.Fatalf("unexpected found payload: %#v", payload)
+	}
+	if len(payload) != 7 {
+		t.Fatalf("unexpected fields in found payload: %#v", payload)
+	}
+}
+
+func TestRunFetchCallbackCredentialReturnsExactAbsentIdentity(t *testing.T) {
+	fake := &scriptedHTTPClient{responses: []*sdk.HTTPResponse{{
+		Status: http.StatusOK,
+		Body:   []byte(`{"count":0,"next":null,"results":[]}`),
+	}}}
+	swapHTTP(t, fake)
+
+	res := dispatch(callbackCredentialFetchConfig())
+	if res.Status != sdk.StatusOK || len(fake.requests) != 1 {
+		t.Fatalf("expected successful absence lookup: status=%s requests=%#v", res.Status, fake.requests)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(res.Details), &payload); err != nil {
+		t.Fatalf("decode details: %v", err)
+	}
+	if payload["found"] != false {
+		t.Fatalf("unexpected absence payload: %#v", payload)
+	}
+	if _, exists := payload["credential_id"]; exists || len(payload) != 6 {
+		t.Fatalf("absent payload must not invent a credential ID: %#v", payload)
+	}
+}
+
+func TestRunFetchCallbackCredentialRejectsAmbiguityAndUnexpectedArgs(t *testing.T) {
+	t.Run("ambiguous", func(t *testing.T) {
+		fake := &scriptedHTTPClient{responses: []*sdk.HTTPResponse{{
+			Status: http.StatusOK,
+			Body:   []byte(`{"count":2,"next":null,"results":[{"id":401},{"id":402}]}`),
+		}}}
+		swapHTTP(t, fake)
+
+		res := dispatch(callbackCredentialFetchConfig())
+		if res.Status != sdk.StatusCritical || len(fake.requests) != 1 {
+			t.Fatalf("ambiguous lookup must fail closed: status=%s requests=%#v", res.Status, fake.requests)
+		}
+	})
+
+	t.Run("unexpected args", func(t *testing.T) {
+		fake := &fakeHTTPClient{}
+		swapHTTP(t, fake)
+		cfg := callbackCredentialFetchConfig()
+		cfg.Args["inputs"] = map[string]any{"callback_grant": "must-not-pass"}
+
+		res := dispatch(cfg)
+		if res.Status != sdk.StatusCritical || len(fake.requests) != 0 {
+			t.Fatalf("unexpected args must fail before HTTP: status=%s requests=%#v", res.Status, fake.requests)
+		}
+	})
+}
+
+func callbackCredentialFetchConfig() Config {
+	return Config{
+		BaseURL: "https://awx.example.com", APIToken: "controller-token",
+		Verb: "awx.fetch_callback_credential",
+		Args: map[string]any{
+			"credential_type_id": float64(91),
+			"organization_id":    float64(2),
+			"credential_name":    "sr-callback-018f3f56-1111-7222-8333-123456789abc",
+		},
+	}
+}
+
 func TestRunCreateCallbackCredentialRejectsUnreviewedInputsBeforeHTTP(t *testing.T) {
 	fake := &fakeHTTPClient{}
 	swapHTTP(t, fake)

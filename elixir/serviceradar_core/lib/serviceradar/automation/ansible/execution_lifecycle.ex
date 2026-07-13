@@ -85,7 +85,7 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
          {:ok, normalized_summaries} <- normalize_summaries(summaries, authenticated_job_id),
          :ok <- compare_scope(normalized_targets, normalized_summaries),
          evidence = scope_evidence(execution, normalized_targets, normalized_summaries),
-         {:ok, updated} <- actions.mark_scope_verified(execution, targets, evidence) do
+         {:ok, updated} <- persist_scope_evidence(execution, targets, evidence, actions) do
       {:ok,
        %{
          execution: updated,
@@ -109,6 +109,35 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
   end
 
   def verify_host_scope(_execution, _targets, _controller_id, _job_id, _summaries, _opts),
+    do: {:error, :invalid_job_host_scope}
+
+  @doc """
+  Classifies an authenticated host-summary snapshot without mutating lifecycle state.
+
+  A strict subset is expected while AWX is still creating host-summary rows and is
+  therefore retryable. Duplicate, foreign, or otherwise malformed observations are
+  never retryable; they are scope mismatches that callers must revoke before
+  cancellation or cleanup.
+  """
+  @spec classify_host_scope(execution(), [target()], String.t(), pos_integer(), [map()]) ::
+          {:ok, :exact} | {:retry, :host_scope_incomplete} | {:error, term()}
+  def classify_host_scope(
+        execution,
+        targets,
+        authenticated_controller_id,
+        authenticated_job_id,
+        summaries
+      )
+      when is_map(execution) and is_list(targets) and is_binary(authenticated_controller_id) and
+             is_integer(authenticated_job_id) and authenticated_job_id > 0 and is_list(summaries) do
+    with :ok <- verify_bound_job(execution, authenticated_controller_id, authenticated_job_id),
+         {:ok, normalized_targets} <- normalize_targets(execution, targets),
+         {:ok, normalized_summaries} <- normalize_summaries(summaries, authenticated_job_id) do
+      classify_normalized_scope(normalized_targets, normalized_summaries)
+    end
+  end
+
+  def classify_host_scope(_execution, _targets, _controller_id, _job_id, _summaries),
     do: {:error, :invalid_job_host_scope}
 
   @doc false
@@ -171,6 +200,9 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
       {:accepted_integration_identity_mismatch,
        positive_integer(expected_created_by_id) == actual_created_by_id},
       {:accepted_mode_mismatch, normalize_job_type(value(job, :job_type)) == expected_mode},
+      {:accepted_job_slice_count_mismatch, positive_integer(value(job, :job_slice_count)) == 1},
+      {:accepted_job_slice_number_mismatch,
+       optional_job_slice_number?(value(job, :job_slice_number))},
       {:accepted_markers_missing, is_map(markers)},
       {:accepted_dispatch_id_mismatch,
        is_map(markers) and
@@ -200,6 +232,8 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
           "credential_ids" => Enum.map(accepted_credentials, & &1["id"]),
           "awx_created_by_id" => positive_integer(expected_created_by_id),
           "job_type" => expected_mode,
+          "job_slice_count" => 1,
+          "job_slice_number" => positive_integer(value(job, :job_slice_number)) || 0,
           "serviceradar_dispatch_id" => value(execution, :dispatch_id),
           "serviceradar_snapshot_digest" => value(execution, :snapshot_digest)
         }
@@ -333,6 +367,30 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
     if expected == actual, do: :ok, else: {:error, :job_host_scope_mismatch}
   end
 
+  defp persist_scope_evidence(execution, targets, evidence, actions) do
+    persisted = execution |> value(:accepted_job_snapshot) |> value(:scope_verification)
+
+    if value(execution, :state) == :scope_verified and persisted == evidence,
+      do: {:ok, execution},
+      else: actions.mark_scope_verified(execution, targets, evidence)
+  end
+
+  defp classify_normalized_scope(targets, summaries) do
+    expected = MapSet.new(targets, &Map.take(&1, [:awx_host_id, :host_name]))
+    actual = MapSet.new(summaries, &Map.take(&1, [:awx_host_id, :host_name]))
+
+    cond do
+      MapSet.equal?(expected, actual) ->
+        {:ok, :exact}
+
+      MapSet.subset?(actual, expected) and MapSet.size(actual) < MapSet.size(expected) ->
+        {:retry, :host_scope_incomplete}
+
+      true ->
+        {:error, :job_host_scope_mismatch}
+    end
+  end
+
   defp scope_evidence(execution, targets, summaries) do
     %{
       "schema" => "serviceradar.awx_scope_verification.v1",
@@ -388,6 +446,11 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
   end
 
   defp normalize_credential_refs(_values), do: :invalid
+
+  defp optional_job_slice_number?(nil), do: true
+  defp optional_job_slice_number?(0), do: true
+  defp optional_job_slice_number?(1), do: true
+  defp optional_job_slice_number?(_value), do: false
 
   # AWX credential summary order is not part of the launch contract. Both the
   # reviewed base refs and observed refs are canonicalized by ID above; this

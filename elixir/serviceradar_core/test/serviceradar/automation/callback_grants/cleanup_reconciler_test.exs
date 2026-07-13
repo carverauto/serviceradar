@@ -55,7 +55,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconcilerTest do
     refute inspect(attrs) =~ "sensitive upstream body"
   end
 
-  test "an exact AWX cancellation result is confirmation of the requested command" do
+  test "an exact AWX cancellation result records only that cancellation was requested" do
     command = cancel_command()
 
     result = %{
@@ -72,7 +72,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconcilerTest do
     }
 
     assert :ok = CleanupReconciler.handle_command_result(result, opts(self(), command))
-    assert_receive {:reconcile, @grant_id, %{result_status: :cancel_confirmed} = attrs}
+    assert_receive {:reconcile, @grant_id, %{result_status: :cancel_requested} = attrs}
     assert attrs.cleanup_kind == "job_cancel"
     assert attrs.awx_job_id == 9_001
   end
@@ -127,7 +127,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconcilerTest do
       | context: Map.put(delete_context(), "dispatch_agent_id", "another-agent")
     }
 
-    assert {:error, :cleanup_command_agent_mismatch} =
+    assert {:error, :cleanup_result_agent_mismatch} =
              CleanupReconciler.handle_command_result(
                delete_result(valid_delete_payload()),
                opts(self(), mismatched)

@@ -90,6 +90,93 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
   def bind_credential(_grant_id, _credential_id, _opts),
     do: {:error, :invalid_callback_credential}
 
+  @doc "Binds a verified AWX job while callback authority remains pending."
+  @spec bind_job(binary(), map(), opts()) :: {:ok, map()} | {:error, term()}
+  def bind_job(grant_id, job_binding, opts)
+      when is_binary(grant_id) and is_map(job_binding) and is_list(opts) do
+    now = now(opts)
+
+    with {:ok, grant} <- store(opts).fetch(grant_id, store_context(opts)),
+         :ok <- not_expired(grant, now),
+         {:ok, contract} <- ActionContract.fetch(value(grant, :action)),
+         {:ok, binding} <- validate_job_binding(grant, job_binding),
+         authorize = pending_job_binding_hook(contract, opts),
+         {:ok, audit} <- Audit.attrs(:job_bound_pending, grant, %{job_id: binding["job_id"]}),
+         {:ok, outcome, bound} <-
+           store(opts).bind_job(
+             grant_id,
+             binding,
+             authorize,
+             audit,
+             now,
+             store_context(opts)
+           ) do
+      {:ok, public_result(bound, %{outcome: outcome, binding_pending: true})}
+    else
+      {:error, :grant_expired} -> expire_and_deny(grant_id, opts)
+      {:error, reason} -> handle_valid_denial(grant_id, reason, opts)
+    end
+  end
+
+  def bind_job(_grant_id, _job_binding, _opts), do: {:error, :invalid_job_binding}
+
+  @doc "Rebuilds the full grant binding from immutable scope and a verified job snapshot."
+  @spec job_binding_from_accepted(map(), map()) :: {:ok, map()} | {:error, term()}
+  def job_binding_from_accepted(grant, accepted_snapshot)
+      when is_map(grant) and is_map(accepted_snapshot) do
+    scope = value(grant, :awx_scope_snapshot) || %{}
+    job_id = value(accepted_snapshot, :awx_job_id)
+    credential_ids = List.wrap(value(accepted_snapshot, :credential_ids))
+
+    binding =
+      scope
+      |> stringify_keys()
+      |> Map.put("credential_ids", credential_ids)
+      |> Map.put("job_id", job_id)
+
+    with true <-
+           to_string(value(accepted_snapshot, :controller_id)) ==
+             to_string(value(scope, :controller_id)) || {:error, :accepted_controller_mismatch},
+         true <-
+           value(accepted_snapshot, :ephemeral_credential_id) ==
+             value(grant, :ephemeral_credential_id) ||
+             {:error, :accepted_credentials_mismatch} do
+      validate_job_binding(grant, binding)
+    else
+      false -> {:error, :invalid_accepted_job_binding}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def job_binding_from_accepted(_grant, _accepted_snapshot),
+    do: {:error, :invalid_accepted_job_binding}
+
+  @doc """
+  Builds the least pending binding needed to make a just-launched AWX job
+  cancel-capable before its fetched job snapshot is accepted.
+
+  Every scope field and credential ID is reconstructed from the immutable
+  grant. Only the positive controller-local job ID comes from the launch
+  result; this does not activate callback authority.
+  """
+  @spec pending_job_binding(map(), pos_integer()) :: {:ok, map()} | {:error, term()}
+  def pending_job_binding(grant, job_id)
+      when is_map(grant) and is_integer(job_id) and job_id > 0 do
+    scope = value(grant, :awx_scope_snapshot) || %{}
+    base_ids = List.wrap(value(scope, :credential_ids))
+    ephemeral_id = value(grant, :ephemeral_credential_id)
+
+    binding =
+      scope
+      |> stringify_keys()
+      |> Map.put("credential_ids", base_ids ++ [ephemeral_id])
+      |> Map.put("job_id", job_id)
+
+    validate_job_binding(grant, binding)
+  end
+
+  def pending_job_binding(_grant, _job_id), do: {:error, :invalid_job_binding}
+
   @doc "Binds a pending grant to one verified controller-local AWX job."
   @spec activate(binary(), map(), opts()) :: {:ok, map()} | {:error, term()}
   def activate(grant_id, job_binding, opts)
@@ -375,6 +462,14 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
   defp credential_binding_hook(contract, opts) do
     fn locked_grant ->
       with {:ok, current} <- current_authority(:bind_credential, locked_grant, opts) do
+        Authority.validate_issue(locked_grant, current, contract)
+      end
+    end
+  end
+
+  defp pending_job_binding_hook(contract, opts) do
+    fn locked_grant ->
+      with {:ok, current} <- current_authority(:bind_job, locked_grant, opts) do
         Authority.validate_issue(locked_grant, current, contract)
       end
     end
@@ -841,4 +936,11 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
     do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 
   defp value(_map, _key), do: nil
+
+  defp stringify_keys(value) when is_map(value) do
+    Map.new(value, fn {key, item} -> {to_string(key), stringify_keys(item)} end)
+  end
+
+  defp stringify_keys(value) when is_list(value), do: Enum.map(value, &stringify_keys/1)
+  defp stringify_keys(value), do: value
 end

@@ -25,6 +25,8 @@ defmodule ServiceRadar.Automation.Ansible.AutomationExecution do
                          unique_controller_job:
                            "ansible_automation_executions_controller_job_uidx"
 
+    identity_wheres_to_sql unique_controller_job: "awx_job_id IS NOT NULL"
+
     references do
       reference :operation, on_delete: :delete
       reference :controller, on_delete: :restrict

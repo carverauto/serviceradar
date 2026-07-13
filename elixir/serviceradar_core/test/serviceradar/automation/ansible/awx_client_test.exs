@@ -387,7 +387,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
                  %{}
                )
 
-      assert {:error, :invalid_preallocated_command_id} =
+      assert {:error, :invalid_command_id} =
                AgentCommandBus.dispatch(
                  "agent-a",
                  "awx.create_callback_credential",
@@ -395,7 +395,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
                  command_id: "not-a-uuid"
                )
 
-      assert {:error, :preallocated_command_id_denied} =
+      assert {:error, :preallocated_callback_attempt_context_required} =
                AgentCommandBus.dispatch(
                  "agent-a",
                  "awx.launch_job",

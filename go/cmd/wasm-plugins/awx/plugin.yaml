@@ -1,11 +1,11 @@
 id: awx
 name: AWX / AAP Bridge
-version: 0.1.4
+version: 0.1.5
 description: >
   Network bridge between ServiceRadar core and an AWX/AAP controller in the
   customer's network. Dispatches per-call REST verbs (ping, list inventories /
   hosts / inventory groups / projects / templates, current-user, exact launch,
-  bounded ephemeral callback-credential create/verify/delete, recent-job and
+  bounded ephemeral callback-credential create/verify/reconcile/delete, recent-job and
   job-host-summary reconciliation, cancel, and event fetch)
   for Elixir's AwxClient via AgentCommandBus, and emits a DeviceDiscovery
   aggregate from a scheduled `inventory_sync` invocation. Holds no per-controller

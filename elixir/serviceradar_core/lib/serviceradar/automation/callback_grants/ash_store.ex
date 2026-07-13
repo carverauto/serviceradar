@@ -78,6 +78,18 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
   end
 
   @impl true
+  def bind_job(grant_id, binding, authorize, audit, now, _context)
+      when is_binary(grant_id) and is_map(binding) and is_function(authorize, 1) do
+    transaction(fn ->
+      with {:ok, grant} <- lock_grant(grant_id),
+           :ok <- unexpired_locked(grant, now),
+           :ok <- exact_job_binding(grant, binding) do
+        bind_job_locked(grant, binding, authorize, audit)
+      end
+    end)
+  end
+
+  @impl true
   def activate(grant_id, binding, authorize, audit, now, _context)
       when is_binary(grant_id) and is_map(binding) and is_function(authorize, 1) do
     transaction(fn ->
@@ -358,6 +370,49 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
   defp bind_credential_locked(%Grant{state: state}, _credential_id, _authorize, _audit, _now),
     do: {:error, {:grant_not_pending, state}}
 
+  defp bind_job_locked(
+         %Grant{state: :pending, awx_job_id: nil} = grant,
+         binding,
+         authorize,
+         audit
+       ) do
+    with :ok <- authorize.(to_lifecycle(grant)),
+         {:ok, updated} <-
+           Grant.bind_job_pending(
+             grant,
+             %{awx_job_id: value(binding, :job_id)},
+             actor: @actor
+           ),
+         {:ok, _audit} <-
+           record_audit_event(updated, nil, audit,
+             event_type: :dispatch_succeeded,
+             outcome: :succeeded,
+             reason_code: :success,
+             budget_before: remaining_budget(updated),
+             budget_after: remaining_budget(updated)
+           ) do
+      {:ok, :bound, to_lifecycle(updated)}
+    end
+  end
+
+  defp bind_job_locked(
+         %Grant{state: :pending, awx_job_id: job_id} = grant,
+         binding,
+         authorize,
+         _audit
+       ) do
+    if job_id == value(binding, :job_id) do
+      with :ok <- authorize.(to_lifecycle(grant)) do
+        {:ok, :existing, to_lifecycle(grant)}
+      end
+    else
+      {:error, :callback_job_conflict}
+    end
+  end
+
+  defp bind_job_locked(%Grant{state: state}, _binding, _authorize, _audit),
+    do: {:error, {:grant_not_pending, state}}
+
   defp activate_locked(%Grant{state: :pending} = grant, binding, authorize, audit, now) do
     with :ok <- authorize.(to_lifecycle(grant)),
          {:ok, updated} <-
@@ -569,6 +624,10 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
         {:error, :credential_binding_mismatch}
 
       grant.state == :active and lifecycle.job_binding != binding ->
+        {:error, :job_binding_conflict}
+
+      grant.state == :pending and not is_nil(grant.awx_job_id) and
+          grant.awx_job_id != value(binding, :job_id) ->
         {:error, :job_binding_conflict}
 
       grant.state == :pending and not canonical_equal?(scope, normalized_scope) ->
@@ -816,7 +875,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
 
   defp cleanup_result_matches_kind(grant, %{cleanup_kind: kind, result_status: status})
        when kind in [:job_cancel, "job_cancel"] and
-              status in [:cancel_confirmed, :cancel_failed, "cancel_confirmed", "cancel_failed"] do
+              status in [:cancel_requested, :cancel_failed, "cancel_requested", "cancel_failed"] do
     if is_integer(grant.awx_job_id) and grant.awx_job_id > 0 and
          grant.state in [:revoked, :expired],
        do: :ok,

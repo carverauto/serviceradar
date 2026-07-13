@@ -54,6 +54,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
     identity_index_names template_version: "ansible_awx_template_bindings_template_version_uidx",
                          current_template: "ansible_awx_template_bindings_current_template_uidx"
 
+    identity_wheres_to_sql current_template: "current = true"
+
     references do
       reference :controller, on_delete: :restrict
     end

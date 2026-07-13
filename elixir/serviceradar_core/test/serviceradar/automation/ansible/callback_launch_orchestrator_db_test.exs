@@ -79,7 +79,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
     :ok
   end
 
-  test "outer transaction commits all five row sets and rolls every set back on seal failure" do
+  test "outer transaction commits the command attempt with the launch plan and rolls every set back" do
     success = fixture()
     insert_dependencies(success)
 
@@ -114,7 +114,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
              executions: 1,
              targets: 1,
              grants: 1,
-             envelopes: 1
+             envelopes: 1,
+             attempts: 1
            }
 
     failed = fixture(store: FailingEnvelopeStore)
@@ -128,7 +129,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
              executions: 0,
              targets: 0,
              grants: 0,
-             envelopes: 0
+             envelopes: 0,
+             attempts: 0
            }
   end
 
@@ -506,6 +508,11 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
       envelopes:
         scalar.(
           "SELECT count(*) FROM platform.automation_launch_envelopes WHERE command_id = ($1::text)::uuid",
+          [fixture.ids.command]
+        ),
+      attempts:
+        scalar.(
+          "SELECT count(*) FROM platform.automation_callback_command_attempts WHERE command_id = ($1::text)::uuid",
           [fixture.ids.command]
         )
     }

@@ -25,6 +25,15 @@ defmodule ServiceRadar.Automation.CallbackGrants.Store do
               context()
             ) :: {:ok, :bound | :existing, map()} | {:error, term()}
 
+  @callback bind_job(
+              binary(),
+              map(),
+              authorization_hook(),
+              map(),
+              DateTime.t(),
+              context()
+            ) :: {:ok, :bound | :existing, map()} | {:error, term()}
+
   @callback activate(binary(), map(), authorization_hook(), map(), DateTime.t(), context()) ::
               {:ok, :activated | :existing, map()} | {:error, term()}
 
@@ -66,7 +75,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.Authorizer do
   """
 
   @callback current_authority(
-              :issue | :bind_credential | :activate | :use | :replay,
+              :issue | :bind_credential | :bind_job | :activate | :use | :replay,
               map(),
               term()
             ) ::

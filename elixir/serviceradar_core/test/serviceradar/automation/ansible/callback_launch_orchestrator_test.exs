@@ -69,7 +69,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
          callback: %{
            grant: %{id: callback.grant_id},
            command_id: callback.command_id,
-           envelope_ref: callback.allocation.reference
+           envelope_ref: callback.allocation.reference,
+           attempt: %{id: "attempt-1", command_id: callback.command_id}
          }
        }}
     end
@@ -81,9 +82,9 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
     end
 
     @impl true
-    def dispatch_callback_credential(controller, binding, command_id, context) do
-      notify({:dispatch_callback_credential, controller, binding, command_id, context})
-      Process.get({__MODULE__, :dispatch_result}, {:ok, %{id: command_id}})
+    def dispatch_callback_credential(controller, attempt) do
+      notify({:dispatch_callback_credential, controller, attempt})
+      Process.get({__MODULE__, :dispatch_result}, {:ok, %{id: attempt.command_id}})
     end
 
     @impl true
@@ -149,17 +150,13 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
 
     assert_receive {:mark_dispatching, _persisted}
 
-    assert_receive {:dispatch_callback_credential, controller, binding, command_id, context}
+    assert_receive {:dispatch_callback_credential, controller, attempt}
     assert controller.agent_id == "agent-farm01"
-    assert command_id == callback.command_id
-    assert binding.envelope_ref == callback.allocation.reference
-    assert binding.child_execution_id == "018f3f56-1111-7222-8333-123456789a10"
-    assert binding.credential_slot == "ssh_ca_callback"
-    assert context["verb"] == "awx.create_callback_credential"
+    assert attempt.command_id == callback.command_id
 
     assert result.callback == %{
              grant_id: @grant_id,
-             command_id: command_id,
+             command_id: callback.command_id,
              state: :pending,
              dispatch: :accepted
            }
@@ -233,7 +230,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
 
     assert_receive {:persist_callback_plan, _, callback}
     assert_receive {:mark_dispatching, _}
-    assert_receive {:dispatch_callback_credential, _, _, _, _}
+    assert_receive {:dispatch_callback_credential, _, _}
 
     assert_receive {:revoke_callback_grant, @grant_id, :callback_credential_dispatch_failed,
                     _lifecycle_opts}

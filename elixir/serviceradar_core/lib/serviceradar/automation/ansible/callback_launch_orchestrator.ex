@@ -71,32 +71,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
     end
   end
 
-  defp dispatch_credential(actions, persisted, controller, plan, callback) do
-    binding = %{
-      envelope_ref: persisted.callback.envelope_ref,
-      child_execution_id: persisted.execution.id,
-      inventory_id: plan.execution.inventory_id,
-      job_template_id: plan.execution.job_template_id,
-      credential_type_id: callback.credential_type_id,
-      organization_id: callback.organization_id,
-      credential_slot: callback.credential_slot,
-      injector_sha256: callback.injector_sha256
-    }
-
-    context =
-      Map.merge(plan.command_context, %{
-        "operation_id" => persisted.operation.id,
-        "execution_id" => persisted.execution.id,
-        "callback_grant_id" => callback.grant_id,
-        "verb" => "awx.create_callback_credential"
-      })
-
-    case actions.dispatch_callback_credential(
-           controller,
-           binding,
-           callback.command_id,
-           context
-         ) do
+  defp dispatch_credential(actions, persisted, controller, _plan, callback) do
+    case actions.dispatch_callback_credential(controller, persisted.callback.attempt) do
       {:ok, _command} ->
         {:ok,
          %{
@@ -412,8 +388,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator.Actions do
   @callback persist_callback_plan(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback mark_dispatching(map()) :: :ok | {:error, term()}
 
-  @callback dispatch_callback_credential(struct(), map(), binary(), map()) ::
-              {:ok, struct()} | {:error, term()}
+  @callback dispatch_callback_credential(struct(), struct()) ::
+              {:ok, term()} | {:error, term()}
 
   @callback revoke_callback_grant(binary(), atom(), keyword()) ::
               {:ok, map()} | {:error, term()}
@@ -426,10 +402,12 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator.AshActions 
   @behaviour ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator.Actions
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Automation.Ansible.AutomationCallbackCommandAttempt
   alias ServiceRadar.Automation.Ansible.AutomationExecution
   alias ServiceRadar.Automation.Ansible.AutomationExecutionTarget
   alias ServiceRadar.Automation.Ansible.AutomationOperation
-  alias ServiceRadar.Automation.Ansible.AwxClient
+  alias ServiceRadar.Automation.Ansible.CallbackCommandContract
+  alias ServiceRadar.Automation.Ansible.CallbackCommandDispatcher
   alias ServiceRadar.Automation.CallbackGrants.Lifecycle
   alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
   alias ServiceRadar.Automation.LaunchEnvelopes
@@ -443,7 +421,9 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator.AshActions 
            {:ok, execution} <- create_execution(plan.execution, operation.id),
            {:ok, targets} <- create_targets(plan.targets, execution.id),
            {:ok, sealed} <- seal(plan, callback, operation, execution),
-           :ok <- exact_preallocation(sealed, callback) do
+           :ok <- exact_preallocation(sealed, callback),
+           {:ok, attempt} <-
+             create_initial_attempt(plan, callback, operation, execution, sealed) do
         %{
           operation: operation,
           execution: execution,
@@ -451,7 +431,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator.AshActions 
           callback: %{
             grant: sealed.grant,
             command_id: sealed.command_id,
-            envelope_ref: sealed.envelope_ref
+            envelope_ref: sealed.envelope_ref,
+            attempt: attempt
           }
         }
       else
@@ -465,13 +446,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator.AshActions 
     do: ServiceRadar.Automation.Ansible.HardenedRunLauncher.AshActions.mark_dispatching(persisted)
 
   @impl true
-  def dispatch_callback_credential(controller, binding, command_id, context) do
-    AwxClient.create_callback_credential(controller, binding,
-      command_id: command_id,
-      source: :automation,
-      context: context
-    )
-  end
+  def dispatch_callback_credential(_controller, attempt),
+    do: CallbackCommandDispatcher.dispatch(attempt)
 
   @impl true
   def revoke_callback_grant(grant_id, reason, lifecycle_opts),
@@ -556,6 +532,37 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator.AshActions 
 
       true ->
         :ok
+    end
+  end
+
+  defp create_initial_attempt(_plan, callback, operation, execution, sealed) do
+    base = %{
+      grant_id: callback.grant_id,
+      operation_id: operation.id,
+      execution_id: execution.id,
+      controller_id: execution.controller_id,
+      dispatch_agent_id: callback.dispatch_agent_id
+    }
+
+    with {:ok, request} <-
+           CallbackCommandContract.create_credential_request(
+             execution,
+             callback.grant_attrs.awx_scope_snapshot,
+             sealed.envelope_ref
+           ),
+         {:ok, attrs} <-
+           CallbackCommandContract.build_attempt(base, execution, request,
+             stage: :create_credential,
+             purpose: :credential_creation,
+             command_type: "awx.create_callback_credential",
+             command_id: callback.command_id,
+             deadline_at: callback.expires_at,
+             next_attempt_at: callback.allocation.issued_at
+           ),
+         {:ok, attempt} <- AutomationCallbackCommandAttempt.create_planned(attrs, actor: @actor) do
+      {:ok, attempt}
+    else
+      {:error, reason} -> {:error, {:callback_attempt_create_failed, reason}}
     end
   end
 

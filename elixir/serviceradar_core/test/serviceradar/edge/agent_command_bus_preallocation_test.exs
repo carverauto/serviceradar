@@ -6,10 +6,35 @@ defmodule ServiceRadar.Edge.AgentCommandBusPreallocationTest do
   @command_id "01980a6d-4a62-7b3f-a249-5f825874ca41"
   @reference "srle1_" <> Base.url_encode64(:binary.copy(<<7>>, 32), padding: false)
 
-  test "preallocated command IDs are exclusive to the callback credential verb" do
-    assert {:error, :preallocated_command_id_not_allowed} =
+  test "explicit callback command IDs require the typed durable-attempt context" do
+    assert {:error, :preallocated_callback_attempt_context_required} =
              AgentCommandBus.dispatch("agent-farm01", "awx.launch_job", %{},
                command_id: @command_id
+             )
+  end
+
+  test "ordinary AWX verbs retain their generated command-ID path" do
+    for verb <- [
+          "awx.launch_job",
+          "awx.fetch_job",
+          "awx.cancel_job",
+          "awx.delete_callback_credential"
+        ] do
+      assert {:error, :sensitive_transmit_payload_denied} =
+               AgentCommandBus.dispatch("agent-farm01", verb, %{"api_token" => "not-stored"})
+    end
+  end
+
+  test "a typed attempt with exact schema, verb, source, and UUID passes the preallocation gate" do
+    assert {:error, :sensitive_transmit_payload_denied} =
+             AgentCommandBus.dispatch(
+               "agent-farm01",
+               "awx.launch_job",
+               %{"api_token" => "not-stored"},
+               command_id: @command_id,
+               callback_command_attempt: true,
+               source: :automation,
+               context: callback_context("awx.launch_job")
              )
   end
 
@@ -48,10 +73,20 @@ defmodule ServiceRadar.Edge.AgentCommandBusPreallocationTest do
                "awx.create_callback_credential",
                %{"launch_envelope_ref" => @reference},
                command_id: @command_id,
+               callback_command_attempt: true,
+               source: :automation,
+               context: callback_context("awx.create_callback_credential"),
                transmit_payload: %{
                  "launch_envelope_ref" => @reference,
                  "callback_grant" => "must-not-be-transmitted"
                }
              )
+  end
+
+  defp callback_context(verb) do
+    %{
+      "schema" => "serviceradar.automation_callback_command/v1",
+      "verb" => verb
+    }
   end
 end

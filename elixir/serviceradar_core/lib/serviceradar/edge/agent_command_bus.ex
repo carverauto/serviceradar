@@ -36,6 +36,17 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   @endpoint_inventory_force_fresh_rate_bucket :endpoint_inventory_force_fresh_scan
   @endpoint_inventory_force_fresh_rate_limit 4
   @endpoint_inventory_force_fresh_rate_window_seconds 300
+  @preallocated_callback_command_types [
+    "awx.create_callback_credential",
+    "awx.fetch_callback_credential",
+    "awx.launch_job",
+    "awx.fetch_job",
+    "awx.list_recent_jobs",
+    "awx.fetch_job_host_summaries",
+    "awx.cancel_job",
+    "awx.delete_callback_credential"
+  ]
+  @callback_command_context_schema "serviceradar.automation_callback_command/v1"
 
   def dispatch(agent_id, command_type, payload, opts \\ []) do
     payload_map = normalize_payload(payload)
@@ -123,8 +134,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp normalize_preallocated_command_id(_command_type, nil), do: {:ok, nil}
 
-  defp normalize_preallocated_command_id("awx.create_callback_credential", command_id)
-       when is_binary(command_id) do
+  defp normalize_preallocated_command_id(command_type, command_id)
+       when command_type in @preallocated_callback_command_types and is_binary(command_id) do
     case Ecto.UUID.cast(command_id) do
       {:ok, normalized} -> {:ok, normalized}
       :error -> {:error, :invalid_preallocated_command_id}
@@ -1657,6 +1668,10 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp canonical_optional_command_id("awx.create_callback_credential", _value, _payload),
     do: {:error, :invalid_command_id}
 
+  defp canonical_optional_command_id(command_type, value, _payload)
+       when command_type in @preallocated_callback_command_types and is_binary(value),
+       do: canonical_command_id(value)
+
   defp canonical_optional_command_id(_command_type, _value, _payload),
     do: {:error, :preallocated_command_id_not_allowed}
 
@@ -1667,7 +1682,37 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     end
   end
 
-  defp validate_preallocated_transmit_payload("awx.create_callback_credential", payload, opts) do
+  defp validate_preallocated_transmit_payload(command_type, payload, opts)
+       when command_type in @preallocated_callback_command_types do
+    context = opts |> Keyword.get(:context, %{}) |> normalize_context()
+
+    cond do
+      Keyword.get(opts, :callback_command_attempt) == true ->
+        with true <- is_binary(Keyword.get(opts, :command_id)),
+             true <- normalize_source(Keyword.get(opts, :source, :on_demand)) == :automation,
+             true <- context["schema"] == @callback_command_context_schema,
+             true <- context["verb"] == command_type,
+             :ok <- reject_callback_transmit_override(command_type, payload, opts) do
+          :ok
+        else
+          false -> {:error, :preallocated_callback_attempt_context_required}
+          {:error, _reason} = error -> error
+        end
+
+      not is_nil(Keyword.get(opts, :command_id)) ->
+        {:error, :preallocated_callback_attempt_context_required}
+
+      command_type == "awx.create_callback_credential" ->
+        {:error, :preallocated_callback_attempt_context_required}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_preallocated_transmit_payload(_command_type, _payload, _opts), do: :ok
+
+  defp reject_callback_transmit_override("awx.create_callback_credential", payload, opts) do
     case Keyword.fetch(opts, :transmit_payload) do
       :error ->
         :ok
@@ -1679,7 +1724,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     end
   end
 
-  defp validate_preallocated_transmit_payload(_command_type, _payload, _opts), do: :ok
+  defp reject_callback_transmit_override(_command_type, _payload, _opts), do: :ok
 
   defp mark_sent(command, attrs, _ash_opts) do
     update_command_status(

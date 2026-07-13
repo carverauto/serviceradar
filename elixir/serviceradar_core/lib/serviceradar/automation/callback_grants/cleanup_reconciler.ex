@@ -8,9 +8,9 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconciler do
   the callback-grant store; response bodies and credential material are never
   logged or persisted by this module.
 
-  `cancel_confirmed` means the exact AWX cancellation request returned a 2xx
-  result. It does not independently prove the job reached a terminal state;
-  terminal observation remains the job lifecycle monitor's responsibility.
+  A 2xx cancellation response records `cancel_requested`; it is never treated
+  as proof that the AWX job reached a terminal state. Only a later exact job
+  observation may advance cleanup to `cancel_confirmed`.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -54,6 +54,9 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconciler do
            true <-
              value(command, :command_type) == command_type ||
                {:error, :cleanup_command_type_mismatch},
+           true <-
+             value(data, :agent_id) == value(command, :agent_id) ||
+               {:error, :cleanup_result_agent_mismatch},
            {:ok, context} <- cleanup_context(value(command, :context), command_type),
            true <-
              value(data, :agent_id) == value(command, :agent_id) ||
@@ -178,7 +181,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconciler do
            true <- payload["ok"] == true,
            true <- payload["job_id"] == context["awx_job_id"],
            status when is_integer(status) and status in 200..299 <- payload["status"] do
-        {:ok, :cancel_confirmed}
+        {:ok, :cancel_requested}
       else
         _ -> {:ok, :cancel_failed}
       end

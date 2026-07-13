@@ -22,6 +22,8 @@ defmodule ServiceRadar.Automation.Callbacks.Use do
     repo ServiceRadar.Repo
     schema "platform"
 
+    identity_wheres_to_sql unique_committed_budget_slot: "state = 'committed'"
+
     identity_index_names unique_idempotency_key: "automation_callback_uses_idempotency_uidx",
                          unique_committed_budget_slot:
                            "automation_callback_uses_committed_budget_uidx"

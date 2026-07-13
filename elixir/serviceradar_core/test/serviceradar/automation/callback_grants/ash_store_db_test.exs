@@ -317,7 +317,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreDbTest do
       | command_id: Ash.UUID.generate(),
         cleanup_kind: "job_cancel",
         cleanup_mode: "revoked",
-        result_status: :cancel_confirmed
+        result_status: :cancel_requested
     }
 
     assert :ok = AshStore.reconcile_cleanup_result(pending.id, cancel_attrs, nil)
@@ -333,13 +333,16 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreDbTest do
 
     assert {:ok, cleaned} = Grant.get_by_id(pending.id, actor: @actor)
     assert cleaned.state == :revoked
-    assert cleaned.orphan_risk_state == :cancel_confirmed
+    assert cleaned.orphan_risk_state == :cancel_requested
     assert cleaned.credential_cleanup_state == :deleted
 
     assert {:ok, events} = AuditEvent.list_for_grant(pending.id, actor: @actor)
     assert Enum.count(events, &(&1.event_type == :credential_deleted)) == 1
     assert Enum.count(events, &(&1.event_type == :credential_delete_failed)) == 1
-    assert Enum.count(events, &(&1.event_type == :cleanup_completed)) == 1
+    # A 2xx cancel response is only a request acknowledgement. It must not
+    # synthesize a terminal cleanup-completed event before a later exact job
+    # observation confirms terminal state.
+    assert Enum.count(events, &(&1.event_type == :cleanup_completed)) == 0
   end
 
   test "response fingerprint and size checks fail before any use row", context do

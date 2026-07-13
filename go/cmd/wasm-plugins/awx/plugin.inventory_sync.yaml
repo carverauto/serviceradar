@@ -1,6 +1,6 @@
 id: awx-inventory-sync
 name: AWX Inventory Sync
-version: 0.1.4
+version: 0.1.5
 description: >
   Scheduled assignment that walks one or more AWX/AAP controllers' inventories
   and hosts and emits DeviceDiscovery aggregates (discovery_source=awx) into

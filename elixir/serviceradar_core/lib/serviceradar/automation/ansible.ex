@@ -37,6 +37,7 @@ defmodule ServiceRadar.Automation.Ansible do
     resource ServiceRadar.Automation.Ansible.AutomationExecutionDelegation
     resource ServiceRadar.Automation.Ansible.AutomationExecution
     resource ServiceRadar.Automation.Ansible.AutomationExecutionTarget
+    resource ServiceRadar.Automation.Ansible.AutomationCallbackCommandAttempt
     resource ServiceRadar.Automation.Ansible.AutomationMutationPhase
     resource ServiceRadar.Automation.Ansible.AutomationTargetHold
   end
