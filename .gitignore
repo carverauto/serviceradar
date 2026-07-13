@@ -13,6 +13,9 @@
 *.out
 coverage.txt
 
+# temporary context files for agents that do need git tracking.
+ctx/
+
 ctx/
 
 # Dependency directories managed manually
@@ -205,8 +208,6 @@ serviceradar-web_*
 
 *.csr
 *.gz
-# Committed scorecard corpus (CI floor gate) — exempt from the blanket *.gz rule
-!rust/anomaly-core/testdata/scorecard/*.gz
 
 # Ash resource snapshots (generated)
 elixir/serviceradar_core/priv/resource_snapshots/
