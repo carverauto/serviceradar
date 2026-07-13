@@ -132,8 +132,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
   test "typed input contracts cannot contain password/private fields or classification gaps" do
     refute_valid(
       %{
-        input_schema: %{"password" => %{"type" => "password", "required" => true}},
-        input_classifications: %{"password" => "internal"}
+        input_schema: %{"install_mode" => %{"type" => "password", "required" => true}},
+        input_classifications: %{"install_mode" => "internal"}
       },
       "supported non-secret types"
     )
@@ -156,8 +156,18 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
         },
         input_classifications: %{"serviceradar_dispatch_id" => "internal"}
       },
-      "invalid or reserved input name"
+      "secret, magic, transport, or reserved input name"
     )
+
+    for name <- ["ansible_host", "ansible_connection", "inventory_hostname", "hostvars"] do
+      refute_valid(
+        %{
+          input_schema: %{name => %{"type" => "text"}},
+          input_classifications: %{name => "internal"}
+        },
+        "secret, magic, transport, or reserved input name"
+      )
+    end
   end
 
   test "callback actions require the exact reviewed AWX credential contract" do

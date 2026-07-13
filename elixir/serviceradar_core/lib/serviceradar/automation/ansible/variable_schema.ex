@@ -87,6 +87,20 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchema do
                              "serviceradar_snapshot_digest",
                              "state"
                            ])
+  @ansible_magic_inputs MapSet.new([
+                          "group_names",
+                          "groups",
+                          "hostvars",
+                          "inventory_dir",
+                          "inventory_file",
+                          "inventory_hostname",
+                          "inventory_hostname_short",
+                          "omit",
+                          "play_hosts",
+                          "playbook_dir",
+                          "role_name",
+                          "role_path"
+                        ])
   @binding_input_types [:text, :textarea, :integer, :float, :select, :multiselect]
   @binding_input_classes ["public", "internal"]
   @max_binding_inputs 100
@@ -167,6 +181,20 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchema do
   end
 
   def from_binding_schema(_schema), do: {:error, :binding_input_schema_invalid}
+
+  @doc "Returns true only for a non-secret input name that cannot alter Ansible target or transport scope."
+  @spec reviewed_input_name?(term()) :: boolean()
+  def reviewed_input_name?(name) when is_binary(name) do
+    normalized = String.downcase(name)
+
+    Regex.match?(@binding_input_name, name) and
+      not Regex.match?(@sensitive_input_name, normalized) and
+      not String.starts_with?(normalized, "ansible_") and
+      not MapSet.member?(@reserved_binding_inputs, normalized) and
+      not MapSet.member?(@ansible_magic_inputs, normalized)
+  end
+
+  def reviewed_input_name?(_name), do: false
 
   @doc false
   @spec from_git_sources([map()], map()) :: [Var.t()]
@@ -514,19 +542,9 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchema do
   defp binding_var(_name, _definition), do: {:error, :binding_input_schema_invalid}
 
   defp binding_input_name(name) do
-    normalized = String.downcase(name)
-
-    cond do
-      not Regex.match?(@binding_input_name, name) ->
-        {:error, :binding_input_schema_invalid}
-
-      Regex.match?(@sensitive_input_name, normalized) or
-          MapSet.member?(@reserved_binding_inputs, normalized) ->
-        {:error, {:sensitive_binding_input_forbidden, name}}
-
-      true ->
-        :ok
-    end
+    if reviewed_input_name?(name),
+      do: :ok,
+      else: {:error, {:sensitive_binding_input_forbidden, name}}
   end
 
   defp binding_definition_keys(definition, keys) do

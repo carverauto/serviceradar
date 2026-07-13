@@ -379,6 +379,27 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchemaTest do
                })
     end
 
+    test "rejects Ansible transport and magic-variable names" do
+      for name <- [
+            "ansible_host",
+            "ansible_connection",
+            "ansible_python_interpreter",
+            "inventory_hostname",
+            "hostvars",
+            "groups",
+            "play_hosts"
+          ] do
+        assert {:error, {:sensitive_binding_input_forbidden, ^name}} =
+                 VariableSchema.from_binding(%{
+                   input_schema: %{name => %{"type" => "text"}},
+                   input_classifications: %{name => "internal"}
+                 })
+      end
+
+      assert VariableSchema.reviewed_input_name?("qemu_guest_agent_state")
+      refute VariableSchema.reviewed_input_name?("Ansible_User")
+    end
+
     test "rejects input names that differ only by case" do
       assert {:error, :binding_input_schema_invalid} =
                VariableSchema.from_binding(%{

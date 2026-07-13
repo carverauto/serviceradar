@@ -18,6 +18,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Automation.Ansible.VariableSchema
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "ansible.catalog.view"}
@@ -26,8 +27,6 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
   @credential_kind ~r/\A[a-z][a-z0-9_.-]{0,63}\z/
   @callback_action ~r/\A[a-z][a-z0-9_.:-]{0,127}\z/
   @callback_slot ~r/\A[a-z][a-z0-9_.-]{0,63}\z/
-  @input_name ~r/\A[A-Za-z_][A-Za-z0-9_]{0,127}\z/
-  @reserved_inputs MapSet.new(["serviceradar_dispatch_id", "serviceradar_snapshot_digest"])
   @input_types MapSet.new(["text", "textarea", "integer", "float", "select", "multiselect"])
   @input_definition_keys MapSet.new([
                            "type",
@@ -585,8 +584,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
     max = map_value(definition, :max)
 
     cond do
-      not Regex.match?(@input_name, name) or MapSet.member?(@reserved_inputs, name) ->
-        {:error, :input_schema, "contains an invalid or reserved input name"}
+      not VariableSchema.reviewed_input_name?(name) ->
+        {:error, :input_schema, "contains a secret, magic, transport, or reserved input name"}
 
       not is_map(definition) or not MapSet.subset?(map_keys(definition), @input_definition_keys) ->
         {:error, :input_schema, "definitions contain unreviewed keys"}
