@@ -23,7 +23,10 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       name: "Production AWX",
       base_url: "https://awx.example.com",
       agent_id: "agent-a",
-      credential_secret_id: "018f3f56-1111-7222-8333-123456789abc",
+      credential_secret_id: "018f3f56-0000-7222-8333-123456789abc",
+      sync_credential_secret_id: "018f3f56-1111-7222-8333-123456789abc",
+      execution_credential_secret_id: "018f3f56-2222-7222-8333-123456789abc",
+      callback_credential_secret_id: "018f3f56-3333-7222-8333-123456789abc",
       run_pulse_interval_ms: 2000,
       inventory_sync_interval_seconds: 300,
       catalog_sync_interval_seconds: 600,
@@ -76,14 +79,353 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
                AwxClient.ping(controller(%{agent_id: nil}), dispatch_opts())
     end
 
-    test "rejects controller with missing credential_secret_id" do
-      assert {:error, :controller_credential_missing} =
-               AwxClient.ping(controller(%{credential_secret_id: nil}), dispatch_opts())
+    test "rejects controller with no sync credential or legacy compatibility reference" do
+      assert {:error, {:controller_credential_missing, :sync}} =
+               AwxClient.ping(
+                 controller(%{sync_credential_secret_id: nil, credential_secret_id: nil}),
+                 dispatch_opts()
+               )
     end
 
     test "rejects controller with blank base_url" do
       assert {:error, :controller_base_url_missing} =
                AwxClient.ping(controller(%{base_url: ""}), dispatch_opts())
+    end
+
+    test "normalizes the controller origin and pins every grant to its effective port" do
+      ctrl = controller(%{base_url: "  HTTPS://AWX.EXAMPLE.COM:8443/  "})
+
+      assert {:ok, _} = AwxClient.ping(ctrl, dispatch_opts())
+      assert_receive {:dispatch, "agent-a", "awx.ping", payload, _opts}
+
+      assert payload["base_url"] == "https://awx.example.com:8443"
+
+      assert payload["credential_broker"]["allow"] == %{
+               "hosts" => ["awx.example.com"],
+               "methods" => ["GET"],
+               "paths" => ["=/api/v2/ping/"],
+               "ports" => [8443]
+             }
+    end
+
+    test "derives default HTTPS and HTTP ports from valid origin-only URLs" do
+      for {base_url, normalized, port} <- [
+            {"https://awx.example.com", "https://awx.example.com", 443},
+            {"http://awx.internal", "http://awx.internal", 80}
+          ] do
+        assert {:ok, scope} = AwxClient.broker_scope(base_url, "awx.ping", %{})
+        assert scope.base_url == normalized
+        assert scope.allowed_ports == [port]
+        assert scope.allow["ports"] == [port]
+      end
+    end
+
+    test "rejects malformed controller origins before grant issuance or dispatch" do
+      test_pid = self()
+
+      issuer = fn _attrs ->
+        send(test_pid, :grant_issued)
+        flunk("grant issuer must not run for a malformed controller origin")
+      end
+
+      opts = Keyword.put(dispatch_opts(), :grant_issuer, issuer)
+
+      for base_url <- [
+            "awx.example.com",
+            "ftp://awx.example.com",
+            "https://:443",
+            "https://user@awx.example.com",
+            "https://awx.example.com/controller",
+            "https://awx.example.com?tenant=prod",
+            "https://awx.example.com#fragment",
+            "https://awx.example.com:0",
+            "https://awx.example.com:65536",
+            "https://awx.example.com:not-a-port",
+            "https://awx example.com"
+          ] do
+        assert {:error, :invalid_controller_base_url} =
+                 AwxClient.ping(controller(%{base_url: base_url}), opts)
+      end
+
+      refute_received :grant_issued
+      refute_received {:dispatch, _, _, _, _}
+    end
+  end
+
+  describe "credential-broker HTTP attenuation" do
+    test "maps every supported plugin verb to its exact reviewed AWX endpoints" do
+      digest = String.duplicate("a", 64)
+
+      cases = [
+        {"awx.ping", %{}, ["GET"], ["=/api/v2/ping/"]},
+        {"awx.list_inventories", %{}, ["GET"], ["=/api/v2/inventories/"]},
+        {"awx.list_hosts", %{"inventory_id" => 7}, ["GET"], ["=/api/v2/inventories/7/hosts/"]},
+        {"awx.list_inventory_groups", %{"inventory_id" => 7}, ["GET"],
+         ["=/api/v2/inventories/7/groups/"]},
+        {"awx.current_user", %{}, ["GET"], ["=/api/v2/me/"]},
+        {"awx.list_projects", %{}, ["GET"], ["=/api/v2/projects/"]},
+        {"awx.list_templates", %{}, ["GET"], ["=/api/v2/job_templates/"]},
+        {"awx.fetch_template", %{"template_id" => 42}, ["GET"],
+         ["=/api/v2/job_templates/42/", "=/api/v2/job_templates/42/survey_spec/"]},
+        {"awx.inventory_sync", %{}, ["GET"], ["=/api/v2/inventories/", "/api/v2/inventories/*"]},
+        {"awx.launch_job", %{"template_id" => 42, "host_limit" => "node-1"}, ["POST"],
+         ["=/api/v2/job_templates/42/launch/"]},
+        {"awx.fetch_job", %{"job_id" => 7331}, ["GET"], ["=/api/v2/jobs/7331/"]},
+        {"awx.fetch_job_host_summaries", %{"job_id" => 7331, "max_hosts" => 1_000}, ["GET"],
+         ["=/api/v2/jobs/7331/job_host_summaries/"]},
+        {"awx.list_recent_jobs",
+         %{
+           "template_id" => 42,
+           "inventory_id" => 7,
+           "created_by_id" => 11,
+           "created_after" => "2026-07-12T20:00:00Z",
+           "page_size" => 25
+         }, ["GET"], ["=/api/v2/jobs/"]},
+        {"awx.cancel_job", %{"job_id" => 7331}, ["POST"], ["=/api/v2/jobs/7331/cancel/"]},
+        {"awx.fetch_events_for_jobs",
+         %{
+           "pairs" => [
+             %{"job_id" => 7331, "since_id" => 0},
+             %{"job_id" => 7332, "since_id" => 10}
+           ]
+         }, ["GET"], ["=/api/v2/jobs/7331/job_events/", "=/api/v2/jobs/7332/job_events/"]},
+        {"awx.create_callback_credential",
+         %{
+           "credential_type_id" => 91,
+           "organization_id" => 2,
+           "credential_name" => "sr-callback-test",
+           "injector_sha256" => digest
+         }, ["GET", "POST"], ["=/api/v2/credential_types/91/", "=/api/v2/credentials/"]},
+        {"awx.fetch_callback_credential",
+         %{
+           "credential_type_id" => 91,
+           "organization_id" => 2,
+           "credential_name" => "sr-callback-test"
+         }, ["GET"], ["=/api/v2/credentials/"]},
+        {"awx.delete_callback_credential",
+         %{
+           "credential_id" => 401,
+           "credential_type_id" => 91,
+           "organization_id" => 2,
+           "credential_name" => "sr-callback-test"
+         }, ["GET", "DELETE"], ["=/api/v2/credentials/401/"]}
+      ]
+
+      for {verb, args, methods, paths} <- cases do
+        assert {:ok, scope} = AwxClient.broker_scope("https://awx.example.com", verb, args)
+        assert scope.allow["methods"] == methods
+        assert scope.allow["paths"] == paths
+        assert scope.allow["hosts"] == ["awx.example.com"]
+        assert scope.allow["ports"] == [443]
+        refute "/api/v2/" in paths
+      end
+    end
+
+    test "unsupported verbs and malformed path arguments fail closed" do
+      malformed = [
+        {"awx.unreviewed_admin_action", %{}},
+        {"awx.ping", %{"unexpected" => true}},
+        {"awx.list_hosts", %{"inventory_id" => 0}},
+        {"awx.fetch_template", %{"template_id" => -1}},
+        {"awx.launch_job", %{"template_id" => 0}},
+        {"awx.launch_job", %{"template_id" => 42, "unreviewed" => true}},
+        {"awx.launch_job", %{"template_id" => 42, "inventory_id" => "7"}},
+        {"awx.launch_job", %{"template_id" => 42, "credential_ids" => [5, 5]}},
+        {"awx.launch_job", %{"template_id" => 42, "job_type" => "admin"}},
+        {"awx.launch_job",
+         %{
+           "template_id" => 42,
+           "extra_vars" => %{"serviceradar_dispatch_id" => ""}
+         }},
+        {"awx.fetch_job", %{"job_id" => -1}},
+        {"awx.fetch_job_host_summaries", %{"job_id" => 1, "max_hosts" => 10_001}},
+        {"awx.list_recent_jobs", %{"template_id" => 42}},
+        {"awx.list_recent_jobs",
+         %{
+           "template_id" => 42,
+           "inventory_id" => 7,
+           "created_by_id" => 11,
+           "created_after" => "not-rfc3339",
+           "page_size" => 25
+         }},
+        {"awx.cancel_job", %{"job_id" => 0}},
+        {"awx.fetch_events_for_jobs", %{"pairs" => []}},
+        {"awx.fetch_events_for_jobs", %{"pairs" => [%{"job_id" => 1, "since_id" => -1}]}},
+        {"awx.fetch_callback_credential", %{"credential_type_id" => 91, "organization_id" => 2}}
+      ]
+
+      for {verb, args} <- malformed do
+        assert {:error, :invalid_awx_broker_scope} =
+                 AwxClient.broker_scope("https://awx.example.com", verb, args)
+      end
+    end
+  end
+
+  describe "purpose-specific credential selection" do
+    test "every supported verb has one explicit privilege purpose" do
+      for verb <- [
+            "awx.ping",
+            "awx.list_inventories",
+            "awx.list_hosts",
+            "awx.list_inventory_groups",
+            "awx.current_user",
+            "awx.list_projects",
+            "awx.list_templates",
+            "awx.fetch_template",
+            "awx.inventory_sync"
+          ] do
+        assert {:ok, :sync} = AwxClient.credential_purpose_for_verb(verb)
+      end
+
+      for verb <- [
+            "awx.launch_job",
+            "awx.fetch_job",
+            "awx.fetch_job_host_summaries",
+            "awx.list_recent_jobs",
+            "awx.cancel_job",
+            "awx.fetch_events_for_jobs"
+          ] do
+        assert {:ok, :execution} = AwxClient.credential_purpose_for_verb(verb)
+      end
+
+      for verb <- [
+            "awx.create_callback_credential",
+            "awx.fetch_callback_credential",
+            "awx.delete_callback_credential"
+          ] do
+        assert {:ok, :callback} = AwxClient.credential_purpose_for_verb(verb)
+      end
+
+      assert {:error, :unsupported_awx_verb} =
+               AwxClient.credential_purpose_for_verb("awx.unreviewed_admin_action")
+
+      assert {:error, :unsupported_awx_verb} = AwxClient.credential_purpose_for_verb(nil)
+
+      assert {:error, :unsupported_awx_verb} =
+               AwxClient.credential_secret_id_for_verb(controller(), nil)
+    end
+
+    test "sync, execution, and callback grants carry only their selected secret" do
+      assert {:ok, _} = AwxClient.ping(controller(), dispatch_opts())
+      assert_receive {:dispatch, _, "awx.ping", sync_payload, _}
+
+      assert sync_payload["credential_broker"]["credential_secret_ref"] ==
+               "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc"
+
+      assert {:ok, _} = AwxClient.launch_job(controller(), 42, %{}, dispatch_opts())
+      assert_receive {:dispatch, _, "awx.launch_job", execution_payload, _}
+
+      assert execution_payload["credential_broker"]["credential_secret_ref"] ==
+               "credentialref:network-credential-secret:018f3f56-2222-7222-8333-123456789abc"
+
+      assert {:ok, _} =
+               AwxClient.fetch_callback_credential(
+                 controller(),
+                 %{
+                   credential_type_id: 91,
+                   organization_id: 2,
+                   credential_name: "sr-callback-test"
+                 },
+                 dispatch_opts()
+               )
+
+      assert_receive {:dispatch, _, "awx.fetch_callback_credential", callback_payload, _}
+
+      assert callback_payload["credential_broker"]["credential_secret_ref"] ==
+               "credentialref:network-credential-secret:018f3f56-3333-7222-8333-123456789abc"
+    end
+
+    test "legacy compatibility is sync-only and cannot elevate into execution or callback" do
+      legacy_only =
+        controller(%{
+          sync_credential_secret_id: nil,
+          execution_credential_secret_id: nil,
+          callback_credential_secret_id: nil
+        })
+
+      assert {:ok, _} = AwxClient.ping(legacy_only, dispatch_opts())
+      assert_receive {:dispatch, _, "awx.ping", payload, _}
+
+      assert payload["credential_broker"]["credential_secret_ref"] ==
+               "credentialref:network-credential-secret:018f3f56-0000-7222-8333-123456789abc"
+
+      assert {:error, {:controller_credential_missing, :execution}} =
+               AwxClient.launch_job(legacy_only, 42, %{}, dispatch_opts())
+
+      assert {:error, {:controller_credential_missing, :callback}} =
+               AwxClient.fetch_callback_credential(
+                 legacy_only,
+                 %{
+                   credential_type_id: 91,
+                   organization_id: 2,
+                   credential_name: "sr-callback-test"
+                 },
+                 dispatch_opts()
+               )
+
+      refute_received {:dispatch, _, "awx.launch_job", _, _}
+      refute_received {:dispatch, _, "awx.fetch_callback_credential", _, _}
+    end
+
+    test "callback may deliberately reuse the execution credential" do
+      shared = "018f3f56-2222-7222-8333-123456789abc"
+      ctrl = controller(%{callback_credential_secret_id: shared})
+
+      assert {:ok, _} =
+               AwxClient.fetch_callback_credential(
+                 ctrl,
+                 %{
+                   credential_type_id: 91,
+                   organization_id: 2,
+                   credential_name: "sr-callback-test"
+                 },
+                 dispatch_opts()
+               )
+
+      assert_receive {:dispatch, _, "awx.fetch_callback_credential", payload, _}
+
+      assert payload["credential_broker"]["credential_secret_ref"] ==
+               "credentialref:network-credential-secret:#{shared}"
+    end
+
+    test "execution-principal discovery uses only the execution secret and exact me endpoint" do
+      assert {:ok, _} = AwxClient.current_execution_user(controller(), dispatch_opts())
+      assert_receive {:dispatch, "agent-a", "awx.current_user", payload, _opts}
+
+      broker = payload["credential_broker"]
+
+      assert broker["credential_secret_ref"] ==
+               "credentialref:network-credential-secret:018f3f56-2222-7222-8333-123456789abc"
+
+      assert broker["allow"]["methods"] == ["GET"]
+      assert broker["allow"]["paths"] == ["=/api/v2/me/"]
+      assert payload["verb"] == "awx.current_user"
+      assert payload["args"] == %{}
+    end
+
+    test "callers cannot override credential purpose on current_user or another verb" do
+      for {fun, purpose} <- [{:current_user, :execution}, {:ping, :callback}] do
+        opts = Keyword.put(dispatch_opts(), :credential_purpose, purpose)
+
+        assert {:error, :credential_purpose_override_not_allowed} =
+                 apply(AwxClient, fun, [controller(), opts])
+      end
+
+      refute_received {:dispatch, _, _, _, _}
+    end
+
+    test "execution-principal discovery never falls back to the legacy sync bridge" do
+      legacy_only =
+        controller(%{
+          sync_credential_secret_id: nil,
+          execution_credential_secret_id: nil,
+          callback_credential_secret_id: nil
+        })
+
+      assert {:error, {:controller_credential_missing, :execution}} =
+               AwxClient.current_execution_user(legacy_only, dispatch_opts())
+
+      refute_received {:dispatch, _, "awx.current_user", _, _}
     end
   end
 
@@ -114,6 +456,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
              }
 
       assert grant["allow"]["methods"] == ["GET"]
+      assert grant["allow"]["paths"] == ["=/api/v2/ping/"]
+      assert grant["allow"]["hosts"] == ["awx.example.com"]
+      assert grant["allow"]["ports"] == [443]
       assert grant["ttl_seconds"] == 300
 
       refute inspect(payload) =~ "Bearer "
@@ -140,6 +485,16 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
         assert_receive {:dispatch, "agent-a", ^verb, payload, _opts}
         assert payload["args"] == %{}
         assert payload["credential_broker"]["allow"]["methods"] == ["GET"]
+
+        expected_path =
+          case verb do
+            "awx.list_inventories" -> "=/api/v2/inventories/"
+            "awx.list_projects" -> "=/api/v2/projects/"
+            "awx.list_templates" -> "=/api/v2/job_templates/"
+            "awx.current_user" -> "=/api/v2/me/"
+          end
+
+        assert payload["credential_broker"]["allow"]["paths"] == [expected_path]
       end
     end
   end
@@ -187,6 +542,10 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
              }
 
       assert payload["credential_broker"]["allow"]["methods"] == ["POST"]
+
+      assert payload["credential_broker"]["allow"]["paths"] == [
+               "=/api/v2/job_templates/42/launch/"
+             ]
     end
 
     test "passes reviewed immutable execution fields" do
@@ -315,7 +674,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       assert payload["credential_broker"]["allow"] == %{
                "hosts" => ["awx.example.com"],
                "methods" => ["GET", "DELETE"],
-               "paths" => ["=/api/v2/credentials/401/"]
+               "paths" => ["=/api/v2/credentials/401/"],
+               "ports" => [443]
              }
 
       assert payload["callback_credential_binding"] == %{
@@ -495,6 +855,10 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       assert_receive {:dispatch, "agent-a", "awx.cancel_job", payload, _opts}
       assert payload["args"] == %{"job_id" => 7331}
       assert payload["credential_broker"]["allow"]["methods"] == ["POST"]
+
+      assert payload["credential_broker"]["allow"]["paths"] == [
+               "=/api/v2/jobs/7331/cancel/"
+             ]
     end
   end
 
@@ -522,10 +886,11 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       end
     end
 
-    test "handles empty pair list" do
-      assert {:ok, _} = AwxClient.fetch_events_for_jobs(controller(), [], dispatch_opts())
-      assert_receive {:dispatch, "agent-a", "awx.fetch_events_for_jobs", payload, _opts}
-      assert payload["args"] == %{"pairs" => []}
+    test "rejects an empty pair list before issuing an unscoped grant" do
+      assert {:error, :invalid_awx_broker_scope} =
+               AwxClient.fetch_events_for_jobs(controller(), [], dispatch_opts())
+
+      refute_received {:dispatch, _, "awx.fetch_events_for_jobs", _, _}
     end
   end
 
@@ -547,6 +912,14 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
 
       assert payload["target"]["agent_id"] == "agent-a"
       assert payload["allow"]["methods"] == ["GET"]
+
+      assert payload["allow"]["paths"] == [
+               "=/api/v2/inventories/",
+               "/api/v2/inventories/*"
+             ]
+
+      assert payload["allow"]["hosts"] == ["awx.example.com"]
+      assert payload["allow"]["ports"] == [443]
       refute Map.has_key?(payload, "grant_id")
       refute Map.has_key?(payload, "expires_at")
     end
@@ -564,6 +937,22 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       assert {:ok, _} = AwxClient.ping(ctrl, dispatch_opts())
       assert_receive {:dispatch, _, _, payload, _}
       assert payload["insecure_skip_verify"] == true
+    end
+
+    test "requires literal boolean true and accepts the atom metadata key" do
+      for value <- ["false", "true", 1, nil, false] do
+        ctrl = controller(%{metadata: %{"insecure_skip_verify" => value}})
+        assert {:ok, _} = AwxClient.ping(ctrl, dispatch_opts())
+        assert_receive {:dispatch, _, _, payload, _}
+        assert payload["insecure_skip_verify"] == false
+        refute Map.has_key?(payload["credential_broker"]["inject"], "allow_insecure_tls")
+      end
+
+      ctrl = controller(%{metadata: %{insecure_skip_verify: true}})
+      assert {:ok, _} = AwxClient.ping(ctrl, dispatch_opts())
+      assert_receive {:dispatch, _, _, payload, _}
+      assert payload["insecure_skip_verify"] == true
+      assert payload["credential_broker"]["inject"]["allow_insecure_tls"] == "true"
     end
   end
 

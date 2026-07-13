@@ -51,6 +51,62 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   @callback_create_binding_keys MapSet.put(@callback_common_binding_keys, "envelope_ref")
   @sha256_hex ~r/\A[a-f0-9]{64}\z/
 
+  @launch_arg_keys MapSet.new([
+                     "template_id",
+                     "extra_vars",
+                     "host_limit",
+                     "inventory_id",
+                     "credential_ids",
+                     "execution_environment_id",
+                     "job_type",
+                     "diff_mode",
+                     "verbosity",
+                     "forks",
+                     "job_slice_count",
+                     "timeout",
+                     "job_tags",
+                     "skip_tags",
+                     "labels",
+                     "instance_group_ids"
+                   ])
+  @callback_create_arg_keys MapSet.new(
+                              ~w(credential_type_id organization_id credential_name injector_sha256)
+                            )
+  @callback_fetch_arg_keys MapSet.new(~w(credential_type_id organization_id credential_name))
+  @callback_delete_arg_keys MapSet.new(
+                              ~w(credential_id credential_type_id organization_id credential_name)
+                            )
+  @recent_job_arg_keys MapSet.new(
+                         ~w(template_id inventory_id created_by_id created_after page_size)
+                       )
+  @event_pair_keys MapSet.new(~w(job_id since_id))
+  @reserved_dispatch_vars ~w(serviceradar_dispatch_id serviceradar_snapshot_digest)
+
+  @sync_verbs MapSet.new([
+                "awx.ping",
+                "awx.list_inventories",
+                "awx.list_hosts",
+                "awx.list_inventory_groups",
+                "awx.current_user",
+                "awx.list_projects",
+                "awx.list_templates",
+                "awx.fetch_template",
+                "awx.inventory_sync"
+              ])
+  @execution_verbs MapSet.new([
+                     "awx.launch_job",
+                     "awx.fetch_job",
+                     "awx.fetch_job_host_summaries",
+                     "awx.list_recent_jobs",
+                     "awx.cancel_job",
+                     "awx.fetch_events_for_jobs"
+                   ])
+  @callback_verbs MapSet.new([
+                    "awx.create_callback_credential",
+                    "awx.fetch_callback_credential",
+                    "awx.delete_callback_credential"
+                  ])
+
   @typedoc "A `(job_id, since_id)` pair for `fetch_events_for_jobs/3`."
   @type job_event_pair :: %{required(:job_id) => integer(), required(:since_id) => integer()}
 
@@ -125,6 +181,20 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   @spec current_user(Controller.t(), keyword()) :: {:ok, struct()} | {:error, term()}
   def current_user(controller, opts \\ []),
     do: dispatch_verb(controller, "awx.current_user", %{}, opts)
+
+  @doc """
+  Resolves the numeric AWX identity of the execution principal.
+
+  This is the only API allowed to run the sanitized `awx.current_user` verb
+  with a non-sync credential. It is used when review evidence must pin the
+  exact principal that will launch a job. The broker grant remains limited to
+  `GET /api/v2/me/`; callers cannot supply a general credential-purpose
+  override.
+  """
+  @spec current_execution_user(Controller.t(), keyword()) ::
+          {:ok, struct()} | {:error, term()}
+  def current_execution_user(controller, opts \\ []),
+    do: dispatch_verb_for_purpose(controller, "awx.current_user", %{}, :execution, opts)
 
   @spec list_projects(Controller.t(), keyword()) :: {:ok, struct()} | {:error, term()}
   def list_projects(controller, opts \\ []),
@@ -327,24 +397,133 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   """
   @spec inventory_sync_grant_template(Controller.t()) :: {:ok, map()} | {:error, term()}
   def inventory_sync_grant_template(%Controller{} = controller) do
-    with :ok <- ensure_controller_dispatchable(controller) do
+    with {:ok, secret_id} <- dispatch_credential(controller, "awx.inventory_sync", nil),
+         {:ok, scope} <- broker_scope(controller.base_url, "awx.inventory_sync", %{}) do
       controller
-      |> credential_broker_grant_attrs("awx.inventory_sync")
+      |> credential_broker_grant_attrs("awx.inventory_sync", secret_id, scope)
       |> CredentialBrokerGrant.to_payload()
       |> Map.drop(["grant_id", "expires_at"])
       |> then(&{:ok, &1})
     end
   end
 
+  @doc """
+  Returns the normalized controller endpoint and fail-closed HTTP scope for a
+  supported AWX verb.
+
+  This is public because the durable callback-command verifier must derive the
+  exact same boundary as command issuance. A controller URL must be an
+  origin-only HTTP(S) URL: credentials, paths, queries, fragments, unknown
+  schemes, empty hosts, and ports outside `1..65535` are rejected. The
+  effective port is always explicit in the returned grant scope (443 for HTTPS
+  and 80 for HTTP when omitted by the operator).
+  """
+  @spec broker_scope(String.t(), String.t(), map()) ::
+          {:ok,
+           %{
+             base_url: String.t(),
+             allow: map(),
+             allowed_hosts: [String.t()],
+             allowed_methods: [String.t()],
+             allowed_paths: [String.t()],
+             allowed_ports: [pos_integer()]
+           }}
+          | {:error, :invalid_controller_base_url | :invalid_awx_broker_scope}
+  def broker_scope(base_url, verb, args) when is_binary(verb) and is_map(args) do
+    with {:ok, endpoint} <- normalize_controller_endpoint(base_url),
+         [_ | _] = methods <- allowed_methods_for(verb),
+         [_ | _] = paths <- allowed_paths_for(verb, args) do
+      allow = %{
+        "methods" => methods,
+        "paths" => paths,
+        "hosts" => [endpoint.host],
+        "ports" => [endpoint.port]
+      }
+
+      {:ok,
+       %{
+         base_url: endpoint.base_url,
+         allow: allow,
+         allowed_methods: methods,
+         allowed_paths: paths,
+         allowed_hosts: [endpoint.host],
+         allowed_ports: [endpoint.port]
+       }}
+    else
+      [] -> {:error, :invalid_awx_broker_scope}
+      {:error, _reason} = error -> error
+      _ -> {:error, :invalid_awx_broker_scope}
+    end
+  end
+
+  def broker_scope(_base_url, _verb, _args), do: {:error, :invalid_awx_broker_scope}
+
+  @doc "Returns the explicit purpose assigned to a supported AWX verb."
+  @spec credential_purpose_for_verb(String.t()) ::
+          {:ok, Controller.credential_purpose()} | {:error, :unsupported_awx_verb}
+  def credential_purpose_for_verb(verb) when is_binary(verb) do
+    cond do
+      MapSet.member?(@sync_verbs, verb) -> {:ok, :sync}
+      MapSet.member?(@execution_verbs, verb) -> {:ok, :execution}
+      MapSet.member?(@callback_verbs, verb) -> {:ok, :callback}
+      true -> {:error, :unsupported_awx_verb}
+    end
+  end
+
+  def credential_purpose_for_verb(_verb), do: {:error, :unsupported_awx_verb}
+
+  @doc "Returns the controller secret selected for an exact supported AWX verb."
+  @spec credential_secret_id_for_verb(map(), String.t()) ::
+          {:ok, String.t()} | {:error, term()}
+  def credential_secret_id_for_verb(controller, verb)
+      when is_map(controller) and is_binary(verb) do
+    with {:ok, purpose} <- credential_purpose_for_verb(verb) do
+      Controller.credential_secret_id_for(controller, purpose)
+    end
+  end
+
+  def credential_secret_id_for_verb(_controller, _verb), do: {:error, :unsupported_awx_verb}
+
   ## Internals
 
   defp dispatch_verb(%Controller{} = controller, verb, args, opts) do
+    if Keyword.has_key?(opts, :credential_purpose) do
+      {:error, :credential_purpose_override_not_allowed}
+    else
+      do_dispatch_verb(controller, verb, args, nil, opts)
+    end
+  end
+
+  defp dispatch_verb_for_purpose(
+         %Controller{} = controller,
+         "awx.current_user" = verb,
+         args,
+         :execution,
+         opts
+       ) do
+    if Keyword.has_key?(opts, :credential_purpose) do
+      {:error, :credential_purpose_override_not_allowed}
+    else
+      do_dispatch_verb(controller, verb, args, :execution, opts)
+    end
+  end
+
+  defp do_dispatch_verb(%Controller{} = controller, verb, args, credential_purpose, opts) do
     {callback_credential_binding, dispatch_opts} =
       Keyword.pop(opts, :callback_credential_binding)
 
-    with :ok <- ensure_controller_dispatchable(controller),
+    with {:ok, secret_id} <- dispatch_credential(controller, verb, credential_purpose),
+         {:ok, scope} <- broker_scope(controller.base_url, verb, args),
          {:ok, payload} <-
-           build_payload(controller, verb, args, callback_credential_binding, dispatch_opts) do
+           build_payload(
+             controller,
+             verb,
+             args,
+             callback_credential_binding,
+             secret_id,
+             scope,
+             dispatch_opts
+           ) do
       {bus, dispatch_opts} = Keyword.pop(dispatch_opts, :command_bus, AgentCommandBus)
       {_grant_issuer, dispatch_opts} = Keyword.pop(dispatch_opts, :grant_issuer)
       payload = CredentialRedactor.redact(payload)
@@ -370,24 +549,42 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
     end
   end
 
-  defp ensure_controller_dispatchable(%Controller{} = controller) do
+  defp dispatch_credential(%Controller{} = controller, verb, credential_purpose) do
     cond do
-      blank?(controller.agent_id) -> {:error, :controller_agent_id_missing}
-      is_nil(controller.credential_secret_id) -> {:error, :controller_credential_missing}
-      blank?(controller.base_url) -> {:error, :controller_base_url_missing}
-      true -> :ok
+      blank?(controller.agent_id) ->
+        {:error, :controller_agent_id_missing}
+
+      blank?(controller.base_url) ->
+        {:error, :controller_base_url_missing}
+
+      is_nil(credential_purpose) ->
+        credential_secret_id_for_verb(controller, verb)
+
+      verb == "awx.current_user" and credential_purpose == :execution ->
+        Controller.credential_secret_id_for(controller, :execution)
+
+      true ->
+        {:error, :credential_purpose_override_not_allowed}
     end
   end
 
-  defp build_payload(%Controller{} = controller, verb, args, callback_binding, opts) do
-    with {:ok, grant} <- credential_broker_grant(controller, verb, args, opts) do
+  defp build_payload(
+         %Controller{} = controller,
+         verb,
+         args,
+         callback_binding,
+         secret_id,
+         scope,
+         opts
+       ) do
+    with {:ok, grant} <- credential_broker_grant(controller, verb, secret_id, scope, opts) do
       {:ok,
        maybe_put(
          %{
            "schema" => @payload_schema,
            "verb" => verb,
            "args" => args,
-           "base_url" => controller.base_url,
+           "base_url" => scope.base_url,
            "controller_id" => controller.id,
            "controller_name" => controller.name,
            "insecure_skip_verify" => insecure_skip_verify?(controller),
@@ -399,13 +596,13 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
     end
   end
 
-  defp credential_broker_grant(%Controller{} = controller, verb, args, opts) do
-    attrs = credential_broker_grant_attrs(controller, verb, args)
+  defp credential_broker_grant(%Controller{} = controller, verb, secret_id, scope, opts) do
+    attrs = credential_broker_grant_attrs(controller, verb, secret_id, scope)
     issuer = Keyword.get(opts, :grant_issuer, &issue_persisted_grant/1)
     issuer.(attrs)
   end
 
-  defp credential_broker_grant_attrs(%Controller{} = controller, verb, args \\ %{}) do
+  defp credential_broker_grant_attrs(%Controller{} = controller, verb, secret_id, scope) do
     inject = %{
       "type" => "http_header",
       "name" => "Authorization",
@@ -420,8 +617,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
       end
 
     %{
-      secret_id: controller.credential_secret_id,
-      secret_ref: SecretRefs.network_credential_ref(controller.credential_secret_id),
+      secret_id: secret_id,
+      secret_ref: SecretRefs.network_credential_ref(secret_id),
       grant_type: @grant_type,
       consumer_kind: :ansible,
       consumer_id: controller.id,
@@ -431,9 +628,10 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
       agent_id: controller.agent_id,
       resolution_location: :agent,
       inject: inject,
-      allowed_methods: allowed_methods_for(verb),
-      allowed_hosts: allowed_hosts_for(controller.base_url),
-      allowed_paths: allowed_paths_for(verb, args),
+      allowed_methods: scope.allowed_methods,
+      allowed_hosts: scope.allowed_hosts,
+      allowed_paths: scope.allowed_paths,
+      allowed_ports: scope.allowed_ports,
       ttl_seconds: @default_grant_ttl_seconds
     }
   end
@@ -454,65 +652,313 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   defp allowed_methods_for("awx.cancel_job"), do: ["POST"]
   defp allowed_methods_for("awx.create_callback_credential"), do: ["GET", "POST"]
   defp allowed_methods_for("awx.delete_callback_credential"), do: ["GET", "DELETE"]
-  defp allowed_methods_for(_), do: ["GET"]
 
-  defp allowed_paths_for("awx.create_callback_credential", args) do
-    case Map.get(args, "credential_type_id") do
-      credential_type_id when is_integer(credential_type_id) and credential_type_id > 0 ->
-        ["=/api/v2/credential_types/#{credential_type_id}/", "=/api/v2/credentials/"]
+  defp allowed_methods_for(verb)
+       when verb in [
+              "awx.ping",
+              "awx.list_inventories",
+              "awx.list_hosts",
+              "awx.list_inventory_groups",
+              "awx.current_user",
+              "awx.list_projects",
+              "awx.list_templates",
+              "awx.fetch_template",
+              "awx.inventory_sync",
+              "awx.fetch_callback_credential",
+              "awx.fetch_job",
+              "awx.fetch_job_host_summaries",
+              "awx.list_recent_jobs",
+              "awx.fetch_events_for_jobs"
+            ],
+       do: ["GET"]
 
-      _ ->
-        []
+  defp allowed_methods_for(_verb), do: []
+
+  defp allowed_paths_for("awx.ping", args) do
+    if empty_args?(args), do: ["=/api/v2/ping/"], else: []
+  end
+
+  defp allowed_paths_for("awx.list_inventories", args) do
+    if empty_args?(args), do: ["=/api/v2/inventories/"], else: []
+  end
+
+  defp allowed_paths_for("awx.list_projects", args) do
+    if empty_args?(args), do: ["=/api/v2/projects/"], else: []
+  end
+
+  defp allowed_paths_for("awx.list_templates", args) do
+    if empty_args?(args), do: ["=/api/v2/job_templates/"], else: []
+  end
+
+  defp allowed_paths_for("awx.current_user", args) do
+    if empty_args?(args), do: ["=/api/v2/me/"], else: []
+  end
+
+  defp allowed_paths_for("awx.inventory_sync", args) do
+    if empty_args?(args) do
+      ["=/api/v2/inventories/", "/api/v2/inventories/*"]
+    else
+      []
     end
   end
 
-  defp allowed_paths_for("awx.delete_callback_credential", args) do
-    case Map.get(args, "credential_id") do
-      credential_id when is_integer(credential_id) and credential_id > 0 ->
-        ["=/api/v2/credentials/#{credential_id}/"]
-
-      _ ->
-        []
-    end
-  end
-
-  defp allowed_paths_for(_verb, _args), do: ["/api/v2/"]
-
-  defp allowed_hosts_for(base_url) do
-    case host_from_base_url(base_url) do
-      host when is_binary(host) and host != "" -> [host]
+  defp allowed_paths_for("awx.list_hosts", args) do
+    case exact_positive_arg(args, ~w(inventory_id), "inventory_id") do
+      {:ok, inventory_id} -> ["=/api/v2/inventories/#{inventory_id}/hosts/"]
       _ -> []
     end
   end
 
-  # A base_url without a scheme (e.g. "awx.example.com") parses with host: nil
-  # (the value lands in :path), which would yield an EMPTY allowed_hosts and a
-  # host-unscoped grant. Re-parse with a default scheme so the grant stays
-  # pinned to the controller host.
-  defp host_from_base_url(base_url) do
-    url = String.trim(to_string(base_url))
-
-    case URI.parse(url) do
-      %URI{host: host} when is_binary(host) and host != "" ->
-        host
-
-      _ when url != "" ->
-        case URI.parse("https://" <> url) do
-          %URI{host: host} when is_binary(host) and host != "" -> host
-          _ -> nil
-        end
-
-      _ ->
-        nil
+  defp allowed_paths_for("awx.list_inventory_groups", args) do
+    case exact_positive_arg(args, ~w(inventory_id), "inventory_id") do
+      {:ok, inventory_id} -> ["=/api/v2/inventories/#{inventory_id}/groups/"]
+      _ -> []
     end
   end
 
-  defp insecure_skip_verify?(%Controller{metadata: meta}) when is_map(meta) do
-    if Map.get(meta, "insecure_skip_verify") do
-      true
-    else
-      false
+  defp allowed_paths_for("awx.fetch_template", args) do
+    case exact_positive_arg(args, ~w(template_id), "template_id") do
+      {:ok, template_id} ->
+        [
+          "=/api/v2/job_templates/#{template_id}/",
+          "=/api/v2/job_templates/#{template_id}/survey_spec/"
+        ]
+
+      _ ->
+        []
     end
+  end
+
+  defp allowed_paths_for("awx.launch_job", args) do
+    with true <- valid_launch_args?(args),
+         {:ok, template_id} <- positive_arg(args, "template_id") do
+      ["=/api/v2/job_templates/#{template_id}/launch/"]
+    else
+      _ -> []
+    end
+  end
+
+  defp allowed_paths_for("awx.fetch_job", args) do
+    case exact_positive_arg(args, ~w(job_id), "job_id") do
+      {:ok, job_id} -> ["=/api/v2/jobs/#{job_id}/"]
+      _ -> []
+    end
+  end
+
+  defp allowed_paths_for("awx.fetch_job_host_summaries", args) do
+    with true <- exact_arg_keys?(args, ~w(job_id max_hosts)),
+         {:ok, job_id} <- positive_arg(args, "job_id"),
+         max_hosts when is_integer(max_hosts) and max_hosts in 1..10_000 <-
+           Map.get(args, "max_hosts") do
+      ["=/api/v2/jobs/#{job_id}/job_host_summaries/"]
+    else
+      _ -> []
+    end
+  end
+
+  defp allowed_paths_for("awx.list_recent_jobs", args) do
+    with true <- exact_arg_keys?(args, @recent_job_arg_keys),
+         {:ok, _template_id} <- positive_arg(args, "template_id"),
+         {:ok, _inventory_id} <- positive_arg(args, "inventory_id"),
+         {:ok, _created_by_id} <- positive_arg(args, "created_by_id"),
+         created_after when is_binary(created_after) and created_after != "" <-
+           Map.get(args, "created_after"),
+         {:ok, _datetime, _offset} <- DateTime.from_iso8601(created_after),
+         page_size when is_integer(page_size) and page_size in 1..100 <-
+           Map.get(args, "page_size") do
+      ["=/api/v2/jobs/"]
+    else
+      _ -> []
+    end
+  end
+
+  defp allowed_paths_for("awx.cancel_job", args) do
+    case exact_positive_arg(args, ~w(job_id), "job_id") do
+      {:ok, job_id} -> ["=/api/v2/jobs/#{job_id}/cancel/"]
+      _ -> []
+    end
+  end
+
+  defp allowed_paths_for("awx.fetch_events_for_jobs", args) do
+    with true <- exact_arg_keys?(args, ~w(pairs)),
+         pairs when is_list(pairs) and pairs != [] <- Map.get(args, "pairs"),
+         true <- Enum.all?(pairs, &valid_event_pair?/1) do
+      pairs
+      |> Enum.map(&Map.fetch!(&1, "job_id"))
+      |> Enum.uniq()
+      |> Enum.map(&"=/api/v2/jobs/#{&1}/job_events/")
+    else
+      _ -> []
+    end
+  end
+
+  defp allowed_paths_for("awx.create_callback_credential", args) do
+    with true <- exact_arg_keys?(args, @callback_create_arg_keys),
+         {:ok, credential_type_id} <- positive_arg(args, "credential_type_id"),
+         {:ok, _organization_id} <- positive_arg(args, "organization_id"),
+         true <- bounded_nonempty_string?(Map.get(args, "credential_name"), 128),
+         injector_sha256 when is_binary(injector_sha256) <- Map.get(args, "injector_sha256"),
+         true <- Regex.match?(@sha256_hex, injector_sha256) do
+      ["=/api/v2/credential_types/#{credential_type_id}/", "=/api/v2/credentials/"]
+    else
+      _ -> []
+    end
+  end
+
+  defp allowed_paths_for("awx.fetch_callback_credential", args) do
+    with true <- exact_arg_keys?(args, @callback_fetch_arg_keys),
+         {:ok, _credential_type_id} <- positive_arg(args, "credential_type_id"),
+         {:ok, _organization_id} <- positive_arg(args, "organization_id"),
+         true <- bounded_nonempty_string?(Map.get(args, "credential_name"), 128) do
+      ["=/api/v2/credentials/"]
+    else
+      _ -> []
+    end
+  end
+
+  defp allowed_paths_for("awx.delete_callback_credential", args) do
+    with true <- exact_arg_keys?(args, @callback_delete_arg_keys),
+         {:ok, credential_id} <- positive_arg(args, "credential_id"),
+         {:ok, _credential_type_id} <- positive_arg(args, "credential_type_id"),
+         {:ok, _organization_id} <- positive_arg(args, "organization_id"),
+         true <- bounded_nonempty_string?(Map.get(args, "credential_name"), 128) do
+      ["=/api/v2/credentials/#{credential_id}/"]
+    else
+      _ -> []
+    end
+  end
+
+  defp allowed_paths_for(_verb, _args), do: []
+
+  defp normalize_controller_endpoint(base_url) when is_binary(base_url) do
+    base_url = String.trim(base_url)
+
+    with true <- base_url != "",
+         {:ok, %URI{} = uri} <- URI.new(base_url),
+         scheme when scheme in ["http", "https"] <- String.downcase(uri.scheme || ""),
+         host when is_binary(host) and host != "" <- uri.host,
+         true <- valid_controller_host?(host),
+         true <- is_nil(uri.userinfo),
+         true <- uri.path in [nil, "", "/"],
+         true <- is_nil(uri.query) and is_nil(uri.fragment),
+         port when is_integer(port) and port in 1..65_535 <- uri.port do
+      normalized_uri = %{
+        uri
+        | scheme: scheme,
+          host: String.downcase(host),
+          path: nil,
+          query: nil,
+          fragment: nil,
+          userinfo: nil
+      }
+
+      {:ok,
+       %{
+         base_url: URI.to_string(normalized_uri),
+         host: normalized_uri.host,
+         port: port
+       }}
+    else
+      _ -> {:error, :invalid_controller_base_url}
+    end
+  end
+
+  defp normalize_controller_endpoint(_base_url), do: {:error, :invalid_controller_base_url}
+
+  defp valid_controller_host?(host) do
+    String.trim(host) == host and not Regex.match?(~r/\s/u, host)
+  end
+
+  defp empty_args?(args), do: is_map(args) and map_size(args) == 0
+
+  defp exact_arg_keys?(args, expected) when is_map(args) do
+    MapSet.new(Map.keys(args)) == MapSet.new(expected)
+  end
+
+  defp exact_arg_keys?(_args, _expected), do: false
+
+  defp subset_arg_keys?(args, expected) when is_map(args) do
+    keys = MapSet.new(Map.keys(args))
+    MapSet.member?(keys, "template_id") and MapSet.subset?(keys, expected)
+  end
+
+  defp subset_arg_keys?(_args, _expected), do: false
+
+  defp exact_positive_arg(args, expected_keys, key) do
+    if exact_arg_keys?(args, expected_keys), do: positive_arg(args, key), else: :error
+  end
+
+  defp positive_arg(args, key) when is_map(args) do
+    positive_integer(Map.get(args, key))
+  end
+
+  defp positive_arg(_args, _key), do: {:error, :invalid_positive_integer}
+
+  defp valid_event_pair?(pair) when is_map(pair) do
+    exact_arg_keys?(pair, @event_pair_keys) and
+      match?({:ok, _job_id}, positive_arg(pair, "job_id")) and
+      is_integer(Map.get(pair, "since_id")) and Map.get(pair, "since_id") in 0..2_147_483_647
+  end
+
+  defp valid_event_pair?(_pair), do: false
+
+  defp bounded_nonempty_string?(value, max_bytes) when is_binary(value) do
+    String.trim(value) != "" and byte_size(value) <= max_bytes
+  end
+
+  defp bounded_nonempty_string?(_value, _max_bytes), do: false
+
+  defp valid_launch_args?(args) when is_map(args) do
+    subset_arg_keys?(args, @launch_arg_keys) and
+      match?({:ok, _template_id}, positive_arg(args, "template_id")) and
+      optional_arg?(args, "extra_vars", &valid_launch_extra_vars?/1) and
+      optional_arg?(args, "host_limit", &bounded_nonempty_string?(&1, 16 * 1024)) and
+      optional_arg?(args, "inventory_id", &positive_integer_value?/1) and
+      optional_arg?(args, "credential_ids", &valid_launch_id_list?/1) and
+      optional_arg?(args, "execution_environment_id", &positive_integer_value?/1) and
+      optional_arg?(args, "job_type", &(&1 in ["run", "check"])) and
+      optional_arg?(args, "diff_mode", &is_boolean/1) and
+      optional_arg?(args, "verbosity", &(is_integer(&1) and &1 in 0..5)) and
+      optional_arg?(args, "forks", &(is_integer(&1) and &1 in 1..10_000)) and
+      optional_arg?(args, "job_slice_count", &(is_integer(&1) and &1 in 1..10_000)) and
+      optional_arg?(args, "timeout", &(is_integer(&1) and &1 in 1..604_800)) and
+      optional_arg?(args, "job_tags", &bounded_string?(&1, 4 * 1024)) and
+      optional_arg?(args, "skip_tags", &bounded_string?(&1, 4 * 1024)) and
+      optional_arg?(args, "labels", &valid_launch_id_list?/1) and
+      optional_arg?(args, "instance_group_ids", &valid_launch_id_list?/1)
+  end
+
+  defp valid_launch_args?(_args), do: false
+
+  defp optional_arg?(args, key, validator) do
+    not Map.has_key?(args, key) or validator.(Map.get(args, key))
+  end
+
+  defp positive_integer_value?(value), do: match?({:ok, _value}, positive_integer(value))
+
+  defp valid_launch_id_list?(values) when is_list(values) do
+    length(values) in 1..128 and Enum.uniq(values) == values and
+      Enum.all?(values, &positive_integer_value?/1)
+  end
+
+  defp valid_launch_id_list?(_values), do: false
+
+  defp valid_launch_extra_vars?(extra_vars) when is_map(extra_vars) do
+    Enum.all?(@reserved_dispatch_vars, fn key ->
+      not Map.has_key?(extra_vars, key) or
+        bounded_nonempty_string?(Map.get(extra_vars, key), 512)
+    end)
+  end
+
+  defp valid_launch_extra_vars?(_extra_vars), do: false
+
+  defp bounded_string?(value, max_bytes) when is_binary(value), do: byte_size(value) <= max_bytes
+
+  defp bounded_string?(_value, _max_bytes), do: false
+
+  defp insecure_skip_verify?(%Controller{metadata: meta}) when is_map(meta) do
+    Map.get(meta, "insecure_skip_verify") == true or
+      Map.get(meta, :insecure_skip_verify) == true
   end
 
   defp insecure_skip_verify?(_), do: false

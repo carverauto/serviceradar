@@ -5,6 +5,8 @@
 - [ ] 1.3 Add parent operation, child execution, immutable launch snapshot, target tuple, `AutomationExecutionDelegation` with issuer/owner/principal/ceilings, approval/actor snapshot, reserved dispatch marker/state, `dispatch_partial`, and controller-scoped job identity resources/constraints; add administrator-only `ansible.delegations.manage` for binding a separate owned service principal.
 - [ ] 1.4 Add versioned authenticated mutation-phase resources and canonical-device-wide holds recording triggering membership/transaction/generation/evidence; add exact `ansible.targets.holds.clear` to RBAC/profile UI/API, administrator-only by default, with approval/current-policy checks and secret-free reconciliation audit.
 - [ ] 1.5 Backfill current memberships and legacy runs conservatively; purge/redact active run/schedule raw variables and PaperTrail/action inputs without secret hashes, require scrub-before-traffic on restore, document bounded backup expiry/tombstones and affected-credential rotation, quarantine ambiguity, and never synthesize missing host IDs, actor authority, or provenance.
+- [x] 1.6 Split each AWX controller into sync/execution/callback credential references, backfill existing rows from the legacy all-purpose reference, retain a one-release sync-only rolling-upgrade bridge, and map every AWX verb to exactly one purpose with no execution/callback fallback.
+- [x] 1.7 Bind every AWX bearer grant to non-empty verb-specific method/host/normalized-port/exact-or-argument-derived-path ACLs, reject malformed or unsupported scope before issuance/dispatch, and refuse credential-backed redirects.
 
 ## 2. Authorization, planning, and inputs
 

@@ -62,7 +62,7 @@ A single playbook can appear via both sources; both source types coexist in the 
 ### Prerequisites
 
 - An AWX or AAP instance reachable from at least one ServiceRadar agent.
-- An OAuth2 personal access token from AWX with read access to inventories / projects / job_templates, plus permission to launch the templates ServiceRadar will run.
+- Purpose-scoped AWX OAuth2 tokens: a read-only sync principal and an execution principal limited to the exact inventories, templates, and machine credentials ServiceRadar may use. Callback-enabled playbooks additionally need the reviewed callback credential lifecycle described below.
 - A ServiceRadar agent registered to the gateway and reachable from the AWX network (typical: same Kubernetes cluster, same VPC, same VLAN).
 
 ### Apply the schema migration
@@ -137,13 +137,21 @@ The current effective values are surfaced at runtime in `Settings → Ansible �
 
 > Permissions: this guide assumes `ansible.controllers.manage` + `ansible.repositories.manage` + `ansible.schedules.manage`. Admins have these by default; see [RBAC reference](#rbac-reference) for the full set.
 
-### 1. Store the AWX API token in the credential broker
+### 1. Store purpose-scoped AWX API tokens in the credential broker
 
-The Ansible integration never sees a plaintext token — it always passes a credential broker grant referencing a stored secret. Create the secret first.
+The Ansible integration never passes a plaintext AWX token to a playbook. Each AWX REST command carries a short-lived credential-broker grant referencing the one stored secret selected for that command's purpose, and the selected edge agent resolves it only at the AWX HTTP boundary.
 
-In the ServiceRadar web UI, go to **Settings → Credentials** (Integrations / credentials) and add a new credential for the AWX OAuth2 token: give it a name (for example `awx-prod`), select the `awx` provider with an API-token credential kind, and paste the AWX OAuth2 personal access token. Save the credential and note its UUID — you will reference it when registering the controller in the next step.
+In the ServiceRadar web UI, go to **Settings → Credentials** and create:
 
-> The credential broker, not ServiceRadar core, handles plaintext. SSH keys, become passwords, and vault passwords are never stored here — those live in AWX's credential vault. The only secret ServiceRadar holds is the AWX OAuth2 token, encrypted at rest.
+1. A sync credential (for example `awx-prod-sync`) for an AWX principal with OAuth `read` and only the organization/inventory/project/template read roles needed for health, catalog, and inventory discovery.
+2. An execution credential (for example `awx-prod-exec`) for a non-superuser AWX principal with OAuth `write`, exact inventory `Use`, template `Execute`, and machine-credential `Use` roles. It does not need Project Admin, Inventory Admin, Job Template Admin, Ad Hoc, or organization-wide Credential Admin.
+3. For callback-enabled playbooks, a callback credential. The currently supported least-privilege deployment deliberately reuses the execution credential and grants that principal Credential Admin only in a dedicated empty AWX organization such as `ServiceRadar Ephemeral`. Configure the reviewed callback credential organization ID to that empty organization. Never grant the principal Credential Admin in an organization that contains operator or machine credentials.
+
+Save each credential. You will select the references when registering the controller. ServiceRadar supports distinct execution and callback references, but a deployment using distinct AWX users must first prove that the execution principal has `Use` on each dynamically created callback credential; selecting a different secret does not add or bypass AWX permissions.
+
+> The credential broker, not a playbook, handles AWX token plaintext. SSH keys, become passwords, and vault passwords stay in AWX's credential vault. Controller tokens are encrypted at rest and are never supplied as survey values, `extra_vars`, inventory variables, or managed-host files.
+
+Each short-lived controller-token grant is also pinned to the normalized AWX origin's one host and effective port plus the exact method and endpoint(s) required by that verb. ServiceRadar has no catch-all `/api/v2/` grant. Invalid controller URLs or verb arguments fail before a grant is issued or a command is dispatched, and the edge HTTP boundary never follows a redirect while carrying an AWX bearer.
 
 ### 2. Register an AWX controller
 
@@ -155,12 +163,16 @@ Navigate to **Settings → Ansible → Controllers** and click **+ Add controlle
 | Agent ID | The ServiceRadar agent that reaches this AWX. Must have both plugin assignments. |
 | Description | Optional. |
 | Base URL | `https://awx.internal.example.com` — must include scheme. |
-| Credential secret ID | The UUID from step 1. (v1 limitation: paste manually; picker UX comes later.) |
+| Sync credential | Required. Used only by `awx.ping`, catalog/list/fetch reads, and scheduled inventory discovery. A pasted token on this form creates a sync-only encrypted secret. |
+| Execution credential | Required before launching or observing jobs. Used only for launch, job/event/host-summary reads, recent-job reconciliation, cancellation, and the strict review-time lookup that pins this execution principal's numeric AWX user ID. That lookup is limited to `GET /api/v2/me/`. There is no fallback to the sync credential. |
+| Callback credential lifecycle | Required only for callback-enabled playbooks. Used only to create/fetch/delete the reviewed ephemeral custom credential. It may explicitly select the execution secret; there is no automatic fallback. |
 | Inventory sync (s) | Plugin-side cadence for `inventory_sync`. Default 300. |
 | Catalog sync (s) | `AwxCatalogSyncWorker` cadence (mirrors AWX templates as `:awx`-sourced playbooks). Default 600. |
 | Run pulse (ms) | `RunPulseWorker` cadence — lower for snappier UI, higher for lower AWX API load. Default 2000. |
 
 Save. Within `AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS` (default 30), `ControllerHealthWorker` dispatches `awx.ping` → plugin → AWX → `EventIngestor` writes `last_health_at` + flips status to `:ok`. Refresh the row.
+
+When upgrading a controller created before the purpose split, the migration copies its legacy secret reference into all three purpose fields. This preserves exactly the access the controller already had; it does not grant any new AWX role. Rotate the three fields to the least-privilege principals above, verify two sync cycles plus one exact canary run and callback cleanup, wait for in-flight commands and the five-minute broker-grant TTL, then revoke the legacy AWX token. During the one-release rolling-upgrade window, a row written by an old ServiceRadar pod may use the deprecated legacy field for sync only. Execution and callback never fall back to it.
 
 If the status stays `:unknown` past two health intervals, see [Troubleshooting](#troubleshooting).
 
@@ -375,8 +387,9 @@ The launch command never returned a result from AWX. Likely causes:
 
 The plugin surfaces these as operator-safe typed errors with `"check controller token"` in the message. Either:
 
-- The token expired — rotate in AWX and update the NetworkCredentialSecret.
-- The token doesn't have launch permission on this job template — adjust the AWX user / team for the token, OR use a different token with broader scope.
+- The execution token expired — rotate its NetworkCredentialSecret.
+- The execution principal lacks exact inventory `Use`, template `Execute`, machine-credential `Use`, or generated callback-credential `Use`. Add only the missing object role; do not replace it with an admin/superuser token.
+- Callback credential creation/deletion failed because its principal lacks Credential Admin in the dedicated empty callback organization, or because the configured organization ID names another organization. Do not solve this by granting Credential Admin in the organization that holds production credentials.
 
 ### Schedule not firing
 

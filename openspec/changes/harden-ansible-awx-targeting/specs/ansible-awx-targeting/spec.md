@@ -96,6 +96,21 @@ Catalog bindings SHALL pin template, project, immutable SCM commit/content hash,
 - **WHEN** AWX reports a different project commit, execution environment, credential ID/type, check/run mode, template, inventory, or literal limit
 - **THEN** ServiceRadar refuses job binding, invokes cancellation/cleanup, and records the exact non-secret drift
 
+### Requirement: AWX controller bearer grants are endpoint attenuated
+Every AWX controller bearer grant SHALL contain non-empty method, host, normalized effective port, and verb-specific exact or argument-derived path ACLs. ServiceRadar SHALL accept only an origin-only HTTP(S) controller URL, derive port 443 for HTTPS or 80 for HTTP when no explicit port is supplied, and bind the grant to that one host and port. Each supported plugin verb SHALL have an explicit reviewed endpoint mapping; dynamic inventory sync MAY use only the inventory collection and its inventory subtree. A generic `/api/v2/` fallback is forbidden. Unknown verbs, malformed verb arguments, unsupported schemes, empty hosts, invalid ports, embedded URL credentials, and controller URL path/query/fragment input SHALL fail before grant issuance, secret resolution, HTTP execution, or command dispatch. The credential-bearing edge HTTP boundary MUST NOT follow redirects.
+
+#### Scenario: Exact template launch is dispatched
+- **WHEN** ServiceRadar launches reviewed job template `42` through `https://awx.example.com`
+- **THEN** its bearer grant permits only `POST`, host `awx.example.com`, port `443`, and exact path `/api/v2/job_templates/42/launch/`
+
+#### Scenario: Controller scope cannot be derived
+- **WHEN** a verb is unknown, an ID-bearing argument is malformed, or the controller URL has an invalid scheme, host, port, credentials, path, query, or fragment
+- **THEN** ServiceRadar issues no bearer grant, resolves no controller token, performs no AWX HTTP request, and dispatches no command
+
+#### Scenario: Credential-backed AWX endpoint redirects
+- **WHEN** an allowed AWX endpoint returns any redirect, including one to the same host or a different port
+- **THEN** the edge HTTP boundary rejects the response without replaying the bearer at the redirect destination
+
 ### Requirement: Check mode and callback actions cannot be variable-forged
 Dry runs SHALL use native AWX check mode or a separately reviewed check template. A raw variable MUST NOT simulate check mode. For callback-enabled content, the immutable authority snapshot SHALL pin the exact reviewed action plus ephemeral custom-credential type/dynamic slot. The targeting child SHALL call callback-owned lifecycle interfaces: `prepare(snapshot, actor)` after the complete local plan exists; `materialize_attach(ref, child)` so the trusted dispatcher creates/binds the per-child instance and appends only its ID to dispatch state; `bind_activate(ref, controller, job, full_snapshot)` only after exact post-start job-host-summary equality marks the child `scope_verified`, with callback requests remaining pending before then; and `revoke_cleanup(ref, outcome)` to revoke/close grant state as appropriate and detach/delete the instance on create/launch/scope mismatch/ambiguity/partial-dispatch/cancel/consumption and every successful or failed terminal outcome. This child MUST NOT mint, resolve, activate, consume, or revoke a grant itself. Reusable static callback credentials and callback AWX external state before local plan commit are forbidden. Browsers, surveys, inventory, ordinary variables, and workers MUST NOT supply or override callback URLs, bearers, actions, credential instances, or response data.
 

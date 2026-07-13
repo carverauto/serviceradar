@@ -304,6 +304,14 @@ automationCallbacks:
     secretKey: response-policy.json
 ```
 
+`awxOrganizationId` must name a dedicated empty AWX organization used only for
+ServiceRadar's ephemeral callback credentials. The controller's callback
+principal (normally the same least-privilege principal selected for execution)
+may hold that organization's Credential Admin role. It must not hold Credential
+Admin in the organization containing production machine credentials. Sync uses
+a separate read-only controller credential, and no AWX controller token is ever
+passed to the enrollment playbook.
+
 The chart rejects enabled deployments with zero AWX IDs, a malformed injector digest, or no policy Secret. Both core and web-ng mount the Secret read-only. Keep it in a Secret rather than a ConfigMap: SSH CA public keys are public, but the per-device account and opaque-principal mapping is internal authorization data.
 
 The policy file has this exact shape. Replace every example identifier and key with values from the reviewed ServiceRadar binding, AWX inventory, and CA custody boundary:

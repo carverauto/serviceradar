@@ -7,6 +7,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
   and target state before every dispatch and must match the stored digest.
   """
 
+  alias ServiceRadar.Automation.Ansible.AwxClient
   alias ServiceRadar.Automation.Ansible.Targeting
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
   alias ServiceRadar.Plugins.SecretRefs
@@ -235,16 +236,26 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
     expected_keys = common_payload_keys(expected_binding)
     broker = payload["credential_broker"]
 
-    MapSet.new(Map.keys(payload)) == expected_keys and
-      payload["schema"] == @awx_command_schema and
-      payload["verb"] == value(attempt, :command_type) and
-      to_string(payload["controller_id"]) == to_string(value(controller, :id)) and
-      payload["controller_name"] == value(controller, :name) and
-      payload["base_url"] == value(controller, :base_url) and
-      payload["insecure_skip_verify"] == insecure_skip_verify?(controller) and
-      payload["args"] == expected_args and
-      payload["callback_credential_binding"] == expected_binding and
-      broker_matches?(broker, attempt, controller, request)
+    case AwxClient.broker_scope(
+           value(controller, :base_url),
+           value(attempt, :command_type),
+           expected_args
+         ) do
+      {:ok, scope} ->
+        MapSet.new(Map.keys(payload)) == expected_keys and
+          payload["schema"] == @awx_command_schema and
+          payload["verb"] == value(attempt, :command_type) and
+          to_string(payload["controller_id"]) == to_string(value(controller, :id)) and
+          payload["controller_name"] == value(controller, :name) and
+          payload["base_url"] == scope.base_url and
+          payload["insecure_skip_verify"] == insecure_skip_verify?(controller) and
+          payload["args"] == expected_args and
+          payload["callback_credential_binding"] == expected_binding and
+          broker_matches?(broker, attempt, controller, scope.allow)
+
+      _ ->
+        false
+    end
   end
 
   def persisted_payload_matches?(_attempt, _execution, _controller, _request, _payload), do: false
@@ -326,70 +337,43 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
     MapSet.put(common_payload_keys(nil), "callback_credential_binding")
   end
 
-  defp broker_matches?(broker, attempt, controller, request) when is_map(broker) do
+  defp broker_matches?(broker, attempt, controller, expected_allow) when is_map(broker) do
     broker = stringify_deep(broker)
     consumer = broker["consumer"] || %{}
     target = broker["target"] || %{}
     allow = broker["allow"] || %{}
-    expected_allow = expected_broker_allow(attempt, controller, request)
     expected_inject = expected_broker_inject(controller)
 
-    MapSet.new(Map.keys(broker)) ==
-      MapSet.new(
-        ~w(schema grant_id grant_type credential_secret_ref consumer target resolution_location inject allow ttl_seconds expires_at)
-      ) and
-      broker["schema"] == "serviceradar.edge_credential_broker_grant.v1" and
-      uuid?(broker["grant_id"]) and
-      broker["grant_type"] == "awx_oauth2_token" and
-      broker["credential_secret_ref"] ==
-        SecretRefs.network_credential_ref(to_string(value(controller, :credential_secret_id))) and
-      MapSet.new(Map.keys(consumer)) == MapSet.new(~w(kind id purpose)) and
-      consumer["kind"] == "ansible" and
-      to_string(consumer["id"]) == to_string(value(controller, :id)) and
-      consumer["purpose"] == value(attempt, :command_type) and
-      MapSet.new(Map.keys(target)) == MapSet.new(~w(kind id agent_id)) and
-      target["kind"] == "awx_controller" and
-      to_string(target["id"]) == to_string(value(controller, :id)) and
-      target["agent_id"] == value(attempt, :dispatch_agent_id) and
-      broker["resolution_location"] == "agent" and
-      broker["inject"] == expected_inject and
-      allow == expected_allow and
-      broker["ttl_seconds"] == 300 and
-      valid_iso8601?(broker["expires_at"])
-  end
+    case AwxClient.credential_secret_id_for_verb(controller, value(attempt, :command_type)) do
+      {:ok, secret_id} ->
+        MapSet.new(Map.keys(broker)) ==
+          MapSet.new(
+            ~w(schema grant_id grant_type credential_secret_ref consumer target resolution_location inject allow ttl_seconds expires_at)
+          ) and
+          broker["schema"] == "serviceradar.edge_credential_broker_grant.v1" and
+          uuid?(broker["grant_id"]) and
+          broker["grant_type"] == "awx_oauth2_token" and
+          broker["credential_secret_ref"] == SecretRefs.network_credential_ref(secret_id) and
+          MapSet.new(Map.keys(consumer)) == MapSet.new(~w(kind id purpose)) and
+          consumer["kind"] == "ansible" and
+          to_string(consumer["id"]) == to_string(value(controller, :id)) and
+          consumer["purpose"] == value(attempt, :command_type) and
+          MapSet.new(Map.keys(target)) == MapSet.new(~w(kind id agent_id)) and
+          target["kind"] == "awx_controller" and
+          to_string(target["id"]) == to_string(value(controller, :id)) and
+          target["agent_id"] == value(attempt, :dispatch_agent_id) and
+          broker["resolution_location"] == "agent" and
+          broker["inject"] == expected_inject and
+          allow == expected_allow and
+          broker["ttl_seconds"] == 300 and
+          valid_iso8601?(broker["expires_at"])
 
-  defp broker_matches?(_broker, _attempt, _controller, _request), do: false
-
-  defp expected_broker_allow(attempt, controller, request) do
-    %{
-      "hosts" => [controller_host(value(controller, :base_url))],
-      "methods" => expected_methods(value(attempt, :command_type)),
-      "paths" => expected_paths(attempt, request)
-    }
-  end
-
-  defp expected_methods("awx.create_callback_credential"), do: ["GET", "POST"]
-  defp expected_methods("awx.launch_job"), do: ["POST"]
-  defp expected_methods(_command_type), do: ["GET"]
-
-  defp expected_paths(attempt, request) when is_map(attempt) and is_map(request) do
-    if value(attempt, :command_type) == "awx.create_callback_credential" do
-      credential_type_id = request |> value(:binding) |> value(:credential_type_id)
-
-      [
-        "=/api/v2/credential_types/#{credential_type_id}/",
-        "=/api/v2/credentials/"
-      ]
-    else
-      ["/api/v2/"]
+      _ ->
+        false
     end
   end
 
-  defp expected_paths(_attempt, _request) do
-    [
-      "/api/v2/"
-    ]
-  end
+  defp broker_matches?(_broker, _attempt, _controller, _expected_allow), do: false
 
   defp expected_broker_inject(controller) do
     base = %{
@@ -405,15 +389,6 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
 
   defp insecure_skip_verify?(controller),
     do: value(value(controller, :metadata) || %{}, :insecure_skip_verify) == true
-
-  defp controller_host(base_url) do
-    url = base_url |> to_string() |> String.trim()
-
-    case URI.parse(url) do
-      %URI{host: host} when is_binary(host) and host != "" -> host
-      _ -> URI.parse("https://" <> url).host
-    end
-  end
 
   defp valid_iso8601?(value) when is_binary(value),
     do: match?({:ok, %DateTime{}, _offset}, DateTime.from_iso8601(value))

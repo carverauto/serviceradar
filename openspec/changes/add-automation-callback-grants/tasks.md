@@ -12,6 +12,7 @@
 - [ ] 2.3 Reauthorize issuance ceiling plus current principal/run/job/target/policy/approval/action state on activation and every use.
 - [ ] 2.4 Revoke on definitive/ambiguous dispatch, mismatch, cancel, relaunch/copy, terminal state, permission loss, expiry, and cleanup; immediately attempt AWX child cancellation and persist `cancel_failed`/orphan-risk state when cancellation cannot be confirmed.
 - [ ] 2.5 Add all-or-nothing target-policy retrieval and target-keyed principal mapping with cross-target substitution denial.
+- [x] 2.6 Route ephemeral credential create/fetch/delete through an explicit callback controller credential, route launch/job lifecycle through execution and catalog/inventory through sync, allow reviewed callback=execution, and document a dedicated empty callback organization with no Credential Admin over production credentials.
 
 ## 3. Secret delivery and transport
 

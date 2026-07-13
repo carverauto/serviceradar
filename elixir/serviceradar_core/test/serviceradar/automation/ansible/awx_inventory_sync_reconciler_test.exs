@@ -1,7 +1,9 @@
 defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Automation.Ansible.AwxClient
   alias ServiceRadar.Automation.Ansible.AwxInventorySyncReconciler
+  alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Plugins.PolicyAssignmentReconciler
   alias ServiceRadar.Plugins.SecretRefs
 
@@ -282,7 +284,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
       id: id,
       agent_id: agent_id,
       base_url: base_url,
-      credential_secret_id: secret_id,
+      credential_secret_id: "legacy-#{secret_id}",
+      sync_credential_secret_id: secret_id,
       name: Keyword.get(opts, :name, id),
       enabled: Keyword.get(opts, :enabled, true),
       inventory_sync_interval_seconds: Keyword.get(opts, :interval, 300),
@@ -291,7 +294,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
   end
 
   defp grant_template(controller) do
-    secret_ref = SecretRefs.network_credential_ref(to_string(controller.credential_secret_id))
+    {:ok, secret_id} = Controller.credential_secret_id_for(controller, :sync)
+    {:ok, scope} = AwxClient.broker_scope(controller.base_url, "awx.inventory_sync", %{})
+    secret_ref = SecretRefs.network_credential_ref(secret_id)
 
     {:ok,
      %{
@@ -309,7 +314,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
          "agent_id" => controller.agent_id
        },
        "resolution_location" => "agent",
-       "allow" => %{"methods" => ["GET"], "paths" => ["/api/v2/"]},
+       "allow" => scope.allow,
        "ttl_seconds" => 300
      }}
   end
