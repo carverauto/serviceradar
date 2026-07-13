@@ -93,6 +93,27 @@ defmodule ServiceRadar.Automation.Callbacks.FoundationTest do
            ]
   end
 
+  test "the persisted initial deployment cannot widen the reviewed action contract" do
+    migration =
+      "../../../../priv/repo/migrations/20260712181000_add_automation_callback_grants_foundation.exs"
+      |> Path.expand(__DIR__)
+      |> File.read!()
+
+    for invariant <- [
+          "action = 'remote_access.ssh_ca.bundle.read'",
+          "action_version = '1.0.0'",
+          "remote_access_operation = 'enroll'",
+          "desired_state = 'present'",
+          "expires_at <= issued_at + INTERVAL '600 seconds'",
+          "budget_limit = 1",
+          "cardinality(target_membership_ids) BETWEEN 1 AND 100",
+          "octet_length(token_verifier) = 32",
+          "devices.remote_access.ssh.ca_bundle.read"
+        ] do
+      assert migration =~ invariant
+    end
+  end
+
   test "use records enforce keyed idempotency and one committed response per budget slot" do
     assert identity_attributes(Use, :unique_idempotency_key) == [
              :grant_id,

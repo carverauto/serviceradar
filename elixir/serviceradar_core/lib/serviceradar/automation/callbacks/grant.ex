@@ -219,13 +219,13 @@ defmodule ServiceRadar.Automation.Callbacks.Grant do
     attribute :remote_access_operation, :atom do
       allow_nil? false
       public? true
-      constraints one_of: [:enroll, :overlap, :retire, :remove]
+      constraints one_of: [:enroll]
     end
 
     attribute :desired_state, :atom do
       allow_nil? false
       public? true
-      constraints one_of: [:present, :absent]
+      constraints one_of: [:present]
     end
 
     attribute :initiator_principal_type, :atom do
@@ -280,14 +280,14 @@ defmodule ServiceRadar.Automation.Callbacks.Grant do
     attribute :budget_limit, :integer do
       allow_nil? false
       public? true
-      constraints min: 1, max: 1_000
+      constraints min: 1, max: 1
     end
 
     attribute :budget_used, :integer do
       allow_nil? false
       default 0
       public? true
-      constraints min: 0, max: 1_000
+      constraints min: 0, max: 1
     end
 
     attribute :idempotency_policy, :atom do

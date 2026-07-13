@@ -171,27 +171,61 @@ defmodule ServiceRadar.Repo.Migrations.AddAutomationCallbackGrantsFoundation do
              prefix: @prefix,
              check:
                "callback_phase IN ('preflight', 'stage', 'verify', 'commit') AND " <>
-                 "remote_access_operation IN ('enroll', 'overlap', 'retire', 'remove') AND " <>
-                 "desired_state IN ('present', 'absent') AND " <>
-                 "((remote_access_operation = 'remove' AND desired_state = 'absent') OR " <>
-                 "(remote_access_operation <> 'remove' AND desired_state = 'present'))"
+                 "remote_access_operation = 'enroll' AND desired_state = 'present'"
+           )
+
+    create constraint(:automation_callback_grants, :automation_callback_grants_action_contract,
+             prefix: @prefix,
+             check:
+               "action = 'remote_access.ssh_ca.bundle.read' AND " <>
+                 "action_version = '1.0.0' AND " <>
+                 "audience = 'serviceradar.awx.callback/v1' AND " <>
+                 "response_schema_version = 'serviceradar.remote_access.ssh_ca_bundle/v1'"
+           )
+
+    create constraint(:automation_callback_grants, :automation_callback_grants_digests,
+             prefix: @prefix,
+             check:
+               "scm_revision ~ '^[0-9a-f]{40,64}$' AND " <>
+                 "content_sha256 ~ '^[0-9a-f]{64}$' AND " <>
+                 "manifest_sha256 ~ '^[0-9a-f]{64}$' AND " <>
+                 "target_digest ~ '^[0-9a-f]{64}$' AND " <>
+                 "policy_digest ~ '^[0-9a-f]{64}$' AND " <>
+                 "ca_key_set_digest ~ '^[0-9a-f]{64}$'"
+           )
+
+    create constraint(:automation_callback_grants, :automation_callback_grants_verifier,
+             prefix: @prefix,
+             check:
+               "octet_length(token_verifier) = 32 AND " <>
+                 "char_length(token_pepper_version) BETWEEN 1 AND 64"
            )
 
     create constraint(:automation_callback_grants, :automation_callback_grants_expiry,
              prefix: @prefix,
-             check: "expires_at > issued_at"
+             check:
+               "expires_at > issued_at AND " <>
+                 "expires_at <= issued_at + INTERVAL '600 seconds'"
            )
 
     create constraint(:automation_callback_grants, :automation_callback_grants_budget,
              prefix: @prefix,
              check:
-               "budget_limit > 0 AND budget_limit <= 1000 AND budget_used >= 0 AND " <>
+               "budget_limit = 1 AND budget_used >= 0 AND budget_used <= 1 AND " <>
                  "budget_used <= budget_limit"
            )
 
     create constraint(:automation_callback_grants, :automation_callback_grants_targets,
              prefix: @prefix,
-             check: "cardinality(target_membership_ids) > 0"
+             check: "cardinality(target_membership_ids) BETWEEN 1 AND 100"
+           )
+
+    create constraint(:automation_callback_grants, :automation_callback_grants_permissions,
+             prefix: @prefix,
+             check:
+               "cardinality(permission_ceiling) = 2 AND " <>
+                 "permission_ceiling @> ARRAY['ansible.runs.launch', " <>
+                 "'devices.remote_access.ssh.ca_bundle.read']::text[]"
            )
 
     create constraint(:automation_callback_grants, :automation_callback_grants_lifecycle,
@@ -296,7 +330,7 @@ defmodule ServiceRadar.Repo.Migrations.AddAutomationCallbackGrantsFoundation do
              prefix: @prefix,
              check:
                "response_size_bytes IS NULL OR " <>
-                 "(response_size_bytes >= 0 AND response_size_bytes <= 16777216)"
+                 "(response_size_bytes >= 0 AND response_size_bytes <= 262144)"
            )
 
     create constraint(:automation_callback_uses, :automation_callback_uses_lifecycle,

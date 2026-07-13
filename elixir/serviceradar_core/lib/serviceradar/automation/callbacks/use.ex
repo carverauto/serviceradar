@@ -160,7 +160,7 @@ defmodule ServiceRadar.Automation.Callbacks.Use do
     attribute :response_size_bytes, :integer do
       allow_nil? true
       public? true
-      constraints min: 0, max: 16_777_216
+      constraints min: 0, max: 262_144
     end
 
     attribute :response_schema_version, :string, allow_nil?: true, public?: true
