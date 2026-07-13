@@ -62,7 +62,7 @@ defmodule ServiceRadar.Automation.Callbacks.ActionRegistry do
   @external_resource @response_schema_path
 
   @ssh_ca_bundle_request_schema %{
-    "$schema" => "https://json-schema.org/draft/2020-12/schema",
+    "$schema" => "http://json-schema.org/draft-07/schema#",
     "$id" => "serviceradar.remote_access.ssh_ca_bundle_request/v1",
     "type" => "object",
     "additionalProperties" => false,

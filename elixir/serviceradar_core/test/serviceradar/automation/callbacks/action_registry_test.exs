@@ -68,16 +68,22 @@ defmodule ServiceRadar.Automation.Callbacks.ActionRegistryTest do
 
     assert schema["properties"]["job_id"] == %{"type" => "integer", "minimum" => 1}
 
-    target = schema["$defs"]["target"]
+    target = schema["definitions"]["target"]
 
     assert target["required"] ==
              ~w(inventory_hostname inventory_address target_identity operation phase state ca_keys accounts transaction authorization)
 
-    assert target["properties"]["target_identity"] == %{"$ref" => "#/$defs/targetIdentity"}
-    assert target["properties"]["transaction"] == %{"$ref" => "#/$defs/transaction"}
+    assert target["properties"]["target_identity"] == %{
+             "$ref" => "#/definitions/targetIdentity"
+           }
+
+    assert target["properties"]["transaction"] == %{
+             "$ref" => "#/definitions/transaction"
+           }
+
     assert target["properties"]["retirement_proof"] == %{"type" => "object"}
 
-    authorization = schema["$defs"]["authorization"]
+    authorization = schema["definitions"]["authorization"]
 
     assert authorization["required"] ==
              ~w(permissions policy_approved binding_verified)
