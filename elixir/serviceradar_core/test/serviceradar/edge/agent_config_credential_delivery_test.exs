@@ -5,14 +5,16 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
 
   A policy plugin assignment whose embedded broker grant has expired must be
   delivered with (a) a freshly re-minted grant payload, (b) the resolved
-  `api_token` runtime material, and (c) a `credential_secret_resolution_audits`
-  row per resolution — while keeping the config version hash stable so polling
-  agents are not relaunched every generation.
+  `api_token` runtime material retained only in the trusted agent-host envelope,
+  and (c) a `credential_secret_resolution_audits` row per resolution — while
+  keeping the config version hash stable so polling agents are not relaunched
+  every generation.
   """
 
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentConfig.Compiler
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.CredentialSecretResolutionAudit
   alias ServiceRadar.Credentials.NetworkCredentialSecret
@@ -26,6 +28,8 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   @moduletag :integration
 
   @api_token_payload "root@pam!sr-inventory=abc123-secret"
+  @rotated_api_token_payload "root@pam!sr-inventory=rotated-secret"
+  @awx_host_credential_sentinel "__SERVICERADAR_AWX_INVENTORY_HOST_CREDENTIAL__"
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
@@ -45,6 +49,59 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
     agent_uid = "cred-delivery-agent-#{unique_id}"
 
     {:ok, admin: admin, system: system, agent_uid: agent_uid, unique_id: unique_id}
+  end
+
+  test "host-only tokens are fingerprinted in the version projection and rotate its hash" do
+    assignment = %{
+      assignment_id: "awx-version-projection",
+      params: %{
+        "controllers" => [
+          %{
+            "controller_id" => "awx-a",
+            "base_url" => "https://awx-a.example.invalid",
+            "api_token" => @awx_host_credential_sentinel
+          }
+        ]
+      },
+      host_params: %{
+        "schema" => "serviceradar.awx_inventory_host_credentials.v1",
+        "controllers" => [
+          %{
+            "controller_id" => "awx-a",
+            "base_url" => "https://awx-a.example.invalid",
+            "api_token" => @api_token_payload,
+            "insecure_skip_verify" => false
+          }
+        ]
+      },
+      download_token: "volatile-download-token"
+    }
+
+    rotated_assignment =
+      put_in(
+        assignment,
+        [:host_params, "controllers", Access.at(0), "api_token"],
+        @rotated_api_token_payload
+      )
+
+    projection = AgentConfigGenerator.plugin_assignment_version_projection(assignment)
+
+    rotated_projection =
+      AgentConfigGenerator.plugin_assignment_version_projection(rotated_assignment)
+
+    expected_fingerprint =
+      "sha256:" <>
+        Base.encode16(:crypto.hash(:sha256, @api_token_payload), case: :lower)
+
+    assert get_in(projection, [:host_params, "controllers", Access.at(0), "api_token"]) ==
+             expected_fingerprint
+
+    refute Jason.encode!(projection) =~ @api_token_payload
+    refute Map.has_key?(projection, :download_token)
+
+    version = Compiler.content_hash(%{plugins: [projection]})
+    rotated_version = Compiler.content_hash(%{plugins: [rotated_projection]})
+    refute version == rotated_version
   end
 
   test "expired policy broker grant is re-minted, resolved to api_token, and audited",
@@ -202,7 +259,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   test "controller-list policy grants resolve independently and keep config version stable",
        %{admin: admin, system: system, agent_uid: agent_uid, unique_id: unique_id} do
     {:ok, _agent} = create_connected_agent(admin, agent_uid)
-    package = create_approved_plugin_package!(admin, unique_id)
+    package = create_approved_awx_inventory_package!(admin, unique_id)
     secret = create_proxmox_secret!(admin, unique_id)
     stale_grant_1 = issue_expired_grant!(system, secret, agent_uid)
     stale_grant_2 = issue_expired_grant!(system, secret, agent_uid)
@@ -245,23 +302,66 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
     assert [plugin] = config.plugins
     controllers = plugin.params["controllers"]
 
-    assert Enum.map(controllers, & &1["api_token"]) == [@api_token_payload, @api_token_payload]
-    refute Enum.any?(controllers, &Map.has_key?(&1, "_secret_material"))
+    assert Enum.map(controllers, & &1["api_token"]) == [
+             @awx_host_credential_sentinel,
+             @awx_host_credential_sentinel
+           ]
+
+    refute inspect(plugin.params) =~ @api_token_payload
+
+    refute Enum.any?(controllers, fn controller ->
+             Enum.any?(
+               ["_secret_material", "api_token_secret_ref", "credential_broker"],
+               &Map.has_key?(controller, &1)
+             )
+           end)
 
     assert Enum.all?(controllers, fn controller ->
              is_binary(controller["controller_id"]) and controller["controller_id"] != "" and
                is_binary(controller["base_url"]) and controller["base_url"] != "" and
-               is_binary(controller["api_token"]) and controller["api_token"] != ""
+               controller["api_token"] == @awx_host_credential_sentinel
            end)
 
-    grant_ids =
-      controllers
-      |> Enum.map(&get_in(&1, ["credential_broker", "grant_id"]))
-      |> Enum.reject(&is_nil/1)
+    assert plugin.host_params["schema"] == "serviceradar.awx_inventory_host_credentials.v1"
 
-    assert length(grant_ids) == 2
-    refute to_string(stale_grant_1.id) in grant_ids
-    refute to_string(stale_grant_2.id) in grant_ids
+    assert Enum.map(plugin.host_params["controllers"], & &1["api_token"]) == [
+             @api_token_payload,
+             @api_token_payload
+           ]
+
+    assert {:ok, resolution_audits} =
+             CredentialSecretResolutionAudit.list_for_secret(secret.id, actor: system)
+
+    reminted_grant_ids =
+      resolution_audits
+      |> Enum.map(& &1.grant_id)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    assert length(reminted_grant_ids) == 2
+    refute to_string(stale_grant_1.id) in reminted_grant_ids
+    refute to_string(stale_grant_2.id) in reminted_grant_ids
+
+    proto = AgentConfigGenerator.to_proto_response(config)
+    [proto_assignment] = proto.plugin_config.assignments
+    transported_params = Jason.decode!(proto_assignment.params_json)
+    transported_host_params = Jason.decode!(proto_assignment.host_params_json)
+
+    assert get_in(transported_params, ["controllers", Access.at(0), "api_token"]) ==
+             @awx_host_credential_sentinel
+
+    # Mixed-version contract: an old agent decodes params_json and ignores the
+    # unknown host_params_json protobuf field. It sees only this public sentinel
+    # config, so scheduled sync fails closed instead of disclosing a bearer to
+    # Wasm get_config.
+    refute Map.has_key?(transported_params, "_serviceradar_host_credentials")
+    refute proto_assignment.params_json =~ @api_token_payload
+
+    assert get_in(transported_host_params, [
+             "controllers",
+             Access.at(0),
+             "api_token"
+           ]) == @api_token_payload
 
     {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid)
     assert config.config_version == config2.config_version
@@ -437,6 +537,67 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
       |> Ash.Changeset.for_update(
         :update,
         %{wasm_object_key: "plugins/#{unique_id}/plugin.wasm"},
+        actor: actor
+      )
+      |> Ash.update()
+
+    {:ok, package} =
+      package
+      |> Ash.Changeset.for_update(:approve, %{approved_by: "test"}, actor: actor)
+      |> Ash.update()
+
+    package
+  end
+
+  defp create_approved_awx_inventory_package!(actor, unique_id) do
+    plugin_id = "awx-inventory-sync"
+
+    {:ok, _plugin} =
+      Plugin
+      |> Ash.Changeset.for_create(
+        :create,
+        %{plugin_id: plugin_id, name: "AWX Inventory Sync #{unique_id}"},
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, package} =
+      PluginPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          plugin_id: plugin_id,
+          name: "AWX Inventory Sync #{unique_id}",
+          version: "0.1.6",
+          entrypoint: "inventory_sync",
+          outputs: "serviceradar.plugin_result.v1",
+          manifest: %{
+            "id" => plugin_id,
+            "name" => "AWX Inventory Sync #{unique_id}",
+            "version" => "0.1.6",
+            "entrypoint" => "inventory_sync",
+            "capabilities" => ["get_config", "http_request", "submit_result"],
+            "outputs" => "serviceradar.plugin_result.v1",
+            "resources" => %{
+              "requested_memory_mb" => 64,
+              "requested_cpu_ms" => 1000
+            }
+          },
+          config_schema: %{},
+          display_contract: %{},
+          content_hash: "sha256:awx-inventory-#{unique_id}",
+          signature: %{},
+          source_type: :upload
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, package} =
+      package
+      |> Ash.Changeset.for_update(
+        :update,
+        %{wasm_object_key: "plugins/awx-inventory/#{unique_id}/plugin.wasm"},
         actor: actor
       )
       |> Ash.update()

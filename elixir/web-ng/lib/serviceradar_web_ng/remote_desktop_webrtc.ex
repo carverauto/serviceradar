@@ -5,10 +5,7 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
 
   alias ServiceRadarWebNG.RemoteDesktopWebRTCSignalingManager
 
-  require Logger
-
   @webrtc_transport "webrtc_desktop_media"
-  @turn_credential_warning_key {__MODULE__, :turn_static_credential_warning_emitted}
   @default_turn_credential_ttl_seconds 3_600
   @max_turn_credential_ttl_seconds 3_600
 
@@ -25,7 +22,7 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
       desktop_webrtc_enabled: enabled?(),
       desktop_webrtc_transport: if(enabled?(), do: @webrtc_transport),
       desktop_webrtc_signaling_path: if(enabled?(), do: signaling_path(session_id)),
-      desktop_webrtc_ice_servers: if(enabled?(), do: ice_servers(session_id: session_id), else: [])
+      desktop_webrtc_ice_servers: []
     }
   end
 
@@ -34,7 +31,7 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
       desktop_webrtc_enabled: enabled?(),
       desktop_webrtc_transport: if(enabled?(), do: @webrtc_transport),
       desktop_webrtc_signaling_path: nil,
-      desktop_webrtc_ice_servers: if(enabled?(), do: ice_servers(), else: [])
+      desktop_webrtc_ice_servers: []
     }
   end
 
@@ -44,10 +41,31 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
 
   def create_session(session_id, opts) when is_binary(session_id) do
     if enabled?() do
-      manager().create_session(
-        session_id,
-        Keyword.put_new(opts, :ice_servers, ice_servers(Keyword.put(opts, :session_id, session_id)))
-      )
+      with {:ok, actor_id} <- required_actor_id(opts) do
+        viewer_session_id = Ecto.UUID.generate()
+
+        binding_opts = [
+          actor_id: actor_id,
+          session_id: session_id,
+          viewer_session_id: viewer_session_id
+        ]
+
+        ice_servers = ice_servers(binding_opts)
+
+        manager_opts =
+          opts
+          |> signaling_opts(actor_id)
+          |> Keyword.put(:viewer_session_id, viewer_session_id)
+          |> Keyword.put(:ice_servers, ice_servers)
+
+        case manager().create_session(session_id, manager_opts) do
+          {:ok, signal_session} when is_map(signal_session) ->
+            {:ok, Map.put(signal_session, :ice_servers, ice_servers)}
+
+          other ->
+            other
+        end
+      end
     else
       {:error, "desktop webrtc remote access is unavailable"}
     end
@@ -56,7 +74,14 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
   def submit_answer(session_id, viewer_session_id, answer_sdp, opts)
       when is_binary(session_id) and is_binary(viewer_session_id) and is_binary(answer_sdp) do
     if enabled?() do
-      manager().submit_answer(session_id, viewer_session_id, answer_sdp, opts)
+      with {:ok, actor_id} <- required_actor_id(opts) do
+        manager().submit_answer(
+          session_id,
+          viewer_session_id,
+          answer_sdp,
+          signaling_opts(opts, actor_id)
+        )
+      end
     else
       {:error, "desktop webrtc remote access is unavailable"}
     end
@@ -65,7 +90,14 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
   def add_ice_candidate(session_id, viewer_session_id, candidate, opts)
       when is_binary(session_id) and is_binary(viewer_session_id) do
     if enabled?() do
-      manager().add_ice_candidate(session_id, viewer_session_id, candidate, opts)
+      with {:ok, actor_id} <- required_actor_id(opts) do
+        manager().add_ice_candidate(
+          session_id,
+          viewer_session_id,
+          candidate,
+          signaling_opts(opts, actor_id)
+        )
+      end
     else
       {:error, "desktop webrtc remote access is unavailable"}
     end
@@ -73,9 +105,27 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
 
   def close_session(session_id, viewer_session_id, opts) when is_binary(session_id) and is_binary(viewer_session_id) do
     if enabled?() do
-      manager().close_session(session_id, viewer_session_id, opts)
+      with {:ok, actor_id} <- required_actor_id(opts) do
+        manager().close_session(
+          session_id,
+          viewer_session_id,
+          signaling_opts(opts, actor_id)
+        )
+      end
     else
       {:error, "desktop webrtc remote access is unavailable"}
+    end
+  end
+
+  @doc """
+  Closes every viewer owned by the current actor for a remote desktop session.
+
+  Cleanup deliberately remains available when the RDP feature flag is turned
+  off so a runtime toggle cannot strand already-admitted media resources.
+  """
+  def close_all_for_session(session_id, opts) when is_binary(session_id) do
+    with {:ok, actor_id} <- required_actor_id(opts) do
+      manager().close_all_for_session(session_id, signaling_opts(opts, actor_id))
     end
   end
 
@@ -85,7 +135,7 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
     |> Enum.map(&normalize_ice_server/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.map(&mint_turn_credentials(&1, opts))
-    |> tap(&warn_on_unfresh_turn_credentials/1)
+    |> Enum.reject(&is_nil/1)
   end
 
   defp manager do
@@ -158,17 +208,16 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
 
   defp mint_turn_credentials(%{urls: urls} = server, opts) when is_list(urls) do
     if Enum.any?(urls, &turn_url?/1) do
-      case turn_shared_secret(server) do
-        nil ->
-          Map.delete(server, :turn_shared_secret)
+      with shared_secret when is_binary(shared_secret) <- turn_shared_secret(server),
+           {:ok, subject} <- turn_credential_subject(opts) do
+        username = "#{turn_credential_expires_at()}:#{subject}"
 
-        shared_secret ->
-          username = "#{turn_credential_expires_at()}:#{turn_credential_subject(opts)}"
-
-          server
-          |> Map.delete(:turn_shared_secret)
-          |> Map.put(:username, username)
-          |> Map.put(:credential, turn_credential(shared_secret, username))
+        server
+        |> Map.delete(:turn_shared_secret)
+        |> Map.put(:username, username)
+        |> Map.put(:credential, turn_credential(shared_secret, username))
+      else
+        _missing_binding_or_secret -> nil
       end
     else
       Map.delete(server, :turn_shared_secret)
@@ -199,14 +248,14 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
   end
 
   defp turn_credential_subject(opts) do
-    opts
-    |> Keyword.get(:scope)
-    |> case do
-      %{user: %{id: id}} when not is_nil(id) -> id
-      _other -> Keyword.get(opts, :session_id, "desktop")
+    with actor_id when is_binary(actor_id) <- normalized_binding(Keyword.get(opts, :actor_id)),
+         session_id when is_binary(session_id) <- normalized_binding(Keyword.get(opts, :session_id)),
+         viewer_session_id when is_binary(viewer_session_id) <-
+           normalized_binding(Keyword.get(opts, :viewer_session_id)) do
+      {:ok, Enum.join([actor_id, session_id, viewer_session_id], ":")}
+    else
+      _missing_binding -> {:error, :turn_viewer_binding_required}
     end
-    |> to_string()
-    |> String.replace(":", "_")
   end
 
   defp turn_credential(shared_secret, username) do
@@ -214,23 +263,6 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
     |> :crypto.mac(:sha, shared_secret, username)
     |> Base.encode64()
   end
-
-  defp warn_on_unfresh_turn_credentials(servers) do
-    if Enum.any?(servers, &unfresh_turn_credentials?/1) &&
-         :persistent_term.get(@turn_credential_warning_key, false) == false do
-      :persistent_term.put(@turn_credential_warning_key, true)
-
-      Logger.warning(
-        "Remote desktop WebRTC TURN credentials should be ephemeral; configure time-bound TURN usernames or rotate credentials outside ServiceRadar"
-      )
-    end
-  end
-
-  defp unfresh_turn_credentials?(%{urls: urls} = server) when is_list(urls) do
-    Enum.any?(urls, &turn_url?/1) && has_turn_credentials?(server) && not time_bound_turn_username?(server[:username])
-  end
-
-  defp unfresh_turn_credentials?(_server), do: false
 
   defp turn_url?(url) when is_binary(url) do
     url
@@ -241,19 +273,40 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
 
   defp turn_url?(_url), do: false
 
-  defp has_turn_credentials?(server) do
-    is_binary(server[:username]) &&
-      server[:username] != "" &&
-      is_binary(server[:credential]) &&
-      server[:credential] != ""
-  end
+  defp required_actor_id(opts) do
+    actor_id =
+      Keyword.get(opts, :actor_id) ||
+        case Keyword.get(opts, :scope) do
+          %{user: %{id: id}} -> id
+          _scope -> nil
+        end
 
-  defp time_bound_turn_username?(username) when is_binary(username) do
-    case username |> String.split(":", parts: 2) |> List.first() |> Integer.parse() do
-      {expires_at_unix, ""} -> expires_at_unix > System.system_time(:second)
-      _other -> false
+    case normalized_binding(actor_id) do
+      nil -> {:error, :not_found}
+      id -> {:ok, id}
     end
   end
 
-  defp time_bound_turn_username?(_username), do: false
+  defp signaling_opts(opts, actor_id) do
+    opts
+    |> Keyword.drop([:scope, :ice_servers, :viewer_session_id])
+    |> Keyword.put(:actor_id, actor_id)
+  end
+
+  defp normalized_binding(nil), do: nil
+
+  defp normalized_binding(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.replace(":", "_")
+    |> case do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalized_binding(value) when is_atom(value) or is_integer(value),
+    do: value |> to_string() |> normalized_binding()
+
+  defp normalized_binding(_value), do: nil
 end

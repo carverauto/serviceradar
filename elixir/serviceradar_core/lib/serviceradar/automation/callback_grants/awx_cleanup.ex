@@ -43,7 +43,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AwxCleanup do
 
   @impl true
   def cleanup(grant, mode, context) when is_map(grant) and mode in @terminal_modes do
-    with {:ok, plan} <- build_plan(grant, mode),
+    with {:ok, plan} <- build_plan(grant, mode, context),
          {:ok, controller} <- maybe_load_controller(plan, context) do
       cancel = dispatch_cancel(plan, controller, context)
       credential = dispatch_credential_delete(plan, controller, context)
@@ -66,7 +66,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AwxCleanup do
   """
   @impl true
   def delete_activated(grant, context) when is_map(grant) do
-    with {:ok, plan} <- build_plan(grant, :post_activation),
+    with {:ok, plan} <- build_plan(grant, :post_activation, context),
          {:ok, controller} <- maybe_load_controller(plan, context) do
       credential = dispatch_credential_delete(plan, controller, context)
       result(:not_required, credential)
@@ -81,7 +81,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AwxCleanup do
       {:error,
        %{cleanup_status: :failed, job_cleanup: :not_required, credential_cleanup: :delete_failed}}
 
-  defp build_plan(grant, mode) do
+  defp build_plan(grant, mode, context) do
     scope = value(grant, :awx_scope_snapshot)
     binding = value(grant, :job_binding) || %{}
 
@@ -102,7 +102,13 @@ defmodule ServiceRadar.Automation.CallbackGrants.AwxCleanup do
          {:ok, injector_sha256} <-
            sha256(value(scope, :callback_credential_injector_digest)),
          {:ok, credential_id} <- optional_positive_integer(value(grant, :ephemeral_credential_id)),
-         {:ok, credential_action} <- credential_action(grant, mode, credential_id),
+         {:ok, credential_action} <-
+           credential_action(
+             grant,
+             mode,
+             credential_id,
+             context_value(context, :retry_deleting?, false) == true
+           ),
          {:ok, cancel_action} <- cancel_action(grant, mode, job_id) do
       {:ok,
        %{
@@ -157,7 +163,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AwxCleanup do
   defp required_job_identity(_mode, job_id) when is_integer(job_id), do: :ok
   defp required_job_identity(_mode, _job_id), do: {:error, :awx_job_identity_required}
 
-  defp credential_action(grant, mode, credential_id) do
+  defp credential_action(grant, mode, credential_id, retry_deleting?) do
     state = normalize_atom(value(grant, :credential_cleanup_state))
     attempted_at = value(grant, :credential_cleanup_attempted_at)
 
@@ -172,6 +178,10 @@ defmodule ServiceRadar.Automation.CallbackGrants.AwxCleanup do
 
       {:post_activation, :deleted, id, _} when is_integer(id) ->
         {:ok, :not_required}
+
+      {:post_activation, :deleting, id, attempted}
+      when retry_deleting? and is_integer(id) and not is_nil(attempted) ->
+        {:ok, :dispatch}
 
       {:post_activation, :deleting, id, attempted}
       when is_integer(id) and not is_nil(attempted) ->

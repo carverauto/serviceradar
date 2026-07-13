@@ -172,8 +172,22 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
 
   test "callback actions require the exact reviewed AWX credential contract" do
     refute_valid(
-      %{callback_actions: ["remote_access.ssh_ca.bundle.read"]},
+      %{
+        callback_actions: ["remote_access.ssh_ca.bundle.read"],
+        ask_credential_on_launch: true
+      },
       "credential type, organization, injector digest, and slot"
+    )
+
+    refute_valid(
+      %{
+        callback_actions: ["remote_access.ssh_ca.bundle.read"],
+        callback_credential_type_id: 91,
+        callback_credential_organization_id: 2,
+        callback_credential_injector_digest: String.duplicate("d", 64),
+        callback_credential_slot: "ssh_ca_callback"
+      },
+      "callback credentials are attached at launch"
     )
 
     refute_valid(
@@ -184,6 +198,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
     assert changeset(
              valid_attrs(%{
                callback_actions: ["remote_access.ssh_ca.bundle.read"],
+               ask_credential_on_launch: true,
                callback_credential_type_id: 91,
                callback_credential_organization_id: 2,
                callback_credential_injector_digest: String.duplicate("d", 64),
@@ -271,6 +286,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
         check_mode_supported: true,
         ask_inventory_on_launch: true,
         ask_limit_on_launch: true,
+        ask_credential_on_launch: false,
         ask_job_type_on_launch: true,
         dispatch_markers_retained: true,
         inventory_groups_verified: true,

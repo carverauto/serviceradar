@@ -120,6 +120,47 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerCleanupTest do
     assert_receive {:consume, ^data}
   end
 
+  test "protected AWX results are sanitized before persistence and every consumer" do
+    state =
+      gated_state(self(), fn data, _actor ->
+        send(self(), {:persist, data})
+        :ok
+      end)
+
+    secret = "Bearer command-result-must-not-survive"
+
+    data = %{
+      command_id: "018f3f56-1111-7222-8333-123456789abc",
+      command_type: "awx.fetch_job",
+      agent_id: "agent-farm01",
+      success: false,
+      message: secret,
+      failure_reason: {:http_error, secret},
+      payload: %{"details" => secret, "raw_result_base64" => Base.encode64(secret)}
+    }
+
+    assert {:noreply, ^state} = StatusHandler.handle_info({:command_result, data}, state)
+
+    assert_receive {:persist, safe}
+
+    assert safe == %{
+             command_id: data.command_id,
+             command_type: data.command_type,
+             agent_id: data.agent_id,
+             success: false,
+             message: "automation command failed",
+             failure_reason: "automation_command_failed",
+             payload: %{"verb" => "awx.fetch_job", "ok" => false}
+           }
+
+    assert_receive {:broadcast, ^safe}
+    assert_receive {:cleanup, ^safe}
+    assert_receive {:callback_coordinate, ^safe}
+    assert_receive {:secure_coordinate, ^safe}
+    assert_receive {:consume, ^safe}
+    refute inspect(safe) =~ secret
+  end
+
   defp gated_state(test_pid, persister) do
     %{
       actor: :test_actor,
@@ -137,7 +178,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerCleanupTest do
   defp valid_result do
     %{
       command_id: "018f3f56-1111-7222-8333-123456789abc",
-      command_type: "awx.fetch_job",
+      command_type: "test.fetch_job",
       agent_id: "agent-farm01",
       success: true,
       payload: %{"verb" => "awx.fetch_job", "job_id" => 42}

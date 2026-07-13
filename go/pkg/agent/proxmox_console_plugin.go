@@ -40,7 +40,9 @@ const (
 )
 
 var (
-	errProxmoxConsoleAssignmentIDRequired = errors.New("proxmox console plugin assignment id or credential rule id is required")
+	errProxmoxConsoleAssignmentScopeRequired         = errors.New("proxmox console plugin assignment id and credential rule id are required")
+	errProxmoxConsoleAssignmentPolicyBindingRequired = errors.New("proxmox console assignment policy binding is required")
+	errProxmoxConsoleAssignmentPolicyMismatch        = errors.New("proxmox console assignment policy binding does not match the active assignment")
 )
 
 type proxmoxConsoleOpenPayload struct {
@@ -58,17 +60,19 @@ type proxmoxConsoleOpenPayload struct {
 }
 
 type proxmoxConsoleSessionSpec struct {
-	SessionID          string                  `json:"session_id"`
-	AgentID            string                  `json:"agent_id,omitempty"`
-	GatewayID          string                  `json:"gateway_id,omitempty"`
-	DeviceUID          string                  `json:"device_uid,omitempty"`
-	TargetKind         string                  `json:"target_kind,omitempty"`
-	ConsoleMode        string                  `json:"console_mode,omitempty"`
-	CredentialRuleID   string                  `json:"credential_rule_id,omitempty"`
-	PluginAssignmentID string                  `json:"plugin_assignment_id,omitempty"`
-	Target             proxmoxConsoleSSHTarget `json:"target,omitempty"`
-	Cols               uint32                  `json:"cols,omitempty"`
-	Rows               uint32                  `json:"rows,omitempty"`
+	SessionID                   string                  `json:"session_id"`
+	AgentID                     string                  `json:"agent_id,omitempty"`
+	GatewayID                   string                  `json:"gateway_id,omitempty"`
+	DeviceUID                   string                  `json:"device_uid,omitempty"`
+	TargetKind                  string                  `json:"target_kind,omitempty"`
+	ConsoleMode                 string                  `json:"console_mode,omitempty"`
+	CredentialRuleID            string                  `json:"credential_rule_id,omitempty"`
+	PluginAssignmentID          string                  `json:"plugin_assignment_id,omitempty"`
+	AssignmentPolicyVersion     uint64                  `json:"-"`
+	AssignmentPolicyFingerprint string                  `json:"-"`
+	Target                      proxmoxConsoleSSHTarget `json:"target,omitempty"`
+	Cols                        uint32                  `json:"cols,omitempty"`
+	Rows                        uint32                  `json:"rows,omitempty"`
 }
 
 type pluginProxmoxConsoleOpenRequest struct {
@@ -127,26 +131,38 @@ func (m *PluginManager) OpenProxmoxConsoleStream(
 	if !m.acquireSlot() {
 		return nil, errStreamingPluginAdmissionDenied
 	}
-
-	wasm, err := m.loadWasm(ctx, assignment)
+	streamCtx, cancel := context.WithCancel(ctx)
+	runCtx, executionID, err := m.registerStreamingExecution(streamCtx, assignment)
 	if err != nil {
+		cancel()
+		m.releaseSlot()
+		return nil, err
+	}
+
+	wasm, err := m.loadWasm(runCtx, assignment)
+	if err != nil {
+		cancel()
+		m.unregisterStreamingExecution(executionID)
 		m.releaseSlot()
 		return nil, err
 	}
 
 	configJSON, err := buildProxmoxConsolePluginConfig(assignment.ParamsJSON, spec)
 	if err != nil {
+		cancel()
+		m.unregisterStreamingExecution(executionID)
 		m.releaseSlot()
 		return nil, err
 	}
 
-	runCtx, cancel := context.WithCancel(ctx)
 	bridge := newPluginProxmoxConsoleBridge(cancel)
 
 	go func() {
+		defer cancel()
+		defer m.unregisterStreamingExecution(executionID)
 		defer m.releaseSlot()
 
-		execErr := m.executeProxmoxConsolePlugin(runCtx, assignment, wasm, configJSON, bridge)
+		execErr := m.executeProxmoxConsolePlugin(runCtx, assignment, wasm, configJSON, bridge, spec)
 		switch {
 		case execErr != nil:
 			m.recordExecution(false)
@@ -176,31 +192,29 @@ func (m *PluginManager) OpenProxmoxConsoleStream(
 }
 
 func (m *PluginManager) lookupProxmoxConsoleAssignment(spec proxmoxConsoleSessionSpec) (*pluginAssignment, error) {
-	if strings.TrimSpace(spec.PluginAssignmentID) != "" {
-		assignment, ok := m.lookupStreamingAssignment(spec.PluginAssignmentID)
-		if !ok || assignment == nil || !assignment.Capabilities[pluginCapabilityProxmoxConsole] {
-			return nil, fmt.Errorf("%w %q", errStreamingPluginAssignmentNotFound, strings.TrimSpace(spec.PluginAssignmentID))
-		}
-		return assignment, nil
+	assignmentID := strings.TrimSpace(spec.PluginAssignmentID)
+	credentialRuleID := strings.TrimSpace(spec.CredentialRuleID)
+	if assignmentID == "" || credentialRuleID == "" {
+		return nil, errProxmoxConsoleAssignmentScopeRequired
 	}
 
-	if strings.TrimSpace(spec.CredentialRuleID) == "" {
-		return nil, errProxmoxConsoleAssignmentIDRequired
+	assignment, ok := m.lookupStreamingAssignment(assignmentID)
+	if !ok || assignment == nil || assignment.PluginID != proxmoxConsolePluginID ||
+		assignment.Entrypoint != proxmoxConsoleEntrypoint ||
+		!assignment.Capabilities[pluginCapabilityProxmoxConsole] ||
+		!assignment.proxmoxHostAuthorityRequired {
+		return nil, fmt.Errorf("%w %q", errStreamingPluginAssignmentNotFound, assignmentID)
 	}
-
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	for _, assignment := range m.streams {
-		if assignment == nil || !assignment.Capabilities[pluginCapabilityProxmoxConsole] {
-			continue
-		}
-		if assignmentCredentialRuleID(assignment) == strings.TrimSpace(spec.CredentialRuleID) {
-			return assignment, nil
-		}
+	if assignmentCredentialRuleID(assignment) != credentialRuleID {
+		return nil, fmt.Errorf("%w %q for credential rule %q", errStreamingPluginAssignmentNotFound, assignmentID, credentialRuleID)
 	}
-
-	return nil, fmt.Errorf("%w for credential rule %q", errStreamingPluginAssignmentNotFound, strings.TrimSpace(spec.CredentialRuleID))
+	activePolicy, ok := assignment.proxmoxAssignmentPolicyBinding()
+	if !ok || activePolicy.PolicyVersion != spec.AssignmentPolicyVersion ||
+		activePolicy.Fingerprint != spec.AssignmentPolicyFingerprint ||
+		activePolicy.CredentialRuleID != credentialRuleID {
+		return nil, fmt.Errorf("%w %q", errProxmoxConsoleAssignmentPolicyMismatch, assignmentID)
+	}
+	return assignment, nil
 }
 
 func (m *PluginManager) executeProxmoxConsolePlugin(
@@ -209,11 +223,12 @@ func (m *PluginManager) executeProxmoxConsolePlugin(
 	wasm []byte,
 	configJSON []byte,
 	bridge *pluginProxmoxConsoleBridge,
+	spec proxmoxConsoleSessionSpec,
 ) error {
 	if m.consoleExecutor != nil {
 		return m.consoleExecutor(ctx, assignment, wasm, configJSON, bridge)
 	}
-	return m.executeProxmoxConsoleWithWasm(ctx, assignment, wasm, configJSON, bridge)
+	return m.executeProxmoxConsoleWithWasm(ctx, assignment, wasm, configJSON, bridge, spec)
 }
 
 func (m *PluginManager) executeProxmoxConsoleWithWasm(
@@ -222,12 +237,9 @@ func (m *PluginManager) executeProxmoxConsoleWithWasm(
 	wasm []byte,
 	configJSON []byte,
 	bridge *pluginProxmoxConsoleBridge,
+	spec proxmoxConsoleSessionSpec,
 ) error {
-	memPages := memoryPages(assignment.Resources.RequestedMemoryMB)
-	runtimeCfg := wazero.NewRuntimeConfig()
-	if memPages > 0 {
-		runtimeCfg = runtimeCfg.WithMemoryLimitPages(memPages)
-	}
+	runtimeCfg := m.newRuntimeConfig(assignment.Resources.RequestedMemoryMB)
 
 	runtime := wazero.NewRuntimeWithConfig(ctx, runtimeCfg)
 	defer func() {
@@ -235,9 +247,12 @@ func (m *PluginManager) executeProxmoxConsoleWithWasm(
 	}()
 
 	exec := newPluginExecution(m, assignment)
+	defer exec.closeAll()
 	exec.mode = pluginExecutionModeStreaming
+	exec.assignmentGenerationBound = true
 	exec.configJSON = configJSON
 	exec.consoleBridge = bridge
+	exec.consoleSessionSpec = spec
 
 	if err := exec.instantiateHostModule(ctx, runtime); err != nil {
 		return err
@@ -310,8 +325,12 @@ func buildProxmoxConsolePluginConfig(baseParams []byte, spec proxmoxConsoleSessi
 }
 
 func proxmoxConsolePluginConfigWithTarget(config map[string]interface{}, spec proxmoxConsoleSessionSpec) map[string]interface{} {
-	if spec.Target.Hostname != "" || spec.Target.IP != "" || spec.Target.BaseURL != "" ||
-		spec.Target.SSHPort > 0 || spec.Target.ProviderRef != "" || spec.Target.TargetRef != "" {
+	if spec.Target.DeviceUID != "" || spec.Target.Hostname != "" || spec.Target.IP != "" ||
+		spec.Target.BaseURL != "" || spec.Target.SSHPort > 0 || spec.Target.ProviderRef != "" ||
+		spec.Target.TargetRef != "" || spec.Target.IntegrationID != "" || spec.Target.Cluster != "" ||
+		spec.Target.Node != "" || spec.Target.OwnerNode != "" || spec.Target.VMID > 0 ||
+		spec.Target.ControllerID != "" || spec.Target.ProviderInstanceRef != "" ||
+		spec.Target.NativeClusterID != "" || spec.Target.ObjectKind != "" || spec.Target.NativeObjectID != "" {
 		config["target"] = spec.Target
 	}
 	return config
@@ -330,29 +349,38 @@ func decodeProxmoxConsoleOpenPayload(frame *proto.ConsoleFrame) (proxmoxConsoleS
 	}
 
 	spec := proxmoxConsoleSessionSpec{
-		SessionID:          firstNonEmpty(payload.SessionID, frame.GetSessionId()),
-		AgentID:            strings.TrimSpace(payload.AgentID),
-		GatewayID:          strings.TrimSpace(payload.GatewayID),
-		DeviceUID:          strings.TrimSpace(payload.DeviceUID),
-		TargetKind:         strings.TrimSpace(payload.TargetKind),
-		ConsoleMode:        strings.TrimSpace(payload.ConsoleMode),
-		CredentialRuleID:   strings.TrimSpace(payload.CredentialRuleID),
-		PluginAssignmentID: strings.TrimSpace(payload.PluginAssignmentID),
-		Target:             payload.Target,
-		Cols:               firstNonZero(payload.Cols, frame.GetCols()),
-		Rows:               firstNonZero(payload.Rows, frame.GetRows()),
+		SessionID:                   firstNonEmpty(payload.SessionID, frame.GetSessionId()),
+		AgentID:                     strings.TrimSpace(payload.AgentID),
+		GatewayID:                   strings.TrimSpace(payload.GatewayID),
+		DeviceUID:                   strings.TrimSpace(payload.DeviceUID),
+		TargetKind:                  strings.TrimSpace(payload.TargetKind),
+		ConsoleMode:                 strings.TrimSpace(payload.ConsoleMode),
+		CredentialRuleID:            strings.TrimSpace(payload.CredentialRuleID),
+		PluginAssignmentID:          strings.TrimSpace(payload.PluginAssignmentID),
+		AssignmentPolicyVersion:     frame.GetAssignmentPolicyVersion(),
+		AssignmentPolicyFingerprint: strings.TrimSpace(frame.GetAssignmentPolicyFingerprint()),
+		Target:                      payload.Target,
+		Cols:                        firstNonZero(payload.Cols, frame.GetCols()),
+		Rows:                        firstNonZero(payload.Rows, frame.GetRows()),
 	}
 	if spec.SessionID == "" {
 		return proxmoxConsoleSessionSpec{}, errProxmoxConsoleSessionNotActive
 	}
-	if spec.PluginAssignmentID == "" && spec.CredentialRuleID == "" {
-		return proxmoxConsoleSessionSpec{}, errProxmoxConsoleAssignmentIDRequired
+	if spec.PluginAssignmentID == "" || spec.CredentialRuleID == "" {
+		return proxmoxConsoleSessionSpec{}, errProxmoxConsoleAssignmentScopeRequired
+	}
+	if spec.AssignmentPolicyVersion == 0 ||
+		!validProxmoxAssignmentPolicyFingerprint(spec.AssignmentPolicyFingerprint) {
+		return proxmoxConsoleSessionSpec{}, errProxmoxConsoleAssignmentPolicyBindingRequired
 	}
 
 	return spec, nil
 }
 
 func assignmentCredentialRuleID(assignment *pluginAssignment) string {
+	if assignment != nil && assignment.proxmoxHostAuthorityRequired {
+		return assignment.proxmoxHostAuthorityCredentialRuleID()
+	}
 	if assignment == nil || len(bytes.TrimSpace(assignment.ParamsJSON)) == 0 {
 		return ""
 	}
@@ -686,10 +714,15 @@ func (e *pluginExecution) hostProxmoxConsoleSSHConnect(ctx context.Context, mod 
 		return pluginErrTooLarge
 	}
 
-	var cfg proxmoxConsoleSSHConfig
-	if err := json.Unmarshal(raw, &cfg); err != nil {
+	var request proxmoxConsoleSSHHostRequest
+	if err := decodeStrictJSON(raw, &request); err != nil || strings.TrimSpace(request.SessionID) == "" {
 		return pluginErrInvalid
 	}
+	cfg, err := e.trustedProxmoxConsoleSSHConfig(ctx, request.SessionID)
+	if err != nil {
+		return proxmoxConsolePluginErrorCode(err)
+	}
+	cfg.revalidate = e.ensureActiveProxmoxAssignment
 
 	if err := runProxmoxConsoleSSH(ctx, cfg, e.consoleBridge, nil); err != nil {
 		return proxmoxConsolePluginErrorCode(err)

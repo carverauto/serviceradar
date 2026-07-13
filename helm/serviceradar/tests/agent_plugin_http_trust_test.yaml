@@ -1,0 +1,17 @@
+suite: agent plugin HTTP trust configuration
+templates:
+  - templates/serviceradar-config.yaml
+tests:
+  - it: renders the platform CA default
+    asserts:
+      - matchRegex:
+          path: data["agent.json"]
+          pattern: '"plugin_http_trusted_ca_files": \["/etc/serviceradar/certs/root.pem"\]'
+
+  - it: honors an explicitly empty trusted CA list
+    set:
+      agent.pluginHTTPTrustedCAFiles: []
+    asserts:
+      - matchRegex:
+          path: data["agent.json"]
+          pattern: '"plugin_http_trusted_ca_files": \[\]'

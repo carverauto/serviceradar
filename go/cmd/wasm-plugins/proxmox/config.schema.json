@@ -1,48 +1,7 @@
 {
   "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "base_url": {
-      "type": "string",
-      "x-serviceradar-ui-hidden": true,
-      "description": "Direct target override for local lab runs, for example https://pve.example.com:8006. Central assignments should use credential rules and SRQL-scoped targets."
-    },
-    "credential_broker": {
-      "type": "object",
-      "x-serviceradar-internal": true,
-      "description": "Internal credential broker grant generated from network credential rules. Do not configure manually."
-    },
-    "api_token_secret_ref": {
-      "type": "string",
-      "secretRef": true,
-      "x-serviceradar-internal": true,
-      "x-serviceradar-ui-hidden": true,
-      "description": "Internal network credential reference resolved into api_token only in scoped agent runtime config."
-    },
-    "targets": {
-      "type": "array",
-      "x-serviceradar-ui-hidden": true,
-      "description": "Credential-rule compiled Proxmox targets. Credentials are resolved by the edge credential broker.",
-      "items": {
-        "type": "object",
-        "properties": {
-          "base_url": {
-            "type": "string"
-          },
-          "device_id": {
-            "type": "string"
-          },
-          "hostname": {
-            "type": "string"
-          },
-          "partition": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "base_url"
-        ]
-      }
-    },
     "timeout_ms": {
       "type": "integer",
       "default": 30000,
@@ -66,10 +25,6 @@
     "include_guests": {
       "type": "boolean",
       "default": true
-    },
-    "insecure_skip_verify": {
-      "type": "boolean",
-      "default": false
     }
   }
 }

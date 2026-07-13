@@ -1029,6 +1029,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "/settings/networks/desktop-targets/new"
   end
 
+  test "shows RDP action instead of Enable RDP for an authorized exact device target", %{conn: conn} do
+    with_remote_access_rdp_enabled(true)
+
+    uid = "test-device-rdp-target-#{System.unique_integer([:positive])}"
+
+    with_remote_access_desktop_targets([
+      %{
+        id: "rdp-target-exact",
+        enabled: true,
+        label: "Authorized Windows target",
+        device_uid: uid,
+        target_kind: "inventory_device",
+        target_host: "windows-rdp-target.example.test",
+        target_port: 3389,
+        agent_id: "agent-rdp-target",
+        gateway_id: "gateway-platform",
+        credential_custody_mode: "user_present"
+      }
+    ])
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 1,
+        type: "Server",
+        hostname: "windows-rdp-target",
+        metadata: %{"operating_system" => "Microsoft Windows Server 2022"},
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+
+    assert has_element?(view, "#device-rdp-launch-action[href='/devices/#{uid}/remote-access/rdp']")
+    refute has_element?(view, "#device-rdp-enable-action")
+  end
+
   test "auto-refreshes device details when the viewed device is updated", %{
     conn: conn,
     scope: scope
@@ -3859,6 +3898,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     on_exit(fn ->
       restore_env(:remote_access_desktop_rdp_enabled, previous)
+    end)
+  end
+
+  defp with_remote_access_desktop_targets(targets) do
+    previous_targets = Application.get_env(:serviceradar_web_ng, :remote_access_desktop_targets)
+    previous_provider = Application.get_env(:serviceradar_web_ng, :remote_access_desktop_target_provider)
+
+    Application.put_env(:serviceradar_web_ng, :remote_access_desktop_targets, targets)
+    Application.delete_env(:serviceradar_web_ng, :remote_access_desktop_target_provider)
+
+    on_exit(fn ->
+      restore_env(:remote_access_desktop_targets, previous_targets)
+      restore_env(:remote_access_desktop_target_provider, previous_provider)
     end)
   end
 

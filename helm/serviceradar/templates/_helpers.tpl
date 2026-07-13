@@ -486,6 +486,30 @@ that opt into cnpg.pooler.route.<workload>.
 {{- end -}}
 {{- end -}}
 
+{{/* Keep target-scoped SSH account/principal policy in an operator-owned Secret. */}}
+{{- define "serviceradar.validateRemoteAccessSSHCertificatePolicy" -}}
+{{- $remoteAccess := default (dict) .Values.remoteAccess -}}
+{{- $policy := default (dict) $remoteAccess.sshCertificatePolicy -}}
+{{- $enabled := false -}}
+{{- if hasKey $policy "enabled" -}}{{- $enabled = get $policy "enabled" -}}{{- end -}}
+{{- if $enabled -}}
+  {{- if eq (default "" $policy.existingSecretName) "" -}}
+    {{- fail "remoteAccess.sshCertificatePolicy.existingSecretName is required when remoteAccess.sshCertificatePolicy.enabled=true" -}}
+  {{- end -}}
+  {{- if eq (default "" $policy.secretKey) "" -}}
+    {{- fail "remoteAccess.sshCertificatePolicy.secretKey is required when remoteAccess.sshCertificatePolicy.enabled=true" -}}
+  {{- end -}}
+  {{- $workloads := default (dict) $policy.workloads -}}
+  {{- $web := true -}}
+  {{- if hasKey $workloads "web" -}}{{- $web = get $workloads "web" -}}{{- end -}}
+  {{- $core := false -}}
+  {{- if hasKey $workloads "core" -}}{{- $core = get $workloads "core" -}}{{- end -}}
+  {{- if not (or $web $core) -}}
+    {{- fail "remoteAccess.sshCertificatePolicy must be mounted in at least one workload" -}}
+  {{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{/* Keep SSH CA private-key custody explicit and fail closed on incomplete mounts. */}}
 {{- define "serviceradar.validateRemoteAccessSSHCaSigner" -}}
 {{- $remoteAccess := default (dict) .Values.remoteAccess -}}
@@ -515,6 +539,38 @@ that opt into cnpg.pooler.route.<workload>.
   {{- if hasKey $workloads "core" -}}{{- $core = get $workloads "core" -}}{{- end -}}
   {{- if not (or $web $core) -}}
     {{- fail "remoteAccess.sshCaSigner must be mounted in at least one workload" -}}
+  {{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Keep browser ICE metadata non-secret and TURN REST key custody file-only. */}}
+{{- define "serviceradar.validateRemoteAccessDesktopWebRTC" -}}
+{{- $remoteAccess := default (dict) .Values.remoteAccess -}}
+{{- $desktop := default (dict) $remoteAccess.desktop -}}
+{{- $rdp := default (dict) $desktop.rdp -}}
+{{- $rdpEnabled := false -}}
+{{- if hasKey $rdp "enabled" -}}{{- $rdpEnabled = get $rdp "enabled" -}}{{- end -}}
+{{- $webrtc := default (dict) $rdp.webRTC -}}
+{{- $iceServers := default (list) $webrtc.iceServers -}}
+{{- if and $rdpEnabled (not (kindIs "slice" $iceServers)) -}}
+  {{- fail "remoteAccess.desktop.rdp.webRTC.iceServers must be a list" -}}
+{{- end -}}
+{{- $iceServersJSON := toJson $iceServers -}}
+{{- if and $rdpEnabled (regexMatch "(?i)\"(username|credential|turn_shared_secret|shared_secret)\"[[:space:]]*:" $iceServersJSON) -}}
+  {{- fail "remoteAccess.desktop.rdp.webRTC.iceServers must not contain credentials or shared secrets" -}}
+{{- end -}}
+{{- $turnConfigured := and $rdpEnabled (regexMatch "(?i)\"turns?:" $iceServersJSON) -}}
+{{- if $turnConfigured -}}
+  {{- $turn := default (dict) $webrtc.turn -}}
+  {{- if eq (default "" $turn.existingSecretName) "" -}}
+    {{- fail "remoteAccess.desktop.rdp.webRTC.turn.existingSecretName is required when TURN endpoints are configured" -}}
+  {{- end -}}
+  {{- if eq (default "" $turn.secretKey) "" -}}
+    {{- fail "remoteAccess.desktop.rdp.webRTC.turn.secretKey is required when TURN endpoints are configured" -}}
+  {{- end -}}
+  {{- $ttl := int (default 600 $turn.credentialTtlSeconds) -}}
+  {{- if or (le $ttl 0) (gt $ttl 3600) -}}
+    {{- fail "remoteAccess.desktop.rdp.webRTC.turn.credentialTtlSeconds must be between 1 and 3600" -}}
   {{- end -}}
 {{- end -}}
 {{- end -}}

@@ -139,10 +139,12 @@ defmodule ServiceRadar.Automation.Ansible.AutomationTargetHold do
     import ServiceRadar.Policies
 
     system_bypass()
+
     action_with_permission(
       [:read, :by_id, :active_for_device, :active_history_for_device, :for_device],
       @view_check
     )
+
     action_with_permission([:clear], @clear_check)
   end
 

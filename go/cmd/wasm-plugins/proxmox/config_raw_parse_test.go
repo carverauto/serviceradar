@@ -5,10 +5,9 @@ import (
 	"testing"
 )
 
-// rawPluginInputsPayload is a serviceradar.plugin_inputs.v1 payload as core
-// delivers it: the API token resolved from api_token_secret_ref lives in the
-// `template` object (SecretRefs.maybe_resolve_template_runtime), never at the
-// top level.
+// rawPluginInputsPayload is a serviceradar.plugin_inputs.v1 payload as the
+// agent exposes it to Wasm: only the fixed host credential sentinel appears in
+// the template. Real credentials and broker grants stay in trusted host state.
 const rawPluginInputsPayload = `{
 	"schema": "serviceradar.plugin_inputs.v1",
 	"policy_id": "policy-1",
@@ -16,9 +15,7 @@ const rawPluginInputsPayload = `{
 	"agent_id": "agent-1",
 	"generated_at": "2026-05-06T19:00:00Z",
 	"template": {
-		"api_token_secret_ref": "credentialref:network-credential-secret:test-secret",
-		"api_token": "PVEAPIToken=root@pam!sr=test-token",
-		"insecure_skip_verify": true,
+		"api_token": "__SERVICERADAR_HOST_CREDENTIAL__",
 		"timeout_ms": 45000,
 		"max_response_bytes": 262144,
 		"max_guests": 250,
@@ -52,19 +49,13 @@ const rawPluginInputsPayload = `{
 // TestConfigFromRawConfigGJSONAppliesPluginInputsTemplate is the #4386
 // regression test: the TinyGo raw parser must apply the plugin_inputs
 // `template` object. The pre-fix parser only read top-level keys, so the
-// runtime-resolved template.api_token (and TLS/timeout/guest settings) were
-// dropped and every scheduled run failed with errMissingToken.
+// host-sentinel template.api_token (and timeout/guest settings) were dropped
+// and every scheduled run failed with errMissingToken.
 func TestConfigFromRawConfigGJSONAppliesPluginInputsTemplate(t *testing.T) {
 	cfg := configFromRawConfigGJSON(rawPluginInputsPayload)
 
-	if cfg.APIToken != "PVEAPIToken=root@pam!sr=test-token" {
+	if cfg.APIToken != hostCredentialSentinel {
 		t.Fatalf("expected template api_token to be applied, got %q", cfg.APIToken)
-	}
-	if cfg.APITokenSecretRef != "credentialref:network-credential-secret:test-secret" {
-		t.Fatalf("expected template api_token_secret_ref, got %q", cfg.APITokenSecretRef)
-	}
-	if !cfg.InsecureSkipVerify {
-		t.Fatal("expected template insecure_skip_verify=true to be applied")
 	}
 	if cfg.TimeoutMS != 45000 {
 		t.Fatalf("expected template timeout_ms=45000, got %d", cfg.TimeoutMS)
@@ -89,7 +80,7 @@ func TestConfigFromRawConfigGJSONAppliesPluginInputsTemplate(t *testing.T) {
 		t.Fatalf("expected two generated targets (services input filtered out), got %d: %#v", len(cfg.Targets), cfg.Targets)
 	}
 	for i, target := range cfg.Targets {
-		if target.APIToken != "PVEAPIToken=root@pam!sr=test-token" {
+		if target.APIToken != hostCredentialSentinel {
 			t.Fatalf("expected target %d to inherit template api_token, got %q", i, target.APIToken)
 		}
 	}
@@ -132,7 +123,7 @@ func TestConfigFromRawConfigGJSONMatchesStdParser(t *testing.T) {
 			"policy_version": 1,
 			"agent_id": "agent-1",
 			"generated_at": "2026-05-06T19:00:00Z",
-			"template": {"api_token": "PVEAPIToken=root@pam!sr=test-token"},
+			"template": {"api_token": "__SERVICERADAR_HOST_CREDENTIAL__"},
 			"inputs": [{
 				"name": "targets",
 				"entity": "devices",
@@ -151,7 +142,7 @@ func TestConfigFromRawConfigGJSONMatchesStdParser(t *testing.T) {
 			"generated_at": "2026-05-06T19:00:00Z",
 			"template": {
 				"base_url": "https://pve.example:8006",
-				"api_token": "PVEAPIToken=root@pam!sr=test-token"
+				"api_token": "__SERVICERADAR_HOST_CREDENTIAL__"
 			},
 			"inputs": [{
 				"name": "services",
@@ -171,7 +162,7 @@ func TestConfigFromRawConfigGJSONMatchesStdParser(t *testing.T) {
 			"generated_at": "2026-05-06T19:00:00Z",
 			"template": {
 				"base_url": "https://pve.example:8006",
-				"api_token": "PVEAPIToken=root@pam!sr=test-token"
+				"api_token": "__SERVICERADAR_HOST_CREDENTIAL__"
 			},
 			"inputs": [{
 				"name": "targets",
@@ -185,26 +176,29 @@ func TestConfigFromRawConfigGJSONMatchesStdParser(t *testing.T) {
 		}`,
 		"plain config full": `{
 			"base_url": "https://pve.example:8006",
-			"api_token": "PVEAPIToken=root@pam!sr=test-token",
-			"api_token_secret_ref": "credentialref:network-credential-secret:test-secret",
+			"api_token": "__SERVICERADAR_HOST_CREDENTIAL__",
 			"timeout_ms": 1000,
 			"max_response_bytes": 2048,
 			"max_guests": 42,
 			"include_guests": false,
-			"insecure_skip_verify": true,
 			"auto_discovery_enabled": true,
 			"targets": [{
 				"base_url": "https://pve2.example:8006",
-				"api_token": "PVEAPIToken=root@pam!sr=other-token",
+				"api_token": "__SERVICERADAR_HOST_CREDENTIAL__",
 				"device_id": "sr:device:9",
 				"hostname": "pve2",
 				"partition": "dc-b"
 			}]
 		}`,
-		"plain config minimal":            `{"api_token": "PVEAPIToken=root@pam!sr=test-token"}`,
-		"plain config empty targets list": `{"base_url": "https://pve.example:8006", "targets": []}`,
-		"empty object":                    `{}`,
-		"invalid json":                    `{"api_token": `,
+		"legacy secret ref fails closed":   `{"api_token_secret_ref":"credential://legacy","api_token":"__SERVICERADAR_HOST_CREDENTIAL__"}`,
+		"legacy raw token fails closed":    `{"api_token":"token-material"}`,
+		"legacy TLS override fails closed": `{"api_token":"__SERVICERADAR_HOST_CREDENTIAL__","insecure_skip_verify":true}`,
+		"legacy SSH object fails closed":   `{"api_token":"__SERVICERADAR_HOST_CREDENTIAL__","ssh":{"username":"root","password":"secret"}}`,
+		"legacy SSH bypass fails closed":   `{"api_token":"__SERVICERADAR_HOST_CREDENTIAL__","ssh_host_key_policy":"skip_verify"}`,
+		"plain config minimal":             `{"api_token": "__SERVICERADAR_HOST_CREDENTIAL__"}`,
+		"plain config empty targets list":  `{"base_url": "https://pve.example:8006", "targets": []}`,
+		"empty object":                     `{}`,
+		"invalid json":                     `{"api_token": `,
 	}
 
 	for name, raw := range cases {
@@ -213,6 +207,27 @@ func TestConfigFromRawConfigGJSONMatchesStdParser(t *testing.T) {
 			want := configFromRawConfig(raw)
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("gjson parser diverged from std parser\n got: %#v\nwant: %#v", got, want)
+			}
+		})
+	}
+}
+
+func TestRawConfigParsersFailClosedOnLegacyAuthorityFields(t *testing.T) {
+	want := defaultConfig()
+	tests := map[string]string{
+		"secret reference": `{"api_token_secret_ref":"credential://legacy","api_token":"__SERVICERADAR_HOST_CREDENTIAL__"}`,
+		"raw token":        `{"api_token":"token-material"}`,
+		"TLS bypass":       `{"api_token":"__SERVICERADAR_HOST_CREDENTIAL__","insecure_skip_verify":true}`,
+		"SSH credentials":  `{"api_token":"__SERVICERADAR_HOST_CREDENTIAL__","ssh":{"username":"root","private_key":"secret"}}`,
+		"SSH bypass":       `{"api_token":"__SERVICERADAR_HOST_CREDENTIAL__","ssh_host_key_policy":"skip_verify"}`,
+	}
+	for name, raw := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := configFromRawConfig(raw); !reflect.DeepEqual(got, want) {
+				t.Fatalf("std parser returned %#v, want fail-closed default %#v", got, want)
+			}
+			if got := configFromRawConfigGJSON(raw); !reflect.DeepEqual(got, want) {
+				t.Fatalf("gjson parser returned %#v, want fail-closed default %#v", got, want)
 			}
 		})
 	}

@@ -1120,6 +1120,110 @@ func TestPluginManagerOpenCameraRelayStreamCloseCancelsPluginAndReleasesSlot(t *
 	}
 }
 
+func TestPluginManagerRevokesActiveStreamingExecutionOnRemovalOrGenerationChange(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		next *proto.PluginConfig
+	}{
+		{name: "assignment removed", next: nil},
+		{
+			name: "assignment generation changed",
+			next: &proto.PluginConfig{Assignments: []*proto.PluginAssignmentConfig{{
+				AssignmentId:  "streaming-revocation",
+				PluginId:      "camera-streamer",
+				Name:          "Camera Streamer",
+				Entrypoint:    "stream_camera",
+				Runtime:       "wasi-preview1",
+				Enabled:       true,
+				WasmObjectKey: "camera-streamer.wasm",
+				Capabilities:  []string{pluginCapabilityCameraMediaStream},
+				ParamsJson:    []byte(`{"generation":2}`),
+			}}},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := NewPluginManager(t.Context(), PluginManagerConfig{
+				Logger:        logger.NewTestLogger(),
+				CacheDir:      t.TempDir(),
+				LocalStoreDir: t.TempDir(),
+			})
+			defer manager.Stop()
+
+			wasmPath := filepath.Join(manager.localStoreDir, "camera-streamer.wasm")
+			if err := os.WriteFile(wasmPath, []byte("not-real-wasm"), 0o600); err != nil {
+				t.Fatalf("write wasm fixture: %v", err)
+			}
+
+			assignment := newPluginAssignment(
+				&proto.PluginAssignmentConfig{
+					AssignmentId:  "streaming-revocation",
+					PluginId:      "camera-streamer",
+					Name:          "Camera Streamer",
+					Entrypoint:    "stream_camera",
+					Runtime:       "wasi-preview1",
+					Enabled:       true,
+					WasmObjectKey: "camera-streamer.wasm",
+					Capabilities:  []string{pluginCapabilityCameraMediaStream},
+				},
+				logger.NewTestLogger(),
+			)
+
+			manager.mu.Lock()
+			manager.streams[assignment.AssignmentID] = assignment
+			manager.mu.Unlock()
+
+			started := make(chan struct{})
+			cancelObserved := make(chan struct{})
+			manager.streamExecutor = func(
+				ctx context.Context,
+				_assignment *pluginAssignment,
+				_wasm []byte,
+				_configJSON []byte,
+				bridge *pluginCameraMediaBridge,
+			) error {
+				handle, err := bridge.Open(ctx, pluginCameraMediaOpenRequest{TrackID: "video"})
+				if err != nil {
+					return err
+				}
+				close(started)
+				<-ctx.Done()
+				close(cancelObserved)
+				return bridge.Close(handle, "assignment revoked")
+			}
+
+			stream, err := manager.OpenCameraRelayStream(
+				t.Context(),
+				assignment.AssignmentID,
+				cameraRelaySessionSpec{
+					RelaySessionID:     "relay-revocation",
+					AgentID:            "agent-1",
+					GatewayID:          "gateway-1",
+					CameraSourceID:     "camera-1",
+					PluginAssignmentID: assignment.AssignmentID,
+				},
+			)
+			if err != nil {
+				t.Fatalf("OpenCameraRelayStream returned error: %v", err)
+			}
+			defer stream.Close()
+
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				t.Fatal("streaming execution did not start")
+			}
+
+			manager.ApplyConfig(tt.next)
+
+			select {
+			case <-cancelObserved:
+			case <-time.After(time.Second):
+				t.Fatal("revoked streaming assignment did not cancel its active execution")
+			}
+		})
+	}
+}
+
 func TestPluginManagerOpenProxmoxConsoleStreamUsesStreamingBridge(t *testing.T) {
 	manager := NewPluginManager(t.Context(), PluginManagerConfig{
 		Logger:        logger.NewTestLogger(),
@@ -1133,20 +1237,22 @@ func TestPluginManagerOpenProxmoxConsoleStreamUsesStreamingBridge(t *testing.T) 
 		t.Fatalf("write wasm fixture: %v", err)
 	}
 
-	assignment := newPluginAssignment(
-		&proto.PluginAssignmentConfig{
-			AssignmentId:  "console-1",
-			PluginId:      "proxmox-console",
-			Name:          "Proxmox Console",
-			Entrypoint:    "run_console",
-			Runtime:       "wasi-preview1",
-			Enabled:       true,
-			WasmObjectKey: "proxmox-console.wasm",
-			Capabilities:  []string{pluginCapabilityProxmoxConsole, "get_config"},
-			ParamsJson:    []byte(`{"credential_rule_id":"rule-1"}`),
-		},
-		logger.NewTestLogger(),
-	)
+	options := testConsoleAuthorityOptions()
+	options.assignmentID = "console-1"
+	options.paramsJSON = `{
+		"policy_id":"network-credential-rule:proxmox-rule-1:console_access",
+		"policy_version":1,
+		"credential_rule_id":"proxmox-rule-1",
+		"credential_secret":"__SERVICERADAR_HOST_CREDENTIAL__"
+	}`
+	options.sshHostKeyPolicy = proxmoxSSHHostKeyPolicyKnownHosts
+	options.methods = nil
+	options.paths = nil
+	options.ports = []int{22}
+	assignment := newTestProxmoxHostAuthorityAssignment(t, options)
+	assignment.Name = "Proxmox Console"
+	assignment.Runtime = "wasi-preview1"
+	assignment.WasmObject = "proxmox-console.wasm"
 
 	manager.mu.Lock()
 	manager.streams["console-1"] = assignment
@@ -1172,7 +1278,8 @@ func TestPluginManagerOpenProxmoxConsoleStreamUsesStreamingBridge(t *testing.T) 
 			t.Fatalf("decode console config: %v", err)
 		}
 		console, _ := config["console"].(map[string]any)
-		if console["device_uid"] != "device-1" || console["credential_rule_id"] != "rule-1" {
+		if console["device_uid"] != testProxmoxControllerDeviceUID ||
+			console["credential_rule_id"] != testProxmoxCredentialRuleID {
 			t.Fatalf("unexpected console config: %#v", console)
 		}
 		target, _ := config["target"].(map[string]any)
@@ -1203,18 +1310,17 @@ func TestPluginManagerOpenProxmoxConsoleStreamUsesStreamingBridge(t *testing.T) 
 		return bridge.CloseHandle(handle, "done")
 	}
 
-	pty, err := manager.OpenProxmoxConsoleStream(t.Context(), proxmoxConsoleSessionSpec{
-		SessionID:        "session-1",
-		AgentID:          "agent-1",
-		GatewayID:        "gateway-1",
-		DeviceUID:        "device-1",
-		TargetKind:       "pve_host",
-		ConsoleMode:      "ssh",
-		CredentialRuleID: "rule-1",
-		Target:           proxmoxConsoleSSHTarget{Hostname: "pve-1.example", IP: "192.0.2.10"},
-		Cols:             120,
-		Rows:             40,
-	})
+	spec := testProxmoxPVEConsoleSessionSpec()
+	spec.SessionID = "session-1"
+	spec.AgentID = "agent-1"
+	spec.GatewayID = "gateway-1"
+	spec.PluginAssignmentID = "console-1"
+	bindTestProxmoxSessionPolicy(t, &spec, assignment)
+	spec.Target.Hostname = "pve-1.example"
+	spec.Target.IP = "192.0.2.10"
+	spec.Cols = 120
+	spec.Rows = 40
+	pty, err := manager.OpenProxmoxConsoleStream(t.Context(), spec)
 	if err != nil {
 		t.Fatalf("OpenProxmoxConsoleStream returned error: %v", err)
 	}
@@ -1249,13 +1355,74 @@ func TestPluginManagerOpenProxmoxConsoleStreamUsesStreamingBridge(t *testing.T) 
 }
 
 func TestDecodeProxmoxConsoleOpenPayloadRequiresScopedAssignment(t *testing.T) {
-	_, err := decodeProxmoxConsoleOpenPayload(&proto.ConsoleFrame{
-		SessionId: "session-1",
-		FrameType: consoleFrameTypeOpen,
-		Data:      []byte(`{"device_uid":"device-1"}`),
+	for name, data := range map[string]string{
+		"both omitted":            `{"device_uid":"device-1"}`,
+		"assignment omitted":      `{"device_uid":"device-1","credential_rule_id":"rule-1"}`,
+		"credential rule omitted": `{"device_uid":"device-1","plugin_assignment_id":"console-1"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := decodeProxmoxConsoleOpenPayload(&proto.ConsoleFrame{
+				SessionId: "session-1",
+				FrameType: consoleFrameTypeOpen,
+				Data:      []byte(data),
+			})
+			if !errors.Is(err, errProxmoxConsoleAssignmentScopeRequired) {
+				t.Fatalf("expected scoped assignment error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestDecodeProxmoxConsoleOpenPayloadRequiresProtoPolicyBinding(t *testing.T) {
+	fingerprint := strings.Repeat("a", 64)
+	payload := []byte(`{
+		"device_uid":"device-1",
+		"credential_rule_id":"rule-1",
+		"plugin_assignment_id":"console-1",
+		"assignment_policy_version":99,
+		"assignment_policy_fingerprint":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	}`)
+
+	valid, err := decodeProxmoxConsoleOpenPayload(&proto.ConsoleFrame{
+		SessionId:                   "session-1",
+		FrameType:                   consoleFrameTypeOpen,
+		Data:                        payload,
+		AssignmentPolicyVersion:     7,
+		AssignmentPolicyFingerprint: fingerprint,
 	})
-	if !errors.Is(err, errProxmoxConsoleAssignmentIDRequired) {
-		t.Fatalf("expected scoped assignment error, got %v", err)
+	if err != nil {
+		t.Fatalf("valid protobuf policy binding was rejected: %v", err)
+	}
+	if valid.AssignmentPolicyVersion != 7 || valid.AssignmentPolicyFingerprint != fingerprint {
+		t.Fatalf("decoded policy binding = %d %q", valid.AssignmentPolicyVersion, valid.AssignmentPolicyFingerprint)
+	}
+
+	for name, mutate := range map[string]func(*proto.ConsoleFrame){
+		"missing version": func(frame *proto.ConsoleFrame) {
+			frame.AssignmentPolicyVersion = 0
+		},
+		"missing fingerprint": func(frame *proto.ConsoleFrame) {
+			frame.AssignmentPolicyFingerprint = ""
+		},
+		"malformed fingerprint": func(frame *proto.ConsoleFrame) {
+			frame.AssignmentPolicyFingerprint = strings.Repeat("A", 64)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			frame := &proto.ConsoleFrame{
+				SessionId:                   "session-1",
+				FrameType:                   consoleFrameTypeOpen,
+				Data:                        payload,
+				AssignmentPolicyVersion:     7,
+				AssignmentPolicyFingerprint: fingerprint,
+			}
+			mutate(frame)
+
+			_, err := decodeProxmoxConsoleOpenPayload(frame)
+			if !errors.Is(err, errProxmoxConsoleAssignmentPolicyBindingRequired) {
+				t.Fatalf("policy binding error = %v", err)
+			}
+		})
 	}
 }
 

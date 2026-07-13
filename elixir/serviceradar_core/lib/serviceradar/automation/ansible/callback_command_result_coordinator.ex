@@ -17,6 +17,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   alias ServiceRadar.Automation.Ansible.CallbackCommandDispatcher
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.ExecutionLifecycle
+  alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
+  alias ServiceRadar.Automation.Ansible.SecureExecutionLifecycle
   alias ServiceRadar.Automation.CallbackGrants.AshStore, as: GrantStore
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
   alias ServiceRadar.Automation.CallbackGrants.Lifecycle
@@ -620,7 +622,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   end
 
   defp process_success(
-         %{attempt: %Attempt{stage: :fetch_host_summaries}} = bundle,
+         %{attempt: %Attempt{stage: :fetch_host_summaries, purpose: :host_scope_proof}} = bundle,
          _request,
          token,
          digest,
@@ -644,6 +646,64 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
         {:error, reason} ->
           {:error, reason}
       end
+    end
+  end
+
+  defp process_success(
+         %{attempt: %Attempt{stage: :fetch_job, purpose: :terminal_poll}} = bundle,
+         _request,
+         token,
+         digest,
+         now,
+         _opts
+       ) do
+    with {:ok, job} <- exact_fetch_job_result(bundle),
+         :ok <-
+           SecureExecutionLifecycle.validate_bound_job(
+             bundle.execution,
+             bundle.controller.id,
+             job
+           ),
+         {:ok, state} <- SecureExecutionLifecycle.job_state(job) do
+      case state do
+        :active -> schedule_terminal_poll(bundle, token, digest, now)
+        _terminal -> schedule_terminal_confirmation(bundle, job, token, digest, now)
+      end
+    end
+  end
+
+  defp process_success(
+         %{attempt: %Attempt{stage: :fetch_host_summaries, purpose: :terminal_confirmation}} =
+           bundle,
+         _request,
+         token,
+         digest,
+         now,
+         opts
+       ) do
+    with {:ok, summaries} <- exact_summary_result(bundle),
+         true <-
+           CallbackCommandContract.terminal_job_snapshot?(bundle.attempt.terminal_job_snapshot) ||
+             {:error, :terminal_job_evidence_missing} do
+      case ExecutionLifecycle.classify_host_scope(
+             bundle.execution,
+             bundle.targets,
+             bundle.controller.id,
+             bundle.attempt.expected_job_id,
+             summaries
+           ) do
+        {:ok, :exact} ->
+          persist_terminal_result(bundle, summaries, token, digest, now, opts)
+
+        {:retry, :host_scope_incomplete} ->
+          schedule_terminal_summary_poll(bundle, token, digest, now)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      false -> {:error, :terminal_job_evidence_missing}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -697,30 +757,187 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
     do: {:error, :callback_command_stage_not_processable}
 
   defp activate_exact_scope(bundle, summaries, token, digest, now, opts) do
-    with {:ok, scope} <-
-           ExecutionLifecycle.verify_host_scope(
-             bundle.execution,
-             bundle.targets,
-             bundle.controller.id,
-             bundle.attempt.expected_job_id,
-             summaries,
-             mutating?: bundle.operation.mutating
+    next_at = DateTime.add(now, @poll_seconds, :second)
+
+    with :ok <- before_deadline(bundle.attempt, next_at),
+         {:ok, request} <-
+           CallbackCommandContract.fetch_job_request(bundle.attempt.expected_job_id),
+         {:ok, next_attrs} <-
+           next_attempt_attrs(bundle, request, now,
+             stage: :fetch_job,
+             purpose: :terminal_poll,
+             command_type: "awx.fetch_job",
+             expected_credential_id: bundle.attempt.expected_credential_id,
+             expected_job_id: bundle.attempt.expected_job_id,
+             next_attempt_at: next_at
            ),
-         {:ok, grant} <- GrantStore.fetch(bundle.attempt.grant_id, nil),
-         {:ok, binding} <-
-           Lifecycle.job_binding_from_accepted(grant, scope.execution.accepted_job_snapshot),
-         {:ok, _activated} <-
-           lifecycle(opts).activate(bundle.attempt.grant_id, binding, lifecycle_opts!(opts)),
-         {:ok, _attempt} <-
-           complete_without_next(
+         {:ok, next} <-
+           Repo.transaction(fn ->
+             with {:ok, scope} <-
+                    ExecutionLifecycle.verify_host_scope(
+                      bundle.execution,
+                      bundle.targets,
+                      bundle.controller.id,
+                      bundle.attempt.expected_job_id,
+                      summaries,
+                      execution_lifecycle_opts(opts,
+                        mutating?: bundle.operation.mutating
+                      )
+                    ),
+                  {:ok, grant} <- GrantStore.fetch(bundle.attempt.grant_id, nil),
+                  {:ok, binding} <-
+                    Lifecycle.job_binding_from_accepted(
+                      grant,
+                      scope.execution.accepted_job_snapshot
+                    ),
+                  {:ok, _activated} <-
+                    lifecycle(opts).activate(
+                      bundle.attempt.grant_id,
+                      binding,
+                      lifecycle_opts!(opts)
+                    ),
+                  {:ok, _running} <-
+                    SecureExecutionLifecycle.mark_running(
+                      bundle.operation,
+                      scope.execution,
+                      secure_lifecycle_opts(opts)
+                    ),
+                  {:ok, _attempt} <-
+                    Attempt.mark_succeeded(
+                      bundle.attempt,
+                      %{
+                        lease_token: token,
+                        processed_at: now,
+                        outcome_code: "scope_verified_and_activated",
+                        result_digest: digest
+                      },
+                      actor: @actor
+                    ),
+                  {:ok, next} <- Attempt.create_planned(next_attrs, actor: @actor) do
+               next
+             else
+               {:error, reason} -> Repo.rollback(reason)
+             end
+           end) do
+      _ = delete_activated_credential(bundle.attempt.grant_id, opts)
+      {:ok, next, :scope_verified_and_activated}
+    end
+  end
+
+  defp schedule_terminal_poll(bundle, token, digest, now) do
+    next_at = DateTime.add(now, @poll_seconds, :second)
+
+    with :ok <- before_deadline(bundle.attempt, next_at),
+         {:ok, request} <-
+           CallbackCommandContract.fetch_job_request(bundle.attempt.expected_job_id),
+         {:ok, next_attrs} <-
+           next_attempt_attrs(bundle, request, now,
+             stage: :fetch_job,
+             purpose: :terminal_poll,
+             command_type: "awx.fetch_job",
+             expected_credential_id: bundle.attempt.expected_credential_id,
+             expected_job_id: bundle.attempt.expected_job_id,
+             next_attempt_at: next_at
+           ),
+         {:ok, next} <-
+           complete_with_next(
              bundle.attempt,
              token,
              digest,
-             :scope_verified_and_activated,
+             :job_still_active,
+             next_attrs,
              now
            ) do
-      _ = delete_activated_credential(bundle.attempt.grant_id, opts)
-      {:ok, nil, :scope_verified_and_activated}
+      {:ok, next, :job_still_active}
+    end
+  end
+
+  defp schedule_terminal_confirmation(bundle, job, token, digest, now) do
+    with {:ok, request} <-
+           CallbackCommandContract.host_summaries_request(
+             bundle.attempt.expected_job_id,
+             length(bundle.targets)
+           ),
+         {:ok, next_attrs} <-
+           next_attempt_attrs(bundle, request, now,
+             stage: :fetch_host_summaries,
+             purpose: :terminal_confirmation,
+             command_type: "awx.fetch_job_host_summaries",
+             expected_credential_id: bundle.attempt.expected_credential_id,
+             expected_job_id: bundle.attempt.expected_job_id,
+             terminal_job_snapshot: job
+           ),
+         {:ok, next} <-
+           complete_with_next(
+             bundle.attempt,
+             token,
+             digest,
+             :terminal_job_observed,
+             next_attrs,
+             now
+           ) do
+      {:ok, next, :terminal_job_observed}
+    end
+  end
+
+  defp schedule_terminal_summary_poll(bundle, token, digest, now) do
+    case reconciliation_attempt_attrs(bundle, now) do
+      {:ok, next_attrs, _outcome} ->
+        with {:ok, next} <-
+               complete_with_next(
+                 bundle.attempt,
+                 token,
+                 digest,
+                 :terminal_host_summaries_incomplete,
+                 next_attrs,
+                 now
+               ) do
+          {:ok, next, :terminal_host_summaries_incomplete}
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp persist_terminal_result(bundle, summaries, token, digest, now, opts) do
+    status = normalized_job_status(bundle.attempt.terminal_job_snapshot)
+
+    with {:ok, _grant} <-
+           lifecycle(opts).job_terminal(
+             bundle.attempt.grant_id,
+             status,
+             lifecycle_opts!(opts)
+           ),
+         {:ok, _terminal} <-
+           Repo.transaction(fn ->
+             with {:ok, terminal} <-
+                    SecureExecutionLifecycle.complete_terminal(
+                      bundle.operation,
+                      bundle.execution,
+                      bundle.targets,
+                      bundle.controller.id,
+                      bundle.attempt.terminal_job_snapshot,
+                      summaries,
+                      secure_lifecycle_opts(opts)
+                    ),
+                  {:ok, _attempt} <-
+                    Attempt.mark_succeeded(
+                      bundle.attempt,
+                      %{
+                        lease_token: token,
+                        processed_at: now,
+                        outcome_code: "terminal_state_persisted",
+                        result_digest: digest
+                      },
+                      actor: @actor
+                    ) do
+               terminal
+             else
+               {:error, reason} -> Repo.rollback(reason)
+             end
+           end) do
+      {:ok, nil, :terminal_state_persisted}
     end
   end
 
@@ -856,6 +1073,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
              expected_credential_id: bundle.attempt.expected_credential_id,
              expected_job_id: bundle.attempt.expected_job_id,
              reconcile_after: bundle.attempt.reconcile_after,
+             terminal_job_snapshot: bundle.attempt.terminal_job_snapshot,
              next_attempt_at: next_at
            ) do
       {:ok, attrs, :read_only_transport_retry}
@@ -1056,6 +1274,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
         attempt: next_attempt_number(bundle.attempt, opts),
         expected_credential_id: Keyword.get(opts, :expected_credential_id),
         expected_job_id: Keyword.get(opts, :expected_job_id),
+        terminal_job_snapshot: Keyword.get(opts, :terminal_job_snapshot),
         deadline_at: bundle.attempt.deadline_at,
         next_attempt_at: next_at
       )
@@ -1139,7 +1358,12 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
     revoke_result =
       lifecycle(opts).revoke(bundle.attempt.grant_id, reason, lifecycle_opts!(opts))
 
-    action = if match?({:ok, _}, revoke_result), do: :mark_failed, else: :mark_ambiguous
+    lifecycle_result = fail_postactivation_execution(bundle, reason, opts)
+
+    action =
+      if callback_authority_removed?(revoke_result) and lifecycle_result == :ok,
+        do: :mark_failed,
+        else: :mark_ambiguous
 
     outcome =
       if action == :mark_failed, do: "revoked_before_cleanup", else: "revocation_unconfirmed"
@@ -1163,6 +1387,35 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
         {:error, {:callback_attempt_terminal_update_failed, mark_reason}}
     end
   end
+
+  defp fail_postactivation_execution(
+         %{attempt: %Attempt{purpose: purpose}} = bundle,
+         reason,
+         opts
+       )
+       when purpose in [:terminal_poll, :terminal_confirmation] do
+    case SecureExecutionLifecycle.fail_closed(
+           bundle.operation,
+           bundle.execution,
+           bundle.targets,
+           :cancel_failed,
+           reason,
+           Keyword.put(secure_lifecycle_opts(opts), :cancel_required, true)
+         ) do
+      {:ok, _result} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp fail_postactivation_execution(_bundle, _reason, _opts), do: :ok
+
+  defp callback_authority_removed?({:ok, _grant}), do: true
+
+  defp callback_authority_removed?({:error, {:grant_already_terminal, state}})
+       when state in [:revoked, :expired],
+       do: true
+
+  defp callback_authority_removed?(_result), do: false
 
   defp dispatch_after_commit(nil, _opts), do: :ok
 
@@ -1192,6 +1445,20 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   end
 
   defp lifecycle(opts), do: Keyword.get(opts, :lifecycle, Lifecycle)
+
+  defp execution_lifecycle_opts(opts, base) do
+    case Keyword.get(opts, :execution_lifecycle_actions) do
+      nil -> base
+      actions -> Keyword.put(base, :actions, actions)
+    end
+  end
+
+  defp secure_lifecycle_opts(opts) do
+    case Keyword.get(opts, :secure_lifecycle_actions) do
+      nil -> []
+      actions -> [actions: actions]
+    end
+  end
 
   defp lifecycle_opts!(opts) do
     case Keyword.fetch(opts, :lifecycle_opts) do
@@ -1244,8 +1511,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   defp now(opts),
     do: opts |> Keyword.get(:now, DateTime.utc_now()) |> DateTime.truncate(:microsecond)
 
-  defp error_code(reason),
-    do: reason |> inspect(limit: 10, printable_limit: 128) |> String.slice(0, 255)
+  defp error_code(reason), do: SafeFailureEvidence.code(reason)
 
   defp same_id?(left, right), do: to_string(left) == to_string(right)
   defp nonempty?(value), do: is_binary(value) and String.trim(value) != ""

@@ -41,10 +41,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
 
   def render(assigns) do
     device_row = List.first(Enum.filter(assigns.results, &is_map/1))
+    rdp_desktop_target = Map.get(assigns, :rdp_desktop_target)
 
     assigns =
       assigns
       |> assign(:device_row, device_row)
+      |> assign(:rdp_desktop_target, rdp_desktop_target)
       |> assign(:can_edit, can_edit_device?(assigns.current_scope))
       |> assign(:can_manage, can_manage_device?(assigns.current_scope))
       |> assign(:can_console, can_console_device?(assigns.current_scope))
@@ -83,8 +85,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
         DeviceStateData.proxmox_console_action_label(Map.get(assigns, :virtualization_summary))
       )
       |> assign(
-        :rdp_target_path,
+        :rdp_enable_path,
         RemoteAccessData.rdp_target_new_path(assigns.device_uid, device_row)
+      )
+      |> assign(
+        :rdp_launch_path,
+        if(is_map(rdp_desktop_target),
+          do: RemoteAccessData.rdp_launch_path(assigns.device_uid)
+        )
       )
       |> assign(
         :active_fingerprint_tab_visible,
@@ -129,7 +137,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
           proxmox_console_target={@proxmox_console_target}
           proxmox_console_path={@proxmox_console_path}
           proxmox_console_action_label={@proxmox_console_action_label}
-          rdp_target_path={@rdp_target_path}
+          rdp_launch_path={@rdp_launch_path}
+          rdp_enable_path={@rdp_enable_path}
         />
 
         <div class="grid grid-cols-1 gap-4">
@@ -492,7 +501,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
 
   defp can_edit_device?(scope), do: RBAC.can?(scope, "devices.update")
   defp can_manage_device?(scope), do: RBAC.can?(scope, "devices.update")
-  defp can_console_device?(scope), do: RBAC.can?(scope, "devices.console.open")
+
+  defp can_console_device?(scope) do
+    RBAC.can?(scope, "devices.console.open") and
+      RBAC.can?(scope, "devices.console.credentials.use")
+  end
+
   defp can_run_ansible?(scope), do: RBAC.can?(scope, "ansible.runs.launch")
   defp can_view_active_fingerprint?(scope), do: RBAC.can?(scope, "networks.sweeps.banner_grab")
   defp can_launch_northbound_actions?(scope), do: RBAC.can?(scope, "northbound.actions.launch")

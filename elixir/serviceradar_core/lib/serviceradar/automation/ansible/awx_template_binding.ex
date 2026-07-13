@@ -151,6 +151,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
         :check_mode_supported,
         :ask_inventory_on_launch,
         :ask_limit_on_launch,
+        :ask_credential_on_launch,
         :ask_job_type_on_launch,
         :dispatch_markers_retained,
         :inventory_groups_verified,
@@ -310,6 +311,11 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
       public?: true
 
     attribute :ask_limit_on_launch, :boolean,
+      allow_nil?: false,
+      default: false,
+      public?: true
+
+    attribute :ask_credential_on_launch, :boolean,
       allow_nil?: false,
       default: false,
       public?: true
@@ -643,6 +649,12 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
     callback_fields = [credential_type_id, organization_id, injector_digest, slot]
 
     cond do
+      actions != [] and attribute(changeset, :ask_credential_on_launch) != true ->
+        invalid(
+          :ask_credential_on_launch,
+          "must be enabled when callback credentials are attached at launch"
+        )
+
       actions == [] and Enum.any?(callback_fields, &(not is_nil(&1))) ->
         invalid(:callback_actions, "empty callbacks cannot retain a credential contract")
 

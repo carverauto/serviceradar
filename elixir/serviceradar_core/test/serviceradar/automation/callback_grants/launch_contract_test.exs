@@ -56,6 +56,11 @@ defmodule ServiceRadar.Automation.CallbackGrants.LaunchContractTest do
              |> Map.put(:callback_credential_slot, "ordinary_extra_var")
              |> LaunchContract.from_binding()
 
+    assert {:error, :callback_credential_prompt_not_enabled} =
+             binding_fixture()
+             |> Map.put(:ask_credential_on_launch, false)
+             |> LaunchContract.from_binding()
+
     assert {:error, :callback_ttl_outside_deployment_maximum} =
              binding_fixture()
              |> put_contract("ttl_seconds", 601)
@@ -73,6 +78,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LaunchContractTest do
   defp binding_fixture do
     %{
       callback_actions: ["remote_access.ssh_ca.bundle.read"],
+      ask_credential_on_launch: true,
       callback_credential_slot: "ssh_ca_callback",
       review_metadata: %{
         "policy_version" => "ssh-policy-v1",

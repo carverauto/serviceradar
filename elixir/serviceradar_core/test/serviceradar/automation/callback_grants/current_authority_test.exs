@@ -144,6 +144,38 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
     assert {:error, :current_permission_denied} = authorize(:activate, contracted)
   end
 
+  test "pre-launch reconstruction rejects a disabled initiating principal", %{
+    fixture: fixture
+  } do
+    disabled = put_in(fixture.principal.owner.status, :disabled)
+    assert {:error, :principal_disabled} = authorize(:bind_job, disabled)
+  end
+
+  test "pre-launch reconstruction requires every callback permission", %{fixture: fixture} do
+    for missing <- @permissions do
+      remaining = @permissions -- [missing]
+      contracted = put_in(fixture.principal.profile.permissions, remaining)
+      assert {:error, :current_permission_denied} = authorize(:bind_job, contracted)
+    end
+  end
+
+  test "pre-launch reconstruction rejects target and reviewed-binding drift", %{
+    fixture: fixture
+  } do
+    [membership] = fixture.memberships
+
+    target_drift =
+      %{fixture | memberships: [%{membership | source_generation: "generation-8"}]}
+
+    assert {:error, :target_no_longer_authorized} = authorize(:bind_job, target_drift)
+
+    binding_drift = put_in(fixture.binding.callback_credential_organization_id, 3)
+    assert {:error, :awx_binding_changed} = authorize(:bind_job, binding_drift)
+
+    prompt_drift = put_in(fixture.binding.ask_credential_on_launch, false)
+    assert {:error, :awx_binding_changed} = authorize(:bind_job, prompt_drift)
+  end
+
   test "fails closed after permission contraction", %{fixture: fixture} do
     contracted = put_in(fixture.principal.profile.permissions, ["ansible.runs.launch"])
     assert {:error, :current_permission_denied} = authorize(contracted)
@@ -391,6 +423,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
       "execution_environment_id" => 4,
       "machine_credential_id" => 5,
       "credential_ids" => [5],
+      "ask_credential_on_launch" => true,
       "callback_credential_type_id" => 6,
       "callback_credential_organization_id" => 2,
       "callback_credential_injector_digest" => injector_digest,
@@ -428,6 +461,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
       reviewed_by_principal_id: ids.user,
       reviewed_at: DateTime.add(@now, -3_600),
       callback_actions: [@action],
+      ask_credential_on_launch: true,
       callback_credential_type_id: 6,
       callback_credential_organization_id: 2,
       callback_credential_injector_digest: injector_digest,

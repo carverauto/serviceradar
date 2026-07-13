@@ -25,8 +25,18 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecoveryTest do
     end
   end
 
+  defmodule FakeLifecycle do
+    @moduledoc false
+
+    def revoke(grant_id, reason, _opts) do
+      send(Process.get({__MODULE__, :test_pid}), {:grant_revoked, grant_id, reason})
+      {:ok, %{id: grant_id, state: :revoked}}
+    end
+  end
+
   setup do
     Process.put({FakeCoordinator, :test_pid}, self())
+    Process.put({FakeLifecycle, :test_pid}, self())
     :ok
   end
 
@@ -129,6 +139,132 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecoveryTest do
                end,
                delete_activated: fn _ -> flunk("must not repeat confirmed deletion") end
              )
+  end
+
+  test "a stale deleting cleanup is retried with an explicit idempotent-delete signal" do
+    attempt =
+      :fetch_host_summaries
+      |> attempt("awx.fetch_job_host_summaries", :succeeded)
+      |> Map.put(:outcome_code, "scope_verified_and_activated")
+
+    assert %{attempts: 0, cleanup_intents: 1} =
+             CallbackCommandRecovery.recover_once(
+               now: @now,
+               attempt_lister: fn _now -> {:ok, []} end,
+               activation_cleanup_lister: fn retry_before ->
+                 assert retry_before == ~U[2026-07-13 11:58:00.000000Z]
+                 {:ok, [attempt]}
+               end,
+               grant_fetcher: fn _ ->
+                 {:ok,
+                  %{
+                    id: attempt.grant_id,
+                    credential_cleanup_state: :deleting,
+                    credential_cleanup_attempted_at: ~U[2026-07-13 11:57:59.000000Z]
+                  }}
+               end,
+               delete_activated: fn grant_id, retry_deleting? ->
+                 send(self(), {:delete_activated_retry, grant_id, retry_deleting?})
+               end
+             )
+
+    assert_receive {:delete_activated_retry, grant_id, true}
+    assert grant_id == attempt.grant_id
+  end
+
+  test "an elapsed active watchdog revokes authority and holds before closing its attempt" do
+    attempt =
+      :fetch_job
+      |> attempt("awx.fetch_job", :waiting)
+      |> Map.put(:purpose, :terminal_poll)
+      |> Map.put(:deadline_at, DateTime.add(@now, -1, :second))
+
+    test_pid = self()
+
+    assert %{attempts: 1, cleanup_intents: 0} =
+             CallbackCommandRecovery.recover_once(
+               now: @now,
+               attempt_lister: fn _now -> {:ok, [attempt]} end,
+               activation_cleanup_lister: fn -> {:ok, []} end,
+               lifecycle: FakeLifecycle,
+               lifecycle_opts: [],
+               postactivation_failure_handler: fn failed_attempt, reason ->
+                 send(test_pid, {:postactivation_failed, failed_attempt.id, reason})
+                 {:ok, :held}
+               end,
+               deadline_marker: fn failed_attempt, attrs ->
+                 send(test_pid, {:deadline_marked, failed_attempt.id, attrs})
+                 {:ok, failed_attempt}
+               end,
+               command_fetcher: fn _ -> flunk("elapsed attempts do not inspect transport") end
+             )
+
+    assert_receive {:grant_revoked, grant_id, :callback_command_deadline_elapsed}
+    assert grant_id == attempt.grant_id
+
+    assert_receive {:postactivation_failed, attempt_id, :callback_command_deadline_elapsed}
+    assert attempt_id == attempt.id
+
+    assert_receive {:deadline_marked, ^attempt_id, attrs}
+    assert attrs.last_error_code == "callback_command_deadline_elapsed"
+  end
+
+  test "recovery reauthorizes an in-flight pending scope command before waiting" do
+    attempt =
+      :fetch_job
+      |> attempt("awx.fetch_job", :dispatched)
+      |> Map.put(:purpose, :scope_poll)
+      |> Map.put(:expected_job_id, 42)
+
+    command =
+      command(attempt,
+        status: :running,
+        expires_at: DateTime.add(@now, 30, :second)
+      )
+
+    resources = %{
+      operation: %{id: attempt.operation_id, mutating: true},
+      execution: %{id: attempt.execution_id},
+      controller: %{id: attempt.controller_id, agent_id: attempt.dispatch_agent_id},
+      grant: %{id: attempt.grant_id},
+      targets: [%{id: Ash.UUID.generate()}]
+    }
+
+    test_pid = self()
+
+    assert %{attempts: 1, cleanup_intents: 0} =
+             CallbackCommandRecovery.recover_once(
+               now: @now,
+               attempt_lister: fn _now -> {:ok, [attempt]} end,
+               activation_cleanup_lister: fn -> {:ok, []} end,
+               command_fetcher: fn _ -> {:ok, command} end,
+               continuation_authorizer: fn recovered ->
+                 ServiceRadar.Automation.Ansible.CallbackCommandDispatcher.reauthorize_continuation(
+                   recovered,
+                   resource_loader: fn ^recovered -> {:ok, resources} end,
+                   callback_authorizer: fn mode, _grant, _opts ->
+                     assert mode == :pending_job
+                     send(test_pid, :pending_reauthorized)
+                     {:error, :principal_disabled}
+                   end,
+                   active_contraction_handler: fn _resources, reason ->
+                     send(test_pid, {:pending_contracted, reason})
+                     {:ok, :held_and_cancel_requested}
+                   end,
+                   authority_denial_marker: fn denied, reason, _now, _opts ->
+                     send(test_pid, {:pending_attempt_denied, denied.id, reason})
+                     {:ok, denied}
+                   end
+                 )
+               end,
+               coordinator: FakeCoordinator
+             )
+
+    assert_receive :pending_reauthorized
+    assert_receive {:pending_contracted, :principal_disabled}
+    assert_receive {:pending_attempt_denied, attempt_id, :principal_disabled}
+    assert attempt_id == attempt.id
+    refute_receive {:process_persisted, _, _, _, _}
   end
 
   defp attempt(stage, command_type, state) do

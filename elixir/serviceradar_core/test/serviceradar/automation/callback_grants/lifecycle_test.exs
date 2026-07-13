@@ -1,6 +1,9 @@
 defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Automation.Ansible.AutomationCallbackCommandAttempt, as: Attempt
+  alias ServiceRadar.Automation.Ansible.CallbackCommandContract
+  alias ServiceRadar.Automation.Ansible.CallbackCommandDispatcher
   alias ServiceRadar.Automation.CallbackGrants.Audit
   alias ServiceRadar.Automation.CallbackGrants.Authority
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
@@ -80,7 +83,10 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
           {:ok, %{state: :pending, ephemeral_credential_id: nil} = grant} ->
             case authorize.(grant) do
               :ok ->
-                bound = Map.put(grant, :ephemeral_credential_id, credential_id)
+                bound =
+                  grant
+                  |> Map.put(:ephemeral_credential_id, credential_id)
+                  |> Map.put(:credential_cleanup_state, :pending)
 
                 {{:ok, :bound, bound},
                  %{
@@ -101,6 +107,44 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
 
           {:ok, %{state: :pending}} ->
             {{:error, :callback_credential_conflict}, state}
+
+          {:ok, grant} ->
+            {{:error, {:grant_not_pending, grant.state}}, state}
+
+          :error ->
+            {{:error, :grant_not_found}, state}
+        end
+      end)
+    end
+
+    @impl true
+    def bind_job(id, binding, authorize, audit, _now, pid) do
+      Agent.get_and_update(pid, fn state ->
+        case Map.fetch(state.grants, id) do
+          {:ok, %{state: :pending, job_binding: nil} = grant} ->
+            case authorize.(grant) do
+              :ok ->
+                bound = Map.put(grant, :job_binding, binding)
+
+                {{:ok, :bound, bound},
+                 %{
+                   state
+                   | grants: Map.put(state.grants, id, bound),
+                     audits: [audit | state.audits]
+                 }}
+
+              {:error, _} = error ->
+                {error, state}
+            end
+
+          {:ok, %{state: :pending, job_binding: ^binding} = grant} ->
+            case authorize.(grant) do
+              :ok -> {{:ok, :existing, grant}, state}
+              {:error, _} = error -> {error, state}
+            end
+
+          {:ok, %{state: :pending}} ->
+            {{:error, :callback_job_conflict}, state}
 
           {:ok, grant} ->
             {{:error, {:grant_not_pending, grant.state}}, state}
@@ -379,6 +423,15 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
     refute Enum.any?(state.audits, &Map.has_key?(&1, :verifier_digest))
   end
 
+  test "pending issuance requires reviewed callback credential prompting", context do
+    attrs = put_in(context.attrs, [:awx_scope_snapshot, :ask_credential_on_launch], false)
+
+    assert {:error, :callback_credential_prompt_required} =
+             Lifecycle.prepare(attrs, context.opts)
+
+    assert Agent.get(context.store, &map_size(&1.grants)) == 0
+  end
+
   test "SystemActor cannot be the grant authority", context do
     attrs =
       context.attrs
@@ -521,6 +574,151 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
 
     assert grant(context.store).state == :revoked
     assert_receive {:cleanup, :revoked, _grant}
+  end
+
+  test "launch dispatch reauthorizes a credential-bound pending grant", context do
+    {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
+    assert {:ok, _bound} = Lifecycle.bind_credential(@grant_id, 31, context.opts)
+
+    assert {:ok, %{state: :pending, launch_dispatch_authorized: true}} =
+             Lifecycle.authorize_launch_dispatch(@grant_id, context.opts)
+
+    assert_receive {:authorized, :bind_job}
+    assert grant(context.store).state == :pending
+  end
+
+  test "launch dispatch denies and revokes permission contraction", context do
+    {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
+    assert {:ok, _bound} = Lifecycle.bind_credential(@grant_id, 31, context.opts)
+
+    update_authority(context.authorizer, fn authority ->
+      %{authority | permissions: ["ansible.runs.launch"]}
+    end)
+
+    assert {:error, :current_permission_denied} =
+             Lifecycle.authorize_launch_dispatch(@grant_id, context.opts)
+
+    assert grant(context.store).state == :revoked
+    assert_receive {:cleanup, :revoked, _grant}
+  end
+
+  test "pending job watchdog reauthorizes without activating callback authority", context do
+    {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
+    assert {:ok, _bound} = Lifecycle.bind_credential(@grant_id, 31, context.opts)
+    assert {:ok, _bound} = Lifecycle.bind_job(@grant_id, job_binding(context.attrs), context.opts)
+
+    assert {:ok, %{state: :pending, binding_pending: true, reauthorized: true}} =
+             Lifecycle.reauthorize_pending_job(@grant_id, context.opts)
+
+    assert_receive {:authorized, :bind_job}
+    assert grant(context.store).state == :pending
+    assert grant(context.store).binding_verified == false
+  end
+
+  test "pending job watchdog revokes and requests cleanup on authority contraction", context do
+    {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
+    assert {:ok, _bound} = Lifecycle.bind_credential(@grant_id, 31, context.opts)
+    assert {:ok, _bound} = Lifecycle.bind_job(@grant_id, job_binding(context.attrs), context.opts)
+
+    update_authority(context.authorizer, fn authority -> %{authority | enabled: false} end)
+
+    assert {:error, :principal_disabled} =
+             Lifecycle.reauthorize_pending_job(@grant_id, context.opts)
+
+    assert grant(context.store).state == :revoked
+    assert_receive {:cleanup, :revoked, safe_grant}
+    assert safe_grant.job_binding["job_id"] == 9_001
+  end
+
+  test "launch dispatch never revives revoked or expired grants", context do
+    {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
+    assert {:ok, _bound} = Lifecycle.bind_credential(@grant_id, 31, context.opts)
+
+    assert {:ok, %{state: :revoked}} =
+             Lifecycle.revoke(@grant_id, :operator_revoked, context.opts)
+
+    assert {:error, {:grant_not_active, :revoked}} =
+             Lifecycle.authorize_launch_dispatch(@grant_id, context.opts)
+
+    assert grant(context.store).state == :revoked
+  end
+
+  test "launch dispatch expires an elapsed grant before denial", context do
+    {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
+    assert {:ok, _bound} = Lifecycle.bind_credential(@grant_id, 31, context.opts)
+    expired_opts = Keyword.put(context.opts, :now, DateTime.add(@now, 121))
+
+    assert {:error, :grant_expired} =
+             Lifecycle.authorize_launch_dispatch(@grant_id, expired_opts)
+
+    assert grant(context.store).state == :expired
+    assert_receive {:cleanup, :expired, _grant}
+  end
+
+  test "active watchdog reauthorization revokes a disabled principal", context do
+    _issued = prepare_and_activate(context)
+
+    update_authority(context.authorizer, fn authority -> %{authority | enabled: false} end)
+
+    assert {:error, :principal_disabled} =
+             Lifecycle.reauthorize_active(@grant_id, context.opts)
+
+    assert grant(context.store).state == :revoked
+    assert_receive {:cleanup, :revoked, _grant}
+  end
+
+  test "a consumed grant retains only bound terminal-watchdog authority", context do
+    %{bearer: bearer, idempotency_key: key} = prepare_and_activate(context)
+
+    assert {:ok, %{replay: false}} =
+             Lifecycle.consume(
+               @grant_id,
+               bearer,
+               key,
+               request(context.attrs),
+               context.opts
+             )
+
+    assert grant(context.store).state == :consumed
+    assert grant(context.store).budget_remaining == 0
+
+    assert {:error, {:grant_not_active, :consumed}} =
+             Lifecycle.reauthorize_active(@grant_id, context.opts)
+
+    for attempt <- terminal_watchdog_attempts(context.attrs) do
+      resources = %{
+        operation: %{id: attempt.operation_id, mutating: true},
+        execution: watchdog_execution(context.attrs),
+        controller: %{
+          id: attempt.controller_id,
+          agent_id: attempt.dispatch_agent_id
+        },
+        grant: grant(context.store),
+        targets: [%{id: "target-1"}]
+      }
+
+      assert {:ok, :dispatched} =
+               CallbackCommandDispatcher.dispatch(attempt,
+                 now: @now,
+                 lifecycle_opts: context.opts,
+                 resource_loader: fn ^attempt -> {:ok, resources} end,
+                 claim: fn ^attempt, _lease_token, _lease_expires_at, @now ->
+                   {:ok, %{attempt | state: :dispatching}}
+                 end,
+                 awx_dispatcher: fn claimed, _controller, _request, _command_context, _opts ->
+                   send(self(), {:watchdog_dispatched, claimed.purpose})
+                   {:ok, %{id: claimed.command_id}}
+                 end,
+                 mark_dispatched: fn claimed, _lease_token, @now ->
+                   {:ok, %{claimed | state: :dispatched}}
+                 end
+               )
+
+      assert_receive {:watchdog_dispatched, purpose}
+      assert purpose == attempt.purpose
+      assert grant(context.store).state == :consumed
+      assert grant(context.store).budget_remaining == 0
+    end
   end
 
   test "adapter-reported activation races leave the pending grant inert", context do
@@ -994,6 +1192,58 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
     issued
   end
 
+  defp terminal_watchdog_attempts(attrs) do
+    execution = watchdog_execution(attrs)
+
+    base = %{
+      grant_id: @grant_id,
+      operation_id: attrs.parent_run_id,
+      execution_id: attrs.execution_id,
+      controller_id: attrs.awx_scope_snapshot.controller_id,
+      dispatch_agent_id: attrs.dispatch_agent_id
+    }
+
+    {:ok, poll_request} = CallbackCommandContract.fetch_job_request(9_001)
+
+    {:ok, poll_attrs} =
+      CallbackCommandContract.build_attempt(base, execution, poll_request,
+        stage: :fetch_job,
+        purpose: :terminal_poll,
+        command_type: "awx.fetch_job",
+        expected_job_id: 9_001,
+        deadline_at: DateTime.add(@now, 60, :second),
+        next_attempt_at: @now
+      )
+
+    terminal_job = %{"id" => 9_001, "status" => "successful"}
+    {:ok, confirmation_request} = CallbackCommandContract.host_summaries_request(9_001, 1)
+
+    {:ok, confirmation_attrs} =
+      CallbackCommandContract.build_attempt(base, execution, confirmation_request,
+        stage: :fetch_host_summaries,
+        purpose: :terminal_confirmation,
+        command_type: "awx.fetch_job_host_summaries",
+        expected_job_id: 9_001,
+        terminal_job_snapshot: terminal_job,
+        deadline_at: DateTime.add(@now, 60, :second),
+        next_attempt_at: @now
+      )
+
+    Enum.map([poll_attrs, confirmation_attrs], fn attempt_attrs ->
+      struct!(Attempt, Map.merge(attempt_attrs, %{id: Ash.UUID.generate(), state: :planned}))
+    end)
+  end
+
+  defp watchdog_execution(attrs) do
+    %{
+      id: attrs.execution_id,
+      operation_id: attrs.parent_run_id,
+      controller_id: attrs.awx_scope_snapshot.controller_id,
+      dispatch_id: "018f3f56-1111-7222-8333-123456789ac1",
+      snapshot_digest: attrs.awx_scope_snapshot.snapshot_digest
+    }
+  end
+
   defp grant(store), do: Agent.get(store, & &1.grants[@grant_id])
 
   defp idempotency(suffix), do: "serviceradar-callback-idempotency-#{suffix}"
@@ -1112,6 +1362,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
         content_sha256: String.duplicate("b", 64),
         execution_environment_id: 4,
         machine_credential_id: 5,
+        ask_credential_on_launch: true,
         callback_credential_type_id: 6,
         callback_credential_organization_id: 2,
         callback_credential_injector_digest: String.duplicate("c", 64),

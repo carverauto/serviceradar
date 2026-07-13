@@ -4,6 +4,10 @@
 {{- $spireNamespace := default .Release.Namespace .Values.spire.namespace -}}
 {{- $datasvcSA := .Values.spire.datasvcServiceAccount | default "serviceradar-datasvc" -}}
 {{- $agentVals := default (dict) .Values.agent -}}
+{{- $pluginHTTPTrustedCAFiles := list "/etc/serviceradar/certs/root.pem" -}}
+{{- if hasKey $agentVals "pluginHTTPTrustedCAFiles" -}}
+  {{- $pluginHTTPTrustedCAFiles = get $agentVals "pluginHTTPTrustedCAFiles" -}}
+{{- end -}}
 {{- $agentSA := default "serviceradar-agent" $agentVals.serviceAccount -}}
 {{- $gatewayVals := default (dict) .Values.agentGateway -}}
 {{- $gatewayService := default (dict) $gatewayVals.service -}}
@@ -336,6 +340,7 @@ data:
         "push_interval": "{{ default "30s" $agentVals.pushInterval }}",
         "status_debounce_interval": "{{ default "30s" $agentVals.statusDebounceInterval }}",
         "status_heartbeat_interval": "{{ default "5m" $agentVals.statusHeartbeatInterval }}",
+        "plugin_http_trusted_ca_files": {{ toJson $pluginHTTPTrustedCAFiles }},
         "sync_runtime_enabled": {{- if hasKey $agentVals "syncRuntimeEnabled" -}}{{ $agentVals.syncRuntimeEnabled }}{{- else -}}true{{- end }},
         "remote_access_known_hosts_file": "{{ default "/var/lib/serviceradar/checkers/remote-access-known_hosts" $agentVals.remoteAccessKnownHostsFile }}",
         "kv_address": "serviceradar-datasvc:50057",

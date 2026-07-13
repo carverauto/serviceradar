@@ -143,6 +143,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureLaunchResolver do
 
   defp approved_binding(binding, playbook_scope, now) when is_map(binding) do
     allowed_inventory_ids = List.wrap(value(binding, :allowed_inventory_ids))
+    callback_actions = List.wrap(value(binding, :callback_actions))
     expires_at = value(binding, :approval_expires_at)
 
     with {:ok, controller_id} <-
@@ -178,6 +179,9 @@ defmodule ServiceRadar.Automation.Ansible.SecureLaunchResolver do
         value(binding, :run_mode_supported) != true and
             value(binding, :check_mode_supported) != true ->
           {:error, :binding_mode_not_approved}
+
+        callback_actions != [] and value(binding, :ask_credential_on_launch) != true ->
+          {:error, :binding_callback_credentials_not_promptable}
 
         true ->
           {:ok, %{allowed_inventory_ids: MapSet.new(allowed_inventory_ids)}}

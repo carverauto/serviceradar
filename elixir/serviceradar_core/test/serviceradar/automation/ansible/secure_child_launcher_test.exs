@@ -428,6 +428,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
   defp callback_binding do
     reviewed_binding(%{
       callback_actions: ["remote_access.ssh_ca.bundle.read"],
+      ask_credential_on_launch: true,
       callback_credential_type_id: 6,
       callback_credential_organization_id: 2,
       callback_credential_injector_digest: String.duplicate("c", 64),

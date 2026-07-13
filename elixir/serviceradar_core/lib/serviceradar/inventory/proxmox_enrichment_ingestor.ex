@@ -89,7 +89,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
   defp records_for_payload(payload, status, opts) do
     payload
     |> details()
-    |> build_records(Keyword.get(opts, :observed_at) || observed_at(payload, status))
+    |> build_records(Keyword.get(opts, :observed_at) || observed_at(payload, status), opts)
   end
 
   defp observed_at(payload, status) do
@@ -111,11 +111,12 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
 
   defp parse_time(_value), do: nil
 
-  defp build_records(details, observed_at) do
+  defp build_records(details, observed_at, opts) do
     Enum.reduce(list(details["targets"]), HypervisorEnrichmentIngestor.empty_records(), fn target,
                                                                                            acc ->
+      source_scope = source_scope_for_target!(target, opts)
       version = get_in(target, ["version", "version"])
-      cluster = cluster_record(target, version, observed_at)
+      cluster = cluster_record(target, source_scope, version, observed_at)
       cluster_ref = cluster && cluster.provider_ref
       cluster_scope = cluster_scope(target, cluster)
 
@@ -129,9 +130,18 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
       target
       |> list_value("nodes")
       |> Enum.reduce(acc, fn node, acc ->
-        add_node_records(acc, target, node, cluster_ref, cluster_scope, version, observed_at)
+        add_node_records(
+          acc,
+          target,
+          node,
+          cluster_ref,
+          cluster_scope,
+          source_scope,
+          version,
+          observed_at
+        )
       end)
-      |> add_guest_records(target, cluster_scope, observed_at)
+      |> add_guest_records(target, cluster_scope, source_scope, observed_at)
     end)
   end
 
@@ -142,9 +152,11 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
   # clustered guest.
   defp cluster_scope(target, cluster) do
     cluster_name = cluster && cluster.name
+    native_cluster_id = cluster && Map.get(cluster, :native_cluster_id)
 
     %{
       name: cluster_name,
+      native_id: native_cluster_id,
       known?: not is_nil(cluster_name) or not cluster_status_failed?(target)
     }
   end
@@ -163,7 +175,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
 
   defp put_record(records, key, record), do: Map.update!(records, key, &[record | &1])
 
-  defp cluster_record(target, version, observed_at) do
+  defp cluster_record(target, source_scope, version, observed_at) do
     cluster =
       target
       |> list_value("cluster")
@@ -171,61 +183,102 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
 
     if cluster do
       name = string_value(cluster, "name") || string_value(cluster, "id") || "proxmox"
+      native_cluster_id = string_value(cluster, "id") || name
+      legacy_ref = "proxmox:cluster:#{name}"
+
+      identity =
+        source_scoped_identity(
+          source_scope,
+          native_cluster_id,
+          "cluster",
+          native_cluster_id
+        )
 
       %{
         provider: @provider,
-        provider_ref: "proxmox:cluster:#{name}",
+        provider_ref: legacy_ref,
         name: name,
         status: cluster_status(cluster),
         version: version,
         metadata: sanitize_metadata(cluster),
         observed_at: observed_at
       }
+      |> merge_identity(identity)
+      |> maybe_put_legacy_provider_refs(identity, [legacy_ref])
     end
   end
 
-  defp add_node_records(records, target, node, cluster_ref, cluster_scope, version, observed_at) do
+  defp add_node_records(
+         records,
+         target,
+         node,
+         cluster_ref,
+         cluster_scope,
+         source_scope,
+         version,
+         observed_at
+       ) do
     node_name = string_value(node, "node")
 
     if blank?(node_name) do
       records
     else
-      host_ref = "proxmox:node:#{node_name}"
-      device_uid = device_uid_for_node(target, node_name)
+      legacy_host_ref = "proxmox:node:#{node_name}"
+      native_cluster_id = native_cluster_for(cluster_scope, node_name)
+      identity = source_scoped_identity(source_scope, native_cluster_id, "node", node_name)
+      host_ref = identity_value(identity, :provider_ref) || legacy_host_ref
+      provider_instance_ref = identity_value(identity, :provider_instance_ref)
+      device_uid = device_uid_for_node(target, node_name, identity)
       cluster_node = cluster_node_for(target, node_name)
 
       integration_id =
-        IntegrationIdentity.proxmox_node_id(scope_for(cluster_scope, node_name), node_name)
+        identity_value(identity, :provider_ref) ||
+          IntegrationIdentity.proxmox_node_id(scope_for(cluster_scope, node_name), node_name)
 
-      host = %{
-        provider: @provider,
-        provider_ref: host_ref,
-        cluster_provider_ref: cluster_ref,
-        device_uid: device_uid,
-        name: node_name,
-        status: string_value(node, "status"),
-        version: version,
-        cpu_ratio: number_value(node, "cpu"),
-        memory_used_bytes: integer_value(node, "mem"),
-        memory_total_bytes: integer_value(node, "maxmem"),
-        uptime_seconds: integer_value(node, "uptime"),
-        metadata:
-          node
-          |> node_metadata(cluster_node)
-          |> maybe_put_metadata("integration_id", integration_id),
-        observed_at: observed_at
-      }
+      host =
+        %{
+          provider: @provider,
+          provider_ref: host_ref,
+          cluster_provider_ref: cluster_ref,
+          device_uid: device_uid,
+          name: node_name,
+          status: string_value(node, "status"),
+          version: version,
+          cpu_ratio: number_value(node, "cpu"),
+          memory_used_bytes: integer_value(node, "mem"),
+          memory_total_bytes: integer_value(node, "maxmem"),
+          uptime_seconds: integer_value(node, "uptime"),
+          metadata:
+            node
+            |> node_metadata(cluster_node)
+            |> maybe_put_metadata("integration_id", integration_id),
+          observed_at: observed_at
+        }
+        |> merge_identity(identity)
+        |> maybe_put_legacy_provider_refs(identity, [legacy_host_ref])
 
       records
       |> put_record(:hosts, host)
-      |> add_datastore_records(node, cluster_ref, host_ref, observed_at)
-      |> add_host_disk_records(node, host_ref, device_uid, observed_at)
-      |> add_network_interface_records(node, host_ref, device_uid, observed_at)
-      |> add_ceph_record(node, cluster_ref, host_ref, observed_at)
+      |> add_datastore_records(
+        node,
+        cluster_ref,
+        host_ref,
+        provider_instance_ref,
+        observed_at
+      )
+      |> add_host_disk_records(node, host_ref, provider_instance_ref, device_uid, observed_at)
+      |> add_network_interface_records(
+        node,
+        host_ref,
+        provider_instance_ref,
+        device_uid,
+        observed_at
+      )
+      |> add_ceph_record(node, cluster_ref, host_ref, provider_instance_ref, observed_at)
     end
   end
 
-  defp add_guest_records(records, target, cluster_scope, observed_at) do
+  defp add_guest_records(records, target, cluster_scope, source_scope, observed_at) do
     target
     |> list_value("guests")
     |> Enum.reduce(records, fn guest, acc ->
@@ -236,40 +289,57 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
       if blank?(node) or is_nil(vmid) do
         acc
       else
-        provider_ref = "proxmox:guest:#{node}:#{guest_type}:#{vmid}"
+        legacy_provider_ref = "proxmox:guest:#{node}:#{guest_type}:#{vmid}"
+        legacy_host_ref = "proxmox:node:#{node}"
+        native_cluster_id = native_cluster_for(cluster_scope, node)
+
+        identity =
+          source_scoped_identity(source_scope, native_cluster_id, guest_type, vmid)
+
+        host_identity =
+          source_scoped_identity(source_scope, native_cluster_id, "node", node)
+
+        provider_ref = identity_value(identity, :provider_ref) || legacy_provider_ref
+        host_ref = identity_value(host_identity, :provider_ref) || legacy_host_ref
+        provider_instance_ref = identity_value(identity, :provider_instance_ref)
 
         integration_id =
-          IntegrationIdentity.proxmox_guest_id(scope_for(cluster_scope, node), guest_type, vmid)
+          identity_value(identity, :provider_ref) ||
+            IntegrationIdentity.proxmox_guest_id(scope_for(cluster_scope, node), guest_type, vmid)
 
-        record = %{
-          provider: @provider,
-          provider_ref: provider_ref,
-          host_provider_ref: "proxmox:node:#{node}",
-          device_uid: proxmox_guest_device_uid(guest),
-          name: string_value(guest, "name") || Integer.to_string(vmid),
-          guest_type: proxmox_guest_type(guest_type),
-          vmid: vmid,
-          status: string_value(guest, "status"),
-          cpu_ratio: number_value(guest, "cpu"),
-          memory_used_bytes: integer_value(guest, "mem"),
-          memory_total_bytes: integer_value(guest, "maxmem"),
-          disk_used_bytes: integer_value(guest, "disk"),
-          disk_total_bytes: integer_value(guest, "maxdisk"),
-          uptime_seconds: integer_value(guest, "uptime"),
-          metadata:
-            guest
-            |> Map.take(["id", "config", "runtime_status", "filesystems"])
-            |> sanitize_metadata()
-            |> maybe_put_metadata("integration_id", integration_id),
-          observed_at: observed_at
-        }
+        record =
+          %{
+            provider: @provider,
+            provider_ref: provider_ref,
+            host_provider_ref: host_ref,
+            device_uid: proxmox_guest_device_uid(guest, identity),
+            name: string_value(guest, "name") || Integer.to_string(vmid),
+            guest_type: proxmox_guest_type(guest_type),
+            vmid: vmid,
+            status: string_value(guest, "status"),
+            cpu_ratio: number_value(guest, "cpu"),
+            memory_used_bytes: integer_value(guest, "mem"),
+            memory_total_bytes: integer_value(guest, "maxmem"),
+            disk_used_bytes: integer_value(guest, "disk"),
+            disk_total_bytes: integer_value(guest, "maxdisk"),
+            uptime_seconds: integer_value(guest, "uptime"),
+            metadata:
+              guest
+              |> Map.take(["id", "config", "runtime_status", "filesystems"])
+              |> sanitize_metadata()
+              |> maybe_put_metadata("integration_id", integration_id),
+            observed_at: observed_at
+          }
+          |> merge_identity(identity)
+          |> maybe_put_legacy_provider_refs(identity, [legacy_provider_ref])
 
         acc
         |> put_record(:guests, record)
         |> add_guest_network_interface_records(
           guest,
           provider_ref,
-          "proxmox:node:#{node}",
+          host_ref,
+          provider_instance_ref,
           target_partition(target),
           observed_at
         )
@@ -282,6 +352,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
          guest,
          guest_ref,
          host_ref,
+         provider_instance_ref,
          partition,
          observed_at
        ) do
@@ -303,10 +374,16 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
 
         record = %{
           provider: @provider,
-          provider_ref: "proxmox:guest-nic:#{guest_ref}:#{key}",
+          provider_ref:
+            scoped_child_ref(
+              provider_instance_ref,
+              "guest-nic",
+              [guest_ref, key],
+              "proxmox:guest-nic:#{guest_ref}:#{key}"
+            ),
           host_provider_ref: host_ref,
           guest_provider_ref: guest_ref,
-          device_uid: proxmox_guest_device_uid(guest),
+          device_uid: proxmox_guest_device_uid(guest, provider_instance_ref),
           name: name,
           interface_type: string_value(iface, "model"),
           address: List.first(Enum.map(ip_addresses, &strip_cidr/1)),
@@ -325,7 +402,14 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
     end)
   end
 
-  defp add_datastore_records(records, node, cluster_ref, host_ref, observed_at) do
+  defp add_datastore_records(
+         records,
+         node,
+         cluster_ref,
+         host_ref,
+         provider_instance_ref,
+         observed_at
+       ) do
     node
     |> list_value("storage")
     |> Enum.reduce(records, fn storage, acc ->
@@ -336,7 +420,13 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
       else
         record = %{
           provider: @provider,
-          provider_ref: "proxmox:datastore:#{string_value(node, "node")}:#{name}",
+          provider_ref:
+            scoped_child_ref(
+              provider_instance_ref,
+              "datastore",
+              [string_value(node, "node"), name],
+              "proxmox:datastore:#{string_value(node, "node")}:#{name}"
+            ),
           cluster_provider_ref: cluster_ref,
           host_provider_ref: host_ref,
           name: name,
@@ -357,7 +447,14 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
     end)
   end
 
-  defp add_host_disk_records(records, node, host_ref, device_uid, observed_at) do
+  defp add_host_disk_records(
+         records,
+         node,
+         host_ref,
+         provider_instance_ref,
+         device_uid,
+         observed_at
+       ) do
     node
     |> list_value("disks")
     |> Enum.reduce(records, fn disk, acc ->
@@ -370,7 +467,13 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
       else
         record = %{
           provider: @provider,
-          provider_ref: "proxmox:disk:#{string_value(node, "node")}:#{disk_ref}",
+          provider_ref:
+            scoped_child_ref(
+              provider_instance_ref,
+              "disk",
+              [string_value(node, "node"), disk_ref],
+              "proxmox:disk:#{string_value(node, "node")}:#{disk_ref}"
+            ),
           host_provider_ref: host_ref,
           device_uid: device_uid,
           path: string_value(disk, "devpath"),
@@ -391,7 +494,14 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
     end)
   end
 
-  defp add_network_interface_records(records, node, host_ref, device_uid, observed_at) do
+  defp add_network_interface_records(
+         records,
+         node,
+         host_ref,
+         provider_instance_ref,
+         device_uid,
+         observed_at
+       ) do
     node
     |> list_value("network")
     |> Enum.reduce(records, fn iface, acc ->
@@ -409,7 +519,13 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
       else
         record = %{
           provider: @provider,
-          provider_ref: "proxmox:nic:#{string_value(node, "node")}:#{name}",
+          provider_ref:
+            scoped_child_ref(
+              provider_instance_ref,
+              "nic",
+              [string_value(node, "node"), name],
+              "proxmox:nic:#{string_value(node, "node")}:#{name}"
+            ),
           host_provider_ref: host_ref,
           device_uid: device_uid,
           name: name,
@@ -434,7 +550,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
     end)
   end
 
-  defp add_ceph_record(records, node, cluster_ref, host_ref, observed_at) do
+  defp add_ceph_record(records, node, cluster_ref, host_ref, provider_instance_ref, observed_at) do
     case map_value(node, "ceph") do
       nil ->
         records
@@ -442,7 +558,13 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
       ceph ->
         record = %{
           provider: @provider,
-          provider_ref: "proxmox:ceph:#{string_value(node, "node")}",
+          provider_ref:
+            scoped_child_ref(
+              provider_instance_ref,
+              "ceph",
+              [string_value(node, "node")],
+              "proxmox:ceph:#{string_value(node, "node")}"
+            ),
           cluster_provider_ref: cluster_ref,
           host_provider_ref: host_ref,
           name: "Ceph",
@@ -454,6 +576,143 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
         }
 
         put_record(records, :storage_systems, record)
+    end
+  end
+
+  # Source scope must be supplied by trusted orchestration outside the Wasm
+  # result. Target metadata is deliberately not consulted for these UUIDs.
+  defp source_scope_for_target!(target, opts) do
+    candidate =
+      case Keyword.get(opts, :source_scope_resolver) do
+        resolver when is_function(resolver, 1) -> resolver.(target)
+        resolver when is_function(resolver, 2) -> resolver.(target, opts)
+        _ -> Keyword.get(opts, :source_scope)
+      end
+
+    case candidate do
+      nil ->
+        nil
+
+      {:ok, scope} when is_map(scope) ->
+        normalize_source_scope!(scope)
+
+      scope when is_map(scope) ->
+        normalize_source_scope!(scope)
+
+      {:error, reason} ->
+        raise ArgumentError, "Proxmox source-scope resolution failed: #{inspect(reason)}"
+
+      other ->
+        raise ArgumentError, "invalid trusted Proxmox source scope: #{inspect(other)}"
+    end
+  end
+
+  defp normalize_source_scope!(scope) do
+    integration_id =
+      scope_value(scope, [
+        :integration_id,
+        "integration_id",
+        :source_integration_id,
+        "source_integration_id"
+      ])
+
+    controller_id =
+      scope_value(scope, [
+        :controller_id,
+        "controller_id",
+        :source_controller_id,
+        "source_controller_id"
+      ])
+
+    with {:ok, integration_id} <- cast_uuid(integration_id),
+         {:ok, controller_id} <- cast_uuid(controller_id) do
+      %{integration_id: integration_id, controller_id: controller_id}
+    else
+      _ ->
+        raise ArgumentError,
+              "trusted Proxmox source scope requires integration_id and controller_id UUIDs"
+    end
+  end
+
+  defp scope_value(scope, keys) do
+    Enum.find_value(keys, fn key ->
+      case Map.get(scope, key) do
+        nil -> nil
+        value -> value
+      end
+    end)
+  end
+
+  defp cast_uuid(value) when is_binary(value), do: Ecto.UUID.cast(String.trim(value))
+  defp cast_uuid(_value), do: :error
+
+  defp native_cluster_for(%{native_id: native_id}, _node)
+       when is_binary(native_id) and native_id != "", do: native_id
+
+  defp native_cluster_for(%{known?: true}, node) when is_binary(node) and node != "",
+    do: "standalone/#{node}"
+
+  defp native_cluster_for(_cluster_scope, _node), do: nil
+
+  defp source_scoped_identity(nil, _native_cluster_id, _object_kind, _native_object_id), do: nil
+
+  defp source_scoped_identity(source_scope, native_cluster_id, object_kind, native_object_id) do
+    case IntegrationIdentity.proxmox_v3_fields(
+           source_scope.integration_id,
+           source_scope.controller_id,
+           native_cluster_id,
+           object_kind,
+           native_object_id
+         ) do
+      {:ok, identity} ->
+        identity
+
+      {:error, reason} ->
+        raise ArgumentError, "cannot mint source-scoped Proxmox identity: #{inspect(reason)}"
+    end
+  end
+
+  defp merge_identity(record, nil), do: record
+
+  defp merge_identity(record, identity) do
+    Map.merge(
+      record,
+      Map.take(identity, [
+        :provider_ref,
+        :identity_version,
+        :identity_state,
+        :integration_id,
+        :controller_id,
+        :native_cluster_id,
+        :object_kind,
+        :native_object_id,
+        :provider_instance_ref
+      ])
+    )
+  end
+
+  defp maybe_put_legacy_provider_refs(record, nil, _legacy_refs), do: record
+
+  defp maybe_put_legacy_provider_refs(record, _identity, legacy_refs) do
+    Map.put(
+      record,
+      :legacy_provider_refs,
+      legacy_refs
+      |> Enum.filter(&present?/1)
+      |> Enum.reject(&(&1 == Map.get(record, :provider_ref)))
+      |> Enum.uniq()
+    )
+  end
+
+  defp identity_value(nil, _key), do: nil
+  defp identity_value(identity, key), do: Map.get(identity, key)
+
+  defp scoped_child_ref(nil, _kind, _components, legacy_ref), do: legacy_ref
+
+  defp scoped_child_ref(provider_instance_ref, kind, components, _legacy_ref) do
+    case IntegrationIdentity.proxmox_v3_child_ref(provider_instance_ref, kind, components) do
+      {:ok, ref} -> ref
+      {:error, reason} -> raise ArgumentError, "cannot mint scoped child ref: #{inspect(reason)}"
     end
   end
 
@@ -482,17 +741,23 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
   defp strip_cluster_node_prefix("node/" <> name), do: name
   defp strip_cluster_node_prefix(value), do: value
 
-  defp device_uid_for_node(target, node_name) do
+  defp device_uid_for_node(target, node_name, identity) do
     meta = map_value(target, "metadata") || %{}
     target_device_id = string_value(meta, "device_id")
 
     target_hostname =
       string_value(meta, "hostname") || host_from_url(string_value(target, "base_url"))
 
-    if same_host_or_node?(target_hostname, node_name) do
-      target_device_id || "proxmox:pve:#{node_name}"
+    if is_map(identity) do
+      if same_host_or_node?(target_hostname, node_name) do
+        serviceradar_device_uid(target_device_id)
+      end
     else
-      "proxmox:pve:#{node_name}"
+      if same_host_or_node?(target_hostname, node_name) do
+        target_device_id || "proxmox:pve:#{node_name}"
+      else
+        "proxmox:pve:#{node_name}"
+      end
     end
   end
 
@@ -503,7 +768,10 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
     |> Kernel.||("default")
   end
 
-  defp proxmox_guest_device_uid(guest) do
+  defp proxmox_guest_device_uid(_guest, identity_or_instance_ref)
+       when is_map(identity_or_instance_ref) or is_binary(identity_or_instance_ref), do: nil
+
+  defp proxmox_guest_device_uid(guest, _identity_or_instance_ref) do
     case string_value(guest, "id") do
       value when is_binary(value) and value != "" ->
         "proxmox:" <> String.replace(value, "/", ":")
@@ -512,6 +780,9 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
         "proxmox:#{proxmox_guest_type(string_value(guest, "type"))}:#{integer_value(guest, "vmid")}"
     end
   end
+
+  defp serviceradar_device_uid("sr:" <> _rest = uid), do: uid
+  defp serviceradar_device_uid(_uid), do: nil
 
   defp proxmox_guest_type("qemu"), do: "vm"
   defp proxmox_guest_type("lxc"), do: "container"

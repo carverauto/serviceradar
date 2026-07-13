@@ -7,6 +7,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
   idempotency, budget, and audit commits.
   """
 
+  alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Automation.CallbackGrants.ActionContract
   alias ServiceRadar.Automation.CallbackGrants.Audit
   alias ServiceRadar.Automation.CallbackGrants.Authority
@@ -17,9 +18,20 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
   alias ServiceRadar.Automation.CallbackGrants.Token
 
   @audience "serviceradar.awx.callback/v1"
+  @grant_states ~w(pending active revoked expired consumed)a
+  @terminal_job_states [
+    "successful",
+    "failed",
+    "error",
+    "canceled",
+    :successful,
+    :failed,
+    :error,
+    :canceled
+  ]
 
   @scope_required MapSet.new(
-                    ~w(controller_id inventory_id job_template_id project_id scm_revision content_sha256 execution_environment_id machine_credential_id credential_ids callback_credential_type_id callback_credential_organization_id callback_credential_injector_digest host_limit target_count target_digest snapshot_digest targets binding_id awx_created_by_id)
+                    ~w(controller_id inventory_id job_template_id project_id scm_revision content_sha256 execution_environment_id machine_credential_id credential_ids ask_credential_on_launch callback_credential_type_id callback_credential_organization_id callback_credential_injector_digest host_limit target_count target_digest snapshot_digest targets binding_id awx_created_by_id)
                   )
 
   @scope_optional MapSet.new()
@@ -89,6 +101,87 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
 
   def bind_credential(_grant_id, _credential_id, _opts),
     do: {:error, :invalid_callback_credential}
+
+  @doc "Reauthorizes a pending, credential-bound grant immediately before AWX launch."
+  @spec authorize_launch_dispatch(binary(), opts()) :: {:ok, map()} | {:error, term()}
+  def authorize_launch_dispatch(grant_id, opts) when is_binary(grant_id) and is_list(opts) do
+    now = now(opts)
+
+    with {:ok, grant} <- store(opts).fetch(grant_id, store_context(opts)),
+         :ok <- not_expired(grant, now),
+         :ok <- launch_dispatch_ready(grant),
+         {:ok, contract} <- ActionContract.fetch(value(grant, :action)),
+         {:ok, current} <- current_authority(:bind_job, grant, opts),
+         :ok <- Authority.validate_issue(grant, current, contract) do
+      {:ok, public_result(grant, %{launch_dispatch_authorized: true})}
+    else
+      {:error, :grant_expired} -> expire_and_deny(grant_id, opts)
+      {:error, reason} -> handle_valid_denial(grant_id, reason, opts)
+    end
+  end
+
+  def authorize_launch_dispatch(_grant_id, _opts), do: {:error, :invalid_callback_launch_dispatch}
+
+  @doc "Reauthorizes a known, pending AWX child before pre-activation scope work."
+  @spec reauthorize_pending_job(binary(), opts()) :: {:ok, map()} | {:error, term()}
+  def reauthorize_pending_job(grant_id, opts) when is_binary(grant_id) and is_list(opts) do
+    now = now(opts)
+
+    with {:ok, grant} <- store(opts).fetch(grant_id, store_context(opts)),
+         :ok <- not_expired(grant, now),
+         :ok <- pending_bound_grant_ready(grant),
+         {:ok, contract} <- ActionContract.fetch(value(grant, :action)),
+         {:ok, current} <- current_authority(:bind_job, grant, opts),
+         :ok <- Authority.validate_issue(grant, current, contract) do
+      {:ok, public_result(grant, %{reauthorized: true, binding_pending: true})}
+    else
+      {:error, :grant_expired} -> expire_and_deny(grant_id, opts)
+      {:error, reason} -> handle_valid_denial(grant_id, reason, opts)
+    end
+  end
+
+  def reauthorize_pending_job(_grant_id, _opts),
+    do: {:error, :invalid_callback_pending_job_reauthorization}
+
+  @doc "Reauthorizes one active callback child before a watchdog continuation."
+  @spec reauthorize_active(binary(), opts()) :: {:ok, map()} | {:error, term()}
+  def reauthorize_active(grant_id, opts) when is_binary(grant_id) and is_list(opts) do
+    reauthorize_bound(grant_id, [:active], opts)
+  end
+
+  def reauthorize_active(_grant_id, _opts), do: {:error, :invalid_callback_reauthorization}
+
+  @doc """
+  Reauthorizes a bound callback child before a watchdog continuation.
+
+  A successful callback consumes the one-use response budget while its AWX job
+  can still be running. Watchdog observation therefore accepts both `:active`
+  and `:consumed` grants without changing grant state or restoring callback
+  budget. Callback request consumption remains governed by `consume/5`.
+  """
+  @spec reauthorize_watchdog(binary(), opts()) :: {:ok, map()} | {:error, term()}
+  def reauthorize_watchdog(grant_id, opts) when is_binary(grant_id) and is_list(opts) do
+    reauthorize_bound(grant_id, [:active, :consumed], opts)
+  end
+
+  def reauthorize_watchdog(_grant_id, _opts),
+    do: {:error, :invalid_callback_watchdog_reauthorization}
+
+  defp reauthorize_bound(grant_id, allowed_states, opts) do
+    now = now(opts)
+
+    with {:ok, grant} <- store(opts).fetch(grant_id, store_context(opts)),
+         :ok <- not_expired(grant, now),
+         :ok <- bound_grant_ready(grant, allowed_states),
+         {:ok, contract} <- ActionContract.fetch(value(grant, :action)),
+         {:ok, current} <- current_authority(:use, grant, opts),
+         :ok <- Authority.reauthorize(:use, grant, current, contract) do
+      {:ok, public_result(grant, %{reauthorized: true})}
+    else
+      {:error, :grant_expired} -> expire_and_deny(grant_id, opts)
+      {:error, reason} -> handle_valid_denial(grant_id, reason, opts)
+    end
+  end
 
   @doc "Binds a verified AWX job while callback authority remains pending."
   @spec bind_job(binary(), map(), opts()) :: {:ok, map()} | {:error, term()}
@@ -497,6 +590,9 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
            scope["target_count"] == length(scope["targets"]) ||
              {:error, :awx_target_count_mismatch},
          true <- is_list(scope["credential_ids"] || []) || {:error, :invalid_credential_ids},
+         true <-
+           scope["ask_credential_on_launch"] == true ||
+             {:error, :callback_credential_prompt_required},
          :ok <- required_id(scope["controller_id"], :controller_id_required),
          :ok <- required_id(scope["inventory_id"], :inventory_id_required),
          :ok <- required_id(scope["job_template_id"], :job_template_id_required),
@@ -576,7 +672,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
   defp terminate(grant_id, state, reason, cleanup_mode, opts)
        when is_binary(grant_id) and is_list(opts) do
     now = now(opts)
-    reason = inspect_reason(reason)
+    reason = safe_reason(reason)
 
     with {:ok, grant} <- store(opts).fetch(grant_id, store_context(opts)),
          {:ok, audit} <- Audit.attrs(state, grant, %{reason: reason}),
@@ -754,7 +850,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
       case adapter.fetch(grant_id, store_context(opts)) do
         {:ok, grant} ->
           with {:ok, audit} <-
-                 Audit.attrs(:callback_denied, grant, %{reason: inspect_reason(reason)}) do
+                 Audit.attrs(:callback_denied, grant, %{reason: safe_reason(reason)}) do
             adapter.record_audit(audit, store_context(opts))
           end
 
@@ -865,6 +961,58 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
     end
   end
 
+  defp launch_dispatch_ready(grant) do
+    cond do
+      value(grant, :state) != :pending ->
+        {:error, {:grant_not_active, value(grant, :state)}}
+
+      not (is_integer(value(grant, :ephemeral_credential_id)) and
+               value(grant, :ephemeral_credential_id) > 0) ->
+        {:error, :callback_credential_not_bound}
+
+      value(grant, :credential_cleanup_state) != :pending ->
+        {:error, :callback_credential_unavailable}
+
+      value(grant, :binding_verified) == true or not is_nil(value(grant, :job_binding)) ->
+        {:error, :job_binding_conflict}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp pending_bound_grant_ready(grant) do
+    binding = value(grant, :job_binding)
+    job_id = value(binding || %{}, :job_id)
+
+    cond do
+      value(grant, :state) != :pending ->
+        {:error, {:grant_not_active, value(grant, :state)}}
+
+      value(grant, :binding_verified) == true ->
+        {:error, :job_binding_conflict}
+
+      not is_map(binding) or not (is_integer(job_id) and job_id > 0) ->
+        {:error, :job_binding_required}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp bound_grant_ready(grant, allowed_states) do
+    cond do
+      value(grant, :state) not in allowed_states ->
+        {:error, {:grant_not_active, value(grant, :state)}}
+
+      value(grant, :binding_verified) != true or not is_map(value(grant, :job_binding)) ->
+        {:error, :awx_binding_not_verified}
+
+      true ->
+        :ok
+    end
+  end
+
   defp validate_idempotency_key(key) when is_binary(key) and byte_size(key) in 32..128 do
     if Regex.match?(~r/\A[A-Za-z0-9._~-]+\z/, key),
       do: :ok,
@@ -926,11 +1074,13 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
   defp store(opts), do: Keyword.fetch!(opts, :store)
   defp store_context(opts), do: Keyword.get(opts, :store_context)
 
-  defp inspect_reason({:job_terminal, status}), do: "job_terminal:#{status}"
-  defp inspect_reason({:grant_not_active, state}), do: "grant_not_active:#{state}"
-  defp inspect_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp inspect_reason(reason) when is_binary(reason), do: reason
-  defp inspect_reason(_reason), do: "unspecified"
+  defp safe_reason({:grant_not_active, state}) when state in @grant_states,
+    do: "grant_not_active:#{state}"
+
+  defp safe_reason({:job_terminal, status}) when status in @terminal_job_states,
+    do: "job_terminal:#{status}"
+
+  defp safe_reason(reason), do: SafeFailureEvidence.code(reason)
 
   defp value(map, key) when is_map(map),
     do: Map.get(map, key) || Map.get(map, Atom.to_string(key))

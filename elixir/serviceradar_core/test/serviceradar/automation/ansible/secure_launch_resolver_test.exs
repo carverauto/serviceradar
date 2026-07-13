@@ -138,6 +138,19 @@ defmodule ServiceRadar.Automation.Ansible.SecureLaunchResolverTest do
     assert {:error, :no_common_approved_inventory} = resolve()
   end
 
+  test "callback readiness requires credential prompting in the reviewed template" do
+    Process.put(
+      {FakeAdapter, :binding},
+      {:ok,
+       template_binding(%{
+         callback_actions: ["remote_access.ssh_ca.bundle.read"],
+         ask_credential_on_launch: false
+       })}
+    )
+
+    assert {:error, :binding_callback_credentials_not_promptable} = resolve()
+  end
+
   test "revalidates resolution on submit and never launches stale proposed targets" do
     assert {:ok, _ready} = resolve()
 

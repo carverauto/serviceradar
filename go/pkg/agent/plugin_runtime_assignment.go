@@ -50,6 +50,11 @@ type pluginAssignment struct {
 	Timeout      time.Duration
 	WasmObject   string
 	ContentHash  string
+	// generation is the deterministic stable assignment fingerprint captured by
+	// every execution. Volatile download and broker lease rotation does not
+	// change it; any policy, host-authority, package, permission, or parameter
+	// change does.
+	generation string
 	// DownloadURL/DownloadToken are the gateway-signed artifact download
 	// request. The token is short-lived and re-minted by the control plane on
 	// every config generation, so it can be refreshed in place (see
@@ -57,6 +62,20 @@ type pluginAssignment struct {
 	// accessors below once the assignment is shared with runner goroutines.
 	DownloadURL   string
 	DownloadToken string
+
+	// Scheduled AWX inventory credentials are retained only by the trusted host
+	// runtime. ParamsJSON is scrubbed before it can back get_config.
+	scheduledAWXInventorySync              bool
+	awxInventoryHostCredentials            map[string]awxInventoryHostCredentialBinding
+	awxInventoryHostCredentialsFingerprint string
+
+	// Generic Proxmox host authority remains outside ParamsJSON and is guarded
+	// independently because refreshed broker leases can arrive while scheduled
+	// runners and streaming assignments are live.
+	proxmoxHostAuthorityRequired   bool
+	pluginHostAuthority            []pluginHostAuthorityBinding
+	pluginHostAuthorityFingerprint string
+	hostAuthorityMu                sync.RWMutex
 
 	downloadMu sync.RWMutex
 }
@@ -147,22 +166,23 @@ type pluginConfigFingerprint struct {
 }
 
 type pluginAssignmentFingerprint struct {
-	AssignmentID string                       `json:"assignment_id"`
-	PluginID     string                       `json:"plugin_id"`
-	PackageID    string                       `json:"package_id"`
-	Version      string                       `json:"version"`
-	Name         string                       `json:"name"`
-	Entrypoint   string                       `json:"entrypoint"`
-	Runtime      string                       `json:"runtime"`
-	Outputs      string                       `json:"outputs"`
-	Capabilities []string                     `json:"capabilities"`
-	ParamsBase64 string                       `json:"params_base64"`
-	Permissions  pluginPermissionsFingerprint `json:"permissions"`
-	Resources    pluginResources              `json:"resources"`
-	IntervalSec  int64                        `json:"interval_sec"`
-	TimeoutSec   int64                        `json:"timeout_sec"`
-	WasmObject   string                       `json:"wasm_object"`
-	ContentHash  string                       `json:"content_hash"`
+	AssignmentID     string                       `json:"assignment_id"`
+	PluginID         string                       `json:"plugin_id"`
+	PackageID        string                       `json:"package_id"`
+	Version          string                       `json:"version"`
+	Name             string                       `json:"name"`
+	Entrypoint       string                       `json:"entrypoint"`
+	Runtime          string                       `json:"runtime"`
+	Outputs          string                       `json:"outputs"`
+	Capabilities     []string                     `json:"capabilities"`
+	ParamsBase64     string                       `json:"params_base64"`
+	Permissions      pluginPermissionsFingerprint `json:"permissions"`
+	Resources        pluginResources              `json:"resources"`
+	IntervalSec      int64                        `json:"interval_sec"`
+	TimeoutSec       int64                        `json:"timeout_sec"`
+	WasmObject       string                       `json:"wasm_object"`
+	ContentHash      string                       `json:"content_hash"`
+	HostBindingsHash string                       `json:"host_bindings_hash,omitempty"`
 }
 
 type pluginPermissionsFingerprint struct {
@@ -248,12 +268,37 @@ func buildAssignmentFingerprint(assignment *pluginAssignment) pluginAssignmentFi
 			AllowedNetworks: allowedNetworks,
 			AllowedPorts:    allowedPorts,
 		},
-		Resources:   assignment.Resources,
-		IntervalSec: int64(assignment.Interval / time.Second),
-		TimeoutSec:  int64(assignment.Timeout / time.Second),
-		WasmObject:  assignment.WasmObject,
-		ContentHash: assignment.ContentHash,
+		Resources:        assignment.Resources,
+		IntervalSec:      int64(assignment.Interval / time.Second),
+		TimeoutSec:       int64(assignment.Timeout / time.Second),
+		WasmObject:       assignment.WasmObject,
+		ContentHash:      assignment.ContentHash,
+		HostBindingsHash: assignment.hostBindingsFingerprint(),
 	}
+}
+
+func buildPluginAssignmentGeneration(assignment *pluginAssignment) string {
+	if assignment == nil {
+		return ""
+	}
+
+	data, err := json.Marshal(buildAssignmentFingerprint(assignment))
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func (a *pluginAssignment) hostBindingsFingerprint() string {
+	if a == nil {
+		return ""
+	}
+	_, hostAuthorityFingerprint := a.pluginHostAuthoritySnapshot()
+	if hostAuthorityFingerprint != "" {
+		return hostAuthorityFingerprint
+	}
+	return a.awxInventoryHostCredentialsFingerprint
 }
 
 func buildStreamingPluginConfig(baseParams []byte, spec cameraRelaySessionSpec) ([]byte, error) {
@@ -329,6 +374,21 @@ func newPluginAssignment(cfg *proto.PluginAssignmentConfig, log logger.Logger) *
 
 	assignment.Permissions.normalize()
 	assignment.ContentHash = normalizeContentHash(assignment.ContentHash, log, assignment.AssignmentID)
+	if err := assignment.prepareAWXInventoryHostCredentials(cfg.GetHostParamsJson()); err != nil {
+		// The parser returns structural static errors only; never include raw
+		// params, controller URLs, headers, or bearer material in this log.
+		log.Warn().Err(err).
+			Str("assignment_id", assignment.AssignmentID).
+			Msg("Rejected scheduled AWX inventory host credential configuration")
+	}
+	if err := assignment.preparePluginHostAuthority(cfg.GetHostParamsJson()); err != nil {
+		// Never include host params, origins, grant identifiers, or secret refs in
+		// this log. A rejected assignment remains present but unusable and exposes
+		// only an empty object through get_config.
+		log.Warn().Err(err).
+			Str("assignment_id", assignment.AssignmentID).
+			Msg("Rejected Proxmox plugin host authority configuration")
+	}
 
 	if assignment.Interval <= 0 {
 		assignment.Interval = pluginDefaultInterval
@@ -336,6 +396,7 @@ func newPluginAssignment(cfg *proto.PluginAssignmentConfig, log logger.Logger) *
 	if assignment.Timeout <= 0 {
 		assignment.Timeout = pluginDefaultTimeout
 	}
+	assignment.generation = buildPluginAssignmentGeneration(assignment)
 
 	return assignment
 }
@@ -414,9 +475,48 @@ func (p *pluginPermissions) allowsDomain(host string) bool {
 	return false
 }
 
+func (p *pluginPermissions) allowsHTTPHost(host string) bool {
+	host = strings.TrimSuffix(strings.TrimSpace(host), ".")
+	if host == "" {
+		return false
+	}
+
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return p.allowsDomain(host)
+	}
+
+	// Literal IP destinations are network-scoped. Retain compatibility for
+	// manifests that listed one exact IP in allowed_domains, but never let a
+	// domain wildcard expand into an arbitrary IP/network permission.
+	if p.allowsAddress(addr) {
+		return true
+	}
+	if unmapped := addr.Unmap(); unmapped != addr && p.allowsAddress(unmapped) {
+		return true
+	}
+
+	for domain := range p.allowedDomainSet {
+		allowedAddr, parseErr := netip.ParseAddr(strings.TrimSuffix(domain, "."))
+		if parseErr == nil && allowedAddr.Unmap() == addr.Unmap() {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (p *pluginPermissions) allowsPort(port int) bool {
 	if len(p.allowedPortSet) == 0 {
 		return true
+	}
+	_, ok := p.allowedPortSet[port]
+	return ok
+}
+
+func (p *pluginPermissions) allowsHTTPPort(port int) bool {
+	if len(p.allowedPortSet) == 0 {
+		return false
 	}
 	_, ok := p.allowedPortSet[port]
 	return ok

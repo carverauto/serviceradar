@@ -9,6 +9,11 @@ RDP is not a terminal protocol. It introduces screen capture, clipboard, drive, 
 - Add registered desktop/RDP targets routed through selected ServiceRadar agents.
 - Start with Windows RDP targets; reserve the model for future desktop protocols only after separate review.
 - Add a graphical renderer path separate from xterm terminal sessions.
+- Add an authenticated device-details launch flow that resolves exactly one
+  authorized, enabled desktop target for the current inventory device.
+- Add deployable ICE/TURN configuration with non-secret endpoint metadata,
+  existing-Secret-only TURN REST key custody, and per-session credentials with
+  a maximum one-hour lifetime.
 - Disable clipboard, drive, printer, audio, smart-card, and file redirection by default, with per-feature RBAC and policy gates.
 - Add credential-custody modes that avoid shared master accounts: domain-backed actor identity where possible, memory-only per-session user credentials when explicitly enabled, or tightly scoped brokered fallback secrets.
 - Add frame/bitrate quotas, resolution policy, session timeout, approval, recording, watermark/consent policy, and forced termination behavior.

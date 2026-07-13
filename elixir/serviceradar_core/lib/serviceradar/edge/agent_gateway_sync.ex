@@ -12,6 +12,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias Ash.Error.Invalid
   alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Automation.LaunchEnvelopes
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.SecretBroker
@@ -1402,9 +1403,9 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         :ok
 
       {:error, reason} ->
-        Logger.warning("Failed to expire credential broker grant after TTL rejection",
-          grant_id: grant.id,
-          reason: inspect(reason)
+        Logger.warning(
+          "Failed to expire credential broker grant after TTL rejection",
+          [grant_id: grant.id] ++ SafeFailureEvidence.log_metadata(reason)
         )
 
         :ok

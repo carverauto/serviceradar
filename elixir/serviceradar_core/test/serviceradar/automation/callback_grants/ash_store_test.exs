@@ -205,6 +205,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreTest do
       execution_environment_id: 4,
       machine_credential_id: 5,
       credential_ids: [5],
+      ask_credential_on_launch: true,
       callback_credential_type_id: 6,
       callback_credential_organization_id: 2,
       callback_credential_injector_digest: String.duplicate("c", 64),

@@ -150,6 +150,13 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         },
         %{
+          key: "devices.console.credentials.use",
+          label: "Use device console credentials",
+          description:
+            "Use scoped broker-managed credentials while opening supported device consoles",
+          default_roles: @admin_roles
+        },
+        %{
           key: "devices.remote_access.ssh.open",
           label: "Open SSH remote access",
           description:

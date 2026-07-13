@@ -20,6 +20,7 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
   alias ServiceRadar.Automation.Ansible.IngestorAshActions
   alias ServiceRadar.Automation.Ansible.OcsfMapper
   alias ServiceRadar.Automation.Ansible.PubSub, as: AnsiblePubSub
+  alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
 
   require Logger
 
@@ -52,8 +53,8 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
   rescue
     err ->
       Logger.error(
-        "AWX EventIngestor handler crashed: #{inspect(err)} @ #{__STACKTRACE__ |> Exception.format_stacktrace() |> String.split("\n") |> Enum.take(3) |> Enum.join(" | ")}",
-        command_type: Map.get(data, :command_type)
+        "AWX EventIngestor handler failed",
+        [command_type: Map.get(data, :command_type)] ++ SafeFailureEvidence.log_metadata(err)
       )
 
       :ok
@@ -86,9 +87,9 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
         :ok
 
       {:error, reason} ->
-        Logger.info("AWX EventIngestor skipping events for unknown run",
-          awx_job_id: awx_job_id,
-          reason: inspect(reason)
+        Logger.info(
+          "AWX EventIngestor skipping events for unknown run",
+          [awx_job_id: awx_job_id] ++ SafeFailureEvidence.log_metadata(reason)
         )
 
         :ok
@@ -533,7 +534,8 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
         "survey_enabled" => Map.get(template, "survey_enabled", false),
         "ask_variables_on_launch" => Map.get(template, "ask_variables_on_launch", false),
         "ask_inventory_on_launch" => Map.get(template, "ask_inventory_on_launch", false),
-        "ask_limit_on_launch" => Map.get(template, "ask_limit_on_launch", false)
+        "ask_limit_on_launch" => Map.get(template, "ask_limit_on_launch", false),
+        "ask_credential_on_launch" => Map.get(template, "ask_credential_on_launch", false)
       }
     }
 
@@ -542,10 +544,10 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
         :ok
 
       {:error, reason} ->
-        Logger.warning("AWX EventIngestor: failed to upsert AWX template",
-          controller_id: controller_id,
-          awx_template_id: awx_id,
-          reason: inspect(reason)
+        Logger.warning(
+          "AWX EventIngestor: failed to upsert AWX template",
+          [controller_id: controller_id, awx_template_id: awx_id] ++
+            SafeFailureEvidence.log_metadata(reason)
         )
 
         :ok
@@ -683,10 +685,10 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
   defp result_payload_subset(event) do
     case get_in(event, ["event_data", "res"]) do
       %{} = res ->
-        # Preserve `msg`, `rc`, `cmd`, `stdout_lines`, `stderr_lines` —
-        # the operator-useful summary fields. Avoid the full module
-        # output (those go to PlaybookContent in a subsequent commit).
-        Map.take(res, ["msg", "rc", "cmd", "stdout_lines", "stderr_lines", "warnings"])
+        case Map.get(res, "rc") do
+          rc when is_integer(rc) -> %{"rc" => rc}
+          _ -> %{}
+        end
 
       _ ->
         %{}

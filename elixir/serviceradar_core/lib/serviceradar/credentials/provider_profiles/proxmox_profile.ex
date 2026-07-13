@@ -2,10 +2,10 @@ defmodule ServiceRadar.Credentials.ProviderProfiles.ProxmoxProfile do
   @moduledoc """
   Provider profile for Proxmox VE inventory + console credential rules.
 
-  This is a verbatim extraction of the previous Proxmox-only params template and
-  credential-broker grant builders in
-  `ServiceRadar.Credentials.PluginAssignmentMaterializer`. Output must stay
-  byte-identical (enforced by `ProxmoxProfileGoldenTest`).
+  This owns the Proxmox-only params template and credential-broker grant
+  builders extracted from `PluginAssignmentMaterializer`. API-token paths
+  require verified TLS, SSH paths require host-key verification, and legacy
+  insecure transport overrides are never materialized.
   """
 
   @behaviour ServiceRadar.Credentials.CredentialProviderProfile
@@ -40,14 +40,7 @@ defmodule ServiceRadar.Credentials.ProviderProfiles.ProxmoxProfile do
 
   @impl true
   def rule_has_purpose?(rule, purpose) do
-    purpose_string = Atom.to_string(purpose)
-
-    if purpose_string in RuleAccessors.rule_purposes(rule) do
-      true
-    else
-      purpose == @console_purpose and RuleAccessors.rule_purpose(rule) == @inventory_purpose and
-        RuleAccessors.auth_method(rule) == "proxmox_api_token"
-    end
+    Atom.to_string(purpose) in RuleAccessors.rule_purposes(rule)
   end
 
   @impl true
@@ -104,29 +97,52 @@ defmodule ServiceRadar.Credentials.ProviderProfiles.ProxmoxProfile do
     params = %{
       "credential_broker" => grant,
       "timeout_ms" => RuleAccessors.metadata_int(rule, "timeout_ms", 30_000),
-      "insecure_skip_verify" => RuleAccessors.tls_policy(rule) == :skip_verify,
       "ssh_host_key_policy" => RuleAccessors.ssh_host_key_policy(rule),
       "credential_rule_id" => RuleAccessors.value_string(rule, [:id, "id"])
     }
 
-    if RuleAccessors.auth_method(rule) == "proxmox_api_token" do
-      {:ok, Map.put(params, "api_token_secret_ref", SecretRefs.network_credential_ref(secret_id))}
-    else
-      {:ok, Map.put(params, "credential_secret", SecretRefs.network_credential_ref(secret_id))}
+    case RuleAccessors.auth_method(rule) do
+      "proxmox_api_token" ->
+        with :ok <- require_verified_tls(rule) do
+          {:ok,
+           Map.put(params, "api_token_secret_ref", SecretRefs.network_credential_ref(secret_id))}
+        end
+
+      "ssh_private_key" ->
+        with :ok <- require_verified_ssh_host_key(rule) do
+          {:ok,
+           Map.put(params, "credential_secret", SecretRefs.network_credential_ref(secret_id))}
+        end
+
+      _unsupported_auth_method ->
+        {:error, :unsupported_proxmox_console_auth_method}
     end
   end
 
   def params_template(_purpose, rule, secret_id, %{grant: grant}) do
-    {:ok,
-     %{
-       "credential_broker" => grant,
-       "api_token_secret_ref" => SecretRefs.network_credential_ref(secret_id),
-       "include_guests" => RuleAccessors.metadata_bool(rule, "include_guests", true),
-       "timeout_ms" => RuleAccessors.metadata_int(rule, "timeout_ms", 30_000),
-       "insecure_skip_verify" => RuleAccessors.tls_policy(rule) == :skip_verify,
-       "auto_discovery_enabled" =>
-         RuleAccessors.metadata_bool(rule, "auto_discovery_enabled", false),
-       "credential_rule_id" => RuleAccessors.value_string(rule, [:id, "id"])
-     }}
+    with :ok <- require_verified_tls(rule) do
+      {:ok,
+       %{
+         "credential_broker" => grant,
+         "api_token_secret_ref" => SecretRefs.network_credential_ref(secret_id),
+         "include_guests" => RuleAccessors.metadata_bool(rule, "include_guests", true),
+         "timeout_ms" => RuleAccessors.metadata_int(rule, "timeout_ms", 30_000),
+         "auto_discovery_enabled" =>
+           RuleAccessors.metadata_bool(rule, "auto_discovery_enabled", false),
+         "credential_rule_id" => RuleAccessors.value_string(rule, [:id, "id"])
+       }}
+    end
+  end
+
+  defp require_verified_tls(rule) do
+    if RuleAccessors.tls_policy(rule) == :verify,
+      do: :ok,
+      else: {:error, :proxmox_tls_verification_required}
+  end
+
+  defp require_verified_ssh_host_key(rule) do
+    if RuleAccessors.ssh_host_key_policy(rule) in ["known_hosts", "trust_on_first_use"],
+      do: :ok,
+      else: {:error, :proxmox_ssh_host_key_verification_required}
   end
 end

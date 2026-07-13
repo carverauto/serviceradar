@@ -44,6 +44,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
     assert {:ok, :result_already_processing} =
              CallbackCommandDispatcher.dispatch(attempt,
                now: @now,
+               callback_authorizer: &authorize_callback/3,
                resource_loader: fn ^attempt ->
                  {:ok,
                   %{
@@ -98,6 +99,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
     assert {:ok, :persisted_for_recovery} =
              CallbackCommandDispatcher.dispatch(attempt,
                now: @now,
+               callback_authorizer: &authorize_callback/3,
                resource_loader: fn _ -> {:ok, resources} end,
                claim: &claim/4,
                awx_dispatcher: fn _, _, _, _, _ -> {:error, :transport_interrupted} end,
@@ -128,6 +130,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
       assert {:error, :callback_command_persisted_correlation_mismatch} =
                CallbackCommandDispatcher.dispatch(attempt,
                  now: @now,
+                 callback_authorizer: &authorize_callback/3,
                  resource_loader: fn _ -> {:ok, resources} end,
                  claim: &claim/4,
                  awx_dispatcher: fn _, _, _, _, _ ->
@@ -139,7 +142,206 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
     end
   end
 
-  defp fetch_job_attempt do
+  test "dispatch retry persists only a structural failure code" do
+    {attempt, resources, _request} = fetch_job_attempt()
+    secret = "Bearer callback-dispatch-must-not-survive"
+    test_pid = self()
+
+    assert {:ok, :deferred} =
+             CallbackCommandDispatcher.dispatch(attempt,
+               now: @now,
+               callback_authorizer: &authorize_callback/3,
+               resource_loader: fn _ -> {:ok, resources} end,
+               claim: &claim/4,
+               awx_dispatcher: fn _, _, _, _, _ ->
+                 {:error, {:http_error, %{response_body: secret}}}
+               end,
+               command_fetcher: fn _ -> {:ok, nil} end,
+               release_dispatch: fn _attempt, _token, _next_at, error_code ->
+                 send(test_pid, {:error_code, error_code})
+                 {:ok, %{attempt | state: :waiting, last_error_code: error_code}}
+               end
+             )
+
+    assert_receive {:error_code, "http_error"}
+    refute_received {:error_code, ^secret}
+  end
+
+  test "launch authority contraction is denied before claim or AWX dispatch" do
+    {attempt, resources} = launch_attempt()
+    test_pid = self()
+
+    assert {:error, :current_permission_denied} =
+             CallbackCommandDispatcher.dispatch(attempt,
+               now: @now,
+               resource_loader: fn ^attempt -> {:ok, resources} end,
+               callback_authorizer: fn mode, grant, _opts ->
+                 assert mode == :launch
+                 assert grant.id == attempt.grant_id
+                 {:error, :current_permission_denied}
+               end,
+               claim: fn _, _, _, _ ->
+                 flunk("denied launch must not acquire a dispatch lease")
+               end,
+               awx_dispatcher: fn _, _, _, _, _ -> flunk("denied launch must not reach AWX") end,
+               prelaunch_denial_handler: fn denied_resources ->
+                 send(test_pid, {:prelaunch_denied, denied_resources.operation.id})
+                 :ok
+               end,
+               authority_denial_marker: fn denied_attempt, reason, now, _opts ->
+                 send(test_pid, {:denial_marked, denied_attempt.id, reason, now})
+                 {:ok, denied_attempt}
+               end
+             )
+
+    assert_receive {:prelaunch_denied, operation_id}
+    assert operation_id == attempt.operation_id
+    assert_receive {:denial_marked, attempt_id, :current_permission_denied, @now}
+    assert attempt_id == attempt.id
+  end
+
+  test "active watchdog contraction enters the cancellation-unproven failure path" do
+    {attempt, resources, _request} = fetch_job_attempt(:terminal_poll)
+    resources = Map.put(resources, :targets, [%{id: Ash.UUID.generate()}])
+    test_pid = self()
+
+    assert {:error, :principal_disabled} =
+             CallbackCommandDispatcher.dispatch(attempt,
+               now: @now,
+               resource_loader: fn ^attempt -> {:ok, resources} end,
+               callback_authorizer: fn mode, _grant, _opts ->
+                 assert mode == :watchdog
+                 {:error, :principal_disabled}
+               end,
+               claim: fn _, _, _, _ -> flunk("denied watchdog must not acquire a lease") end,
+               awx_dispatcher: fn _, _, _, _, _ -> flunk("denied watchdog must not reach AWX") end,
+               active_contraction_handler: fn denied_resources, reason ->
+                 send(
+                   test_pid,
+                   {:active_contraction, denied_resources.operation.mutating, reason,
+                    denied_resources.targets}
+                 )
+
+                 {:ok, :held}
+               end,
+               authority_denial_marker: fn denied_attempt, reason, now, _opts ->
+                 send(test_pid, {:denial_marked, denied_attempt.id, reason, now})
+                 {:ok, denied_attempt}
+               end
+             )
+
+    assert_receive {:active_contraction, true, :principal_disabled, [_target]}
+    assert_receive {:denial_marked, attempt_id, :principal_disabled, @now}
+    assert attempt_id == attempt.id
+  end
+
+  test "every pre-activation known-job phase reauthorizes and cancels on contraction" do
+    phases = [
+      {:fetch_job, :accepted_job_proof},
+      {:fetch_job, :scope_poll},
+      {:fetch_host_summaries, :host_scope_proof}
+    ]
+
+    test_pid = self()
+
+    for {stage, purpose} <- phases do
+      {attempt, resources} = pending_continuation_attempt(stage, purpose)
+
+      assert {:error, :approval_changed} =
+               CallbackCommandDispatcher.dispatch(attempt,
+                 now: @now,
+                 resource_loader: fn ^attempt -> {:ok, resources} end,
+                 callback_authorizer: fn mode, grant, _opts ->
+                   assert mode == :pending_job
+                   assert grant.id == attempt.grant_id
+                   {:error, :approval_changed}
+                 end,
+                 active_contraction_handler: fn denied_resources, reason ->
+                   send(
+                     test_pid,
+                     {:pending_contracted, stage, purpose, denied_resources.targets, reason}
+                   )
+
+                   {:ok, :held_and_cancel_requested}
+                 end,
+                 authority_denial_marker: fn denied_attempt, reason, _now, _opts ->
+                   send(test_pid, {:pending_denied, denied_attempt.id, reason})
+                   {:ok, denied_attempt}
+                 end,
+                 claim: fn _, _, _, _ ->
+                   flunk("contracted pending child must not acquire a lease")
+                 end,
+                 awx_dispatcher: fn _, _, _, _, _ ->
+                   flunk("contracted pending child must not reach AWX")
+                 end
+               )
+
+      assert_receive {:pending_contracted, ^stage, ^purpose, [_target], :approval_changed}
+      assert_receive {:pending_denied, attempt_id, :approval_changed}
+      assert attempt_id == attempt.id
+    end
+  end
+
+  test "terminal confirmation attempts require one bound terminal job snapshot" do
+    {attempt, resources, _request} = fetch_job_attempt(:terminal_poll)
+    {:ok, request} = CallbackCommandContract.host_summaries_request(42, 1)
+
+    base = %{
+      grant_id: attempt.grant_id,
+      operation_id: attempt.operation_id,
+      execution_id: attempt.execution_id,
+      controller_id: attempt.controller_id,
+      dispatch_agent_id: attempt.dispatch_agent_id
+    }
+
+    common = [
+      stage: :fetch_host_summaries,
+      purpose: :terminal_confirmation,
+      command_type: "awx.fetch_job_host_summaries",
+      expected_job_id: 42,
+      deadline_at: DateTime.add(@now, 60, :second),
+      next_attempt_at: @now
+    ]
+
+    assert {:error, :invalid_callback_terminal_job_evidence} =
+             CallbackCommandContract.build_attempt(base, resources.execution, request, common)
+
+    terminal = %{"id" => 42, "status" => "successful"}
+
+    assert {:ok, attrs} =
+             CallbackCommandContract.build_attempt(
+               base,
+               resources.execution,
+               request,
+               Keyword.put(common, :terminal_job_snapshot, terminal)
+             )
+
+    assert attrs.terminal_job_snapshot == terminal
+
+    assert {:error, :invalid_callback_terminal_job_evidence} =
+             CallbackCommandContract.build_attempt(
+               base,
+               resources.execution,
+               request,
+               Keyword.put(common, :terminal_job_snapshot, %{terminal | "id" => 43})
+             )
+
+    assert {:error, :invalid_callback_terminal_job_evidence} =
+             CallbackCommandContract.build_attempt(
+               base,
+               resources.execution,
+               %{job_id: 42},
+               stage: :fetch_job,
+               purpose: :terminal_poll,
+               command_type: "awx.fetch_job",
+               expected_job_id: 42,
+               terminal_job_snapshot: terminal,
+               deadline_at: DateTime.add(@now, 60, :second),
+               next_attempt_at: @now
+             )
+  end
+
+  defp fetch_job_attempt(purpose \\ :accepted_job_proof) do
     execution = %{
       id: "018f3f56-1111-7222-8333-123456789abd",
       operation_id: "018f3f56-1111-7222-8333-123456789abc",
@@ -173,7 +375,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
     {:ok, attrs} =
       CallbackCommandContract.build_attempt(base, execution, request,
         stage: :fetch_job,
-        purpose: :accepted_job_proof,
+        purpose: purpose,
         command_type: "awx.fetch_job",
         expected_job_id: 42,
         deadline_at: DateTime.add(@now, 60, :second),
@@ -185,6 +387,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
     resources = %{
       operation: %{
         id: execution.operation_id,
+        mutating: true,
         callback_actions: ["remote_access.ssh_ca.bundle.read"]
       },
       execution: execution,
@@ -193,6 +396,103 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
     }
 
     {attempt, resources, request}
+  end
+
+  defp launch_attempt do
+    execution = %{
+      id: "018f3f56-1111-7222-8333-123456789abd",
+      operation_id: "018f3f56-1111-7222-8333-123456789abc",
+      controller_id: @controller_id,
+      dispatch_id: "018f3f56-1111-7222-8333-123456789abf",
+      snapshot_digest: String.duplicate("a", 64),
+      job_template_id: 42,
+      inventory_id: 34,
+      host_limit: "linux-01",
+      execution_environment_id: 4,
+      check_mode: false,
+      credential_snapshot: %{"credential_ids" => [5]}
+    }
+
+    operation = %{
+      id: execution.operation_id,
+      mutating: true,
+      declared_inputs: %{},
+      callback_actions: ["remote_access.ssh_ca.bundle.read"]
+    }
+
+    base = %{
+      grant_id: "018f3f56-1111-7222-8333-123456789ac0",
+      operation_id: operation.id,
+      execution_id: execution.id,
+      controller_id: @controller_id,
+      dispatch_agent_id: "edge-agent-1"
+    }
+
+    {:ok, request} = CallbackCommandContract.launch_request(operation, execution, 91)
+
+    {:ok, attrs} =
+      CallbackCommandContract.build_attempt(base, execution, request,
+        stage: :launch_job,
+        purpose: :accepted_job_proof,
+        command_type: "awx.launch_job",
+        expected_credential_id: 91,
+        deadline_at: DateTime.add(@now, 60, :second),
+        next_attempt_at: @now
+      )
+
+    attempt = struct!(Attempt, Map.merge(attrs, %{id: Ash.UUID.generate(), state: :planned}))
+
+    resources = %{
+      operation: operation,
+      execution: execution,
+      controller: %{id: @controller_id, agent_id: base.dispatch_agent_id},
+      grant: %{id: base.grant_id},
+      targets: [%{id: Ash.UUID.generate()}]
+    }
+
+    {attempt, resources}
+  end
+
+  defp pending_continuation_attempt(:fetch_job, purpose) do
+    {attempt, resources, _request} = fetch_job_attempt(purpose)
+
+    resources =
+      resources
+      |> Map.put(:grant, %{id: attempt.grant_id})
+      |> Map.put(:targets, [%{id: Ash.UUID.generate()}])
+
+    {attempt, resources}
+  end
+
+  defp pending_continuation_attempt(:fetch_host_summaries, :host_scope_proof) do
+    {fetch_attempt, resources, _request} = fetch_job_attempt(:scope_poll)
+    targets = [%{id: Ash.UUID.generate()}]
+    {:ok, request} = CallbackCommandContract.host_summaries_request(42, length(targets))
+
+    base = %{
+      grant_id: fetch_attempt.grant_id,
+      operation_id: fetch_attempt.operation_id,
+      execution_id: fetch_attempt.execution_id,
+      controller_id: fetch_attempt.controller_id,
+      dispatch_agent_id: fetch_attempt.dispatch_agent_id
+    }
+
+    {:ok, attrs} =
+      CallbackCommandContract.build_attempt(base, resources.execution, request,
+        stage: :fetch_host_summaries,
+        purpose: :host_scope_proof,
+        command_type: "awx.fetch_job_host_summaries",
+        expected_job_id: 42,
+        deadline_at: DateTime.add(@now, 60, :second),
+        next_attempt_at: @now
+      )
+
+    attempt = struct!(Attempt, Map.merge(attrs, %{id: Ash.UUID.generate(), state: :planned}))
+
+    {attempt,
+     resources
+     |> Map.put(:grant, %{id: attempt.grant_id, awx_scope_snapshot: %{targets: targets}})
+     |> Map.put(:targets, targets)}
   end
 
   defp persisted_command(attempt, controller, request, context) do
@@ -244,4 +544,6 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
   end
 
   defp claim(claimed, _token, _expires, _now), do: {:ok, %{claimed | state: :dispatching}}
+
+  defp authorize_callback(_mode, _grant, _opts), do: :ok
 end

@@ -113,6 +113,7 @@ func (m *PluginManager) executeActionWithWasm(
 	wasm []byte,
 	configJSON []byte,
 	credentialGrants []credentialBrokerGrant,
+	authorizedRequestBody []byte,
 	awxCallbackCredential *awxCallbackCredentialMemoryInput,
 ) ([]byte, error) {
 	runtime := wazero.NewRuntimeWithConfig(ctx, m.newRuntimeConfig(assignment.Resources.RequestedMemoryMB))
@@ -126,7 +127,9 @@ func (m *PluginManager) executeActionWithWasm(
 	exec.mode = pluginExecutionModeAction
 	exec.configJSON = configJSON
 	exec.credentialGrants = credentialGrants
+	exec.authorizedRequestBody = authorizedRequestBody
 	exec.awxCallbackCredential = awxCallbackCredential
+	defer clear(exec.authorizedRequestBody)
 	if err := exec.instantiateHostModule(ctx, runtime); err != nil {
 		return nil, err
 	}

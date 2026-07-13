@@ -11,7 +11,9 @@ defmodule ServiceRadar.Automation.CallbackGrants.RuntimeTest do
     @moduledoc false
 
     def delete_activated_credential(grant_id, opts) do
-      send(opts[:cleanup_context], {:activated_delete, grant_id, opts})
+      context = opts[:cleanup_context]
+      test_pid = if is_map(context), do: context[:test_pid], else: context
+      send(test_pid, {:activated_delete, grant_id, opts})
       {:ok, %{state: :active}}
     end
   end
@@ -38,5 +40,20 @@ defmodule ServiceRadar.Automation.CallbackGrants.RuntimeTest do
     assert {:ok, %{state: :active}} = Runtime.delete_activated_credential(@grant_id)
     assert_receive {:activated_delete, @grant_id, opts}
     assert opts[:cleanup] == AwxCleanup
+  end
+
+  test "stale deleting recovery forwards only the bounded retry capability" do
+    Application.put_env(:serviceradar_core, @config_key,
+      verifier_config: [active_key_id: "test", keys: %{}],
+      consumer: FakeConsumer,
+      cleanup_context: %{test_pid: self()}
+    )
+
+    assert {:ok, %{state: :active}} =
+             Runtime.delete_activated_credential(@grant_id, retry_deleting?: true)
+
+    assert_receive {:activated_delete, @grant_id, opts}
+    assert opts[:cleanup] == AwxCleanup
+    assert opts[:cleanup_context] == %{test_pid: self(), retry_deleting?: true}
   end
 end

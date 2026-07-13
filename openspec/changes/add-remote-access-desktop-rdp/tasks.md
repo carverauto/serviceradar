@@ -570,3 +570,13 @@
 - [x] 6.3 Update web-ng EdgeOps artifact discovery to hide RDP-enabled artifacts unless the deployment has remote-access/RDP enabled by operator policy.
 - [x] 6.4 Update one-click agent deployment to install or update the RDP helper only when the selected artifact declares `remote_access.rdp`.
 - [x] 6.5 Add tests proving base agents do not expose RDP artifacts in EdgeOps by default and RDP-enabled deployments only show signed compatible helper/bundle artifacts.
+
+## 7. Device Launch And Deployable ICE/TURN
+- [x] 7.1 Add a bounded runtime parser for non-secret ICE endpoint JSON that rejects embedded credentials, unsupported schemes, malformed hosts/ports, and oversized collections.
+- [x] 7.2 Load TURN REST shared-secret material only from a mounted file, require at least 32 printable non-whitespace bytes, and reject TURN endpoints when the file is absent or unreadable.
+- [x] 7.3 Enforce a positive TURN credential TTL no greater than one hour and return session-bound minted credentials to the browser instead of static credentials.
+- [x] 7.4 Add Helm values, existing-Secret validation, web-ng env/mount wiring, and Helm unit tests for RDP WebRTC ICE/TURN configuration.
+- [x] 7.5 Add the authenticated device RDP LiveView, exact authorized target resolution, device-details action, user-present credential form, ready-before-WebRTC sequencing, and deterministic cleanup.
+- [x] 7.6 Add focused LiveView/component/controller tests for authorization denial, wrong-device target denial, password clearing, no client-selected upstream fields, and session cleanup.
+- [ ] 7.7 Validate a ServiceRadar-originated Windows QGA playbook run, register the controlled Windows target with verified TLS identity, and complete the live RDP/WebRTC demo proof.
+- [x] 7.8 Add an opt-in core-only ICE egress NetworkPolicy with explicit CIDR and UDP/TCP port validation, demo values, Helm unit coverage, and operator documentation.

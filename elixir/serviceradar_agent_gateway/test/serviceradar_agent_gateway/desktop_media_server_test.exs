@@ -70,6 +70,12 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
   end
 
   test "opens, heartbeats, and closes a route-bound desktop media session" do
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :desktop_media_frame_forwarder,
+      DesktopMediaFrameForwarderStub
+    )
+
     stream = test_stream()
 
     open_response =
@@ -126,6 +132,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
       )
 
     assert close_response.closed == true
+    assert_receive {:close_desktop_media_ingress, "desktop-server-1"}
     assert DesktopMediaSessionTracker.fetch_session("desktop-server-1") == nil
   end
 
@@ -424,6 +431,12 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
   end
 
   test "desktop media stream accepts heartbeat and close control messages" do
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :desktop_media_frame_forwarder,
+      DesktopMediaFrameForwarderStub
+    )
+
     stream = test_stream(test_pid: self())
     open_response = open_desktop_session!("desktop-stream-control-1", "media-stream-control-1", stream)
 
@@ -484,6 +497,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
                     }}
 
     assert DesktopMediaSessionTracker.fetch_session("desktop-stream-control-1") == nil
+    assert_receive {:close_desktop_media_ingress, "desktop-stream-control-1"}
   end
 
   test "desktop media stream validates frame media binding before forwarding gate" do

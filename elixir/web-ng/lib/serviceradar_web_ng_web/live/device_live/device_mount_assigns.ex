@@ -46,6 +46,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:has_bumblebee_exposure, false)
     |> assign(:virtualization_summary, nil)
     |> assign(:has_virtualization_guests, false)
+    |> assign(:rdp_desktop_target, nil)
     |> assign(:sweep_results, nil)
     |> assign(:process_metrics, nil)
     |> assign(:process_metrics_search, "")

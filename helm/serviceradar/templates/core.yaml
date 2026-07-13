@@ -59,9 +59,21 @@
 {{- $automationCallbackResponsePolicy := default (dict) $automationCallbacks.responsePolicy -}}
 {{- $automationCallbackOrigin := default $webNgPublicUrl $automationCallbacks.canonicalOrigin -}}
 {{- $remoteAccess := default (dict) .Values.remoteAccess -}}
+{{- $remoteAccessDesktop := default (dict) $remoteAccess.desktop -}}
+{{- $remoteAccessDesktopRdp := default (dict) $remoteAccessDesktop.rdp -}}
+{{- $remoteAccessDesktopRdpEnabled := false -}}
+{{- if hasKey $remoteAccessDesktopRdp "enabled" -}}{{- $remoteAccessDesktopRdpEnabled = get $remoteAccessDesktopRdp "enabled" -}}{{- end -}}
 {{- $remoteAccessSsh := default (dict) $remoteAccess.ssh -}}
 {{- $remoteAccessSshEnabled := false -}}
 {{- if hasKey $remoteAccessSsh "enabled" -}}{{- $remoteAccessSshEnabled = get $remoteAccessSsh "enabled" -}}{{- end -}}
+{{- $sshCertificatePolicy := default (dict) $remoteAccess.sshCertificatePolicy -}}
+{{- include "serviceradar.validateRemoteAccessSSHCertificatePolicy" . -}}
+{{- $sshCertificatePolicyEnabled := false -}}
+{{- if hasKey $sshCertificatePolicy "enabled" -}}{{- $sshCertificatePolicyEnabled = get $sshCertificatePolicy "enabled" -}}{{- end -}}
+{{- $sshCertificatePolicyWorkloads := default (dict) $sshCertificatePolicy.workloads -}}
+{{- $sshCertificatePolicyCore := false -}}
+{{- if hasKey $sshCertificatePolicyWorkloads "core" -}}{{- $sshCertificatePolicyCore = get $sshCertificatePolicyWorkloads "core" -}}{{- end -}}
+{{- $sshCertificatePolicyCoreEnabled := and $sshCertificatePolicyEnabled $sshCertificatePolicyCore -}}
 {{- $sshCaSigner := default (dict) $remoteAccess.sshCaSigner -}}
 {{- include "serviceradar.validateRemoteAccessSSHCaSigner" . -}}
 {{- $sshCaSignerEnabled := false -}}
@@ -563,6 +575,10 @@ spec:
         - name: SERVICERADAR_AUTOMATION_CALLBACK_RESPONSE_POLICY_FILE
           value: "/etc/serviceradar/automation-callback-policy/response-policy.json"
         {{- end }}
+        {{- if $sshCertificatePolicyCoreEnabled }}
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_FILE
+          value: "/etc/serviceradar/remote-access-ssh-policy/certificate-policy.json"
+        {{- end }}
         {{- if $sshCaSignerCoreEnabled }}
         - name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ENABLED
           value: "true"
@@ -573,6 +589,8 @@ spec:
         - name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID
           value: {{ $sshCaSigner.keyId | quote }}
         {{- end }}
+        - name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED
+          value: {{ $remoteAccessDesktopRdpEnabled | quote }}
         - name: SERVICERADAR_REMOTE_ACCESS_SSH_ENABLED
           value: {{ $remoteAccessSshEnabled | quote }}
         - name: GEOLITE_MMDB_SCHEDULER_ENABLED
@@ -634,6 +652,11 @@ spec:
         {{- if $automationCallbacksEnabled }}
         - name: automation-callback-response-policy
           mountPath: /etc/serviceradar/automation-callback-policy
+          readOnly: true
+        {{- end }}
+        {{- if $sshCertificatePolicyCoreEnabled }}
+        - name: remote-access-ssh-certificate-policy
+          mountPath: /etc/serviceradar/remote-access-ssh-policy
           readOnly: true
         {{- end }}
         {{- if $sshCaSignerCoreEnabled }}
@@ -717,6 +740,15 @@ spec:
           items:
           - key: {{ $automationCallbackResponsePolicy.secretKey | quote }}
             path: response-policy.json
+      {{- end }}
+      {{- if $sshCertificatePolicyCoreEnabled }}
+      - name: remote-access-ssh-certificate-policy
+        secret:
+          secretName: {{ $sshCertificatePolicy.existingSecretName | quote }}
+          defaultMode: 0440
+          items:
+          - key: {{ $sshCertificatePolicy.secretKey | quote }}
+            path: certificate-policy.json
       {{- end }}
       {{- if $sshCaSignerCoreEnabled }}
       - name: remote-access-ssh-ca

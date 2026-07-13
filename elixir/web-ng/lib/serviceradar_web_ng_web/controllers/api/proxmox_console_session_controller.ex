@@ -11,11 +11,13 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionController do
 
   action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
-  @console_permission "devices.console.open"
+  @console_permissions ["devices.console.open", "devices.console.credentials.use"]
+  @create_request_fields MapSet.new(["device_uid", "terminal"])
+  @terminal_fields MapSet.new(["cols", "rows"])
 
   def create(conn, params) do
     with :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, @console_permission),
+         :ok <- require_permissions(conn),
          {:ok, request} <- normalize_create_request(params),
          {:ok, %{session: %ProxmoxConsoleSession{} = session, ticket: ticket}} <-
            console_session_manager().request_open(request.device_uid, request, scope: get_scope(conn)) do
@@ -46,6 +48,17 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionController do
              :not_console_credential_rule,
              :credential_rule_scope_denied,
              :credential_rule_target_denied,
+             :ambiguous_console_target,
+             :console_inventory_unavailable,
+             :console_controller_not_found,
+             :console_controller_endpoint_missing,
+             :controller_origin_mismatch,
+             :invalid_controller_origin,
+             :console_assignment_unavailable,
+             :ambiguous_console_assignment,
+             :credential_use_policy_missing,
+             :credential_use_policy_invalid,
+             :credential_use_policy_denied,
              :missing_agent_scope
            ] ->
         conn
@@ -59,7 +72,7 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionController do
 
   def show(conn, %{"id" => id}) do
     with :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, @console_permission),
+         :ok <- require_permissions(conn),
          {:ok, normalized_id} <- normalize_uuid(id, "id"),
          {:ok, %ProxmoxConsoleSession{} = session} <-
            ProxmoxConsoleSession.get_by_id(normalized_id, scope: get_scope(conn)) do
@@ -87,7 +100,7 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionController do
 
   def close(conn, %{"id" => id} = params) do
     with :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, @console_permission),
+         :ok <- require_permissions(conn),
          {:ok, normalized_id} <- normalize_uuid(id, "id"),
          {:ok, %ProxmoxConsoleSession{} = session} <-
            console_session_manager().request_close(normalized_id,
@@ -112,23 +125,33 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionController do
   end
 
   defp normalize_create_request(params) when is_map(params) do
-    with {:ok, device_uid} <- normalize_required_string(Map.get(params, "device_uid"), "device_uid") do
-      terminal = Map.get(params, "terminal") || %{}
-
-      {:ok,
-       %{
-         device_uid: device_uid,
-         target_kind: normalize_optional_string(Map.get(params, "target_kind")),
-         console_mode: normalize_optional_string(Map.get(params, "console_mode")),
-         credential_rule_id: normalize_optional_string(Map.get(params, "credential_rule_id")),
-         cols: Map.get(terminal, "cols"),
-         rows: Map.get(terminal, "rows"),
-         metadata: normalize_metadata(Map.get(params, "metadata"))
-       }}
+    with :ok <- validate_request_fields(params, @create_request_fields, "request body"),
+         {:ok, device_uid} <- normalize_required_string(Map.get(params, "device_uid"), "device_uid"),
+         {:ok, terminal} <- normalize_terminal(Map.get(params, "terminal")) do
+      {:ok, %{device_uid: device_uid, cols: Map.get(terminal, "cols"), rows: Map.get(terminal, "rows")}}
     end
   end
 
   defp normalize_create_request(_params), do: {:error, :invalid_request, "request body is required"}
+
+  defp normalize_terminal(nil), do: {:ok, %{}}
+
+  defp normalize_terminal(terminal) when is_map(terminal) do
+    with :ok <- validate_request_fields(terminal, @terminal_fields, "terminal"),
+         {:ok, cols} <- optional_dimension(Map.get(terminal, "cols"), "terminal.cols", 500),
+         {:ok, rows} <- optional_dimension(Map.get(terminal, "rows"), "terminal.rows", 200) do
+      {:ok, %{"cols" => cols, "rows" => rows}}
+    end
+  end
+
+  defp normalize_terminal(_terminal), do: {:error, :invalid_request, "terminal must be an object"}
+
+  defp optional_dimension(nil, _field, _max), do: {:ok, nil}
+
+  defp optional_dimension(value, _field, max) when is_integer(value) and value > 0 and value <= max, do: {:ok, value}
+
+  defp optional_dimension(_value, field, max),
+    do: {:error, :invalid_request, "#{field} must be an integer from 1 to #{max}"}
 
   defp normalize_uuid(value, field_name) when is_binary(value) do
     trimmed = String.trim(value)
@@ -157,8 +180,14 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionController do
 
   defp normalize_optional_string(_value), do: nil
 
-  defp normalize_metadata(value) when is_map(value), do: value
-  defp normalize_metadata(_value), do: %{}
+  defp validate_request_fields(params, allowed, label) do
+    unknown = params |> Map.keys() |> MapSet.new() |> MapSet.difference(allowed) |> MapSet.to_list()
+
+    case unknown do
+      [] -> :ok
+      fields -> {:error, :invalid_request, "#{label} contains unsupported fields: #{Enum.join(Enum.sort(fields), ", ")}"}
+    end
+  end
 
   defp session_json(session, ticket \\ nil) do
     data = %{
@@ -193,6 +222,24 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionController do
   defp format_reason(:not_console_credential_rule), do: "credential rule is not a Proxmox console rule"
   defp format_reason(:credential_rule_scope_denied), do: "credential rule scope does not include this device"
   defp format_reason(:credential_rule_target_denied), do: "credential rule target query does not include this device"
+  defp format_reason(:ambiguous_console_target), do: "console target identity is ambiguous"
+  defp format_reason(:console_inventory_unavailable), do: "authoritative console inventory is unavailable"
+  defp format_reason(:console_controller_not_found), do: "owning Proxmox controller was not found"
+  defp format_reason(:console_controller_endpoint_missing), do: "owning Proxmox controller has no endpoint"
+
+  defp format_reason(:controller_origin_mismatch),
+    do: "configured Proxmox origin does not match its authoritative endpoint"
+
+  defp format_reason(:invalid_controller_origin), do: "configured Proxmox origin is invalid"
+
+  defp format_reason(:console_assignment_unavailable), do: "no active console assignment matches the credential and agent"
+
+  defp format_reason(:ambiguous_console_assignment),
+    do: "multiple active console assignments match the credential and agent"
+
+  defp format_reason(:credential_use_policy_missing), do: "console credential has no actor-use policy"
+  defp format_reason(:credential_use_policy_invalid), do: "console credential actor-use policy is invalid"
+  defp format_reason(:credential_use_policy_denied), do: "console credential actor-use policy denied access"
   defp format_reason(:missing_agent_scope), do: "device has no assigned edge agent for console routing"
   defp format_reason(reason), do: Atom.to_string(reason)
 
@@ -213,8 +260,11 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionController do
     end
   end
 
-  defp require_permission(conn, permission) when is_binary(permission) do
+  defp require_permissions(conn) do
     scope = conn.assigns[:current_scope]
-    if RBAC.can?(scope, permission), do: :ok, else: {:error, :forbidden}
+
+    if Enum.all?(@console_permissions, &RBAC.can?(scope, &1)),
+      do: :ok,
+      else: {:error, :forbidden}
   end
 end

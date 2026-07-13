@@ -7,14 +7,16 @@ import (
 )
 
 const (
-	pluginID                    = "proxmox-inventory"
-	discoverySource             = "proxmox"
-	defaultTimeoutMS            = 30000
-	maxTimeoutMS                = 300000
+	pluginID                  = "proxmox-inventory"
+	discoverySource           = "proxmox"
+	hostCredentialSentinel    = "__SERVICERADAR_HOST_CREDENTIAL__"
+	hostProxmoxTicketSentinel = "__SERVICERADAR_HOST_PROXMOX_TICKET__"
+	defaultTimeoutMS          = 30000
+	maxTimeoutMS              = 300000
 	// guestProbeTimeoutMS caps the best-effort qemu-agent / lxc runtime probes so
 	// an unresponsive guest agent fails fast instead of consuming the full request
 	// timeout per guest (which starved later nodes of enumeration time).
-	guestProbeTimeoutMS = 3000
+	guestProbeTimeoutMS         = 3000
 	defaultHTTPMaxResponseBytes = 1024 * 1024
 	maxHTTPResponseBytes        = sdk.MaxHTTPResponseBytes
 	defaultMaxGuests            = 1000
@@ -32,17 +34,14 @@ type httpClient interface {
 }
 
 type Config struct {
-	BaseURL            string         `json:"base_url"`
-	APIToken           string         `json:"api_token"`
-	APITokenSecretRef  string         `json:"api_token_secret_ref"`
-	CredentialBroker   map[string]any `json:"credential_broker,omitempty"`
-	Targets            []Target       `json:"targets"`
-	TimeoutMS          int            `json:"timeout_ms"`
-	MaxResponseBytes   int            `json:"max_response_bytes"`
-	MaxGuests          int            `json:"max_guests"`
-	IncludeGuests      *bool          `json:"include_guests"`
-	InsecureSkipVerify bool           `json:"insecure_skip_verify"`
-	AutoDiscovery      bool           `json:"auto_discovery_enabled"`
+	BaseURL          string   `json:"base_url"`
+	APIToken         string   `json:"api_token"`
+	Targets          []Target `json:"targets"`
+	TimeoutMS        int      `json:"timeout_ms"`
+	MaxResponseBytes int      `json:"max_response_bytes"`
+	MaxGuests        int      `json:"max_guests"`
+	IncludeGuests    *bool    `json:"include_guests"`
+	AutoDiscovery    bool     `json:"auto_discovery_enabled"`
 }
 
 type Target struct {
@@ -54,16 +53,14 @@ type Target struct {
 }
 
 type configJSON struct {
-	BaseURL            string   `json:"base_url"`
-	APIToken           string   `json:"api_token"`
-	APITokenSecretRef  string   `json:"api_token_secret_ref"`
-	Targets            []Target `json:"targets"`
-	TimeoutMS          int      `json:"timeout_ms"`
-	MaxResponseBytes   int      `json:"max_response_bytes"`
-	MaxGuests          int      `json:"max_guests"`
-	IncludeGuests      *bool    `json:"include_guests"`
-	InsecureSkipVerify bool     `json:"insecure_skip_verify"`
-	AutoDiscovery      bool     `json:"auto_discovery_enabled"`
+	BaseURL          string   `json:"base_url"`
+	APIToken         string   `json:"api_token"`
+	Targets          []Target `json:"targets"`
+	TimeoutMS        int      `json:"timeout_ms"`
+	MaxResponseBytes int      `json:"max_response_bytes"`
+	MaxGuests        int      `json:"max_guests"`
+	IncludeGuests    *bool    `json:"include_guests"`
+	AutoDiscovery    bool     `json:"auto_discovery_enabled"`
 }
 
 type pluginInputsJSON struct {

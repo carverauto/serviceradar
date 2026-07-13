@@ -175,6 +175,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlanTest do
     callback_binding =
       reviewed_binding(%{
         callback_actions: ["remote_access.ssh_ca.bundle.read"],
+        ask_credential_on_launch: true,
         callback_credential_type_id: 91,
         callback_credential_organization_id: 2,
         callback_credential_injector_digest: String.duplicate("c", 64),
@@ -190,6 +191,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlanTest do
              )
 
     assert plan.operation.callback_actions == ["remote_access.ssh_ca.bundle.read"]
+    assert plan.snapshot["binding"]["ask_credential_on_launch"] == true
     assert plan.snapshot["binding"]["callback_credential_type_id"] == 91
     assert plan.snapshot["binding"]["callback_credential_organization_id"] == 2
 

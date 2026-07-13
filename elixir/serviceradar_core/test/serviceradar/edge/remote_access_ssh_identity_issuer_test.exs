@@ -6,6 +6,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
   alias ServiceRadar.Edge.RemoteAccessSSHIdentityIssuer
 
   @permission RemoteAccessSSHCertificatePolicy.permission()
+  @principal "srp_v1_6d8b1e49fbe24ad487ce2c5c"
+  @other_principal "srp_v1_91c5f16df8aa4d90a6db2ed7"
 
   defmodule SignerStub do
     @moduledoc false
@@ -44,16 +46,17 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
                %{
                  session_id: "session-1",
                  agent_id: "agent-1",
+                 username: "mfreeman",
                  public_key: "ssh-ed25519 AAAATEST user@workstation",
                  target: %{device_uid: "device-1", host: "10.0.0.10"},
+                 accounts: [%{name: "mfreeman", principals: [@principal]}],
                  principal_mappings: [
                    %{
                      "source" => "groups",
                      "value" => "linux-admins",
-                     "principals" => ["ubuntu", "root"]
+                     "principals" => [@principal, @other_principal]
                    }
                  ],
-                 requested_principals: ["ubuntu"],
                  ttl_seconds: 900
                },
                signer: SignerStub,
@@ -65,10 +68,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
     assert_receive {:sign_user_certificate, sign_request}
     assert_receive {:audit, audit}
 
-    assert sign_request.principals == ["ubuntu"]
+    assert sign_request.principals == [@principal]
     assert sign_request.ttl_seconds == 900
     assert sign_request.key_id == "sr:remote-access:session-1:user-1:agent-1:ssh:device-1"
-    assert envelope.ssh["username"] == "ubuntu"
+    assert envelope.ssh["username"] == "mfreeman"
     assert envelope.credential_mode == "ssh_certificate"
 
     assert audit[:action] == :remote_access_ssh_certificate_issue
@@ -77,7 +80,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
     assert audit[:severity] == :medium
     assert audit[:details].result == "success"
     assert audit[:details].credential_custody_mode == "short_lived_certificate"
-    assert audit[:details].principals == ["ubuntu"]
+    assert audit[:details].principals == [@principal]
     refute inspect(audit) =~ "AAAATEST user@workstation"
   end
 
@@ -87,17 +90,18 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
     attrs = %{
       session_id: "session-1",
       agent_id: "agent-1",
+      username: "mfreeman",
       public_key: "ssh-ed25519 AAAATEST user@workstation",
       target: %{device_uid: "device-1"},
+      accounts: [%{name: "mfreeman", principals: [@principal]}],
       claims: %{"groups" => ["linux-admins"]},
       idp_claims: %{"groups" => ["linux-admins"]},
       principal_mappings: [
-        %{"source" => "groups", "value" => "linux-admins", "principals" => ["ubuntu"]}
-      ],
-      requested_principals: ["ubuntu"]
+        %{"source" => "groups", "value" => "linux-admins", "principals" => [@principal]}
+      ]
     }
 
-    assert {:error, :ssh_principal_policy_required} =
+    assert {:error, :ssh_principal_denied} =
              RemoteAccessSSHIdentityIssuer.issue(actor, attrs,
                signer: SignerStub,
                audit_writer: {AuditWriterStub, test_pid: self()},
@@ -109,7 +113,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
     assert_receive {:audit, audit}
     assert audit[:severity] == :high
     assert audit[:details].result == "denied"
-    assert audit[:details].failure_reason == "ssh_principal_policy_required"
+    assert audit[:details].failure_reason == "ssh_principal_denied"
     refute inspect(audit) =~ "linux-admins"
   end
 
@@ -121,7 +125,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
       private_key:
         "-----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n-----END OPENSSH PRIVATE KEY-----",
       target: %{device_uid: "device-1"},
-      allowed_principals: ["ubuntu"]
+      username: "mfreeman",
+      accounts: [%{name: "mfreeman", principals: [@principal]}]
     }
 
     assert {:error, :sso_identity_required} =
@@ -148,13 +153,15 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
                %{
                  session_id: "session-1",
                  agent_id: "agent-1",
+                 username: "mfreeman",
                  public_key: "ssh-ed25519 AAAATEST user@workstation",
                  target: %{device_uid: "device-1"},
+                 accounts: [%{name: "mfreeman", principals: [@principal]}],
                  principal_mappings: [
                    %{
                      "source" => "email_domain",
                      "value" => "example.com",
-                     "principals" => ["alice"]
+                     "principals" => [@principal]
                    }
                  ]
                },
@@ -167,8 +174,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
     assert_receive {:sign_user_certificate, sign_request}
     assert_receive {:audit, audit}
     assert audit[:action] == :remote_access_ssh_certificate_issue
-    assert sign_request.principals == ["alice"]
-    assert envelope.principals == ["alice"]
+    assert sign_request.principals == [@principal]
+    assert envelope.principals == [@principal]
+    assert envelope.ssh["username"] == "mfreeman"
   end
 
   test "requires SSO-backed identity by default" do
@@ -180,9 +188,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
                %{
                  session_id: "session-1",
                  agent_id: "agent-1",
+                 username: "mfreeman",
                  public_key: "ssh-ed25519 AAAATEST",
                  target: %{device_uid: "device-1"},
-                 allowed_principals: ["ubuntu"]
+                 accounts: [%{name: "mfreeman", principals: [@principal]}]
                },
                signer: SignerStub,
                audit_writer: {AuditWriterStub, test_pid: self()},
@@ -202,9 +211,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
                %{
                  session_id: "session-1",
                  agent_id: "agent-1",
+                 username: "mfreeman",
                  public_key: "ssh-ed25519 AAAATEST",
                  target: %{device_uid: "device-1"},
-                 allowed_principals: ["ubuntu"]
+                 accounts: [%{name: "mfreeman", principals: [@principal]}]
                },
                signer: SignerStub,
                audit_writer: {AuditWriterStub, test_pid: self()},

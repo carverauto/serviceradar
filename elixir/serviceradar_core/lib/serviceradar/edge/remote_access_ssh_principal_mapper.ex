@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Edge.RemoteAccessSSHPrincipalMapper do
   @moduledoc """
-  Resolves SSH login principals from IdP claims and target policy mappings.
+  Resolves opaque SSH certificate principals from IdP claims and target policy
+  mappings. The Unix login username is selected and authorized separately.
 
   This is intentionally a pure mapper. It does not grant remote access by
   itself; certificate issuance still requires RBAC, target scope, TTL, and

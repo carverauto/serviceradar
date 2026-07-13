@@ -369,6 +369,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
          inventory_id: scope.inventory_id,
          inventory_group_names: List.wrap(value(binding, :inventory_group_names)),
          ask_limit_on_launch: value(binding, :ask_limit_on_launch),
+         ask_credential_on_launch: value(binding, :ask_credential_on_launch),
          dispatch_markers_retained: value(binding, :dispatch_markers_retained),
          project_update_on_launch: value(binding, :project_update_on_launch),
          project_id: value(binding, :project_id),

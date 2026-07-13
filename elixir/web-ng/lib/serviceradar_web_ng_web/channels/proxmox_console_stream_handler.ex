@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
   alias ServiceRadar.Edge.ProxmoxConsoleBroker
   alias ServiceRadar.Edge.ProxmoxConsoleSession
   alias ServiceRadar.Edge.ProxmoxConsoleSessions
+  alias ServiceRadarWebNG.RBAC
 
   require Logger
 
@@ -22,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
   @max_terminal_rows 200
   @max_browser_data_frame_bytes 65_536
   @max_browser_data_frame_encoded_bytes div(@max_browser_data_frame_bytes + 2, 3) * 4
+  @console_permissions ["devices.console.open", "devices.console.credentials.use"]
 
   @impl true
   def init(options) do
@@ -43,6 +45,7 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
   @impl true
   def handle_in({data, [opcode: :text]}, %{attached?: false} = state) do
     with {:ok, %{"type" => "attach"} = message} <- decode_json(data),
+         :ok <- authorize_console_use(state.scope),
          {:ok, ticket} <- required_string(message, "ticket"),
          :ok <- ensure_session_id(message, state.session_id),
          {:ok, %ProxmoxConsoleSession{} = session} <-
@@ -215,6 +218,12 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
   end
 
   defp ensure_session_id(_message, _session_id), do: :ok
+
+  defp authorize_console_use(scope) do
+    if Enum.all?(@console_permissions, &RBAC.can?(scope, &1)),
+      do: :ok,
+      else: {:error, :forbidden}
+  end
 
   defp required_string(map, key) do
     case Map.get(map, key) do

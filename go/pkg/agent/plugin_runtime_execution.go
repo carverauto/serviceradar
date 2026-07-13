@@ -30,21 +30,30 @@ import (
 )
 
 type pluginExecution struct {
-	manager               *PluginManager
-	assignment            *pluginAssignment
-	mode                  pluginExecutionMode
-	configJSON            []byte
-	actionResult          []byte
-	mediaBridge           *pluginCameraMediaBridge
-	consoleBridge         *pluginProxmoxConsoleBridge
-	credentialGrants      []credentialBrokerGrant
-	awxCallbackCredential *awxCallbackCredentialMemoryInput
-	mu                    sync.Mutex
-	conns                 map[uint32]net.Conn
-	wsConns               map[uint32]*websocket.Conn
-	artifactStreams       map[uint32]*pluginArtifactStream
-	nextHandle            uint32
-	submitted             bool
+	manager    *PluginManager
+	assignment *pluginAssignment
+	mode       pluginExecutionMode
+	// assignmentGenerationBound is set only by the manager-owned Proxmox
+	// streaming path after it registers the execution generation. Standalone
+	// scheduled/action executions do not participate in that revocation lease.
+	assignmentGenerationBound   bool
+	configJSON                  []byte
+	actionResult                []byte
+	mediaBridge                 *pluginCameraMediaBridge
+	consoleBridge               *pluginProxmoxConsoleBridge
+	consoleSessionSpec          proxmoxConsoleSessionSpec
+	credentialGrants            []credentialBrokerGrant
+	authorizedRequestBody       []byte
+	awxCallbackCredential       *awxCallbackCredentialMemoryInput
+	credentialGrantMutationUses map[string]int
+	proxmoxConsoleTicket        *proxmoxConsoleTicketState
+	mu                          sync.Mutex
+	conns                       map[uint32]net.Conn
+	wsConns                     map[uint32]*websocket.Conn
+	webSocketDialer             pluginWebSocketDialer
+	artifactStreams             map[uint32]*pluginArtifactStream
+	nextHandle                  uint32
+	submitted                   bool
 }
 
 func newPluginExecution(manager *PluginManager, assignment *pluginAssignment) *pluginExecution {
@@ -58,6 +67,28 @@ func newPluginExecution(manager *PluginManager, assignment *pluginAssignment) *p
 		artifactStreams: make(map[uint32]*pluginArtifactStream),
 		nextHandle:      1,
 	}
+}
+
+func (e *pluginExecution) ensureActiveProxmoxAssignment(ctx context.Context) error {
+	if e == nil || e.assignment == nil || !e.assignment.proxmoxHostAuthorityRequired ||
+		e.manager == nil {
+		return errPluginHostAuthorityDenied
+	}
+	if !e.assignmentGenerationBound {
+		return nil
+	}
+	if ctx == nil {
+		return errPluginHostAuthorityDenied
+	}
+	select {
+	case <-ctx.Done():
+		return errPluginHostAuthorityDenied
+	default:
+	}
+	if !e.manager.pluginAssignmentGenerationActive(e.assignment, e.mode) {
+		return errPluginHostAuthorityDenied
+	}
+	return nil
 }
 
 func (e *pluginExecution) instantiateHostModule(ctx context.Context, runtime wazero.Runtime) error {

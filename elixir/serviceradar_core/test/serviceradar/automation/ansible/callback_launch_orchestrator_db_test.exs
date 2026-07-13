@@ -3,6 +3,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Automation.Ansible.AutomationCallbackCommandAttempt, as: Attempt
   alias ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator.AshActions
   alias ServiceRadar.Automation.CallbackGrants.AshStore, as: GrantStore
   alias ServiceRadar.Automation.CallbackGrants.Authority
@@ -86,6 +87,35 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
     assert {:ok, persisted} = AshActions.persist_callback_plan(success.plan, success.callback)
     assert persisted.execution.callback_reference == success.callback.grant_id
     assert persisted.callback.command_id == success.callback.command_id
+
+    assert {:ok, attempt} =
+             Attempt.get_by_command_id(success.callback.command_id,
+               actor: SystemActor.system(:callback_attempt_claim_db_test)
+             )
+
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+    claims =
+      [Ash.UUID.generate(), Ash.UUID.generate()]
+      |> Task.async_stream(
+        fn token ->
+          Attempt.claim_dispatch(
+            attempt,
+            %{
+              lease_token: token,
+              lease_expires_at: DateTime.add(now, 15, :second),
+              now: now
+            },
+            actor: SystemActor.system(:callback_attempt_claim_db_test)
+          )
+        end,
+        ordered: false,
+        timeout: 10_000
+      )
+      |> Enum.map(fn {:ok, result} -> result end)
+
+    assert Enum.count(claims, &match?({:ok, %Attempt{state: :dispatching}}, &1)) == 1
+    assert Enum.count(claims, &match?({:error, _reason}, &1)) == 1
 
     create_callback_command(success)
 
@@ -245,6 +275,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
       "execution_environment_id" => 4,
       "machine_credential_id" => 5,
       "credential_ids" => [5],
+      "ask_credential_on_launch" => true,
       "callback_credential_type_id" => 6,
       "callback_credential_organization_id" => 2,
       "callback_credential_injector_digest" => String.duplicate("c", 64),
@@ -444,7 +475,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
          project_id, scm_revision, content_sha256, project_update_on_launch,
          execution_environment_id, credentials, machine_credential_id,
          run_mode_supported, check_mode_supported, ask_inventory_on_launch,
-         ask_limit_on_launch, ask_job_type_on_launch, dispatch_markers_retained,
+         ask_limit_on_launch, ask_credential_on_launch, ask_job_type_on_launch,
+         dispatch_markers_retained,
          inventory_groups_verified, inventory_group_names, input_schema,
          input_classifications, callback_actions, callback_credential_type_id,
          callback_credential_organization_id, callback_credential_injector_digest,
@@ -454,7 +486,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
         (($1::text)::uuid, ($2::text)::uuid, 42, 1, true, 'approved', ($3::text)::uuid,
          (now() AT TIME ZONE 'utc') + INTERVAL '1 day', 'fixed', ARRAY[34]::bigint[],
          3, $4, $5, false, 4, ARRAY['{"id":5,"kind":"ssh"}'::jsonb], 5,
-         true, false, false, true, false, true, true, ARRAY['linux']::text[],
+         true, false, false, true, true, false, true, true, ARRAY['linux']::text[],
          '{}'::jsonb, '{}'::jsonb,
          ARRAY['remote_access.ssh_ca.bundle.read']::text[], 6, 2, $6, 'ssh_ca_callback', 11,
          'human', 'callback-reviewer', (now() AT TIME ZONE 'utc'), '{}'::jsonb)

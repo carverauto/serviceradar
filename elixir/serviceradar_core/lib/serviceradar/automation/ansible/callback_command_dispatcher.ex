@@ -11,11 +11,16 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.AutomationCallbackCommandAttempt, as: Attempt
   alias ServiceRadar.Automation.Ansible.AutomationExecution
+  alias ServiceRadar.Automation.Ansible.AutomationExecutionTarget
   alias ServiceRadar.Automation.Ansible.AutomationOperation
   alias ServiceRadar.Automation.Ansible.AwxClient
   alias ServiceRadar.Automation.Ansible.CallbackCommandContract
   alias ServiceRadar.Automation.Ansible.Controller
+  alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
+  alias ServiceRadar.Automation.Ansible.SecureExecutionLifecycle
   alias ServiceRadar.Automation.CallbackGrants.AshStore, as: GrantStore
+  alias ServiceRadar.Automation.CallbackGrants.Lifecycle
+  alias ServiceRadar.Automation.CallbackGrants.Runtime
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus
 
@@ -38,11 +43,18 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
          true <-
            CallbackCommandContract.context_matches?(attempt, resources.execution, context) ||
              {:error, :callback_command_context_digest_mismatch},
+         :ok <- authorize_privileged_continuation(attempt, resources, opts),
          {:ok, claimed, lease_token} <- claim(attempt, now, opts) do
       dispatch_claimed(claimed, lease_token, resources, request, context, now, opts)
     else
-      false -> {:error, :callback_command_contract_mismatch}
-      {:error, _reason} = error -> error
+      false ->
+        {:error, :callback_command_contract_mismatch}
+
+      {:error, {:callback_current_authority_denied, reason}} ->
+        handle_authority_denial(attempt, reason, now, opts)
+
+      {:error, _reason} = error ->
+        error
     end
   rescue
     _ -> {:error, :callback_command_dispatch_unavailable}
@@ -51,6 +63,37 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
   end
 
   def dispatch(_attempt, _opts), do: {:error, :invalid_callback_command_attempt}
+
+  @doc "Reauthorizes a known in-flight callback child without redispatching its command."
+  @spec reauthorize_continuation(Attempt.t(), keyword()) :: :ok | {:error, term()}
+  def reauthorize_continuation(attempt, opts \\ [])
+
+  def reauthorize_continuation(%Attempt{} = attempt, opts) when is_list(opts) do
+    case authority_mode(attempt) do
+      mode when mode in [:pending_job, :watchdog] ->
+        now = now(opts)
+
+        with {:ok, resources} <- load_resources(attempt, opts),
+             :ok <- authorize_callback(mode, resources, opts) do
+          :ok
+        else
+          {:error, {:callback_current_authority_denied, reason}} ->
+            handle_authority_denial(attempt, reason, now, opts)
+
+          {:error, _reason} = error ->
+            error
+        end
+
+      _mode ->
+        :ok
+    end
+  rescue
+    _ -> {:error, :callback_continuation_reauthorization_unavailable}
+  catch
+    _, _ -> {:error, :callback_continuation_reauthorization_unavailable}
+  end
+
+  def reauthorize_continuation(_attempt, _opts), do: {:error, :invalid_callback_command_attempt}
 
   defp load_resources(attempt, opts) do
     loader = Keyword.get(opts, :resource_loader, &load_persisted_resources/1)
@@ -68,10 +111,19 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
          {:ok, %Controller{} = controller} <-
            required(Controller.get_by_id(attempt.controller_id, actor: @actor)),
          {:ok, grant} <- GrantStore.fetch(attempt.grant_id, nil),
+         {:ok, targets} <-
+           AutomationExecutionTarget.list_for_execution(attempt.execution_id, actor: @actor),
          true <-
            controller.agent_id == attempt.dispatch_agent_id ||
              {:error, :callback_command_controller_agent_mismatch} do
-      {:ok, %{operation: operation, execution: execution, controller: controller, grant: grant}}
+      {:ok,
+       %{
+         operation: operation,
+         execution: execution,
+         controller: controller,
+         grant: grant,
+         targets: targets
+       }}
     else
       false -> {:error, :callback_command_resource_mismatch}
       {:error, _reason} = error -> error
@@ -116,6 +168,161 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
 
   defp rebuild_request(_attempt, _resources),
     do: {:error, :callback_command_stage_not_dispatchable}
+
+  defp authorize_privileged_continuation(attempt, resources, opts) do
+    case authority_mode(attempt) do
+      nil -> :ok
+      mode -> authorize_callback(mode, resources, opts)
+    end
+  end
+
+  defp authority_mode(%Attempt{stage: :launch_job}), do: :launch
+
+  defp authority_mode(%Attempt{stage: :fetch_job, purpose: purpose})
+       when purpose in [:accepted_job_proof, :scope_poll],
+       do: :pending_job
+
+  defp authority_mode(%Attempt{stage: :fetch_host_summaries, purpose: :host_scope_proof}),
+    do: :pending_job
+
+  defp authority_mode(%Attempt{stage: :fetch_job, purpose: :terminal_poll}), do: :watchdog
+
+  defp authority_mode(%Attempt{stage: :fetch_host_summaries, purpose: :terminal_confirmation}),
+    do: :watchdog
+
+  # Launch reconciliation is allowed to discover an otherwise orphaned child;
+  # once its job ID is known, the accepted-job proof is reauthorized and a
+  # contraction routes through durable cancellation instead of activation.
+  defp authority_mode(_attempt), do: nil
+
+  defp authorize_callback(mode, resources, opts) do
+    authorizer = Keyword.get(opts, :callback_authorizer, &authorize_callback_with_lifecycle/3)
+
+    case authorizer.(mode, resources.grant, opts) do
+      :ok -> :ok
+      {:ok, _result} -> :ok
+      {:error, reason} -> {:error, {:callback_current_authority_denied, reason}}
+      _ -> {:error, {:callback_current_authority_denied, :current_authority_required}}
+    end
+  end
+
+  defp authorize_callback_with_lifecycle(mode, grant, opts) do
+    with {:ok, lifecycle_opts} <- callback_lifecycle_opts(opts) do
+      case mode do
+        :launch -> Lifecycle.authorize_launch_dispatch(value(grant, :id), lifecycle_opts)
+        :pending_job -> Lifecycle.reauthorize_pending_job(value(grant, :id), lifecycle_opts)
+        :watchdog -> Lifecycle.reauthorize_watchdog(value(grant, :id), lifecycle_opts)
+      end
+    end
+  end
+
+  defp callback_lifecycle_opts(opts) do
+    case Keyword.fetch(opts, :lifecycle_opts) do
+      {:ok, lifecycle_opts} when is_list(lifecycle_opts) -> {:ok, lifecycle_opts}
+      _ -> Runtime.lifecycle_opts()
+    end
+  end
+
+  defp resources_for_denial(attempt, opts) do
+    case load_resources(attempt, opts) do
+      {:ok, resources} -> resources
+      _ -> nil
+    end
+  end
+
+  defp handle_authority_denial(attempt, reason, now, opts) do
+    case record_authority_denial(
+           attempt,
+           resources_for_denial(attempt, opts),
+           reason,
+           now,
+           opts
+         ) do
+      :ok ->
+        {:error, reason}
+
+      {:error, marker_reason} ->
+        {:error,
+         {:callback_authority_denial_persistence_failed, SafeFailureEvidence.code(marker_reason)}}
+    end
+  end
+
+  defp record_authority_denial(attempt, resources, reason, now, opts) when is_map(resources) do
+    lifecycle_result =
+      case attempt.stage do
+        :launch_job -> mark_prelaunch_denied(resources, reason, now, opts)
+        _known_child -> mark_active_contraction(resources, reason, opts)
+      end
+
+    marker = Keyword.get(opts, :authority_denial_marker, &mark_authority_denied_persisted/4)
+
+    with :ok <- normalize_denial_result(lifecycle_result) do
+      normalize_denial_result(marker.(attempt, reason, now, opts))
+    end
+  end
+
+  defp record_authority_denial(_attempt, _resources, _reason, _now, _opts),
+    do: {:error, :callback_authority_denial_resources_unavailable}
+
+  defp mark_prelaunch_denied(resources, _reason, now, opts) do
+    marker =
+      Keyword.get(opts, :prelaunch_denial_handler, fn %{
+                                                        operation: operation,
+                                                        execution: execution
+                                                      } ->
+        diagnostics = %{"reason_code" => "current_authority_denied"}
+
+        with {:ok, _execution} <-
+               AutomationExecution.record_state(
+                 execution,
+                 %{state: :failed, ended_at: now, diagnostics: diagnostics},
+                 actor: @actor
+               ),
+             {:ok, _operation} <-
+               AutomationOperation.record_state(
+                 operation,
+                 %{state: :failed, ended_at: now, diagnostics: diagnostics},
+                 actor: @actor
+               ) do
+          :ok
+        end
+      end)
+
+    marker.(resources)
+  end
+
+  defp mark_active_contraction(resources, reason, opts) do
+    handler =
+      Keyword.get(opts, :active_contraction_handler, fn resources, reason ->
+        SecureExecutionLifecycle.fail_closed(
+          resources.operation,
+          resources.execution,
+          resources.targets,
+          :cancel_failed,
+          reason,
+          cancel_required: true
+        )
+      end)
+
+    handler.(resources, reason)
+  end
+
+  defp mark_authority_denied_persisted(attempt, reason, now, _opts) do
+    Attempt.deny_incomplete(
+      attempt,
+      %{
+        processed_at: now,
+        outcome_code: "current_authority_denied",
+        last_error_code: SafeFailureEvidence.code(reason)
+      },
+      actor: @actor
+    )
+  end
+
+  defp normalize_denial_result(:ok), do: :ok
+  defp normalize_denial_result({:ok, _result}), do: :ok
+  defp normalize_denial_result({:error, _reason} = error), do: error
+  defp normalize_denial_result(_result), do: {:error, :callback_authority_denial_unconfirmed}
 
   defp claim(attempt, now, opts) do
     lease_token = Ecto.UUID.generate()
@@ -392,11 +599,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
   defp required({:ok, value}), do: {:ok, value}
   defp required({:error, reason}), do: {:error, reason}
 
-  defp error_code(reason) do
-    reason
-    |> inspect(limit: 10, printable_limit: 128)
-    |> String.slice(0, 255)
-  end
+  defp error_code(reason), do: SafeFailureEvidence.code(reason)
 
   defp now(opts),
     do: opts |> Keyword.get(:now, DateTime.utc_now()) |> DateTime.truncate(:microsecond)

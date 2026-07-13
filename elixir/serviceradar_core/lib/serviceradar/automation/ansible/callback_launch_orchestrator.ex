@@ -329,6 +329,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
       "execution_environment_id" => plan.execution.execution_environment_id,
       "machine_credential_id" => plan.execution.machine_credential_id,
       "credential_ids" => value(plan.execution.credential_snapshot, :credential_ids),
+      "ask_credential_on_launch" => value(binding, :ask_credential_on_launch),
       "callback_credential_type_id" => value(binding, :callback_credential_type_id),
       "callback_credential_organization_id" =>
         value(binding, :callback_credential_organization_id),

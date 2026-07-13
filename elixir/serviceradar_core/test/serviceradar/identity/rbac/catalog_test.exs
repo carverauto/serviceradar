@@ -20,6 +20,8 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
   )
 
   @remote_access_open_permissions ~w(
+    devices.console.open
+    devices.console.credentials.use
     devices.remote_access.ssh.open
     devices.remote_access.ssh.target.override
     devices.remote_access.rdp.open

@@ -10,6 +10,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
   alias ServiceRadar.Automation.Ansible.AwxClient
   alias ServiceRadar.Automation.Ansible.Targeting
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
+  alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Plugins.SecretRefs
 
   @context_schema "serviceradar.automation_execution_command/v1"
@@ -201,9 +202,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
     with true <- is_map(args),
          {:ok, scope} <- AwxClient.broker_scope(value(controller, :base_url), verb, args) do
       MapSet.new(Map.keys(payload)) ==
-        MapSet.new(
-          ~w(schema verb args base_url controller_id controller_name insecure_skip_verify credential_broker)
-        ) and
+        expected_payload_keys(scope.authorized_request_body_b64) and
         payload["schema"] == @awx_command_schema and
         payload["verb"] == verb and
         to_string(payload["controller_id"]) == to_string(value(controller, :id)) and
@@ -211,6 +210,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
         payload["base_url"] == scope.base_url and
         payload["insecure_skip_verify"] == insecure_skip_verify?(controller) and
         payload["args"] == args and
+        payload["authorized_request_body_b64"] == scope.authorized_request_body_b64 and
         broker_matches?(broker, attempt, controller, scope)
     else
       _ -> false
@@ -305,7 +305,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
       MapSet.new(
         ~w(schema grant_id grant_type credential_secret_ref consumer target resolution_location inject allow ttl_seconds expires_at)
       ) and
-      broker["schema"] == "serviceradar.edge_credential_broker_grant.v1" and
+      broker["schema"] == expected_broker_schema(scope.request_body_policy) and
       uuid?(broker["grant_id"]) and
       broker["grant_type"] == "awx_oauth2_token" and
       exact_credential_secret_ref?(
@@ -330,6 +330,21 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
   end
 
   defp broker_matches?(_broker, _attempt, _controller, _request), do: false
+
+  defp expected_payload_keys(nil) do
+    MapSet.new(
+      ~w(schema verb args base_url controller_id controller_name insecure_skip_verify credential_broker)
+    )
+  end
+
+  defp expected_payload_keys(_authorized_request_body_b64) do
+    MapSet.put(expected_payload_keys(nil), "authorized_request_body_b64")
+  end
+
+  defp expected_broker_schema(policy) when is_map(policy) and map_size(policy) > 0,
+    do: CredentialBrokerGrant.body_bound_schema()
+
+  defp expected_broker_schema(_policy), do: CredentialBrokerGrant.schema()
 
   defp exact_credential_secret_ref?(actual, controller, verb) do
     case AwxClient.credential_secret_id_for_verb(controller, verb) do

@@ -1,6 +1,9 @@
 defmodule ServiceRadarWebNGWeb.AuthControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.User
+  alias ServiceRadar.Identity.Users
   alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
@@ -113,6 +116,23 @@ defmodule ServiceRadarWebNGWeb.AuthControllerTest do
 
       assert redirected_to(conn) == ~p"/dashboard"
       assert get_session(conn, "user_token")
+    end
+
+    test "password login replaces a historical SSO authentication method before session creation", %{
+      conn: conn
+    } do
+      set_auth_mode(:active_sso)
+      user = AshTestHelpers.user_fixture()
+      actor = SystemActor.system(:test)
+
+      assert {:ok, _user} = Users.record_login(user, :oidc, actor: actor)
+
+      conn = post_login(conn, user.email, @fixture_password)
+
+      assert redirected_to(conn) == ~p"/dashboard"
+      assert get_session(conn, "user_token")
+      assert {:ok, persisted} = Ash.get(User, user.id, actor: actor)
+      assert persisted.last_auth_method == :password
     end
 
     test "password_only mode allows any account regardless of the flag", %{conn: conn} do

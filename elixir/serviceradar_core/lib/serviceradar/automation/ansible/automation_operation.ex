@@ -155,6 +155,7 @@ defmodule ServiceRadar.Automation.Ansible.AutomationOperation do
       [:read, :by_id, :history_by_id, :history_by_ids, :history, :active],
       @view_check
     )
+
     action_with_permission([:request_cancel], @cancel_check)
   end
 

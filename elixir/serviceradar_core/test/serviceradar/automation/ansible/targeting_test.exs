@@ -252,6 +252,32 @@ defmodule ServiceRadar.Automation.Ansible.TargetingTest do
                  :run
                )
     end
+
+    test "requires the reviewed credential launch prompt only for callback bindings" do
+      assert {:ok, plan} = Targeting.build_child([membership()], "controller-1", [])
+
+      callback = %{
+        callback_actions: ["remote_access.ssh_ca.bundle.read"],
+        callback_credential_type_id: 91,
+        callback_credential_organization_id: 2,
+        callback_credential_injector_digest: String.duplicate("c", 64),
+        callback_credential_slot: "ssh_ca_callback"
+      }
+
+      assert {:error, :binding_callback_credentials_not_promptable} =
+               Targeting.validate_binding(reviewed_binding(callback), plan, :run)
+
+      assert {:ok, validated} =
+               Targeting.validate_binding(
+                 reviewed_binding(Map.put(callback, :ask_credential_on_launch, true)),
+                 plan,
+                 :run
+               )
+
+      assert validated.ask_credential_on_launch == true
+      assert {:ok, ordinary} = Targeting.validate_binding(reviewed_binding(), plan, :run)
+      assert ordinary.ask_credential_on_launch == false
+    end
   end
 
   test "snapshot_digest/1 is stable across map key order" do

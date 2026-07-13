@@ -15,6 +15,11 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManagerTest do
       :ok
     end
 
+    def remove_webrtc_viewer(session_id, viewer_session_id, _opts) do
+      send(test_pid(), {:offer_provider_remove_viewer, session_id, viewer_session_id})
+      :ok
+    end
+
     defp test_pid do
       Application.fetch_env!(:serviceradar_core_elx, :remote_desktop_media_manager_test_pid)
     end
@@ -147,8 +152,56 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManagerTest do
     assert :ok =
              MediaSessionManager.remove_webrtc_viewer("desktop-manager-viewer-1", "viewer-1", server: server)
 
-    assert %{viewer_count: 0} =
-             MediaSessionManager.fetch_session("desktop-manager-viewer-1", server: server)
+    assert MediaSessionManager.fetch_session("desktop-manager-viewer-1", server: server) == nil
+    assert_receive {:offer_provider_remove_viewer, "desktop-manager-viewer-1", "viewer-1"}
+  end
+
+  test "retains active siblings but deletes all state after the last viewer leaves" do
+    server = unique_server_name()
+    start_supervised!({MediaSessionManager, name: server})
+    session_id = "desktop-manager-viewer-lifecycle-1"
+
+    for viewer_id <- ["viewer-1", "viewer-2"] do
+      assert :ok =
+               MediaSessionManager.add_webrtc_viewer(
+                 session_id,
+                 viewer_id,
+                 %{pid: self()},
+                 server: server,
+                 offer_provider: OfferProviderStub,
+                 transport: "webrtc_desktop_media"
+               )
+    end
+
+    assert :ok = MediaSessionManager.remove_webrtc_viewer(session_id, "viewer-1", server: server)
+    assert %{viewer_count: 1} = MediaSessionManager.fetch_session(session_id, server: server)
+
+    assert :ok = MediaSessionManager.remove_webrtc_viewer(session_id, "viewer-2", server: server)
+    assert MediaSessionManager.fetch_session(session_id, server: server) == nil
+  end
+
+  test "terminal cleanup closes every provider and deletes session accounting" do
+    server = unique_server_name()
+    start_supervised!({MediaSessionManager, name: server})
+    session_id = "desktop-manager-terminal-1"
+
+    for viewer_id <- ["viewer-1", "viewer-2"] do
+      assert :ok =
+               MediaSessionManager.add_webrtc_viewer(
+                 session_id,
+                 viewer_id,
+                 %{pid: self()},
+                 server: server,
+                 offer_provider: OfferProviderStub,
+                 transport: "webrtc_desktop_media"
+               )
+    end
+
+    assert :ok = MediaSessionManager.close_session(session_id, server: server)
+    assert_receive {:offer_provider_remove_viewer, ^session_id, "viewer-1"}
+    assert_receive {:offer_provider_remove_viewer, ^session_id, "viewer-2"}
+    assert MediaSessionManager.fetch_session(session_id, server: server) == nil
+    assert :ok = MediaSessionManager.close_session(session_id, server: server)
   end
 
   test "accepts frames without viewers but marks acknowledgement paused" do

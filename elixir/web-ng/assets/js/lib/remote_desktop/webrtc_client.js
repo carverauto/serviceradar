@@ -192,6 +192,7 @@ export class RemoteDesktopWebRTCClient {
     this.lastMediaAckBinding = null
     this.mediaAckTimer = null
     this.mediaBackpressurePaused = false
+    this.connectGeneration = 0
   }
 
   async connect() {
@@ -200,6 +201,7 @@ export class RemoteDesktopWebRTCClient {
     }
 
     this.closed = false
+    const generation = ++this.connectGeneration
     this.onStatus("creating_viewer_session")
 
     const sessionBody = await this.fetchJson(this.signalingPath, {method: "POST"})
@@ -208,30 +210,49 @@ export class RemoteDesktopWebRTCClient {
     const offerSdp = session.offer_sdp
 
     if (!viewerSessionId || !offerSdp) {
+      if (viewerSessionId) {
+        await this.closeReturnedViewer(viewerSessionId, "desktop viewer creation returned an incomplete offer")
+      }
       throw new Error("remote desktop WebRTC offer was not returned")
     }
 
+    if (this.closed || generation !== this.connectGeneration) {
+      await this.closeReturnedViewer(viewerSessionId, "desktop viewer closed during creation")
+      throw new Error("remote desktop WebRTC connection was closed")
+    }
+
     this.viewerSessionId = viewerSessionId
-    this.peerConnection = this.peerConnectionFactory({
-      iceServers: session.ice_servers || this.iceServers || [],
-    })
-    this.attachPeerHandlers()
+    try {
+      this.peerConnection = this.peerConnectionFactory({
+        iceServers: session.ice_servers || this.iceServers || [],
+      })
+      this.attachPeerHandlers()
 
-    await this.peerConnection.setRemoteDescription({type: "offer", sdp: validateDesktopOfferSdp(offerSdp)})
-    const answer = await this.peerConnection.createAnswer()
-    await this.peerConnection.setLocalDescription(answer)
+      await this.peerConnection.setRemoteDescription({type: "offer", sdp: validateDesktopOfferSdp(offerSdp)})
+      this.assertActiveConnection(generation)
+      const answer = await this.peerConnection.createAnswer()
+      this.assertActiveConnection(generation)
+      await this.peerConnection.setLocalDescription(answer)
+      this.assertActiveConnection(generation)
 
-    await this.fetchJson(`${this.signalingPath}/${viewerSessionId}/answer`, {
-      method: "POST",
-      body: JSON.stringify({sdp: answer.sdp}),
-    })
+      await this.fetchJson(`${this.signalingPath}/${viewerSessionId}/answer`, {
+        method: "POST",
+        body: JSON.stringify({sdp: answer.sdp}),
+      })
+      this.assertActiveConnection(generation)
 
-    this.onStatus("answer_applied")
+      this.onStatus("answer_applied")
 
-    return {
-      viewerSessionId,
-      transport: session.transport,
-      expiresAt: session.expires_at,
+      return {
+        viewerSessionId,
+        transport: session.transport,
+        expiresAt: session.expires_at,
+      }
+    } catch (error) {
+      if (!this.closed) {
+        this.close("desktop viewer connect failed")
+      }
+      throw error
     }
   }
 
@@ -263,6 +284,7 @@ export class RemoteDesktopWebRTCClient {
     }
 
     this.closed = true
+    this.connectGeneration += 1
     const closeReason = normalizeDesktopMediaCloseReason(reason)
     const viewerSessionId = this.viewerSessionId
     this.viewerSessionId = null
@@ -295,6 +317,10 @@ export class RemoteDesktopWebRTCClient {
   attachPeerHandlers() {
     this.peerConnection.addEventListener("datachannel", (event) => this.attachDataChannel(event.channel))
     this.peerConnection.addEventListener("track", (event) => {
+      if (this.closed) {
+        return
+      }
+
       const mediaStream = desktopMediaStreamFromTrackEvent(event)
 
       if (mediaStream) {
@@ -302,7 +328,7 @@ export class RemoteDesktopWebRTCClient {
       }
     })
     this.peerConnection.addEventListener("icecandidate", (event) => {
-      if (!event.candidate || !this.viewerSessionId) {
+      if (this.closed || !event.candidate || !this.viewerSessionId) {
         return
       }
 
@@ -322,6 +348,11 @@ export class RemoteDesktopWebRTCClient {
       this.onStatus(`connection_${state}`)
 
       if (state === "failed" || state === "closed") {
+        if (this.closed) {
+          return
+        }
+
+        this.close(`desktop peer connection ${state}`)
         this.onClose(state)
       }
     })
@@ -348,8 +379,19 @@ export class RemoteDesktopWebRTCClient {
         this.flushPendingMediaAck()
       }
     })
-    channel.addEventListener("close", () => this.onClose(label))
-    channel.addEventListener("error", (event) => this.onError(event?.error || event))
+    channel.addEventListener("close", () => {
+      if (!this.closed) {
+        this.close(`desktop ${label} channel closed`)
+        this.onClose(label)
+      }
+    })
+    channel.addEventListener("error", (event) => {
+      if (!this.closed) {
+        const error = event?.error || event
+        this.close(`desktop ${label} channel failed`)
+        this.onError(error)
+      }
+    })
     channel.addEventListener("message", (event) => this.handleChannelMessage(label, event.data))
   }
 
@@ -593,6 +635,24 @@ export class RemoteDesktopWebRTCClient {
       headers: csrfHeaders(this.documentRef),
       ...options,
     }).then(jsonResponse)
+  }
+
+  assertActiveConnection(generation) {
+    if (this.closed || generation !== this.connectGeneration) {
+      throw new Error("remote desktop WebRTC connection was closed")
+    }
+  }
+
+  closeReturnedViewer(viewerSessionId, reason) {
+    if (!viewerSessionId || !this.signalingPath) {
+      return Promise.resolve()
+    }
+
+    return this.fetchJson(`${this.signalingPath}/${viewerSessionId}`, {
+      method: "DELETE",
+      body: JSON.stringify({reason: normalizeDesktopMediaCloseReason(reason)}),
+      keepalive: true,
+    }).catch(() => {})
   }
 }
 

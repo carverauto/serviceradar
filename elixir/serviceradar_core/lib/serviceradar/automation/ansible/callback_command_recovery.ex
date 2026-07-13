@@ -9,8 +9,13 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecovery do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.AutomationCallbackCommandAttempt, as: Attempt
+  alias ServiceRadar.Automation.Ansible.AutomationExecution
+  alias ServiceRadar.Automation.Ansible.AutomationExecutionTarget
+  alias ServiceRadar.Automation.Ansible.AutomationOperation
   alias ServiceRadar.Automation.Ansible.CallbackCommandDispatcher
   alias ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator, as: Coordinator
+  alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
+  alias ServiceRadar.Automation.Ansible.SecureExecutionLifecycle
   alias ServiceRadar.Automation.CallbackGrants.AshStore, as: GrantStore
   alias ServiceRadar.Automation.CallbackGrants.Lifecycle
   alias ServiceRadar.Automation.CallbackGrants.Runtime
@@ -21,6 +26,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecovery do
   @actor SystemActor.system(:automation_callback_command_recovery)
   @terminal_command_states [:completed, :failed, :expired, :canceled, :offline]
   @active_command_states [:queued, :sent, :acknowledged, :running]
+  @activation_cleanup_retry_seconds 120
 
   @spec recover_once(keyword()) :: %{
           attempts: non_neg_integer(),
@@ -40,7 +46,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecovery do
           0
       end
 
-    cleanup_intents = recover_activation_cleanup(opts)
+    cleanup_intents = recover_activation_cleanup(now, opts)
     %{attempts: attempts, cleanup_intents: cleanup_intents}
   end
 
@@ -82,7 +88,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecovery do
     do: {:error, {:persisted_callback_command_missing, attempt.state}}
 
   defp recover_with_command(attempt, command, now, opts) do
-    with :ok <- exact_command(attempt, command) do
+    with :ok <- exact_command(attempt, command),
+         :ok <- reauthorize_inflight_continuation(attempt, command, opts) do
       cond do
         command.status in @terminal_command_states ->
           process_terminal(command, opts)
@@ -99,6 +106,25 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecovery do
     end
   end
 
+  defp reauthorize_inflight_continuation(attempt, command, opts)
+       when command.status in @active_command_states do
+    authorizer =
+      Keyword.get(
+        opts,
+        :continuation_authorizer,
+        &CallbackCommandDispatcher.reauthorize_continuation/1
+      )
+
+    case authorizer.(attempt) do
+      :ok -> :ok
+      {:ok, _result} -> :ok
+      {:error, _reason} = error -> error
+      _ -> {:error, :callback_continuation_reauthorization_unavailable}
+    end
+  end
+
+  defp reauthorize_inflight_continuation(_attempt, _command, _opts), do: :ok
+
   defp process_terminal(command, opts) do
     coordinator(opts).process_persisted(
       command.id,
@@ -110,14 +136,16 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecovery do
 
   defp expire_attempt(attempt, now, opts) do
     with {:ok, lifecycle_opts} <- lifecycle_opts(opts),
-         {:ok, _grant} <-
+         revoke_result =
            lifecycle(opts).revoke(
              attempt.grant_id,
              :callback_command_deadline_elapsed,
              lifecycle_opts
            ),
+         :ok <- authority_removed(revoke_result),
+         :ok <- fail_postactivation_execution(attempt, opts),
          {:ok, _attempt} <-
-           Attempt.mark_deadline_elapsed(
+           mark_deadline_elapsed(
              attempt,
              %{
                now: now,
@@ -125,14 +153,69 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecovery do
                outcome_code: "deadline_elapsed_after_revocation",
                last_error_code: "callback_command_deadline_elapsed"
              },
-             actor: @actor
+             opts
            ) do
       {:ok, :deadline_revoked}
     end
   end
 
-  defp recover_activation_cleanup(opts) do
-    case list_activation_cleanup_pending(opts) do
+  defp fail_postactivation_execution(%Attempt{purpose: purpose} = attempt, opts)
+       when purpose in [:terminal_poll, :terminal_confirmation] do
+    handler =
+      Keyword.get(opts, :postactivation_failure_handler, fn attempt, reason ->
+        fail_postactivation_persisted(attempt, reason, opts)
+      end)
+
+    case handler.(attempt, :callback_command_deadline_elapsed) do
+      :ok -> :ok
+      {:ok, _result} -> :ok
+      {:error, _reason} = error -> error
+      _ -> {:error, :callback_postactivation_failure_unconfirmed}
+    end
+  end
+
+  defp fail_postactivation_execution(_attempt, _opts), do: :ok
+
+  defp fail_postactivation_persisted(attempt, reason, opts) do
+    with {:ok, %AutomationOperation{} = operation} <-
+           required(AutomationOperation.get_by_id(attempt.operation_id, actor: @actor)),
+         {:ok, %AutomationExecution{} = execution} <-
+           required(AutomationExecution.get_by_id(attempt.execution_id, actor: @actor)),
+         {:ok, targets} <-
+           AutomationExecutionTarget.list_for_execution(attempt.execution_id, actor: @actor),
+         true <- targets != [] || {:error, :callback_execution_targets_missing},
+         {:ok, _failed} <-
+           SecureExecutionLifecycle.fail_closed(
+             operation,
+             execution,
+             targets,
+             :cancel_failed,
+             reason,
+             Keyword.put(secure_lifecycle_opts(opts), :cancel_required, true)
+           ) do
+      :ok
+    else
+      false -> {:error, :callback_execution_targets_missing}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp mark_deadline_elapsed(attempt, attrs, opts) do
+    case Keyword.get(opts, :deadline_marker) do
+      fun when is_function(fun, 2) -> fun.(attempt, attrs)
+      _ -> Attempt.mark_deadline_elapsed(attempt, attrs, actor: @actor)
+    end
+  end
+
+  defp authority_removed({:ok, _grant}), do: :ok
+
+  defp authority_removed({:error, {:grant_already_terminal, state}})
+       when state in [:revoked, :expired], do: :ok
+
+  defp authority_removed({:error, _reason} = error), do: error
+
+  defp recover_activation_cleanup(now, opts) do
+    case list_activation_cleanup_pending(now, opts) do
       {:ok, attempts} ->
         Enum.each(attempts, &safe_recover_activation_cleanup(&1, opts))
         length(attempts)
@@ -146,8 +229,9 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecovery do
   defp safe_recover_activation_cleanup(attempt, opts) do
     with {:ok, grant} <- fetch_grant(attempt.grant_id, opts) do
       case value(grant, :credential_cleanup_state) do
-        state when state in [:deleted, :deleting] -> :ok
-        _state -> delete_activated(attempt.grant_id, opts)
+        :deleted -> :ok
+        :deleting -> delete_activated(attempt.grant_id, true, opts)
+        _state -> delete_activated(attempt.grant_id, false, opts)
       end
     end
   rescue
@@ -164,10 +248,11 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecovery do
       )
   end
 
-  defp delete_activated(grant_id, opts) do
+  defp delete_activated(grant_id, retry_deleting?, opts) do
     case Keyword.get(opts, :delete_activated) do
+      fun when is_function(fun, 2) -> fun.(grant_id, retry_deleting?)
       fun when is_function(fun, 1) -> fun.(grant_id)
-      _ -> Runtime.delete_activated_credential(grant_id)
+      _ -> Runtime.delete_activated_credential(grant_id, retry_deleting?: retry_deleting?)
     end
   end
 
@@ -185,10 +270,13 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecovery do
     end
   end
 
-  defp list_activation_cleanup_pending(opts) do
+  defp list_activation_cleanup_pending(now, opts) do
+    retry_before = DateTime.add(now, -@activation_cleanup_retry_seconds, :second)
+
     case Keyword.get(opts, :activation_cleanup_lister) do
+      fun when is_function(fun, 1) -> fun.(retry_before)
       fun when is_function(fun, 0) -> fun.()
-      _ -> Attempt.list_activation_cleanup_pending(actor: @actor)
+      _ -> Attempt.list_activation_cleanup_pending(retry_before, actor: @actor)
     end
   end
 
@@ -228,17 +316,29 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecovery do
         :lifecycle,
         :lifecycle_opts,
         :delete_activated,
+        :execution_lifecycle_actions,
+        :secure_lifecycle_actions,
         :now
       ])
 
   defp coordinator(opts), do: Keyword.get(opts, :coordinator, Coordinator)
   defp lifecycle(opts), do: Keyword.get(opts, :lifecycle, Lifecycle)
 
+  defp secure_lifecycle_opts(opts) do
+    case Keyword.get(opts, :secure_lifecycle_actions) do
+      nil -> []
+      actions -> [actions: actions]
+    end
+  end
+
+  defp required({:ok, nil}), do: {:error, :callback_command_resource_not_found}
+  defp required({:ok, value}), do: {:ok, value}
+  defp required({:error, reason}), do: {:error, reason}
+
   defp now(opts),
     do: opts |> Keyword.get(:now, DateTime.utc_now()) |> DateTime.truncate(:microsecond)
 
-  defp error_code(reason),
-    do: reason |> inspect(limit: 10, printable_limit: 128) |> String.slice(0, 255)
+  defp error_code(reason), do: SafeFailureEvidence.code(reason)
 
   defp value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))
   defp value(_map, _key), do: nil

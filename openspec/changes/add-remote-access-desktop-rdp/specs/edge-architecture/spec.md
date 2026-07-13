@@ -72,3 +72,38 @@ ServiceRadar SHALL record desktop session lifecycle, credential mode, redirectio
 - **WHEN** ServiceRadar writes audit or replay events
 - **THEN** the event SHALL include actor, target, session, route, protocol, credential mode, screen policy, redirection feature state, policy decisions, frame statistics, byte counts, status, and timing metadata
 - **AND** SHALL NOT include screen frames, screenshots, clipboard content, transferred file content, audio payloads, smart-card payloads, passwords, or generated private keys unless a future explicit content-retention policy enables that capture.
+
+### Requirement: Device RDP launch resolves an exact authorized target
+ServiceRadar SHALL expose a device remote-desktop action only when the current
+actor can use an enabled registered target whose `device_uid` exactly matches
+the inventory device.
+
+#### Scenario: Authorized user launches RDP from device details
+- **GIVEN** an authenticated user has `devices.remote_access.rdp.open`
+- **AND** one enabled registered desktop target exactly matches the device UID
+- **WHEN** the user selects RDP from device details and submits their own target credentials
+- **THEN** ServiceRadar SHALL create the session from the registered target ID
+- **AND** SHALL derive the upstream, route, TLS, CA, redirection, quota, approval, and recording policy from server-owned target state
+- **AND** SHALL erase the submitted password from browser state after the session attach is accepted.
+
+#### Scenario: Target belongs to another device
+- **GIVEN** an authenticated user can open RDP on one device
+- **WHEN** the client submits a desktop-target ID registered to another device
+- **THEN** ServiceRadar SHALL reject the request before creating or dispatching a remote-access session.
+
+### Requirement: TURN credentials are short-lived and file-backed
+ServiceRadar SHALL keep TURN REST shared-secret material in an operator-owned
+mounted Secret and SHALL mint a distinct time-bound credential for each remote
+desktop viewer.
+
+#### Scenario: Viewer receives an ephemeral TURN credential
+- **GIVEN** an operator configured a TURN endpoint and a valid mounted TURN REST shared-secret file
+- **WHEN** an authorized user creates a WebRTC viewer for an RDP session
+- **THEN** ServiceRadar SHALL mint a session- or actor-bound HMAC TURN credential with a positive TTL no greater than one hour
+- **AND** SHALL return only the public endpoint, expiring username, and derived credential to the browser
+- **AND** SHALL NOT return, log, or persist the shared secret.
+
+#### Scenario: TURN endpoint has no secure key custody
+- **GIVEN** a TURN or TURNS endpoint is configured
+- **WHEN** the mounted shared-secret file is absent, unreadable, weak, or supplied inline with ICE metadata
+- **THEN** ServiceRadar SHALL fail configuration closed before accepting a desktop viewer.

@@ -112,6 +112,55 @@ Use the God View/topology zero-copy pattern selectively:
 
 The browser renderer must not receive target credentials, brokered secrets, RDP files, or connection details that would let it bypass ServiceRadar routing. It receives only a session-bound media token, display policy, target label/identity, visible recording/redirection state, and renderable frame payloads.
 
+## Device Launch And ICE/TURN Runtime
+
+The device-details RDP action must resolve targets server-side from the exact
+inventory `device_uid`. The browser may submit only the selected registered
+desktop-target ID, protocol, adapter, an optional approval ID, and the user's
+own target username/password. It must not submit an upstream address, route,
+TLS policy, CA bundle, redirection policy, or broker credential reference.
+
+The launcher keeps the authenticated remote-access WebSocket alive while the
+WebRTC viewer exists. It waits for the route-bound `ready` outcome before
+creating the WebRTC viewer, clears the password from component state as soon as
+attach succeeds, and closes both WebRTC and remote-access sessions on failure
+or unmount.
+
+ICE/TURN is deployment policy, not per-target or browser input:
+
+- ICE server endpoints are a bounded JSON list containing only `stun:`,
+  `stuns:`, `turn:`, or `turns:` URLs. Embedded usernames, passwords, userinfo,
+  arbitrary URI schemes, and malformed ports are rejected at runtime.
+- TURN uses the standard REST shared-secret mechanism. The shared secret is
+  read only from one operator-owned Kubernetes Secret file mounted into
+  web-ng; it is never accepted in Helm values, an environment variable, target
+  state, or browser input.
+- Web-ng mints a distinct HMAC credential for each viewer/session. The
+  time-bound username includes its expiry and a session/actor binding, and its
+  TTL is positive and no greater than one hour.
+- The browser receives only the minted username/credential and public TURN
+  endpoint. The shared secret never leaves the web-ng process and is not
+  returned, logged, or persisted in remote-access records.
+- Helm must fail rendering when TURN endpoints are enabled without an existing
+  Secret reference, when the Secret key is absent, or when the requested TTL is
+  outside the supported range.
+- Deployments with namespace-wide default-deny egress use a separate additive
+  `Egress` NetworkPolicy selecting only `app: serviceradar-core`, because the
+  core-elx data-channel provider owns the ExWebRTC PeerConnection and originates
+  ICE traffic; web-ng is only its ERTS RPC signaling client. The policy is
+  opt-in, requires the chart-wide NetworkPolicy and RDP to be enabled, and
+  accepts only explicit IPv4/IPv6 CIDRs and bounded UDP/TCP ports. It rejects
+  DNS names, empty destination/port lists, malformed values, and catch-all
+  CIDRs rather than granting ICE egress to every ServiceRadar workload or all
+  destinations. If the chart's ordered Calico log-and-deny policy is active,
+  the new template also renders an equivalent core-only Calico `Allow` at the
+  immediately higher priority so that the existing final deny remains effective
+  for every other destination, port, and workload.
+
+STUN-only deployments remain possible where public server-reflexive candidates
+are reachable. Operators should configure TURN for restrictive NAT/firewall
+environments and for reliable production access.
+
 ## Transport Strategy
 The existing agent control stream is appropriate for session lifecycle and low-rate control events. It is not the production transport for 1080p or high-frame-rate graphical updates.
 

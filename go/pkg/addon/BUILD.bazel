@@ -26,6 +26,7 @@ go_test(
     name = "addon_test",
     srcs = [
         "advisory_contract_test.go",
+        "credentials_request_body_test.go",
         "credentials_test.go",
         "grpc_relay_test.go",
         "producer_schedule_contract_test.go",

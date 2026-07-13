@@ -189,6 +189,9 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
       is_nil(positive_integer(value(binding, :awx_created_by_id))) ->
         {:error, :binding_awx_identity_required}
 
+      callback_actions != [] and value(binding, :ask_credential_on_launch) != true ->
+        {:error, :binding_callback_credentials_not_promptable}
+
       not callback_contract?(
         callback_actions,
         callback_type_id,
@@ -211,6 +214,7 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
            machine_credential_id: machine_credential_id,
            job_type: job_type,
            awx_created_by_id: positive_integer(value(binding, :awx_created_by_id)),
+           ask_credential_on_launch: value(binding, :ask_credential_on_launch) == true,
            callback_actions: callback_actions,
            callback_credential_type_id: callback_type_id,
            callback_credential_organization_id: callback_organization_id,

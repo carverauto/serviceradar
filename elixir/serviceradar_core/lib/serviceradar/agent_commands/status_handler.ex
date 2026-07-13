@@ -7,6 +7,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentCommands.PubSub
+  alias ServiceRadar.Automation.Ansible.AutomationResultSanitizer
   alias ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator
   alias ServiceRadar.Automation.Ansible.EventIngestor, as: AnsibleEventIngestor
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
@@ -73,20 +74,28 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
   @impl true
   def handle_info({:command_ack, data}, state) do
-    persist_ack(data, state.actor)
-    AgentReleaseManager.handle_command_ack(data, actor: state.actor)
+    data = AutomationResultSanitizer.sanitize_ack(data)
+
+    if persist_ack(data, state.actor) == :ok do
+      AgentReleaseManager.handle_command_ack(data, actor: state.actor)
+    end
+
     {:noreply, state}
   end
 
   def handle_info({:command_progress, data}, state) do
-    persist_progress(data, state.actor)
-    safe_maybe_ingest_mtr_result(data)
-    AgentReleaseManager.handle_command_progress(data, actor: state.actor)
+    data = AutomationResultSanitizer.sanitize_progress(data)
+
+    if persist_progress(data, state.actor) == :ok do
+      safe_maybe_ingest_mtr_result(data)
+      AgentReleaseManager.handle_command_progress(data, actor: state.actor)
+    end
+
     {:noreply, state}
   end
 
   def handle_info({:command_result, data}, state) do
-    safe_data = sanitize_cleanup_result(data)
+    safe_data = data |> AutomationResultSanitizer.sanitize() |> sanitize_cleanup_result()
     persisted? = persist_result_with(safe_data, state) == :ok
 
     if persisted? do
@@ -96,17 +105,17 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
       )
 
       safe_reconcile_callback_cleanup(
-        data,
+        safe_data,
         Map.get(state, :cleanup_reconciler, CleanupReconciler)
       )
 
       safe_coordinate_callback_result(
-        data,
+        safe_data,
         Map.get(state, :callback_result_coordinator, CallbackCommandResultCoordinator)
       )
 
       safe_coordinate_secure_execution_result(
-        data,
+        safe_data,
         Map.get(
           state,
           :secure_execution_result_coordinator,
@@ -362,9 +371,12 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
   defp persist_ack(%{command_id: command_id} = data, _actor) do
     command_id_text = normalize_command_id(command_id)
+    authenticated_agent_id = map_get_any(data, [:agent_id, "agent_id"], nil)
+    reported_command_type = map_get_any(data, [:command_type, "command_type"], nil)
 
-    if command_id_text do
-      control_query(
+    if command_id_text && is_binary(authenticated_agent_id) && authenticated_agent_id != "" &&
+         is_binary(reported_command_type) && reported_command_type != "" do
+      control_query_exact(
         """
         UPDATE platform.agent_commands
         SET
@@ -373,20 +385,28 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
           message = $2,
           updated_at = now() AT TIME ZONE 'utc'
         WHERE command_id = $1::text::uuid
-          AND status IN ('queued', 'sent')
+          AND agent_id = $3
+          AND command_type = $4
+          AND status IN ('queued', 'sent', 'acknowledged')
+        RETURNING command_id
         """,
-        [command_id_text, Map.get(data, :message)],
+        [command_id_text, Map.get(data, :message), authenticated_agent_id, reported_command_type],
         "acknowledge command",
         command_id_text
       )
+    else
+      {:error, :command_ack_provenance_required}
     end
   end
 
   defp persist_progress(%{command_id: command_id} = data, _actor) do
     command_id_text = normalize_command_id(command_id)
+    authenticated_agent_id = map_get_any(data, [:agent_id, "agent_id"], nil)
+    reported_command_type = map_get_any(data, [:command_type, "command_type"], nil)
 
-    if command_id_text do
-      control_query(
+    if command_id_text && is_binary(authenticated_agent_id) && authenticated_agent_id != "" &&
+         is_binary(reported_command_type) && reported_command_type != "" do
+      control_query_exact(
         """
         UPDATE platform.agent_commands
         SET
@@ -405,17 +425,24 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
           progress_payload = $4::jsonb,
           updated_at = now() AT TIME ZONE 'utc'
         WHERE command_id = $1::text::uuid
+          AND agent_id = $5
+          AND command_type = $6
           AND status IN ('queued', 'sent', 'acknowledged', 'running')
+        RETURNING command_id
         """,
         [
           command_id_text,
           Map.get(data, :message),
           Map.get(data, :progress_percent),
-          json_param(Map.get(data, :payload))
+          json_param(Map.get(data, :payload)),
+          authenticated_agent_id,
+          reported_command_type
         ],
         "persist command progress",
         command_id_text
       )
+    else
+      {:error, :command_progress_provenance_required}
     end
   end
 
@@ -458,6 +485,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
             status NOT IN ('completed', 'failed', 'expired', 'canceled', 'offline')
             OR (
               status = $2
+              AND message IS NOT DISTINCT FROM $3
               AND result_payload IS NOT DISTINCT FROM $4::jsonb
               AND failure_reason IS NOT DISTINCT FROM $5
             )
@@ -806,18 +834,6 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
           {:ok, uuid} -> uuid
           :error -> nil
         end
-    end
-  end
-
-  defp control_query(sql, params, action, command_id) do
-    case control_repo().query(sql, params) do
-      {:ok, _result} ->
-        :ok
-
-      {:error, reason} ->
-        log_control_query_failure(action, command_id, reason)
-
-        {:error, reason}
     end
   end
 

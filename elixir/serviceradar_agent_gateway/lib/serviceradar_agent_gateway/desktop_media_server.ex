@@ -174,6 +174,8 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
            reason: request.reason
          }) do
       :ok ->
+        close_core_ingress(desktop_session_id)
+
         %Desktopmedia.CloseDesktopMediaSessionResponse{
           closed: true,
           message: "desktop media session closed"
@@ -213,6 +215,8 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
            reason: request.reason
          }) do
       :ok ->
+        close_core_ingress(desktop_session_id)
+
         %Desktopmedia.DesktopMediaStreamClose{
           desktop_session_id: desktop_session_id,
           media_session_id: media_session_id,
@@ -473,6 +477,43 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
 
   defp frame_forwarder do
     Application.get_env(:serviceradar_agent_gateway, :desktop_media_frame_forwarder, DesktopMediaForwarder)
+  end
+
+  defp close_core_ingress(desktop_session_id) do
+    forwarder = frame_forwarder()
+
+    result =
+      if is_atom(forwarder) and Code.ensure_loaded?(forwarder) and
+           function_exported?(forwarder, :close_session, 1) do
+        forwarder.close_session(desktop_session_id)
+      else
+        :ok
+      end
+
+    if result != :ok do
+      Logger.warning("Desktop media session closed but core ingress cleanup failed",
+        desktop_session_id: desktop_session_id,
+        reason: inspect(result)
+      )
+    end
+
+    :ok
+  rescue
+    error ->
+      Logger.warning("Desktop media session closed but core ingress cleanup raised",
+        desktop_session_id: desktop_session_id,
+        reason: Exception.message(error)
+      )
+
+      :ok
+  catch
+    :exit, reason ->
+      Logger.warning("Desktop media session closed but core ingress cleanup exited",
+        desktop_session_id: desktop_session_id,
+        reason: inspect(reason)
+      )
+
+      :ok
   end
 
   defp identity_resolver do

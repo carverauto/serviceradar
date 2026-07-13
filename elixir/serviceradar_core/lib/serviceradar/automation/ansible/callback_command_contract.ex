@@ -10,11 +10,13 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
   alias ServiceRadar.Automation.Ansible.AwxClient
   alias ServiceRadar.Automation.Ansible.Targeting
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
+  alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Plugins.SecretRefs
 
   @context_schema "serviceradar.automation_callback_command/v1"
   @awx_command_schema "serviceradar.awx_command.v1"
   @callback_binding_schema "serviceradar.awx_callback_credential_binding.v1"
+  @terminal_job_statuses ~w(successful failed error canceled)
 
   @type attempt_source :: map() | struct()
 
@@ -42,11 +44,18 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
       expected_credential_id: Keyword.get(opts, :expected_credential_id),
       expected_job_id: Keyword.get(opts, :expected_job_id),
       reconcile_after: Keyword.get(opts, :reconcile_after),
+      terminal_job_snapshot: Keyword.get(opts, :terminal_job_snapshot),
       deadline_at: Keyword.fetch!(opts, :deadline_at),
       next_attempt_at: Keyword.get(opts, :next_attempt_at)
     }
 
     with {:ok, command_id} <- uuid(command_id),
+         :ok <-
+           validate_terminal_evidence(
+             purpose,
+             attrs.terminal_job_snapshot,
+             attrs.expected_job_id
+           ),
          context = context(attrs, execution),
          {:ok, request_digest} <- CanonicalJSON.digest(request),
          {:ok, context_digest} <- CanonicalJSON.digest(context) do
@@ -205,6 +214,29 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
     end
   end
 
+  @spec terminal_job_snapshot?(map()) :: boolean()
+  def terminal_job_snapshot?(job) when is_map(job) do
+    status = job |> value(:status) |> to_string() |> String.downcase()
+    id = value(job, :job_id) || value(job, :id) || value(job, :job)
+    status in @terminal_job_statuses and positive_integer?(id)
+  end
+
+  def terminal_job_snapshot?(_job), do: false
+
+  defp validate_terminal_evidence(:terminal_confirmation, evidence, expected_job_id) do
+    if terminal_job_snapshot?(evidence) and
+         terminal_job_id(evidence) == expected_job_id,
+       do: :ok,
+       else: {:error, :invalid_callback_terminal_job_evidence}
+  end
+
+  defp validate_terminal_evidence(_purpose, nil, _expected_job_id), do: :ok
+
+  defp validate_terminal_evidence(_purpose, _evidence, _expected_job_id),
+    do: {:error, :invalid_callback_terminal_job_evidence}
+
+  defp terminal_job_id(job), do: value(job, :job_id) || value(job, :id) || value(job, :job)
+
   @spec context_matches?(attempt_source(), map() | struct(), map()) :: boolean()
   def context_matches?(attempt, execution, actual) when is_map(actual) do
     expected = context(attempt, execution)
@@ -233,7 +265,6 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
     payload = stringify_deep(payload)
     expected_args = expected_awx_args(attempt, execution, request)
     expected_binding = expected_callback_binding(attempt, execution, controller, request)
-    expected_keys = common_payload_keys(expected_binding)
     broker = payload["credential_broker"]
 
     case AwxClient.broker_scope(
@@ -242,7 +273,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
            expected_args
          ) do
       {:ok, scope} ->
-        MapSet.new(Map.keys(payload)) == expected_keys and
+        MapSet.new(Map.keys(payload)) ==
+          common_payload_keys(expected_binding, scope.authorized_request_body_b64) and
           payload["schema"] == @awx_command_schema and
           payload["verb"] == value(attempt, :command_type) and
           to_string(payload["controller_id"]) == to_string(value(controller, :id)) and
@@ -250,8 +282,9 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
           payload["base_url"] == scope.base_url and
           payload["insecure_skip_verify"] == insecure_skip_verify?(controller) and
           payload["args"] == expected_args and
+          payload["authorized_request_body_b64"] == scope.authorized_request_body_b64 and
           payload["callback_credential_binding"] == expected_binding and
-          broker_matches?(broker, attempt, controller, scope.allow)
+          broker_matches?(broker, attempt, controller, scope)
 
       _ ->
         false
@@ -327,17 +360,23 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
     end
   end
 
-  defp common_payload_keys(nil) do
+  defp common_payload_keys(nil, nil) do
     MapSet.new(
       ~w(schema verb args base_url controller_id controller_name insecure_skip_verify credential_broker)
     )
   end
 
-  defp common_payload_keys(_binding) do
-    MapSet.put(common_payload_keys(nil), "callback_credential_binding")
+  defp common_payload_keys(nil, _authorized_request_body_b64) do
+    MapSet.put(common_payload_keys(nil, nil), "authorized_request_body_b64")
   end
 
-  defp broker_matches?(broker, attempt, controller, expected_allow) when is_map(broker) do
+  defp common_payload_keys(_binding, authorized_request_body_b64) do
+    nil
+    |> common_payload_keys(authorized_request_body_b64)
+    |> MapSet.put("callback_credential_binding")
+  end
+
+  defp broker_matches?(broker, attempt, controller, scope) when is_map(broker) do
     broker = stringify_deep(broker)
     consumer = broker["consumer"] || %{}
     target = broker["target"] || %{}
@@ -350,7 +389,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
           MapSet.new(
             ~w(schema grant_id grant_type credential_secret_ref consumer target resolution_location inject allow ttl_seconds expires_at)
           ) and
-          broker["schema"] == "serviceradar.edge_credential_broker_grant.v1" and
+          broker["schema"] == expected_broker_schema(scope.request_body_policy) and
           uuid?(broker["grant_id"]) and
           broker["grant_type"] == "awx_oauth2_token" and
           broker["credential_secret_ref"] == SecretRefs.network_credential_ref(secret_id) and
@@ -364,7 +403,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
           target["agent_id"] == value(attempt, :dispatch_agent_id) and
           broker["resolution_location"] == "agent" and
           broker["inject"] == expected_inject and
-          allow == expected_allow and
+          allow == scope.allow and
           broker["ttl_seconds"] == 300 and
           valid_iso8601?(broker["expires_at"])
 
@@ -373,7 +412,12 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
     end
   end
 
-  defp broker_matches?(_broker, _attempt, _controller, _expected_allow), do: false
+  defp broker_matches?(_broker, _attempt, _controller, _scope), do: false
+
+  defp expected_broker_schema(policy) when is_map(policy) and map_size(policy) > 0,
+    do: CredentialBrokerGrant.body_bound_schema()
+
+  defp expected_broker_schema(_policy), do: CredentialBrokerGrant.schema()
 
   defp expected_broker_inject(controller) do
     base = %{

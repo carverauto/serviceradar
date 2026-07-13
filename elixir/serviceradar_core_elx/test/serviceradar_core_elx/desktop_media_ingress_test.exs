@@ -48,6 +48,61 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressTest do
            } = MediaSessionManager.fetch_session("desktop-ingress-1")
   end
 
+  test "idle ingress sessions stop and prune viewer-free media accounting" do
+    desktop_session_id = "desktop-ingress-idle-1"
+    session = session(desktop_session_id)
+
+    assert {:ok, %Desktopmedia.DesktopMediaAck{}} =
+             DesktopMediaIngress.forward_frame(frame(desktop_session_id, sequence: 1), session, idle_timeout_ms: 10)
+
+    assert [{_, ingress_pid, _, _}] = DynamicSupervisor.which_children(DesktopMediaIngressSupervisor)
+    monitor_ref = Process.monitor(ingress_pid)
+
+    assert_receive {:DOWN, ^monitor_ref, :process, ^ingress_pid, :normal}, 250
+    assert DynamicSupervisor.count_children(DesktopMediaIngressSupervisor).active == 0
+    assert MediaSessionManager.fetch_session(desktop_session_id) == nil
+  end
+
+  test "terminal cleanup stops ingress and deletes media accounting immediately" do
+    desktop_session_id = "desktop-ingress-terminal-1"
+    session = session(desktop_session_id)
+
+    assert {:ok, %Desktopmedia.DesktopMediaAck{}} =
+             DesktopMediaIngress.forward_frame(frame(desktop_session_id, sequence: 1), session)
+
+    assert DynamicSupervisor.count_children(DesktopMediaIngressSupervisor).active == 1
+    assert %{viewer_count: 0} = MediaSessionManager.fetch_session(desktop_session_id)
+
+    assert :ok = DesktopMediaIngress.close_session(desktop_session_id)
+    assert DynamicSupervisor.count_children(DesktopMediaIngressSupervisor).active == 0
+    assert MediaSessionManager.fetch_session(desktop_session_id) == nil
+    assert :ok = DesktopMediaIngress.close_session(desktop_session_id)
+  end
+
+  test "repeated unique terminal sessions leave no ingress actors or media state" do
+    desktop_session_ids = Enum.map(1..25, &"desktop-ingress-no-leak-#{&1}")
+
+    Enum.each(desktop_session_ids, fn desktop_session_id ->
+      assert {:ok, %Desktopmedia.DesktopMediaAck{}} =
+               DesktopMediaIngress.forward_frame(
+                 frame(desktop_session_id, sequence: 1),
+                 session(desktop_session_id)
+               )
+    end)
+
+    assert DynamicSupervisor.count_children(DesktopMediaIngressSupervisor).active == 25
+
+    Enum.each(desktop_session_ids, fn desktop_session_id ->
+      assert :ok = DesktopMediaIngress.close_session(desktop_session_id)
+    end)
+
+    assert DynamicSupervisor.count_children(DesktopMediaIngressSupervisor).active == 0
+
+    Enum.each(desktop_session_ids, fn desktop_session_id ->
+      assert MediaSessionManager.fetch_session(desktop_session_id) == nil
+    end)
+  end
+
   test "rejects unbound frames without mutating the live session" do
     session = session("desktop-ingress-mismatch-1")
 

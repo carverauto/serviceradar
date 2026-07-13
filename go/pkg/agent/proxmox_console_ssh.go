@@ -39,7 +39,7 @@ var (
 	errInvalidProxmoxSSHFieldSize                    = errors.New("invalid SSH field size")
 	errProxmoxSSHUsernameRequired                    = errors.New("ssh username is required")
 	errProxmoxSSHCredentialRequired                  = errors.New("ssh private key or password is required")
-	errProxmoxSSHHostKeyVerificationStoreUnavailable = errors.New("SSH host key verification store is not available to the agent connector yet; use explicit skip_verify for local testing")
+	errProxmoxSSHHostKeyVerificationStoreUnavailable = errors.New("SSH host key verification store is not available to the agent connector")
 	errUnsupportedProxmoxSSHHostKeyPolicy            = errors.New("unsupported ssh_host_key_policy")
 )
 
@@ -54,26 +54,49 @@ const (
 )
 
 type proxmoxConsoleSSHConfig struct {
-	CredentialRuleID string                    `json:"credential_rule_id"`
-	CredentialBroker map[string]any            `json:"credential_broker,omitempty"`
-	Console          proxmoxConsoleSessionSpec `json:"console"`
-	Target           proxmoxConsoleSSHTarget   `json:"target,omitempty"`
-	SSH              proxmoxConsoleSSHAuth     `json:"ssh,omitempty"`
-	CredentialSecret json.RawMessage           `json:"credential_secret,omitempty"`
-	TimeoutMS        int                       `json:"timeout_ms"`
-	SSHHostKeyPolicy string                    `json:"ssh_host_key_policy"`
-	KnownHostsPath   string                    `json:"known_hosts_path,omitempty"`
+	CredentialRuleID string                      `json:"credential_rule_id"`
+	CredentialBroker map[string]any              `json:"credential_broker,omitempty"`
+	Console          proxmoxConsoleSessionSpec   `json:"console"`
+	Target           proxmoxConsoleSSHTarget     `json:"target,omitempty"`
+	SSH              proxmoxConsoleSSHAuth       `json:"ssh,omitempty"`
+	CredentialSecret json.RawMessage             `json:"credential_secret,omitempty"`
+	TimeoutMS        int                         `json:"timeout_ms"`
+	SSHHostKeyPolicy string                      `json:"ssh_host_key_policy"`
+	KnownHostsPath   string                      `json:"known_hosts_path,omitempty"`
+	revalidate       func(context.Context) error `json:"-"`
+}
+
+// proxmoxConsoleSSHHostRequest is the complete Wasm-to-host SSH ABI. The
+// untrusted module may identify only the immutable session it is already
+// executing; destination, credential, timeout, and host-key policy are rebuilt
+// from trusted agent state.
+type proxmoxConsoleSSHHostRequest struct {
+	SessionID string `json:"session_id"`
 }
 
 type proxmoxConsoleSSHTarget struct {
-	BaseURL     string `json:"base_url,omitempty"`
-	Hostname    string `json:"hostname,omitempty"`
-	IP          string `json:"ip,omitempty"`
-	SSHPort     int    `json:"ssh_port,omitempty"`
-	ProviderRef string `json:"provider_ref,omitempty"`
-	TargetRef   string `json:"target_ref,omitempty"`
-	TargetKind  string `json:"target_kind,omitempty"`
-	ConsoleMode string `json:"console_mode,omitempty"`
+	DeviceUID               string `json:"device_uid,omitempty"`
+	BaseURL                 string `json:"base_url,omitempty"`
+	Hostname                string `json:"hostname,omitempty"`
+	IP                      string `json:"ip,omitempty"`
+	SSHPort                 int    `json:"ssh_port,omitempty"`
+	ProviderRef             string `json:"provider_ref,omitempty"`
+	TargetRef               string `json:"target_ref,omitempty"`
+	TargetKind              string `json:"target_kind,omitempty"`
+	ConsoleMode             string `json:"console_mode,omitempty"`
+	IntegrationID           string `json:"integration_id,omitempty"`
+	Cluster                 string `json:"cluster,omitempty"`
+	Node                    string `json:"node,omitempty"`
+	OwnerNode               string `json:"owner_node,omitempty"`
+	VMID                    int    `json:"vmid,omitempty"`
+	ControllerDeviceUID     string `json:"controller_device_uid,omitempty"`
+	ControllerRef           string `json:"controller_ref,omitempty"`
+	ControllerIntegrationID string `json:"controller_integration_id,omitempty"`
+	ControllerID            string `json:"controller_id,omitempty"`
+	ProviderInstanceRef     string `json:"provider_instance_ref,omitempty"`
+	NativeClusterID         string `json:"native_cluster_id,omitempty"`
+	ObjectKind              string `json:"object_kind,omitempty"`
+	NativeObjectID          string `json:"native_object_id,omitempty"`
 }
 
 type proxmoxConsoleSSHAuth struct {
@@ -115,6 +138,11 @@ func runProxmoxConsoleSSH(
 	handle, err := bridge.activeHandle()
 	if err != nil {
 		return err
+	}
+	if cfg.revalidate != nil {
+		if err := cfg.revalidate(ctx); err != nil {
+			return err
+		}
 	}
 
 	session, err := dial(ctx, cfg)
@@ -263,6 +291,23 @@ func dialProxmoxConsoleSSH(ctx context.Context, cfg proxmoxConsoleSSHConfig) (pr
 	if err != nil {
 		return nil, err
 	}
+	// ssh.NewClientConn and the subsequent session-open exchange do not accept a
+	// context. Keep the transport owned by this call and close it as soon as the
+	// assignment/session context is revoked so a peer that stalls before its SSH
+	// banner cannot keep a revoked console execution alive.
+	cancelWatchDone := make(chan struct{})
+	defer close(cancelWatchDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = rawConn.Close()
+		case <-cancelWatchDone:
+		}
+	}()
+	if err := rawConn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		_ = rawConn.Close()
+		return nil, err
+	}
 
 	sshCfg := &ssh.ClientConfig{
 		User:            cred.Username,
@@ -274,14 +319,29 @@ func dialProxmoxConsoleSSH(ctx context.Context, cfg proxmoxConsoleSSHConfig) (pr
 	conn, chans, reqs, err := ssh.NewClientConn(rawConn, rawConn.RemoteAddr().String(), sshCfg)
 	if err != nil {
 		_ = rawConn.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, err
 	}
-
 	client := ssh.NewClient(conn, chans, reqs)
 	session, err := client.NewSession()
 	if err != nil {
 		_ = client.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, err
+	}
+	if err := rawConn.SetDeadline(time.Time{}); err != nil {
+		_ = session.Close()
+		_ = client.Close()
+		return nil, err
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		_ = session.Close()
+		_ = client.Close()
+		return nil, ctxErr
 	}
 
 	return &proxmoxConsoleSSHClient{client: client, session: session}, nil
@@ -310,8 +370,13 @@ func validateProxmoxConsoleSSHConfig(cfg proxmoxConsoleSSHConfig) error {
 	if _, _, err := proxmoxConsoleSSHTargetAddress(cfg.Target); err != nil {
 		return err
 	}
-	_, err := validateProxmoxConsoleSSHCredential(cfg.SSH)
-	return err
+	if _, err := validateProxmoxConsoleSSHCredential(cfg.SSH); err != nil {
+		return err
+	}
+	if !proxmoxConsoleSSHHostKeyPolicyAllowed(cfg.SSHHostKeyPolicy) {
+		return fmt.Errorf("%w %q", errUnsupportedProxmoxSSHHostKeyPolicy, cfg.SSHHostKeyPolicy)
+	}
+	return nil
 }
 
 func proxmoxConsoleSSHTargetAddress(target proxmoxConsoleSSHTarget) (string, int, error) {
@@ -409,6 +474,9 @@ func proxmoxConsoleSSHSigner(privateKey, passphrase string) (ssh.Signer, error) 
 }
 
 func proxmoxConsoleSSHHostKeyCallback(policy, knownHostsPath string) (ssh.HostKeyCallback, error) {
+	if !proxmoxConsoleSSHHostKeyPolicyAllowed(policy) {
+		return nil, fmt.Errorf("%w %q", errUnsupportedProxmoxSSHHostKeyPolicy, policy)
+	}
 	callback, err := remoteaccess.SSHHostKeyCallback(policy, knownHostsPath)
 	if err == nil {
 		return callback, nil
@@ -421,6 +489,15 @@ func proxmoxConsoleSSHHostKeyCallback(policy, knownHostsPath string) (ssh.HostKe
 	}
 
 	return nil, err
+}
+
+func proxmoxConsoleSSHHostKeyPolicyAllowed(policy string) bool {
+	switch strings.TrimSpace(policy) {
+	case proxmoxSSHHostKeyPolicyKnownHosts, proxmoxSSHHostKeyPolicyTrustFirstUse:
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeProxmoxConsoleTimeoutMS(timeoutMS int) int {

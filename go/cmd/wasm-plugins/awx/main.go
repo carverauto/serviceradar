@@ -11,11 +11,11 @@
 //     and emits a DeviceDiscovery aggregate; the existing agent → gateway →
 //     DIRE pipeline ingests it.
 //
-// The plugin holds no per-controller state. Each invocation reads its
-// `base_url` and `api_token` from the config the agent injected (which it
-// resolved from the credential broker grant carried in the CommandRequest
-// or assignment). See openspec change `add-ansible-integration` for the
-// full design.
+// The plugin holds no per-controller state. It sees controller URLs and a
+// non-secret token sentinel. The trusted agent HTTP host injects the real
+// bearer only after it authorizes the exact request against an on-demand grant
+// or a scheduled inventory-origin binding. See openspec change
+// `add-ansible-integration` for the full design.
 package main
 
 import (
@@ -29,6 +29,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
@@ -36,21 +38,26 @@ import (
 // awxHTTP is package-level so tests can swap it for a fake.
 var awxHTTP httpClient = &sdk.HTTPClient{MaxResponseBytes: sdk.MaxHTTPResponseBytes}
 
+// errAWXRequestFailed is the only error allowed to cross the controller HTTP
+// boundary. The underlying client error and response text are never retained
+// in a plugin result.
+var errAWXRequestFailed = fmt.Errorf("AWX request failed")
+
 type httpClient interface {
 	Do(sdk.HTTPRequest) (*sdk.HTTPResponse, error)
 }
 
 // Config is what the agent runtime hands to the plugin via get_config.
 //
-// The agent populates `APIToken` from the credential broker grant that
-// rode in on the CommandRequest (or the inventory_sync assignment). The
-// plugin never sees a broker grant ref — by the time we're invoked, the
-// secret is resolved.
+// The agent populates `APIToken` with a non-secret sentinel. The plugin never
+// receives controller bearer material; the trusted host overwrites the
+// sentinel Authorization header only for an authorized HTTP request.
 type Config struct {
 	// BaseURL is the AWX/AAP base URL, e.g. https://awx.internal.example.com.
 	BaseURL string `json:"base_url"`
 
-	// APIToken is the AWX OAuth2 access token, sent as `Authorization: Bearer …`.
+	// APIToken is a non-secret sentinel sent in the Authorization header and
+	// replaced by the trusted agent host after request authorization.
 	APIToken string `json:"api_token"`
 
 	// Verb selects which REST verb to execute. When empty, the plugin
@@ -67,7 +74,11 @@ type Config struct {
 	InsecureSkipVerify bool `json:"insecure_skip_verify,omitempty"`
 }
 
-const defaultTimeoutMS = 15_000
+const (
+	defaultTimeoutMS                   = 15_000
+	maxProjectedResultByteCount        = 3 * 1024 * 1024
+	awxInventoryHostCredentialSentinel = "__SERVICERADAR_AWX_INVENTORY_HOST_CREDENTIAL__"
+)
 
 //export run_check
 func run_check() {
@@ -107,44 +118,59 @@ func dispatch(cfg Config) *sdk.Result {
 		verb = "awx.ping"
 	}
 
+	var result *sdk.Result
+
 	switch verb {
 	case "awx.ping":
-		return runPing(cfg)
+		result = runPing(cfg)
 	case "awx.list_inventories":
-		return runListInventories(cfg)
+		result = runListInventories(cfg)
 	case "awx.list_hosts":
-		return runListHosts(cfg)
+		result = runListHosts(cfg)
 	case "awx.list_inventory_groups":
-		return runListInventoryGroups(cfg)
+		result = runListInventoryGroups(cfg)
 	case "awx.list_projects":
-		return runListProjects(cfg)
+		result = runListProjects(cfg)
 	case "awx.list_templates":
-		return runListTemplates(cfg)
+		result = runListTemplates(cfg)
 	case "awx.fetch_template":
-		return runFetchTemplate(cfg)
+		result = runFetchTemplate(cfg)
 	case "awx.current_user":
-		return runCurrentUser(cfg)
+		result = runCurrentUser(cfg)
 	case "awx.launch_job":
-		return runLaunchJob(cfg)
+		result = runLaunchJob(cfg)
 	case "awx.create_callback_credential":
-		return runCreateCallbackCredential(cfg)
+		result = runCreateCallbackCredential(cfg)
 	case "awx.fetch_callback_credential":
-		return runFetchCallbackCredential(cfg)
+		result = runFetchCallbackCredential(cfg)
 	case "awx.delete_callback_credential":
-		return runDeleteCallbackCredential(cfg)
+		result = runDeleteCallbackCredential(cfg)
 	case "awx.fetch_job":
-		return runFetchJob(cfg)
+		result = runFetchJob(cfg)
 	case "awx.list_recent_jobs":
-		return runListRecentJobs(cfg)
+		result = runListRecentJobs(cfg)
 	case "awx.fetch_job_host_summaries":
-		return runFetchJobHostSummaries(cfg)
+		result = runFetchJobHostSummaries(cfg)
 	case "awx.cancel_job":
-		return runCancelJob(cfg)
+		result = runCancelJob(cfg)
 	case "awx.fetch_events_for_jobs":
-		return runFetchEventsForJobs(cfg)
+		result = runFetchEventsForJobs(cfg)
 	default:
-		return sdk.Critical(fmt.Sprintf("unknown verb %q", verb))
+		return errorResult("awx.invalid", fmt.Errorf("unknown AWX command"))
 	}
+
+	return enforceProjectedResultCap(verb, result)
+}
+
+// The gateway accepts a larger, still-bounded envelope for protected AWX
+// results than for generic agent commands. Enforce the same byte limit at the
+// source so an otherwise valid controller projection cannot be truncated or
+// transformed only after it crosses the edge trust boundary.
+func enforceProjectedResultCap(verb string, result *sdk.Result) *sdk.Result {
+	if result != nil && len(result.Details) > maxProjectedResultByteCount {
+		return errorResult(verb, fmt.Errorf("AWX projected result exceeds byte cap"))
+	}
+	return result
 }
 
 const (
@@ -326,6 +352,7 @@ func runFetchCallbackCredential(cfg Config) *sdk.Result {
 
 type awxCallbackCredentialTypeField struct {
 	ID     string `json:"id"`
+	Label  string `json:"label"`
 	Type   string `json:"type"`
 	Secret bool   `json:"secret"`
 }
@@ -373,41 +400,62 @@ func normalizeCallbackCredentialType(body []byte, expectedID int) (normalizedCal
 		return normalizedCallbackCredentialType{}, fmt.Errorf("AWX returned an unreviewed callback credential type")
 	}
 
-	var inputs struct {
-		Fields   []awxCallbackCredentialTypeField `json:"fields"`
-		Required []string                         `json:"required"`
-	}
-	if err := json.Unmarshal(raw.Inputs, &inputs); err != nil {
+	var inputRoot map[string]json.RawMessage
+	if err := json.Unmarshal(raw.Inputs, &inputRoot); err != nil {
 		return normalizedCallbackCredentialType{}, fmt.Errorf("decode callback credential type inputs: %w", err)
 	}
-	if len(inputs.Fields) != len(callbackCredentialInputKeys) || len(inputs.Required) != len(callbackCredentialInputKeys) {
+	if !rawMessageKeysEqual(inputRoot, "fields", "required") {
+		return normalizedCallbackCredentialType{}, fmt.Errorf("callback credential type input properties are unreviewed")
+	}
+	var rawFields []json.RawMessage
+	var required []string
+	if err := json.Unmarshal(inputRoot["fields"], &rawFields); err != nil {
+		return normalizedCallbackCredentialType{}, fmt.Errorf("decode callback credential type fields: %w", err)
+	}
+	if err := json.Unmarshal(inputRoot["required"], &required); err != nil {
+		return normalizedCallbackCredentialType{}, fmt.Errorf("decode callback credential type required fields: %w", err)
+	}
+	if len(rawFields) != len(callbackCredentialInputKeys) || len(required) != len(callbackCredentialInputKeys) {
 		return normalizedCallbackCredentialType{}, fmt.Errorf("callback credential type inputs do not match the reviewed contract")
 	}
 	expectedSecret := map[string]bool{
 		"callback_grant":           true,
 		"callback_idempotency_key": true,
 	}
-	seenFields := make(map[string]struct{}, len(inputs.Fields))
-	for _, field := range inputs.Fields {
+	expectedLabels := expectedCallbackCredentialFieldLabels()
+	fields := make([]awxCallbackCredentialTypeField, 0, len(rawFields))
+	seenFields := make(map[string]struct{}, len(rawFields))
+	for _, rawField := range rawFields {
+		var fieldRoot map[string]json.RawMessage
+		if err := json.Unmarshal(rawField, &fieldRoot); err != nil ||
+			!rawMessageKeysEqual(fieldRoot, "id", "label", "type", "secret") {
+			return normalizedCallbackCredentialType{}, fmt.Errorf("callback credential type field is unreviewed")
+		}
+		var field awxCallbackCredentialTypeField
+		if err := json.Unmarshal(rawField, &field); err != nil {
+			return normalizedCallbackCredentialType{}, fmt.Errorf("decode callback credential type field: %w", err)
+		}
 		secret := expectedSecret[field.ID]
-		if field.Type != "string" || field.Secret != secret {
-			return normalizedCallbackCredentialType{}, fmt.Errorf("callback credential type field %q is unreviewed", field.ID)
+		if field.Label != expectedLabels[field.ID] ||
+			field.Type != "string" || field.Secret != secret {
+			return normalizedCallbackCredentialType{}, fmt.Errorf("callback credential type field is unreviewed")
 		}
 		if _, duplicate := seenFields[field.ID]; duplicate {
 			return normalizedCallbackCredentialType{}, fmt.Errorf("callback credential type contains duplicate fields")
 		}
 		seenFields[field.ID] = struct{}{}
+		fields = append(fields, field)
 	}
 	for _, key := range callbackCredentialInputKeys {
 		if _, present := seenFields[key]; !present {
 			return normalizedCallbackCredentialType{}, fmt.Errorf("callback credential type is missing field %q", key)
 		}
 	}
-	sort.Slice(inputs.Fields, func(i, j int) bool { return inputs.Fields[i].ID < inputs.Fields[j].ID })
-	sort.Strings(inputs.Required)
+	sort.Slice(fields, func(i, j int) bool { return fields[i].ID < fields[j].ID })
+	sort.Strings(required)
 	expectedRequired := append([]string(nil), callbackCredentialInputKeys[:]...)
 	sort.Strings(expectedRequired)
-	if !stringSlicesEqual(inputs.Required, expectedRequired) {
+	if !stringSlicesEqual(required, expectedRequired) {
 		return normalizedCallbackCredentialType{}, fmt.Errorf("callback credential type required fields are unreviewed")
 	}
 
@@ -424,10 +472,37 @@ func normalizeCallbackCredentialType(body []byte, expectedID int) (normalizedCal
 	return normalizedCallbackCredentialType{
 		CredentialTypeID: raw.ID,
 		Kind:             raw.Kind,
-		Fields:           inputs.Fields,
-		Required:         inputs.Required,
+		Fields:           fields,
+		Required:         required,
 		Environment:      environment,
 	}, nil
+}
+
+func rawMessageKeysEqual(values map[string]json.RawMessage, expected ...string) bool {
+	if len(values) != len(expected) {
+		return false
+	}
+	for _, key := range expected {
+		if _, present := values[key]; !present {
+			return false
+		}
+	}
+	return true
+}
+
+func expectedCallbackCredentialFieldLabels() map[string]string {
+	return map[string]string{
+		"callback_url":             "Callback URL",
+		"callback_grant":           "Callback grant",
+		"callback_idempotency_key": "Callback idempotency key",
+		"callback_allowed_origin":  "Callback allowed origin",
+		"callback_manifest_sha256": "Callback manifest SHA-256",
+		"scm_revision":             "SCM revision",
+		"content_sha256":           "Content SHA-256",
+		"callback_phase":           "Callback phase",
+		"callback_operation":       "Callback operation",
+		"callback_state":           "Callback state",
+	}
 }
 
 // canonicalCallbackCredentialTypeDocument serializes the reviewed credential
@@ -648,7 +723,7 @@ func callbackCredentialDeleteResult(credentialID, credentialTypeID int, cleanupS
 func validateExactArgs(args map[string]any, allowed map[string]struct{}) error {
 	for key := range args {
 		if _, ok := allowed[key]; !ok {
-			return fmt.Errorf("args.%s is not allowed", key)
+			return fmt.Errorf("args contain an unreviewed field")
 		}
 	}
 	return nil
@@ -945,7 +1020,7 @@ var allowedLaunchArgs = map[string]struct{}{
 func buildLaunchBody(args map[string]any) (map[string]any, error) {
 	for key := range args {
 		if _, allowed := allowedLaunchArgs[key]; !allowed {
-			return nil, fmt.Errorf("args.%s is not an allowed AWX launch field", key)
+			return nil, fmt.Errorf("launch arguments contain an unreviewed field")
 		}
 	}
 	body := make(map[string]any)
@@ -1157,8 +1232,9 @@ func runCurrentUser(cfg Config) *sdk.Result {
 		ID       int    `json:"id"`
 		Username string `json:"username"`
 	}
-	if err := json.Unmarshal(page.Results[0], &user); err != nil || user.ID <= 0 {
-		return errorResult("awx.current_user", fmt.Errorf("AWX current-user response is missing a numeric ID"))
+	if err := json.Unmarshal(page.Results[0], &user); err != nil || user.ID <= 0 ||
+		user.ID > math.MaxInt32 || !safeStaticText(user.Username, 150) {
+		return errorResult("awx.current_user", fmt.Errorf("AWX returned an invalid current-user identity"))
 	}
 	payload := map[string]any{
 		"verb":     "awx.current_user",
@@ -1430,82 +1506,436 @@ type jobEventsResult struct {
 	Count      int               `json:"count"`
 }
 
+type jobEventPair struct {
+	JobID   int
+	SinceID int
+}
+
+type projectedAWXEvent struct {
+	Event     string         `json:"event"`
+	Counter   int            `json:"counter"`
+	Created   string         `json:"created,omitempty"`
+	Changed   *bool          `json:"changed,omitempty"`
+	Failed    *bool          `json:"failed,omitempty"`
+	EventData map[string]any `json:"event_data"`
+}
+
+const (
+	maxJobsPerEventFetch  = 10
+	maxEventsPerJobFetch  = 10
+	maxAWXEventNameBytes  = 256
+	maxAWXEventPathBytes  = 1024
+	maxAWXEventStatsHosts = 10_000
+	awxEventFetchFailure  = "awx_event_fetch_failed"
+)
+
+var handledAWXEventNames = map[string]struct{}{
+	"playbook_on_play_start":         {},
+	"playbook_on_task_start":         {},
+	"playbook_on_handler_task_start": {},
+	"runner_on_ok":                   {},
+	"runner_on_failed":               {},
+	"runner_on_skipped":              {},
+	"runner_on_unreachable":          {},
+	"runner_item_on_ok":              {},
+	"runner_item_on_failed":          {},
+	"runner_item_on_skipped":         {},
+	"playbook_on_stats":              {},
+}
+
 // runFetchEventsForJobs handles `awx.fetch_events_for_jobs` verb — the bulk
 // pulse verb RunPulseWorker drives. Args: pairs ([]{job_id, since_id}).
 //
-// For each pair we GET /api/v2/jobs/{id}/job_events/?counter__gt={since_id}
-// (paginated) and aggregate the result. Per-job failures don't fail the
-// whole verb — the response carries per-job ok/error so the worker can
-// retry the failures next tick without losing state for the others.
+// For each pair we GET one ordered ten-event window from
+// /api/v2/jobs/{id}/job_events/?counter__gt={since_id}. We deliberately do not
+// follow AWX's next page: advancing the bounded watermark lets the next pulse
+// consume the next window without ever materializing an unbounded event stream
+// in one agent result. Every returned event is projected into the exact subset
+// EventIngestor consumes before it is placed in the plugin result.
 func runFetchEventsForJobs(cfg Config) *sdk.Result {
-	pairsRaw, ok := cfg.Args["pairs"]
-	if !ok {
-		return errorResult("awx.fetch_events_for_jobs", fmt.Errorf("args.pairs is required"))
-	}
-	pairs, ok := pairsRaw.([]any)
-	if !ok {
-		return errorResult("awx.fetch_events_for_jobs", fmt.Errorf("args.pairs must be an array"))
+	pairs, err := validatedJobEventPairs(cfg.Args)
+	if err != nil {
+		return errorResult("awx.fetch_events_for_jobs", err)
 	}
 
 	jobs := make([]jobEventsResult, 0, len(pairs))
 	successful := 0
-	for _, p := range pairs {
-		pair, ok := p.(map[string]any)
-		if !ok {
-			jobs = append(jobs, jobEventsResult{OK: false, Error: "pair must be an object"})
-			continue
-		}
-		jobID, _ := argInt(pair, "job_id")
-		sinceID, _ := argInt(pair, "since_id")
-		if jobID <= 0 {
-			jobs = append(jobs, jobEventsResult{OK: false, Error: "pair.job_id required"})
-			continue
-		}
-
+	for _, pair := range pairs {
 		path := fmt.Sprintf(
-			"/api/v2/jobs/%d/job_events/?counter__gt=%d&page_size=200&order=counter",
-			jobID, sinceID,
+			"/api/v2/jobs/%d/job_events/?counter__gt=%d&page_size=%d&order_by=counter",
+			pair.JobID, pair.SinceID, maxEventsPerJobFetch,
 		)
-		events, total, err := listAWXPath(cfg, path)
+		events, maxCounter, err := fetchProjectedJobEventWindow(cfg, path, pair.SinceID)
 		if err != nil {
 			jobs = append(jobs, jobEventsResult{
-				JobID: jobID,
-				OK:    false,
-				Error: sanitizeError(err),
+				JobID:  pair.JobID,
+				OK:     false,
+				Error:  awxEventFetchFailure,
+				Events: []json.RawMessage{},
 			})
 			continue
 		}
 
-		maxCounter := sinceID
-		for _, ev := range events {
-			var probe struct {
-				Counter int `json:"counter"`
-			}
-			if err := json.Unmarshal(ev, &probe); err == nil && probe.Counter > maxCounter {
-				maxCounter = probe.Counter
-			}
-		}
-
 		jobs = append(jobs, jobEventsResult{
-			JobID:      jobID,
+			JobID:      pair.JobID,
 			OK:         true,
 			Events:     events,
 			MaxCounter: maxCounter,
-			Count:      total,
+			Count:      len(events),
 		})
 		successful++
 	}
 
 	payload := map[string]any{
-		"verb": "awx.fetch_events_for_jobs",
-		"ok":   true,
-		"jobs": jobs,
+		"verb":             "awx.fetch_events_for_jobs",
+		"ok":               true,
+		"contract_version": 2,
+		"jobs":             jobs,
 	}
 	out, _ := json.Marshal(payload)
 
 	return sdk.Ok(fmt.Sprintf("fetched events for %d/%d jobs", successful, len(jobs))).
 		WithDetails(string(out)).
 		WithLabel("verb", "awx.fetch_events_for_jobs")
+}
+
+func validatedJobEventPairs(args map[string]any) ([]jobEventPair, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("args must contain only pairs")
+	}
+	rawPairs, present := args["pairs"]
+	if !present {
+		return nil, fmt.Errorf("args.pairs is required")
+	}
+
+	var values []any
+	switch pairs := rawPairs.(type) {
+	case []any:
+		values = pairs
+	case []map[string]any:
+		values = make([]any, len(pairs))
+		for i := range pairs {
+			values[i] = pairs[i]
+		}
+	default:
+		return nil, fmt.Errorf("args.pairs must be an array")
+	}
+	if len(values) < 1 || len(values) > maxJobsPerEventFetch {
+		return nil, fmt.Errorf("args.pairs must contain between 1 and %d entries", maxJobsPerEventFetch)
+	}
+
+	out := make([]jobEventPair, 0, len(values))
+	seenJobs := make(map[int]struct{}, len(values))
+	for _, rawPair := range values {
+		pair, ok := rawPair.(map[string]any)
+		if !ok || len(pair) != 2 {
+			return nil, fmt.Errorf("each pair must contain exactly job_id and since_id")
+		}
+		if _, ok := pair["job_id"]; !ok {
+			return nil, fmt.Errorf("each pair must contain exactly job_id and since_id")
+		}
+		if _, ok := pair["since_id"]; !ok {
+			return nil, fmt.Errorf("each pair must contain exactly job_id and since_id")
+		}
+		jobID, jobOK := argInt(pair, "job_id")
+		sinceID, sinceOK := argInt(pair, "since_id")
+		if !jobOK || jobID <= 0 || jobID > math.MaxInt32 ||
+			!sinceOK || sinceID < 0 || sinceID > math.MaxInt32 {
+			return nil, fmt.Errorf("pair identifiers are invalid")
+		}
+		if _, duplicate := seenJobs[jobID]; duplicate {
+			return nil, fmt.Errorf("args.pairs must contain unique job IDs")
+		}
+		seenJobs[jobID] = struct{}{}
+		out = append(out, jobEventPair{JobID: jobID, SinceID: sinceID})
+	}
+	return out, nil
+}
+
+func fetchProjectedJobEventWindow(
+	cfg Config,
+	path string,
+	sinceID int,
+) ([]json.RawMessage, int, error) {
+	resp, err := getJSON(cfg, path)
+	if err != nil {
+		return nil, sinceID, err
+	}
+	var page awxPage
+	if err := json.Unmarshal(resp.Body, &page); err != nil {
+		return nil, sinceID, fmt.Errorf("invalid AWX event page")
+	}
+	if page.Count < 0 || len(page.Results) > maxEventsPerJobFetch {
+		return nil, sinceID, fmt.Errorf("invalid AWX event page")
+	}
+
+	projected := make([]json.RawMessage, 0, len(page.Results))
+	maxCounter := sinceID
+	for _, raw := range page.Results {
+		counter, event, keep, err := projectAWXJobEvent(raw)
+		if err != nil || counter <= maxCounter {
+			return nil, sinceID, fmt.Errorf("invalid AWX event window")
+		}
+		maxCounter = counter
+		if keep {
+			projected = append(projected, event)
+		}
+	}
+	return projected, maxCounter, nil
+}
+
+func projectAWXJobEvent(raw json.RawMessage) (int, json.RawMessage, bool, error) {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return 0, nil, false, err
+	}
+	counter64, ok := rawInteger(root["counter"], 1, math.MaxInt32)
+	if !ok {
+		return 0, nil, false, fmt.Errorf("invalid event counter")
+	}
+	counter := int(counter64)
+
+	eventName, ok := rawString(root["event"])
+	if !ok {
+		return counter, nil, false, nil
+	}
+	if _, handled := handledAWXEventNames[eventName]; !handled {
+		return counter, nil, false, nil
+	}
+
+	var rawEventData map[string]json.RawMessage
+	if err := json.Unmarshal(root["event_data"], &rawEventData); err != nil {
+		return 0, nil, false, fmt.Errorf("invalid handled AWX event data")
+	}
+	eventData, valid := projectAWXEventData(eventName, rawEventData)
+	if !valid {
+		return 0, nil, false, fmt.Errorf("invalid handled AWX event data")
+	}
+
+	projected := projectedAWXEvent{
+		Event:     eventName,
+		Counter:   counter,
+		EventData: eventData,
+	}
+	if eventName != "playbook_on_stats" {
+		if created, ok := rawString(root["created"]); ok && validRFC3339(created) {
+			projected.Created = created
+		}
+	}
+	if strings.HasPrefix(eventName, "runner_") {
+		if changed, ok := rawBool(root["changed"]); ok {
+			projected.Changed = &changed
+		}
+		if failed, ok := rawBool(root["failed"]); ok {
+			projected.Failed = &failed
+		}
+	}
+
+	out, err := json.Marshal(projected)
+	if err != nil {
+		return 0, nil, false, err
+	}
+	return counter, out, true, nil
+}
+
+func projectAWXEventData(eventName string, raw map[string]json.RawMessage) (map[string]any, bool) {
+	if eventName == "playbook_on_stats" {
+		return projectAWXStats(raw)
+	}
+
+	data := make(map[string]any)
+	playUUID, hasPlayUUID := projectedUUID(raw["play_uuid"])
+	if !hasPlayUUID {
+		return nil, false
+	}
+	data["play_uuid"] = playUUID
+
+	if eventName != "playbook_on_play_start" {
+		taskUUID, hasTaskUUID := projectedUUID(raw["task_uuid"])
+		if !hasTaskUUID {
+			return nil, false
+		}
+		data["task_uuid"] = taskUUID
+	}
+
+	if eventName == "playbook_on_play_start" {
+		projectBoundedText(data, "play", raw["play"], maxAWXEventNameBytes)
+		projectBoundedText(data, "name", raw["name"], maxAWXEventNameBytes)
+		return data, true
+	}
+
+	projectBoundedText(data, "play", raw["play"], maxAWXEventNameBytes)
+	projectBoundedText(data, "task", raw["task"], maxAWXEventNameBytes)
+	projectBoundedText(data, "name", raw["name"], maxAWXEventNameBytes)
+	projectBoundedText(data, "task_action", raw["task_action"], maxAWXEventNameBytes)
+
+	if strings.HasPrefix(eventName, "playbook_on_") {
+		projectBoundedText(data, "task_path", raw["task_path"], maxAWXEventPathBytes)
+		if line, ok := rawInteger(raw["task_line_number"], 1, math.MaxInt32); ok {
+			data["task_line_number"] = line
+		}
+	}
+
+	if strings.HasPrefix(eventName, "runner_") {
+		host, ok := projectedHostToken(raw["host"])
+		if !ok {
+			return nil, false
+		}
+		data["host"] = host
+		if ignoreErrors, ok := rawBool(raw["ignore_errors"]); ok {
+			data["ignore_errors"] = ignoreErrors
+		}
+		if delegated, ok := projectedHostToken(raw["delegated"]); ok {
+			data["delegated"] = delegated
+		}
+		if result := projectAWXResult(raw["res"]); result != nil {
+			data["res"] = result
+		}
+	}
+
+	return data, true
+}
+
+func projectAWXResult(raw json.RawMessage) map[string]any {
+	var result map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &result) != nil {
+		return nil
+	}
+	rc, ok := rawInteger(result["rc"], math.MinInt32, math.MaxInt32)
+	if !ok {
+		return nil
+	}
+	return map[string]any{"rc": rc}
+}
+
+func projectAWXStats(raw map[string]json.RawMessage) (map[string]any, bool) {
+	data := make(map[string]any, 5)
+	for _, field := range []string{"ok", "failures", "dark", "skipped", "changed"} {
+		stats, ok := projectedNumericHostMap(raw[field])
+		if !ok {
+			return nil, false
+		}
+		data[field] = stats
+	}
+	return data, true
+}
+
+func projectedNumericHostMap(raw json.RawMessage) (map[string]int64, bool) {
+	var values map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &values) != nil || len(values) > maxAWXEventStatsHosts {
+		return nil, false
+	}
+	out := make(map[string]int64, len(values))
+	for host, rawCount := range values {
+		if !literalAWXHostToken(host) {
+			return nil, false
+		}
+		count, ok := rawInteger(rawCount, 0, math.MaxInt32)
+		if !ok {
+			return nil, false
+		}
+		out[host] = count
+	}
+	return out, true
+}
+
+func projectBoundedText(out map[string]any, key string, raw json.RawMessage, maxBytes int) {
+	if value, ok := rawString(raw); ok && safeStaticText(value, maxBytes) {
+		out[key] = value
+	}
+}
+
+func projectedUUID(raw json.RawMessage) (string, bool) {
+	value, ok := rawString(raw)
+	return value, ok && lowerUUID(value)
+}
+
+func projectedHostToken(raw json.RawMessage) (string, bool) {
+	value, ok := rawString(raw)
+	return value, ok && literalAWXHostToken(value)
+}
+
+func rawString(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 {
+		return "", false
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", false
+	}
+	return value, true
+}
+
+func rawBool(raw json.RawMessage) (bool, bool) {
+	if len(raw) == 0 {
+		return false, false
+	}
+	var value bool
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return false, false
+	}
+	return value, true
+}
+
+func rawInteger(raw json.RawMessage, minValue, maxValue int64) (int64, bool) {
+	if len(raw) == 0 {
+		return 0, false
+	}
+	value, err := strconv.ParseInt(string(raw), 10, 64)
+	return value, err == nil && value >= minValue && value <= maxValue
+}
+
+func validRFC3339(value string) bool {
+	if len(value) == 0 || len(value) > len(time.RFC3339Nano)+10 {
+		return false
+	}
+	_, err := time.Parse(time.RFC3339Nano, value)
+	return err == nil
+}
+
+func lowerUUID(value string) bool {
+	if len(value) != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
+		return false
+	}
+	for i, char := range []byte(value) {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			continue
+		}
+		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+func literalAWXHostToken(value string) bool {
+	if len(value) == 0 || len(value) > 255 || value == "all" || value == "ungrouped" {
+		return false
+	}
+	for i, char := range []byte(value) {
+		if (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') ||
+			(char >= '0' && char <= '9') || (i > 0 && (char == '.' || char == '_' || char == '-')) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func safeStaticText(value string, maxBytes int) bool {
+	return boundedStaticText(value, maxBytes, false)
+}
+
+func boundedStaticText(value string, maxBytes int, allowEmpty bool) bool {
+	if (!allowEmpty && value == "") || len(value) > maxBytes || !utf8.ValidString(value) {
+		return false
+	}
+	for _, char := range value {
+		if unicode.IsControl(char) || unicode.Is(unicode.Cf, char) {
+			return false
+		}
+	}
+	return true
 }
 
 // argString extracts a string arg.
@@ -1560,13 +1990,10 @@ func postJSON(cfg Config, path string, body any) (*sdk.HTTPResponse, error) {
 
 	resp, err := awxHTTP.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, errAWXRequestFailed
 	}
 	if resp.Status < 200 || resp.Status >= 300 {
-		if resp.Status == http.StatusUnauthorized || resp.Status == http.StatusForbidden {
-			return nil, fmt.Errorf("AWX rejected the request: %d (check controller token)", resp.Status)
-		}
-		return nil, fmt.Errorf("AWX HTTP %d", resp.Status)
+		return nil, errAWXRequestFailed
 	}
 	return resp, nil
 }
@@ -1591,45 +2018,15 @@ func deleteJSON(cfg Config, path string) (*sdk.HTTPResponse, error) {
 	}
 	resp, err := awxHTTP.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, errAWXRequestFailed
 	}
 	if resp.Status == http.StatusNotFound {
 		return resp, nil
 	}
 	if resp.Status < 200 || resp.Status >= 300 {
-		if resp.Status == http.StatusUnauthorized || resp.Status == http.StatusForbidden {
-			return nil, fmt.Errorf("AWX rejected the request: %d (check controller token)", resp.Status)
-		}
-		return nil, fmt.Errorf("AWX HTTP %d", resp.Status)
+		return nil, errAWXRequestFailed
 	}
 	return resp, nil
-}
-
-// awxPingResponse mirrors the relevant subset of /api/v2/ping/.
-type awxPingResponse struct {
-	Version     string         `json:"version"`
-	ActiveNode  string         `json:"active_node"`
-	InstallUUID string         `json:"install_uuid"`
-	HA          bool           `json:"ha"`
-	Instances   []awxInstance  `json:"instances"`
-	Groups      []awxInstGroup `json:"instance_groups"`
-}
-
-type awxInstance struct {
-	Node      string  `json:"node"`
-	NodeType  string  `json:"node_type"`
-	UUID      string  `json:"uuid"`
-	Version   string  `json:"version"`
-	Capacity  int     `json:"capacity"`
-	Heartbeat string  `json:"heartbeat"`
-	Cpu       float64 `json:"cpu"`
-	Memory    int64   `json:"memory"`
-}
-
-type awxInstGroup struct {
-	Name      string   `json:"name"`
-	Capacity  int      `json:"capacity"`
-	Instances []string `json:"instances"`
 }
 
 // runPing handles `awx.ping` verb: GET /api/v2/ping/.
@@ -1643,37 +2040,32 @@ func runPing(cfg Config) *sdk.Result {
 		return errorResult("awx.ping", err)
 	}
 
-	var ping awxPingResponse
+	var ping map[string]json.RawMessage
 	if err := json.Unmarshal(resp.Body, &ping); err != nil {
-		return errorResult("awx.ping", fmt.Errorf("decode /api/v2/ping/: %w", err))
+		return errorResult("awx.ping", fmt.Errorf("decode AWX ping response: %w", err))
+	}
+	version, versionOK := rawString(ping["version"])
+	activeNode, activeNodeOK := rawString(ping["active_node"])
+	if !versionOK || !safeStaticText(version, 64) ||
+		!activeNodeOK || !safeStaticText(activeNode, 255) {
+		return errorResult("awx.ping", fmt.Errorf("AWX returned an invalid ping response"))
 	}
 
 	payload := map[string]any{
-		"verb":         "awx.ping",
-		"ok":           true,
-		"version":      ping.Version,
-		"active_node":  ping.ActiveNode,
-		"install_uuid": ping.InstallUUID,
-		"ha":           ping.HA,
-		"instances":    ping.Instances,
-		"groups":       ping.Groups,
+		"verb":        "awx.ping",
+		"ok":          true,
+		"version":     version,
+		"active_node": activeNode,
 	}
 	body, _ := json.Marshal(payload)
 
-	summary := "AWX " + nonEmpty(ping.Version, "?") + " reachable"
-	if active := strings.TrimSpace(ping.ActiveNode); active != "" {
-		summary += " (active: " + active + ")"
-	}
+	summary := "AWX " + version + " reachable (active: " + activeNode + ")"
 
 	result := sdk.Ok(summary).
 		WithDetails(string(body)).
 		WithLabel("verb", "awx.ping")
-	if ping.Version != "" {
-		result.WithLabel("awx_version", ping.Version)
-	}
-	if ping.ActiveNode != "" {
-		result.WithLabel("active_node", ping.ActiveNode)
-	}
+	result.WithLabel("awx_version", version)
+	result.WithLabel("active_node", activeNode)
 	return result
 }
 
@@ -1721,7 +2113,7 @@ func listAWXPathBounded(cfg Config, path string, maxResults int) ([]json.RawMess
 		}
 		var pageBody awxPage
 		if err := json.Unmarshal(resp.Body, &pageBody); err != nil {
-			return nil, 0, fmt.Errorf("decode %s: %w", next, err)
+			return nil, 0, fmt.Errorf("decode AWX pagination response: %w", err)
 		}
 		if pagesWalked == 0 {
 			total = pageBody.Count
@@ -1753,7 +2145,7 @@ func relativizeAWXPath(next string) string {
 	switch {
 	case next == "":
 		return ""
-	case strings.HasPrefix(next, "/"):
+	case strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//"):
 		return next
 	case strings.HasPrefix(next, "https://"):
 		i := strings.Index(next[len("https://"):], "/")
@@ -1768,7 +2160,7 @@ func relativizeAWXPath(next string) string {
 		}
 		return next[len("http://")+i:]
 	default:
-		return next
+		return ""
 	}
 }
 
@@ -1799,8 +2191,481 @@ func encodeListPayload(verb string, results []json.RawMessage, total int, extra 
 	return string(body)
 }
 
+type awxRowProjector func(json.RawMessage) (map[string]any, bool)
+
+const (
+	maxAWXCatalogNameBytes       = 512
+	maxAWXTemplateDescription    = 8 * 1024
+	maxAWXTemplateTagsBytes      = 4 * 1024
+	maxAWXTemplateLimitBytes     = 16 * 1024
+	maxAWXPlaybookPathBytes      = 1024
+	maxAWXSurveyFields           = 100
+	maxAWXSurveyQuestionBytes    = 512
+	maxAWXSurveyDescriptionBytes = 4 * 1024
+	maxAWXSurveyChoices          = 100
+	maxAWXSurveyChoiceBytes      = 1024
+	maxAWXSurveyChoicesBytes     = 16 * 1024
+)
+
+func projectAWXRows(rawRows []json.RawMessage, projector awxRowProjector) ([]json.RawMessage, error) {
+	rows := make([]json.RawMessage, 0, len(rawRows))
+	for _, raw := range rawRows {
+		row, ok := projector(raw)
+		if !ok {
+			return nil, fmt.Errorf("AWX returned an invalid catalog row")
+		}
+		encoded, err := json.Marshal(row)
+		if err != nil {
+			return nil, fmt.Errorf("encode AWX catalog row")
+		}
+		rows = append(rows, encoded)
+	}
+	return rows, nil
+}
+
+func projectAWXInventory(raw json.RawMessage) (map[string]any, bool) {
+	row, ok := rawObject(raw)
+	if !ok {
+		return nil, false
+	}
+	id, idOK := requiredRawInt(row["id"], 1, math.MaxInt32)
+	name, nameOK := reviewedRawText(row["name"], maxAWXCatalogNameBytes, false)
+	kind, kindOK := rawString(row["kind"])
+	totalHosts, totalOK := requiredRawInt(row["total_hosts"], 0, math.MaxInt32)
+	organization, organizationOK, hasOrganization := optionalRawPositiveID(row["organization"])
+	if !idOK || !nameOK || !kindOK || !stringIn(kind, "", "smart", "constructed") ||
+		!totalOK || !organizationOK {
+		return nil, false
+	}
+	safe := map[string]any{
+		"id":          id,
+		"name":        name,
+		"kind":        kind,
+		"total_hosts": totalHosts,
+	}
+	if hasOrganization {
+		safe["organization"] = organization
+	}
+	return safe, true
+}
+
+func projectAWXHost(raw json.RawMessage) (map[string]any, bool) {
+	row, ok := rawObject(raw)
+	if !ok {
+		return nil, false
+	}
+	id, idOK := requiredRawInt(row["id"], 1, math.MaxInt32)
+	name, nameOK := rawString(row["name"])
+	inventoryID, inventoryOK := requiredRawInt(row["inventory"], 1, math.MaxInt32)
+	enabled, enabledOK := rawBool(row["enabled"])
+	if !idOK || !nameOK || !literalAWXHostToken(name) || !inventoryOK || !enabledOK {
+		return nil, false
+	}
+	return map[string]any{
+		"id":        id,
+		"name":      name,
+		"inventory": inventoryID,
+		"enabled":   enabled,
+	}, true
+}
+
+func projectAWXInventoryGroup(raw json.RawMessage) (map[string]any, bool) {
+	row, ok := rawObject(raw)
+	if !ok {
+		return nil, false
+	}
+	id, idOK := requiredRawInt(row["id"], 1, math.MaxInt32)
+	name, nameOK := rawString(row["name"])
+	if !idOK || !nameOK || !literalAWXHostToken(name) {
+		return nil, false
+	}
+	return map[string]any{"id": id, "name": name}, true
+}
+
+func projectAWXProject(raw json.RawMessage) (map[string]any, bool) {
+	row, ok := rawObject(raw)
+	if !ok {
+		return nil, false
+	}
+	id, idOK := requiredRawInt(row["id"], 1, math.MaxInt32)
+	name, nameOK := reviewedRawText(row["name"], maxAWXCatalogNameBytes, false)
+	organization, organizationOK, hasOrganization := optionalRawPositiveID(row["organization"])
+	status, statusOK := reviewedRawText(row["status"], 64, false)
+	scmType, scmTypeOK := reviewedRawToken(row["scm_type"], 64, true)
+	scmRevision, revisionOK := reviewedRawToken(row["scm_revision"], 128, true)
+	updateOnLaunch, updateOK := projectUpdateOnLaunch(row)
+	if !idOK || !nameOK || !organizationOK || !statusOK || !scmTypeOK ||
+		!revisionOK || !updateOK {
+		return nil, false
+	}
+	safe := map[string]any{
+		"id":               id,
+		"name":             name,
+		"status":           status,
+		"scm_type":         scmType,
+		"scm_revision":     scmRevision,
+		"update_on_launch": updateOnLaunch,
+	}
+	if hasOrganization {
+		safe["organization"] = organization
+	}
+	return safe, true
+}
+
+func projectUpdateOnLaunch(row map[string]json.RawMessage) (bool, bool) {
+	rawSCM, hasSCM := row["scm_update_on_launch"]
+	rawLegacy, hasLegacy := row["update_on_launch"]
+	if !hasSCM && !hasLegacy {
+		return false, false
+	}
+	if hasSCM {
+		value, ok := rawBool(rawSCM)
+		if !ok {
+			return false, false
+		}
+		if hasLegacy {
+			legacy, legacyOK := rawBool(rawLegacy)
+			if !legacyOK || legacy != value {
+				return false, false
+			}
+		}
+		return value, true
+	}
+	return rawBool(rawLegacy)
+}
+
+func projectAWXTemplate(raw json.RawMessage) (map[string]any, bool) {
+	row, ok := rawObject(raw)
+	if !ok {
+		return nil, false
+	}
+	id, idOK := requiredRawInt(row["id"], 1, math.MaxInt32)
+	name, nameOK := reviewedRawText(row["name"], maxAWXCatalogNameBytes, false)
+	description, descriptionOK, hasDescription := optionalReviewedRawText(
+		row["description"], maxAWXTemplateDescription, true,
+	)
+	jobTags, tagsOK, hasTags := optionalReviewedRawText(row["job_tags"], maxAWXTemplateTagsBytes, true)
+	limit, limitOK, hasLimit := optionalReviewedRawText(row["limit"], maxAWXTemplateLimitBytes, true)
+	jobType, jobTypeOK := rawString(row["job_type"])
+	playbook, playbookOK, hasPlaybook := optionalReviewedPlaybookPath(row["playbook"])
+	projectID, projectOK, hasProject := optionalRawPositiveID(row["project"])
+	inventoryID, inventoryOK, hasInventory := optionalRawPositiveID(row["inventory"])
+	surveyEnabled, surveyOK := rawBool(row["survey_enabled"])
+	askVariables, askVariablesOK := rawBool(row["ask_variables_on_launch"])
+	askInventory, askInventoryOK := rawBool(row["ask_inventory_on_launch"])
+	askLimit, askLimitOK := rawBool(row["ask_limit_on_launch"])
+	askCredential, askCredentialOK := rawBool(row["ask_credential_on_launch"])
+	if !idOK || !nameOK || !descriptionOK || !tagsOK || !limitOK ||
+		!jobTypeOK || !stringIn(jobType, "run", "check") || !playbookOK ||
+		!projectOK || !inventoryOK || !surveyOK || !askVariablesOK ||
+		!askInventoryOK || !askLimitOK || !askCredentialOK {
+		return nil, false
+	}
+	safe := map[string]any{
+		"id":                       id,
+		"name":                     name,
+		"job_type":                 jobType,
+		"survey_enabled":           surveyEnabled,
+		"ask_variables_on_launch":  askVariables,
+		"ask_inventory_on_launch":  askInventory,
+		"ask_limit_on_launch":      askLimit,
+		"ask_credential_on_launch": askCredential,
+	}
+	if hasDescription {
+		safe["description"] = description
+	}
+	if hasTags {
+		safe["job_tags"] = jobTags
+	}
+	if hasLimit {
+		safe["limit"] = limit
+	}
+	if hasPlaybook {
+		safe["playbook"] = playbook
+	}
+	if hasProject {
+		safe["project"] = projectID
+	}
+	if hasInventory {
+		safe["inventory"] = inventoryID
+	}
+	return safe, true
+}
+
+func rawObject(raw json.RawMessage) (map[string]json.RawMessage, bool) {
+	if len(raw) == 0 {
+		return nil, false
+	}
+	var value map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &value); err != nil || value == nil {
+		return nil, false
+	}
+	return value, true
+}
+
+func requiredRawInt(raw json.RawMessage, minValue, maxValue int64) (int, bool) {
+	value, ok := rawInteger(raw, minValue, maxValue)
+	return int(value), ok
+}
+
+func optionalRawPositiveID(raw json.RawMessage) (int, bool, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0, true, false
+	}
+	value, ok := requiredRawInt(raw, 1, math.MaxInt32)
+	return value, ok, ok
+}
+
+func reviewedRawText(raw json.RawMessage, maxBytes int, allowEmpty bool) (string, bool) {
+	value, ok := rawString(raw)
+	return value, ok && boundedStaticText(value, maxBytes, allowEmpty)
+}
+
+func optionalReviewedRawText(
+	raw json.RawMessage,
+	maxBytes int,
+	allowEmpty bool,
+) (string, bool, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", true, false
+	}
+	value, ok := reviewedRawText(raw, maxBytes, allowEmpty)
+	return value, ok, ok
+}
+
+func reviewedRawToken(raw json.RawMessage, maxBytes int, allowEmpty bool) (string, bool) {
+	value, ok := reviewedRawText(raw, maxBytes, allowEmpty)
+	if !ok {
+		return "", false
+	}
+	for _, char := range []byte(value) {
+		if (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') ||
+			(char >= '0' && char <= '9') || char == '.' || char == '_' ||
+			char == '+' || char == '/' || char == '-' {
+			continue
+		}
+		return "", false
+	}
+	return value, true
+}
+
+func optionalReviewedPlaybookPath(raw json.RawMessage) (string, bool, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", true, false
+	}
+	path, ok := reviewedRawText(raw, maxAWXPlaybookPathBytes, false)
+	if !ok || strings.HasPrefix(path, "/") || strings.HasPrefix(path, "\\") ||
+		strings.Contains(path, "\\") {
+		return "", false, false
+	}
+	for _, segment := range strings.Split(path, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return "", false, false
+		}
+	}
+	return path, true, true
+}
+
+func stringIn(value string, allowed ...string) bool {
+	for _, candidate := range allowed {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+var reservedAWXSurveyVariables = map[string]struct{}{
+	"allowed_callback_origin": {}, "allowed_origin": {}, "callback_manifest_sha256": {},
+	"callback_operation": {}, "callback_origin": {}, "callback_phase": {},
+	"callback_policy": {}, "callback_response_policy_provider": {}, "callback_state": {},
+	"callback_url": {}, "desired_state": {}, "manifest_sha256": {}, "operation": {},
+	"phase": {}, "remote_access_operation": {}, "response_policy_provider": {},
+	"serviceradar_dispatch_id": {}, "serviceradar_snapshot_digest": {}, "state": {},
+	"group_names": {}, "groups": {}, "hostvars": {}, "inventory_dir": {},
+	"inventory_file": {}, "inventory_hostname": {}, "inventory_hostname_short": {},
+	"omit": {}, "play_hosts": {}, "playbook_dir": {}, "role_name": {}, "role_path": {},
+}
+
+var sensitiveAWXSurveyVariableParts = [...]string{
+	"api_key", "authorization", "bearer", "credential", "passwd", "password",
+	"private_key", "secret", "token",
+}
+
+func projectAWXSurvey(raw []byte) (map[string]any, bool) {
+	root, ok := rawObject(raw)
+	if !ok {
+		return nil, false
+	}
+	if len(root) == 0 {
+		return map[string]any{}, true
+	}
+	if value, present := root["name"]; present {
+		if _, ok := reviewedRawText(value, maxAWXSurveyQuestionBytes, true); !ok {
+			return nil, false
+		}
+	}
+	if value, present := root["description"]; present {
+		if _, ok := reviewedRawText(value, maxAWXSurveyDescriptionBytes, true); !ok {
+			return nil, false
+		}
+	}
+	var rawFields []json.RawMessage
+	if err := json.Unmarshal(root["spec"], &rawFields); err != nil || len(rawFields) > maxAWXSurveyFields {
+		return nil, false
+	}
+	fields := make([]map[string]any, 0, len(rawFields))
+	seen := make(map[string]struct{}, len(rawFields))
+	for _, rawField := range rawFields {
+		field, variable, ok := projectAWXSurveyField(rawField)
+		if !ok {
+			return nil, false
+		}
+		normalized := strings.ToLower(variable)
+		if _, duplicate := seen[normalized]; duplicate {
+			return nil, false
+		}
+		seen[normalized] = struct{}{}
+		fields = append(fields, field)
+	}
+	return map[string]any{"spec": fields}, true
+}
+
+func projectAWXSurveyField(raw json.RawMessage) (map[string]any, string, bool) {
+	field, ok := rawObject(raw)
+	if !ok {
+		return nil, "", false
+	}
+	variable, variableOK := rawString(field["variable"])
+	question, questionOK := reviewedRawText(field["question_name"], maxAWXSurveyQuestionBytes, true)
+	fieldType, typeOK := rawString(field["type"])
+	required, requiredOK := rawBool(field["required"])
+	if !variableOK || !reviewedAWXSurveyVariable(variable) || !questionOK || !typeOK ||
+		!stringIn(fieldType, "text", "textarea", "integer", "float", "multiplechoice", "multiselect") ||
+		!requiredOK {
+		return nil, "", false
+	}
+	safe := map[string]any{
+		"variable":      variable,
+		"question_name": question,
+		"type":          fieldType,
+		"required":      required,
+	}
+	choices, choicesOK, hasChoices := projectAWXSurveyChoices(field["choices"], fieldType)
+	min, minFloat, minOK, hasMin := optionalRawSurveyNumber(field["min"])
+	max, maxFloat, maxOK, hasMax := optionalRawSurveyNumber(field["max"])
+	description, descriptionOK, hasDescription := optionalReviewedRawText(
+		field["question_description"], maxAWXSurveyDescriptionBytes, true,
+	)
+	if !choicesOK || !minOK || !maxOK || !descriptionOK || (hasMin && hasMax && minFloat > maxFloat) {
+		return nil, "", false
+	}
+	if hasChoices {
+		safe["choices"] = choices
+	}
+	if hasMin {
+		safe["min"] = min
+	}
+	if hasMax {
+		safe["max"] = max
+	}
+	if hasDescription {
+		safe["question_description"] = description
+	}
+	return safe, variable, true
+}
+
+func reviewedAWXSurveyVariable(value string) bool {
+	if len(value) == 0 || len(value) > 128 ||
+		!((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z') || value[0] == '_') {
+		return false
+	}
+	for _, char := range []byte(value[1:]) {
+		if (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') ||
+			(char >= '0' && char <= '9') || char == '_' {
+			continue
+		}
+		return false
+	}
+	normalized := strings.ToLower(value)
+	if strings.HasPrefix(normalized, "ansible_") {
+		return false
+	}
+	if _, reserved := reservedAWXSurveyVariables[normalized]; reserved {
+		return false
+	}
+	padded := "_" + normalized + "_"
+	for _, sensitive := range sensitiveAWXSurveyVariableParts {
+		if strings.Contains(padded, "_"+sensitive+"_") {
+			return false
+		}
+	}
+	return true
+}
+
+func projectAWXSurveyChoices(raw json.RawMessage, fieldType string) (any, bool, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, true, false
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		if len(text) > maxAWXSurveyChoicesBytes || !utf8.ValidString(text) {
+			return nil, false, false
+		}
+		if text == "" {
+			return text, true, true
+		}
+		if !stringIn(fieldType, "multiplechoice", "multiselect") {
+			return nil, false, false
+		}
+		parts := strings.FieldsFunc(text, func(char rune) bool { return char == '\n' || char == ',' })
+		if len(parts) == 0 || len(parts) > maxAWXSurveyChoices {
+			return nil, false, false
+		}
+		choices := make([]string, 0, len(parts))
+		for _, part := range parts {
+			choice := strings.TrimSpace(part)
+			if !safeStaticText(choice, maxAWXSurveyChoiceBytes) {
+				return nil, false, false
+			}
+			choices = append(choices, choice)
+		}
+		return choices, true, true
+	}
+	var values []string
+	if json.Unmarshal(raw, &values) != nil || len(values) > maxAWXSurveyChoices ||
+		(len(values) > 0 && !stringIn(fieldType, "multiplechoice", "multiselect")) {
+		return nil, false, false
+	}
+	for _, value := range values {
+		if !safeStaticText(value, maxAWXSurveyChoiceBytes) {
+			return nil, false, false
+		}
+	}
+	return values, true, true
+}
+
+func optionalRawSurveyNumber(raw json.RawMessage) (json.Number, float64, bool, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", 0, true, false
+	}
+	if len(raw) > 64 {
+		return "", 0, false, false
+	}
+	value := json.Number(string(raw))
+	parsed, err := strconv.ParseFloat(string(value), 64)
+	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+		return "", 0, false, false
+	}
+	return value, parsed, true, true
+}
+
 func runListInventories(cfg Config) *sdk.Result {
 	results, total, err := listAWXPath(cfg, "/api/v2/inventories/?page_size=200")
+	if err != nil {
+		return errorResult("awx.list_inventories", err)
+	}
+	results, err = projectAWXRows(results, projectAWXInventory)
 	if err != nil {
 		return errorResult("awx.list_inventories", err)
 	}
@@ -1816,6 +2681,10 @@ func runListHosts(cfg Config) *sdk.Result {
 	}
 	path := fmt.Sprintf("/api/v2/inventories/%d/hosts/?page_size=200", inventoryID)
 	results, total, err := listAWXPath(cfg, path)
+	if err != nil {
+		return errorResult("awx.list_hosts", err)
+	}
+	results, err = projectAWXRows(results, projectAWXHost)
 	if err != nil {
 		return errorResult("awx.list_hosts", err)
 	}
@@ -1850,17 +2719,9 @@ func runListInventoryGroups(cfg Config) *sdk.Result {
 	if err != nil {
 		return errorResult("awx.list_inventory_groups", err)
 	}
-	safeResults := make([]json.RawMessage, 0, len(results))
-	for _, raw := range results {
-		var group struct {
-			ID   int    `json:"id"`
-			Name string `json:"name"`
-		}
-		if err := json.Unmarshal(raw, &group); err != nil || group.ID <= 0 || strings.TrimSpace(group.Name) == "" {
-			return errorResult("awx.list_inventory_groups", fmt.Errorf("AWX returned an invalid inventory group"))
-		}
-		safe, _ := json.Marshal(group)
-		safeResults = append(safeResults, safe)
+	safeResults, err := projectAWXRows(results, projectAWXInventoryGroup)
+	if err != nil {
+		return errorResult("awx.list_inventory_groups", err)
 	}
 	extra := map[string]any{"inventory_id": inventoryID}
 	return sdk.Ok(fmt.Sprintf("listed %d groups in inventory %d", total, inventoryID)).
@@ -1870,6 +2731,10 @@ func runListInventoryGroups(cfg Config) *sdk.Result {
 
 func runListProjects(cfg Config) *sdk.Result {
 	results, total, err := listAWXPath(cfg, "/api/v2/projects/?page_size=200")
+	if err != nil {
+		return errorResult("awx.list_projects", err)
+	}
+	results, err = projectAWXRows(results, projectAWXProject)
 	if err != nil {
 		return errorResult("awx.list_projects", err)
 	}
@@ -1883,6 +2748,10 @@ func runListTemplates(cfg Config) *sdk.Result {
 	if err != nil {
 		return errorResult("awx.list_templates", err)
 	}
+	results, err = projectAWXRows(results, projectAWXTemplate)
+	if err != nil {
+		return errorResult("awx.list_templates", err)
+	}
 	return sdk.Ok(fmt.Sprintf("listed %d job templates", total)).
 		WithDetails(encodeListPayload("awx.list_templates", results, total, nil)).
 		WithLabel("verb", "awx.list_templates")
@@ -1893,7 +2762,7 @@ func runListTemplates(cfg Config) *sdk.Result {
 // worker only needs one verb call per template.
 func runFetchTemplate(cfg Config) *sdk.Result {
 	templateID, ok := argInt(cfg.Args, "template_id")
-	if !ok {
+	if !ok || templateID <= 0 || templateID > math.MaxInt32 {
 		return errorResult("awx.fetch_template", fmt.Errorf("args.template_id is required"))
 	}
 
@@ -1901,17 +2770,28 @@ func runFetchTemplate(cfg Config) *sdk.Result {
 	if err != nil {
 		return errorResult("awx.fetch_template", err)
 	}
-	var tmpl json.RawMessage
-	if err := json.Unmarshal(tmplResp.Body, &tmpl); err != nil {
-		return errorResult("awx.fetch_template", fmt.Errorf("decode template: %w", err))
+	tmpl, ok := projectAWXTemplate(tmplResp.Body)
+	if !ok {
+		return errorResult("awx.fetch_template", fmt.Errorf("AWX returned an invalid job template"))
+	}
+	if returnedID, ok := tmpl["id"].(int); !ok || returnedID != templateID {
+		return errorResult("awx.fetch_template", fmt.Errorf("AWX returned a mismatched job template"))
 	}
 
 	// Survey spec is on a sub-resource; AWX returns 200 with `{}` when no
 	// survey is defined. A 404 is also tolerated for older AWX versions.
-	var survey json.RawMessage = json.RawMessage("{}")
-	if surveyResp, err := getJSON(cfg, fmt.Sprintf("/api/v2/job_templates/%d/survey_spec/", templateID)); err == nil {
-		if err := json.Unmarshal(surveyResp.Body, &survey); err != nil {
-			return errorResult("awx.fetch_template", fmt.Errorf("decode survey_spec: %w", err))
+	survey := map[string]any{}
+	surveyResp, notFound, err := getJSONAllowNotFound(
+		cfg,
+		fmt.Sprintf("/api/v2/job_templates/%d/survey_spec/", templateID),
+	)
+	if err != nil {
+		return errorResult("awx.fetch_template", err)
+	}
+	if !notFound {
+		survey, ok = projectAWXSurvey(surveyResp.Body)
+		if !ok {
+			return errorResult("awx.fetch_template", fmt.Errorf("AWX returned an invalid survey"))
 		}
 	}
 
@@ -2026,14 +2906,10 @@ func getJSON(cfg Config, path string) (*sdk.HTTPResponse, error) {
 
 	resp, err := awxHTTP.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, errAWXRequestFailed
 	}
 	if resp.Status < 200 || resp.Status >= 300 {
-		// Special-case auth: keep error short and operator-actionable.
-		if resp.Status == http.StatusUnauthorized || resp.Status == http.StatusForbidden {
-			return nil, fmt.Errorf("AWX rejected the request: %d (check controller token)", resp.Status)
-		}
-		return nil, fmt.Errorf("AWX HTTP %d", resp.Status)
+		return nil, errAWXRequestFailed
 	}
 	return resp, nil
 }
@@ -2056,40 +2932,32 @@ func getJSONAllowNotFound(cfg Config, path string) (*sdk.HTTPResponse, bool, err
 	}
 	resp, err := awxHTTP.Do(req)
 	if err != nil {
-		return nil, false, err
+		return nil, false, errAWXRequestFailed
 	}
 	if resp.Status == http.StatusNotFound {
 		return resp, true, nil
 	}
 	if resp.Status < 200 || resp.Status >= 300 {
-		if resp.Status == http.StatusUnauthorized || resp.Status == http.StatusForbidden {
-			return nil, false, fmt.Errorf("AWX rejected the request: %d (check controller token)", resp.Status)
-		}
-		return nil, false, fmt.Errorf("AWX HTTP %d", resp.Status)
+		return nil, false, errAWXRequestFailed
 	}
 	return resp, false, nil
 }
 
-// sanitizeError strips any embedded URL so a sloppy upstream error doesn't
-// leak the controller hostname or query strings into the operator-visible
-// summary.
+// sanitizeError deliberately collapses all upstream text to a fixed message.
+// HTTP/client errors can contain credentials, response bodies, query strings,
+// or multiple internal URLs in forms that cannot be safely recovered with a
+// blacklist. Structural status is carried separately by each verb.
 func sanitizeError(err error) string {
 	if err == nil {
 		return ""
 	}
-	s := err.Error()
-	// Remove anything that looks like a scheme://host fragment.
-	for _, scheme := range []string{"https://", "http://"} {
-		if i := strings.Index(s, scheme); i >= 0 {
-			rest := s[i+len(scheme):]
-			// Stop at `/` so the path stays in the message (operator
-			// diagnostic value) but host:port is redacted.
-			j := strings.IndexAny(rest, "/ \t\n,;\"")
-			if j < 0 {
-				j = len(rest)
-			}
-			s = s[:i] + "<awx>" + rest[j:]
-		}
+	if err == errAWXRequestFailed {
+		return errAWXRequestFailed.Error()
+	}
+	raw := err.Error()
+	s := strings.TrimSpace(raw)
+	if raw != s || !boundedStaticText(s, 512, false) {
+		return "AWX command rejected"
 	}
 	return s
 }
@@ -2104,15 +2972,12 @@ func nonEmpty(s, fallback string) string {
 // primeTinyGoJSON registers types we'll marshal so TinyGo's reflection-free
 // JSON support pulls them in. Mirrors the proxmox plugin's pattern.
 func primeTinyGoJSON() {
-	_, _ = json.Marshal(awxPingResponse{})
-	_, _ = json.Marshal([]awxInstance{})
-	_, _ = json.Marshal([]awxInstGroup{})
 	_, _ = json.Marshal(map[string]any{"t": time.Time{}})
 }
 
 // InventorySyncControllerConfig describes one AWX controller in the scheduled
-// `inventory_sync` entrypoint. The assignment carries resolved API tokens; core
-// resolves credential-broker refs before invoking the plugin.
+// `inventory_sync` entrypoint. The assignment carries only the host-injected
+// sentinel; the trusted agent retains resolved API tokens outside Wasm memory.
 type InventorySyncControllerConfig struct {
 	// ControllerID is the ServiceRadar AnsibleController.id. We embed
 	// it in DeviceID so DIRE can attribute hosts back to the right
@@ -2203,8 +3068,8 @@ func validateInventorySyncConfig(cfg InventorySyncConfig) error {
 		if strings.TrimSpace(controller.BaseURL) == "" {
 			return fmt.Errorf("controllers[%d].base_url is required", i)
 		}
-		if strings.TrimSpace(controller.APIToken) == "" {
-			return fmt.Errorf("controllers[%d].api_token is required (resolved from credential broker grant)", i)
+		if controller.APIToken != awxInventoryHostCredentialSentinel {
+			return fmt.Errorf("controllers[%d].api_token host sentinel is required", i)
 		}
 		if strings.TrimSpace(controller.ControllerID) == "" {
 			return fmt.Errorf("controllers[%d].controller_id is required", i)

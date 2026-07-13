@@ -125,6 +125,10 @@ type PluginManager struct {
 	results chan PluginResult
 	signals chan PluginSignalTelemetry
 
+	streamExecutionMu     sync.Mutex
+	streamExecutions      map[uint64]activePluginStreamExecution
+	nextStreamExecutionID uint64
+
 	// conditions de-duplicates per-cycle plugin condition events (e.g. Proxmox
 	// resource pressure/bottleneck) so only level transitions are forwarded.
 	conditions *pluginConditionDebouncer
@@ -157,6 +161,12 @@ type assignmentState struct {
 type credentialBrokerCacheEntry struct {
 	material  CredentialBrokerMaterial
 	expiresAt time.Time
+}
+
+type activePluginStreamExecution struct {
+	assignmentID string
+	generation   string
+	cancel       context.CancelFunc
 }
 
 // PluginResult captures a raw plugin result payload.

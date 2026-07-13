@@ -2,6 +2,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Automation.Ansible.AutomationSecureExecutionCommandAttempt, as: Attempt
+  alias ServiceRadar.Automation.Ansible.SecureExecutionCommandContract, as: Contract
+  alias ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher, as: Dispatcher
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandRecovery, as: Recovery
   alias ServiceRadar.Edge.AgentCommand
 
@@ -83,6 +85,76 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
     refute_receive {:reconcile_transport, _}
   end
 
+  test "recovery reauthorizes a missing launch command and terminalizes contraction" do
+    {attempt, resources} = recoverable_launch_attempt()
+    test_pid = self()
+
+    assert %{attempts: 1} =
+             recover(attempt, nil,
+               dispatcher: fn recovered ->
+                 Dispatcher.dispatch(recovered,
+                   resource_loader: fn ^recovered -> {:ok, resources} end,
+                   current_authorizer: fn _current_resources, _now, _context ->
+                     send(test_pid, :recovery_reauthorized)
+                     {:error, :principal_disabled}
+                   end,
+                   authority_denial_handler: fn denied, _resources, reason, _now ->
+                     send(test_pid, {:recovery_terminalized, denied.id, reason})
+                     {:ok, :terminalized}
+                   end,
+                   claim: fn _, _, _, _ ->
+                     flunk("contracted recovery must not acquire a dispatch lease")
+                   end,
+                   awx_dispatcher: fn _, _, _, _, _ ->
+                     flunk("contracted recovery must not reach AWX")
+                   end
+                 )
+               end
+             )
+
+    assert_receive :recovery_reauthorized
+    assert_receive {:recovery_terminalized, attempt_id, :principal_disabled}
+    assert attempt_id == attempt.id
+  end
+
+  test "recovery watchdog reauthorizes an in-flight continuation and durably contracts it" do
+    current = now()
+
+    attempt =
+      :fetch_job
+      |> attempt(DateTime.add(current, 60, :second))
+      |> Map.put(:state, :dispatched)
+
+    command = command(attempt, :running, DateTime.add(current, 30, :second))
+    resources = continuation_resources(attempt, :running, :running)
+    test_pid = self()
+
+    assert %{attempts: 1} =
+             recover(attempt, command,
+               now: current,
+               continuation_authorizer: fn recovered ->
+                 Dispatcher.reauthorize_continuation(recovered,
+                   resource_loader: fn ^recovered -> {:ok, resources} end,
+                   current_authorizer: fn current_attempt, _resources, _now, _context ->
+                     assert current_attempt.purpose == :terminal_poll
+                     send(test_pid, :watchdog_reauthorized)
+                     {:error, :principal_disabled}
+                   end,
+                   authority_denial_handler: fn denied, _resources, reason, _now ->
+                     send(test_pid, {:watchdog_contracted, denied.id, reason})
+                     {:ok, :cancellation_planned}
+                   end
+                 )
+               end
+             )
+
+    assert_receive :watchdog_reauthorized
+    assert_receive {:watchdog_contracted, attempt_id, :principal_disabled}
+    assert attempt_id == attempt.id
+    refute_receive {:process_persisted, _, _, _}
+    refute_receive {:expire_attempt, _}
+  end
+
   test "a non-launch command whose bounded deadline elapsed fails through expiration" do
     now = now()
     attempt = attempt(:fetch_job, DateTime.add(now, -1, :second))
@@ -144,6 +216,90 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
       deadline_at: deadline_at,
       inserted_at: now()
     )
+  end
+
+  defp recoverable_launch_attempt do
+    operation_id = "018f3f56-1111-7222-8333-123456789abc"
+    execution_id = "018f3f56-1111-7222-8333-123456789abd"
+    controller_id = "018f3f56-1111-7222-8333-123456789abe"
+    current = now()
+
+    operation = %{
+      id: operation_id,
+      state: :dispatching,
+      callback_actions: [],
+      declared_inputs: %{},
+      mutating: true
+    }
+
+    execution = %{
+      id: execution_id,
+      operation_id: operation_id,
+      controller_id: controller_id,
+      state: :dispatching,
+      inventory_id: 34,
+      job_template_id: 42,
+      project_id: 3,
+      scm_revision: String.duplicate("a", 40),
+      execution_environment_id: 4,
+      credential_snapshot: %{"credential_ids" => [5]},
+      check_mode: false,
+      host_limit: "farm01-node01",
+      dispatch_id: "018f3f56-1111-7222-8333-123456789abf",
+      snapshot_digest: String.duplicate("b", 64)
+    }
+
+    {:ok, request} = Contract.launch_request(operation, execution)
+
+    {:ok, attrs} =
+      Contract.build_attempt(
+        %{
+          operation_id: operation_id,
+          execution_id: execution_id,
+          controller_id: controller_id,
+          dispatch_agent_id: "edge-agent-1"
+        },
+        execution,
+        request,
+        stage: :launch_job,
+        purpose: :accepted_job_proof,
+        command_type: "awx.launch_job",
+        deadline_at: DateTime.add(current, 60, :second)
+      )
+
+    attempt =
+      struct!(
+        Attempt,
+        Map.merge(attrs, %{id: Ash.UUID.generate(), state: :planned, inserted_at: current})
+      )
+
+    resources = %{
+      operation: operation,
+      execution: execution,
+      controller: %{id: controller_id, agent_id: "edge-agent-1"},
+      targets: []
+    }
+
+    {attempt, resources}
+  end
+
+  defp continuation_resources(attempt, operation_state, execution_state) do
+    %{
+      operation: %{
+        id: attempt.operation_id,
+        state: operation_state,
+        callback_actions: [],
+        mutating: true
+      },
+      execution: %{
+        id: attempt.execution_id,
+        operation_id: attempt.operation_id,
+        controller_id: attempt.controller_id,
+        state: execution_state
+      },
+      controller: %{id: attempt.controller_id, agent_id: attempt.dispatch_agent_id},
+      targets: [%{id: Ash.UUID.generate()}]
+    }
   end
 
   defp now, do: DateTime.truncate(DateTime.utc_now(), :microsecond)

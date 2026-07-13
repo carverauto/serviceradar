@@ -538,13 +538,24 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   def send_console_frame(agent_id, frame, opts) when is_binary(agent_id) and is_map(frame) do
     required_gateway_node = Keyword.get(opts, :required_gateway_node)
+    required_session_pid = Keyword.get(opts, :required_control_session_pid)
+    required_evidence = Keyword.get(opts, :required_control_evidence)
 
-    case lookup_control_session(agent_id, required_gateway_node) do
-      {:ok, pid, _metadata} ->
-        call_control_session(agent_id, pid, {:send_console_frame, frame})
+    case {required_session_pid, required_evidence} do
+      {pid, evidence} when is_pid(pid) and is_map(evidence) ->
+        call_exact_control_session(pid, {:send_console_frame, frame, evidence})
 
-      {:error, reason} ->
-        {:error, reason}
+      {nil, nil} ->
+        case lookup_control_session(agent_id, required_gateway_node) do
+          {:ok, pid, _metadata} ->
+            call_control_session(agent_id, pid, {:send_console_frame, frame})
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      _incomplete_binding ->
+        {:error, :invalid_control_session_binding}
     end
   end
 
@@ -575,6 +586,19 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
     :exit, reason ->
       maybe_unregister_local({:agent_control, agent_id})
+      {:error, {:control_session_exit, reason}}
+  end
+
+  defp call_exact_control_session(pid, request) do
+    GenServer.call(pid, request, @send_timeout)
+  catch
+    :exit, {:noproc, _} ->
+      {:error, :control_session_unavailable}
+
+    :exit, {:normal, _} ->
+      {:error, :control_session_unavailable}
+
+    :exit, reason ->
       {:error, {:control_session_exit, reason}}
   end
 
@@ -1154,6 +1178,26 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   def resolve_control_gateway_node(agent_id, preferred_gateway_node \\ nil)
 
   def resolve_control_gateway_node(agent_id, preferred_gateway_node) when is_binary(agent_id) do
+    case resolve_control_session_evidence(agent_id, preferred_gateway_node) do
+      {:ok, evidence} -> {:ok, evidence.gateway_node}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def resolve_control_gateway_node(_agent_id, _preferred_gateway_node),
+    do: {:error, :invalid_agent_id}
+
+  @doc """
+  Returns evidence observed by the authenticated agent control stream.
+
+  The registry metadata is written by the gateway session after mTLS identity
+  verification; callers must not substitute browser, plugin-result, or console
+  payload fields for this evidence.
+  """
+  def resolve_control_session_evidence(agent_id, preferred_gateway_node \\ nil)
+
+  def resolve_control_session_evidence(agent_id, preferred_gateway_node)
+      when is_binary(agent_id) do
     # The preferred node is a HINT (where the source was last relayed), not a
     # hard requirement: if the agent's control session has since moved to a
     # different gateway node (agent reconnect, gateway pod roll), return the
@@ -1162,12 +1206,12 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     # relay open fail {:agent_offline, ...} forever once the stored
     # assigned_gateway_id went stale.
     case lookup_control_session(agent_id, preferred_gateway_node) do
-      {:ok, _pid, metadata} ->
-        {:ok, gateway_node_from_metadata(metadata)}
+      {:ok, pid, metadata} ->
+        {:ok, control_session_evidence(pid, metadata)}
 
       {:error, {:agent_offline, _}} when not is_nil(preferred_gateway_node) ->
         case lookup_control_session(agent_id, nil) do
-          {:ok, _pid, metadata} -> {:ok, gateway_node_from_metadata(metadata)}
+          {:ok, pid, metadata} -> {:ok, control_session_evidence(pid, metadata)}
           {:error, reason} -> {:error, reason}
         end
 
@@ -1176,8 +1220,36 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     end
   end
 
-  def resolve_control_gateway_node(_agent_id, _preferred_gateway_node),
+  def resolve_control_session_evidence(_agent_id, _preferred_gateway_node),
     do: {:error, :invalid_agent_id}
+
+  defp control_session_evidence(pid, metadata) when is_pid(pid) and is_map(metadata) do
+    %{
+      control_session_pid: pid,
+      agent_id: Map.get(metadata, :agent_id) || Map.get(metadata, "agent_id"),
+      gateway_node: gateway_node_from_metadata(metadata),
+      capabilities: capabilities_from_metadata(metadata),
+      config_version: Map.get(metadata, :config_version) || Map.get(metadata, "config_version"),
+      pending_config_version:
+        Map.get(metadata, :pending_config_version) ||
+          Map.get(metadata, "pending_config_version"),
+      applied_plugin_assignments:
+        Map.get(metadata, :applied_plugin_assignments) ||
+          Map.get(metadata, "applied_plugin_assignments") || []
+    }
+  end
+
+  defp control_session_evidence(_pid, _metadata) do
+    %{
+      control_session_pid: nil,
+      agent_id: nil,
+      gateway_node: nil,
+      capabilities: [],
+      config_version: nil,
+      pending_config_version: nil,
+      applied_plugin_assignments: []
+    }
+  end
 
   defp pick_control_session(entries, agent_id, required_gateway_node) do
     entries

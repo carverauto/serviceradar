@@ -17,13 +17,28 @@
 package addon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"strings"
 	"time"
 )
 
-const CredentialConfigKey = "_serviceradar"
+const (
+	CredentialConfigKey = "_serviceradar"
+
+	CredentialBrokerGrantSchemaV1 = "serviceradar.edge_credential_broker_grant.v1"
+	CredentialBrokerGrantSchemaV2 = "serviceradar.edge_credential_broker_grant.v2"
+
+	CredentialBrokerRequestBodyModeEmpty          = "empty"
+	CredentialBrokerRequestBodyModeBoundBytes     = "bound_bytes"
+	CredentialBrokerRequestBodyModeTrustedRewrite = "trusted_rewrite"
+
+	CredentialBrokerBoundBodySource        = "command.authorized_request_body_b64"
+	CredentialBrokerAWXCallbackBodyHandler = "awx_callback_credential.v1"
+)
 
 // CredentialBrokerGrant is the runtime-neutral grant shape used by Wasm plugins
 // and native add-ons when requesting gateway-mediated credential resolution.
@@ -54,10 +69,43 @@ type CredentialBrokerTarget struct {
 }
 
 type CredentialBrokerACL struct {
-	Methods []string `json:"methods,omitempty"`
-	Paths   []string `json:"paths,omitempty"`
-	Hosts   []string `json:"hosts,omitempty"`
-	Ports   []int    `json:"ports,omitempty"`
+	Schemes     []string                          `json:"schemes,omitempty"`
+	Methods     []string                          `json:"methods,omitempty"`
+	Paths       []string                          `json:"paths,omitempty"`
+	Hosts       []string                          `json:"hosts,omitempty"`
+	Ports       []int                             `json:"ports,omitempty"`
+	RequestBody CredentialBrokerRequestBodyPolicy `json:"request_body,omitempty"`
+}
+
+// CredentialBrokerRequestBodyPolicy binds an unsafe credential-bearing HTTP
+// request to control-plane bytes, an empty body, or one closed trusted host
+// rewriter. Unknown JSON fields are rejected so a newer policy cannot be
+// silently interpreted as a weaker older one.
+type CredentialBrokerRequestBodyPolicy struct {
+	Mode         string `json:"mode,omitempty"`
+	SHA256       string `json:"sha256,omitempty"`
+	Source       string `json:"source,omitempty"`
+	ContentType  string `json:"content_type,omitempty"`
+	MaxBytes     int    `json:"max_bytes,omitempty"`
+	Handler      string `json:"handler,omitempty"`
+	MaxMutations int    `json:"max_mutations,omitempty"`
+}
+
+func (p *CredentialBrokerRequestBodyPolicy) UnmarshalJSON(data []byte) error {
+	type plainPolicy CredentialBrokerRequestBodyPolicy
+
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var decoded plainPolicy
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return errors.New("credential broker request body policy must contain one object")
+	}
+
+	*p = CredentialBrokerRequestBodyPolicy(decoded)
+	return nil
 }
 
 type CredentialBrokerCachePolicy struct {

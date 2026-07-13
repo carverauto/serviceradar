@@ -3,6 +3,141 @@ defmodule ServiceRadar.Inventory.IntegrationIdentityTest do
 
   alias ServiceRadar.Inventory.IntegrationIdentity
 
+  @farm_integration_id "11111111-1111-4111-8111-111111111111"
+  @farm_controller_id "22222222-2222-4222-8222-222222222222"
+  @tonka_integration_id "33333333-3333-4333-8333-333333333333"
+  @tonka_controller_id "44444444-4444-4444-8444-444444444444"
+
+  describe "proxmox v3 source-scoped identities" do
+    test "renders and parses canonical cluster, node, and guest refs" do
+      assert {:ok, cluster} =
+               IntegrationIdentity.proxmox_v3_fields(
+                 @farm_integration_id,
+                 @farm_controller_id,
+                 "cluster/farm 01",
+                 :cluster,
+                 "cluster/farm 01"
+               )
+
+      assert cluster.provider_instance_ref ==
+               "proxmox:v3:#{@farm_integration_id}:#{@farm_controller_id}:cluster%2Ffarm%2001"
+
+      assert cluster.provider_ref ==
+               "#{cluster.provider_instance_ref}:cluster:cluster%2Ffarm%2001"
+
+      assert {:ok, node} =
+               IntegrationIdentity.proxmox_v3_fields(
+                 @farm_integration_id,
+                 @farm_controller_id,
+                 "cluster/farm 01",
+                 :node,
+                 "pve:a"
+               )
+
+      assert node.provider_ref == "#{cluster.provider_instance_ref}:node:pve%3Aa"
+      assert {:ok, ^node} = IntegrationIdentity.parse_v3(node.provider_ref)
+      assert IntegrationIdentity.v3?(node.provider_ref)
+
+      assert {:ok, guest} =
+               IntegrationIdentity.proxmox_v3_fields(
+                 @farm_integration_id,
+                 @farm_controller_id,
+                 "cluster/farm 01",
+                 :vm,
+                 "00100"
+               )
+
+      assert guest.object_kind == "qemu"
+      assert guest.native_object_id == "100"
+      assert guest.provider_ref == "#{cluster.provider_instance_ref}:qemu:100"
+    end
+
+    test "keeps identical native identifiers distinct across integration/controller scopes" do
+      assert {:ok, farm} =
+               IntegrationIdentity.proxmox_v3_fields(
+                 @farm_integration_id,
+                 @farm_controller_id,
+                 "lab",
+                 :qemu,
+                 155
+               )
+
+      assert {:ok, tonka} =
+               IntegrationIdentity.proxmox_v3_fields(
+                 @tonka_integration_id,
+                 @tonka_controller_id,
+                 "lab",
+                 :qemu,
+                 155
+               )
+
+      refute farm.provider_instance_ref == tonka.provider_instance_ref
+      refute farm.provider_ref == tonka.provider_ref
+      assert farm.native_cluster_id == tonka.native_cluster_id
+      assert farm.native_object_id == tonka.native_object_id
+    end
+
+    test "rejects malformed, noncanonical, and mismatched structured refs" do
+      assert {:error, :invalid_uuid} =
+               IntegrationIdentity.proxmox_v3_fields(
+                 "farm01",
+                 @farm_controller_id,
+                 "lab",
+                 :node,
+                 "pve01"
+               )
+
+      refute IntegrationIdentity.v3?(
+               "proxmox:v3:#{@farm_integration_id}:#{@farm_controller_id}:lab:node:pve%30%31"
+             )
+
+      assert {:ok, identity} =
+               IntegrationIdentity.proxmox_v3_fields(
+                 @farm_integration_id,
+                 @farm_controller_id,
+                 "lab",
+                 :node,
+                 "pve01"
+               )
+
+      assert :ok = IntegrationIdentity.validate_v3_record(identity)
+
+      assert {:error, :invalid_proxmox_v3_identity} =
+               identity
+               |> Map.put(:native_object_id, "pve02")
+               |> IntegrationIdentity.validate_v3_record()
+
+      assert {:error, :invalid_proxmox_v3_identity} =
+               IntegrationIdentity.validate_v3_record(%{
+                 provider_ref: identity.provider_ref,
+                 identity_version: 3
+               })
+    end
+
+    test "returns v2 and older refs only as lookup candidates" do
+      assert {:ok, identity} =
+               IntegrationIdentity.proxmox_v3_fields(
+                 @farm_integration_id,
+                 @farm_controller_id,
+                 "cluster/farm01",
+                 :qemu,
+                 132
+               )
+
+      candidates =
+        IntegrationIdentity.legacy_candidates(identity.provider_ref, %{
+          node: "pve01",
+          name: "dusk01",
+          guest_type: "qemu"
+        })
+
+      assert "proxmox:v2:farm01:vm:132" in candidates
+      assert "proxmox:guest:pve01:qemu:132" in candidates
+      assert "proxmox:vm:dusk01" in candidates
+      refute identity.provider_ref in candidates
+    end
+  end
+
   describe "proxmox_node_id/2" do
     test "mints the versioned cluster-scoped node id" do
       assert IntegrationIdentity.proxmox_node_id("farm01", "pve01") ==

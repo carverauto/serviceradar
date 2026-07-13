@@ -9,6 +9,7 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycle do
   """
 
   alias ServiceRadar.Automation.Ansible.MutationLifecycleAshActions
+  alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
 
   @schema "automation.mutation_phase.v1"
   @max_envelope_bytes 65_536
@@ -419,7 +420,7 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycle do
       occurred_at: now,
       metadata: %{
         "schema" => @schema,
-        "failure_reason" => inspect(reason),
+        "failure_reason" => SafeFailureEvidence.code(reason),
         "fail_closed" => true
       }
     }

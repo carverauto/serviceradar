@@ -3,9 +3,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuer do
   Issues SSH certificates from a trusted SSO identity context.
 
   Browser request parameters may identify the session, target, public key, and
-  requested login principals, but IdP claims must come from the server-side
-  authenticated login context or a freshly verified IdP token. This boundary
-  strips caller-supplied claims before invoking certificate policy.
+  requested Unix login account. Certificate principals and IdP claims must come
+  from server-side target policy and the authenticated login context. This
+  boundary strips caller-supplied claims before invoking certificate policy.
   """
 
   alias ServiceRadar.Credentials.CredentialRedactor
@@ -67,9 +67,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuer do
         gateway_id: request_value(request_attrs, "gateway_id"),
         protocol: request_value(request_attrs, "protocol") || "ssh",
         target: request_value(request_attrs, "target"),
-        requested_principals:
-          request_value(request_attrs, "requested_principals") ||
-            request_value(request_attrs, "principals")
+        ssh_username: request_value(request_attrs, "username")
       })
 
     write_audit_event(actor, details, opts)

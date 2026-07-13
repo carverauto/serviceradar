@@ -6,6 +6,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
   alias ServiceRadar.Inventory.VirtualizationHost
   alias ServiceRadar.Repo
@@ -25,7 +26,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
     actor: actor
   } do
     suffix = System.unique_integer([:positive])
-    provider = "proxmox"
+    provider = "testhv"
     host_ref = "#{provider}:node:pve-placeholder-#{suffix}"
     guest_ref = "#{provider}:guest:pve-placeholder-#{suffix}:vm:132"
 
@@ -123,9 +124,41 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
   } do
     suffix = System.unique_integer([:positive])
     node = "pve-streamed-#{suffix}"
-    host_ref = "proxmox:node:#{node}"
-    guest_ref = "proxmox:guest:#{node}:qemu:#{suffix}"
-    nic_ref = "proxmox:guest-nic:#{guest_ref}:020000000001"
+    native_cluster_id = "streamed-#{suffix}"
+
+    source_scope = %{
+      integration_id: Ecto.UUID.generate(),
+      controller_id: Ecto.UUID.generate()
+    }
+
+    {:ok, host_identity} =
+      IntegrationIdentity.proxmox_v3_fields(
+        source_scope.integration_id,
+        source_scope.controller_id,
+        native_cluster_id,
+        "node",
+        node
+      )
+
+    {:ok, guest_identity} =
+      IntegrationIdentity.proxmox_v3_fields(
+        source_scope.integration_id,
+        source_scope.controller_id,
+        native_cluster_id,
+        "qemu",
+        suffix
+      )
+
+    host_ref = host_identity.provider_ref
+    guest_ref = guest_identity.provider_ref
+
+    {:ok, nic_ref} =
+      IntegrationIdentity.proxmox_v3_child_ref(
+        host_identity.provider_instance_ref,
+        "guest-nic",
+        [guest_ref, "020000000001"]
+      )
+
     observed_at = DateTime.utc_now()
 
     node_payload = %{
@@ -134,7 +167,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
         "schema" => "serviceradar.proxmox_enrichment.v1",
         "targets" => [
           %{
-            "cluster" => [%{"type" => "cluster", "name" => "streamed-#{suffix}"}],
+            "cluster" => [%{"type" => "cluster", "name" => native_cluster_id}],
             "nodes" => [
               %{
                 "node" => node,
@@ -148,7 +181,11 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
       }
     }
 
-    assert :ok = ProxmoxEnrichmentIngestor.ingest(node_payload, %{}, actor: actor)
+    assert :ok =
+             ProxmoxEnrichmentIngestor.ingest(node_payload, %{},
+               actor: actor,
+               source_scope: source_scope
+             )
 
     VirtualizationHost
     |> Ash.Changeset.for_create(:create, %{
@@ -165,7 +202,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
         "schema" => "serviceradar.proxmox_enrichment.v1",
         "targets" => [
           %{
-            "cluster" => [%{"type" => "cluster", "name" => "streamed-#{suffix}"}],
+            "cluster" => [%{"type" => "cluster", "name" => native_cluster_id}],
             "nodes" => [],
             "guests" => [
               %{
@@ -189,7 +226,11 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
       }
     }
 
-    assert :ok = ProxmoxEnrichmentIngestor.ingest(guest_payload, %{}, actor: actor)
+    assert :ok =
+             ProxmoxEnrichmentIngestor.ingest(guest_payload, %{},
+               actor: actor,
+               source_scope: source_scope
+             )
 
     assert [[host_id, ^host_ref, guest_id, ^guest_ref, ^host_ref, ^nic_ref]] =
              Repo.query!(
@@ -214,7 +255,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
 
   test "resolves hosts to existing devices by case-insensitive hostname", %{actor: actor} do
     suffix = System.unique_integer([:positive])
-    provider = "proxmox"
+    provider = "testhv"
     host_ref = "#{provider}:node:pve-case-#{suffix}"
     existing_uid = "sr:existing-host-case-#{suffix}"
 
@@ -354,7 +395,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
              ).rows
   end
 
-  test "bridges legacy proxmox integration ids to the v2 identity", %{actor: actor} do
+  test "rejects new legacy Proxmox v2 writes", %{actor: actor} do
     suffix = System.unique_integer([:positive])
     provider = "proxmox"
     cluster = "farm-#{suffix}"
@@ -362,43 +403,6 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
     guest_name = "legacy-guest-#{suffix}"
     guest_ref = "#{provider}:guest:#{node}:qemu:132"
     v2_id = "proxmox:v2:#{cluster}:vm:132"
-    legacy_id = "proxmox:vm:#{guest_name}"
-    existing_uid = "sr:legacy-proxmox-guest-#{suffix}"
-
-    # The device hostname intentionally differs from the payload guest name:
-    # only the legacy integration_id bridge can tie the records together.
-    {:ok, _device} =
-      Device
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          uid: existing_uid,
-          type: "Virtual",
-          type_id: 6,
-          name: "renamed-#{guest_name}",
-          hostname: "renamed-#{guest_name}",
-          discovery_sources: ["sync"],
-          is_managed: false
-        },
-        actor: actor
-      )
-      |> Ash.create()
-
-    # Gen-1 name-keyed identifier written by the old connector generation.
-    {:ok, _identifier} =
-      DeviceIdentifier
-      |> Ash.Changeset.for_create(
-        :register,
-        %{
-          device_id: existing_uid,
-          identifier_type: :integration_id,
-          identifier_value: legacy_id,
-          partition: "default",
-          source: "sync"
-        },
-        actor: actor
-      )
-      |> Ash.create()
 
     payload = %{
       "details" => %{
@@ -418,45 +422,23 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
       }
     }
 
-    assert :ok = HypervisorEnrichmentIngestor.ingest(payload, %{}, actor: actor)
+    assert {:error, {:proxmox_v3_identity_required, ^guest_ref}} =
+             HypervisorEnrichmentIngestor.ingest(payload, %{}, actor: actor)
 
-    # The guest links to the existing device instead of forking a duplicate.
-    assert [[^existing_uid]] =
+    assert [] ==
              Repo.query!(
                """
-               SELECT device_uid
+               SELECT id
                FROM platform.virtualization_guests
                WHERE provider = $1 AND provider_ref = $2
                """,
                [provider, guest_ref]
              ).rows
-
-    # The stable v2 identifier was registered on the same device, so future
-    # lookups no longer depend on the legacy bridge.
-    assert [[^existing_uid]] =
-             Repo.query!(
-               """
-               SELECT device_id
-               FROM platform.device_identifiers
-               WHERE identifier_type = 'integration_id' AND identifier_value = $1
-               """,
-               [v2_id]
-             ).rows
-
-    assert [[^existing_uid]] =
-             Repo.query!(
-               """
-               SELECT device_id
-               FROM platform.device_identifiers
-               WHERE identifier_type = 'integration_id' AND identifier_value = $1
-               """,
-               [legacy_id]
-             ).rows
   end
 
   test "does not let virtual guests claim an agent-managed host UID", %{actor: actor} do
     suffix = System.unique_integer([:positive])
-    provider = "proxmox"
+    provider = "testhv"
     host_uid = "sr:agent-managed-hv-parent-#{suffix}"
     host_ref = "#{provider}:node:pve-parent-#{suffix}"
     guest_ref = "#{provider}:guest:pve-parent-#{suffix}:vm:133"
@@ -551,9 +533,35 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
   } do
     suffix = System.unique_integer([:positive])
     provider = "proxmox"
-    host_ref = "#{provider}:node:pve-network-ip-#{suffix}"
+    native_cluster_id = "network-#{suffix}"
+    native_node_id = "pve-network-ip-#{suffix}"
+
+    {:ok, host_identity} =
+      IntegrationIdentity.proxmox_v3_fields(
+        Ecto.UUID.generate(),
+        Ecto.UUID.generate(),
+        native_cluster_id,
+        "node",
+        native_node_id
+      )
+
+    host_ref = host_identity.provider_ref
     host_uid = "sr:existing-hv-network-ip-#{suffix}"
     host_ip = "10.55.#{rem(suffix, 200)}.11"
+
+    {:ok, link_local_nic_ref} =
+      IntegrationIdentity.proxmox_v3_child_ref(
+        host_identity.provider_instance_ref,
+        "nic",
+        [host_ref, "eno1"]
+      )
+
+    {:ok, management_nic_ref} =
+      IntegrationIdentity.proxmox_v3_child_ref(
+        host_identity.provider_instance_ref,
+        "nic",
+        [host_ref, "vmbr0"]
+      )
 
     {:ok, _device} =
       Device
@@ -577,24 +585,23 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
         "schema" => "serviceradar.hypervisor_enrichment.v1",
         "provider" => provider,
         "hosts" => [
-          %{
-            "provider_ref" => host_ref,
+          Map.merge(host_identity, %{
             "device_uid" => host_uid,
-            "name" => "pve-network-ip-#{suffix}",
+            "name" => native_node_id,
             "status" => "online",
             "metadata" => %{}
-          }
+          })
         ],
         "network_interfaces" => [
           %{
-            "provider_ref" => "#{provider}:nic:pve-network-ip-#{suffix}:eno1",
+            "provider_ref" => link_local_nic_ref,
             "host_provider_ref" => host_ref,
             "name" => "eno1",
             "address" => "169.254.10.1",
             "source" => "host_config"
           },
           %{
-            "provider_ref" => "#{provider}:nic:pve-network-ip-#{suffix}:vmbr0",
+            "provider_ref" => management_nic_ref,
             "host_provider_ref" => host_ref,
             "name" => "vmbr0",
             "address" => host_ip,
@@ -605,7 +612,14 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
       }
     }
 
-    assert :ok = HypervisorEnrichmentIngestor.ingest(payload, %{}, actor: actor)
+    assert :ok =
+             HypervisorEnrichmentIngestor.ingest(payload, %{},
+               actor: actor,
+               source_scope: %{
+                 integration_id: host_identity.integration_id,
+                 controller_id: host_identity.controller_id
+               }
+             )
 
     assert [[^host_uid, ^host_ip]] =
              Repo.query!(

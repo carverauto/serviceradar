@@ -104,18 +104,21 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
                "hosts" => ["awx.example.com"],
                "methods" => ["GET"],
                "paths" => ["=/api/v2/ping/"],
-               "ports" => [8443]
+               "ports" => [8443],
+               "schemes" => ["https"]
              }
     end
 
     test "derives default HTTPS and HTTP ports from valid origin-only URLs" do
-      for {base_url, normalized, port} <- [
-            {"https://awx.example.com", "https://awx.example.com", 443},
-            {"http://awx.internal", "http://awx.internal", 80}
+      for {base_url, normalized, scheme, port} <- [
+            {"https://awx.example.com", "https://awx.example.com", "https", 443},
+            {"http://awx.internal", "http://awx.internal", "http", 80}
           ] do
         assert {:ok, scope} = AwxClient.broker_scope(base_url, "awx.ping", %{})
         assert scope.base_url == normalized
+        assert scope.allowed_schemes == [scheme]
         assert scope.allowed_ports == [port]
+        assert scope.allow["schemes"] == [scheme]
         assert scope.allow["ports"] == [port]
       end
     end
@@ -257,6 +260,38 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       for {verb, args} <- malformed do
         assert {:error, :invalid_awx_broker_scope} =
                  AwxClient.broker_scope("https://awx.example.com", verb, args)
+      end
+    end
+
+    test "event polling accepts only ten unique exact job pairs" do
+      ten_pairs =
+        Enum.map(1..10, fn job_id ->
+          %{"job_id" => job_id, "since_id" => job_id - 1}
+        end)
+
+      assert {:ok, scope} =
+               AwxClient.broker_scope(
+                 "https://awx.example.com",
+                 "awx.fetch_events_for_jobs",
+                 %{"pairs" => ten_pairs}
+               )
+
+      assert length(scope.allowed_paths) == 10
+
+      invalid_pair_sets = [
+        ten_pairs ++ [%{"job_id" => 11, "since_id" => 10}],
+        [%{"job_id" => 1, "since_id" => 0}, %{"job_id" => 1, "since_id" => 0}],
+        [%{"job_id" => 1, "since_id" => 0}, %{"job_id" => 1, "since_id" => 10}],
+        [%{"job_id" => 1, "since_id" => 0, "unexpected" => true}]
+      ]
+
+      for pairs <- invalid_pair_sets do
+        assert {:error, :invalid_awx_broker_scope} =
+                 AwxClient.broker_scope(
+                   "https://awx.example.com",
+                   "awx.fetch_events_for_jobs",
+                   %{"pairs" => pairs}
+                 )
       end
     end
   end
@@ -546,6 +581,28 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       assert payload["credential_broker"]["allow"]["paths"] == [
                "=/api/v2/job_templates/42/launch/"
              ]
+
+      assert payload["credential_broker"]["schema"] ==
+               "serviceradar.edge_credential_broker_grant.v2"
+
+      request_policy = payload["credential_broker"]["allow"]["request_body"]
+      assert request_policy["mode"] == "bound_bytes"
+      assert request_policy["source"] == "command.authorized_request_body_b64"
+      assert request_policy["content_type"] == "application/json"
+      assert request_policy["max_mutations"] == 1
+
+      authorized_body = Base.decode64!(payload["authorized_request_body_b64"])
+
+      assert Jason.decode!(authorized_body) == %{
+               "extra_vars" => %{"version" => "1.2.3"},
+               "limit" => "web01,web02",
+               "inventory" => 7
+             }
+
+      assert request_policy["sha256"] ==
+               authorized_body
+               |> then(&:crypto.hash(:sha256, &1))
+               |> Base.encode16(case: :lower)
     end
 
     test "passes reviewed immutable execution fields" do
@@ -582,6 +639,21 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
                "labels" => [4],
                "instance_group_ids" => [8]
              }
+
+      assert Jason.decode!(Base.decode64!(payload["authorized_request_body_b64"])) == %{
+               "credentials" => [5, 9],
+               "execution_environment" => 12,
+               "job_type" => "check",
+               "diff_mode" => true,
+               "verbosity" => 2,
+               "forks" => 10,
+               "job_slice_count" => 1,
+               "timeout" => 600,
+               "job_tags" => "preflight,enroll",
+               "skip_tags" => "destructive",
+               "labels" => [4],
+               "instance_groups" => [8]
+             }
     end
 
     test "omits empty / nil optional args" do
@@ -595,12 +667,74 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
 
       assert_receive {:dispatch, "agent-a", "awx.launch_job", payload, _opts}
       assert payload["args"] == %{"template_id" => 1}
+      assert Base.decode64!(payload["authorized_request_body_b64"]) == "{}"
     end
 
     test "no launch_opts at all means just template_id" do
       assert {:ok, _} = AwxClient.launch_job(controller(), 1, %{}, dispatch_opts())
       assert_receive {:dispatch, "agent-a", "awx.launch_job", payload, _opts}
       assert payload["args"] == %{"template_id" => 1}
+      assert Base.decode64!(payload["authorized_request_body_b64"]) == "{}"
+    end
+
+    test "preserves floating-point and unicode values without cross-runtime re-encoding" do
+      assert {:ok, _} =
+               AwxClient.launch_job(
+                 controller(),
+                 42,
+                 %{extra_vars: %{"ratio" => 1.0, "message" => "café"}},
+                 dispatch_opts()
+               )
+
+      assert_receive {:dispatch, "agent-a", "awx.launch_job", payload, _opts}
+      body = Base.decode64!(payload["authorized_request_body_b64"])
+
+      assert Jason.decode!(body) == %{
+               "extra_vars" => %{"ratio" => 1.0, "message" => "café"}
+             }
+
+      assert payload["credential_broker"]["allow"]["request_body"]["sha256"] ==
+               body |> then(&:crypto.hash(:sha256, &1)) |> Base.encode16(case: :lower)
+    end
+
+    test "rejects secret-like and transport-retargeting extra vars before grant issuance" do
+      for extra_vars <- [
+            %{"password" => "must-not-dispatch"},
+            %{"api_token" => "must-not-dispatch"},
+            %{"ansible_user" => "must-not-dispatch"},
+            %{"inventory_hostname" => "must-not-dispatch"},
+            %{"config" => %{"password" => "nested-secret"}},
+            %{"certificate" => "secret-certificate-material"},
+            %{"endpoint" => "PVEAPIToken=operator@pve!automation=secret"},
+            %{"serviceradar_dispatch_id" => "PVEAPIToken=operator@pve!automation=secret"},
+            %{
+              "serviceradar_snapshot_digest" => "-----BEGIN OPENSSH PRIVATE KEY-----\nsecret"
+            }
+          ] do
+        assert {:error, :invalid_awx_broker_scope} =
+                 AwxClient.launch_job(
+                   controller(),
+                   42,
+                   %{extra_vars: extra_vars},
+                   dispatch_opts()
+                 )
+      end
+
+      refute_received {:dispatch, _, "awx.launch_job", _, _}
+    end
+
+    test "rejects redactor-changing launch fields outside extra vars before Base64 binding" do
+      for launch_opts <- [
+            %{host_limit: "PVEAPIToken=operator@pve!automation=secret"},
+            %{
+              job_tags: Base.decode64!("LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0Kc2VjcmV0")
+            }
+          ] do
+        assert {:error, :invalid_awx_request_body_policy} =
+                 AwxClient.launch_job(controller(), 42, launch_opts, dispatch_opts())
+      end
+
+      refute_received {:dispatch, _, "awx.launch_job", _, _}
     end
   end
 
@@ -639,7 +773,16 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
              }
 
       grant = payload["credential_broker"]
+      assert grant["schema"] == "serviceradar.edge_credential_broker_grant.v2"
       assert grant["allow"]["methods"] == ["GET", "POST"]
+
+      assert grant["allow"]["request_body"] == %{
+               "mode" => "trusted_rewrite",
+               "handler" => "awx_callback_credential.v1",
+               "content_type" => "application/json",
+               "max_bytes" => 256 * 1024,
+               "max_mutations" => 1
+             }
 
       assert grant["allow"]["paths"] == [
                "=/api/v2/credential_types/91/",
@@ -675,8 +818,17 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
                "hosts" => ["awx.example.com"],
                "methods" => ["GET", "DELETE"],
                "paths" => ["=/api/v2/credentials/401/"],
-               "ports" => [443]
+               "ports" => [443],
+               "schemes" => ["https"],
+               "request_body" => %{
+                 "mode" => "empty",
+                 "content_type" => "application/json",
+                 "max_mutations" => 1
+               }
              }
+
+      assert payload["credential_broker"]["schema"] ==
+               "serviceradar.edge_credential_broker_grant.v2"
 
       assert payload["callback_credential_binding"] == %{
                "schema" => "serviceradar.awx_callback_credential_cleanup_binding.v1",
@@ -859,6 +1011,15 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       assert payload["credential_broker"]["allow"]["paths"] == [
                "=/api/v2/jobs/7331/cancel/"
              ]
+
+      assert payload["credential_broker"]["schema"] ==
+               "serviceradar.edge_credential_broker_grant.v2"
+
+      assert payload["credential_broker"]["allow"]["request_body"] == %{
+               "mode" => "empty",
+               "content_type" => "application/json",
+               "max_mutations" => 1
+             }
     end
   end
 
@@ -889,6 +1050,18 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
     test "rejects an empty pair list before issuing an unscoped grant" do
       assert {:error, :invalid_awx_broker_scope} =
                AwxClient.fetch_events_for_jobs(controller(), [], dispatch_opts())
+
+      refute_received {:dispatch, _, "awx.fetch_events_for_jobs", _, _}
+    end
+
+    test "rejects oversized or duplicate-job batches before dispatch" do
+      oversized = Enum.map(1..11, &%{job_id: &1, since_id: 0})
+      duplicate_job = [%{job_id: 1, since_id: 0}, %{job_id: 1, since_id: 10}]
+
+      for pairs <- [oversized, duplicate_job] do
+        assert {:error, :invalid_awx_broker_scope} =
+                 AwxClient.fetch_events_for_jobs(controller(), pairs, dispatch_opts())
+      end
 
       refute_received {:dispatch, _, "awx.fetch_events_for_jobs", _, _}
     end

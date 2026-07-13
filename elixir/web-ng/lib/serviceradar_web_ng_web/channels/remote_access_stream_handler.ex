@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessSessions
   alias ServiceRadar.Edge.RemoteAccessSSHSessionCredentials
+  alias ServiceRadarWebNG.RemoteDesktopWebRTC
 
   require Logger
 
@@ -44,10 +45,10 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   @max_public_key_bytes 16_384
   @max_password_bytes 4_096
   @max_passphrase_bytes 4_096
-  @max_principal_bytes 128
-  @max_requested_principals 16
   @default_reauth_interval_ms 30_000
+  @desktop_activity_persist_interval_ms 30_000
   @credential_controlled_keys ~w(
+    accounts
     agent_id
     allowed_principals
     claims
@@ -55,7 +56,10 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
     gateway_id
     idp_claims
     principal_mappings
+    principals
+    requested_principals
     session_id
+    ssh_accounts
     ssh_allowed_principals
     ssh_principal_mappings
     target
@@ -71,6 +75,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
        broker_module: Keyword.get(options, :broker_module, RemoteAccessBroker),
        sessions_module: Keyword.get(options, :sessions_module, RemoteAccessSessions),
        credential_grant_resolver: Keyword.get(options, :credential_grant_resolver, RemoteAccessCentralCredentialGrants),
+       desktop_webrtc_module: Keyword.get(options, :desktop_webrtc_module, RemoteDesktopWebRTC),
        authorization_module: Keyword.get(options, :authorization_module, ServiceRadar.Identity.RBAC),
        reauth_interval_ms: Keyword.get(options, :reauth_interval_ms, @default_reauth_interval_ms),
        broker: nil,
@@ -79,6 +84,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
        idle_timer: nil,
        absolute_timer: nil,
        reauth_timer: nil,
+       last_activity_persisted_at_ms: nil,
        closing_action: nil
      }}
   end
@@ -93,6 +99,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
              session_id: state.session_id,
              scope: state.scope
            ),
+         :ok <- ensure_session_owner(session, state.scope),
          {:ok, broker} <- start_broker(session, message, state) do
       state =
         state
@@ -186,6 +193,12 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
               {:error, reason} -> stop_for_broker_error(reason, state)
             end
 
+          {:ok, %{"type" => "activity"} = message} ->
+            case record_desktop_activity(message, state) do
+              {:ok, next_state} -> {:ok, next_state}
+              {:error, reason} -> stop_for_broker_error(reason, state)
+            end
+
           {:ok, %{"type" => "attach"}} ->
             {:ok, state}
 
@@ -273,6 +286,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   @impl true
   def terminate(reason, state) do
     _ = cancel_timeout_timers(state)
+    maybe_close_desktop_viewers(state, reason)
 
     if state.broker do
       state.broker_module.close(state.broker, reason)
@@ -284,6 +298,29 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
 
     :ok
   end
+
+  defp maybe_close_desktop_viewers(%{session: session} = state, reason) when not is_nil(session) do
+    if protocol(session) == "rdp" do
+      _ =
+        state.desktop_webrtc_module.close_all_for_session(session.id,
+          scope: state.scope,
+          reason: desktop_cleanup_reason(state, reason)
+        )
+    end
+
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
+  defp maybe_close_desktop_viewers(_state, _reason), do: :ok
+
+  defp desktop_cleanup_reason(%{closing_action: action}, _reason) when not is_nil(action),
+    do: "remote_access_stream_#{action}"
+
+  defp desktop_cleanup_reason(_state, reason), do: "remote_access_stream_#{format_close_reason(reason)}"
 
   defp start_broker(session, message, state) do
     with {:ok, cols} <- optional_terminal_int(Map.get(message, "cols"), @min_terminal_cols, @max_terminal_cols),
@@ -638,15 +675,13 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
     with {:ok, private_key} <- bounded_string(credential, "private_key", @max_private_key_bytes),
          {:ok, public_key} <- bounded_string(credential, "public_key", @max_public_key_bytes),
          {:ok, passphrase} <- optional_bounded_string(credential, "passphrase", @max_passphrase_bytes),
-         {:ok, username} <- optional_bounded_string(credential, "username", @max_username_bytes),
-         {:ok, requested_principals} <- normalize_requested_principals(credential) do
+         {:ok, username} <- bounded_string(credential, "username", @max_username_bytes) do
       {:ok,
        drop_nil_values(%{
          "private_key" => private_key,
          "public_key" => public_key,
          "passphrase" => passphrase,
-         "username" => username,
-         "requested_principals" => requested_principals
+         "username" => username
        })}
     end
   end
@@ -705,31 +740,6 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
     end
   end
 
-  defp normalize_requested_principals(credential) do
-    principals =
-      list_value(credential, "requested_principals") ||
-        list_value(credential, "principals") ||
-        username_as_principal(credential) ||
-        []
-
-    principals =
-      principals
-      |> Enum.map(&String.trim/1)
-      |> Enum.reject(&(&1 == ""))
-      |> Enum.uniq()
-
-    cond do
-      length(principals) > @max_requested_principals ->
-        {:error, :credential_policy_denied}
-
-      Enum.any?(principals, &(byte_size(&1) > @max_principal_bytes)) ->
-        {:error, :credential_policy_denied}
-
-      true ->
-        {:ok, principals}
-    end
-  end
-
   defp require_one_session_secret(private_key, password) do
     if is_nil(private_key) and is_nil(password) do
       {:error, :session_credential_required}
@@ -752,13 +762,10 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
       "public_key" => string_value(credential, "public_key"),
       "private_key" => string_value(credential, "private_key"),
       "passphrase" => string_value(credential, "passphrase"),
+      "username" => string_value(credential, "username"),
       "target" => session_target(session),
+      "accounts" => metadata_value(session, "ssh_accounts"),
       "principal_mappings" => metadata_value(session, "ssh_principal_mappings") || [],
-      "allowed_principals" => metadata_value(session, "ssh_allowed_principals"),
-      "requested_principals" =>
-        list_value(credential, "requested_principals") ||
-          list_value(credential, "principals") ||
-          username_as_principal(credential),
       "ttl_seconds" => metadata_value(session, "ssh_certificate_ttl_seconds")
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) or value == [] end)
@@ -796,6 +803,50 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
       {:error, _reason} -> "unknown"
     end
   end
+
+  defp ensure_session_owner(%RemoteAccessSession{requested_by: requested_by}, scope) do
+    with {:ok, actor_id} <- scope_actor_id(scope),
+         owner_id when is_binary(owner_id) <- normalize_owner_id(requested_by),
+         true <- actor_id == owner_id do
+      :ok
+    else
+      _mismatch -> {:error, :invalid_or_expired_ticket}
+    end
+  end
+
+  defp normalize_owner_id(nil), do: nil
+  defp normalize_owner_id(id) when is_binary(id), do: id
+  defp normalize_owner_id(id), do: to_string(id)
+
+  defp record_desktop_activity(message, state) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    with :ok <- ensure_session_id(message, state.session_id),
+         true <- protocol(state.session) == "rdp" do
+      if activity_persist_due?(state.last_activity_persisted_at_ms, now_ms) do
+        case state.sessions_module.record_activity(state.session_id, scope: state.scope) do
+          {:ok, _session} ->
+            {:ok,
+             state
+             |> Map.put(:last_activity_persisted_at_ms, now_ms)
+             |> reset_idle_timer()}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+      else
+        {:ok, reset_idle_timer(state)}
+      end
+    else
+      false -> {:error, :invalid_request}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp activity_persist_due?(nil, _now_ms), do: true
+
+  defp activity_persist_due?(last_ms, now_ms) when is_integer(last_ms) and is_integer(now_ms),
+    do: now_ms - last_ms >= @desktop_activity_persist_interval_ms
 
   defp log_unknown_stream_message(message_type, state, source) do
     metadata = %{
@@ -883,21 +934,6 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
 
       _ ->
         nil
-    end
-  end
-
-  defp list_value(map, key) when is_map(map) do
-    case Map.get(map, key) || Map.get(map, safe_existing_atom(key)) do
-      values when is_list(values) -> Enum.filter(values, &is_binary/1)
-      value when is_binary(value) -> [value]
-      _ -> nil
-    end
-  end
-
-  defp username_as_principal(credential) do
-    case string_value(credential, "username") do
-      nil -> nil
-      username -> [username]
     end
   end
 

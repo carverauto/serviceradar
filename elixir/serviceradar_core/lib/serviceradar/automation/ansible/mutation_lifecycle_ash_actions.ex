@@ -5,6 +5,7 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycleAshActions do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.AutomationMutationPhase
   alias ServiceRadar.Automation.Ansible.AutomationTargetHold
+  alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
 
   @actor SystemActor.system(:ansible_mutation_lifecycle)
   @phase_attributes [
@@ -67,6 +68,7 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycleAshActions do
   defp ensure_hold(context, attrs, reason) do
     target = value(context, :target)
     device_uid = value(target, :canonical_device_uid)
+    failure_code = SafeFailureEvidence.code(reason)
 
     hold_attrs = %{
       canonical_device_uid: device_uid,
@@ -75,12 +77,12 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycleAshActions do
       transaction_id: attrs.transaction_id,
       generation: attrs.generation,
       trigger_phase: attrs.phase,
-      reason: inspect(reason),
+      reason: failure_code,
       policy_digest: attrs.policy_digest,
       evidence_digest: attrs.evidence_digest,
       held_at: DateTime.utc_now(),
       diagnostics: %{
-        "failure_reason" => inspect(reason),
+        "failure_reason" => failure_code,
         "fail_closed" => true
       },
       metadata: %{"source" => "automation.mutation_phase.v1"}

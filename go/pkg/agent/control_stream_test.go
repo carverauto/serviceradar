@@ -558,10 +558,11 @@ func TestBuildAWXPluginConfigShapesRunCheckConfig(t *testing.T) {
 	t.Parallel()
 
 	payload := awxCommandPayload{
-		Verb:               "awx.launch_job",
-		Args:               map[string]any{"template_id": float64(42), "host_limit": "web01,web02"},
-		BaseURL:            "https://awx.example.com",
-		InsecureSkipVerify: true,
+		Verb:                        "awx.launch_job",
+		Args:                        map[string]any{"template_id": float64(42), "host_limit": "web01,web02"},
+		AuthorizedRequestBodyBase64: "eyJsaW1pdCI6IndlYjAxLHdlYjAyIn0=",
+		BaseURL:                     "https://awx.example.com",
+		InsecureSkipVerify:          true,
 	}
 
 	configJSON, err := buildAWXPluginConfig(&proto.CommandRequest{CommandType: "awx.launch_job"}, payload)
@@ -586,6 +587,9 @@ func TestBuildAWXPluginConfigShapesRunCheckConfig(t *testing.T) {
 	if got := config["insecure_skip_verify"]; got != true {
 		t.Fatalf("insecure_skip_verify = %v, want true", got)
 	}
+	if _, ok := config["authorized_request_body_b64"]; ok {
+		t.Fatal("trusted authorized request body leaked into Wasm config")
+	}
 	args, ok := config["args"].(map[string]any)
 	if !ok {
 		t.Fatalf("args = %#v, want map", config["args"])
@@ -595,6 +599,52 @@ func TestBuildAWXPluginConfigShapesRunCheckConfig(t *testing.T) {
 	}
 	if got := args["host_limit"]; got != "web01,web02" {
 		t.Fatalf("args.host_limit = %v", got)
+	}
+}
+
+func TestDecodeAWXAuthorizedRequestBody(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		encoded string
+		want    string
+		wantErr bool
+	}{
+		{name: "absent"},
+		{name: "valid strict base64", encoded: "eyJsaW1pdCI6IndlYjAxIn0=", want: `{"limit":"web01"}`},
+		{name: "preserves opaque bytes", encoded: "Cg==", want: "\n"},
+		{name: "rejects malformed base64", encoded: "%%%", wantErr: true},
+		{name: "rejects noncanonical base64", encoded: "eyJsaW1pdCI6IndlYjAxIn0", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := decodeAWXAuthorizedRequestBody(tc.encoded)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("decodeAWXAuthorizedRequestBody(%q) succeeded", tc.encoded)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("decodeAWXAuthorizedRequestBody(%q): %v", tc.encoded, err)
+			}
+			if string(got) != tc.want {
+				t.Fatalf("decoded body = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDecodeAWXAuthorizedRequestBodyRejectsOversizeBody(t *testing.T) {
+	t.Parallel()
+
+	encoded := base64.StdEncoding.EncodeToString(make([]byte, pluginMaxPayloadBytes+1))
+	if _, err := decodeAWXAuthorizedRequestBody(encoded); err == nil {
+		t.Fatal("decodeAWXAuthorizedRequestBody() accepted oversize body")
 	}
 }
 
@@ -807,11 +857,77 @@ func TestSendControlHello_IncludesRuntimeMetadata(t *testing.T) {
 	if len(hello.GetCapabilities()) == 0 {
 		t.Fatal("expected control stream hello capabilities to be populated")
 	}
+	for _, capability := range []string{
+		pluginHostAuthorityCapabilityV1,
+		proxmoxSemanticConnectorCapabilityV1,
+		proxmoxIdentityCapabilityV3,
+		proxmoxConsolePolicyBindingCapabilityV1,
+	} {
+		if !slices.Contains(hello.GetCapabilities(), capability) {
+			t.Fatalf("control stream hello capabilities missing %q: %#v", capability, hello.GetCapabilities())
+		}
+	}
 	if got, want := hello.GetLabels(), deploymentHelloLabels(); len(got) == 0 || got["deployment_type"] != want["deployment_type"] {
 		t.Fatalf("hello.Labels = %#v, want deployment_type=%q", got, want["deployment_type"])
 	}
 	if hello.GetConfigSource() != "remote" {
 		t.Fatalf("hello.ConfigSource = %q, want %q", hello.GetConfigSource(), "remote")
+	}
+}
+
+func TestControlHelloAndConfigAckIncludeHostParsedProxmoxPolicyEvidence(t *testing.T) {
+	t.Parallel()
+
+	manager := newTestPluginManager(t)
+	assignment := newTestProxmoxHostAuthorityAssignment(t, testConsoleAuthorityOptions())
+	policy, ok := assignment.proxmoxAssignmentPolicyBinding()
+	if !ok {
+		t.Fatal("expected valid Proxmox assignment policy binding")
+	}
+
+	manager.mu.Lock()
+	manager.streams[assignment.AssignmentID] = assignment
+	manager.mu.Unlock()
+
+	loop := &PushLoop{server: &Server{
+		config: &ServerConfig{
+			AgentID:     "agent-policy-proof",
+			Partition:   defaultSweepGroupID,
+			GatewayAddr: "gateway.demo:50051",
+		},
+		pluginManager: manager,
+	}}
+	loop.setConfigVersion("cfg-policy-proof")
+
+	hello := loop.buildControlHelloRequest().GetHello()
+	if hello == nil {
+		t.Fatal("expected control hello")
+	}
+	assertPluginAssignmentPolicyAck(t, hello.GetAppliedPluginAssignments(), assignment, policy)
+
+	ack := loop.buildConfigAck("cfg-policy-proof")
+	if got := ack.GetConfigVersion(); got != "cfg-policy-proof" {
+		t.Fatalf("config ack version = %q, want cfg-policy-proof", got)
+	}
+	assertPluginAssignmentPolicyAck(t, ack.GetAppliedPluginAssignments(), assignment, policy)
+}
+
+func assertPluginAssignmentPolicyAck(
+	t *testing.T,
+	acks []*proto.PluginAssignmentPolicyAck,
+	assignment *pluginAssignment,
+	policy proxmoxAssignmentPolicyBinding,
+) {
+	t.Helper()
+	if len(acks) != 1 {
+		t.Fatalf("applied Proxmox assignment proofs = %d, want 1: %#v", len(acks), acks)
+	}
+	ack := acks[0]
+	if ack.GetAssignmentId() != assignment.AssignmentID ||
+		ack.GetPluginId() != assignment.PluginID ||
+		ack.GetAssignmentPolicyVersion() != policy.PolicyVersion ||
+		ack.GetAssignmentPolicyFingerprint() != policy.Fingerprint {
+		t.Fatalf("unexpected applied Proxmox assignment proof: %#v", ack)
 	}
 }
 

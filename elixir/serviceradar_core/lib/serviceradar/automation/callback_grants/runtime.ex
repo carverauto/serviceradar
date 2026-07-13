@@ -22,10 +22,15 @@ defmodule ServiceRadar.Automation.CallbackGrants.Runtime do
 
   @doc "Queues post-activation AWX credential deletion without waiting for confirmation."
   @spec delete_activated_credential(binary()) :: {:ok, map()} | {:error, term()}
-  def delete_activated_credential(grant_id) do
+  @spec delete_activated_credential(binary(), keyword()) :: {:ok, map()} | {:error, term()}
+  def delete_activated_credential(grant_id, cleanup_opts \\ [])
+
+  def delete_activated_credential(grant_id, cleanup_opts)
+      when is_binary(grant_id) and is_list(cleanup_opts) do
     with {:ok, opts, consumer} <- lifecycle_opts_and_consumer(),
          true <- Code.ensure_loaded?(consumer),
          true <- function_exported?(consumer, :delete_activated_credential, 2) do
+      opts = maybe_enable_deleting_retry(opts, cleanup_opts)
       consumer.delete_activated_credential(grant_id, opts)
     else
       _ -> {:error, :callback_unavailable}
@@ -35,6 +40,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.Runtime do
   catch
     _, _ -> {:error, :callback_unavailable}
   end
+
+  def delete_activated_credential(_grant_id, _cleanup_opts), do: {:error, :callback_unavailable}
 
   @doc "Returns the production lifecycle adapters without logging verifier material."
   @spec lifecycle_opts() :: {:ok, keyword()} | {:error, :callback_unavailable}
@@ -58,6 +65,23 @@ defmodule ServiceRadar.Automation.CallbackGrants.Runtime do
        ], Keyword.get(config, :consumer, Lifecycle)}
     else
       _ -> {:error, :callback_unavailable}
+    end
+  end
+
+  defp maybe_enable_deleting_retry(opts, cleanup_opts) do
+    if Keyword.get(cleanup_opts, :retry_deleting?, false) do
+      context = Keyword.get(opts, :cleanup_context)
+
+      context =
+        cond do
+          is_list(context) -> Keyword.put(context, :retry_deleting?, true)
+          is_map(context) -> Map.put(context, :retry_deleting?, true)
+          true -> [retry_deleting?: true]
+        end
+
+      Keyword.put(opts, :cleanup_context, context)
+    else
+      opts
     end
   end
 end

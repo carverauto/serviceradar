@@ -9,6 +9,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.AutomationExecution
+  alias ServiceRadar.Automation.Ansible.AutomationExecutionTarget
   alias ServiceRadar.Automation.Ansible.AutomationOperation
 
   alias ServiceRadar.Automation.Ansible.AutomationSecureExecutionCommandAttempt,
@@ -17,7 +18,9 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
   alias ServiceRadar.Automation.Ansible.AwxClient
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
+  alias ServiceRadar.Automation.Ansible.SecureExecutionAuthorityContraction
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandContract, as: Contract
+  alias ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthority
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus
 
@@ -42,6 +45,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
          true <-
            Contract.context_matches?(attempt, resources.execution, context) ||
              {:error, :secure_execution_context_digest_mismatch},
+         :ok <- authorize_current_attempt(attempt, resources, now, opts),
          {:ok, claimed, lease_token} <- claim(attempt, now, opts) do
       dispatch_claimed(
         claimed,
@@ -54,8 +58,14 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
         opts
       )
     else
-      false -> {:error, :secure_execution_command_contract_mismatch}
-      {:error, _reason} = error -> error
+      false ->
+        {:error, :secure_execution_command_contract_mismatch}
+
+      {:error, {:secure_execution_current_authority_denied, reason}} ->
+        persist_authority_denial(attempt, reason, now, opts)
+
+      {:error, _reason} = error ->
+        error
     end
   rescue
     _ -> {:error, :secure_execution_command_dispatch_unavailable}
@@ -64,6 +74,38 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
   end
 
   def dispatch(_attempt, _opts), do: {:error, :invalid_secure_execution_command_attempt}
+
+  @doc "Reauthorizes a known in-flight AWX child without redispatching its command."
+  @spec reauthorize_continuation(Attempt.t(), keyword()) :: :ok | {:error, term()}
+  def reauthorize_continuation(attempt, opts \\ [])
+
+  def reauthorize_continuation(%Attempt{} = attempt, opts) when is_list(opts) do
+    if continuation_authority_required?(attempt) do
+      now = now(opts)
+
+      with {:ok, resources} <- load_resources(attempt, opts),
+           :ok <- ensure_non_callback(resources.operation),
+           :ok <- ensure_lifecycle_state(attempt, resources.operation, resources.execution),
+           :ok <- authorize_current_attempt(attempt, resources, now, opts) do
+        :ok
+      else
+        {:error, {:secure_execution_current_authority_denied, reason}} ->
+          persist_authority_denial(attempt, reason, now, opts)
+
+        {:error, _reason} = error ->
+          error
+      end
+    else
+      :ok
+    end
+  rescue
+    _ -> {:error, :secure_execution_continuation_reauthorization_unavailable}
+  catch
+    _, _ -> {:error, :secure_execution_continuation_reauthorization_unavailable}
+  end
+
+  def reauthorize_continuation(_attempt, _opts),
+    do: {:error, :invalid_secure_execution_command_attempt}
 
   defp load_resources(attempt, opts) do
     loader = Keyword.get(opts, :resource_loader, &load_persisted_resources/1)
@@ -80,13 +122,16 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
            required(AutomationExecution.get_by_id(attempt.execution_id, actor: @actor)),
          {:ok, %Controller{} = controller} <-
            required(Controller.get_by_id(attempt.controller_id, actor: @actor)),
+         {:ok, targets} <-
+           AutomationExecutionTarget.list_for_execution(attempt.execution_id, actor: @actor),
          true <-
            controller.agent_id == attempt.dispatch_agent_id ||
              {:error, :secure_execution_controller_agent_mismatch},
          true <-
            (execution.operation_id == operation.id and execution.controller_id == controller.id) ||
              {:error, :secure_execution_resource_mismatch} do
-      {:ok, %{operation: operation, execution: execution, controller: controller}}
+      {:ok,
+       %{operation: operation, execution: execution, controller: controller, targets: targets}}
     else
       false -> {:error, :secure_execution_resource_mismatch}
       {:error, _reason} = error -> error
@@ -161,6 +206,111 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
   defp ensure_lifecycle_state(_attempt, _operation, _execution),
     do: {:error, :secure_execution_lifecycle_state_mismatch}
 
+  defp authorize_current_attempt(attempt, resources, now, opts) do
+    if current_authority_required?(attempt) do
+      do_authorize_current_attempt(attempt, resources, now, opts)
+    else
+      :ok
+    end
+  end
+
+  defp do_authorize_current_attempt(attempt, resources, now, opts) do
+    authorizer =
+      Keyword.get(opts, :current_authorizer, &SecureExecutionCurrentAuthority.authorize_attempt/4)
+
+    context = Keyword.get(opts, :current_authority_context, [])
+
+    result =
+      cond do
+        is_function(authorizer, 4) -> authorizer.(attempt, resources, now, context)
+        is_function(authorizer, 3) -> authorizer.(resources, now, context)
+        true -> {:error, :current_authority_required}
+      end
+
+    case result do
+      :ok ->
+        :ok
+
+      {:ok, _authority} ->
+        :ok
+
+      {:error, reason} ->
+        {:error, {:secure_execution_current_authority_denied, reason}}
+
+      _ ->
+        {:error, {:secure_execution_current_authority_denied, :current_authority_required}}
+    end
+  end
+
+  defp current_authority_required?(%Attempt{stage: :launch_job}), do: true
+
+  defp current_authority_required?(attempt), do: continuation_authority_required?(attempt)
+
+  defp continuation_authority_required?(%Attempt{stage: :fetch_job, purpose: purpose})
+       when purpose in [:accepted_job_proof, :scope_poll, :terminal_poll], do: true
+
+  defp continuation_authority_required?(%Attempt{stage: :fetch_host_summaries, purpose: purpose})
+       when purpose in [:host_scope_proof, :terminal_confirmation], do: true
+
+  # Launch reconciliation and cancellation are safety/cleanup paths. They may
+  # continue under the immutable contract so an unknown or unauthorized child
+  # can be discovered and stopped; they cannot activate or enlarge authority.
+  defp continuation_authority_required?(_attempt), do: false
+
+  defp resources_for_denial(attempt, opts) do
+    case load_resources(attempt, opts) do
+      {:ok, resources} -> resources
+      _ -> nil
+    end
+  end
+
+  defp persist_authority_denial(attempt, reason, now, opts) do
+    case record_authority_denial(
+           attempt,
+           resources_for_denial(attempt, opts),
+           reason,
+           now,
+           opts
+         ) do
+      :ok ->
+        {:error, reason}
+
+      {:error, marker_reason} ->
+        {:error,
+         {:secure_execution_authority_denial_persistence_failed,
+          SafeFailureEvidence.code(marker_reason)}}
+    end
+  end
+
+  defp record_authority_denial(attempt, resources, reason, now, opts) when is_map(resources) do
+    marker = Keyword.get(opts, :authority_denial_handler)
+
+    marker =
+      if is_function(marker, 4) do
+        marker
+      else
+        fn denied_attempt, denied_resources, denied_reason, denied_at ->
+          SecureExecutionAuthorityContraction.deny(
+            denied_attempt,
+            denied_resources,
+            denied_reason,
+            denied_at,
+            opts
+          )
+        end
+      end
+
+    case marker.(attempt, resources, reason, now) do
+      :ok -> :ok
+      {:ok, _result} -> :ok
+      {:error, _reason} = error -> error
+      _ -> {:error, :secure_execution_authority_denial_handler_unavailable}
+    end
+  end
+
+  defp record_authority_denial(_attempt, _resources, _reason, _now, _opts),
+    do: {:error, :secure_execution_authority_denial_resources_unavailable}
+
   defp rebuild_request(%Attempt{stage: :launch_job}, resources),
     do: Contract.launch_request(resources.operation, resources.execution)
 
@@ -168,7 +318,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
     do: Contract.fetch_job_request(attempt.expected_job_id)
 
   defp rebuild_request(%Attempt{stage: :fetch_host_summaries} = attempt, resources) do
-    target_count = target_count(resources.execution.id)
+    target_count = length(resources.targets)
     Contract.host_summaries_request(attempt.expected_job_id, target_count)
   end
 
@@ -180,15 +330,6 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
 
   defp rebuild_request(_attempt, _resources),
     do: {:error, :secure_execution_command_stage_not_dispatchable}
-
-  defp target_count(execution_id) do
-    alias ServiceRadar.Automation.Ansible.AutomationExecutionTarget
-
-    case AutomationExecutionTarget.list_for_execution(execution_id, actor: @actor) do
-      {:ok, targets} -> length(targets)
-      {:error, _reason} -> 0
-    end
-  end
 
   defp claim(attempt, now, opts) do
     lease_token = Ecto.UUID.generate()

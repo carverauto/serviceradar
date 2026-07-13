@@ -561,7 +561,8 @@ PROTOC_GEN_ELIXIR ?= $(HOME)/.mix/escripts/protoc-gen-elixir
 
 .PHONY: install-protoc-gen-elixir
 install-protoc-gen-elixir: ## Install the protoc-gen-elixir escript pinned to the protobuf hex dep
-	@if [ ! -x "$(PROTOC_GEN_ELIXIR)" ]; then \
+	@if [ ! -x "$(PROTOC_GEN_ELIXIR)" ] || \
+		[ "$$($(PROTOC_GEN_ELIXIR) --version 2>/dev/null)" != "$(ELIXIR_PROTOBUF_VERSION)" ]; then \
 		echo "$(COLOR_BOLD)Installing protoc-gen-elixir $(ELIXIR_PROTOBUF_VERSION)$(COLOR_RESET)"; \
 		mix escript.install --force hex protobuf $(ELIXIR_PROTOBUF_VERSION); \
 	fi
@@ -584,6 +585,8 @@ generate-proto-elixir: install-protoc-gen-elixir ## Generate Elixir code from pr
 		proto/identitymap/v1/identity_map.proto \
 		proto/agent/netprobe/v1/netprobe.proto \
 		proto/metric/v1/metric.proto
+	@cd elixir/serviceradar_core && \
+		mix format --force "$(abspath $(ELIXIR_PROTO_OUT))/**/*.pb.ex"
 	@echo "$(COLOR_BOLD)Generated Elixir protobuf code under $(ELIXIR_PROTO_OUT)$(COLOR_RESET)"
 
 .PHONY: verify-proto-elixir

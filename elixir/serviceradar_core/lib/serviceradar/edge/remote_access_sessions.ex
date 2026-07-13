@@ -51,6 +51,17 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
     :provider_ticket,
     :none
   ]
+  @ssh_certificate_policy_metadata_keys ~w(
+    accounts
+    allowed_principals
+    principal_mappings
+    principals
+    requested_principals
+    ssh_accounts
+    ssh_allowed_principals
+    ssh_certificate_ttl_seconds
+    ssh_principal_mappings
+  )
 
   @type create_request :: %{
           optional(:protocol) => atom() | String.t(),
@@ -121,8 +132,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
     with {:ok, ticket_hash} <- hash_ticket(ticket),
          {:ok, expected_session_id} <-
            normalize_expected_session_id(Keyword.get(opts, :session_id)),
+         {:ok, expected_owner_id} <- expected_scope_owner_id(opts),
          {:ok, attached} <-
-           consume_attach_ticket(ticket_hash, expected_session_id, system_opts) do
+           consume_attach_ticket(ticket_hash, expected_session_id, expected_owner_id, system_opts) do
       write_audit(:remote_access_session_attach, attached, opts,
         terminal_outcome: nil,
         close_reason: nil,
@@ -144,9 +156,14 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
     end
   end
 
-  defp consume_attach_ticket(ticket_hash, expected_session_id, system_opts) do
+  defp consume_attach_ticket(ticket_hash, expected_session_id, expected_owner_id, system_opts) do
     case Repo.transaction(fn ->
-           case lock_attach_session(ticket_hash, expected_session_id, system_opts) do
+           case lock_attach_session(
+                  ticket_hash,
+                  expected_session_id,
+                  expected_owner_id,
+                  system_opts
+                ) do
              {:ok, session} ->
                attach_opts = Keyword.put(system_opts, :return_notifications?, true)
 
@@ -168,7 +185,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
     end
   end
 
-  defp lock_attach_session(ticket_hash, expected_session_id, system_opts) do
+  defp lock_attach_session(ticket_hash, expected_session_id, expected_owner_id, system_opts) do
     query =
       RemoteAccessSession
       |> Ash.Query.for_read(
@@ -183,7 +200,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
         {:error, :invalid_or_expired_ticket}
 
       {:ok, %RemoteAccessSession{} = session} ->
-        with :ok <- ensure_session_match(session, expected_session_id), do: {:ok, session}
+        with :ok <- ensure_session_match(session, expected_session_id),
+             :ok <- ensure_session_owner(session, expected_owner_id) do
+          {:ok, session}
+        end
 
       {:error, error} ->
         if not_found_error?(error),
@@ -252,6 +272,41 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   end
 
   @doc """
+  Refreshes durable activity for an owner-bound active browser session.
+
+  Callers must rate-limit this signal. It intentionally does not write an
+  audit event or paper-trail version for each heartbeat.
+  """
+  @spec record_activity(String.t(), keyword()) ::
+          {:ok, RemoteAccessSession.t()} | {:error, term()}
+  def record_activity(session_id, opts \\ []) when is_binary(session_id) do
+    system_opts = [actor: SystemActor.system(:remote_access_activity)]
+
+    with {:ok, %RemoteAccessSession{} = session} <-
+           RemoteAccessSession.get_by_id(session_id, system_opts),
+         :ok <- ensure_scope_owner(session, opts),
+         true <- session.status in [:attached, :opening, :active],
+         {:ok, updated} <-
+           RemoteAccessSession.record_activity(session, %{},
+             actor: SystemActor.system(:remote_access_activity)
+           ) do
+      {:ok, updated}
+    else
+      {:ok, nil} ->
+        {:error, :not_found}
+
+      false ->
+        {:error, :not_found}
+
+      {:error, error} ->
+        if(not_found_error?(error), do: {:error, :not_found}, else: {:error, error})
+
+      error ->
+        error
+    end
+  end
+
+  @doc """
   Marks a session expired due to idle, absolute, or attach-ticket timeout.
   """
   @spec expire_session(String.t(), keyword()) :: {:ok, RemoteAccessSession.t()} | {:error, term()}
@@ -292,6 +347,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
 
     with {:ok, %RemoteAccessSession{} = session} <-
            RemoteAccessSession.get_by_id(session_id, system_opts),
+         :ok <- ensure_scope_owner(session, opts),
          {:ok, updated} <- fun.(session) do
       write_audit(audit_action(transition), updated, opts,
         terminal_outcome: format_atom(updated.outcome),
@@ -820,6 +876,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
       request
       |> value(:metadata)
       |> sanitized_map()
+      |> drop_client_ssh_certificate_policy()
 
     target_metadata =
       %{}
@@ -836,17 +893,12 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   end
 
   defp ensure_ssh_certificate_principal_policy(:ssh, :ssh_certificate, metadata) do
-    allowed_principals =
+    accounts =
       metadata
-      |> policy_value("ssh_allowed_principals")
-      |> principal_list()
+      |> policy_value("ssh_accounts")
+      |> account_list()
 
-    principal_mappings =
-      metadata
-      |> policy_value("ssh_principal_mappings")
-      |> mapping_list()
-
-    if allowed_principals || principal_mappings do
+    if accounts do
       :ok
     else
       {:error, :ssh_principal_policy_required}
@@ -863,8 +915,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
       policy ->
         %{}
         |> maybe_put(
-          "ssh_allowed_principals",
-          principal_list(policy_value(policy, "allowed_principals"))
+          "ssh_accounts",
+          account_list(policy_value(policy, "accounts"))
         )
         |> maybe_put(
           "ssh_principal_mappings",
@@ -922,30 +974,38 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
 
   defp policy_value(_map, _key), do: nil
 
-  defp principal_list(values) when is_list(values) do
+  defp account_list(values) when is_list(values) do
     values
-    |> Enum.map(&string_or_nil/1)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
+    |> Enum.map(fn
+      account when is_map(account) -> normalize_policy_map(account)
+      account -> account
+    end)
     |> empty_to_nil()
   end
 
-  defp principal_list(value) when is_binary(value) do
-    value
-    |> String.split([",", "\n"], trim: true)
-    |> principal_list()
-  end
-
-  defp principal_list(_value), do: nil
+  defp account_list(_values), do: nil
 
   defp mapping_list(values) when is_list(values) do
     values
-    |> Enum.filter(&is_map/1)
-    |> Enum.map(&normalize_policy_map/1)
+    |> Enum.map(fn
+      mapping when is_map(mapping) -> normalize_policy_map(mapping)
+      mapping -> mapping
+    end)
     |> empty_to_nil()
   end
 
   defp mapping_list(_values), do: nil
+
+  defp drop_client_ssh_certificate_policy(metadata) when is_map(metadata) do
+    Map.reject(metadata, fn {key, _value} ->
+      key
+      |> to_string()
+      |> String.downcase()
+      |> Kernel.in(@ssh_certificate_policy_metadata_keys)
+    end)
+  end
+
+  defp drop_client_ssh_certificate_policy(_metadata), do: %{}
 
   defp empty_to_nil([]), do: nil
   defp empty_to_nil(value), do: value
@@ -980,6 +1040,43 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
       do: :ok,
       else: {:error, :invalid_or_expired_ticket}
   end
+
+  defp ensure_session_owner(_session, nil), do: :ok
+
+  defp ensure_session_owner(%{requested_by: requested_by}, expected_owner_id) do
+    if normalize_owner_id(requested_by) == expected_owner_id,
+      do: :ok,
+      else: {:error, :invalid_or_expired_ticket}
+  end
+
+  defp ensure_scope_owner(session, opts) do
+    with {:ok, expected_owner_id} <- expected_scope_owner_id(opts) do
+      case ensure_session_owner(session, expected_owner_id) do
+        :ok -> :ok
+        {:error, :invalid_or_expired_ticket} -> {:error, :not_found}
+      end
+    end
+  end
+
+  defp expected_scope_owner_id(opts) do
+    case Keyword.fetch(opts, :scope) do
+      {:ok, %{user: %{id: id}}} ->
+        case normalize_owner_id(id) do
+          nil -> {:error, :invalid_or_expired_ticket}
+          owner_id -> {:ok, owner_id}
+        end
+
+      {:ok, _scope} ->
+        {:error, :invalid_or_expired_ticket}
+
+      :error ->
+        {:ok, nil}
+    end
+  end
+
+  defp normalize_owner_id(nil), do: nil
+  defp normalize_owner_id(id) when is_binary(id), do: id
+  defp normalize_owner_id(id), do: to_string(id)
 
   defp invalid_attach_ticket_error?(:invalid_ticket), do: true
   defp invalid_attach_ticket_error?(:invalid_or_expired_ticket), do: true
@@ -1285,11 +1382,6 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   rescue
     _ -> nil
   end
-
-  defp string_or_nil(value) when is_binary(value), do: blank_to_nil(value)
-  defp string_or_nil(value) when is_atom(value), do: value |> Atom.to_string() |> blank_to_nil()
-  defp string_or_nil(value) when is_integer(value), do: Integer.to_string(value)
-  defp string_or_nil(_value), do: nil
 
   defp positive_int(value) when is_integer(value) and value > 0, do: value
 

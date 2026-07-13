@@ -368,6 +368,10 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
       @action not in actions ->
         {:error, :action_no_longer_authorized}
 
+      value(binding, :ask_credential_on_launch) != true or
+          value(scope, :ask_credential_on_launch) != true ->
+        {:error, :awx_binding_changed}
+
       binding_type_id != callback_contract.credential_type_id ->
         {:error, :awx_binding_changed}
 
@@ -703,6 +707,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
          "execution_environment_id" => value(binding, :execution_environment_id),
          "machine_credential_id" => value(binding, :machine_credential_id),
          "credential_ids" => credential_ids,
+         "ask_credential_on_launch" => value(binding, :ask_credential_on_launch),
          "callback_credential_type_id" => value(binding, :callback_credential_type_id),
          "callback_credential_organization_id" =>
            value(binding, :callback_credential_organization_id),

@@ -17,6 +17,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   alias ServiceRadar.Inventory.VirtualizationGuest
   alias ServiceRadar.Inventory.VirtualizationHost
   alias ServiceRadar.Inventory.VirtualizationHostDisk
+  alias ServiceRadar.Inventory.VirtualizationIdentityAliases
   alias ServiceRadar.Inventory.VirtualizationNetworkInterface
   alias ServiceRadar.Inventory.VirtualizationStorageSystem
   alias ServiceRadar.Repo
@@ -52,6 +53,15 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     clusters: [
       :provider,
       :provider_ref,
+      :identity_version,
+      :identity_state,
+      :integration_id,
+      :controller_id,
+      :native_cluster_id,
+      :object_kind,
+      :native_object_id,
+      :provider_instance_ref,
+      :legacy_provider_refs,
       :name,
       :status,
       :version,
@@ -61,6 +71,15 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     hosts: [
       :provider,
       :provider_ref,
+      :identity_version,
+      :identity_state,
+      :integration_id,
+      :controller_id,
+      :native_cluster_id,
+      :object_kind,
+      :native_object_id,
+      :provider_instance_ref,
+      :legacy_provider_refs,
       :cluster_provider_ref,
       :device_uid,
       :name,
@@ -76,6 +95,15 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     guests: [
       :provider,
       :provider_ref,
+      :identity_version,
+      :identity_state,
+      :integration_id,
+      :controller_id,
+      :native_cluster_id,
+      :object_kind,
+      :native_object_id,
+      :provider_instance_ref,
+      :legacy_provider_refs,
       :host_provider_ref,
       :device_uid,
       :name,
@@ -268,10 +296,12 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   def persist_records(records, opts) do
     actor = Keyword.fetch!(opts, :actor)
-    records = resolve_existing_device_uids(records, actor)
-    records = normalize_host_management_ips(records)
 
-    with {:ok, records} <- ensure_inventory_devices(records, actor),
+    with :ok <- validate_source_scoped_identities(records),
+         :ok <- validate_trusted_proxmox_source_binding(records, opts),
+         records = resolve_existing_device_uids(records, actor),
+         records = normalize_host_management_ips(records),
+         {:ok, records} <- ensure_inventory_devices(records, actor),
          records = resolve_existing_device_uids(records, actor),
          records = propagate_resolved_device_uids(records),
          {:ok, cluster_ids} <- upsert_group(VirtualizationCluster, records.clusters, actor),
@@ -294,8 +324,132 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
          {:ok, _} <- upsert_group(VirtualizationHostDisk, disks, actor),
          {:ok, _} <- upsert_group(VirtualizationNetworkInterface, nics, actor),
          {:ok, _} <- upsert_group(VirtualizationStorageSystem, storage_systems, actor) do
-      :ok
+      VirtualizationIdentityAliases.reconcile(records)
     end
+  end
+
+  defp validate_source_scoped_identities(records) do
+    records
+    |> Map.take([:clusters, :hosts, :guests])
+    |> Map.values()
+    |> List.flatten()
+    |> Enum.reduce_while(:ok, fn record, :ok ->
+      if String.downcase(to_string(Map.get(record, :provider))) == "proxmox" do
+        result =
+          if Map.get(record, :identity_version) == 3 and
+               Map.get(record, :identity_state) in [:authoritative, "authoritative"] do
+            IntegrationIdentity.validate_v3_record(record)
+          else
+            {:error, :proxmox_v3_identity_required}
+          end
+
+        case result do
+          :ok ->
+            {:cont, :ok}
+
+          {:error, reason} ->
+            {:halt, {:error, {reason, Map.get(record, :provider_ref)}}}
+        end
+      else
+        {:cont, :ok}
+      end
+    end)
+  end
+
+  # A generic hypervisor result is not allowed to self-assert Proxmox UUIDs.
+  # The specialized Proxmox result handler resolves this scope from the
+  # authenticated assignment/rule chain and passes it through `opts`.
+  defp validate_trusted_proxmox_source_binding(records, opts) do
+    proxmox_records = proxmox_records(records)
+
+    if proxmox_records == [] do
+      :ok
+    else
+      with {:ok, integration_id, controller_id} <- trusted_source_scope(opts),
+           primary_records when primary_records != [] <- proxmox_primary_records(records),
+           true <-
+             Enum.all?(primary_records, fn record ->
+               canonical_uuid_value(Map.get(record, :integration_id)) == integration_id and
+                 canonical_uuid_value(Map.get(record, :controller_id)) == controller_id
+             end),
+           provider_instances =
+             primary_records
+             |> Enum.map(&Map.get(&1, :provider_instance_ref))
+             |> Enum.filter(&present?/1)
+             |> Enum.uniq(),
+           true <- provider_instances != [],
+           true <-
+             Enum.all?(proxmox_records, &record_bound_to_instances?(&1, provider_instances)) do
+        :ok
+      else
+        {:error, _reason} = error -> error
+        [] -> {:error, :missing_authoritative_proxmox_identity}
+        false -> {:error, :proxmox_source_scope_mismatch}
+      end
+    end
+  end
+
+  defp proxmox_primary_records(records) do
+    records
+    |> Map.take([:clusters, :hosts, :guests])
+    |> Map.values()
+    |> List.flatten()
+    |> Enum.filter(&proxmox_record?/1)
+  end
+
+  defp proxmox_records(records) do
+    records
+    |> Map.values()
+    |> List.flatten()
+    |> Enum.filter(&proxmox_record?/1)
+  end
+
+  defp proxmox_record?(record) when is_map(record) do
+    String.downcase(to_string(Map.get(record, :provider))) == "proxmox"
+  end
+
+  defp proxmox_record?(_record), do: false
+
+  defp trusted_source_scope(opts) do
+    case Keyword.get(opts, :source_scope) do
+      scope when is_map(scope) ->
+        with {:ok, integration_id} <- canonical_uuid(scope_value(scope, :integration_id)),
+             {:ok, controller_id} <- canonical_uuid(scope_value(scope, :controller_id)) do
+          {:ok, integration_id, controller_id}
+        else
+          _ -> {:error, :invalid_trusted_proxmox_source_scope}
+        end
+
+      _ ->
+        {:error, :missing_trusted_proxmox_source_scope}
+    end
+  end
+
+  defp scope_value(scope, key), do: Map.get(scope, key) || Map.get(scope, to_string(key))
+
+  defp canonical_uuid(value) when is_binary(value) do
+    case Ecto.UUID.cast(String.trim(value)) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, :invalid_uuid}
+    end
+  end
+
+  defp canonical_uuid(_value), do: {:error, :invalid_uuid}
+
+  defp canonical_uuid_value(value) do
+    case canonical_uuid(value) do
+      {:ok, uuid} -> uuid
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp record_bound_to_instances?(record, provider_instances) do
+    [:provider_ref, :cluster_provider_ref, :host_provider_ref, :guest_provider_ref]
+    |> Enum.map(&Map.get(record, &1))
+    |> Enum.filter(&present?/1)
+    |> Enum.all?(fn ref ->
+      Enum.any?(provider_instances, &String.starts_with?(ref, &1 <> ":"))
+    end)
   end
 
   defp records_for_payload(payload, status, opts) do
@@ -632,15 +786,22 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     integration_id = record_integration_id(record) || provider_ref
 
     legacy_integration_ids =
-      [
-        provider_ref
-        | IntegrationIdentity.legacy_candidates(
-            integration_id,
-            legacy_record_fields(record, guest_macs)
-          )
-      ]
-      |> Enum.uniq()
-      |> Enum.reject(&(&1 == integration_id))
+      if authoritative_v3_record?(record) do
+        # V3 legacy refs are reconciliation evidence only. Looking them up here
+        # could merge two independent controllers before the alias reconciler
+        # has quarantined their shared legacy name/node/vmid.
+        []
+      else
+        [
+          provider_ref
+          | IntegrationIdentity.legacy_candidates(
+              integration_id,
+              legacy_record_fields(record, guest_macs)
+            )
+        ]
+        |> Enum.uniq()
+        |> Enum.reject(&(&1 == integration_id))
+      end
 
     %{
       "integration_id" => integration_id,
@@ -954,10 +1115,14 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     integration_id = record_integration_id(record)
 
     legacy =
-      IntegrationIdentity.legacy_candidates(
-        integration_id,
-        legacy_record_fields(record, guest_macs)
-      )
+      if authoritative_v3_record?(record) do
+        []
+      else
+        IntegrationIdentity.legacy_candidates(
+          integration_id,
+          legacy_record_fields(record, guest_macs)
+        )
+      end
 
     IntegrationIdentity.lookup_values(%{
       integration_id: List.wrap(integration_id) ++ List.wrap(provider_ref),
@@ -1158,9 +1323,24 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   defp resolved_device_uid(record, devices, identity_maps, current_uid) do
     Map.get(devices.by_uid, current_uid) ||
       lookup_device_by_identity_maps(record, identity_maps) ||
-      lookup_device_by_record_name(record, devices) ||
+      maybe_lookup_device_by_record_name(record, devices) ||
       existing_sr_uid(current_uid)
   end
+
+  defp maybe_lookup_device_by_record_name(record, devices) do
+    if authoritative_v3_record?(record) do
+      nil
+    else
+      lookup_device_by_record_name(record, devices)
+    end
+  end
+
+  defp authoritative_v3_record?(record) when is_map(record) do
+    Map.get(record, :identity_version) == 3 and
+      Map.get(record, :identity_state) in [:authoritative, "authoritative"]
+  end
+
+  defp authoritative_v3_record?(_record), do: false
 
   defp reusable_current_uid(uid, claim_type, actor) do
     if DeviceClaimPolicy.reusable_for_claim?(uid, claim_type, actor), do: uid
@@ -1440,7 +1620,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   end
 
   defp strip_ref_helpers(row) do
-    Map.drop(row, [:cluster_provider_ref, :host_provider_ref])
+    Map.drop(row, [:cluster_provider_ref, :host_provider_ref, :legacy_provider_refs])
   end
 
   defp list_value(map, key) when is_map(map), do: map |> field_value(key) |> list()

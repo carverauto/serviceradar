@@ -36,7 +36,7 @@ ServiceRadar supports several credential paths, but they are not equal.
 
 Preferred path:
 
-1. The user signs in through ServiceRadar, usually via Authentik, another OIDC provider, SAML, LDAP-backed SSO, or local auth plus MFA.
+1. The user signs in through ServiceRadar with OIDC or SAML SSO. A local password login is deliberately ineligible for SSH certificate issuance, even if the account previously used SSO.
 2. ServiceRadar evaluates RBAC and the remote access target policy.
 3. ServiceRadar signs a short-lived OpenSSH user certificate with allowed principals, target restrictions, key ID, and TTL.
 4. The browser session and edge path use the short-lived certificate for this one remote access session.
@@ -103,12 +103,23 @@ file, rendered manifest, or Git repository:
 kubectl create secret generic serviceradar-ssh-ca \
   --from-file=ca-key=/secure/path/serviceradar_user_ca \
   --namespace serviceradar
+
+kubectl create secret generic serviceradar-ssh-certificate-policy \
+  --from-file=certificate-policy.json=/secure/path/remote-access-ssh-policy.json \
+  --namespace serviceradar
 ```
 
 ```yaml
 remoteAccess:
   ssh:
     enabled: true
+  sshCertificatePolicy:
+    enabled: true
+    existingSecretName: serviceradar-ssh-certificate-policy
+    secretKey: certificate-policy.json
+    workloads:
+      web: true
+      core: false
   sshCaSigner:
     enabled: true
     keyId: serviceradar-user-ca-2026q2
@@ -120,11 +131,15 @@ remoteAccess:
 ```
 
 The web-ng and core-elx images include the bootstrap signer binary. The chart
-mounts exactly the selected Secret key at
+mounts exactly the selected CA Secret key at
 `/run/secrets/serviceradar_ssh_ca` with read-only `0400` projection and fails
 rendering when an enabled signer lacks a Secret, key ID, or workload. Enable
 only the workload that owns certificate issuance. Replace this file-backed
 bootstrap with an OpenBao/Vault/KMS/HSM-backed command before production use.
+The certificate policy is mounted independently from an operator-owned Secret
+at `/etc/serviceradar/remote-access-ssh-policy/certificate-policy.json`. The
+chart does not accept inline policy content because the target account and
+opaque-principal mapping is internal authorization data.
 
 Signer environment variables:
 
@@ -154,37 +169,60 @@ The signer intentionally limits certificate power. By default it issues only the
 Configure certificate policy with either a JSON environment variable or a mounted file:
 
 ```bash
-SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_FILE=/etc/serviceradar/remote-access-ssh-policy.json
+SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_FILE=/etc/serviceradar/remote-access-ssh-policy/certificate-policy.json
 ```
 
-Example policy:
+Example account-bound policy:
 
 ```json
 {
-  "allowed_principals": ["ubuntu", "admin"],
+  "accounts": [
+    {
+      "name": "mfreeman",
+      "principals": ["srp_v1_6d8b1e49fbe24ad487ce2c5c"]
+    }
+  ],
   "principal_mappings": [
     {
       "source": "groups",
       "value": "linux-admins",
-      "principals": ["ubuntu", "admin"]
+      "principals": ["srp_v1_6d8b1e49fbe24ad487ce2c5c"]
     },
     {
       "source": "email_domain",
       "value": "example.com",
-      "principals": ["ubuntu"]
+      "principals": ["srp_v1_6d8b1e49fbe24ad487ce2c5c"]
     }
   ],
   "ttl_seconds": 3600,
   "targets": {
     "vm-linux-01": {
-      "allowed_principals": ["ubuntu"],
+      "accounts": [
+        {
+          "name": "mfreeman",
+          "principals": ["srp_v1_91c5f16df8aa4d90a6db2ed7"]
+        }
+      ],
       "ttl_seconds": 1800
     }
   }
 }
 ```
 
-Use `SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_JSON` for small lab policies. Use the file path in production so policy can be managed as a mounted secret or config artifact.
+Each account name is the existing non-root Unix account requested by the user.
+Each principal is an opaque, target-specific token matching
+`^srp_v1_[A-Za-z0-9_-]{20,96}$`. ServiceRadar chooses principals only from the
+exact selected account. When `principal_mappings` is configured, the IdP-derived
+principal set is intersected with that account's set; an empty intersection is
+denied. A principal may appear under only one account within a target policy,
+preventing one certificate from authenticating as a second Unix account. The
+browser never supplies or receives these principals.
+
+The public Ansible enrollment role must install the exact same account/principal
+mapping in the target's `AuthorizedPrincipalsFile`. ServiceRadar fails closed
+when an SSH-certificate target has no `accounts` mapping. The inline JSON
+environment variable remains available for isolated development, but the Helm
+chart intentionally supports only the Secret-backed file path.
 
 ## Linux Target Enrollment
 
@@ -193,14 +231,16 @@ Each Linux target must trust the ServiceRadar user CA. The account still has to 
 Install the public key:
 
 ```bash
-sudo install -o root -g root -m 0644 serviceradar_user_ca.pub /etc/ssh/serviceradar_user_ca.pub
+sudo install -d -o root -g root -m 0755 /etc/ssh/serviceradar/current
+sudo install -o root -g root -m 0644 serviceradar_user_ca.pub \
+  /etc/ssh/serviceradar/current/trusted-user-ca-keys.pub
 ```
 
 Create `/etc/ssh/sshd_config.d/60-serviceradar-user-ca.conf`:
 
 ```text
 PubkeyAuthentication yes
-TrustedUserCAKeys /etc/ssh/serviceradar_user_ca.pub
+TrustedUserCAKeys /etc/ssh/serviceradar/current/trusted-user-ca-keys.pub
 ```
 
 Validate and reload SSH:
@@ -216,25 +256,25 @@ On Debian or Ubuntu, the service can be named `ssh` instead of `sshd`:
 sudo systemctl reload ssh
 ```
 
-By default, OpenSSH accepts a user certificate when the certificate principal list contains the login account name. For example, a certificate with principal `ubuntu` can log in as `ubuntu`.
-
-If you need to map group-like principals to accounts, enable an authorized principals file:
+ServiceRadar's remote-access model deliberately keeps the requested Unix login
+account separate from the opaque certificate principal. Enable an authorized
+principals file:
 
 ```text
 PubkeyAuthentication yes
-TrustedUserCAKeys /etc/ssh/serviceradar_user_ca.pub
-AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u
+TrustedUserCAKeys /etc/ssh/serviceradar/current/trusted-user-ca-keys.pub
+AuthorizedPrincipalsFile /etc/ssh/serviceradar/current/authorized-principals/%u
 ```
 
-Then create one file per account:
+Then create one file per account containing only the opaque principals assigned
+to that target and account:
 
 ```bash
-sudo mkdir -p /etc/ssh/auth_principals
-printf "linux-admins\nubuntu\n" | sudo tee /etc/ssh/auth_principals/ubuntu
-sudo chmod 0644 /etc/ssh/auth_principals/ubuntu
+sudo mkdir -p /etc/ssh/serviceradar/current/authorized-principals
+printf "srp_v1_6d8b1e49fbe24ad487ce2c5c\n" | \
+  sudo tee /etc/ssh/serviceradar/current/authorized-principals/mfreeman
+sudo chmod 0644 /etc/ssh/serviceradar/current/authorized-principals/mfreeman
 ```
-
-Use authorized principals only when you need this extra mapping layer. It is simpler to issue certificates whose principals directly match allowed Linux login names.
 
 ## Ansible Enrollment
 
@@ -444,6 +484,116 @@ Without that metadata, TCP targets remain registered and policy-enforced but are
 
 To register an application or TCP target, use **Remote access targets** at `/remote-access/targets` (or the `/api/remote-access/targets` API) and provide the target name, device UID, the agent ID that can reach the service, the upstream scheme/host/port, and the allowed methods, path prefixes, and TLS policy. Targets are validated and stored centrally; the browser only ever selects an existing target ID.
 
+## RDP WebRTC ICE And TURN
+
+RDP screen and input traffic uses WebRTC after the route-bound remote-access
+control channel reports the session ready. Configure ICE endpoints as
+deployment policy; do not put them in desktop target records or browser input.
+
+STUN-only example for a deployment whose public server-reflexive candidates
+are reachable:
+
+```yaml
+remoteAccess:
+  desktop:
+    rdp:
+      enabled: true
+      webRTC:
+        iceServers:
+          - urls:
+              - "stun:stun.example.net:3478"
+```
+
+When the chart-wide NetworkPolicy is enabled, add a narrowly scoped egress
+exception for the core-elx pods that originate ICE traffic. Kubernetes
+NetworkPolicy cannot match the ICE server's DNS name, so resolve and review the
+current addresses before deployment and configure only the required ports:
+
+```yaml
+networkPolicy:
+  enabled: true
+
+remoteAccess:
+  desktop:
+    rdp:
+      enabled: true
+      webRTC:
+        networkPolicy:
+          enabled: true
+          allowedCIDRs:
+            - "192.0.2.40/32"
+            - "2001:db8:40::1/128"
+          allowedUDPPorts:
+            - 3478
+          allowedTCPPorts: []
+```
+
+This renders an additive `Egress` policy selecting only
+`app: serviceradar-core`; it does not grant ICE egress to web-ng or other
+ServiceRadar pods. When the chart's ordered Calico log-and-deny policy is also
+enabled, the same template renders a matching core-only Calico `Allow`
+immediately before that final deny; the existing deny policy remains unchanged.
+Rendering fails when the chart-wide policy or RDP is disabled, the CIDR list is
+empty or contains a DNS name/catch-all destination, or the UDP/TCP port lists
+contain values outside `1..65535`. Re-resolve and review address changes instead
+of widening the destination to `0.0.0.0/0` or `::/0`.
+
+Use TURN for restrictive NAT or firewall environments. ServiceRadar supports
+the TURN REST shared-secret convention and mints a different HMAC credential
+for every viewer. Create the shared secret through your secret-management
+system, store at least 32 printable non-whitespace bytes in one Kubernetes
+Secret key, and reference only that Secret from values:
+
+```yaml
+remoteAccess:
+  desktop:
+    rdp:
+      enabled: true
+      webRTC:
+        iceServers:
+          - urls:
+              - "turn:turn.example.net:3478?transport=udp"
+              - "turns:turn.example.net:5349?transport=tcp"
+        turn:
+          existingSecretName: serviceradar-turn-rest
+          secretKey: shared-secret
+          credentialTtlSeconds: 600
+        networkPolicy:
+          enabled: true
+          allowedCIDRs:
+            - "192.0.2.41/32"
+          allowedUDPPorts:
+            - 3478
+          allowedTCPPorts:
+            - 5349
+```
+
+The chart mounts only the selected key at
+`/etc/serviceradar/remote-access-rdp-turn/shared-secret`. It fails rendering
+when TURN endpoints lack an existing Secret or use a credential TTL outside
+`1..3600` seconds. Runtime validation also rejects inline usernames,
+credentials, shared secrets, URI userinfo, unsupported schemes, malformed
+hosts or ports, and oversized endpoint lists. The browser receives only the
+public endpoint plus its expiring derived username and credential; it never
+receives the shared secret.
+
+Equivalent non-Helm runtime variables are:
+
+| Variable | Purpose |
+|----------|---------|
+| `SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED` | Enables the registered RDP target and device-launch surfaces in web-ng/core. |
+| `SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_ICE_SERVERS_JSON` | Bounded JSON list of public STUN/TURN URL objects; credentials are forbidden. |
+| `SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_SHARED_SECRET_FILE` | Path to the mounted TURN REST shared-secret file. Required when a `turn:` or `turns:` endpoint is configured. |
+| `SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_CREDENTIAL_TTL_SECONDS` | Per-viewer credential lifetime; defaults to 600 and cannot exceed 3600 seconds. |
+
+The launcher posts only the registered desktop target ID, fixed RDP
+protocol/adapter identifiers, and an optional approval ID. The user's target
+username/password is sent once over the authenticated control WebSocket,
+cleared from browser state immediately after the send is queued, and never
+included in the WebRTC configuration. A single bounded deadline covers target
+session creation, control attach, and the exact ready frame; timeout closes the
+control and server sessions.
+
 ## User Workflows
 
 ### SSH Into A Linux Host Or VM
@@ -484,7 +634,7 @@ sudo sshd -t
 
 Common failures:
 
-- `Permission denied (publickey)`: the CA public key is missing, the certificate is expired, the certificate principal does not match the login user, or `AuthorizedPrincipalsFile` does not list the presented principal.
+- `Permission denied (publickey)`: the CA public key is missing, the certificate is expired, the selected Unix account is not authorized, or its `AuthorizedPrincipalsFile` does not list the opaque principal in the presented certificate.
 - User exists in ServiceRadar but not on the host: create the account locally or fix LDAP/AD/NSS/PAM integration on the target.
 - Route denied: the device is not assigned to an eligible agent or gateway, or the remote access policy does not allow that target.
 - Connection timeout: the selected edge agent cannot reach the target on TCP `22`.

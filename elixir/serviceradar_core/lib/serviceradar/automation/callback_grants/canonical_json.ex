@@ -28,8 +28,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.CanonicalJSON do
       {:ok, encoded} ->
         encoded
 
-      {:error, reason} ->
-        raise ArgumentError, "cannot canonically encode JSON: #{inspect(reason)}"
+      {:error, _reason} ->
+        raise ArgumentError, "cannot canonically encode JSON"
     end
   end
 

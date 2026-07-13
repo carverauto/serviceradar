@@ -2,7 +2,10 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Edge.ProxmoxConsoleSession
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler
+
+  @console_permissions ["devices.console.open", "devices.console.credentials.use"]
 
   defmodule SessionsStub do
     @moduledoc false
@@ -28,7 +31,7 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
             inserted_at: DateTime.utc_now(),
             updated_at: DateTime.utc_now()
           },
-          Map.get(opts[:scope], :session_overrides, %{})
+          Map.get(opts[:scope].identity_claims, :session_overrides, %{})
         )
 
       {:ok, session}
@@ -54,7 +57,7 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
       {:ok, %ProxmoxConsoleSession{id: session_id, status: :failed}}
     end
 
-    defp test_pid(opts), do: opts |> Keyword.fetch!(:scope) |> Map.fetch!(:test_pid)
+    defp test_pid(opts), do: opts |> Keyword.fetch!(:scope) |> Map.fetch!(:identity_claims) |> Map.fetch!(:test_pid)
 
     defp apply_session_overrides(session, overrides) when is_map(overrides) do
       metadata =
@@ -166,6 +169,22 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
              Jason.decode!(response)
 
     refute response =~ supplied_ticket
+  end
+
+  test "attach requires both console-open and console-credential-use permissions" do
+    {:ok, state} = init_state("session-missing-credential-use", %{}, ["devices.console.open"])
+
+    assert {:stop, :normal, 1008, [{:text, response}], ^state} =
+             ProxmoxConsoleStreamHandler.handle_in(
+               {attach_payload("session-missing-credential-use"), [opcode: :text]},
+               state
+             )
+
+    assert %{"type" => "error", "message" => "Invalid or expired console ticket."} =
+             Jason.decode!(response)
+
+    refute_receive {:attach_with_ticket, _ticket, _opts}
+    refute_receive {:broker_started, _session_id, _opts}
   end
 
   test "attach rejects oversized terminal dimensions before broker start" do
@@ -394,10 +413,17 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
     refute_receive {:request_close, "session-4", _opts}
   end
 
-  defp init_state(session_id, session_overrides \\ %{}) do
+  defp init_state(session_id, session_overrides \\ %{}, permissions \\ @console_permissions) do
+    scope =
+      Scope.for_user(
+        %{id: "console-user", email: "console-user@example.test", role: :viewer},
+        permissions: MapSet.new(permissions),
+        identity_claims: %{test_pid: self(), session_overrides: session_overrides}
+      )
+
     ProxmoxConsoleStreamHandler.init(
       session_id: session_id,
-      scope: %{test_pid: self(), session_overrides: session_overrides},
+      scope: scope,
       sessions_module: SessionsStub,
       broker_module: BrokerStub
     )

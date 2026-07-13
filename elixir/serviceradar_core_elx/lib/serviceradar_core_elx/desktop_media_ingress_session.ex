@@ -12,6 +12,7 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressSession do
   alias ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager
 
   @default_max_chunk_bytes 1_048_576
+  @default_idle_timeout_ms 60_000
 
   def start_link(session, opts \\ []) when is_map(session) do
     GenServer.start_link(__MODULE__, {session, opts}, name: via(session.desktop_session_id))
@@ -24,13 +25,28 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressSession do
 
   @impl true
   def init({session, opts}) do
+    idle_timeout_ms =
+      opts
+      |> Keyword.get(
+        :idle_timeout_ms,
+        Application.get_env(
+          :serviceradar_core_elx,
+          :remote_desktop_media_ingress_idle_timeout_ms,
+          @default_idle_timeout_ms
+        )
+      )
+      |> normalize_idle_timeout_ms()
+
     {:ok,
-     %{
+     schedule_idle_timeout(%{
        session: session,
        last_sequence: 0,
        sent_bytes: 0,
-       media_manager: Keyword.get(opts, :media_manager, MediaSessionManager)
-     }}
+       media_manager: Keyword.get(opts, :media_manager, MediaSessionManager),
+       idle_timeout_ms: idle_timeout_ms,
+       idle_timer: nil,
+       idle_token: nil
+     })}
   end
 
   @impl true
@@ -57,7 +73,12 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressSession do
             }
           )
 
-          {:reply, {:ok, ack}, %{state | last_sequence: last_sequence, sent_bytes: sent_bytes}}
+          next_state =
+            state
+            |> Map.merge(%{last_sequence: last_sequence, sent_bytes: sent_bytes})
+            |> schedule_idle_timeout()
+
+          {:reply, {:ok, ack}, next_state}
 
         {:error, reason} ->
           {:reply, {:error, reason}, state}
@@ -66,6 +87,20 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressSession do
       {:error, reason} ->
         {:reply, {:error, reason}, state}
     end
+  end
+
+  @impl true
+  def handle_info({:idle_timeout, idle_token}, %{idle_token: idle_token} = state) do
+    {:stop, :normal, state}
+  end
+
+  def handle_info({:idle_timeout, _stale_token}, state), do: {:noreply, state}
+
+  @impl true
+  def terminate(_reason, state) do
+    _ = cancel_timer(state.idle_timer)
+    _ = prune_media_session(state.media_manager, state.session.desktop_session_id)
+    :ok
   end
 
   defp verify_frame_binding(session, frame) do
@@ -103,6 +138,29 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressSession do
   defp normalize_uint(value, default \\ 0)
   defp normalize_uint(value, _default) when is_integer(value) and value >= 0, do: value
   defp normalize_uint(_value, default), do: default
+
+  defp normalize_idle_timeout_ms(value) when is_integer(value) and value > 0, do: value
+  defp normalize_idle_timeout_ms(_value), do: @default_idle_timeout_ms
+
+  defp schedule_idle_timeout(state) do
+    _ = cancel_timer(state.idle_timer)
+    idle_token = make_ref()
+    timer_ref = Process.send_after(self(), {:idle_timeout, idle_token}, state.idle_timeout_ms)
+    %{state | idle_timer: timer_ref, idle_token: idle_token}
+  end
+
+  defp cancel_timer(nil), do: :ok
+  defp cancel_timer(timer_ref), do: Process.cancel_timer(timer_ref)
+
+  defp prune_media_session(media_manager, desktop_session_id) do
+    if function_exported?(media_manager, :prune_session, 1) do
+      media_manager.prune_session(desktop_session_id)
+    else
+      :ok
+    end
+  catch
+    :exit, _reason -> :ok
+  end
 
   defp via(desktop_session_id) do
     {:via, Registry, {ServiceRadarCoreElx.DesktopMediaIngressRegistry, desktop_session_id}}

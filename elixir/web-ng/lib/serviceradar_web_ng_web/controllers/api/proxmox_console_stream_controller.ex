@@ -8,7 +8,7 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleStreamController do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler
 
-  @console_permission "devices.console.open"
+  @console_permissions ["devices.console.open", "devices.console.credentials.use"]
   @default_browser_stream_timeout_ms to_timeout(hour: 1)
 
   def connect(conn, %{"id" => session_id}) do
@@ -37,7 +37,9 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleStreamController do
   end
 
   defp require_permission(scope) do
-    if RBAC.can?(scope, @console_permission), do: :ok, else: {:error, :forbidden}
+    if Enum.all?(@console_permissions, &RBAC.can?(scope, &1)),
+      do: :ok,
+      else: {:error, :forbidden}
   end
 
   defp normalize_uuid(value, field_name) when is_binary(value) do

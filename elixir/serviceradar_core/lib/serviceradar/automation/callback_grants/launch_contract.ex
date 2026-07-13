@@ -58,6 +58,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LaunchContract do
          :ok <- exact_action_version(contract, action_contract),
          :ok <- exact_schemas(contract, action_contract),
          :ok <- exact_binding_action(callback_actions, action_contract.action),
+         :ok <- exact_credential_prompt(binding),
          :ok <- exact_credential_slot(binding),
          :ok <- valid_manifest(contract["manifest_sha256"]),
          :ok <- exact_policy_version(review_metadata, contract["policy_version"]),
@@ -141,6 +142,12 @@ defmodule ServiceRadar.Automation.CallbackGrants.LaunchContract do
 
   defp exact_binding_action([action], action), do: :ok
   defp exact_binding_action(_actions, _action), do: {:error, :callback_action_binding_mismatch}
+
+  defp exact_credential_prompt(binding) do
+    if value(binding, :ask_credential_on_launch) == true,
+      do: :ok,
+      else: {:error, :callback_credential_prompt_not_enabled}
+  end
 
   defp exact_credential_slot(binding) do
     if value(binding, :callback_credential_slot) == @callback_slot,

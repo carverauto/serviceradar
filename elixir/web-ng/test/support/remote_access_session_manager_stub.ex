@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNG.TestSupport.RemoteAccessSessionManagerStub do
            agent_id: request.agent_id || "agent-1",
            gateway_id: request.gateway_id || "gateway-1",
            credential_custody_mode: :ssh_certificate,
+           requested_by: scope_user_id(opts),
            status: :requested,
            rbac_decision: :allowed,
            attach_expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
@@ -53,6 +54,7 @@ defmodule ServiceRadarWebNG.TestSupport.RemoteAccessSessionManagerStub do
          agent_id: "agent-1",
          gateway_id: "gateway-1",
          credential_custody_mode: :ssh_certificate,
+         requested_by: scope_user_id(opts),
          status: :closing,
          rbac_decision: :allowed,
          attach_expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
@@ -83,6 +85,7 @@ defmodule ServiceRadarWebNG.TestSupport.RemoteAccessSessionManagerStub do
          agent_id: "agent-1",
          gateway_id: "gateway-1",
          credential_custody_mode: :ssh_certificate,
+         requested_by: scope_user_id(opts),
          status: :active,
          rbac_decision: :allowed,
          attach_expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
@@ -96,5 +99,12 @@ defmodule ServiceRadarWebNG.TestSupport.RemoteAccessSessionManagerStub do
 
   defp test_pid do
     Application.get_env(:serviceradar_web_ng, :remote_access_session_manager_test_pid, self())
+  end
+
+  defp scope_user_id(opts) do
+    case Keyword.get(opts, :scope) do
+      %{user: %{id: id}} -> id
+      _scope -> nil
+    end
   end
 end

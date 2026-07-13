@@ -13,11 +13,14 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
   @permission "devices.remote_access.ssh.open"
   @default_ttl_seconds 3_600
   @max_ttl_seconds 8 * 3_600
-  @principal_max_length 128
+  @max_accounts 128
   @max_principals 16
   @id_max_bytes 128
   @public_key_max_bytes 16_384
   @target_value_max_bytes 512
+  @ssh_username_max_bytes 32
+  @ssh_username_pattern ~r/^[a-z_][a-z0-9_-]{0,31}$/
+  @opaque_principal_pattern ~r/^srp_v1_[A-Za-z0-9_-]{20,96}$/
 
   @type request :: %{
           session_id: String.t(),
@@ -47,7 +50,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
          {:ok, protocol} <- resolve_protocol(attrs),
          {:ok, public_key} <- required_string(attrs, "public_key", @public_key_max_bytes),
          {:ok, target} <- normalize_target(value(attrs, "target")),
-         {:ok, principals} <- resolve_principals(attrs),
+         {:ok, ssh_username} <- resolve_ssh_username(attrs),
+         {:ok, principals} <- resolve_principals(attrs, ssh_username),
          {:ok, ttl_seconds} <- resolve_ttl(attrs, opts) do
       actor_id = actor_ref(actor)
       target_ref = target_ref(target)
@@ -62,7 +66,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
          public_key: public_key,
          key_id: key_id(session_id, actor_id, agent_id, protocol, target_ref),
          principals: principals,
-         ssh_username: List.first(principals),
+         ssh_username: ssh_username,
          ttl_seconds: ttl_seconds,
          target: target,
          credential_mode: "ssh_certificate",
@@ -73,7 +77,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
            protocol: protocol,
            target_ref: target_ref,
            principals: principals,
-           ssh_username: List.first(principals),
+           ssh_username: ssh_username,
            ttl_seconds: ttl_seconds,
            permission: @permission
          }
@@ -106,6 +110,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
   defp required_error("session_id"), do: :session_id_required
   defp required_error("agent_id"), do: :agent_id_required
   defp required_error("public_key"), do: :public_key_required
+  defp required_error("username"), do: :ssh_username_required
   defp required_error(_key), do: :invalid_request
 
   defp resolve_protocol(attrs) do
@@ -152,34 +157,146 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
     end
   end
 
-  defp resolve_principals(attrs) do
-    allowed =
-      case normalize_principal_list(value(attrs, "allowed_principals")) do
-        [] -> mapped_principals(attrs)
-        principals -> principals
-      end
+  defp resolve_ssh_username(attrs) do
+    with {:ok, username} <- required_string(attrs, "username", @ssh_username_max_bytes),
+         true <- username != "root" and Regex.match?(@ssh_username_pattern, username) do
+      {:ok, username}
+    else
+      {:error, reason} -> {:error, reason}
+      false -> {:error, :ssh_username_denied}
+    end
+  end
 
-    requested =
-      normalize_principal_list(value(attrs, "principals") || value(attrs, "requested_principals"))
+  defp resolve_principals(attrs, ssh_username) do
+    with {:ok, accounts} <- normalize_accounts(account_policy(attrs)),
+         {:ok, account_principals} <- principals_for_account(accounts, ssh_username) do
+      apply_identity_mapping(attrs, account_principals)
+    end
+  end
 
+  defp account_policy(attrs) do
+    case value(attrs, "accounts") do
+      nil -> value(attrs, "ssh_accounts")
+      accounts -> accounts
+    end
+  end
+
+  defp normalize_accounts(accounts) when is_list(accounts) do
     cond do
-      allowed == [] ->
+      accounts == [] ->
         {:error, :ssh_principal_policy_required}
 
-      length(allowed) > @max_principals or length(requested) > @max_principals ->
+      length(accounts) > @max_accounts ->
         {:error, :invalid_size}
 
-      requested == [] ->
-        {:ok, allowed}
+      true ->
+        with {:ok, normalized} <- normalize_account_entries(accounts),
+             true <- unique_account_names?(normalized),
+             true <- unique_account_principals?(normalized) do
+          {:ok, normalized}
+        else
+          false -> {:error, :ssh_principal_policy_required}
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
+  defp normalize_accounts(_accounts), do: {:error, :ssh_principal_policy_required}
+
+  defp normalize_account_entries(accounts) do
+    accounts
+    |> Enum.reduce_while({:ok, []}, fn account, {:ok, acc} ->
+      case normalize_account(account) do
+        {:ok, normalized} -> {:cont, {:ok, [normalized | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, normalized} -> {:ok, Enum.reverse(normalized)}
+      error -> error
+    end
+  end
+
+  defp normalize_account(account) when is_map(account) do
+    with {:ok, name} <- normalize_account_name(value(account, "name")),
+         {:ok, principals} <- normalize_opaque_principals(value(account, "principals")) do
+      {:ok, %{name: name, principals: principals}}
+    end
+  end
+
+  defp normalize_account(_account), do: {:error, :ssh_principal_policy_required}
+
+  defp normalize_account_name(name) when is_binary(name) do
+    if name == String.trim(name) and name != "root" and
+         Regex.match?(@ssh_username_pattern, name) do
+      {:ok, name}
+    else
+      {:error, :ssh_principal_policy_required}
+    end
+  end
+
+  defp normalize_account_name(_name), do: {:error, :ssh_principal_policy_required}
+
+  defp normalize_opaque_principals(principals) when is_list(principals) do
+    cond do
+      principals == [] ->
+        {:error, :ssh_principal_policy_required}
+
+      length(principals) > @max_principals ->
+        {:error, :invalid_size}
 
       true ->
-        selected = Enum.filter(requested, &(&1 in allowed))
-
-        if selected == [] do
-          {:error, :ssh_principal_denied}
+        with true <- Enum.all?(principals, &valid_opaque_principal?/1),
+             true <- length(Enum.uniq(principals)) == length(principals) do
+          {:ok, principals}
         else
-          {:ok, selected}
+          false -> {:error, :ssh_principal_policy_required}
         end
+    end
+  end
+
+  defp normalize_opaque_principals(_principals), do: {:error, :ssh_principal_policy_required}
+
+  defp valid_opaque_principal?(principal) when is_binary(principal) do
+    principal == String.trim(principal) and Regex.match?(@opaque_principal_pattern, principal)
+  end
+
+  defp valid_opaque_principal?(_principal), do: false
+
+  defp unique_account_names?(accounts) do
+    names = Enum.map(accounts, & &1.name)
+    length(Enum.uniq(names)) == length(names)
+  end
+
+  defp unique_account_principals?(accounts) do
+    principals = Enum.flat_map(accounts, & &1.principals)
+    length(Enum.uniq(principals)) == length(principals)
+  end
+
+  defp principals_for_account(accounts, ssh_username) do
+    case Enum.find(accounts, &(&1.name == ssh_username)) do
+      nil -> {:error, :ssh_username_denied}
+      account -> {:ok, account.principals}
+    end
+  end
+
+  defp apply_identity_mapping(attrs, account_principals) do
+    mappings = value(attrs, "principal_mappings") || value(attrs, "ssh_principal_mappings")
+
+    case mappings do
+      nil ->
+        {:ok, account_principals}
+
+      [] ->
+        {:ok, account_principals}
+
+      mappings when is_list(mappings) ->
+        selected = Enum.filter(account_principals, &(&1 in mapped_principals(attrs)))
+
+        if selected == [], do: {:error, :ssh_principal_denied}, else: {:ok, selected}
+
+      _mappings ->
+        {:error, :ssh_principal_denied}
     end
   end
 
@@ -201,20 +318,6 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
     end
   end
 
-  defp normalize_principal_list(value) do
-    value
-    |> list_values()
-    |> Enum.map(&string_value/1)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.filter(&valid_principal?/1)
-    |> Enum.uniq()
-  end
-
-  defp valid_principal?(value) do
-    String.length(value) <= @principal_max_length and
-      not String.contains?(value, [",", ":", "\n", "\r", "\t", " "])
-  end
-
   defp key_id(session_id, actor_id, agent_id, protocol, target_ref) do
     "sr:remote-access:#{session_id}:#{actor_id || "unknown-actor"}:#{agent_id}:#{protocol}:#{target_ref}"
   end
@@ -232,15 +335,6 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy do
   defp stringify_keys(map) do
     Map.new(map, fn {key, value} -> {to_string(key), value} end)
   end
-
-  defp list_values(nil), do: []
-  defp list_values(values) when is_list(values), do: values
-
-  defp list_values(value) when is_binary(value) do
-    String.split(value, [",", "\n"], trim: true)
-  end
-
-  defp list_values(value), do: [value]
 
   defp positive_int(value) when is_integer(value) and value > 0, do: value
 

@@ -4,7 +4,285 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
   alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
   alias ServiceRadar.Edge.ProxmoxConsolePubSub
   alias ServiceRadar.Edge.RemoteAccessPubSub
+  alias ServiceRadar.ProcessRegistry
   alias ServiceRadarAgentGateway.ControlStreamSession
+
+  test "authenticated hello and config ack refresh exact control evidence in the registry" do
+    ensure_process_registry!()
+
+    agent_id = "agent-policy-#{System.unique_integer([:positive])}"
+    fingerprint = String.duplicate("a", 64)
+    test_pid = self()
+
+    Application.put_env(:serviceradar_agent_gateway, :config_sync_rpc, fn function, args ->
+      send(test_pid, {:config_sync, function, args})
+      :ok
+    end)
+
+    on_exit(fn -> Application.delete_env(:serviceradar_agent_gateway, :config_sync_rpc) end)
+
+    hello = %Monitoring.ControlStreamHello{
+      agent_id: agent_id,
+      config_version: "config-v1",
+      capabilities: [
+        "plugin-host-authority:v1",
+        "proxmox-console-policy-binding:v1"
+      ],
+      applied_plugin_assignments: [policy_ack("assignment-1", 7, fingerprint)]
+    }
+
+    pid = start_supervised!({ControlStreamSession, stream: nil})
+
+    assert :ok =
+             ControlStreamSession.register(
+               pid,
+               agent_id,
+               "partition-a",
+               hello.capabilities,
+               identity_context(agent_id, "partition-a"),
+               hello
+             )
+
+    assert_receive {:config_sync, :record_config_ack, [^agent_id, %{config_version: "config-v1"}]}
+
+    assert_registry_evidence(agent_id, pid, fn metadata ->
+      metadata.config_version == "config-v1" and
+        metadata.capabilities == Enum.sort(hello.capabilities) and
+        metadata.applied_plugin_assignments == [
+          %{
+            assignment_id: "assignment-1",
+            plugin_id: "proxmox-console",
+            assignment_policy_version: 7,
+            assignment_policy_fingerprint: fingerprint
+          }
+        ]
+    end)
+
+    next_fingerprint = String.duplicate("b", 64)
+
+    ControlStreamSession.handle_message(
+      pid,
+      %Monitoring.ControlStreamRequest{
+        payload:
+          {:config_ack,
+           %Monitoring.ConfigAck{
+             config_version: "config-v2",
+             applied_plugin_assignments: [policy_ack("assignment-1", 8, next_fingerprint)]
+           }}
+      },
+      identity_context(agent_id, "partition-a")
+    )
+
+    assert_registry_evidence(agent_id, pid, fn metadata ->
+      metadata.config_version == "config-v2" and
+        metadata.applied_plugin_assignments == [
+          %{
+            assignment_id: "assignment-1",
+            plugin_id: "proxmox-console",
+            assignment_policy_version: 8,
+            assignment_policy_fingerprint: next_fingerprint
+          }
+        ]
+    end)
+  end
+
+  test "malformed or duplicate assignment proofs fail closed as an empty evidence set" do
+    fingerprint = String.duplicate("a", 64)
+    valid = policy_ack("assignment-1", 7, fingerprint)
+
+    assert [proof] = ControlStreamSession.normalize_applied_plugin_assignments([valid])
+    assert proof.assignment_id == "assignment-1"
+
+    assert [] =
+             ControlStreamSession.normalize_applied_plugin_assignments([
+               valid,
+               policy_ack("assignment-1", 7, fingerprint)
+             ])
+
+    assert [] =
+             ControlStreamSession.normalize_applied_plugin_assignments([
+               %{valid | assignment_policy_fingerprint: "not-a-fingerprint"}
+             ])
+  end
+
+  test "config push is live-pending before send, retries persistence, and blocks stale console evidence" do
+    ensure_process_registry!()
+
+    agent_id = "agent-pending-#{System.unique_integer([:positive])}"
+    fingerprint = String.duplicate("c", 64)
+    identity = identity_context(agent_id, "partition-a")
+    test_pid = self()
+    {:ok, sync_gate} = Agent.start_link(fn -> %{allow_push?: false, push_attempts: 0} end)
+
+    Application.put_env(:serviceradar_agent_gateway, :control_stream_reply, fn stream, response ->
+      send(test_pid, {:stream_reply, response})
+      stream
+    end)
+
+    Application.put_env(:serviceradar_agent_gateway, :config_sync_rpc, fn function, args ->
+      case function do
+        :record_config_push ->
+          allow_push? =
+            Agent.get_and_update(sync_gate, fn state ->
+              {state.allow_push?, %{state | push_attempts: state.push_attempts + 1}}
+            end)
+
+          send(test_pid, {:config_push_sync_attempt, args, allow_push?})
+          if allow_push?, do: :ok, else: {:error, :core_unavailable}
+
+        _other ->
+          :ok
+      end
+    end)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_agent_gateway, :control_stream_reply)
+      Application.delete_env(:serviceradar_agent_gateway, :config_sync_rpc)
+    end)
+
+    hello = %Monitoring.ControlStreamHello{
+      agent_id: agent_id,
+      config_version: "config-v1",
+      capabilities: ["plugin-host-authority:v1", "proxmox-console-policy-binding:v1"],
+      applied_plugin_assignments: [policy_ack("assignment-1", 7, fingerprint)]
+    }
+
+    pid = start_supervised!({ControlStreamSession, stream: nil})
+    assert :ok = ControlStreamSession.register(pid, agent_id, "partition-a", hello.capabilities, identity, hello)
+
+    assert_registry_evidence(agent_id, pid, fn metadata ->
+      metadata.config_version == "config-v1" and metadata.pending_config_version == nil
+    end)
+
+    old_metadata = registry_metadata(agent_id, pid)
+
+    old_evidence = %{
+      control_session_pid: pid,
+      agent_id: old_metadata.agent_id,
+      gateway_node: old_metadata.gateway_node,
+      capabilities: old_metadata.capabilities,
+      config_version: old_metadata.config_version,
+      pending_config_version: old_metadata.pending_config_version,
+      applied_plugin_assignments: old_metadata.applied_plugin_assignments
+    }
+
+    assert :ok =
+             ControlStreamSession.push_config(pid, %Monitoring.AgentConfigResponse{
+               config_version: "config-v2"
+             })
+
+    assert_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config, %{config_version: "config-v2"}}}}
+
+    assert_receive {:config_push_sync_attempt, [^agent_id, %{config_version: "config-v2"}], false}
+
+    assert_registry_evidence(agent_id, pid, fn metadata ->
+      metadata.config_version == "config-v1" and
+        metadata.pending_config_version == "config-v2"
+    end)
+
+    assert {:error, :console_config_transition_pending} =
+             ControlStreamSession.send_console_frame(
+               pid,
+               %{session_id: "session-1", frame_type: "open"},
+               old_evidence
+             )
+
+    refute_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:console_frame, _frame}}},
+                   50
+
+    ControlStreamSession.handle_message(
+      pid,
+      %Monitoring.ControlStreamRequest{
+        payload:
+          {:config_ack,
+           %Monitoring.ConfigAck{
+             config_version: "config-v2",
+             applied_plugin_assignments: [policy_ack("assignment-1", 7, fingerprint)]
+           }}
+      },
+      identity
+    )
+
+    # The agent ACK alone is insufficient while the pushed-version write is
+    # still unavailable on core.
+    assert_registry_evidence(agent_id, pid, fn metadata ->
+      metadata.config_version == "config-v2" and
+        metadata.pending_config_version == "config-v2"
+    end)
+
+    Agent.update(sync_gate, &%{&1 | allow_push?: true})
+
+    assert_registry_evidence(agent_id, pid, fn metadata ->
+      metadata.config_version == "config-v2" and metadata.pending_config_version == nil
+    end)
+
+    assert Agent.get(sync_gate, & &1.push_attempts) >= 2
+
+    current_metadata = registry_metadata(agent_id, pid)
+
+    current_evidence = %{
+      control_session_pid: pid,
+      agent_id: current_metadata.agent_id,
+      gateway_node: current_metadata.gateway_node,
+      capabilities: current_metadata.capabilities,
+      config_version: current_metadata.config_version,
+      pending_config_version: current_metadata.pending_config_version,
+      applied_plugin_assignments: current_metadata.applied_plugin_assignments
+    }
+
+    assert :ok =
+             ControlStreamSession.send_console_frame(
+               pid,
+               %{session_id: "session-1", frame_type: "open"},
+               current_evidence
+             )
+
+    assert_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:console_frame, _frame}}}
+  end
+
+  test "full config with a blank version is rejected before stream delivery" do
+    test_pid = self()
+
+    Application.put_env(:serviceradar_agent_gateway, :control_stream_reply, fn stream, response ->
+      send(test_pid, {:stream_reply, response})
+      stream
+    end)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_agent_gateway, :control_stream_reply)
+    end)
+
+    pid = start_supervised!({ControlStreamSession, stream: nil})
+
+    for version <- [nil, "", "   "] do
+      assert {:error, :invalid_config_version} =
+               ControlStreamSession.push_config(pid, %Monitoring.AgentConfigResponse{
+                 config_version: version,
+                 not_modified: false
+               })
+    end
+
+    refute_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config, _config}}},
+                   50
+  end
+
+  test "console open normalization preserves the exact assignment policy binding" do
+    fingerprint = String.duplicate("a", 64)
+
+    assert {:ok,
+            %Monitoring.ConsoleFrame{
+              session_id: "session-policy",
+              frame_type: "open",
+              assignment_policy_version: 7,
+              assignment_policy_fingerprint: ^fingerprint
+            }} =
+             ControlStreamSession.normalize_console_frame(%{
+               session_id: "session-policy",
+               frame_type: "open",
+               assignment_policy_version: 7,
+               assignment_policy_fingerprint: fingerprint
+             })
+  end
 
   test "registered agent console frames are broadcast with authenticated stream ownership" do
     ensure_pubsub!()
@@ -152,11 +430,11 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
     refute_receive {:remote_access_frame, _frame}, 50
   end
 
-  test "command results broadcast on the command-scoped topic" do
+  test "command results broadcast only to the pre-persistence ingress topic" do
     ensure_pubsub!()
 
     command_id = Ecto.UUID.generate()
-    :ok = AgentCommandPubSub.subscribe(command_id)
+    :ok = AgentCommandPubSub.subscribe_ingress()
 
     pid = start_supervised!({ControlStreamSession, stream: nil})
 
@@ -202,7 +480,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
     ensure_pubsub!()
 
     command_id = Ecto.UUID.generate()
-    :ok = AgentCommandPubSub.subscribe(command_id)
+    :ok = AgentCommandPubSub.subscribe_ingress()
 
     pid = start_supervised!({ControlStreamSession, stream: nil})
 
@@ -239,6 +517,213 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                       payload: %{"error" => "payload_too_large"}
                     }},
                    1_000
+  end
+
+  test "bounded AWX catalog projections may exceed the generic result cap" do
+    ensure_pubsub!()
+
+    command_id = Ecto.UUID.generate()
+    :ok = AgentCommandPubSub.subscribe_ingress()
+    pid = start_supervised!({ControlStreamSession, stream: nil})
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | agent_id: "agent-owned",
+          partition_id: "partition-a",
+          commands: %{command_id => %{command_type: "awx.list_hosts"}}
+      }
+    end)
+
+    hosts =
+      Enum.map(1..1_500, fn id ->
+        %{
+          "id" => id,
+          "name" => "host-#{String.pad_leading(Integer.to_string(id), 4, "0")}",
+          "inventory" => 67,
+          "enabled" => true
+        }
+      end)
+
+    payload =
+      Jason.encode!(%{
+        "verb" => "awx.list_hosts",
+        "ok" => true,
+        "count" => length(hosts),
+        "pages_walked" => 8,
+        "results" => hosts,
+        "extra" => %{"inventory_id" => 67}
+      })
+
+    assert byte_size(payload) > 64 * 1024
+
+    ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
+      payload:
+        {:command_result,
+         %Monitoring.CommandResult{
+           command_id: command_id,
+           command_type: "awx.list_hosts",
+           success: true,
+           message: "done",
+           payload_json: payload,
+           timestamp: 123
+         }}
+    })
+
+    assert_receive {:command_result,
+                    %{
+                      command_id: ^command_id,
+                      command_type: "awx.list_hosts",
+                      success: true,
+                      payload: %{"count" => 1_500, "results" => results}
+                    }},
+                   1_000
+
+    assert length(results) == 1_500
+  end
+
+  test "untracked AWX results retain the generic parsing cap" do
+    ensure_pubsub!()
+
+    command_id = Ecto.UUID.generate()
+    :ok = AgentCommandPubSub.subscribe_ingress()
+    pid = start_supervised!({ControlStreamSession, stream: nil})
+
+    :sys.replace_state(pid, fn state ->
+      %{state | agent_id: "agent-owned", partition_id: "partition-a", commands: %{}}
+    end)
+
+    oversized_payload = Jason.encode!(%{"data" => String.duplicate("x", 70_000)})
+
+    ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
+      payload:
+        {:command_result,
+         %Monitoring.CommandResult{
+           command_id: command_id,
+           command_type: "awx.list_hosts",
+           success: true,
+           message: "too large",
+           payload_json: oversized_payload,
+           timestamp: 123
+         }}
+    })
+
+    assert_receive {:command_result,
+                    %{
+                      command_id: ^command_id,
+                      command_type: "awx.list_hosts",
+                      success: false,
+                      failure_reason: "automation_command_failed",
+                      payload: %{"verb" => "awx.list_hosts", "ok" => false}
+                    }},
+                   1_000
+  end
+
+  test "protected AWX failures are sanitized before gateway broadcast" do
+    ensure_pubsub!()
+
+    command_id = Ecto.UUID.generate()
+    :ok = AgentCommandPubSub.subscribe_ingress()
+    pid = start_supervised!({ControlStreamSession, stream: nil})
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | agent_id: "agent-owned",
+          partition_id: "partition-a",
+          commands: %{command_id => %{command_type: "awx.fetch_job"}}
+      }
+    end)
+
+    secret = "Bearer gateway-result-must-not-survive"
+
+    ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
+      payload:
+        {:command_result,
+         %Monitoring.CommandResult{
+           command_id: command_id,
+           command_type: "awx.fetch_job",
+           success: false,
+           message: secret,
+           payload_json: Jason.encode!(%{"details" => secret, "raw_result_base64" => secret}),
+           timestamp: 123
+         }}
+    })
+
+    assert_receive {:command_result, safe}, 1_000
+    assert safe.command_id == command_id
+    assert safe.command_type == "awx.fetch_job"
+    assert safe.success == false
+    assert safe.message == "automation command failed"
+    assert safe.failure_reason == "automation_command_failed"
+    assert safe.payload == %{"verb" => "awx.fetch_job", "ok" => false}
+    refute inspect(safe) =~ secret
+  end
+
+  test "tracked command type cannot be downgraded by agent status echoes" do
+    ensure_pubsub!()
+
+    command_id = Ecto.UUID.generate()
+    :ok = AgentCommandPubSub.subscribe_ingress()
+    pid = start_supervised!({ControlStreamSession, stream: nil})
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | agent_id: "agent-owned",
+          partition_id: "partition-a",
+          commands: %{command_id => %{command_type: "awx.fetch_job"}}
+      }
+    end)
+
+    secret = "Bearer downgraded-status-must-not-survive"
+
+    ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
+      payload:
+        {:command_ack,
+         %Monitoring.CommandAck{
+           command_id: command_id,
+           command_type: "mtr.run",
+           message: secret,
+           timestamp: 123
+         }}
+    })
+
+    ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
+      payload:
+        {:command_progress,
+         %Monitoring.CommandProgress{
+           command_id: command_id,
+           command_type: "mtr.run",
+           progress_percent: 25,
+           message: secret,
+           payload_json: Jason.encode!(%{"details" => secret}),
+           timestamp: 124
+         }}
+    })
+
+    refute_receive {:command_ack, _}, 50
+    refute_receive {:command_progress, _}, 50
+
+    ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
+      payload:
+        {:command_result,
+         %Monitoring.CommandResult{
+           command_id: command_id,
+           command_type: "mtr.run",
+           success: true,
+           message: secret,
+           payload_json: Jason.encode!(%{"details" => secret}),
+           timestamp: 125
+         }}
+    })
+
+    assert_receive {:command_result, safe}, 1_000
+    assert safe.command_type == "awx.fetch_job"
+    assert safe.success == false
+    assert safe.failure_reason == "automation_command_failed"
+    assert safe.payload == %{"verb" => "awx.fetch_job", "ok" => false}
+    refute inspect(safe) =~ secret
   end
 
   test "registered control streams reject messages with mismatched authenticated identity" do
@@ -415,6 +900,14 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
     end
   end
 
+  defp ensure_process_registry! do
+    {:ok, _apps} = Application.ensure_all_started(:horde)
+
+    if !Process.whereis(ProcessRegistry.registry_name()) do
+      Enum.each(ProcessRegistry.child_specs(), fn child_spec -> start_supervised!(child_spec) end)
+    end
+  end
+
   defp identity_context(agent_id, partition_id) do
     %{
       component_id: agent_id,
@@ -422,5 +915,40 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
       component_type: :agent,
       cert_fingerprint_sha256: "fingerprint-#{agent_id}-#{partition_id}"
     }
+  end
+
+  defp policy_ack(assignment_id, version, fingerprint) do
+    %Monitoring.PluginAssignmentPolicyAck{
+      assignment_id: assignment_id,
+      plugin_id: "proxmox-console",
+      assignment_policy_version: version,
+      assignment_policy_fingerprint: fingerprint
+    }
+  end
+
+  defp assert_registry_evidence(agent_id, pid, predicate, attempts \\ 40)
+
+  defp assert_registry_evidence(_agent_id, _pid, _predicate, 0) do
+    flunk("timed out waiting for control-session registry evidence")
+  end
+
+  defp assert_registry_evidence(agent_id, pid, predicate, attempts) do
+    metadata = registry_metadata(agent_id, pid)
+
+    if metadata && predicate.(metadata) do
+      :ok
+    else
+      Process.sleep(25)
+      assert_registry_evidence(agent_id, pid, predicate, attempts - 1)
+    end
+  end
+
+  defp registry_metadata(agent_id, pid) do
+    agent_id
+    |> ProcessRegistry.lookup_agent_control()
+    |> Enum.find_value(fn
+      {^pid, metadata} -> metadata
+      _entry -> nil
+    end)
   end
 end

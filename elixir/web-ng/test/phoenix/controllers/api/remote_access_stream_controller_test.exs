@@ -1,10 +1,16 @@
 defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamControllerTest do
-  use ServiceRadarWebNGWeb.ConnCase, async: false
+  use ExUnit.Case, async: false
+  use ServiceRadarWebNGWeb, :verified_routes
+
+  import Phoenix.ConnTest
 
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Api.RemoteAccessStreamController
   alias ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler
+
+  @endpoint ServiceRadarWebNGWeb.Endpoint
+  @moduletag :db_free
 
   defmodule WebSockAdapterStub do
     @moduledoc false
@@ -21,19 +27,25 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamControllerTest do
     end
   end
 
-  setup %{conn: conn} do
+  setup do
     previous_enabled = Application.get_env(:serviceradar_web_ng, :remote_access_ssh_enabled)
+
+    previous_rdp_enabled =
+      Application.get_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled)
+
     previous_fetcher = Application.get_env(:serviceradar_web_ng, :remote_access_session_fetcher)
     previous_adapter = Application.get_env(:serviceradar_web_ng, :remote_access_websock_adapter)
     previous_timeout = Application.get_env(:serviceradar_web_ng, :remote_access_browser_stream_timeout_ms)
     previous_test_pid = Application.get_env(:serviceradar_web_ng, :remote_access_stream_test_pid)
 
     Application.put_env(:serviceradar_web_ng, :remote_access_ssh_enabled, true)
+    Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, true)
     Application.put_env(:serviceradar_web_ng, :remote_access_websock_adapter, WebSockAdapterStub)
     Application.put_env(:serviceradar_web_ng, :remote_access_stream_test_pid, self())
 
     on_exit(fn ->
       restore_env(:remote_access_ssh_enabled, previous_enabled)
+      restore_env(:remote_access_desktop_rdp_enabled, previous_rdp_enabled)
       restore_env(:remote_access_session_fetcher, previous_fetcher)
       restore_env(:remote_access_websock_adapter, previous_adapter)
       restore_env(:remote_access_browser_stream_timeout_ms, previous_timeout)
@@ -46,7 +58,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamControllerTest do
       )
 
     conn =
-      conn
+      build_conn()
       |> Plug.Conn.put_req_header("accept", "application/json")
       |> Plug.Conn.assign(:current_scope, scope)
 
@@ -115,6 +127,87 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamControllerTest do
     refute_receive {:websock_upgrade, _handler, _handler_opts, _adapter_opts}
   end
 
+  test "allows an RDP stream with only RDP permission while SSH is disabled", %{conn: conn} do
+    session_id = Ecto.UUID.generate()
+    Application.put_env(:serviceradar_web_ng, :remote_access_ssh_enabled, false)
+
+    rdp_scope =
+      Scope.for_user(%{id: "user-1", email: "user@example.com"},
+        permissions: MapSet.new(["devices.remote_access.rdp.open"])
+      )
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :remote_access_session_fetcher,
+      fn requested_id, _opts ->
+        {:ok, remote_access_session(requested_id, protocol: :rdp, adapter: :rdp)}
+      end
+    )
+
+    conn =
+      conn
+      |> Plug.Conn.assign(:current_scope, rdp_scope)
+      |> RemoteAccessStreamController.connect(%{"id" => session_id})
+
+    assert conn.halted
+    assert_receive {:websock_upgrade, RemoteAccessStreamHandler, handler_opts, _adapter_opts}
+    assert handler_opts[:scope] == rdp_scope
+  end
+
+  test "rejects an SSH stream when SSH is disabled", %{conn: conn} do
+    session_id = Ecto.UUID.generate()
+    Application.put_env(:serviceradar_web_ng, :remote_access_ssh_enabled, false)
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :remote_access_session_fetcher,
+      fn requested_id, _opts -> {:ok, remote_access_session(requested_id, [])} end
+    )
+
+    conn = RemoteAccessStreamController.connect(conn, %{"id" => session_id})
+    body = json_response(conn, 404)
+
+    assert body["error"] == "not_found"
+    assert body["message"] =~ "SSH"
+    refute_receive {:websock_upgrade, _handler, _handler_opts, _adapter_opts}
+  end
+
+  test "fails closed for a session protocol that has no browser stream transport", %{conn: conn} do
+    session_id = Ecto.UUID.generate()
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :remote_access_session_fetcher,
+      fn requested_id, _opts ->
+        {:ok, remote_access_session(requested_id, protocol: :app, adapter: :app)}
+      end
+    )
+
+    conn = RemoteAccessStreamController.connect(conn, %{"id" => session_id})
+    body = json_response(conn, 404)
+
+    assert body["error"] == "remote_access_session_not_found"
+    refute_receive {:websock_upgrade, _handler, _handler_opts, _adapter_opts}
+  end
+
+  test "does not attach a stream for another user's session", %{conn: conn} do
+    session_id = Ecto.UUID.generate()
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :remote_access_session_fetcher,
+      fn requested_id, _opts ->
+        {:ok, remote_access_session(requested_id, requested_by: "other-user")}
+      end
+    )
+
+    conn = RemoteAccessStreamController.connect(conn, %{"id" => session_id})
+    body = json_response(conn, 404)
+
+    assert body["error"] == "remote_access_session_not_found"
+    refute_receive {:websock_upgrade, _handler, _handler_opts, _adapter_opts}
+  end
+
   test "rejects callers without any remote access stream permission before fetching session", %{conn: conn} do
     session_id = Ecto.UUID.generate()
     unauthorized_scope = Scope.for_user(%{id: "viewer-1", email: "viewer@example.com"}, permissions: MapSet.new())
@@ -180,6 +273,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamControllerTest do
       agent_id: "agent-1",
       gateway_id: "gateway-1",
       credential_custody_mode: :ssh_certificate,
+      requested_by: "user-1",
       status: :requested,
       rbac_decision: :allowed,
       attach_expires_at: DateTime.add(DateTime.utc_now(), 60, :second),

@@ -598,6 +598,11 @@ defmodule Monitoring.ControlStreamHello do
   field :labels, 9, repeated: true, type: Monitoring.ControlStreamHello.LabelsEntry, map: true
   field :config_source, 10, type: :string, json_name: "configSource"
   field :host_ip, 11, type: :string, json_name: "hostIp"
+
+  field :applied_plugin_assignments, 12,
+    repeated: true,
+    type: Monitoring.PluginAssignmentPolicyAck,
+    json_name: "appliedPluginAssignments"
 end
 
 defmodule Monitoring.CommandRequest do
@@ -690,6 +695,25 @@ defmodule Monitoring.ConfigAck do
     repeated: true,
     type: Monitoring.ConfigSectionStatus,
     json_name: "sectionStatuses"
+
+  field :applied_plugin_assignments, 4,
+    repeated: true,
+    type: Monitoring.PluginAssignmentPolicyAck,
+    json_name: "appliedPluginAssignments"
+end
+
+defmodule Monitoring.PluginAssignmentPolicyAck do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.PluginAssignmentPolicyAck",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :assignment_id, 1, type: :string, json_name: "assignmentId"
+  field :plugin_id, 2, type: :string, json_name: "pluginId"
+  field :assignment_policy_version, 3, type: :uint64, json_name: "assignmentPolicyVersion"
+  field :assignment_policy_fingerprint, 4, type: :string, json_name: "assignmentPolicyFingerprint"
 end
 
 defmodule Monitoring.ConsoleFrame do
@@ -710,6 +734,11 @@ defmodule Monitoring.ConsoleFrame do
   field :seq, 8, type: :uint64
   field :payload_sha256, 9, type: :string, json_name: "payloadSha256"
   field :signature, 10, type: :string
+  field :assignment_policy_version, 11, type: :uint64, json_name: "assignmentPolicyVersion"
+
+  field :assignment_policy_fingerprint, 12,
+    type: :string,
+    json_name: "assignmentPolicyFingerprint"
 end
 
 defmodule Monitoring.ControlStreamRequest do
@@ -858,6 +887,7 @@ defmodule Monitoring.PluginAssignmentConfig do
   field :source_commit, 20, type: :string, json_name: "sourceCommit"
   field :download_url, 21, type: :string, json_name: "downloadUrl"
   field :download_token, 22, type: :string, json_name: "downloadToken"
+  field :host_params_json, 23, type: :bytes, json_name: "hostParamsJson"
 end
 
 defmodule Monitoring.BumblebeeConfig do

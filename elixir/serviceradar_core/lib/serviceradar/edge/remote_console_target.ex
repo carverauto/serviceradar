@@ -30,6 +30,8 @@ defmodule ServiceRadar.Edge.RemoteConsoleTarget do
     target_kind = atom_string(value(target, [:target_kind, "target_kind"]))
     console_mode = atom_string(value(target, [:console_mode, "console_mode"]))
     device_uid = string_value(device, [:uid, "uid", :device_uid, "device_uid"])
+    controller = controller_map(target)
+    endpoint = if map_size(controller) > 0, do: controller, else: device
 
     %{
       schema: @schema,
@@ -47,8 +49,63 @@ defmodule ServiceRadar.Edge.RemoteConsoleTarget do
         %{}
         |> put_present("target_kind", target_kind)
         |> put_present("console_mode", console_mode)
-        |> put_present("hostname", string_value(device, [:hostname, "hostname", :name, "name"]))
-        |> put_present("ip", string_value(device, [:ip, "ip"]))
+        |> put_present(
+          "integration_id",
+          string_value(target, [:integration_id, "integration_id"])
+        )
+        |> put_present(
+          "identity_version",
+          integer_value(target, [:identity_version, "identity_version"])
+        )
+        |> put_present(
+          "identity_state",
+          atom_string(value(target, [:identity_state, "identity_state"]))
+        )
+        |> put_present("controller_id", string_value(target, [:controller_id, "controller_id"]))
+        |> put_present(
+          "native_cluster_id",
+          string_value(target, [:native_cluster_id, "native_cluster_id"])
+        )
+        |> put_present("object_kind", string_value(target, [:object_kind, "object_kind"]))
+        |> put_present(
+          "native_object_id",
+          string_value(target, [:native_object_id, "native_object_id"])
+        )
+        |> put_present(
+          "provider_instance_ref",
+          string_value(target, [:provider_instance_ref, "provider_instance_ref"])
+        )
+        |> put_present(
+          "inventory_row_id",
+          string_value(target, [:inventory_row_id, "inventory_row_id"])
+        )
+        |> put_present("owner_host_id", string_value(target, [:owner_host_id, "owner_host_id"]))
+        |> put_present("cluster", string_value(target, [:cluster, "cluster"]))
+        |> put_present("node", string_value(target, [:node, "node"]))
+        |> put_present("vmid", integer_value(target, [:vmid, "vmid"]))
+        |> put_present("hostname", string_value(endpoint, [:hostname, "hostname", :name, "name"]))
+        |> put_present("ip", string_value(endpoint, [:ip, "ip"]))
+        |> put_present(
+          "controller_device_uid",
+          string_value(controller, [:device_uid, "device_uid"])
+        )
+        |> put_present(
+          "controller_ref",
+          string_value(controller, [:provider_ref, "provider_ref"])
+        )
+        |> put_present(
+          "controller_integration_id",
+          string_value(controller, [:integration_id, "integration_id"])
+        )
+        |> put_present(
+          "controller_provider_instance_ref",
+          string_value(controller, [:provider_instance_ref, "provider_instance_ref"])
+        )
+        |> put_present(
+          "controller_virtualization_host_id",
+          string_value(controller, [:virtualization_host_id, "virtualization_host_id"])
+        )
+        |> put_present("controller_origin", string_value(controller, [:base_url, "base_url"]))
     }
   end
 
@@ -138,6 +195,20 @@ defmodule ServiceRadar.Edge.RemoteConsoleTarget do
   defp atom_string(value) when is_atom(value), do: Atom.to_string(value)
   defp atom_string(value) when is_binary(value), do: value
   defp atom_string(_value), do: nil
+
+  defp controller_map(target) do
+    case value(target, [:controller, "controller"]) do
+      controller when is_map(controller) -> controller
+      _controller -> %{}
+    end
+  end
+
+  defp integer_value(map, keys) do
+    case value(map, keys) do
+      value when is_integer(value) -> value
+      _value -> nil
+    end
+  end
 
   defp put_present(map, _key, nil), do: map
   defp put_present(map, _key, ""), do: map

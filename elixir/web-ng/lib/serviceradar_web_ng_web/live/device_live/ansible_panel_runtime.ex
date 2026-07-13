@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
 
   alias ServiceRadar.Automation.Ansible.Playbook
   alias ServiceRadar.Automation.Ansible.PlaybookRunTarget
+  alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Automation.Ansible.SecureLaunchService
   alias ServiceRadar.Automation.Ansible.VariableSchema.Var
   alias ServiceRadarWebNG.RBAC
@@ -281,7 +282,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
         navigate_to_operation(socket, result)
 
       {:error, reason} ->
-        Logger.info("Device Ansible launch failed", reason: inspect(reason))
+        Logger.info("Device Ansible launch failed", SafeFailureEvidence.log_metadata(reason))
         assign(socket, :ansible_launch_notice, launch_error_message(reason))
     end
   end

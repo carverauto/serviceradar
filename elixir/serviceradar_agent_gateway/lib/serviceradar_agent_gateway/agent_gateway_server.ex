@@ -36,6 +36,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   use GRPC.Server, service: Monitoring.AgentGatewayService.Service
 
+  alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadarAgentGateway.AgentRegistryProxy
@@ -237,7 +238,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp credential_grant_denied_response(agent_id, grant_id, reason) do
     Logger.warning(
-      "Credential broker grant resolution denied: agent_id=#{agent_id}, grant_id=#{grant_id}, reason=#{inspect(reason)}"
+      "Credential broker grant resolution denied",
+      [agent_id: agent_id, grant_id: grant_id] ++ SafeFailureEvidence.log_metadata(reason)
     )
 
     %Monitoring.CredentialBrokerResolveResponse{
@@ -319,7 +321,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp automation_launch_envelope_denied_response(agent_id, command_id, reason) do
     Logger.warning(
-      "Automation launch envelope resolution denied: agent_id=#{agent_id}, command_id=#{command_id}, reason=#{inspect(reason)}"
+      "Automation launch envelope resolution denied",
+      [agent_id: agent_id, command_id: command_id] ++ SafeFailureEvidence.log_metadata(reason)
     )
 
     %Monitoring.AutomationLaunchEnvelopeResolveResponse{
@@ -710,6 +713,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp strict_delivery_status?(%{source: source} = status), do: strict_delivery_source?(source, status)
+
   defp strict_delivery_status?(_status), do: false
 
   defp gateway_status_directives(service, %{directives: directives}) when is_map(directives) do
@@ -1749,16 +1753,25 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     track_connected_agent(agent_id, partition_id, hello, source_ip)
 
     {:ok, session} = ControlStreamSession.start_link(stream: stream)
-    register_control_session(session, agent_id, partition_id, capabilities, identity_context)
+
+    register_control_session(
+      session,
+      agent_id,
+      partition_id,
+      capabilities,
+      identity_context,
+      hello
+    )
   end
 
-  defp register_control_session(session, agent_id, partition_id, capabilities, identity_context) do
+  defp register_control_session(session, agent_id, partition_id, capabilities, identity_context, hello) do
     case ControlStreamSession.register(
            session,
            agent_id,
            partition_id,
            capabilities,
-           identity_context
+           identity_context,
+           hello
          ) do
       :ok ->
         Logger.info("Control stream established: agent_id=#{agent_id}, partition=#{partition_id}")

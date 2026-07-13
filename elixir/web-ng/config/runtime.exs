@@ -4,6 +4,7 @@ alias Geolix.Adapter.MMDB2
 alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
 alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
 alias ServiceRadar.Edge.RemoteAccessSSHCACommandSigner
+alias ServiceRadarWebNG.RemoteDesktopWebRTCConfig
 alias Swoosh.Adapters.Local
 
 require Logger
@@ -28,8 +29,7 @@ case System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE") do
 
     config :serviceradar_core,
       automation_launch_envelope_key: envelope_key,
-      automation_launch_envelope_key_id:
-        System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID", "current")
+      automation_launch_envelope_key_id: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID", "current")
 
   _ ->
     :ok
@@ -658,6 +658,13 @@ remote_access_desktop_rdp_enabled =
     value -> value
   end
 
+remote_access_desktop_webrtc =
+  RemoteDesktopWebRTCConfig.load!(
+    ice_servers_json: System.get_env("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_ICE_SERVERS_JSON"),
+    turn_shared_secret_file: System.get_env("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_SHARED_SECRET_FILE"),
+    credential_ttl_seconds: System.get_env("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_CREDENTIAL_TTL_SECONDS")
+  )
+
 remote_access_app_enabled =
   case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_APP_ENABLED", "false")) do
     nil -> false
@@ -776,7 +783,10 @@ config :serviceradar_web_ng,
   remote_access_browser_key_remember_enabled: remote_access_browser_key_remember_enabled
 
 config :serviceradar_web_ng,
-  remote_access_desktop_rdp_enabled: remote_access_desktop_rdp_enabled
+  remote_access_desktop_rdp_enabled: remote_access_desktop_rdp_enabled,
+  remote_access_desktop_webrtc_ice_servers: remote_access_desktop_webrtc.ice_servers,
+  remote_access_desktop_webrtc_turn_shared_secret: remote_access_desktop_webrtc.turn_shared_secret,
+  remote_access_desktop_webrtc_turn_credential_ttl_seconds: remote_access_desktop_webrtc.credential_ttl_seconds
 
 config :serviceradar_web_ng,
   remote_access_ssh_enabled: remote_access_ssh_enabled

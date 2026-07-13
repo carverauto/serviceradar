@@ -17,8 +17,10 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   """
 
   alias ServiceRadar.Automation.Ansible.Controller
+  alias ServiceRadar.Automation.Ansible.VariableSchema
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.CredentialRedactor
+  alias ServiceRadar.Credentials.RequestBodyPolicy
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Plugins.SecretRefs
 
@@ -26,6 +28,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   @grant_type "awx_oauth2_token"
   @default_grant_ttl_seconds 300
   @default_command_ttl_seconds 60
+  @max_authorized_request_body_bytes 256 * 1024
+  @max_launch_input_string_bytes 16 * 1024
+  @max_launch_input_list_items 128
   # AWX verbs run inside the awx WASM plugin, which reaches AWX through the
   # plugin runtime's `http_request` host function — not a raw agent session
   # capability. The command is dispatched to the controller's explicitly-bound
@@ -69,6 +74,23 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
                      "labels",
                      "instance_group_ids"
                    ])
+  @launch_body_key_map %{
+    "extra_vars" => "extra_vars",
+    "host_limit" => "limit",
+    "inventory_id" => "inventory",
+    "credential_ids" => "credentials",
+    "execution_environment_id" => "execution_environment",
+    "job_type" => "job_type",
+    "diff_mode" => "diff_mode",
+    "verbosity" => "verbosity",
+    "forks" => "forks",
+    "job_slice_count" => "job_slice_count",
+    "timeout" => "timeout",
+    "job_tags" => "job_tags",
+    "skip_tags" => "skip_tags",
+    "labels" => "labels",
+    "instance_group_ids" => "instance_groups"
+  }
   @callback_create_arg_keys MapSet.new(
                               ~w(credential_type_id organization_id credential_name injector_sha256)
                             )
@@ -80,6 +102,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
                          ~w(template_id inventory_id created_by_id created_after page_size)
                        )
   @event_pair_keys MapSet.new(~w(job_id since_id))
+  @max_event_batch_size 10
   @reserved_dispatch_vars ~w(serviceradar_dispatch_id serviceradar_snapshot_digest)
 
   @sync_verbs MapSet.new([
@@ -369,9 +392,10 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   @doc """
   Bulk fetch new events for one or more active jobs.
 
-  This is the verb `RunPulseWorker` ticks against — one tick, one
-  command, all of a controller's active runs in one AWX round-trip. See
-  `add-ansible-integration` design.md decision 6.
+  This is the verb `RunPulseWorker` ticks against. Each command accepts at
+  most #{@max_event_batch_size} jobs; the worker chunks larger active-run
+  sets into multiple bounded commands. See `add-ansible-integration`
+  design.md decision 6.
   """
   @spec fetch_events_for_jobs(Controller.t(), [job_event_pair()], keyword()) ::
           {:ok, struct()} | {:error, term()}
@@ -424,21 +448,31 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
              base_url: String.t(),
              allow: map(),
              allowed_hosts: [String.t()],
+             allowed_schemes: [String.t()],
              allowed_methods: [String.t()],
              allowed_paths: [String.t()],
-             allowed_ports: [pos_integer()]
+             allowed_ports: [pos_integer()],
+             request_body_policy: map(),
+             authorized_request_body_b64: String.t() | nil
            }}
           | {:error, :invalid_controller_base_url | :invalid_awx_broker_scope}
   def broker_scope(base_url, verb, args) when is_binary(verb) and is_map(args) do
     with {:ok, endpoint} <- normalize_controller_endpoint(base_url),
          [_ | _] = methods <- allowed_methods_for(verb),
-         [_ | _] = paths <- allowed_paths_for(verb, args) do
-      allow = %{
-        "methods" => methods,
-        "paths" => paths,
-        "hosts" => [endpoint.host],
-        "ports" => [endpoint.port]
-      }
+         [_ | _] = paths <- allowed_paths_for(verb, args),
+         {:ok, body_binding} <- request_body_binding_for(verb, args) do
+      allow =
+        maybe_put(
+          %{
+            "methods" => methods,
+            "paths" => paths,
+            "hosts" => [endpoint.host],
+            "ports" => [endpoint.port],
+            "schemes" => [endpoint.scheme]
+          },
+          "request_body",
+          body_binding.policy
+        )
 
       {:ok,
        %{
@@ -447,7 +481,10 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
          allowed_methods: methods,
          allowed_paths: paths,
          allowed_hosts: [endpoint.host],
-         allowed_ports: [endpoint.port]
+         allowed_ports: [endpoint.port],
+         allowed_schemes: [endpoint.scheme],
+         request_body_policy: body_binding.policy,
+         authorized_request_body_b64: body_binding.authorized_request_body_b64
        }}
     else
       [] -> {:error, :invalid_awx_broker_scope}
@@ -579,17 +616,21 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
        ) do
     with {:ok, grant} <- credential_broker_grant(controller, verb, secret_id, scope, opts) do
       {:ok,
-       maybe_put(
-         %{
-           "schema" => @payload_schema,
-           "verb" => verb,
-           "args" => args,
-           "base_url" => scope.base_url,
-           "controller_id" => controller.id,
-           "controller_name" => controller.name,
-           "insecure_skip_verify" => insecure_skip_verify?(controller),
-           "credential_broker" => grant
-         },
+       %{
+         "schema" => @payload_schema,
+         "verb" => verb,
+         "args" => args,
+         "base_url" => scope.base_url,
+         "controller_id" => controller.id,
+         "controller_name" => controller.name,
+         "insecure_skip_verify" => insecure_skip_verify?(controller),
+         "credential_broker" => grant
+       }
+       |> maybe_put(
+         "authorized_request_body_b64",
+         scope.authorized_request_body_b64
+       )
+       |> maybe_put(
          "callback_credential_binding",
          callback_binding
        )}
@@ -632,6 +673,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
       allowed_hosts: scope.allowed_hosts,
       allowed_paths: scope.allowed_paths,
       allowed_ports: scope.allowed_ports,
+      allowed_schemes: scope.allowed_schemes,
+      request_body_policy: scope.request_body_policy,
       ttl_seconds: @default_grant_ttl_seconds
     }
   end
@@ -781,11 +824,12 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
 
   defp allowed_paths_for("awx.fetch_events_for_jobs", args) do
     with true <- exact_arg_keys?(args, ~w(pairs)),
-         pairs when is_list(pairs) and pairs != [] <- Map.get(args, "pairs"),
-         true <- Enum.all?(pairs, &valid_event_pair?/1) do
+         pairs when is_list(pairs) and length(pairs) in 1..@max_event_batch_size <-
+           Map.get(args, "pairs"),
+         true <- Enum.all?(pairs, &valid_event_pair?/1),
+         true <- unique_event_job_ids?(pairs) do
       pairs
       |> Enum.map(&Map.fetch!(&1, "job_id"))
-      |> Enum.uniq()
       |> Enum.map(&"=/api/v2/jobs/#{&1}/job_events/")
     else
       _ -> []
@@ -855,6 +899,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
       {:ok,
        %{
          base_url: URI.to_string(normalized_uri),
+         scheme: scheme,
          host: normalized_uri.host,
          port: port
        }}
@@ -902,6 +947,11 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
 
   defp valid_event_pair?(_pair), do: false
 
+  defp unique_event_job_ids?(pairs) do
+    job_ids = Enum.map(pairs, &Map.fetch!(&1, "job_id"))
+    Enum.uniq(job_ids) == job_ids
+  end
+
   defp bounded_nonempty_string?(value, max_bytes) when is_binary(value) do
     String.trim(value) != "" and byte_size(value) <= max_bytes
   end
@@ -944,13 +994,92 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   defp valid_launch_id_list?(_values), do: false
 
   defp valid_launch_extra_vars?(extra_vars) when is_map(extra_vars) do
-    Enum.all?(@reserved_dispatch_vars, fn key ->
-      not Map.has_key?(extra_vars, key) or
-        bounded_nonempty_string?(Map.get(extra_vars, key), 512)
+    Enum.all?(extra_vars, fn
+      {key, value} when is_binary(key) and key in @reserved_dispatch_vars ->
+        bounded_nonempty_string?(value, 512) and CredentialRedactor.redact(value) == value
+
+      {key, value} ->
+        VariableSchema.reviewed_input_name?(key) and valid_non_secret_extra_var_value?(value)
     end)
   end
 
   defp valid_launch_extra_vars?(_extra_vars), do: false
+
+  defp valid_non_secret_extra_var_value?(value) when is_binary(value) do
+    byte_size(value) <= @max_launch_input_string_bytes and
+      CredentialRedactor.redact(value) == value
+  end
+
+  defp valid_non_secret_extra_var_value?(value) when is_boolean(value) or is_nil(value), do: true
+
+  defp valid_non_secret_extra_var_value?(value) when is_integer(value),
+    do: value in -9_007_199_254_740_991..9_007_199_254_740_991
+
+  defp valid_non_secret_extra_var_value?(value) when is_float(value), do: true
+
+  defp valid_non_secret_extra_var_value?(values) when is_list(values) do
+    length(values) <= @max_launch_input_list_items and
+      Enum.all?(values, fn value ->
+        not is_list(value) and not is_map(value) and valid_non_secret_extra_var_value?(value)
+      end)
+  end
+
+  defp valid_non_secret_extra_var_value?(_value), do: false
+
+  defp request_body_binding_for("awx.launch_job", args) do
+    with true <- valid_launch_args?(args),
+         body = launch_request_body(args),
+         true <- CredentialRedactor.redact(body) == body,
+         {:ok, encoded} <- Jason.encode(body),
+         true <- byte_size(encoded) in 1..@max_authorized_request_body_bytes do
+      {:ok,
+       %{
+         policy:
+           RequestBodyPolicy.bound_bytes(encoded,
+             content_type: "application/json",
+             max_bytes: @max_authorized_request_body_bytes,
+             max_mutations: 1
+           ),
+         authorized_request_body_b64: Base.encode64(encoded)
+       }}
+    else
+      _ -> {:error, :invalid_awx_request_body_policy}
+    end
+  end
+
+  defp request_body_binding_for(verb, _args)
+       when verb in ["awx.cancel_job", "awx.delete_callback_credential"] do
+    {:ok,
+     %{
+       policy: RequestBodyPolicy.empty(content_type: "application/json", max_mutations: 1),
+       authorized_request_body_b64: nil
+     }}
+  end
+
+  defp request_body_binding_for("awx.create_callback_credential", _args) do
+    {:ok,
+     %{
+       policy:
+         RequestBodyPolicy.trusted_rewrite(RequestBodyPolicy.callback_rewrite_handler(),
+           content_type: "application/json",
+           max_bytes: @max_authorized_request_body_bytes,
+           max_mutations: 1
+         ),
+       authorized_request_body_b64: nil
+     }}
+  end
+
+  defp request_body_binding_for(_verb, _args),
+    do: {:ok, %{policy: %{}, authorized_request_body_b64: nil}}
+
+  defp launch_request_body(args) do
+    Enum.reduce(@launch_body_key_map, %{}, fn {arg_key, awx_key}, body ->
+      case Map.fetch(args, arg_key) do
+        {:ok, value} -> Map.put(body, awx_key, value)
+        :error -> body
+      end
+    end)
+  end
 
   defp bounded_string?(value, max_bytes) when is_binary(value), do: byte_size(value) <= max_bytes
 

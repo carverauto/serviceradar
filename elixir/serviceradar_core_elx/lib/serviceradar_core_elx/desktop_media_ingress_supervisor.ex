@@ -26,6 +26,23 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressSupervisor do
     end
   end
 
+  def stop_session(desktop_session_id, opts \\ []) when is_binary(desktop_session_id) do
+    registry = Keyword.get(opts, :registry, ServiceRadarCoreElx.DesktopMediaIngressRegistry)
+    supervisor = Keyword.get(opts, :supervisor, __MODULE__)
+
+    case Registry.lookup(registry, desktop_session_id) do
+      [{pid, _value}] when is_pid(pid) ->
+        case DynamicSupervisor.terminate_child(supervisor, pid) do
+          :ok -> :ok
+          {:error, :not_found} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+
+      [] ->
+        :ok
+    end
+  end
+
   @impl true
   def init(_opts) do
     DynamicSupervisor.init(strategy: :one_for_one)

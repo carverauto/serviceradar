@@ -1,16 +1,16 @@
 defmodule ServiceRadar.Credentials.ProxmoxProfileGoldenTest do
   @moduledoc """
-  Byte-identity guard for the Proxmox credential materializer.
+  Golden-output guard for the Proxmox credential materializer.
 
   The expected `params_template` (and embedded broker grant payload) maps below
-  were captured from the pre-refactor Proxmox-only implementation on
-  origin/staging with a deterministic grant issuer (fixed `id` + fixed `now`).
-  The refactored `ProxmoxProfile`-driven path must reproduce them exactly.
+  use a deterministic grant issuer (fixed `id` + fixed `now`) and assert the
+  secure, host-brokered output contract.
   """
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.PluginAssignmentMaterializer
+  alias ServiceRadar.Credentials.ProviderProfiles.ProxmoxProfile
 
   @fixed_now ~U[2026-06-30 00:00:00Z]
 
@@ -51,13 +51,13 @@ defmodule ServiceRadar.Credentials.ProxmoxProfileGoldenTest do
     {policy, input_defs}
   end
 
-  test "proxmox inventory template is byte-identical to the captured golden output" do
+  test "proxmox inventory template matches the verified-TLS golden output" do
     rule = %{
       id: "golden-rule",
       secret_id: "018f3f56-1111-7222-8333-123456789abc",
       purpose: :inventory_enrichment,
       target_query: "in:devices metadata.proxmox_candidate:true",
-      tls_policy: :skip_verify,
+      tls_policy: :verify,
       updated_at: ~U[2026-05-06 19:30:00Z],
       metadata: %{
         "include_guests" => false,
@@ -119,12 +119,11 @@ defmodule ServiceRadar.Credentials.ProxmoxProfileGoldenTest do
              },
              "credential_rule_id" => "golden-rule",
              "include_guests" => false,
-             "insecure_skip_verify" => true,
              "timeout_ms" => 45_000
            }
   end
 
-  test "proxmox ssh console template is byte-identical to the captured golden output" do
+  test "proxmox SSH console template matches the host-key-verified golden output" do
     rule = %{
       id: "console-rule",
       secret_id: "018f3f56-5555-7666-8777-123456789abc",
@@ -163,13 +162,58 @@ defmodule ServiceRadar.Credentials.ProxmoxProfileGoldenTest do
              "credential_rule_id" => "console-rule",
              "credential_secret" =>
                "credentialref:network-credential-secret:018f3f56-5555-7666-8777-123456789abc",
-             "insecure_skip_verify" => false,
              "ssh_host_key_policy" => "trust_on_first_use",
              "timeout_ms" => 20_000
            }
   end
 
-  test "proxmox api-token console template is byte-identical to the captured golden output" do
+  test "Proxmox API-token templates reject disabled TLS verification" do
+    rule = %{
+      id: "insecure-rule",
+      auth_method: :proxmox_api_token,
+      tls_policy: :skip_verify,
+      ssh_host_key_policy: :known_hosts,
+      metadata: %{}
+    }
+
+    assert {:error, :proxmox_tls_verification_required} =
+             ProxmoxProfile.params_template(
+               :inventory_enrichment,
+               rule,
+               "018f3f56-1111-7222-8333-123456789abc",
+               %{grant: %{}}
+             )
+
+    assert {:error, :proxmox_tls_verification_required} =
+             ProxmoxProfile.params_template(
+               :console_access,
+               rule,
+               "018f3f56-1111-7222-8333-123456789abc",
+               %{grant: %{}}
+             )
+  end
+
+  test "Proxmox console templates reject credentials outside the closed auth set" do
+    for auth_method <- [:username_password, :api_key, :certificate, :opaque] do
+      rule = %{
+        id: "unsupported-console-auth-rule",
+        auth_method: auth_method,
+        tls_policy: :verify,
+        ssh_host_key_policy: :known_hosts,
+        metadata: %{}
+      }
+
+      assert {:error, :unsupported_proxmox_console_auth_method} =
+               ProxmoxProfile.params_template(
+                 :console_access,
+                 rule,
+                 "018f3f56-1111-7222-8333-123456789abc",
+                 %{grant: %{}}
+               )
+    end
+  end
+
+  test "inventory-only Proxmox API-token rules are not console eligible" do
     rule = %{
       id: "shared-proxmox-api-rule",
       secret_id: "secret-proxmox-api-shared",
@@ -181,35 +225,9 @@ defmodule ServiceRadar.Credentials.ProxmoxProfileGoldenTest do
       metadata: %{}
     }
 
-    {policy, _input_defs} = materialize(rule, :console_access)
-
-    assert policy.policy_id == "network-credential-rule:shared-proxmox-api-rule:console_access"
-
-    assert policy.params_template == %{
-             "api_token_secret_ref" =>
-               "credentialref:network-credential-secret:secret-proxmox-api-shared",
-             "credential_broker" => %{
-               "auth_method" => "proxmox_api_token",
-               "consumer" => %{
-                 "id" => "proxmox-console",
-                 "kind" => "plugin",
-                 "purpose" => "console_access"
-               },
-               "credential_rule_id" => "shared-proxmox-api-rule",
-               "credential_secret_ref" =>
-                 "credentialref:network-credential-secret:secret-proxmox-api-shared",
-               "expires_at" => "2026-06-30T00:05:00Z",
-               "grant_id" => "golden-grant",
-               "grant_type" => "proxmox_console",
-               "resolution_location" => "agent",
-               "schema" => "serviceradar.edge_credential_broker_grant.v1",
-               "target" => %{"agent_id" => "agent-golden"},
-               "ttl_seconds" => 300
-             },
-             "credential_rule_id" => "shared-proxmox-api-rule",
-             "insecure_skip_verify" => false,
-             "ssh_host_key_policy" => "known_hosts",
-             "timeout_ms" => 30_000
-           }
+    refute ProxmoxProfile.rule_has_purpose?(
+             rule,
+             :console_access
+           )
   end
 end

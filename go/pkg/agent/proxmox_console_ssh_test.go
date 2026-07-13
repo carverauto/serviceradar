@@ -56,9 +56,10 @@ func TestRunProxmoxConsoleSSHRoutesBridgeFrames(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- runProxmoxConsoleSSH(ctx, proxmoxConsoleSSHConfig{
-			Console: proxmoxConsoleSessionSpec{Cols: 120, Rows: 40},
-			Target:  proxmoxConsoleSSHTarget{Hostname: "pve.example"},
-			SSH:     proxmoxConsoleSSHAuth{Username: "root", Password: "secret"},
+			Console:          proxmoxConsoleSessionSpec{Cols: 120, Rows: 40},
+			Target:           proxmoxConsoleSSHTarget{Hostname: "pve.example"},
+			SSH:              proxmoxConsoleSSHAuth{Username: "root", Password: "secret"},
+			SSHHostKeyPolicy: proxmoxSSHHostKeyPolicyKnownHosts,
 		}, bridge, func(context.Context, proxmoxConsoleSSHConfig) (proxmoxConsoleSSHSession, error) {
 			return session, nil
 		})
@@ -114,9 +115,10 @@ func TestRunProxmoxConsoleSSHRedactsDialErrorFromTerminal(t *testing.T) {
 	}
 
 	err := runProxmoxConsoleSSH(t.Context(), proxmoxConsoleSSHConfig{
-		Console: proxmoxConsoleSessionSpec{Cols: 120, Rows: 40},
-		Target:  proxmoxConsoleSSHTarget{Hostname: "pve.example"},
-		SSH:     proxmoxConsoleSSHAuth{Username: "root", Password: "secret"},
+		Console:          proxmoxConsoleSessionSpec{Cols: 120, Rows: 40},
+		Target:           proxmoxConsoleSSHTarget{Hostname: "pve.example"},
+		SSH:              proxmoxConsoleSSHAuth{Username: "root", Password: "secret"},
+		SSHHostKeyPolicy: proxmoxSSHHostKeyPolicyKnownHosts,
 	}, bridge, func(context.Context, proxmoxConsoleSSHConfig) (proxmoxConsoleSSHSession, error) {
 		return nil, errTestProxmoxConsoleSSHDialAuthFailed
 	})
@@ -179,6 +181,23 @@ func TestRunProxmoxConsoleSSHRejectsInvalidConfigBeforeDial(t *testing.T) {
 			},
 			want: errProxmoxSSHCredentialRequired,
 		},
+		{
+			name: "missing host key policy",
+			cfg: proxmoxConsoleSSHConfig{
+				Target: proxmoxConsoleSSHTarget{Hostname: "pve.example"},
+				SSH:    proxmoxConsoleSSHAuth{Username: "root", Password: "secret"},
+			},
+			want: errUnsupportedProxmoxSSHHostKeyPolicy,
+		},
+		{
+			name: "skip verify host key policy",
+			cfg: proxmoxConsoleSSHConfig{
+				Target:           proxmoxConsoleSSHTarget{Hostname: "pve.example"},
+				SSH:              proxmoxConsoleSSHAuth{Username: "root", Password: "secret"},
+				SSHHostKeyPolicy: "skip_verify",
+			},
+			want: errUnsupportedProxmoxSSHHostKeyPolicy,
+		},
 	}
 
 	for _, tt := range tests {
@@ -217,9 +236,10 @@ func TestRunProxmoxConsoleSSHDialFailureDoesNotLeakErrorToTerminal(t *testing.T)
 	}
 
 	err := runProxmoxConsoleSSH(ctx, proxmoxConsoleSSHConfig{
-		Console: proxmoxConsoleSessionSpec{Cols: 120, Rows: 40},
-		Target:  proxmoxConsoleSSHTarget{Hostname: "pve.example"},
-		SSH:     proxmoxConsoleSSHAuth{Username: "root", Password: "secret"},
+		Console:          proxmoxConsoleSessionSpec{Cols: 120, Rows: 40},
+		Target:           proxmoxConsoleSSHTarget{Hostname: "pve.example"},
+		SSH:              proxmoxConsoleSSHAuth{Username: "root", Password: "secret"},
+		SSHHostKeyPolicy: proxmoxSSHHostKeyPolicyKnownHosts,
 	}, bridge, func(context.Context, proxmoxConsoleSSHConfig) (proxmoxConsoleSSHSession, error) {
 		return nil, errTestProxmoxConsoleSSHDialAuthFailed
 	})
@@ -293,6 +313,71 @@ func TestProxmoxConsoleSSHHostKeyPolicyTrustOnFirstUsePinsUnknownHost(t *testing
 	}
 	if !strings.Contains(string(data), signer.PublicKey().Type()) {
 		t.Fatalf("known_hosts did not contain pinned key: %q", string(data))
+	}
+}
+
+func TestProxmoxConsoleSSHHostKeyCallbackRejectsSkipVerifyAtLeaf(t *testing.T) {
+	t.Parallel()
+
+	for _, policy := range []string{"", "skip_verify", "accept_any"} {
+		if callback, err := proxmoxConsoleSSHHostKeyCallback(policy, ""); !errors.Is(err, errUnsupportedProxmoxSSHHostKeyPolicy) || callback != nil {
+			t.Fatalf("policy %q callback=%v err=%v, want leaf denial", policy, callback, err)
+		}
+	}
+}
+
+func TestDialProxmoxConsoleSSHRevocationCancelsStalledHandshake(t *testing.T) {
+	t.Parallel()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr == nil {
+			accepted <- conn
+		}
+	}()
+
+	address := listener.Addr().(*net.TCPAddr)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		_, dialErr := dialProxmoxConsoleSSH(ctx, proxmoxConsoleSSHConfig{
+			Target: proxmoxConsoleSSHTarget{
+				IP:      address.IP.String(),
+				SSHPort: address.Port,
+			},
+			SSH:              proxmoxConsoleSSHAuth{Username: "root", Password: "secret"},
+			SSHHostKeyPolicy: proxmoxSSHHostKeyPolicyTrustFirstUse,
+			KnownHostsPath:   filepath.Join(t.TempDir(), "known_hosts"),
+			TimeoutMS:        30_000,
+		})
+		done <- dialErr
+	}()
+
+	var serverConn net.Conn
+	select {
+	case serverConn = <-accepted:
+		defer serverConn.Close()
+	case <-time.After(time.Second):
+		t.Fatal("SSH test peer did not accept the connection")
+	}
+
+	// The peer intentionally sends no SSH banner. Revoking the execution must
+	// close the raw socket instead of waiting for the 30-second dial timeout.
+	cancel()
+	select {
+	case dialErr := <-done:
+		if !errors.Is(dialErr, context.Canceled) {
+			t.Fatalf("dial error = %v, want context cancellation", dialErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("revoked SSH execution remained blocked in the handshake")
 	}
 }
 

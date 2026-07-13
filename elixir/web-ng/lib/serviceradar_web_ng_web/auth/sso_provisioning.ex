@@ -6,12 +6,23 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioning do
   alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadar.Identity.RoleMapping
   alias ServiceRadar.Identity.User
+  alias ServiceRadar.Identity.Users
   alias ServiceRadarWebNG.Auth.Hooks
 
   require Ash.Query
   require Logger
 
   @type provider :: :oidc | :saml
+
+  @spec record_successful_authentication(User.t(), provider(), term()) ::
+          {:ok, User.t()} | {:error, term()}
+  def record_successful_authentication(user, provider, actor) when provider in [:oidc, :saml] do
+    with {:ok, user} <- User.record_authentication(user, actor: actor) do
+      Users.record_login(user, provider, actor: actor)
+    end
+  end
+
+  def record_successful_authentication(_user, _provider, _actor), do: {:error, :unsupported_sso_provider}
 
   @spec find_or_create_user(map(), map(), provider(), term()) ::
           {:ok, User.t()} | {:error, term()}

@@ -1262,11 +1262,9 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
         string_value(session_metadata, "credential_custody_mode") ||
         @default_credential_mode
 
-    metadata = session_metadata |> map_value("metadata") |> normalize_metadata()
-
     reject_blank_map(%{
       mode: desktop_credential_mode(custody),
-      allowed_principals: list_value(metadata, "allowed_principals"),
+      allowed_principals: list_value(session_metadata, "desktop_allowed_principals"),
       credential_secret_ref: desktop_credential_secret_ref(session, session_metadata, custody)
     })
   end
@@ -1344,6 +1342,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     |> Map.drop([
       "credential_grant",
       "credential_secret_ref",
+      "desktop_allowed_principals",
       "nla",
       "redirection_policy",
       "screen_policy",

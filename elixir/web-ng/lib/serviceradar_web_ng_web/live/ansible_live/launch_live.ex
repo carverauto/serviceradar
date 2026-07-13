@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
     resource_module: ServiceRadar.Automation.Ansible.PlaybookRun
 
   alias ServiceRadar.Automation.Ansible.Playbook
+  alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Automation.Ansible.SecureLaunchService
   alias ServiceRadar.Automation.Ansible.VariableSchema.Var
   alias ServiceRadar.Inventory.Device
@@ -123,7 +124,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
         {:noreply, navigate_to_operation(socket, result)}
 
       {:error, reason} ->
-        Logger.info("Secure Ansible launch failed", reason: inspect(reason))
+        Logger.info("Secure Ansible launch failed", SafeFailureEvidence.log_metadata(reason))
 
         {:noreply,
          socket
@@ -275,7 +276,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
             </div>
 
             <div
-              :if={@selected_playbook_id and @launch_ready and @vars == []}
+              :if={not is_nil(@selected_playbook_id) and @launch_ready and @vars == []}
               class="alert alert-info"
             >
               <.icon name="hero-information-circle" class="size-5" />

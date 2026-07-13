@@ -42,6 +42,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   end
 
   @system_actor SystemActor.system(:remote_access_sessions_test)
+  @principal "srp_v1_6d8b1e49fbe24ad487ce2c5c"
+  @target_principal "srp_v1_91c5f16df8aa4d90a6db2ed7"
 
   setup do
     previous_policy =
@@ -185,6 +187,102 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     refute inspect(audits) =~ ticket
   end
 
+  test "attach tickets are owner-bound and an ownership denial does not consume the ticket" do
+    uid = unique_uid("ticket-owner")
+    insert_device!(uid, agent_id: "agent-ticket-owner", gateway_id: "gateway-ticket-owner")
+    owner_id = insert_user!("ticket-owner")
+
+    assert {:ok, %{session: session, ticket: ticket}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{protocol: "ssh", credential_custody_mode: "user_present"},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+    bind_session_owner!(session.id, owner_id)
+
+    assert {:error, :invalid_or_expired_ticket} =
+             RemoteAccessSessions.attach_with_ticket(ticket,
+               session_id: session.id,
+               scope: %{user: %{id: Ecto.UUID.generate()}},
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, %{action: :remote_access_session_attach_denied}}
+
+    assert {:ok, %RemoteAccessSession{status: :attached}} =
+             RemoteAccessSessions.attach_with_ticket(ticket,
+               session_id: session.id,
+               scope: %{user: %{id: owner_id}},
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, %{action: :remote_access_session_attach}}
+  end
+
+  test "browser lifecycle transitions and durable activity are owner-bound" do
+    uid = unique_uid("lifecycle-owner")
+    insert_device!(uid, agent_id: "agent-life-owner", gateway_id: "gateway-life-owner")
+    owner_id = insert_user!("lifecycle-owner")
+    owner_scope = %{user: %{id: owner_id}}
+    other_scope = %{user: %{id: Ecto.UUID.generate()}}
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{credential_custody_mode: :user_present},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+    bind_session_owner!(session.id, owner_id)
+
+    assert {:error, :not_found} =
+             RemoteAccessSessions.request_close(session.id,
+               scope: other_scope,
+               reason: "cross_user",
+               audit_writer: AuditSink
+             )
+
+    assert {:ok, %RemoteAccessSession{status: :requested}} =
+             RemoteAccessSession.get_by_id(session.id, actor: @system_actor)
+
+    assert {:ok, %RemoteAccessSession{status: :opening}} =
+             RemoteAccessSessions.mark_opening(session.id, audit_writer: AuditSink)
+
+    assert_receive {:remote_access_audit, %{action: :remote_access_session_opening}}
+
+    assert {:ok, %RemoteAccessSession{status: :active}} =
+             RemoteAccessSessions.activate_session(session.id, audit_writer: AuditSink)
+
+    assert_receive {:remote_access_audit, %{action: :remote_access_session_active}}
+
+    old_activity = DateTime.utc_now() |> DateTime.add(-300, :second) |> DateTime.truncate(:second)
+
+    Repo.query!(
+      "UPDATE platform.remote_access_sessions SET last_activity_at = $2 WHERE id = $1::uuid",
+      [session.id, old_activity]
+    )
+
+    versions_before = version_count("remote_access_session_versions", session.id)
+
+    assert {:error, :not_found} =
+             RemoteAccessSessions.record_activity(session.id, scope: other_scope)
+
+    assert {:ok, %RemoteAccessSession{last_activity_at: ^old_activity}} =
+             RemoteAccessSession.get_by_id(session.id, actor: @system_actor)
+
+    assert {:ok, %RemoteAccessSession{last_activity_at: refreshed_activity}} =
+             RemoteAccessSessions.record_activity(session.id, scope: owner_scope)
+
+    assert DateTime.after?(refreshed_activity, old_activity)
+    assert version_count("remote_access_session_versions", session.id) == versions_before
+    refute_receive {:remote_access_audit, %{action: :remote_access_session_activity}}, 50
+  end
+
   test "generic SSH rejects agent-local reusable credential custody" do
     uid = unique_uid("agent-local")
     insert_device!(uid, agent_id: "agent-local", gateway_id: "gateway-local")
@@ -222,14 +320,23 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     end
   end
 
-  test "SSH certificate sessions require trusted principal policy" do
+  test "SSH certificate sessions require trusted account policy" do
     uid = unique_uid("ssh-cert-policy-required")
     insert_device!(uid, agent_id: "agent-policy-required", gateway_id: "gateway-policy-required")
 
     assert {:error, :ssh_principal_policy_required} =
              RemoteAccessSessions.request_open(
                uid,
-               %{protocol: :ssh, credential_custody_mode: :ssh_certificate},
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :ssh_certificate,
+                 metadata: %{
+                   "accounts" => [%{"name" => "root", "principals" => [@principal]}],
+                   "ssh_accounts" => [
+                     %{"name" => "mfreeman", "principals" => [@principal]}
+                   ]
+                 }
+               },
                actor: @system_actor,
                audit_writer: AuditSink
              )
@@ -240,18 +347,24 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert denial_audit[:details][:failure_reason] == "ssh_principal_policy_required"
   end
 
-  test "SSH certificate sessions copy trusted principal policy from deployment config" do
+  test "SSH certificate sessions materialize only trusted account policy from deployment config" do
     uid = unique_uid("ssh-cert-policy")
 
     Application.put_env(:serviceradar_core, :remote_access_ssh_certificate_policy, %{
-      "allowed_principals" => ["ubuntu"],
+      "accounts" => [%{"name" => "mfreeman", "principals" => [@principal]}],
       "principal_mappings" => [
-        %{"source" => "groups", "value" => "linux-admins", "principals" => ["ubuntu"]}
+        %{
+          "source" => "groups",
+          "value" => "linux-admins",
+          "principals" => [@target_principal]
+        }
       ],
       "ttl_seconds" => 900,
       "targets" => %{
         uid => %{
-          "allowed_principals" => ["root"],
+          "accounts" => [
+            %{"name" => "mfreeman", "principals" => [@target_principal]}
+          ],
           "ttl_seconds" => 600
         }
       }
@@ -267,6 +380,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                  credential_custody_mode: :ssh_certificate,
                  metadata: %{
                    "safe" => "kept",
+                   "accounts" => [%{"name" => "root", "principals" => [@principal]}],
+                   "ssh_accounts" => [%{"name" => "root", "principals" => [@principal]}],
                    "ssh_allowed_principals" => ["client-controlled"],
                    "ssh_certificate_ttl_seconds" => 28_800
                  }
@@ -276,12 +391,46 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
              )
 
     assert session.metadata["safe"] == "kept"
-    assert session.metadata["ssh_allowed_principals"] == ["root"]
+    refute Map.has_key?(session.metadata, "accounts")
+    refute Map.has_key?(session.metadata, "ssh_allowed_principals")
+
+    assert session.metadata["ssh_accounts"] == [
+             %{"name" => "mfreeman", "principals" => [@target_principal]}
+           ]
+
     assert session.metadata["ssh_certificate_ttl_seconds"] == 600
 
     assert session.metadata["ssh_principal_mappings"] == [
-             %{"source" => "groups", "value" => "linux-admins", "principals" => ["ubuntu"]}
+             %{
+               "source" => "groups",
+               "value" => "linux-admins",
+               "principals" => [@target_principal]
+             }
            ]
+  end
+
+  test "SSH certificate sessions preserve malformed mappings for fail-closed issuance" do
+    uid = unique_uid("ssh-cert-malformed-mapping")
+
+    Application.put_env(:serviceradar_core, :remote_access_ssh_certificate_policy, %{
+      "accounts" => [%{"name" => "mfreeman", "principals" => [@principal]}],
+      "principal_mappings" => ["malformed-mapping"]
+    })
+
+    insert_device!(uid,
+      agent_id: "agent-policy-malformed",
+      gateway_id: "gateway-policy-malformed"
+    )
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{protocol: :ssh, credential_custody_mode: :ssh_certificate},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert session.metadata["ssh_principal_mappings"] == ["malformed-mapping"]
   end
 
   test "centrally brokered SSH custody requires an approval id" do
@@ -1664,6 +1813,13 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     ])
 
     id
+  end
+
+  defp bind_session_owner!(session_id, owner_id) do
+    Repo.query!(
+      "UPDATE platform.remote_access_sessions SET requested_by = $2::uuid WHERE id = $1::uuid",
+      [session_id, owner_id]
+    )
   end
 
   defp create_credential_rule!(suffix, attrs) do

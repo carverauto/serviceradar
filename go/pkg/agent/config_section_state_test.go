@@ -56,6 +56,65 @@ func testICMPCheck() *proto.AgentCheckConfig {
 	}
 }
 
+func TestApplyConfigResponseMissingPluginSectionRevokesPriorAssignmentsBeforeAck(t *testing.T) {
+	tests := []struct {
+		name       string
+		configJSON []byte
+	}{
+		{name: "plugin section omitted", configJSON: []byte(`{}`)},
+		{name: "legacy JSON malformed", configJSON: []byte(`{"plugins":`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := newTestPluginManager(t)
+			assignment := newTestProxmoxHostAuthorityAssignment(t, testConsoleAuthorityOptions())
+
+			manager.mu.Lock()
+			manager.streams[assignment.AssignmentID] = assignment
+			manager.mu.Unlock()
+
+			runCtx, executionID, err := manager.registerStreamingExecution(t.Context(), assignment)
+			if err != nil {
+				t.Fatalf("register streaming execution: %v", err)
+			}
+			defer manager.unregisterStreamingExecution(executionID)
+
+			loop := NewPushLoop(&Server{
+				config:        &ServerConfig{AgentID: "agent-plugin-downgrade"},
+				pluginManager: manager,
+			}, nil, 30*time.Second, logger.NewTestLogger())
+			loop.setConfigVersion("cfg-with-plugin")
+
+			if !loop.applyConfigResponse(t.Context(), &proto.AgentConfigResponse{
+				ConfigVersion: "cfg-without-plugin",
+				ConfigJson:    tt.configJSON,
+			}, "control") {
+				t.Fatal("full config response was not committed")
+			}
+
+			select {
+			case <-runCtx.Done():
+			case <-time.After(time.Second):
+				t.Fatal("removed plugin assignment did not cancel its active streaming execution")
+			}
+
+			manager.mu.RLock()
+			remainingStreams := len(manager.streams)
+			manager.mu.RUnlock()
+			if remainingStreams != 0 {
+				t.Fatalf("remaining plugin streams = %d, want 0", remainingStreams)
+			}
+			if got := loop.getConfigVersion(); got != "cfg-without-plugin" {
+				t.Fatalf("committed config version = %q, want cfg-without-plugin", got)
+			}
+			if proofs := loop.buildConfigAck("cfg-without-plugin").GetAppliedPluginAssignments(); len(proofs) != 0 {
+				t.Fatalf("config ack retained revoked assignment proofs: %#v", proofs)
+			}
+		})
+	}
+}
+
 // Incident shape 1 (Bumblebee wedge, weeks of `Deferring config version update because
 // Bumblebee config did not apply`): a TRANSIENT Bumblebee failure must defer the version
 // commit so delivery retries — but the remaining sections in the same cycle must still

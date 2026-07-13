@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
 
   alias Ash.Error.Query.NotFound
   alias ServiceRadar.Edge.RemoteAccessSession
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.RemoteAccessDesktopTargets
@@ -27,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   @min_terminal_rows 1
   @max_terminal_rows 200
   @client_controlled_metadata_denylist ~w(
+    accounts
     allowed_methods
     allowed_path_prefixes
     allowed_principals
@@ -38,6 +40,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     credential_custody_mode
     credential_mode
     credentials
+    desktop_allowed_principals
     host_header
     http_headers
     max_request_bytes
@@ -46,17 +49,20 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     password
     path_prefixes
     principal_mappings
+    principals
     private_key
     rdp.kdc_proxy_url
     rdp.kerberos_hostname
     quota
     recording
     request_headers
+    requested_principals
     route
     route_id
     secret
     secret_payload
     ssh
+    ssh_accounts
     ssh_allowed_principals
     ssh_certificate
     ssh_certificate_ttl_seconds
@@ -283,6 +289,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
          {:ok, normalized_id} <- normalize_uuid(id, "id"),
          {:ok, %RemoteAccessSession{} = session} <-
            remote_access_session_fetcher().(normalized_id, scope: get_scope(conn)),
+         :ok <- require_session_owner(get_scope(conn), session),
          :ok <- require_session_permission(conn, session) do
       json(conn, %{data: session_json(session)})
     else
@@ -301,6 +308,11 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
         |> put_status(:not_found)
         |> json(%{error: "remote_access_session_not_found", message: "remote access session was not found"})
 
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "remote_access_session_not_found", message: "remote access session was not found"})
+
       {:error, :forbidden} ->
         conn
         |> put_status(:forbidden)
@@ -314,13 +326,20 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   def close(conn, %{"id" => id} = params) do
     with :ok <- require_authenticated(conn),
          {:ok, normalized_id} <- normalize_uuid(id, "id"),
-         {:ok, %RemoteAccessSession{} = session} <-
+         {:ok, %RemoteAccessSession{} = authorized_session} <-
            remote_access_session_fetcher().(normalized_id, scope: get_scope(conn)),
-         :ok <- require_session_permission(conn, session),
+         :ok <- require_session_owner(get_scope(conn), authorized_session),
+         :ok <- require_session_permission(conn, authorized_session),
          {:ok, %RemoteAccessSession{} = session} <-
            remote_access_session_manager().request_close(normalized_id,
              reason: normalize_optional_string(Map.get(params, "reason")),
              scope: get_scope(conn)
+           ),
+         :ok <-
+           close_desktop_viewers(
+             authorized_session,
+             get_scope(conn),
+             normalize_optional_string(Map.get(params, "reason")) || "operator_requested"
            ) do
       json(conn, %{data: session_json(session)})
     else
@@ -405,7 +424,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   defp normalize_rdp_create_request(params, scope) when is_map(params) do
     metadata = normalize_metadata(Map.get(params, "metadata"))
 
-    with {:ok, desktop_target_id} <-
+    with {:ok, launch_device_uid} <-
+           normalize_required_string(Map.get(params, "device_uid"), "device_uid"),
+         {:ok, desktop_target_id} <-
            normalize_required_string(
              Map.get(params, "desktop_target_id") || Map.get(params, "target_id"),
              "desktop_target_id"
@@ -413,8 +434,10 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
          :ok <- validate_optional_string_value(Map.get(params, "protocol"), "rdp", "protocol"),
          :ok <- validate_optional_string_value(Map.get(params, "adapter"), "rdp", "adapter"),
          :ok <- validate_rdp_browser_policy_selection(params),
+         :ok <- require_visible_device(scope, launch_device_uid),
          {:ok, target} <- RemoteAccessDesktopTargets.get_authorized(scope, desktop_target_id),
          {:ok, device_uid} <- target_required_string(target, "device_uid"),
+         :ok <- require_exact_rdp_device(launch_device_uid, device_uid),
          {:ok, target_host} <- target_required_string(target, "target_host"),
          {:ok, target_port} <- target_required_integer(target, "target_port"),
          {:ok, approval_id} <- normalize_optional_uuid(Map.get(params, "approval_id"), "approval_id") do
@@ -482,12 +505,28 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     target_metadata
     |> Map.merge(drop_client_controlled_metadata(browser_metadata))
     |> Map.put("desktop_target_id", desktop_target_id)
+    |> Map.put("desktop_allowed_principals", Map.get(target, "allowed_principals", []))
     |> put_optional("target_display_name", Map.get(target, "label"))
     |> put_optional("target_tls", Map.get(desktop_policy, "target_tls"))
     |> put_optional("nla", Map.get(desktop_policy, "nla"))
     |> put_optional("screen_policy", Map.get(desktop_policy, "screen_policy"))
     |> put_optional("redirection_policy", Map.get(desktop_policy, "redirection_policy"))
     |> put_optional("approval_policy", Map.get(desktop_policy, "approval_policy"))
+  end
+
+  defp require_exact_rdp_device(device_uid, device_uid), do: :ok
+
+  defp require_exact_rdp_device(_requested_device_uid, _target_device_uid),
+    do: {:error, :remote_access_desktop_target_not_found}
+
+  defp require_visible_device(scope, device_uid) do
+    case remote_access_device_visibility_fetcher().(device_uid, scope: scope) do
+      {:ok, %Device{uid: ^device_uid}} -> :ok
+      {:ok, nil} -> {:error, :remote_access_desktop_target_not_found}
+      {:error, %NotFound{}} -> {:error, :remote_access_desktop_target_not_found}
+      {:error, _error} -> {:error, :remote_access_desktop_target_not_found}
+      _unexpected -> {:error, :remote_access_desktop_target_not_found}
+    end
   end
 
   defp validate_public_ssh_request(params) do
@@ -987,7 +1026,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   defp format_reason(:unsupported_credential_custody_mode), do: "requested credential custody mode is not supported"
 
   defp format_reason(:ssh_principal_policy_required),
-    do: "SSH certificate access requires trusted principal policy for the target"
+    do: "SSH certificate access requires trusted account and principal policy for the target"
 
   defp format_reason(:credential_rule_required), do: "centrally brokered remote access requires a trusted credential rule"
 
@@ -1017,6 +1056,14 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
       :serviceradar_web_ng,
       :remote_access_session_fetcher,
       fn session_id, opts -> RemoteAccessSession.get_by_id(session_id, opts) end
+    )
+  end
+
+  defp remote_access_device_visibility_fetcher do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :remote_access_device_visibility_fetcher,
+      fn device_uid, opts -> Device.get_by_uid(device_uid, false, opts) end
     )
   end
 
@@ -1053,6 +1100,35 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   defp require_session_permission(conn, %RemoteAccessSession{} = session) do
     require_permission(conn, permission_for_session(session))
   end
+
+  defp close_desktop_viewers(%RemoteAccessSession{} = session, scope, reason) do
+    if format_value(session.protocol) == "rdp" do
+      _ = RemoteDesktopWebRTC.close_all_for_session(session.id, scope: scope, reason: reason)
+    end
+
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
+  defp require_session_owner(scope, %RemoteAccessSession{requested_by: requested_by}) do
+    with actor_id when is_binary(actor_id) <- scope_actor_id(scope),
+         owner_id when is_binary(owner_id) <- normalize_id(requested_by),
+         true <- actor_id == owner_id do
+      :ok
+    else
+      _mismatch -> {:error, :not_found}
+    end
+  end
+
+  defp scope_actor_id(%{user: %{id: id}}), do: normalize_id(id)
+  defp scope_actor_id(_scope), do: nil
+
+  defp normalize_id(id) when is_binary(id), do: id
+  defp normalize_id(id) when not is_nil(id), do: to_string(id)
+  defp normalize_id(_id), do: nil
 
   defp permission_for_session(%RemoteAccessSession{} = session) do
     case format_value(session.protocol) do

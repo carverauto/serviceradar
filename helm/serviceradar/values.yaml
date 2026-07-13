@@ -1000,6 +1000,12 @@ agent:
   statusDebounceInterval: "30s"
   statusHeartbeatInterval: "5m"
   remoteAccessKnownHostsFile: "/var/lib/serviceradar/checkers/remote-access-known_hosts"
+  # Public CA bundles trusted by the host-owned Wasm HTTP transport in addition
+  # to the operating-system roots. Wasm modules cannot read or replace them.
+  # Use absolute paths mounted into the agent; invalid bundles fail plugin HTTP
+  # closed. The platform runtime CA permits verified internal integrations.
+  pluginHTTPTrustedCAFiles:
+    - /etc/serviceradar/certs/root.pem
   checkersStorage:
     enabled: true
     basePath: "/var/lib/serviceradar/checkers"
@@ -1936,8 +1942,41 @@ automationCallbacks:
 # remote-access sessions; enable core only in deployments that route issuance
 # through core-elx instead.
 remoteAccess:
+  desktop:
+    rdp:
+      enabled: false
+      webRTC:
+        # Public ICE endpoint metadata only. Each entry may contain only urls;
+        # inline usernames, credentials, and shared secrets are rejected.
+        iceServers: []
+        # Optional additive egress policy for the core-elx pods that originate
+        # WebRTC ICE traffic. This requires the chart-wide NetworkPolicy and
+        # accepts only explicit IPv4/IPv6 CIDRs plus numeric UDP/TCP ports.
+        # DNS names and catch-all destination CIDRs are rejected.
+        networkPolicy:
+          enabled: false
+          allowedCIDRs: []
+          allowedUDPPorts: []
+          allowedTCPPorts: []
+        turn:
+          # Required only when iceServers contains turn:/turns: URLs. The chart
+          # mounts one operator-created Secret key into web-ng and never accepts
+          # the TURN REST shared secret in values or a plain environment value.
+          existingSecretName: ""
+          secretKey: "shared-secret"
+          credentialTtlSeconds: 600
   ssh:
     enabled: false
+  # Target-scoped account-to-principal authorization policy. This is internal
+  # authorization data, so the chart accepts only an operator-created Secret
+  # reference and never renders policy content from values.
+  sshCertificatePolicy:
+    enabled: false
+    existingSecretName: ""
+    secretKey: "certificate-policy.json"
+    workloads:
+      web: true
+      core: false
   sshCaSigner:
     enabled: false
     command: "/usr/local/bin/serviceradar-sshca-signer"

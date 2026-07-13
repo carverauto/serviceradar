@@ -79,6 +79,37 @@ defmodule ServiceRadar.Automation.CallbackGrants.AwxCleanupTest do
     refute_received {:cancel, _, _, _}
   end
 
+  test "post-activation deletion retries only an explicitly stale deleting intent" do
+    deleting =
+      grant(%{
+        credential_cleanup_state: :deleting,
+        credential_cleanup_attempted_at: ~U[2026-07-13 12:00:00Z]
+      })
+
+    assert {:ok,
+            %{
+              cleanup_status: :queued,
+              credential_cleanup: :delete_requested
+            }} = AwxCleanup.delete_activated(deleting, dispatch_context(self()))
+
+    refute_received {:delete, _, _, _, _}
+
+    retry_context =
+      self()
+      |> dispatch_context()
+      |> Keyword.put(:retry_deleting?, true)
+
+    assert {:ok,
+            %{
+              cleanup_status: :queued,
+              credential_cleanup: :delete_requested
+            }} = AwxCleanup.delete_activated(deleting, retry_context)
+
+    assert_receive {:delete, _controller, 401, _binding, opts}
+    assert opts[:context]["cleanup_mode"] == "post_activation"
+    refute_received {:cancel, _, _, _}
+  end
+
   test "terminal cleanup dispatches a second idempotent delete after early deletion" do
     terminal =
       grant(%{

@@ -44,6 +44,21 @@ func (p *PushLoop) applyPluginConfig(config *proto.PluginConfig) {
 	pluginManager.ApplyConfig(config)
 }
 
+func (p *PushLoop) appliedPluginAssignmentPolicyAcks() []*proto.PluginAssignmentPolicyAck {
+	if p == nil || p.server == nil {
+		return nil
+	}
+
+	p.server.mu.RLock()
+	pluginManager := p.server.pluginManager
+	p.server.mu.RUnlock()
+	if pluginManager == nil {
+		return nil
+	}
+
+	return pluginManager.ProxmoxAssignmentPolicyAcks()
+}
+
 type pluginConfigEnvelope struct {
 	Plugins      *pluginConfigPayload `json:"plugins"`
 	PluginConfig *pluginConfigPayload `json:"plugin_config"`

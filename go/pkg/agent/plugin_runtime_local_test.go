@@ -158,6 +158,40 @@ func TestPluginHTTPClientReusesInsecureTransport(t *testing.T) {
 	}
 }
 
+func TestPluginHTTPClientPreservesExplicitCustomTransportForInsecureRequest(t *testing.T) {
+	t.Parallel()
+
+	transport := &countingPluginHTTPTransport{}
+	base := &http.Client{Transport: transport, Timeout: 20 * time.Millisecond}
+	client := pluginHTTPClient(base, true, 500*time.Millisecond)
+
+	if client.Transport != transport {
+		t.Fatalf("transport = %T, want original explicit transport", client.Transport)
+	}
+
+	req, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		"https://custom-transport.example.test/",
+		http.NoBody,
+	)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("custom transport request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if transport.calls != 1 {
+		t.Fatalf("custom transport calls = %d, want 1", transport.calls)
+	}
+	if base.Timeout != 20*time.Millisecond || client.Timeout != 500*time.Millisecond {
+		t.Fatalf("unexpected timeouts: base=%s clone=%s", base.Timeout, client.Timeout)
+	}
+}
+
 func TestExecuteWithWasmHonorsContextCancellation(t *testing.T) {
 	t.Parallel()
 

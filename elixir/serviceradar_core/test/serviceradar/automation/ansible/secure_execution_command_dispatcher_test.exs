@@ -20,6 +20,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
     assert {:ok, :dispatched} =
              Dispatcher.dispatch(attempt,
                resource_loader: fn _ -> {:ok, resources} end,
+               current_authorizer: &authorize_current/3,
                claim: fn claimed, _token, _expires, _now ->
                  send(test_pid, :claimed)
                  {:ok, %{claimed | state: :dispatching}}
@@ -77,6 +78,79 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
              Dispatcher.dispatch(attempt, resource_loader: fn _ -> {:ok, resources} end)
   end
 
+  test "current authority contraction terminalizes before claim or AWX dispatch" do
+    {attempt, resources} = launch_attempt(:dispatching, :dispatching)
+    test_pid = self()
+
+    assert {:error, :current_permission_denied} =
+             Dispatcher.dispatch(attempt,
+               now: ~U[2026-07-13 13:00:00.000000Z],
+               resource_loader: fn ^attempt -> {:ok, resources} end,
+               current_authorizer: fn current_resources, _now, _context ->
+                 assert current_resources.operation.id == attempt.operation_id
+                 {:error, :current_permission_denied}
+               end,
+               authority_denial_handler: fn denied_attempt, denied_resources, reason, now ->
+                 send(
+                   test_pid,
+                   {:authority_denied, denied_attempt.id, denied_resources.execution.id, reason,
+                    now}
+                 )
+
+                 {:ok, :terminalized}
+               end,
+               claim: fn _, _, _, _ -> flunk("contracted launch must not acquire a lease") end,
+               awx_dispatcher: fn _, _, _, _, _ ->
+                 flunk("contracted launch must not reach AWX")
+               end
+             )
+
+    assert_receive {:authority_denied, attempt_id, @execution_id, :current_permission_denied,
+                    ~U[2026-07-13 13:00:00.000000Z]}
+
+    assert attempt_id == attempt.id
+  end
+
+  test "every known-child continuation reauthorizes before claim and routes contraction to cancel" do
+    phases = [
+      {:fetch_job, :accepted_job_proof, :dispatching, :dispatching},
+      {:fetch_job, :scope_poll, :dispatching, :launching},
+      {:fetch_host_summaries, :host_scope_proof, :dispatching, :launching},
+      {:fetch_job, :terminal_poll, :running, :running},
+      {:fetch_host_summaries, :terminal_confirmation, :running, :running}
+    ]
+
+    test_pid = self()
+
+    for {stage, purpose, operation_state, execution_state} <- phases do
+      {attempt, resources} =
+        continuation_attempt(stage, purpose, operation_state, execution_state)
+
+      assert {:error, :principal_disabled} =
+               Dispatcher.dispatch(attempt,
+                 resource_loader: fn ^attempt -> {:ok, resources} end,
+                 current_authorizer: fn current_attempt, current_resources, _now, _context ->
+                   assert current_attempt.stage == stage
+                   assert current_attempt.purpose == purpose
+                   assert current_resources.execution.id == @execution_id
+                   {:error, :principal_disabled}
+                 end,
+                 authority_denial_handler: fn denied, _resources, reason, _now ->
+                   send(test_pid, {:continuation_denied, denied.stage, denied.purpose, reason})
+                   {:ok, :cancellation_planned}
+                 end,
+                 claim: fn _, _, _, _ ->
+                   flunk("contracted continuation must not acquire a lease")
+                 end,
+                 awx_dispatcher: fn _, _, _, _, _ ->
+                   flunk("contracted continuation must not reach AWX")
+                 end
+               )
+
+      assert_receive {:continuation_denied, ^stage, ^purpose, :principal_disabled}
+    end
+  end
+
   test "immutable request digest drift fails before claim or external dispatch" do
     {attempt, resources} = launch_attempt(:dispatching, :dispatching)
     attempt = %{attempt | request_digest: String.duplicate("f", 64)}
@@ -104,6 +178,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
     assert {:ok, :dispatched} =
              Dispatcher.dispatch(attempt,
                resource_loader: fn _ -> {:ok, resources} end,
+               current_authorizer: &authorize_current/3,
                claim: &claim/4,
                awx_dispatcher: fn _, _, _, _, _ -> {:error, :transport_interrupted} end,
                command_fetcher: fn command_id ->
@@ -141,6 +216,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
       assert {:error, :secure_execution_persisted_command_correlation_mismatch} =
                Dispatcher.dispatch(attempt,
                  resource_loader: fn _ -> {:ok, resources} end,
+                 current_authorizer: &authorize_current/3,
                  claim: &claim/4,
                  awx_dispatcher: fn _, _, _, _, _ ->
                    {:error, {:transport_interrupted, "Bearer must-not-escape"}}
@@ -192,7 +268,65 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
         Map.merge(attrs, %{id: Ash.UUID.generate(), state: :planned, inserted_at: now})
       )
 
-    {attempt, %{operation: operation, execution: execution, controller: controller}}
+    {attempt, %{operation: operation, execution: execution, controller: controller, targets: []}}
+  end
+
+  defp continuation_attempt(stage, purpose, operation_state, execution_state) do
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    operation = operation(operation_state)
+    execution = execution(execution_state)
+
+    controller = %{
+      id: @controller_id,
+      name: "farm01-awx",
+      base_url: "https://awx.example.test:8443",
+      agent_id: "edge-agent-1",
+      credential_secret_id: Ash.UUID.generate(),
+      sync_credential_secret_id: Ash.UUID.generate(),
+      execution_credential_secret_id: @execution_secret,
+      callback_credential_secret_id: nil,
+      metadata: %{}
+    }
+
+    targets = [%{id: Ash.UUID.generate(), awx_host_id: 77}]
+
+    {:ok, request} =
+      case stage do
+        :fetch_job -> Contract.fetch_job_request(77)
+        :fetch_host_summaries -> Contract.host_summaries_request(77, length(targets))
+      end
+
+    terminal_job_snapshot =
+      if purpose == :terminal_confirmation,
+        do: %{"id" => 77, "status" => "successful"}
+
+    {:ok, attrs} =
+      Contract.build_attempt(
+        %{
+          operation_id: @operation_id,
+          execution_id: @execution_id,
+          controller_id: @controller_id,
+          dispatch_agent_id: "edge-agent-1"
+        },
+        execution,
+        request,
+        stage: stage,
+        purpose: purpose,
+        command_type:
+          if(stage == :fetch_job, do: "awx.fetch_job", else: "awx.fetch_job_host_summaries"),
+        expected_job_id: 77,
+        terminal_job_snapshot: terminal_job_snapshot,
+        deadline_at: DateTime.add(now, 60, :second)
+      )
+
+    attempt =
+      struct!(
+        Attempt,
+        Map.merge(attrs, %{id: Ash.UUID.generate(), state: :planned, inserted_at: now})
+      )
+
+    {attempt,
+     %{operation: operation, execution: execution, controller: controller, targets: targets}}
   end
 
   defp operation(state) do
@@ -226,6 +360,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
 
   defp claim(claimed, _token, _expires, _now), do: {:ok, %{claimed | state: :dispatching}}
 
+  defp authorize_current(_resources, _now, _context), do: :ok
+
   defp persisted_command(attempt, controller, request, context) do
     args =
       request.launch_opts
@@ -235,7 +371,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
     {:ok, scope} = AwxClient.broker_scope(controller.base_url, attempt.command_type, args)
 
     broker = %{
-      "schema" => "serviceradar.edge_credential_broker_grant.v1",
+      "schema" => "serviceradar.edge_credential_broker_grant.v2",
       "grant_id" => Ash.UUID.generate(),
       "grant_type" => "awx_oauth2_token",
       "credential_secret_ref" => SecretRefs.network_credential_ref(@execution_secret),
@@ -260,21 +396,24 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
       "expires_at" => DateTime.utc_now() |> DateTime.add(300) |> DateTime.to_iso8601()
     }
 
+    payload = %{
+      "schema" => "serviceradar.awx_command.v1",
+      "verb" => attempt.command_type,
+      "args" => args,
+      "base_url" => scope.base_url,
+      "controller_id" => @controller_id,
+      "controller_name" => controller.name,
+      "insecure_skip_verify" => false,
+      "credential_broker" => broker,
+      "authorized_request_body_b64" => scope.authorized_request_body_b64
+    }
+
     struct!(AgentCommand, %{
       id: attempt.command_id,
       command_type: attempt.command_type,
       agent_id: attempt.dispatch_agent_id,
       context: context,
-      payload: %{
-        "schema" => "serviceradar.awx_command.v1",
-        "verb" => attempt.command_type,
-        "args" => args,
-        "base_url" => scope.base_url,
-        "controller_id" => @controller_id,
-        "controller_name" => controller.name,
-        "insecure_skip_verify" => false,
-        "credential_broker" => broker
-      }
+      payload: payload
     })
   end
 

@@ -109,6 +109,25 @@ defmodule ServiceRadarAgentGateway.DesktopMediaForwarderTest do
     refute_received {:rpc_call, :serviceradar_core@test, _, _, _, _}
   end
 
+  test "explicitly closes the matching core desktop ingress" do
+    Process.put({CameraMediaConnectivityStub, :results}, [:pong])
+    Process.put({CameraMediaRpcStub, :results}, [:ok])
+
+    assert :ok =
+             DesktopMediaForwarder.close_session("desktop-forwarder-1",
+               core_node: :serviceradar_core@test,
+               connectivity_module: CameraMediaConnectivityStub,
+               ingress_module: DesktopMediaErtsIngressStub,
+               rpc_module: CameraMediaRpcStub,
+               timeout: 5_000
+             )
+
+    assert_received {:core_ping, :serviceradar_core@test}
+
+    assert_received {:rpc_call, :serviceradar_core@test, DesktopMediaErtsIngressStub, :close_session,
+                     ["desktop-forwarder-1"], 5_000}
+  end
+
   defp frame do
     %Desktopmedia.DesktopMediaFrameChunk{
       desktop_session_id: "desktop-forwarder-1",

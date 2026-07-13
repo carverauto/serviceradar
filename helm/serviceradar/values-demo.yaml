@@ -394,7 +394,6 @@ webNg:
   extraEnv:
     # City MMDB is large; we only enable it in demo where we can allocate more memory.
     GEOLITE_CITY_ENABLED: "true"
-    SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED: "true"
     # Trust first-party Wasm upload signatures published by the release pipeline.
     PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS: "serviceradar-first-party-v1=L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo="
   resources:
@@ -572,7 +571,6 @@ core:
     EVENT_WRITER_NATS_CREDS_FILE: "/etc/serviceradar/creds/platform.creds"
     EVENT_WRITER_NATS_URL: "tls://serviceradar-nats:4222"
     EVENT_WRITER_NATS_TLS: "true"
-    SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED: "true"
     # Keep last-known topology visible in demo when external mapper agents are
     # briefly offline or being re-enrolled.
     SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES: "10080"
@@ -582,6 +580,62 @@ core:
     SERVICERADAR_TOPOLOGY_ENDPOINT_IDENTITY_PROMOTION: "true"
     # City MMDB is large, but demo has headroom and it lets us enrich flows with city/region/lat/tz.
     GEOLITE_CITY_ENABLED: "true"
+
+# Enable only the reviewed, ephemeral AWX callback contract in demo. The
+# response policy itself is operator-owned and remains in a Kubernetes Secret;
+# these values contain only the exact non-secret AWX binding identifiers.
+automationCallbacks:
+  enabled: true
+  canonicalOrigin: "https://demo.serviceradar.cloud"
+  envelopeKeyId: "current"
+  awxCredentialTypeId: 68
+  awxOrganizationId: 3
+  awxInjectorDigest: "2ee3cea02c901d13ad0ecc5071ffc10ed7937f7c205a7c5f003cbf8fc0567738"
+  responsePolicy:
+    existingSecretName: serviceradar-automation-callback-policy
+    secretKey: response-policy.json
+
+# Exercise the registered SSH and Windows desktop paths in demo. SSH private
+# signing material and account/principal policy remain in operator-created
+# Secrets. Cloudflare's public STUN endpoint supplies server-reflexive
+# candidates without carrying any credential material. Add a TURN endpoint and
+# existing Secret below when a restrictive NAT/firewall requires relay service.
+remoteAccess:
+  ssh:
+    enabled: true
+  sshCertificatePolicy:
+    enabled: true
+    existingSecretName: serviceradar-ssh-certificate-policy
+    secretKey: certificate-policy.json
+    workloads:
+      web: true
+      core: false
+  sshCaSigner:
+    enabled: true
+    keyId: demo-remote-access-ca-2026q3
+    existingSecretName: serviceradar-ssh-ca
+    secretKey: ca-key
+    workloads:
+      web: true
+      core: false
+  desktop:
+    rdp:
+      enabled: true
+      webRTC:
+        iceServers:
+          - urls:
+              - "stun:stun.cloudflare.com:3478"
+        networkPolicy:
+          enabled: true
+          # Kubernetes NetworkPolicy cannot match the STUN FQDN. These are the
+          # exact A/AAAA answers observed for stun.cloudflare.com on 2026-07-13.
+          # Re-resolve and review this list if Cloudflare changes its anycast IPs.
+          allowedCIDRs:
+            - "162.159.207.0/32"
+            - "2606:4700:49::/128"
+          allowedUDPPorts:
+            - 3478
+          allowedTCPPorts: []
 
 datasvc:
   replicaCount: 3

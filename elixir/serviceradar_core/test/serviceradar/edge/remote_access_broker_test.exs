@@ -8,6 +8,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
   alias ServiceRadar.Edge.RemoteAccessSSHSessionCredentials
 
   @permission RemoteAccessSSHCertificatePolicy.permission()
+  @principal "srp_v1_6d8b1e49fbe24ad487ce2c5c"
 
   defmodule CommandBusStub do
     @moduledoc false
@@ -537,9 +538,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
       |> put_in([:metadata, "redirection_policy"], %{"clipboard" => "local_to_remote"})
       |> put_in([:metadata, "rdp.kdc_proxy_url"], "tcp://kdc.example.com:88")
       |> put_in([:metadata, "rdp.kerberos_hostname"], "win-01.example.com")
-      |> put_in([:metadata, "metadata"], %{
-        "allowed_principals" => ["alice@example.com"]
-      })
+      |> put_in([:metadata, "desktop_allowed_principals"], ["alice@example.com"])
 
     start_supervised!(
       {RemoteAccessBroker,
@@ -595,6 +594,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert target["metadata"]["rdp.kdc_proxy_url"] == "tcp://kdc.example.com:88"
     assert target["metadata"]["rdp.kerberos_hostname"] == "win-01.example.com"
     refute Map.has_key?(target["metadata"], "target_tls")
+    refute Map.has_key?(target["metadata"], "desktop_allowed_principals")
   end
 
   test "recording hook receives only policy-gated counters and lifecycle state" do
@@ -891,12 +891,13 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
                  session_id: "session-1",
                  agent_id: "agent-1",
                  gateway_id: "gateway-1",
+                 username: "mfreeman",
                  public_key: "ssh-ed25519 AAAATEST user@workstation",
                  private_key:
                    "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
                  passphrase: "session-passphrase",
                  target: %{device_uid: "device-1", host: "10.0.0.11", port: 2222},
-                 allowed_principals: ["ubuntu"]
+                 accounts: [%{name: "mfreeman", principals: [@principal]}]
                },
                signer: CertificateSignerStub,
                test_pid: self()
@@ -927,7 +928,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
              "credential_mode" => "ssh_certificate",
              "target" => %{"device_uid" => "device-1", "host" => "10.0.0.11", "port" => 2222},
              "ssh" => %{
-               "username" => "ubuntu",
+               "username" => "mfreeman",
                "private_key" =>
                  "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
                "passphrase" => "session-passphrase",

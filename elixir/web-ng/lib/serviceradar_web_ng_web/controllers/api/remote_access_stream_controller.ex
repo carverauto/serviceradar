@@ -18,11 +18,12 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamController do
   def connect(conn, %{"id" => session_id}) do
     scope = conn.assigns[:current_scope]
 
-    with :ok <- require_remote_access_ssh_enabled(),
-         :ok <- require_any_stream_permission(scope),
+    with :ok <- require_any_stream_permission(scope),
          {:ok, normalized_id} <- normalize_uuid(session_id, "id"),
          {:ok, %RemoteAccessSession{} = session} <-
            remote_access_session_fetcher().(normalized_id, scope: scope),
+         :ok <- require_session_owner(scope, session),
+         :ok <- require_protocol_enabled(session),
          :ok <- require_session_permission(scope, session) do
       adapter = websock_adapter()
 
@@ -40,6 +41,16 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamController do
         conn
         |> put_status(:not_found)
         |> json(%{error: "not_found", message: "SSH remote access is not enabled"})
+
+      {:error, :remote_access_desktop_rdp_disabled} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "not_found", message: "RDP remote access is not enabled"})
+
+      {:error, :unsupported_remote_access_protocol} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "remote_access_session_not_found", message: "remote access session was not found"})
 
       {:error, :forbidden} ->
         conn
@@ -68,11 +79,20 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamController do
     end
   end
 
-  defp require_remote_access_ssh_enabled do
-    if FeatureFlags.remote_access_ssh_enabled?() do
-      :ok
-    else
-      {:error, :remote_access_ssh_disabled}
+  defp require_protocol_enabled(%RemoteAccessSession{} = session) do
+    case format_value(session.protocol) do
+      "rdp" ->
+        if FeatureFlags.remote_access_desktop_rdp_enabled?(),
+          do: :ok,
+          else: {:error, :remote_access_desktop_rdp_disabled}
+
+      "ssh" ->
+        if FeatureFlags.remote_access_ssh_enabled?(),
+          do: :ok,
+          else: {:error, :remote_access_ssh_disabled}
+
+      _protocol ->
+        {:error, :unsupported_remote_access_protocol}
     end
   end
 
@@ -85,13 +105,33 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamController do
   end
 
   defp require_session_permission(scope, %RemoteAccessSession{} = session) do
-    if RBAC.can?(scope, permission_for_session(session)), do: :ok, else: {:error, :forbidden}
+    with {:ok, permission} <- permission_for_session(session) do
+      if RBAC.can?(scope, permission), do: :ok, else: {:error, :forbidden}
+    end
   end
+
+  defp require_session_owner(scope, %RemoteAccessSession{requested_by: requested_by}) do
+    with actor_id when is_binary(actor_id) <- scope_actor_id(scope),
+         owner_id when is_binary(owner_id) <- normalize_id(requested_by),
+         true <- actor_id == owner_id do
+      :ok
+    else
+      _mismatch -> {:error, :not_found}
+    end
+  end
+
+  defp scope_actor_id(%{user: %{id: id}}), do: normalize_id(id)
+  defp scope_actor_id(_scope), do: nil
+
+  defp normalize_id(id) when is_binary(id), do: id
+  defp normalize_id(id) when not is_nil(id), do: to_string(id)
+  defp normalize_id(_id), do: nil
 
   defp permission_for_session(%RemoteAccessSession{} = session) do
     case format_value(session.protocol) do
-      "rdp" -> @remote_access_rdp_permission
-      _protocol -> @remote_access_permission
+      "rdp" -> {:ok, @remote_access_rdp_permission}
+      "ssh" -> {:ok, @remote_access_permission}
+      _protocol -> {:error, :unsupported_remote_access_protocol}
     end
   end
 

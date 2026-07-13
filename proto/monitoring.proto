@@ -441,6 +441,7 @@ message ControlStreamHello {
   map<string, string> labels = 9;   // Optional labels/tags for grouping
   string config_source = 10;        // Source of sysmon config: "remote", "local", "cached", "default"
   string host_ip = 11;              // Agent's own host IP (for device correlation behind NAT)
+  repeated PluginAssignmentPolicyAck applied_plugin_assignments = 12; // Host-parsed Proxmox assignment bindings in config_version
 }
 
 // CommandRequest represents a command sent to the agent.
@@ -495,6 +496,18 @@ message ConfigAck {
   string config_version = 1;   // Applied config version
   int64 timestamp = 2;         // Ack time (unix seconds)
   repeated ConfigSectionStatus section_statuses = 3; // Per-section apply status (optional; absent on legacy agents)
+  repeated PluginAssignmentPolicyAck applied_plugin_assignments = 4; // Host-parsed Proxmox assignment bindings in config_version
+}
+
+// PluginAssignmentPolicyAck proves that trusted agent host code parsed and
+// retained one exact Proxmox assignment-policy binding. It is emitted only
+// after config application; browser, plugin, and console payload fields never
+// participate in this acknowledgement.
+message PluginAssignmentPolicyAck {
+  string assignment_id = 1;
+  string plugin_id = 2;
+  uint64 assignment_policy_version = 3;
+  string assignment_policy_fingerprint = 4;
 }
 
 // ConsoleFrame carries interactive console bytes and control events over the
@@ -510,6 +523,8 @@ message ConsoleFrame {
   uint64 seq = 8;               // Per-session monotonic frame-auth sequence
   string payload_sha256 = 9;     // SHA-256 hex digest of data
   string signature = 10;         // HMAC over the frame binding fields
+  uint64 assignment_policy_version = 11; // Exact policy generation authorized for this open
+  string assignment_policy_fingerprint = 12; // Exact assignment/policy/rule binding digest
 }
 
 // ControlStreamRequest carries agent → gateway control messages.
@@ -596,6 +611,11 @@ message PluginAssignmentConfig {
   string source_commit = 20;
   string download_url = 21;
   string download_token = 22;
+  // Trusted-host-only material. This field must never be merged into
+  // params_json: older agents ignore unknown field 23, so a new control plane
+  // paired with an old agent fails closed instead of exposing secrets through
+  // the Wasm get_config surface.
+  bytes host_params_json = 23;
 }
 
 // BumblebeeConfig defines the optional developer endpoint exposure scanner profile.

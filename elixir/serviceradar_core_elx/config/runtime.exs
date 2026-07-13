@@ -374,6 +374,19 @@ config :serviceradar_core, :spiffe,
 config :serviceradar_core,
   mapper_topology_edge_stale_minutes: parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
 
+# Keep authenticated desktop viewers and ingress actors bounded. These are
+# deliberately runtime-tunable so operators can size the media plane without
+# weakening owner-bound authorization.
+config :serviceradar_core_elx,
+  remote_desktop_webrtc_max_viewers_per_session:
+    max(parse_int_env.("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_MAX_VIEWERS_PER_SESSION", 2), 1),
+  remote_desktop_webrtc_max_viewers_per_actor:
+    max(parse_int_env.("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_MAX_VIEWERS_PER_ACTOR", 4), 1),
+  remote_desktop_webrtc_max_viewers_global:
+    max(parse_int_env.("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_MAX_VIEWERS_GLOBAL", 64), 1),
+  remote_desktop_media_ingress_idle_timeout_ms:
+    max(parse_int_env.("SERVICERADAR_REMOTE_ACCESS_DESKTOP_INGRESS_IDLE_TIMEOUT_MS", 60_000), 1_000)
+
 if config_env() == :prod do
   cloak_key =
     case System.get_env("CLOAK_KEY") do

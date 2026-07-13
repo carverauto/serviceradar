@@ -114,6 +114,8 @@ defmodule ServiceRadar.Automation.Ansible.AutomationSecureExecutionCommandAttemp
     define :mark_succeeded, action: :mark_succeeded
     define :mark_failed, action: :mark_failed
     define :mark_ambiguous, action: :mark_ambiguous
+    define :deny_before_dispatch, action: :deny_before_dispatch
+    define :deny_incomplete, action: :deny_incomplete
     define :mark_deadline_elapsed, action: :mark_deadline_elapsed
   end
 
@@ -264,6 +266,26 @@ defmodule ServiceRadar.Automation.Ansible.AutomationSecureExecutionCommandAttemp
       accept [:processed_at, :outcome_code, :last_error_code, :result_digest]
       filter expr(state == :processing and lease_token == ^arg(:lease_token))
       change set_attribute(:state, :ambiguous)
+      change set_attribute(:next_attempt_at, nil)
+      change set_attribute(:lease_token, nil)
+      change set_attribute(:lease_expires_at, nil)
+    end
+
+    update :deny_before_dispatch do
+      require_atomic? true
+      accept [:processed_at, :outcome_code, :last_error_code]
+      filter expr(state in [:planned, :waiting, :dispatching])
+      change set_attribute(:state, :failed)
+      change set_attribute(:next_attempt_at, nil)
+      change set_attribute(:lease_token, nil)
+      change set_attribute(:lease_expires_at, nil)
+    end
+
+    update :deny_incomplete do
+      require_atomic? true
+      accept [:processed_at, :outcome_code, :last_error_code]
+      filter expr(state in [:planned, :waiting, :dispatching, :dispatched])
+      change set_attribute(:state, :failed)
       change set_attribute(:next_attempt_at, nil)
       change set_attribute(:lease_token, nil)
       change set_attribute(:lease_expires_at, nil)

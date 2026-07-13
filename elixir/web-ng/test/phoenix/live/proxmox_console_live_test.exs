@@ -34,7 +34,7 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLiveTest do
     %{conn: log_in_user(conn, user), user: user}
   end
 
-  test "passes selected Proxmox target and console mode into session request", %{conn: conn} do
+  test "ignores browser-supplied Proxmox target and console mode", %{conn: conn} do
     Application.put_env(
       :serviceradar_web_ng,
       :proxmox_console_session_manager_open_result,
@@ -51,8 +51,8 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLiveTest do
     assert_receive {:open_proxmox_console_session, "pve-guest-1", request, opts}
     assert request.cols == 120
     assert request.rows == 34
-    assert request.target_kind == "lxc_guest"
-    assert request.console_mode == "proxmox_termproxy"
+    refute Map.has_key?(request, :target_kind)
+    refute Map.has_key?(request, :console_mode)
     assert opts[:scope]
   end
 
@@ -63,6 +63,19 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLiveTest do
       conn
       |> log_in_user(viewer)
       |> live(~p"/devices/pve-1/proxmox-console?target_kind=pve_host&console_mode=ssh")
+
+    assert html =~ "You do not have permission to open remote consoles."
+    refute_receive {:open_proxmox_console_session, _device_uid, _request, _opts}
+  end
+
+  test "does not request a session with console-open but without credential-use permission", %{
+    conn: conn,
+    user: user
+  } do
+    Process.put({:rbac_permissions, user.id}, MapSet.new(["devices.console.open"]))
+
+    {:ok, _view, html} =
+      live(conn, ~p"/devices/pve-1/proxmox-console?target_kind=pve_host&console_mode=ssh")
 
     assert html =~ "You do not have permission to open remote consoles."
     refute_receive {:open_proxmox_console_session, _device_uid, _request, _opts}

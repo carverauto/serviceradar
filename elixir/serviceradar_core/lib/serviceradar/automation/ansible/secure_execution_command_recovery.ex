@@ -79,7 +79,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecovery do
     do: {:error, {:persisted_secure_execution_command_missing, attempt.state}}
 
   defp recover_with_command(attempt, command, now, opts) do
-    with :ok <- exact_command(attempt, command) do
+    with :ok <- exact_command(attempt, command),
+         :ok <- reauthorize_inflight_continuation(attempt, command, now, opts) do
       cond do
         command.status in @terminal_command_states ->
           coordinator(opts).process_persisted(
@@ -107,6 +108,33 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecovery do
         true ->
           {:error, :secure_execution_command_status_invalid}
       end
+    end
+  end
+
+  defp reauthorize_inflight_continuation(attempt, command, now, opts)
+       when command.status in @active_command_states do
+    if DateTime.before?(now, attempt.deadline_at) do
+      invoke_continuation_authorizer(attempt, opts)
+    else
+      :ok
+    end
+  end
+
+  defp reauthorize_inflight_continuation(_attempt, _command, _now, _opts), do: :ok
+
+  defp invoke_continuation_authorizer(attempt, opts) do
+    authorizer =
+      Keyword.get(
+        opts,
+        :continuation_authorizer,
+        &SecureExecutionCommandDispatcher.reauthorize_continuation/1
+      )
+
+    case authorizer.(attempt) do
+      :ok -> :ok
+      {:ok, _result} -> :ok
+      {:error, _reason} = error -> error
+      _ -> {:error, :secure_execution_continuation_reauthorization_unavailable}
     end
   end
 

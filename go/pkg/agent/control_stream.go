@@ -175,6 +175,7 @@ type awxCommandPayload struct {
 	Schema                       string                 `json:"schema,omitempty"`
 	Verb                         string                 `json:"verb"`
 	Args                         map[string]any         `json:"args,omitempty"`
+	AuthorizedRequestBodyBase64  string                 `json:"authorized_request_body_b64,omitempty"`
 	BaseURL                      string                 `json:"base_url"`
 	ControllerID                 string                 `json:"controller_id,omitempty"`
 	ControllerName               string                 `json:"controller_name,omitempty"`
@@ -350,16 +351,17 @@ func (p *PushLoop) buildControlHelloRequest() *proto.ControlStreamRequest {
 	return &proto.ControlStreamRequest{
 		Payload: &proto.ControlStreamRequest_Hello{
 			Hello: &proto.ControlStreamHello{
-				AgentId:       agentID,
-				Partition:     partition,
-				Capabilities:  p.getAgentCapabilities(&cfg),
-				ConfigVersion: p.getConfigVersion(),
-				Version:       Version,
-				Hostname:      hostname,
-				Os:            runtime.GOOS,
-				Arch:          runtime.GOARCH,
-				Labels:        deploymentHelloLabels(),
-				ConfigSource:  configSource,
+				AgentId:                  agentID,
+				Partition:                partition,
+				Capabilities:             p.getAgentCapabilities(&cfg),
+				ConfigVersion:            p.getConfigVersion(),
+				Version:                  Version,
+				Hostname:                 hostname,
+				Os:                       runtime.GOOS,
+				Arch:                     runtime.GOARCH,
+				Labels:                   deploymentHelloLabels(),
+				ConfigSource:             configSource,
+				AppliedPluginAssignments: p.appliedPluginAssignmentPolicyAcks(),
 				// Report the agent's own host IP so the gateway links it to the
 				// correct device even when the TCP peer IP is NAT'd (external agents).
 				// Mirrors getSourceIP() used for PushStatus so the two agree.
@@ -417,15 +419,7 @@ func (p *PushLoop) handleControlStream(
 				continue
 			}
 			if err := sender.Send(&proto.ControlStreamRequest{
-				Payload: &proto.ControlStreamRequest_ConfigAck{
-					ConfigAck: &proto.ConfigAck{
-						ConfigVersion: cfg.ConfigVersion,
-						Timestamp:     time.Now().Unix(),
-						// Per-section apply status: sections that failed permanently
-						// still commit + ack, and this is where core learns about them.
-						SectionStatuses: p.configSectionAckStatuses(),
-					},
-				},
+				Payload: &proto.ControlStreamRequest_ConfigAck{ConfigAck: p.buildConfigAck(cfg.ConfigVersion)},
 			}); err != nil {
 				p.logger.Warn().
 					Err(err).
@@ -437,6 +431,17 @@ func (p *PushLoop) handleControlStream(
 		if frame := resp.GetConsoleFrame(); frame != nil {
 			p.handleConsoleFrame(ctx, frame, sender)
 		}
+	}
+}
+
+func (p *PushLoop) buildConfigAck(configVersion string) *proto.ConfigAck {
+	return &proto.ConfigAck{
+		ConfigVersion: configVersion,
+		Timestamp:     time.Now().Unix(),
+		// Per-section apply status: sections that failed permanently still
+		// commit + ack, and this is where core learns about them.
+		SectionStatuses:          p.configSectionAckStatuses(),
+		AppliedPluginAssignments: p.appliedPluginAssignmentPolicyAcks(),
 	}
 }
 
@@ -856,7 +861,23 @@ func (p *PushLoop) handleAWXCommand(ctx context.Context, cmd *proto.CommandReque
 	_ = sender.Send(commandProgress(cmd, 10, "starting awx verb"))
 
 	grants := []credentialBrokerGrant{*payload.CredentialBroker}
-	resultBytes, err := p.runAWXPluginVerb(ctx, pluginManager, cmd, payload, configJSON, grants, timeout)
+	authorizedRequestBody, err := decodeAWXAuthorizedRequestBody(payload.AuthorizedRequestBodyBase64)
+	if err != nil {
+		_ = sender.Send(commandResult(cmd, false, errInvalidCredentialBrokerGrant.Error(), nil))
+		return
+	}
+	defer clear(authorizedRequestBody)
+
+	resultBytes, err := p.runAWXPluginVerb(
+		ctx,
+		pluginManager,
+		cmd,
+		payload,
+		configJSON,
+		grants,
+		authorizedRequestBody,
+		timeout,
+	)
 	if err != nil {
 		message := err.Error()
 		if errors.Is(err, errPluginAssignmentNotFound) {
@@ -881,6 +902,7 @@ func (p *PushLoop) runAWXPluginVerb(
 	payload awxCommandPayload,
 	configJSON []byte,
 	grants []credentialBrokerGrant,
+	authorizedRequestBody []byte,
 	timeout time.Duration,
 ) ([]byte, error) {
 	verb := strings.TrimSpace(payload.Verb)
@@ -893,7 +915,17 @@ func (p *PushLoop) runAWXPluginVerb(
 		if len(bytes.TrimSpace(payload.CallbackCredentialBindingRaw)) > 0 {
 			return nil, errAWXCallbackCredentialBindingInvalid
 		}
-		return pluginManager.RunPluginVerb(ctx, awxPluginID, configJSON, grants, timeout)
+		return pluginManager.RunPluginVerbWithAuthorizedRequestBody(
+			ctx,
+			awxPluginID,
+			configJSON,
+			grants,
+			authorizedRequestBody,
+			timeout,
+		)
+	}
+	if len(authorizedRequestBody) != 0 {
+		return nil, errInvalidCredentialBrokerGrant
 	}
 	if strings.TrimSpace(cmd.CommandType) != verb {
 		return nil, errAWXCallbackCredentialBindingInvalid
@@ -944,6 +976,19 @@ func (p *PushLoop) runAWXPluginVerb(
 		callbackInput,
 		timeout,
 	)
+}
+
+func decodeAWXAuthorizedRequestBody(encoded string) ([]byte, error) {
+	encoded = strings.TrimSpace(encoded)
+	if encoded == "" {
+		return nil, nil
+	}
+	body, err := base64.StdEncoding.Strict().DecodeString(encoded)
+	if err != nil || len(body) == 0 || len(body) > pluginMaxPayloadBytes {
+		clear(body)
+		return nil, errInvalidCredentialBrokerGrant
+	}
+	return body, nil
 }
 
 // buildAWXPluginConfig translates a serviceradar.awx_command.v1 payload into
