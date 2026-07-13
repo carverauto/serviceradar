@@ -46,4 +46,3 @@ network content, or reboot a guest without an explicit maintenance policy.
 - Explicitly out of scope: WinRM/OpenSSH bootstrap, Windows account creation,
   credential storage in ServiceRadar or git, Proxmox hardware mutation, guest
   reboot without prior policy, graphical console transport, and SSH/RDP access
-

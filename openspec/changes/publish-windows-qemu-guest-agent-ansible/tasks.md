@@ -47,4 +47,3 @@
   explicit refspec, and update the existing public draft pull request.
 - [ ] 5.2 Complete public review, merge the public pull request, and replace the
   feature-branch AWX project with the approved immutable main/tag revision.
-

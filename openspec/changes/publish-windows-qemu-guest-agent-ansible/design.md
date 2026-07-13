@@ -66,4 +66,3 @@ and audit path are exercised.
 - **Controller/runtime drift:** AWX project commit, content digest, execution
   environment digest, collection version, inventory, template, and credential
   IDs are reviewed and rebound on drift.
-

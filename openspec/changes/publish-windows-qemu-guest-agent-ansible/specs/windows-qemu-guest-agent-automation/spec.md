@@ -80,4 +80,3 @@ result/audit flow.
 - **WHEN** an operator tries to use direct AWX as the normal fleet workflow
 - **THEN** the documented rollout remains blocked until the ServiceRadar-owned
   launch path and collision-safe inventory identities are proven
-
