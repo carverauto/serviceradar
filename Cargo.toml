@@ -12,7 +12,6 @@ members = [
     "rust/netprobe",
     "rust/workload-identity",
     "rust/powerdns",
-    "rust/netprobe/ebpf",
     "rust/rperf-client",
     "third_party/rust_patches/reqsign-azure-storage-1.0.0",
     "third_party/rust_patches/reqsign-google-1.0.0",
@@ -32,6 +31,7 @@ members = [
 ]
 exclude = [
     "elixir/serviceradar_core_elx/deps/ex_sctp/native/ex_sctp",
+    "rust/netprobe/ebpf",
 ]
 
 [workspace.dependencies]
