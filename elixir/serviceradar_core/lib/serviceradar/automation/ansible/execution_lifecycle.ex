@@ -30,7 +30,7 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
 
     case accepted_job_snapshot(execution, authenticated_controller_id, job) do
       {:ok, snapshot} ->
-        actions.bind_accepted_job(execution, snapshot)
+        bind_verified_snapshot(execution, snapshot, actions)
 
       {:error, reason} ->
         diagnostics =
@@ -197,6 +197,26 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
   end
 
   def accepted_job_snapshot(_execution, _controller_id, _job), do: {:error, :invalid_accepted_job}
+
+  defp bind_verified_snapshot(execution, snapshot, actions) do
+    state = value(execution, :state)
+    job_id = snapshot["awx_job_id"]
+
+    cond do
+      state == :dispatching and is_nil(value(execution, :awx_job_id)) ->
+        actions.bind_accepted_job(execution, snapshot)
+
+      state in [:launching, :scope_verified] and value(execution, :awx_job_id) == job_id and
+          value(execution, :accepted_job_snapshot) == snapshot ->
+        {:ok, execution}
+
+      state in [:launching, :scope_verified] ->
+        {:error, :accepted_job_binding_conflict}
+
+      true ->
+        {:error, :accepted_execution_not_dispatching}
+    end
+  end
 
   defp verify_bound_job(execution, controller_id, job_id) do
     cond do

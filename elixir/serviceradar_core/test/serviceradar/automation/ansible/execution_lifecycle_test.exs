@@ -117,6 +117,44 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycleTest do
     refute_receive {:reject_scope, _, _, _}
   end
 
+  test "accepted binding replay is idempotent and cannot overwrite a conflicting state" do
+    assert {:ok, snapshot} =
+             ExecutionLifecycle.accepted_job_snapshot(execution(), @controller_id, accepted_job())
+
+    already_bound =
+      execution(%{
+        state: :launching,
+        awx_job_id: 77,
+        accepted_job_snapshot: snapshot
+      })
+
+    assert {:ok, ^already_bound} =
+             ExecutionLifecycle.bind_accepted_job(
+               already_bound,
+               @controller_id,
+               accepted_job(),
+               actions: FakeActions
+             )
+
+    refute_receive {:bind_accepted_job, _, _}
+
+    assert {:error, :accepted_job_binding_conflict} =
+             ExecutionLifecycle.bind_accepted_job(
+               %{already_bound | accepted_job_snapshot: %{}},
+               @controller_id,
+               accepted_job(),
+               actions: FakeActions
+             )
+
+    assert {:error, :accepted_execution_not_dispatching} =
+             ExecutionLifecycle.bind_accepted_job(
+               execution(%{state: :failed}),
+               @controller_id,
+               accepted_job(),
+               actions: FakeActions
+             )
+  end
+
   test "rejects supply-chain, target, mode, and marker drift before job binding" do
     mismatches = [
       {"job_template", 43, :accepted_template_mismatch},

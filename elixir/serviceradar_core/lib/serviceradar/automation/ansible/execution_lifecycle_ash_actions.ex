@@ -7,12 +7,15 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycleAshActions do
   alias ServiceRadar.Automation.Ansible.AutomationExecutionTarget
   alias ServiceRadar.Automation.Ansible.AutomationTargetHold
 
+  require Ash.Expr
+
   @actor SystemActor.system(:ansible_execution_lifecycle)
 
   @impl true
   def bind_accepted_job(execution, snapshot) do
-    AutomationExecution.bind_job(
-      execution,
+    execution
+    |> Ash.Changeset.for_update(
+      :bind_job,
       %{
         awx_job_id: snapshot["awx_job_id"],
         accepted_job_snapshot: snapshot,
@@ -21,10 +24,14 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycleAshActions do
       },
       actor: @actor
     )
+    |> Ash.Changeset.filter(Ash.Expr.expr(state == :dispatching and is_nil(awx_job_id)))
+    |> Ash.update(actor: @actor)
   end
 
   @impl true
   def mark_scope_verified(execution, targets, evidence) do
+    awx_job_id = value(execution, :awx_job_id)
+
     snapshot =
       execution
       |> value(:accepted_job_snapshot)
@@ -33,11 +40,16 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycleAshActions do
 
     ServiceRadar.Repo.transaction(fn ->
       with {:ok, updated} <-
-             AutomationExecution.record_scope_verified(
-               execution,
+             execution
+             |> Ash.Changeset.for_update(
+               :record_scope_verified,
                %{accepted_job_snapshot: snapshot, diagnostics: %{}},
                actor: @actor
-             ),
+             )
+             |> Ash.Changeset.filter(
+               Ash.Expr.expr(state == :launching and awx_job_id == ^awx_job_id)
+             )
+             |> Ash.update(actor: @actor),
            :ok <- mark_targets_running(targets) do
         updated
       else
