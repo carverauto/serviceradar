@@ -82,6 +82,54 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
     assert integration_device.ip == nil
   end
 
+  test "retries a batch with colliding strong identities without choosing an IP owner", %{
+    actor: actor
+  } do
+    ip = unique_test_ip()
+    first_id = "integration-first-#{System.unique_integer([:positive])}"
+    second_id = "integration-second-#{System.unique_integer([:positive])}"
+
+    updates = [
+      %{
+        "ip" => ip,
+        "hostname" => "first-incoming",
+        "source" => "integration-test",
+        "metadata" => %{
+          "integration_type" => "test-integration",
+          "integration_id" => first_id
+        }
+      },
+      %{
+        "ip" => ip,
+        "hostname" => "second-incoming",
+        "source" => "integration-test",
+        "metadata" => %{
+          "integration_type" => "test-integration",
+          "integration_id" => second_id
+        }
+      }
+    ]
+
+    assert :ok = SyncIngestor.ingest_updates(updates, actor: actor)
+
+    {:ok, identifiers} =
+      DeviceIdentifier
+      |> Ash.Query.filter(
+        identifier_type == :integration_id and identifier_value in ^[first_id, second_id]
+      )
+      |> Ash.read(actor: actor)
+
+    assert Enum.map(identifiers, & &1.device_id) |> Enum.uniq() |> length() == 2
+
+    {:ok, devices_at_ip} =
+      Device
+      |> Ash.Query.filter(ip == ^ip and is_nil(deleted_at))
+      |> Ash.read(actor: actor)
+      |> Page.unwrap()
+
+    assert devices_at_ip == []
+  end
+
   defp unique_test_ip do
     <<third, fourth, _rest::binary>> = :crypto.hash(:sha256, Ash.UUID.generate())
     "100.124.#{1 + rem(third, 250)}.#{1 + rem(fourth, 250)}"
