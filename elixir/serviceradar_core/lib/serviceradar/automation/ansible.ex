@@ -32,6 +32,7 @@ defmodule ServiceRadar.Automation.Ansible do
     resource ServiceRadar.Automation.Ansible.PlaybookContent
     resource ServiceRadar.Automation.Ansible.PlaybookSchedule
     resource ServiceRadar.Automation.Ansible.AwxHostMembership
+    resource ServiceRadar.Automation.Ansible.AwxTemplateBinding
     resource ServiceRadar.Automation.Ansible.AutomationOperation
     resource ServiceRadar.Automation.Ansible.AutomationExecutionDelegation
     resource ServiceRadar.Automation.Ansible.AutomationExecution
