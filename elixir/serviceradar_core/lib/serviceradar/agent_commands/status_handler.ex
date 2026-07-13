@@ -54,8 +54,12 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
   def handle_info({:command_result, data}, state) do
     safe_data = sanitize_cleanup_result(data)
-    persist_result(safe_data, state.actor)
-    safe_reconcile_callback_cleanup(data, state.cleanup_reconciler)
+    persisted? = persist_result(safe_data, state.actor) == :ok
+
+    if persisted? do
+      safe_reconcile_callback_cleanup(data, state.cleanup_reconciler)
+    end
+
     safe_maybe_ingest_mtr_result(safe_data)
     AgentReleaseManager.handle_command_result(safe_data, actor: state.actor)
     AnsibleEventIngestor.handle_command_result(safe_data, actor: state.actor)
@@ -603,7 +607,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
           reason: inspect(reason)
         )
 
-        :ok
+        {:error, reason}
     end
   end
 
