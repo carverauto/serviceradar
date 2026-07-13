@@ -151,6 +151,7 @@ func TestBumblebeeSpoolServiceAddonTelemetryEmitsScanAndFindingEvents(t *testing
 	}
 	if batch == nil {
 		t.Fatal("expected telemetry batch")
+		return
 	}
 	if got := len(batch.Records); got != 2 {
 		t.Fatalf("records = %d, want 2", got)

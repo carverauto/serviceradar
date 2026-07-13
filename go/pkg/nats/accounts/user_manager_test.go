@@ -352,6 +352,7 @@ func TestGenerateUserCredentials_AllowsSystemClaimsUpdateForSystemService(t *tes
 
 	if creds == nil {
 		t.Fatal("GenerateUserCredentials() returned nil credentials")
+		return
 	}
 	if creds.CredsFileContent == "" {
 		t.Fatal("GenerateUserCredentials() returned empty creds content")
@@ -388,6 +389,7 @@ func TestGenerateUserCredentials_AllowsObjectStoreSubjectsForService(t *testing.
 
 	if creds == nil {
 		t.Fatal("GenerateUserCredentials() returned nil credentials")
+		return
 	}
 	if creds.CredsFileContent == "" {
 		t.Fatal("GenerateUserCredentials() returned empty creds content")

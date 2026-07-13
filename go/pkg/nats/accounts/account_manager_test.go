@@ -33,6 +33,7 @@ func TestNewAccountSigner(t *testing.T) {
 
 	if signer == nil {
 		t.Fatal("NewAccountSigner() returned nil")
+		return
 	}
 
 	if signer.operator != op {

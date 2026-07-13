@@ -50,6 +50,7 @@ func TestResolveGatewayBumblebeeConfigPrefersTypedProto(t *testing.T) {
 	}
 	if cfg == nil {
 		t.Fatal("expected config")
+		return
 	}
 	if !cfg.Enabled {
 		t.Fatal("expected typed proto config to be enabled")
