@@ -1,5 +1,5 @@
 ## 1. Design
-Archival reconciliation: design and scaffold tasks for future protocol areas do not assert those protocols are production-ready. File transfer, app/TCP, production eBPF, provider-native Proxmox, QEMU, and RDP completion remain tracked by their separate active changes.
+Archival reconciliation: design and scaffold tasks for future protocol areas do not assert those protocols are production-ready. SSH CA tasks below cover library/policy/disposable-smoke primitives, not release packaging or live target trust. File transfer, app/TCP, packaged SSH CA access, automatic host-key observation, production eBPF, provider-native Proxmox, QEMU, and RDP completion remain tracked by their separate active changes.
 
 - [x] 1.1 Inventory existing Proxmox console, camera relay, agent control stream, and credential broker paths that can be reused.
 - [x] 1.2 Define remote-access session/resource names, state machine, frame types, and terminal outcomes.

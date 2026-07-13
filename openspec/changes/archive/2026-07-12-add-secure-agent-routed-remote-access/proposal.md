@@ -1,7 +1,7 @@
 # Change: Add Teleport-like agent-routed access
 
 ## Archival Reconciliation
-Before archival, this change is narrowed to the delivered generic session, authorization, route, SSH, host-key, custody, audit, and recording substrate. File transfer, application/TCP access, production eBPF attachment, provider-native Proxmox consoles, QEMU graphical consoles, and RDP remain owned by their separate active changes and are not claimed as delivered by this foundation. Provider metadata alone does not make a console ready.
+Before archival, this change is narrowed to the delivered generic session, authorization, route, user-present SSH, custody, audit, and recording substrate. File transfer, application/TCP access, automatic host-key observation, packaged SSH CA access, production eBPF attachment, provider-native Proxmox consoles, QEMU graphical consoles, and RDP remain owned by their separate active changes and are not claimed as delivered by this foundation. Provider metadata alone does not make a console ready.
 
 ## Why
 ServiceRadar needs a Teleport-like access plane built into its existing agent/gateway architecture. Operators should be able to reach infrastructure in segmented, remote, and overlapping networks through enrolled agents, with the same class of capabilities Teleport provides: SSH and shell access, session lifecycle and recording, audit trails, approval/RBAC, app/database/Kubernetes/desktop-style protocol adapters over time, and enhanced host telemetry such as BPF-backed command, file, and network tracing.
@@ -18,11 +18,11 @@ The earlier Proxmox console work motivated the outbound route shape, but does no
 - Keep browser terminal/rendering components generic, with provider/protocol-specific labels and adapters outside the core tunnel.
 
 ## Current Phase
-The first SSH/proxy/recording substrate pass is implemented, along with several ServiceRadar-native hardening primitives: credential custody boundaries, route-bound grants, access-request records, host-key lifecycle primitives/UI, replay event plumbing/UI, SSH CA issuance, and an initial enhanced-recording boundary.
+The first SSH/proxy/recording substrate pass is implemented, along with several ServiceRadar-native hardening primitives: credential custody boundaries, route-bound grants, access-request records, host-key lifecycle primitives/UI, replay event plumbing/UI, SSH CA library/policy/smoke-test primitives, and an initial enhanced-recording boundary. The SSH CA signer is not packaged or enabled by this change, and no live target trust is claimed.
 
 That does not mean ServiceRadar has recreated Teleport. The completed work is a foundation for Teleport-like access, not full feature parity. Full parity remains a feature-by-feature backlog covering protocol breadth, enterprise identity governance, session collaboration/moderation, production recording depth, operational hardening, and ecosystem integrations.
 
-The project remains certificate-first for enterprise SSH. Browser/user-present credentials are transitional. Centrally brokered secrets are policy-owned exceptions that require approval, a trusted credential rule, and a scoped session grant before any selected agent receives credential material.
+Certificate-first enterprise SSH remains the target of the separate SSH-enablement change. This archived foundation delivers user-present custody; centrally brokered secrets are policy-owned exceptions that require approval, a trusted credential rule, and a scoped session grant before any selected agent receives credential material.
 
 ## Impact
 - Affected specs: edge-architecture, agent-connectivity, rbac-route-protection

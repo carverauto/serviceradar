@@ -38,13 +38,6 @@ Agents SHALL support remote-access credentials supplied through explicit custody
 - **THEN** the grant SHALL be scoped to one session, one selected agent/gateway route, one target, one protocol, and a short TTL
 - **AND** the browser SHALL NOT receive plaintext secret material.
 
-#### Scenario: SSO identity is exchanged for a short-lived SSH certificate
-- **GIVEN** an operator authenticated to ServiceRadar through an OIDC/SAML identity provider such as Authentik
-- **AND** ServiceRadar RBAC allows the operator to assume one or more SSH principals on a target
-- **WHEN** the operator opens a generic SSH remote-access session
-- **THEN** ServiceRadar SHALL be able to issue a short-lived OpenSSH user certificate limited to the approved principal set and TTL while session authorization remains scoped to that actor, target, and session
-- **AND** the selected agent SHALL use the certificate for SSH authentication without storing a reusable target password or shared bastion private key.
-
 #### Scenario: Protocol rejects mismatched custody mode
 - **GIVEN** a protocol uses a specific credential custody model
 - **WHEN** a session request supplies a custody mode intended for a different protocol
