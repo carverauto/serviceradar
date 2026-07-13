@@ -6,10 +6,63 @@ defmodule ServiceRadar.Edge.AgentCommandBusPreallocationTest do
   @command_id "01980a6d-4a62-7b3f-a249-5f825874ca41"
   @reference "srle1_" <> Base.url_encode64(:binary.copy(<<7>>, 32), padding: false)
 
-  test "explicit callback command IDs require the typed durable-attempt context" do
+  test "explicit AWX command IDs require a typed durable-attempt context" do
     assert {:error, :preallocated_callback_attempt_context_required} =
              AgentCommandBus.dispatch("agent-farm01", "awx.launch_job", %{},
                command_id: @command_id
+             )
+  end
+
+  test "secure execution attempts accept only the execution schema and never callback context" do
+    opts = [
+      command_id: @command_id,
+      secure_execution_attempt: true,
+      source: :automation
+    ]
+
+    assert {:error, :sensitive_transmit_payload_denied} =
+             AgentCommandBus.dispatch(
+               "agent-farm01",
+               "awx.fetch_job",
+               %{"api_token" => "not-stored"},
+               Keyword.put(opts, :context, secure_context("awx.fetch_job", "fetch_job"))
+             )
+
+    assert {:error, :preallocated_secure_execution_attempt_context_required} =
+             AgentCommandBus.dispatch(
+               "agent-farm01",
+               "awx.fetch_job",
+               %{},
+               Keyword.put(opts, :context, callback_context("awx.fetch_job"))
+             )
+
+    assert {:error, :preallocated_callback_attempt_context_required} =
+             AgentCommandBus.dispatch(
+               "agent-farm01",
+               "awx.fetch_job",
+               %{},
+               command_id: @command_id,
+               callback_command_attempt: true,
+               source: :automation,
+               context: secure_context("awx.fetch_job", "fetch_job")
+             )
+  end
+
+  test "secure execution attempts reject callback grant correlation" do
+    context =
+      "awx.fetch_job"
+      |> secure_context("fetch_job")
+      |> Map.put("callback_grant_id", Ash.UUID.generate())
+
+    assert {:error, :preallocated_secure_execution_attempt_context_required} =
+             AgentCommandBus.dispatch(
+               "agent-farm01",
+               "awx.fetch_job",
+               %{},
+               command_id: @command_id,
+               secure_execution_attempt: true,
+               source: :automation,
+               context: context
              )
   end
 
@@ -87,6 +140,14 @@ defmodule ServiceRadar.Edge.AgentCommandBusPreallocationTest do
     %{
       "schema" => "serviceradar.automation_callback_command/v1",
       "verb" => verb
+    }
+  end
+
+  defp secure_context(verb, stage) do
+    %{
+      "schema" => "serviceradar.automation_execution_command/v1",
+      "verb" => verb,
+      "stage" => stage
     }
   end
 end

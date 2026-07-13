@@ -10,6 +10,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher do
 
   alias ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator
   alias ServiceRadar.Automation.Ansible.HardenedRunLauncher.AshActions
+  alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
 
   @spec launch(map(), struct(), keyword()) :: {:ok, map()} | {:error, term()}
   def launch(plan, controller, opts \\ [])
@@ -27,50 +28,38 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher do
   defp launch_without_callback(plan, controller, opts) do
     actions = Keyword.get(opts, :actions, AshActions)
 
-    with {:ok, persisted} <- actions.persist_plan(plan),
+    with {:ok, persisted} <- actions.persist_plan(plan, controller),
          :ok <- actions.mark_dispatching(persisted) do
-      case actions.dispatch(
-             controller,
-             plan.execution.job_template_id,
-             plan.launch_opts,
-             dispatch_context(plan, persisted, opts)
-           ) do
-        {:ok, command} ->
-          {:ok, Map.put(persisted, :command, command)}
+      case actions.dispatch(persisted.attempt) do
+        {:ok, outcome} ->
+          {:ok, Map.put(persisted, :dispatch_outcome, outcome)}
 
         {:error, reason} ->
-          _ = actions.mark_dispatch_failed(persisted, reason)
-          {:error, {:dispatch_failed, reason}}
+          # The preallocated attempt is already durable. A dispatch error can
+          # happen after the AgentCommand was accepted but before the caller
+          # observed that fact, so terminalizing here would race recovery and
+          # could conceal a live AWX job. Recovery owns the bounded retry or
+          # launch reconciliation decision from this point forward.
+          {:ok,
+           Map.put(
+             persisted,
+             :dispatch_outcome,
+             {:deferred, SafeFailureEvidence.code(reason)}
+           )}
       end
     end
   end
 
   defp callback_enabled?(plan), do: List.wrap(get_in(plan, [:operation, :callback_actions])) != []
-
-  defp dispatch_context(plan, persisted, opts) do
-    plan.command_context
-    |> Map.merge(%{
-      "operation_id" => persisted.operation.id,
-      "execution_id" => persisted.execution.id
-    })
-    |> maybe_put("northbound_invocation_id", Keyword.get(opts, :northbound_invocation_id))
-    |> maybe_put("schedule_id", Keyword.get(opts, :schedule_id))
-  end
-
-  defp maybe_put(map, _key, value) when value in [nil, ""], do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end
 
 defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher.Actions do
   @moduledoc false
 
-  @callback persist_plan(map()) :: {:ok, map()} | {:error, term()}
+  @callback persist_plan(map(), struct()) :: {:ok, map()} | {:error, term()}
   @callback mark_dispatching(map()) :: :ok | {:error, term()}
 
-  @callback dispatch(struct(), pos_integer(), map(), map()) ::
-              {:ok, struct()} | {:error, term()}
-
-  @callback mark_dispatch_failed(map(), term()) :: :ok | {:error, term()}
+  @callback dispatch(struct()) :: {:ok, atom()} | {:error, term()}
 end
 
 defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher.AshActions do
@@ -81,17 +70,20 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher.AshActions do
   alias ServiceRadar.Automation.Ansible.AutomationExecution
   alias ServiceRadar.Automation.Ansible.AutomationExecutionTarget
   alias ServiceRadar.Automation.Ansible.AutomationOperation
-  alias ServiceRadar.Automation.Ansible.AwxClient
+  alias ServiceRadar.Automation.Ansible.AutomationSecureExecutionCommandAttempt, as: Attempt
+  alias ServiceRadar.Automation.Ansible.SecureExecutionCommandContract, as: Contract
+  alias ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher
 
   @actor SystemActor.system(:ansible_hardened_run_launcher)
 
   @impl true
-  def persist_plan(plan) do
+  def persist_plan(plan, controller) do
     ServiceRadar.Repo.transaction(fn ->
       with {:ok, operation} <- create_operation(plan.operation),
            {:ok, execution} <- create_execution(plan.execution, operation.id),
-           {:ok, targets} <- create_targets(plan.targets, execution.id) do
-        %{operation: operation, execution: execution, targets: targets}
+           {:ok, targets} <- create_targets(plan.targets, execution.id),
+           {:ok, attempt} <- create_launch_attempt(operation, execution, controller) do
+        %{operation: operation, execution: execution, targets: targets, attempt: attempt}
       else
         {:error, reason} -> ServiceRadar.Repo.rollback(reason)
       end
@@ -102,53 +94,33 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher.AshActions do
   def mark_dispatching(%{operation: operation, execution: execution}) do
     now = DateTime.utc_now()
 
-    with {:ok, _operation} <-
-           AutomationOperation.record_state(
-             operation,
-             %{state: :dispatching, started_at: now},
-             actor: @actor
-           ),
-         {:ok, _execution} <-
-           AutomationExecution.record_state(
-             execution,
-             %{state: :dispatching, started_at: now},
-             actor: @actor
-           ) do
-      :ok
+    fn ->
+      with {:ok, _operation} <-
+             AutomationOperation.record_state(
+               operation,
+               %{state: :dispatching, started_at: now},
+               actor: @actor
+             ),
+           {:ok, _execution} <-
+             AutomationExecution.record_state(
+               execution,
+               %{state: :dispatching, started_at: now},
+               actor: @actor
+             ) do
+        :ok
+      else
+        {:error, reason} -> ServiceRadar.Repo.rollback(reason)
+      end
+    end
+    |> ServiceRadar.Repo.transaction()
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
   @impl true
-  def dispatch(controller, template_id, launch_opts, context) do
-    AwxClient.launch_job(
-      controller,
-      template_id,
-      launch_opts,
-      source: :automation,
-      context: context
-    )
-  end
-
-  @impl true
-  def mark_dispatch_failed(%{operation: operation, execution: execution}, reason) do
-    now = DateTime.utc_now()
-    diagnostics = %{"reason" => inspect(reason)}
-
-    with {:ok, _execution} <-
-           AutomationExecution.record_state(
-             execution,
-             %{state: :failed, ended_at: now, diagnostics: diagnostics},
-             actor: @actor
-           ),
-         {:ok, _operation} <-
-           AutomationOperation.record_state(
-             operation,
-             %{state: :failed, ended_at: now, diagnostics: diagnostics},
-             actor: @actor
-           ) do
-      :ok
-    end
-  end
+  def dispatch(attempt), do: SecureExecutionCommandDispatcher.dispatch(attempt)
 
   defp create_operation(attrs) do
     case AutomationOperation.create_operation(attrs, actor: @actor) do
@@ -179,6 +151,35 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher.AshActions do
     |> case do
       {:ok, targets} -> {:ok, Enum.reverse(targets)}
       error -> error
+    end
+  end
+
+  defp create_launch_attempt(operation, execution, controller) do
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+    with agent_id when is_binary(agent_id) and agent_id != "" <- Map.get(controller, :agent_id),
+         {:ok, request} <- Contract.launch_request(operation, execution),
+         {:ok, attrs} <-
+           Contract.build_attempt(
+             %{
+               operation_id: operation.id,
+               execution_id: execution.id,
+               controller_id: execution.controller_id,
+               dispatch_agent_id: agent_id
+             },
+             execution,
+             request,
+             stage: :launch_job,
+             purpose: :accepted_job_proof,
+             command_type: "awx.launch_job",
+             deadline_at: DateTime.add(now, 60, :second)
+           ),
+         {:ok, attempt} <- Attempt.create_planned(attrs, actor: @actor) do
+      {:ok, attempt}
+    else
+      nil -> {:error, :controller_agent_id_missing}
+      "" -> {:error, :controller_agent_id_missing}
+      {:error, reason} -> {:error, {:secure_execution_attempt_create_failed, reason}}
     end
   end
 end

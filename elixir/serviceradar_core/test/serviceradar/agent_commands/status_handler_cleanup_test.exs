@@ -1,7 +1,33 @@
 defmodule ServiceRadar.AgentCommands.StatusHandlerCleanupTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.AgentCommands.StatusHandler
+
+  defmodule SecretDatabaseError do
+    @moduledoc false
+    defexception [:message]
+  end
+
+  test "database failure logging never renders secret-bearing errors" do
+    secret = "Bearer status-handler-must-not-log-this"
+    reason = %SecretDatabaseError{message: secret}
+
+    log =
+      capture_log(fn ->
+        assert :ok =
+                 StatusHandler.log_control_query_failure(
+                   "persist exact command result",
+                   "018f3f56-1111-7222-8333-123456789abc",
+                   reason
+                 )
+      end)
+
+    assert log =~ "failed to persist exact command result"
+    refute log =~ secret
+    refute log =~ "Bearer"
+  end
 
   test "cleanup results retain only bounded identifiers and status" do
     data = %{
@@ -71,7 +97,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerCleanupTest do
       assert {:noreply, ^state} = StatusHandler.handle_info({:command_result, data}, state)
       refute_received {:broadcast, _}
       refute_received {:cleanup, _}
-      refute_received {:coordinate, _}
+      refute_received {:callback_coordinate, _}
+      refute_received {:secure_coordinate, _}
       refute_received {:consume, _}
     end
   end
@@ -88,7 +115,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerCleanupTest do
     assert_receive {:persist, ^data}
     assert_receive {:broadcast, ^data}
     assert_receive {:cleanup, ^data}
-    assert_receive {:coordinate, ^data}
+    assert_receive {:callback_coordinate, ^data}
+    assert_receive {:secure_coordinate, ^data}
     assert_receive {:consume, ^data}
   end
 
@@ -98,7 +126,10 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerCleanupTest do
       result_persister: persister,
       persisted_result_broadcaster: fn data -> send(test_pid, {:broadcast, data}) end,
       cleanup_reconciler: fn data -> send(test_pid, {:cleanup, data}) end,
-      callback_result_coordinator: fn data -> send(test_pid, {:coordinate, data}) end,
+      callback_result_coordinator: fn data -> send(test_pid, {:callback_coordinate, data}) end,
+      secure_execution_result_coordinator: fn data ->
+        send(test_pid, {:secure_coordinate, data})
+      end,
       result_consumers: [fn data -> send(test_pid, {:consume, data}) end]
     }
   end

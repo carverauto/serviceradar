@@ -67,6 +67,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         identity_maintenance_scheduler_child(),
         ansible_lifecycle_scheduler_child(),
         ansible_callback_command_recovery_scheduler_child(),
+        ansible_secure_execution_recovery_scheduler_child(),
         plugin_target_policy_scheduler_child(),
         bumblebee_catalog_scheduler_child(),
         cli_auth_scheduler_child(),
@@ -353,6 +354,16 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
          true
        ) do
       ServiceRadar.Automation.Ansible.CallbackCommandRecoveryScheduler
+    end
+  end
+
+  defp ansible_secure_execution_recovery_scheduler_child do
+    if enabled?(
+         "ANSIBLE_SECURE_EXECUTION_RECOVERY_ENABLED",
+         :ansible_secure_execution_recovery_enabled,
+         true
+       ) do
+      ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryScheduler
     end
   end
 

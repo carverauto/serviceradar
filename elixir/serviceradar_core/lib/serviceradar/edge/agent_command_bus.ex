@@ -47,6 +47,14 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     "awx.delete_callback_credential"
   ]
   @callback_command_context_schema "serviceradar.automation_callback_command/v1"
+  @secure_execution_command_context_schema "serviceradar.automation_execution_command/v1"
+  @secure_execution_command_types [
+    "awx.launch_job",
+    "awx.fetch_job",
+    "awx.list_recent_jobs",
+    "awx.fetch_job_host_summaries",
+    "awx.cancel_job"
+  ]
 
   def dispatch(agent_id, command_type, payload, opts \\ []) do
     payload_map = normalize_payload(payload)
@@ -1697,6 +1705,20 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         else
           false -> {:error, :preallocated_callback_attempt_context_required}
           {:error, _reason} = error -> error
+        end
+
+      Keyword.get(opts, :secure_execution_attempt) == true ->
+        with true <- command_type in @secure_execution_command_types,
+             true <- is_binary(Keyword.get(opts, :command_id)),
+             true <- normalize_source(Keyword.get(opts, :source, :on_demand)) == :automation,
+             true <- context["schema"] == @secure_execution_command_context_schema,
+             true <- context["verb"] == command_type,
+             true <-
+               context["stage"] in ~w(launch_job fetch_job list_recent_jobs fetch_host_summaries cancel_job),
+             false <- Map.has_key?(context, "callback_grant_id") do
+          :ok
+        else
+          _ -> {:error, :preallocated_secure_execution_attempt_context_required}
         end
 
       not is_nil(Keyword.get(opts, :command_id)) ->

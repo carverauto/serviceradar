@@ -65,7 +65,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
       assert {:noreply, ^state} = StatusHandler.handle_info({:command_result, mismatch}, state)
       refute_receive {:broadcast, _}, 25
       refute_receive {:cleanup, _}, 25
-      refute_receive {:coordinate, _}, 25
+      refute_receive {:callback_coordinate, _}, 25
+      refute_receive {:secure_coordinate, _}, 25
       refute_receive {:consume, _}, 25
     end)
 
@@ -79,7 +80,10 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
       actor: @actor,
       persisted_result_broadcaster: fn data -> send(test_pid, {:broadcast, data}) end,
       cleanup_reconciler: fn data -> send(test_pid, {:cleanup, data}) end,
-      callback_result_coordinator: fn data -> send(test_pid, {:coordinate, data}) end,
+      callback_result_coordinator: fn data -> send(test_pid, {:callback_coordinate, data}) end,
+      secure_execution_result_coordinator: fn data ->
+        send(test_pid, {:secure_coordinate, data})
+      end,
       result_consumers: [fn data -> send(test_pid, {:consume, data}) end]
     }
   end
@@ -87,7 +91,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
   defp assert_all_consumers(data) do
     assert_receive {:broadcast, ^data}
     assert_receive {:cleanup, ^data}
-    assert_receive {:coordinate, ^data}
+    assert_receive {:callback_coordinate, ^data}
+    assert_receive {:secure_coordinate, ^data}
     assert_receive {:consume, ^data}
   end
 end

@@ -8,8 +8,8 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncherTest do
     @behaviour ServiceRadar.Automation.Ansible.HardenedRunLauncher.Actions
 
     @impl true
-    def persist_plan(plan) do
-      send(self_pid(), {:persist_plan, plan})
+    def persist_plan(plan, controller) do
+      send(self_pid(), {:persist_plan, plan, controller})
 
       case Process.get(:persist_result) do
         nil ->
@@ -17,7 +17,8 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncherTest do
            %{
              operation: %{id: "operation-1"},
              execution: %{id: "execution-1"},
-             targets: [%{id: "target-1"}]
+             targets: [%{id: "target-1"}],
+             attempt: %{id: "attempt-1"}
            }}
 
         result ->
@@ -32,19 +33,13 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncherTest do
     end
 
     @impl true
-    def dispatch(controller, template_id, launch_opts, context) do
-      send(self_pid(), {:dispatch, controller, template_id, launch_opts, context})
+    def dispatch(attempt) do
+      send(self_pid(), {:dispatch, attempt})
 
       case Process.get(:dispatch_result) do
-        nil -> {:ok, %{id: "command-1"}}
+        nil -> {:ok, :dispatched}
         result -> result
       end
-    end
-
-    @impl true
-    def mark_dispatch_failed(persisted, reason) do
-      send(self_pid(), {:mark_dispatch_failed, persisted, reason})
-      :ok
     end
 
     defp self_pid, do: Process.get(:test_pid)
@@ -79,16 +74,11 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncherTest do
                schedule_id: "schedule-1"
              )
 
-    assert result.command.id == "command-1"
-    assert_receive {:persist_plan, persisted_plan}
+    assert result.dispatch_outcome == :dispatched
+    assert_receive {:persist_plan, persisted_plan, ^controller}
     assert persisted_plan.targets == [%{awx_host_id: 7}]
     assert_receive {:mark_dispatching, %{operation: %{id: "operation-1"}}}
-
-    assert_receive {:dispatch, ^controller, 42, launch_opts, context}
-    assert launch_opts.host_limit == "host-a"
-    assert context["operation_id"] == "operation-1"
-    assert context["execution_id"] == "execution-1"
-    assert context["schedule_id"] == "schedule-1"
+    assert_receive {:dispatch, %{id: "attempt-1"}}
   end
 
   test "does not dispatch a partially persisted plan" do
@@ -97,16 +87,17 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncherTest do
     assert {:error, {:target_create_failed, :duplicate}} =
              HardenedRunLauncher.launch(plan(), %{id: "controller-1"}, actions: FakeActions)
 
-    assert_receive {:persist_plan, _}
-    refute_receive {:dispatch, _, _, _, _}
+    assert_receive {:persist_plan, _, _}
+    refute_receive {:dispatch, _}
   end
 
-  test "records a dispatch failure against already persisted state" do
-    Process.put(:dispatch_result, {:error, :agent_offline})
+  test "defers a dispatch failure to durable recovery without retaining arbitrary error data" do
+    Process.put(:dispatch_result, {:error, %{password: "never-persist-this"}})
 
-    assert {:error, {:dispatch_failed, :agent_offline}} =
+    assert {:ok, result} =
              HardenedRunLauncher.launch(plan(), %{id: "controller-1"}, actions: FakeActions)
 
-    assert_receive {:mark_dispatch_failed, %{execution: %{id: "execution-1"}}, :agent_offline}
+    assert result.dispatch_outcome == {:deferred, "internal_error"}
+    refute inspect(result) =~ "never-persist-this"
   end
 end

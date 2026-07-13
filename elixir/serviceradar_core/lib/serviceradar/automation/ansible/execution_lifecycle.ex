@@ -273,7 +273,7 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
       value(execution, :awx_job_id) != job_id ->
         {:error, :authenticated_job_mismatch}
 
-      value(execution, :state) not in [:launching, :scope_verified] ->
+      value(execution, :state) not in [:launching, :scope_verified, :running] ->
         {:error, :execution_not_accepted}
 
       true ->

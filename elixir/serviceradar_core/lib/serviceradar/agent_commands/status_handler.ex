@@ -9,6 +9,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   alias ServiceRadar.AgentCommands.PubSub
   alias ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator
   alias ServiceRadar.Automation.Ansible.EventIngestor, as: AnsibleEventIngestor
+  alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
+  alias ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinator
   alias ServiceRadar.Automation.CallbackGrants.CleanupReconciler
 
   alias ServiceRadar.Automation.Northbound.CommandResultHandler,
@@ -38,6 +40,12 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
        cleanup_reconciler: Keyword.get(opts, :cleanup_reconciler, CleanupReconciler),
        callback_result_coordinator:
          Keyword.get(opts, :callback_result_coordinator, CallbackCommandResultCoordinator),
+       secure_execution_result_coordinator:
+         Keyword.get(
+           opts,
+           :secure_execution_result_coordinator,
+           SecureExecutionCommandResultCoordinator
+         ),
        result_persister: Keyword.get(opts, :result_persister, &persist_result/2),
        persisted_result_broadcaster:
          Keyword.get(opts, :persisted_result_broadcaster, &PubSub.broadcast_persisted_result/1),
@@ -95,6 +103,15 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
       safe_coordinate_callback_result(
         data,
         Map.get(state, :callback_result_coordinator, CallbackCommandResultCoordinator)
+      )
+
+      safe_coordinate_secure_execution_result(
+        data,
+        Map.get(
+          state,
+          :secure_execution_result_coordinator,
+          SecureExecutionCommandResultCoordinator
+        )
       )
 
       Enum.each(Map.get(state, :result_consumers, []), &safe_call_result_consumer(&1, safe_data))
@@ -237,6 +254,34 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   catch
     kind, _reason ->
       Logger.warning("AgentCommandStatusHandler: callback result coordination failed",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        command_type: map_get_any(data, [:command_type, "command_type"], nil),
+        failure_kind: kind
+      )
+
+      :ok
+  end
+
+  defp safe_coordinate_secure_execution_result(data, coordinator) do
+    cond do
+      is_function(coordinator, 1) -> coordinator.(data)
+      is_atom(coordinator) -> coordinator.handle_command_result(data)
+      true -> {:error, :secure_execution_result_coordinator_unavailable}
+    end
+
+    :ok
+  rescue
+    exception ->
+      Logger.warning("AgentCommandStatusHandler: secure execution result coordination failed",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        command_type: map_get_any(data, [:command_type, "command_type"], nil),
+        exception: exception.__struct__
+      )
+
+      :ok
+  catch
+    kind, _reason ->
+      Logger.warning("AgentCommandStatusHandler: secure execution result coordination threw",
         command_id: map_get_any(data, [:command_id, "command_id"], nil),
         command_type: map_get_any(data, [:command_type, "command_type"], nil),
         failure_kind: kind
@@ -464,9 +509,10 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
     exception ->
       Logger.warning(
         "AgentCommandStatusHandler: failed to ingest MTR command update",
-        command_id: map_get_any(data, [:command_id, "command_id"], nil),
-        command_type: map_get_any(data, [:command_type, "command_type"], nil),
-        reason: Exception.format(:error, exception, __STACKTRACE__)
+        safe_failure_metadata(exception,
+          command_id: map_get_any(data, [:command_id, "command_id"], nil),
+          command_type: map_get_any(data, [:command_type, "command_type"], nil)
+        )
       )
 
       :ok
@@ -474,9 +520,10 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
     kind, reason ->
       Logger.warning(
         "AgentCommandStatusHandler: failed to ingest MTR command update",
-        command_id: map_get_any(data, [:command_id, "command_id"], nil),
-        command_type: map_get_any(data, [:command_type, "command_type"], nil),
-        reason: Exception.format(kind, reason, __STACKTRACE__)
+        safe_failure_metadata({kind, reason},
+          command_id: map_get_any(data, [:command_id, "command_id"], nil),
+          command_type: map_get_any(data, [:command_type, "command_type"], nil)
+        )
       )
 
       :ok
@@ -505,9 +552,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
       {:error, reason} ->
         Logger.warning(
-          "AgentCommandStatusHandler: failed to ingest on-demand MTR result: #{inspect(reason)}",
-          command_id: Map.get(data, :command_id),
-          reason: inspect(reason)
+          "AgentCommandStatusHandler: failed to ingest on-demand MTR result",
+          safe_failure_metadata(reason, command_id: Map.get(data, :command_id))
         )
     end
   end
@@ -592,9 +638,10 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
         {:error, reason} ->
           Logger.warning(
             "AgentCommandStatusHandler: failed to ingest bulk MTR results",
-            command_id: command_id,
-            reason: inspect(reason),
-            target_count: length(results)
+            safe_failure_metadata(reason,
+              command_id: command_id,
+              target_count: length(results)
+            )
           )
       end
     end
@@ -703,9 +750,10 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
         {:error, reason} ->
           Logger.warning(
             "AgentCommandStatusHandler: failed to persist bulk MTR target updates",
-            command_id: command_id,
-            reason: inspect(reason),
-            target_count: length(rows)
+            safe_failure_metadata(reason,
+              command_id: command_id,
+              target_count: length(rows)
+            )
           )
       end
     end
@@ -767,10 +815,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
         :ok
 
       {:error, reason} ->
-        Logger.warning("AgentCommandStatusHandler: failed to #{action}",
-          command_id: command_id,
-          reason: inspect(reason)
-        )
+        log_control_query_failure(action, command_id, reason)
 
         {:error, reason}
     end
@@ -798,13 +843,20 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
         {:error, :command_result_non_unique}
 
       {:error, reason} ->
-        Logger.warning("AgentCommandStatusHandler: failed to #{action}",
-          command_id: command_id,
-          reason: inspect(reason)
-        )
+        log_control_query_failure(action, command_id, reason)
 
         {:error, reason}
     end
+  end
+
+  @doc false
+  def log_control_query_failure(action, command_id, reason) when is_binary(action) do
+    Logger.warning(
+      "AgentCommandStatusHandler: failed to #{action}",
+      safe_failure_metadata(reason, command_id: command_id)
+    )
+
+    :ok
   end
 
   defp control_repo do
@@ -813,6 +865,10 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
     else
       Repo
     end
+  end
+
+  defp safe_failure_metadata(reason, metadata) when is_list(metadata) do
+    metadata ++ SafeFailureEvidence.log_metadata(reason)
   end
 
   defp json_param(nil), do: nil
