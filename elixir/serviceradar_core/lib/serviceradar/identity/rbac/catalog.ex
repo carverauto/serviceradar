@@ -589,6 +589,20 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           description:
             "Create, edit, enable, disable, and delete scheduled / recurring Ansible playbook runs.",
           default_roles: @operator_roles
+        },
+        %{
+          key: "ansible.delegations.manage",
+          label: "Manage Ansible execution delegations",
+          description:
+            "Bind an owned, fixed-ceiling service principal to an Ansible schedule or operation.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "ansible.targets.holds.clear",
+          label: "Clear Ansible target holds",
+          description:
+            "Reconcile and clear a device-wide Ansible mutation hold using current approval, policy, and recovery evidence.",
+          default_roles: @admin_roles
         }
       ]
     },

@@ -31,6 +31,13 @@ defmodule ServiceRadar.Automation.Ansible do
     resource ServiceRadar.Automation.Ansible.PlaybookTaskResult
     resource ServiceRadar.Automation.Ansible.PlaybookContent
     resource ServiceRadar.Automation.Ansible.PlaybookSchedule
+    resource ServiceRadar.Automation.Ansible.AwxHostMembership
+    resource ServiceRadar.Automation.Ansible.AutomationOperation
+    resource ServiceRadar.Automation.Ansible.AutomationExecutionDelegation
+    resource ServiceRadar.Automation.Ansible.AutomationExecution
+    resource ServiceRadar.Automation.Ansible.AutomationExecutionTarget
+    resource ServiceRadar.Automation.Ansible.AutomationMutationPhase
+    resource ServiceRadar.Automation.Ansible.AutomationTargetHold
   end
 
   authorization do
