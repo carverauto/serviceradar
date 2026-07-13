@@ -61,6 +61,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconcilerTest do
     result = %{
       command_id: @command_id,
       command_type: "awx.cancel_job",
+      agent_id: "agent-gateway-demo",
       success: true,
       payload: %{
         "verb" => "awx.cancel_job",
@@ -94,6 +95,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconcilerTest do
     failed_cancel = %{
       command_id: @command_id,
       command_type: "awx.cancel_job",
+      agent_id: "agent-gateway-demo",
       success: false,
       payload: %{"response_body" => "must-not-persist"}
     }
@@ -120,13 +122,24 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconcilerTest do
 
     refute_received {:reconcile, _, _}
 
-    mismatched = %{delete_command() | agent_id: "another-agent"}
+    mismatched = %{
+      delete_command()
+      | context: Map.put(delete_context(), "dispatch_agent_id", "another-agent")
+    }
 
     assert {:error, :cleanup_command_agent_mismatch} =
              CleanupReconciler.handle_command_result(
                delete_result(valid_delete_payload()),
                opts(self(), mismatched)
              )
+
+    refute_received {:reconcile, _, _}
+
+    assert {:error, :cleanup_result_agent_mismatch} =
+             valid_delete_payload()
+             |> delete_result()
+             |> Map.put(:agent_id, "another-agent")
+             |> CleanupReconciler.handle_command_result(opts(self(), delete_command()))
 
     refute_received {:reconcile, _, _}
   end
@@ -153,6 +166,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconcilerTest do
     %{
       command_id: @command_id,
       command_type: "awx.delete_callback_credential",
+      agent_id: "agent-gateway-demo",
       success: true,
       payload: payload
     }

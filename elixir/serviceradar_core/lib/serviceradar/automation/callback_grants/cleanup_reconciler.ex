@@ -56,6 +56,9 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconciler do
                {:error, :cleanup_command_type_mismatch},
            {:ok, context} <- cleanup_context(value(command, :context), command_type),
            true <-
+             value(data, :agent_id) == value(command, :agent_id) ||
+               {:error, :cleanup_result_agent_mismatch},
+           true <-
              value(command, :agent_id) == context["dispatch_agent_id"] ||
                {:error, :cleanup_command_agent_mismatch},
            {:ok, result_status} <- result_status(command_type, data, context),
