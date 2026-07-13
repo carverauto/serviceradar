@@ -16,6 +16,24 @@ defmodule ServiceRadar.Automation.Ansible.AutomationExecutionTarget do
 
   @view_check {ActorHasPermission, permission: "ansible.runs.view"}
 
+  @history_read_fields [
+    :id,
+    :execution_id,
+    :membership_id,
+    :canonical_device_uid,
+    :controller_id,
+    :inventory_id,
+    :awx_host_id,
+    :membership_generation,
+    :host_name,
+    :ansible_host,
+    :status,
+    :snapshot_digest,
+    :diagnostics,
+    :inserted_at,
+    :updated_at
+  ]
+
   postgres do
     table "ansible_automation_execution_targets"
     repo ServiceRadar.Repo
@@ -40,6 +58,8 @@ defmodule ServiceRadar.Automation.Ansible.AutomationExecutionTarget do
     define :get_by_execution_host, action: :by_execution_host, args: [:execution_id, :awx_host_id]
     define :list_for_execution, action: :for_execution, args: [:execution_id]
     define :list_for_device, action: :for_device, args: [:canonical_device_uid]
+    define :list_history_for_execution, action: :history_for_execution, args: [:execution_id]
+    define :list_history_for_device, action: :history_for_device, args: [:canonical_device_uid]
     define :create_target, action: :create
     define :record_status, action: :record_status
   end
@@ -74,6 +94,25 @@ defmodule ServiceRadar.Automation.Ansible.AutomationExecutionTarget do
       prepare build(sort: [inserted_at: :desc], limit: 100)
     end
 
+    read :history_for_execution do
+      description "Secret-safe exact target tuples for one execution"
+      argument :execution_id, :uuid, allow_nil?: false
+      filter expr(execution_id == ^arg(:execution_id))
+      prepare build(select: @history_read_fields, sort: [awx_host_id: :asc])
+    end
+
+    read :history_for_device do
+      description "Recent secret-safe secure execution targets for one canonical device"
+      argument :canonical_device_uid, :string, allow_nil?: false
+      filter expr(canonical_device_uid == ^arg(:canonical_device_uid))
+
+      prepare build(
+                select: @history_read_fields,
+                sort: [inserted_at: :desc],
+                limit: 100
+              )
+    end
+
     create :create do
       primary? true
 
@@ -103,7 +142,15 @@ defmodule ServiceRadar.Automation.Ansible.AutomationExecutionTarget do
     system_bypass()
 
     action_with_permission(
-      [:read, :by_id, :by_execution_host, :for_execution, :for_device],
+      [
+        :read,
+        :by_id,
+        :by_execution_host,
+        :for_execution,
+        :for_device,
+        :history_for_execution,
+        :history_for_device
+      ],
       @view_check
     )
   end

@@ -38,6 +38,7 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @manage_check {ActorHasPermission, permission: "ansible.controllers.manage"}
+  @run_view_check {ActorHasPermission, permission: "ansible.runs.view"}
 
   @public_fields [
     :name,
@@ -80,6 +81,8 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
 
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
+    define :get_history_by_id, action: :history_by_id, args: [:id]
+    define :list_history_by_ids, action: :history_by_ids, args: [:ids]
     define :list_by_agent, action: :by_agent, args: [:agent_id]
     define :create_controller, action: :create
     define :update_controller, action: :update
@@ -106,6 +109,21 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
       get? true
       filter expr(id == ^arg(:id))
       prepare build(select: @public_read_fields)
+    end
+
+    read :history_by_id do
+      description "Controller label only, for secret-safe run history"
+      argument :id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+      prepare build(select: [:id, :name])
+    end
+
+    read :history_by_ids do
+      description "Controller labels only, for secret-safe device history joins"
+      argument :ids, {:array, :uuid}, allow_nil?: false
+      filter expr(id in ^arg(:ids))
+      prepare build(select: [:id, :name])
     end
 
     read :by_agent do
@@ -184,6 +202,7 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
 
     system_bypass()
     action_with_permission([:read, :by_id, :by_agent], @manage_check)
+    action_with_permission([:history_by_id, :history_by_ids], @run_view_check)
     action_type_with_permission([:create, :update, :destroy], @manage_check)
     action_with_permission([:record_health], @manage_check)
   end

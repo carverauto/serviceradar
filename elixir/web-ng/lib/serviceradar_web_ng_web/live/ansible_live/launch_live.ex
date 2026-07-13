@@ -114,11 +114,13 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
            request_source: :ansible_launch_live
          ) do
       {:ok, result} ->
-        {:noreply,
-         socket
-         |> reset_selection()
-         |> assign(:launch_in_progress, false)
-         |> put_flash(:info, secure_launch_success(result))}
+        socket =
+          socket
+          |> reset_selection()
+          |> assign(:launch_in_progress, false)
+          |> put_flash(:info, secure_launch_success(result))
+
+        {:noreply, navigate_to_operation(socket, result)}
 
       {:error, reason} ->
         Logger.info("Secure Ansible launch failed", reason: inspect(reason))
@@ -281,8 +283,8 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
             </div>
 
             <div class="card-actions items-center justify-between pt-2">
-              <.link navigate={~p"/ansible/runs"} class="link link-hover text-sm">
-                Back to legacy run history
+              <.link navigate={~p"/ansible/operations"} class="link link-hover text-sm">
+                Secure operation history
               </.link>
               <button
                 id="secure-ansible-launch-submit"
@@ -401,6 +403,11 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
     do: "Secure launch dispatched as operation #{id}."
 
   defp secure_launch_success(_result), do: "Secure launch dispatched."
+
+  defp navigate_to_operation(socket, %{operation: %{id: id}}) when is_binary(id),
+    do: push_navigate(socket, to: ~p"/ansible/operations/#{id}")
+
+  defp navigate_to_operation(socket, _result), do: push_navigate(socket, to: ~p"/ansible/operations")
 
   defp blank?(value), do: not is_binary(value) or String.trim(value) == ""
 end

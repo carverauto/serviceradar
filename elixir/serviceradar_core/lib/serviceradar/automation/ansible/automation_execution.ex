@@ -16,6 +16,32 @@ defmodule ServiceRadar.Automation.Ansible.AutomationExecution do
 
   @view_check {ActorHasPermission, permission: "ansible.runs.view"}
 
+  # Excludes machine credential references/snapshots, accepted AWX snapshots,
+  # callback references, and free-form metadata from all history consumers.
+  @history_read_fields [
+    :id,
+    :operation_id,
+    :controller_id,
+    :inventory_id,
+    :job_template_id,
+    :project_id,
+    :scm_revision,
+    :content_sha256,
+    :execution_environment_id,
+    :check_mode,
+    :host_limit,
+    :dispatch_id,
+    :snapshot_digest,
+    :state,
+    :awx_job_id,
+    :scope_verified_at,
+    :started_at,
+    :ended_at,
+    :diagnostics,
+    :inserted_at,
+    :updated_at
+  ]
+
   postgres do
     table "ansible_automation_executions"
     repo ServiceRadar.Repo
@@ -35,9 +61,12 @@ defmodule ServiceRadar.Automation.Ansible.AutomationExecution do
 
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
+    define :get_history_by_id, action: :history_by_id, args: [:id]
+    define :list_history_by_ids, action: :history_by_ids, args: [:ids]
     define :get_by_dispatch_id, action: :by_dispatch_id, args: [:dispatch_id]
     define :get_by_controller_job, action: :by_controller_job, args: [:controller_id, :awx_job_id]
     define :list_for_operation, action: :for_operation, args: [:operation_id]
+    define :list_history_for_operation, action: :history_for_operation, args: [:operation_id]
     define :create_execution, action: :create
     define :record_state, action: :record_state
     define :bind_job, action: :bind_job
@@ -53,6 +82,21 @@ defmodule ServiceRadar.Automation.Ansible.AutomationExecution do
       argument :id, :uuid, allow_nil?: false
       get? true
       filter expr(id == ^arg(:id))
+    end
+
+    read :history_by_id do
+      description "Secret-safe execution projection for human run history"
+      argument :id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+      prepare build(select: @history_read_fields)
+    end
+
+    read :history_by_ids do
+      description "Secret-safe execution projections for device history joins"
+      argument :ids, {:array, :uuid}, allow_nil?: false
+      filter expr(id in ^arg(:ids))
+      prepare build(select: @history_read_fields)
     end
 
     read :by_dispatch_id do
@@ -72,6 +116,17 @@ defmodule ServiceRadar.Automation.Ansible.AutomationExecution do
       argument :operation_id, :uuid, allow_nil?: false
       filter expr(operation_id == ^arg(:operation_id))
       prepare build(sort: [controller_id: :asc, inventory_id: :asc, inserted_at: :asc])
+    end
+
+    read :history_for_operation do
+      description "Secret-safe child executions for an operation"
+      argument :operation_id, :uuid, allow_nil?: false
+      filter expr(operation_id == ^arg(:operation_id))
+
+      prepare build(
+                select: @history_read_fields,
+                sort: [controller_id: :asc, inventory_id: :asc, inserted_at: :asc]
+              )
     end
 
     create :create do
@@ -122,7 +177,16 @@ defmodule ServiceRadar.Automation.Ansible.AutomationExecution do
     system_bypass()
 
     action_with_permission(
-      [:read, :by_id, :by_dispatch_id, :by_controller_job, :for_operation],
+      [
+        :read,
+        :by_id,
+        :history_by_id,
+        :history_by_ids,
+        :by_dispatch_id,
+        :by_controller_job,
+        :for_operation,
+        :history_for_operation
+      ],
       @view_check
     )
   end

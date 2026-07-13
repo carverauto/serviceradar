@@ -17,6 +17,26 @@ defmodule ServiceRadar.Automation.Ansible.AutomationOperation do
   @view_check {ActorHasPermission, permission: "ansible.runs.view"}
   @cancel_check {ActorHasPermission, permission: "ansible.runs.cancel"}
 
+  # History surfaces deliberately receive a narrow projection. In particular,
+  # authority ceilings, approval/input snapshots, callback policy, budgets,
+  # and metadata never enter LiveView state.
+  @history_read_fields [
+    :id,
+    :action,
+    :state,
+    :mutating,
+    :check_mode,
+    :initiator_principal_type,
+    :initiator_principal_id,
+    :request_source,
+    :target_digest,
+    :diagnostics,
+    :started_at,
+    :ended_at,
+    :inserted_at,
+    :updated_at
+  ]
+
   postgres do
     table "ansible_automation_operations"
     repo ServiceRadar.Repo
@@ -25,6 +45,9 @@ defmodule ServiceRadar.Automation.Ansible.AutomationOperation do
 
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
+    define :get_history_by_id, action: :history_by_id, args: [:id]
+    define :list_history_by_ids, action: :history_by_ids, args: [:ids]
+    define :list_history, action: :history
     define :list_active, action: :active
     define :create_operation, action: :create
     define :record_state, action: :record_state
@@ -40,6 +63,44 @@ defmodule ServiceRadar.Automation.Ansible.AutomationOperation do
       argument :id, :uuid, allow_nil?: false
       get? true
       filter expr(id == ^arg(:id))
+    end
+
+    read :history_by_id do
+      description "Secret-safe operation projection for human run history"
+      argument :id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+      prepare build(select: @history_read_fields)
+    end
+
+    read :history_by_ids do
+      description "Secret-safe operation projections for device history joins"
+      argument :ids, {:array, :uuid}, allow_nil?: false
+      filter expr(id in ^arg(:ids))
+      prepare build(select: @history_read_fields)
+    end
+
+    read :history do
+      description "Recent secret-safe operation history, optionally filtered by state"
+
+      argument :state, :atom do
+        allow_nil? true
+
+        constraints one_of: [
+                      :planned,
+                      :dispatching,
+                      :running,
+                      :succeeded,
+                      :failed,
+                      :canceled,
+                      :dispatch_partial,
+                      :dispatch_ambiguous,
+                      :cancel_failed
+                    ]
+      end
+
+      filter expr(is_nil(^arg(:state)) or state == ^arg(:state))
+      prepare build(select: @history_read_fields, sort: [inserted_at: :desc], limit: 100)
     end
 
     read :active do
@@ -89,7 +150,11 @@ defmodule ServiceRadar.Automation.Ansible.AutomationOperation do
     import ServiceRadar.Policies
 
     system_bypass()
-    action_with_permission([:read, :by_id, :active], @view_check)
+
+    action_with_permission(
+      [:read, :by_id, :history_by_id, :history_by_ids, :history, :active],
+      @view_check
+    )
     action_with_permission([:request_cancel], @cancel_check)
   end
 

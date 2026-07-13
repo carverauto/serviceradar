@@ -189,6 +189,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                 can_run_ansible={@can_run_ansible}
                 device_deleted={@device_deleted}
                 ansible_controller_id={@ansible_controller_id}
+                secure_history={@ansible_secure_history}
                 runs={@ansible_runs}
                 playbooks={@ansible_playbooks}
                 launch_open={@ansible_launch_open}

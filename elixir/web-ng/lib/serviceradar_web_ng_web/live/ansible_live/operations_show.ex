@@ -1,0 +1,90 @@
+defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsShow do
+  @moduledoc """
+  Read-only evidence view for one hardened Ansible automation operation.
+  """
+
+  use ServiceRadarWebNGWeb, :live_view
+
+  use Permit.Phoenix.LiveView,
+    authorization_module: ServiceRadarWebNGWeb.Authorization,
+    resource_module: ServiceRadar.Automation.Ansible.AutomationOperation
+
+  alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.AnsibleLive.AutomationHistory
+  alias ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents
+
+  require Logger
+
+  @impl true
+  def event_mapping do
+    Map.put(Permit.Phoenix.LiveView.default_event_mapping(), "refresh", :read)
+  end
+
+  @impl true
+  def skip_preload, do: [:show, :read]
+
+  @impl true
+  def mount(%{"id" => id}, _session, socket) do
+    scope = socket.assigns.current_scope
+
+    if RBAC.can?(scope, "ansible.runs.view") do
+      socket =
+        socket
+        |> assign(:page_title, "Secure Ansible operation #{short_id(id)}")
+        |> assign(:operation_id, id)
+        |> assign(:bundle, nil)
+
+      {:ok, if(connected?(socket), do: load_bundle(socket), else: socket)}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to view Ansible runs.")
+       |> push_navigate(to: ~p"/dashboard")}
+    end
+  end
+
+  @impl true
+  def handle_event("refresh", _params, socket), do: {:noreply, load_bundle(socket)}
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <div
+      :if={is_nil(@bundle)}
+      id="secure-operation-loading"
+      role="status"
+      class="mx-auto w-full max-w-7xl p-6"
+    >
+      <span class="loading loading-spinner loading-sm"></span>
+      <span class="ml-2 text-sm text-base-content/60">Loading secure operation evidence…</span>
+    </div>
+    <AutomationHistoryComponents.operation_detail :if={@bundle} bundle={@bundle} />
+    """
+  end
+
+  defp load_bundle(socket) do
+    case AutomationHistory.get_operation_bundle(
+           socket.assigns.operation_id,
+           socket.assigns.current_scope
+         ) do
+      {:ok, bundle} ->
+        assign(socket, :bundle, bundle)
+
+      {:error, :not_found} ->
+        socket
+        |> put_flash(:error, "Secure Ansible operation not found.")
+        |> push_navigate(to: ~p"/ansible/operations")
+
+      {:error, _reason} ->
+        Logger.warning("Could not load secure Ansible operation evidence")
+
+        socket
+        |> put_flash(:error, "Secure operation evidence could not be loaded.")
+        |> push_navigate(to: ~p"/ansible/operations")
+    end
+  end
+
+  defp short_id(id) when is_binary(id) and byte_size(id) > 8, do: String.slice(id, 0, 8) <> "…"
+
+  defp short_id(id), do: to_string(id)
+end

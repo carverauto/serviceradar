@@ -1,5 +1,6 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponentsTest do
-  use ExUnit.Case, async: true
+  # The verified-route component needs the singleton endpoint persistent term.
+  use ExUnit.Case, async: false
 
   import Phoenix.LiveViewTest
 
@@ -13,7 +14,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponentsTest do
   # endpoint here (idempotent across the suite).
   setup_all do
     if !Process.whereis(ServiceRadarWebNGWeb.Endpoint) do
-      {:ok, _} = ServiceRadarWebNGWeb.Endpoint.start_link([])
+      case ServiceRadarWebNGWeb.Endpoint.start_link([]) do
+        {:ok, _pid} -> :ok
+        {:error, {:already_started, _pid}} -> :ok
+      end
     end
 
     :ok
@@ -77,6 +81,59 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponentsTest do
     # launch affordance present for a launcher
     assert html =~ "Run Task"
     assert html =~ ~s(phx-click="ansible_launch_open")
+  end
+
+  test "renders secure execution history separately from legacy PlaybookRun history" do
+    secure_record = %{
+      operation: %{
+        id: "operation-12345678",
+        state: :running,
+        started_at: ~U[2026-07-13 12:00:00Z]
+      },
+      execution: %{
+        state: :scope_verified,
+        scope_verified_at: ~U[2026-07-13 12:00:30Z],
+        awx_job_id: 77,
+        started_at: ~U[2026-07-13 12:00:05Z],
+        controller: %{id: "controller-1", name: "farm01-awx"}
+      },
+      target: %{
+        status: :ok,
+        awx_host_id: 7,
+        membership_generation: 2,
+        host_name: "web01",
+        ansible_host: "192.0.2.10",
+        controller_id: "controller-1",
+        inventory_id: 34,
+        active_hold: nil
+      }
+    }
+
+    document =
+      (&AnsiblePanelComponents.ansible_runs_section/1)
+      |> render_component(base_assigns(secure_history: [secure_record], runs: [target()]))
+      |> LazyHTML.from_fragment()
+
+    assert Enum.count(LazyHTML.query(document, "[data-testid=device-secure-ansible-history]")) == 1
+
+    secure_text =
+      document
+      |> LazyHTML.query("[data-testid=device-secure-ansible-history]")
+      |> LazyHTML.text()
+
+    assert secure_text =~ "farm01-awx"
+    assert secure_text =~ "controller-1 / inventory 34"
+    assert secure_text =~ "host 7 · gen 2"
+    assert secure_text =~ "controller-local"
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(document, "a[href='/ansible/operations/operation-12345678']"),
+             "href"
+           ) == ["/ansible/operations/operation-12345678"]
+
+    panel_text = LazyHTML.text(document)
+    assert panel_text =~ "Secure operation history"
+    assert panel_text =~ "Legacy PlaybookRun history"
   end
 
   test "renders an empty state when the device has no runs" do

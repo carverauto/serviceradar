@@ -977,6 +977,11 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/ansible", Settings.AnsibleLive, :index)
 
       # Ansible runs (read-only browsing of playbook execution history)
+      live("/ansible/operations", AnsibleLive.OperationsIndex, :index)
+      live("/ansible/operations/:id", AnsibleLive.OperationsShow, :show)
+
+      # Legacy PlaybookRun history remains available during migration, but is
+      # intentionally separate from hardened AutomationOperation evidence.
       live("/ansible/runs", AnsibleLive.RunsIndex, :index)
       live("/ansible/runs/:id", AnsibleLive.RunsShow, :show)
 

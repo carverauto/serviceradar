@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   attr(:can_run_ansible, :boolean, default: false)
   attr(:device_deleted, :boolean, default: false)
   attr(:ansible_controller_id, :string, default: nil)
+  attr(:secure_history, :list, default: [])
   attr(:runs, :list, default: [])
   attr(:playbooks, :list, default: [])
   attr(:launch_open, :boolean, default: false)
@@ -33,7 +34,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
     assigns =
       assigns
       |> assign(:launchable?, assigns.can_run_ansible and not assigns.device_deleted and assigns.playbooks != [])
-      |> assign(:has_runs, assigns.runs != [])
+      |> assign(:has_secure_history, assigns.secure_history != [])
+      |> assign(:has_legacy_runs, assigns.runs != [])
+      |> assign(:has_history, assigns.secure_history != [] or assigns.runs != [])
 
     ~H"""
     <section
@@ -49,14 +52,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
           <div>
             <h2 class="text-sm font-semibold text-base-content">Ansible</h2>
             <p class="text-xs text-base-content/60">
-              AWX inventory member · playbook run history
+              AWX inventory member · secure operations and legacy run history
             </p>
           </div>
         </div>
 
         <div class="flex items-center gap-2">
+          <.link
+            navigate={~p"/ansible/operations"}
+            class="link link-hover text-xs text-base-content/60"
+          >
+            Secure operations
+          </.link>
           <.link navigate={~p"/ansible/runs"} class="link link-hover text-xs text-base-content/60">
-            All runs
+            Legacy runs
           </.link>
           <button
             :if={@can_run_ansible and not @device_deleted}
@@ -71,67 +80,173 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
         </div>
       </div>
 
-      <div :if={not @has_runs} class="px-4 py-6 text-sm text-base-content/60">
+      <div :if={not @has_history} class="px-4 py-6 text-sm text-base-content/60">
         No playbook runs have targeted this device yet.
         <span :if={@can_run_ansible and @playbooks == []} class="block text-xs mt-1">
           No launchable playbooks are bound to this device's AWX controller.
         </span>
       </div>
 
-      <div :if={@has_runs} class="overflow-x-auto">
-        <table class="table table-sm">
-          <thead>
-            <tr>
-              <th>Playbook</th>
-              <th>Run</th>
-              <th>Host result</th>
-              <th>Tasks</th>
-              <th>Started</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr :for={target <- @runs}>
-              <td class="max-w-[16rem] truncate" title={playbook_name(target)}>
-                {playbook_name(target)}
-              </td>
-              <td>
-                <span class={["badge badge-sm", state_badge_class(run_state(target))]}>
-                  {run_state(target)}
-                </span>
-              </td>
-              <td>
-                <span class={["badge badge-sm", target_badge_class(target.status)]}>
-                  {target.status}
-                </span>
-              </td>
-              <td class="whitespace-nowrap text-xs text-base-content/70">
-                <span class="text-success">{target.ok_count} ok</span>
-                <span :if={target.changed_count > 0} class="text-warning">
-                  · {target.changed_count} chg
-                </span>
-                <span :if={target.failed_count > 0} class="text-error">
-                  · {target.failed_count} fail
-                </span>
-                <span :if={target.unreachable_count > 0} class="text-error">
-                  · {target.unreachable_count} unreachable
-                </span>
-              </td>
-              <td class="whitespace-nowrap text-xs">
-                {fmt_ts(target.started_at || target.inserted_at)}
-              </td>
-              <td>
-                <.link
-                  :if={run_id(target)}
-                  navigate={~p"/ansible/runs/#{run_id(target)}"}
-                  class="btn btn-ghost btn-xs"
-                >
-                  View
-                </.link>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      <div :if={@has_secure_history} class="border-b border-base-200">
+        <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+          <div>
+            <h3 class="text-sm font-semibold">Secure operation history</h3>
+            <p class="text-xs text-base-content/60">
+              Immutable controller, inventory, and AWX host identity.
+            </p>
+          </div>
+          <span class="badge badge-success badge-sm">ServiceRadar secured</span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="table table-sm" data-testid="device-secure-ansible-history">
+            <thead>
+              <tr>
+                <th>Operation</th>
+                <th>Execution</th>
+                <th>Exact target</th>
+                <th>Controller / inventory</th>
+                <th>AWX job</th>
+                <th>Started</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={record <- @secure_history}>
+                <td>
+                  <span class={["badge badge-sm", state_badge_class(record.operation.state)]}>
+                    {record.operation.state}
+                  </span>
+                  <code class="mt-1 block text-xs">{short_id(record.operation.id)}</code>
+                </td>
+                <td>
+                  <span class={["badge badge-sm", state_badge_class(record.execution.state)]}>
+                    {record.execution.state}
+                  </span>
+                  <span
+                    :if={record.execution.scope_verified_at}
+                    class="mt-1 block text-xs text-success"
+                  >
+                    Scope verified
+                  </span>
+                  <span
+                    :if={is_nil(record.execution.scope_verified_at)}
+                    class="mt-1 block text-xs text-warning"
+                  >
+                    Scope proof pending
+                  </span>
+                </td>
+                <td>
+                  <div class="flex flex-wrap items-center gap-1">
+                    <span class={["badge badge-sm", target_badge_class(record.target.status)]}>
+                      {record.target.status}
+                    </span>
+                    <span :if={record.target.active_hold} class="badge badge-error badge-sm">
+                      hold active
+                    </span>
+                  </div>
+                  <code class="mt-1 block text-xs">
+                    host {record.target.awx_host_id} · gen {record.target.membership_generation}
+                  </code>
+                  <span class="block text-xs text-base-content/60">
+                    {record.target.host_name} · {record.target.ansible_host || "no address"}
+                  </span>
+                </td>
+                <td>
+                  <span class="text-xs">{controller_name(record.execution.controller)}</span>
+                  <code class="block max-w-56 break-all text-xs text-base-content/60">
+                    {record.target.controller_id} / inventory {record.target.inventory_id}
+                  </code>
+                </td>
+                <td>
+                  <code class="text-xs">
+                    {record.execution.awx_job_id || "not bound"}
+                  </code>
+                  <span class="block text-xs text-base-content/60">controller-local</span>
+                </td>
+                <td class="whitespace-nowrap text-xs">
+                  {fmt_ts(record.execution.started_at || record.operation.started_at)}
+                </td>
+                <td>
+                  <.link
+                    navigate={~p"/ansible/operations/#{record.operation.id}"}
+                    class="btn btn-ghost btn-xs"
+                  >
+                    Evidence
+                  </.link>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div :if={@has_legacy_runs}>
+        <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+          <div>
+            <h3 class="text-sm font-semibold">Legacy PlaybookRun history</h3>
+            <p class="text-xs text-base-content/60">
+              Pre-hardening task/event records; not secure operation evidence.
+            </p>
+          </div>
+          <span class="badge badge-outline badge-sm">Legacy</span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Playbook</th>
+                <th>Run</th>
+                <th>Host result</th>
+                <th>Tasks</th>
+                <th>Started</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={target <- @runs}>
+                <td class="max-w-[16rem] truncate" title={playbook_name(target)}>
+                  {playbook_name(target)}
+                </td>
+                <td>
+                  <span class={["badge badge-sm", state_badge_class(run_state(target))]}>
+                    {run_state(target)}
+                  </span>
+                </td>
+                <td>
+                  <span class={["badge badge-sm", target_badge_class(target.status)]}>
+                    {target.status}
+                  </span>
+                </td>
+                <td class="whitespace-nowrap text-xs text-base-content/70">
+                  <span class="text-success">{target.ok_count} ok</span>
+                  <span :if={target.changed_count > 0} class="text-warning">
+                    · {target.changed_count} chg
+                  </span>
+                  <span :if={target.failed_count > 0} class="text-error">
+                    · {target.failed_count} fail
+                  </span>
+                  <span :if={target.unreachable_count > 0} class="text-error">
+                    · {target.unreachable_count} unreachable
+                  </span>
+                </td>
+                <td class="whitespace-nowrap text-xs">
+                  {fmt_ts(target.started_at || target.inserted_at)}
+                </td>
+                <td>
+                  <.link
+                    :if={run_id(target)}
+                    navigate={~p"/ansible/runs/#{run_id(target)}"}
+                    class="btn btn-ghost btn-xs"
+                  >
+                    View
+                  </.link>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <.launch_modal
@@ -440,6 +555,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   defp run_id(%{run: %{id: id}}) when is_binary(id), do: id
   defp run_id(_), do: nil
 
+  defp controller_name(%{name: name}) when is_binary(name) and name != "", do: name
+  defp controller_name(_controller), do: "Controller"
+
+  defp short_id(id) when is_binary(id) and byte_size(id) > 8, do: String.slice(id, 0, 8) <> "…"
+
+  defp short_id(id), do: to_string(id)
+
   defp fmt_ts(nil), do: "—"
   defp fmt_ts(%DateTime{} = ts), do: Calendar.strftime(ts, "%Y-%m-%d %H:%M")
   defp fmt_ts(_), do: "—"
@@ -451,12 +573,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   defp state_badge_class(:canceled), do: "badge-neutral"
   defp state_badge_class(:running), do: "badge-info"
   defp state_badge_class(:launching), do: "badge-info"
+  defp state_badge_class(:scope_verified), do: "badge-info"
+  defp state_badge_class(:dispatching), do: "badge-info"
+  defp state_badge_class(:dispatch_partial), do: "badge-warning"
+  defp state_badge_class(:dispatch_ambiguous), do: "badge-error"
+  defp state_badge_class(:cancel_failed), do: "badge-error"
   defp state_badge_class(:pending), do: "badge-ghost"
   defp state_badge_class(_), do: "badge-ghost"
 
   defp target_badge_class(:ok), do: "badge-success"
   defp target_badge_class(:failed), do: "badge-error"
   defp target_badge_class(:unreachable), do: "badge-error"
+  defp target_badge_class(:scope_mismatch), do: "badge-error"
+  defp target_badge_class(:canceled), do: "badge-neutral"
   defp target_badge_class(:skipped), do: "badge-neutral"
   defp target_badge_class(:pending), do: "badge-ghost"
   defp target_badge_class(_), do: "badge-ghost"

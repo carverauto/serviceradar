@@ -20,6 +20,22 @@ defmodule ServiceRadar.Automation.Ansible.AutomationTargetHold do
   @view_check {ActorHasPermission, permission: "ansible.runs.view"}
   @clear_check {ActorHasPermission, permission: "ansible.targets.holds.clear"}
 
+  @history_read_fields [
+    :id,
+    :canonical_device_uid,
+    :trigger_execution_target_id,
+    :transaction_id,
+    :generation,
+    :trigger_phase,
+    :reason,
+    :policy_digest,
+    :evidence_digest,
+    :active,
+    :held_at,
+    :inserted_at,
+    :updated_at
+  ]
+
   postgres do
     table "ansible_automation_target_holds"
     repo ServiceRadar.Repo
@@ -40,6 +56,11 @@ defmodule ServiceRadar.Automation.Ansible.AutomationTargetHold do
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
     define :get_active_for_device, action: :active_for_device, args: [:canonical_device_uid]
+
+    define :get_active_history_for_device,
+      action: :active_history_for_device,
+      args: [:canonical_device_uid]
+
     define :list_for_device, action: :for_device, args: [:canonical_device_uid]
     define :place_hold, action: :place_hold
 
@@ -63,6 +84,14 @@ defmodule ServiceRadar.Automation.Ansible.AutomationTargetHold do
       argument :canonical_device_uid, :string, allow_nil?: false
       get? true
       filter expr(canonical_device_uid == ^arg(:canonical_device_uid) and active == true)
+    end
+
+    read :active_history_for_device do
+      description "Secret-safe active hold evidence for a history surface"
+      argument :canonical_device_uid, :string, allow_nil?: false
+      get? true
+      filter expr(canonical_device_uid == ^arg(:canonical_device_uid) and active == true)
+      prepare build(select: @history_read_fields)
     end
 
     read :for_device do
@@ -110,7 +139,10 @@ defmodule ServiceRadar.Automation.Ansible.AutomationTargetHold do
     import ServiceRadar.Policies
 
     system_bypass()
-    action_with_permission([:read, :by_id, :active_for_device, :for_device], @view_check)
+    action_with_permission(
+      [:read, :by_id, :active_for_device, :active_history_for_device, :for_device],
+      @view_check
+    )
     action_with_permission([:clear], @clear_check)
   end
 
