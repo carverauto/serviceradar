@@ -485,3 +485,36 @@ that opt into cnpg.pooler.route.<workload>.
   {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{/* Keep SSH CA private-key custody explicit and fail closed on incomplete mounts. */}}
+{{- define "serviceradar.validateRemoteAccessSSHCaSigner" -}}
+{{- $remoteAccess := default (dict) .Values.remoteAccess -}}
+{{- $signer := default (dict) $remoteAccess.sshCaSigner -}}
+{{- $enabled := false -}}
+{{- if hasKey $signer "enabled" -}}{{- $enabled = get $signer "enabled" -}}{{- end -}}
+{{- if $enabled -}}
+  {{- if eq (default "" $signer.existingSecretName) "" -}}
+    {{- fail "remoteAccess.sshCaSigner.existingSecretName is required when remoteAccess.sshCaSigner.enabled=true" -}}
+  {{- end -}}
+  {{- if eq (default "" $signer.secretKey) "" -}}
+    {{- fail "remoteAccess.sshCaSigner.secretKey is required when remoteAccess.sshCaSigner.enabled=true" -}}
+  {{- end -}}
+  {{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" (default "" $signer.keyId)) -}}
+    {{- fail "remoteAccess.sshCaSigner.keyId must be a stable non-secret key identifier" -}}
+  {{- end -}}
+  {{- if ne (default "/run/secrets/serviceradar_ssh_ca" $signer.mountPath) "/run/secrets/serviceradar_ssh_ca" -}}
+    {{- fail "remoteAccess.sshCaSigner.mountPath must remain /run/secrets/serviceradar_ssh_ca" -}}
+  {{- end -}}
+  {{- if not (kindIs "slice" $signer.args) -}}
+    {{- fail "remoteAccess.sshCaSigner.args must be a JSON-array-compatible list" -}}
+  {{- end -}}
+  {{- $workloads := default (dict) $signer.workloads -}}
+  {{- $web := true -}}
+  {{- if hasKey $workloads "web" -}}{{- $web = get $workloads "web" -}}{{- end -}}
+  {{- $core := false -}}
+  {{- if hasKey $workloads "core" -}}{{- $core = get $workloads "core" -}}{{- end -}}
+  {{- if not (or $web $core) -}}
+    {{- fail "remoteAccess.sshCaSigner must be mounted in at least one workload" -}}
+  {{- end -}}
+{{- end -}}
+{{- end -}}

@@ -95,6 +95,37 @@ SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON='["--ca-key-file","/run/secre
 SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID=serviceradar-user-ca-2026q2
 ```
 
+For a Kubernetes bootstrap or lab deployment, create the private-key Secret
+out of band and reference it from Helm. Do not put the private key in a values
+file, rendered manifest, or Git repository:
+
+```bash
+kubectl create secret generic serviceradar-ssh-ca \
+  --from-file=ca-key=/secure/path/serviceradar_user_ca \
+  --namespace serviceradar
+```
+
+```yaml
+remoteAccess:
+  ssh:
+    enabled: true
+  sshCaSigner:
+    enabled: true
+    keyId: serviceradar-user-ca-2026q2
+    existingSecretName: serviceradar-ssh-ca
+    secretKey: ca-key
+    workloads:
+      web: true
+      core: false
+```
+
+The web-ng and core-elx images include the bootstrap signer binary. The chart
+mounts exactly the selected Secret key at
+`/run/secrets/serviceradar_ssh_ca` with read-only `0400` projection and fails
+rendering when an enabled signer lacks a Secret, key ID, or workload. Enable
+only the workload that owns certificate issuance. Replace this file-backed
+bootstrap with an OpenBao/Vault/KMS/HSM-backed command before production use.
+
 Signer environment variables:
 
 | Variable | Purpose |

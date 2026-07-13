@@ -1929,6 +1929,30 @@ automationCallbacks:
   # then make it active and roll both workloads again. Retain every retired key
   # for at least the maximum outstanding callback-grant TTL before removing it.
   # The chart validates but never silently replaces an existing keyring.
+
+# External-command SSH user-certificate signer. The chart mounts only one key
+# from an operator-created Secret and never accepts private CA material in
+# values. Keep the default workload scope to web-ng, which owns interactive
+# remote-access sessions; enable core only in deployments that route issuance
+# through core-elx instead.
+remoteAccess:
+  ssh:
+    enabled: false
+  sshCaSigner:
+    enabled: false
+    command: "/usr/local/bin/serviceradar-sshca-signer"
+    keyId: ""
+    existingSecretName: ""
+    secretKey: "ca-key"
+    mountPath: "/run/secrets/serviceradar_ssh_ca"
+    args:
+      - "--ca-key-file"
+      - "/run/secrets/serviceradar_ssh_ca"
+      - "--max-ttl"
+      - "8h"
+    workloads:
+      web: true
+      core: false
 # Network sweep defaults (can be tuned per-deploy)
 sweep:
   # Target networks and ports to scan
