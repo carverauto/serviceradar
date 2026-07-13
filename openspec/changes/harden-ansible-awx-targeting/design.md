@@ -1,0 +1,87 @@
+## Context
+
+The delivered AWX bridge is a useful transport, not yet an authorization boundary. Current run creation resolves a mutable device map, permits hostname fallback when building `limit`, ignores target create failures, omits `inventory_id` from launch, stores raw requested variables, and later resolves jobs or host results by globally weak identifiers. Farm01 and tonka01 demonstrate the collision risk: the same display hostname may legitimately identify different AWX inventories and devices.
+
+This change hardens all AWX-backed launches, not only SSH-CA enrollment. The control plane owns authorization and immutable planning; the edge agent/WASM bridge transports an already constrained command; AWX owns execution and machine credentials.
+
+## Goals / Non-Goals
+
+### Goals
+
+- Make exact target, actor, content, credential, inventory, and execution-mode custody durable across asynchronous dispatch.
+- Fail closed on drift, ambiguity, partial target persistence, empty scope, secret persistence, and weak event identity.
+- Support parent operations spanning multiple controllers/inventories without merging their identity.
+- Provide the prerequisite launch seam for later callback-enabled playbooks and safe staged fleet mutations.
+
+### Non-Goals
+
+- Mint or consume automation callback grants.
+- Store AWX machine/custom credential plaintext or Ansible secret variables.
+- Let ServiceRadar create arbitrary AWX inventory hosts/templates/credentials.
+- Make hostname, IP, facts, labels, or Proxmox membership an authorization identifier.
+- Execute a live enrollment or remote-access rollout.
+
+## Decisions
+
+### Decision: AWX membership is a first-class source identity
+
+ServiceRadar persists AWX membership generations keyed by `(controller_id, inventory_id, awx_host_id)`. Each membership records inventory host name, current `ansible_host`, enabled state, source generation, last-seen time, and an explicit canonical-device link with linkage evidence and disposition. A device can have multiple memberships. Display hostname/IP discovery may propose a link but cannot select one for execution without an unambiguous current approved association.
+
+Stale generations are expired or quarantined, not overwritten into one device map. Every launch target selects one current membership compatible with the chosen template inventory and records both the tuple and canonical device UID.
+
+### Decision: Planning is authorized, immutable, and partitioned before dispatch
+
+The launch service reauthorizes the initiating human or service principal for `ansible.runs.launch`, target policy, requested playbook/action, and any required approval. A schedule stores an `AutomationExecutionDelegation` with issuer principal ID, execution principal type/ID, owner, tenant, issued/expiry/revocation state, and immutable ceilings for permissions, action/template/revision, inputs, target memberships, approval, and run budget. Creating a delegation requires schedule-management plus the issuer's own launch/target authority. Binding a different service principal additionally requires exact `ansible.delegations.manage`, administrator-only by default, verified ownership, and that principal's fixed ceiling; a creator cannot select arbitrary higher privilege. The issuance ceiling is the intersection of issuer-delegable scope, execution-principal fixed/current authority, approval, and deployment maximum. Fire-time authority further intersects current principal/owner state, binding/targets/policy, and approval. No user bearer is stored or reconstructed. A SystemActor may evaluate/transport but is never the authorizing principal; issuer/owner/principal disable, expiry, revocation, ownership change, or ceiling contraction stops the schedule pending reapproval.
+
+One parent operation is partitioned into child executions by controller, inventory, job template, immutable project/SCM revision/content hash, execution environment, approved machine credential reference, reviewed static custom credential or dynamic custom-credential type/slot, and native check/run mode. Before creating a child it re-fetches current AWX template launch requirements and every host membership. It rejects missing/drifted IDs/addresses, incompatible fixed inventory, disallowed prompt-on-launch settings, project `update_on_launch`, mutable branch/tag references, an AWX project revision that is not the pinned commit, unsupported credentials/modes, and held targets.
+
+Each child snapshot contains an ordered exact set of `(controller, inventory, AWX host ID, canonical device UID, snapshotted host name/address)`. For this exact-launch path, an AWX inventory host name must match literal token grammar `[A-Za-z0-9][A-Za-z0-9._-]{0,254}`; pattern operators, commas, colons, brackets, `@`, backslashes, control/whitespace, and every other character are rejected until the inventory supplies a safe unique alias. The comma-joined limit is parsed back and compared byte-for-byte as a set before dispatch. `inventory_id` and that explicit non-empty limit are always sent. A template that cannot accept the selected inventory/limit/check mode is ineligible. Native check mode or a separately bound check template is required; an `extra_vars` flag cannot simulate dry run.
+
+Parent, children, targets, actor/approval snapshot, and launch inputs are persisted in one transaction before dispatch. Any target create/conflict error aborts the whole plan. Requested, partitioned, persisted, and command target tuples/counts must match. AWX is a reviewed execution boundary: acceptance must echo the exact inventory and literal limit, and a post-start job-host-summary reconciliation must resolve exactly the snapshotted host IDs before ServiceRadar marks scope verified. A mismatch triggers cancellation, security diagnostics, and holds for a mutating operation. Callback/integrated mutation wrappers may additionally enforce play-host/tuple equality before managed-host change; generic AWX acceptance is not falsely claimed to return expanded host IDs synchronously.
+
+### Decision: Supply chain and variables use reviewed schemas and references
+
+Catalog binding pins controller, template, project, immutable SCM commit/content hash, execution environment, inventory policy, approved machine credential references, reviewed static custom credentials or dynamic custom-credential type/slots, non-secret input schema, callback action declarations, and check-mode behavior. Moving branch/tag bindings and project `update_on_launch` are prohibited; the accepted job's template, inventory, literal limit, project, exact `scm_revision`, execution environment, credential IDs/types, and check/run mode must all match. Re-sync or launch drift makes the binding unavailable until reviewed again.
+
+The launch API accepts only declared typed non-secret fields. Public/internal values may be persisted after canonicalization and sensitivity-aware redaction. ServiceRadar does not collect or resolve secret launch inputs in this child; secrets are prebound AWX machine/custom credentials selected by approved ID, while callback credentials use the separate ephemeral contract below. AWX surveys are limited to reviewed non-secret typed prompts. Plaintext secret-capable raw YAML, arbitrary `extra_vars`, callback bearers, API tokens, passwords, private keys, and become/vault secrets are forbidden in ServiceRadar run/schedule/command/event/audit data. Digests cover only canonical public/internal plans and MUST NOT hash low-entropy secret values. Future ServiceRadar-collected secrets require a separate single-resolution encrypted-envelope proposal.
+
+### Decision: Workers transport authority but do not inherit it
+
+The launch snapshot records initiating principal type/ID, tenant, current membership/role version, authorization ceiling, approval IDs/expiry, request source, and service-principal owner when applicable. Pending dispatch, retry, schedule, callback-gate activation, cancel, and mutation commit recheck the required current authority. Later permission expansion cannot enlarge an existing snapshot; contraction denies/cancels remaining work.
+
+System workers receive only the immutable authorized plan and approved AWX credential references. Worker permissions cannot add targets, actions, credentials, revisions, inventory, or variables. Human-facing audit attributes the request and outcome to the initiator while separately recording the transport worker.
+
+RBAC, membership, service-principal, delegation, approval, target-policy, and binding changes publish invalidations for affected pending/active operations. The pulse/watchdog path also reauthorizes every active child before each poll/continuation and at a bounded maximum interval when no event arrives. Contraction revokes callback state, requests cancellation for every active AWX child, stops later waves, and records `cancel_failed` plus canonical-device holds for mutating children whose stop/rollback cannot be proven. Hook loss cannot extend authority beyond the bounded pulse recheck.
+
+### Decision: Dispatch and result identity are controller and child scoped
+
+Every child gets a local execution ID before command dispatch. Command context binds parent/child, controller, inventory, template, revision, target digest, actor snapshot, and one dispatch nonce. The server adds reserved typed non-secret AWX launch `extra_vars` named `serviceradar_dispatch_id` and `serviceradar_snapshot_digest`; users/catalog/surveys cannot set or override them. A binding is non-launchable unless AWX accepts and the resulting job retains/echoes both exact values. Bounded recent-job enumeration is scoped to controller, template, inventory, launch window, and initiating ServiceRadar integration identity, then reads these job fields. AWX acceptance records `(controller_id, awx_job_id)` on exactly one child only after the reserved markers and all snapshotted accepted-job fields match. Job IDs are never globally unique. Timeout after possible acceptance becomes `dispatch_ambiguous`; it is never blindly retried. Exactly one matching recent job may be reconciled; zero/multiple candidates remain ambiguous and are canceled where identifiable.
+
+Polling, watchdog, cancel, relaunch denial, OCSF projection, and links use controller plus child/job binding. Host events resolve by AWX host ID within the frozen child snapshot. If AWX supplies only a name, the bridge must enrich it from job-scoped AWX host data to one host ID; ambiguity or an unknown/extra/missing target fails visibly. Names and addresses never cause a cross-target fallback.
+
+Parent status is derived from child/target outcomes. If any child fails or becomes ambiguous during multi-child dispatch, ServiceRadar stops undispatched children, cancels every accepted child, revokes every prepared callback reference, and persists `dispatch_partial`; cancellation uncertainty additionally persists `cancel_failed`. It never continues the operation as ordinary partial success. Cancellation addresses every non-terminal child; later events cannot silently reactivate a canceled/revoked plan.
+
+### Decision: Callback actions are launch gates, not ordinary variables
+
+Catalog metadata may declare reviewed callback action names. The planner includes the exact actions and reviewed ephemeral custom-credential type/dynamic slot in the immutable authority snapshot. It calls a callback-owned interface: `prepare(snapshot, actor)` returns only an opaque pending reference after the local plan exists; `materialize_attach(ref, child)` lets the trusted dispatcher use the opaque envelope to create/bind one per-child AWX credential instance and append only its ID to dispatch state without changing authority; `bind_activate(ref, controller, job, full_snapshot)` is delayed until post-start job-host-summary equality marks the child `scope_verified`, with callbacks returning bounded pending responses before then; `revoke_cleanup(ref, outcome)` revokes/closes grant state as appropriate and detaches/deletes the instance on credential/create/launch failure, scope mismatch, ambiguity, partial dispatch, cancellation, consumption, and every successful or failed terminal outcome. This child invokes the interface but does not mint, resolve, activate, consume, or revoke grants itself. Reusable static callback credentials and AWX callback external state before local plan commit are forbidden. Until the callback child implements the interface, callback-enabled bindings are unavailable. No callback URL, bearer, credential instance, or response data is accepted from a browser, survey, inventory, ordinary variable, or worker.
+
+### Decision: Failed staged mutations create durable target holds
+
+The control plane derives versioned `automation.mutation_phase.v1` outcomes only from authenticated AWX controller lifecycle for an exact bound child/job/host/action/template/revision over the mTLS edge command path; target stdout, `set_stats`, facts, inventory variables, and arbitrary event fields cannot advance phase. A reviewed wrapper's diagnostics may explain failure but are not sole commit evidence. Each outcome binds child, controller/inventory/AWX host ID, canonical device, transaction ID, generation, policy digest, phase, deadline, timestamp, and outcome digest. The graph is `initial -> staged`; `staged -> verified | rolled_back | critical | unknown`; `verified -> committed | rolled_back | critical | unknown`; and `committed`, `rolled_back`, `critical`, and `unknown` are immutable terminal phases. Byte-identical replay under the same event/idempotency key is accepted idempotently; a conflicting replay, invalid/out-of-order evidence, or deadline expiry transitions to `unknown` and holds the device, never inferred success.
+
+The control plane persists a hold keyed to canonical device and records the triggering membership/transaction/generation. `critical`, `unknown`, failed/unproven rollback, expired staged mutation without verified prior state, or callback/authorization contraction during mutation blocks later mutating waves through every linked AWX membership for that device, preventing membership switching from bypassing quarantine. The Ansible role emits machine-readable outcomes; this change owns durable quarantine, wave exclusion, operator-visible diagnostics, and an evidence-backed reconcile/clear action requiring exact `ansible.targets.holds.clear`, administrator-only by default, plus applicable approval and current target policy. `ansible.runs.launch` or `ansible.runs.cancel` alone cannot clear a hold. Read-only diagnostics may remain allowed by policy.
+
+## Risks / Trade-offs
+
+- Exact tuple binding adds schema and migration work. It removes silent cross-inventory targeting and is required before fleet mutation.
+- Some AWX templates rely on permissive prompts or raw variables. They remain visible but unavailable until explicitly rebound to a reviewed schema.
+- AWX event payloads may omit host IDs. The bridge must enrich job-scoped events or fail attribution; guessing by global hostname is not acceptable.
+- Dispatch ambiguity may require operator reconciliation. Automatic relaunch is more dangerous than a visible stopped operation.
+
+## Migration and Rollback
+
+1. Merge/archive delivered AWX baseline specs, then add membership/parent-child/hold schema without enabling hardened launches.
+2. Backfill memberships from current AWX inventory sync; mark ambiguous, missing, duplicate, or stale device links non-launchable.
+3. Migrate existing runs as legacy read-only records with their known controller/job/name evidence; purge/redact active run/schedule `requested_extra_vars` and corresponding PaperTrail/action inputs without retaining secret-value hashes, and do not fabricate host IDs or actor authority. Existing immutable backups expire under a documented bounded retention window; restores must run the scrub migration before application traffic. Operators rotate/revoke any credential that may have appeared in legacy variables and document backup/tombstone handling rather than claiming instant historical erasure.
+4. Import reviewed template bindings and enable read-only/check launches first, then canary mutations after target equality/audit tests pass.
+5. Disable the launch feature flag to roll back new dispatch. Preserve immutable records/holds and continue event/cancel reconciliation; never fall back to the legacy launcher.
