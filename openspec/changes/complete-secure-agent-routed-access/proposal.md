@@ -2,7 +2,7 @@
 
 ## Why
 
-ServiceRadar already contains most of an agent-routed SSH, Proxmox console, and desktop/RDP stack, but the deployed feature is not operationally complete. The live `demo` deployment enables only the RDP control-plane flag, leaves SSH and the SSH CA signer disabled, has no successful generic SSH session, has 24 Proxmox console sessions stuck in `requested`, points its only RDP target at an unreachable host, and advertises RDP from a helper whose live connector proof remains incomplete.
+ServiceRadar already contains most of an agent-routed SSH, Proxmox console, and desktop/RDP stack, but the deployed feature is not operationally complete. The live `demo` deployment enables only the RDP control-plane flag, leaves SSH and the SSH CA signer disabled, has no successful generic SSH session, has 24 Proxmox console sessions stuck in `requested`, points its only RDP target at a stale unlinked device identity, and advertises RDP from a helper whose live connector proof remains incomplete.
 
 The partial paths also disagree about security and rendering. Proxmox guest sessions can be routed toward the guest instead of its parent PVE, QEMU RFB/VNC bytes are forwarded into an xterm terminal, inventory credentials can qualify as reusable console credentials, and the legacy Proxmox broker lacks the generic remote-access broker's atomic ticket, continuous authorization, and authenticated return-route controls.
 
