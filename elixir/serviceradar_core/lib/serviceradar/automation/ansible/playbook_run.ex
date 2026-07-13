@@ -149,7 +149,6 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRun do
         :playbook_id,
         :controller_id,
         :schedule_id,
-        :requested_extra_vars,
         :requested_by_actor_id,
         :host_limit,
         :metadata

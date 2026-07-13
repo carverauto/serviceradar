@@ -3,6 +3,14 @@ defmodule ServiceRadar.Automation.Ansible.RunLauncherTest do
 
   alias ServiceRadar.Automation.Ansible.RunLauncher
 
+  test "legacy launch fails closed before persistence or dispatch" do
+    assert {:error, :hardened_awx_targeting_required} =
+             RunLauncher.launch(
+               %{playbook_id: "uuid-1", device_uids: ["sr:a"]},
+               actor: %{id: "user-1"}
+             )
+  end
+
   describe "validate_intent/1" do
     test "OK when playbook_id is present and device_uids is non-empty" do
       assert :ok =
