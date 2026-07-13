@@ -23,7 +23,7 @@
 - [x] 4.4 Seeding test: controller seed schedules health/catalog/pulse workers + assignment; boot/backstop seed schedules all controllers and reconciles all assignments
 
 ## 5. Rollout & verification (demo)
-- [ ] 5.1 Hand-run the migration on demo via rpc (`Ecto.Migrator.run … prefix: "platform"`); verify tables exist
-- [ ] 5.2 Approve the `awx-inventory-sync` package on demo
-- [ ] 5.3 Register a controller in the UI (base_url `http://awx-service.awx.svc.cluster.local`, agent `k8s-agent`, AWX API token secret); confirm the assignment materializes, the plugin authenticates, and a `DeviceDiscovery("awx")` aggregate lands for AWX inventories 1 (Demo) / 34 (proxmox)
-- [ ] 5.4 Confirm "AWX Inventory Sync" check goes from "controller_id is required" to OK
+- [x] 5.1 Verify the deployed migration on demo: the `platform.ansible_*` controller, repository, playbook, run, target, play, task, result, schedule, and version tables exist in CNPG
+- [x] 5.2 Verify demo package approval: `awx-inventory-sync` 0.1.1 is approved and its policy assignment to `k8s-agent` is enabled
+- [x] 5.3 Verify the registered `demo-awx` controller at `http://awx-service.awx.svc.cluster.local` reports AWX 24.6.1 healthy through `k8s-agent`, the assignment authenticates, four catalog playbooks exist, and AWX inventory metadata is present for inventories 1 and 34
+- [x] 5.4 Verify the live "AWX Inventory Sync" status is available with `20 hosts across 2 inventories on demo-awx` rather than `controller_id is required`
