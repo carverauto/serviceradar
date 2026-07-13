@@ -49,6 +49,7 @@ go_library(
         "plugin_condition_debounce.go",
         "plugin_runtime.go",
         "plugin_runtime_actions.go",
+        "plugin_runtime_action_result.go",
         "plugin_runtime_artifact.go",
         "plugin_runtime_assignment.go",
         "plugin_runtime_execution.go",
@@ -187,6 +188,7 @@ go_test(
         "plugin_condition_debounce_test.go",
         "plugin_runtime_action_test.go",
         "plugin_runtime_artifact_test.go",
+        "plugin_runtime_hpna_integration_test.go",
         "plugin_runtime_local_test.go",
         "plugin_runtime_network_test.go",
         "plugin_runtime_test.go",
@@ -285,6 +287,16 @@ go_test(
         "//build/wasm_plugins:hello_wasm_wasm",
         "//build/wasm_plugins:sample_northbound_wasm",
     ],
+    embed = [":agent"],
+    deps = [
+        "//go/pkg/logger",
+        "//proto",
+    ],
+)
+
+go_test(
+    name = "plugin_runtime_hpna_integration_test",
+    srcs = ["plugin_runtime_hpna_integration_test.go"],
     embed = [":agent"],
     deps = [
         "//go/pkg/logger",

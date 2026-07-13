@@ -20,6 +20,9 @@ const (
 	// CapabilityProducerScheduleV1 marks add-ons or plugins that declare
 	// platform-managed producer schedules in their package manifest.
 	CapabilityProducerScheduleV1 = "producer-schedule:v1"
+	// CapabilityActionResultIngestV1 authorizes an approved package's action
+	// result to enter the normal plugin-result ingestion queue.
+	CapabilityActionResultIngestV1 = "action-result-ingest:v1"
 
 	// ProducerScheduleRunSchemaV1 is the commandbus payload schema sent to a
 	// scheduled producer action.

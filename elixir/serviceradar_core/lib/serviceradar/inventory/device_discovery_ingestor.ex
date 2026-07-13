@@ -32,6 +32,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   mint a new duplicate device per rotation.
   """
 
+  alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SyncIngestor
 
@@ -70,14 +71,34 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     actor = Keyword.fetch!(opts, :actor)
     device_sync = Keyword.get(opts, :device_sync, &sync_device_inventory/2)
 
-    updates =
+    source_observation_sync =
+      Keyword.get(opts, :source_observation_sync, &sync_source_observations/3)
+
+    source_observation_preflight =
+      Keyword.get(opts, :source_observation_preflight, &preflight_source_observations/3)
+
+    discovery_batches =
       payload
       |> discovery_envelopes()
-      |> Enum.flat_map(&device_updates(&1, payload, status))
+      |> Enum.map(fn envelope ->
+        {envelope, device_updates(envelope, payload, status)}
+      end)
 
-    case updates do
-      [] -> :ok
-      updates -> device_sync.(updates, %{actor: actor})
+    context = source_observation_context(status, actor)
+
+    with {:ok, process_batches} <-
+           preflight_source_observation_batches(
+             discovery_batches,
+             context,
+             source_observation_preflight
+           ),
+         updates = Enum.flat_map(process_batches, fn {_envelope, batch} -> batch end),
+         :ok <- sync_devices_if_present(updates, actor, device_sync) do
+      sync_source_observation_batches(
+        process_batches,
+        context,
+        source_observation_sync
+      )
     end
   rescue
     e ->
@@ -89,6 +110,54 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
   defp sync_device_inventory(updates, context) when is_list(updates) do
     SyncIngestor.ingest_updates(updates, actor: context.actor)
+  end
+
+  defp sync_devices_if_present([], _actor, _device_sync), do: :ok
+
+  defp sync_devices_if_present(updates, actor, device_sync) do
+    device_sync.(updates, %{actor: actor})
+  end
+
+  defp sync_source_observations(envelope, updates, context) do
+    DeviceSourceObservationIngestor.ingest(envelope, updates, context)
+  end
+
+  defp preflight_source_observations(envelope, updates, context) do
+    DeviceSourceObservationIngestor.preflight(envelope, updates, context)
+  end
+
+  defp source_observation_context(status, actor) do
+    %{
+      actor: actor,
+      partition: partition_value(status)
+    }
+  end
+
+  defp preflight_source_observation_batches(batches, context, preflight) do
+    batches
+    |> Enum.reduce_while({:ok, []}, fn {envelope, updates} = batch, {:ok, acc} ->
+      case preflight.(envelope, updates, context) do
+        :ok -> {:cont, {:ok, [batch | acc]}}
+        {:ok, :process} -> {:cont, {:ok, [batch | acc]}}
+        {:ok, :idempotent} -> {:cont, {:ok, acc}}
+        {:error, _} = error -> {:halt, error}
+        _other -> {:halt, {:error, :invalid_source_observation_preflight_result}}
+      end
+    end)
+    |> case do
+      {:ok, process_batches} -> {:ok, Enum.reverse(process_batches)}
+      error -> error
+    end
+  end
+
+  defp sync_source_observation_batches(batches, context, source_observation_sync) do
+    Enum.reduce_while(batches, :ok, fn {envelope, updates}, :ok ->
+      case source_observation_sync.(envelope, updates, context) do
+        :ok -> {:cont, :ok}
+        {:error, _} = error -> {:halt, error}
+        _other -> {:halt, {:error, :invalid_source_observation_result}}
+      end
+    end)
   end
 
   defp discovery_envelopes(payload) do

@@ -16,6 +16,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
       {device_type, device_type_id} = Enrichment.infer_device_type(update, classification)
       metadata = Enrichment.merge_classification_metadata(update.metadata || %{}, classification)
       owner = Enrichment.infer_owner(update, metadata)
+      persisted_metadata = persisted_metadata(metadata, source)
 
       record = %{
         uid: device_id,
@@ -39,7 +40,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
         is_managed: true,
         is_active: true,
         owner: owner,
-        metadata: metadata,
+        metadata: persisted_metadata,
         tags: update.tags || %{},
         discovery_sources: [source],
         first_seen_time: update.first_seen_time || timestamp,
@@ -121,4 +122,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
     do: new_value
 
   defp prefer_positive_int(_new_value, old_value), do: old_value
+
+  # HPNA source identity lives in typed identifiers and source observations.
+  # Dropping only generic identity keys prevents an HPNA refresh from replacing
+  # an existing Armis integration identity; hpna_* fields remain available.
+  defp persisted_metadata(metadata, "hpna") do
+    Map.drop(metadata, ["integration_id", "integration_type"])
+  end
+
+  defp persisted_metadata(metadata, _source), do: metadata
 end

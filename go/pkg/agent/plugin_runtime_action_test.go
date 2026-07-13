@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -70,6 +71,31 @@ func TestPluginManagerRunActionWithFixtureWasm(t *testing.T) {
 	if queued := manager.DrainResults(1); len(queued) != 0 {
 		t.Fatalf("action result should not be queued as scheduled output, got %d queued result(s)", len(queued))
 	}
+}
+
+func TestPluginManagerActionAdmissionIsScopedToAssignment(t *testing.T) {
+	t.Parallel()
+
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{})
+	defer manager.Stop()
+
+	if !manager.acquireAction("hpna-primary") {
+		t.Fatal("first action should acquire the assignment")
+	}
+	if manager.acquireAction("hpna-primary") {
+		t.Fatal("overlapping action for the same assignment should be rejected")
+	}
+	if !manager.acquireAction("other-inventory") {
+		t.Fatal("an unrelated assignment should be admitted")
+	}
+
+	manager.releaseAction("hpna-primary")
+	if !manager.acquireAction("hpna-primary") {
+		t.Fatal("assignment should be admitted after the active action completes")
+	}
+
+	manager.releaseAction("hpna-primary")
+	manager.releaseAction("other-inventory")
 }
 
 func TestPluginManagerRunPluginVerbWithFixtureWasm(t *testing.T) {
@@ -344,6 +370,245 @@ func TestApplyCredentialBrokerHTTPInjectionSetsBearerHeader(t *testing.T) {
 	}
 	if got := req.Header.Get("Authorization"); got != "Bearer "+resolvedToken {
 		t.Fatalf("Authorization header = %q, want bearer token", got)
+	}
+}
+
+func TestApplyCredentialBrokerFormInjectionTargetsExactEndpoint(t *testing.T) {
+	t.Parallel()
+
+	req, err := http.NewRequest(
+		http.MethodPost,
+		"https://hpna.example.com/oauth/token",
+		strings.NewReader("scope=inventory"),
+	)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	grant := credentialBrokerGrant{Inject: map[string]string{
+		"type":             "form_urlencoded",
+		"method":           http.MethodPost,
+		"host":             "hpna.example.com",
+		"path":             "/oauth/token",
+		"field_username":   "username",
+		"field_password":   "password",
+		"fixed_grant_type": "password",
+	}}
+	material := CredentialBrokerMaterial{Fields: map[string]string{
+		"username": "svc-nco",
+		"password": " secret-value ",
+	}}
+
+	if err := applyCredentialBrokerHTTPInjection(req, grant, material); err != nil {
+		t.Fatalf("applyCredentialBrokerHTTPInjection returned error: %v", err)
+	}
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("read request body: %v", err)
+	}
+	form, err := url.ParseQuery(string(body))
+	if err != nil {
+		t.Fatalf("parse injected form: %v", err)
+	}
+	if got := form.Get("username"); got != "svc-nco" {
+		t.Fatalf("username = %q, want svc-nco", got)
+	}
+	if got := form.Get("password"); got != " secret-value " {
+		t.Fatalf("password = %q, want injected secret", got)
+	}
+	if got := form.Get("grant_type"); got != "password" {
+		t.Fatalf("grant_type = %q, want password", got)
+	}
+	if got := form.Get("scope"); got != "inventory" {
+		t.Fatalf("scope = %q, want preserved caller field", got)
+	}
+}
+
+func TestApplyCredentialBrokerFormInjectionRejectsCallerSecretField(t *testing.T) {
+	t.Parallel()
+
+	req, err := http.NewRequest(
+		http.MethodPost,
+		"https://hpna.example.com/oauth/token",
+		strings.NewReader("username=caller-supplied"),
+	)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	grant := credentialBrokerGrant{Inject: map[string]string{
+		"type":           "form_urlencoded",
+		"method":         http.MethodPost,
+		"host":           "hpna.example.com",
+		"path":           "/oauth/token",
+		"field_username": "username",
+	}}
+
+	err = applyCredentialBrokerHTTPInjection(req, grant, CredentialBrokerMaterial{
+		Fields: map[string]string{"username": "svc-nco"},
+	})
+	if !errors.Is(err, errCredentialBrokerSecretFieldPresent) {
+		t.Fatalf("expected caller secret field rejection, got %v", err)
+	}
+}
+
+func TestApplyCredentialBrokerFormInjectionIgnoresOtherEndpoint(t *testing.T) {
+	t.Parallel()
+
+	req, err := http.NewRequest(
+		http.MethodPost,
+		"https://hpna.example.com/api/devices",
+		strings.NewReader(`{"command":"list device"}`),
+	)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	grant := credentialBrokerGrant{Inject: map[string]string{
+		"type":           "form_urlencoded",
+		"method":         http.MethodPost,
+		"host":           "hpna.example.com",
+		"path":           "/oauth/token",
+		"field_username": "username",
+	}}
+
+	if err := applyCredentialBrokerHTTPInjection(req, grant, CredentialBrokerMaterial{
+		Fields: map[string]string{"username": "svc-nco"},
+	}); err != nil {
+		t.Fatalf("non-target injection returned error: %v", err)
+	}
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("read request body: %v", err)
+	}
+	if got := string(body); got != `{"command":"list device"}` {
+		t.Fatalf("request body changed for non-target endpoint: %s", got)
+	}
+}
+
+func TestApplyCredentialBrokerFormInjectionRequiresHTTPSAndMaterial(t *testing.T) {
+	t.Parallel()
+
+	grant := credentialBrokerGrant{Inject: map[string]string{
+		"type":           "form_urlencoded",
+		"method":         http.MethodPost,
+		"host":           "hpna.example.com",
+		"path":           "/oauth/token",
+		"field_username": "username",
+	}}
+
+	httpReq, err := http.NewRequest(http.MethodPost, "http://hpna.example.com/oauth/token", nil)
+	if err != nil {
+		t.Fatalf("create HTTP request: %v", err)
+	}
+	if err := applyCredentialBrokerHTTPInjection(httpReq, grant, CredentialBrokerMaterial{
+		Fields: map[string]string{"username": "svc-nco"},
+	}); !errors.Is(err, errCredentialBrokerFormInvalid) {
+		t.Fatalf("expected non-HTTPS form rejection, got %v", err)
+	}
+
+	httpsReq, err := http.NewRequest(http.MethodPost, "https://hpna.example.com/oauth/token", nil)
+	if err != nil {
+		t.Fatalf("create HTTPS request: %v", err)
+	}
+	if err := applyCredentialBrokerHTTPInjection(httpsReq, grant, CredentialBrokerMaterial{}); !errors.Is(err, errCredentialBrokerMaterialUnavailable) {
+		t.Fatalf("expected missing material rejection, got %v", err)
+	}
+}
+
+func TestPluginManagerEnqueueActionResultQueuesFullPayloadAndReturnsBoundedAck(t *testing.T) {
+	t.Parallel()
+
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{Logger: logger.NewTestLogger()})
+	defer manager.Stop()
+	assignment := &pluginAssignment{
+		AssignmentID: "hpna-assignment-1",
+		PluginID:     "hpna-inventory",
+		Name:         "HPNA Inventory",
+		Capabilities: map[string]bool{pluginCapabilityActionResultIngest: true},
+	}
+	payload := []byte(`{
+		"status":"OK",
+		"summary":"Collected HPNA inventory",
+		"device_discovery":[{
+			"schema":"serviceradar.device_discovery.v1",
+			"collection_id":"hpna-collection-1",
+			"reference_hash":"sha256:abc123",
+			"devices":[
+				{"source_id":"hpna:v1:prod:device:1","metadata":{"private":"do-not-return"}},
+				{"source_id":"hpna:v1:prod:device:2"}
+			],
+			"metadata":{
+				"page_count":2,
+				"received_rows":2,
+				"invalid_rows":0,
+				"duplicate_rows":0,
+				"snapshot_complete":true
+			}
+		}]
+	}`)
+
+	ackPayload, err := manager.enqueueActionResult(t.Context(), assignment, payload)
+	if err != nil {
+		t.Fatalf("enqueueActionResult returned error: %v", err)
+	}
+	if strings.Contains(string(ackPayload), "do-not-return") ||
+		strings.Contains(string(ackPayload), "source_id") {
+		t.Fatalf("ack exposes raw inventory: %s", ackPayload)
+	}
+
+	var ack map[string]any
+	if err := json.Unmarshal(ackPayload, &ack); err != nil {
+		t.Fatalf("decode action result ack: %v", err)
+	}
+	if got := ack["schema"]; got != actionResultAckSchema {
+		t.Fatalf("ack schema = %v, want %s", got, actionResultAckSchema)
+	}
+	if got := ack["status"]; got != "succeeded" {
+		t.Fatalf("ack status = %v, want succeeded", got)
+	}
+	if got := ack["device_count"]; got != float64(2) {
+		t.Fatalf("ack device_count = %v, want 2", got)
+	}
+
+	queued := manager.DrainResults(1)
+	if len(queued) != 1 {
+		t.Fatalf("queued results = %d, want 1", len(queued))
+	}
+	if got := string(queued[0].Payload); got != string(payload) {
+		t.Fatalf("queued payload changed\ngot:  %s\nwant: %s", got, payload)
+	}
+}
+
+func TestPluginManagerEnqueueActionResultRejectsInvalidAndBackpressure(t *testing.T) {
+	t.Parallel()
+
+	assignment := &pluginAssignment{
+		AssignmentID: "hpna-assignment-1",
+		PluginID:     "hpna-inventory",
+		Name:         "HPNA Inventory",
+	}
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{Logger: logger.NewTestLogger()})
+	defer manager.Stop()
+
+	invalidPayloads := [][]byte{
+		[]byte(`{"status":"OK","summary":"ok"}{"extra":true}`),
+		[]byte(`{"status":"OK","summary":""}`),
+		[]byte(`{"status":"not-a-status","summary":"bad"}`),
+	}
+	for _, payload := range invalidPayloads {
+		if _, err := manager.enqueueActionResult(t.Context(), assignment, payload); !errors.Is(err, errPluginActionResultInvalid) {
+			t.Fatalf("expected invalid action result for %q, got %v", payload, err)
+		}
+	}
+
+	manager.results = make(chan PluginResult)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := manager.enqueueActionResult(
+		ctx,
+		assignment,
+		[]byte(`{"status":"OK","summary":"valid"}`),
+	); !errors.Is(err, errPluginActionResultBackpressure) {
+		t.Fatalf("expected action result backpressure, got %v", err)
 	}
 }
 

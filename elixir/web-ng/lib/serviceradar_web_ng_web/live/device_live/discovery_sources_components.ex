@@ -17,18 +17,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
   use ServiceRadarWebNGWeb, :html
 
   attr(:device_row, :map, required: true)
+  attr(:source_observations, :list, default: [])
 
   def discovery_sources_section(assigns) do
     metadata = row_metadata(assigns.device_row)
     chips = source_chips(assigns.device_row, metadata)
+    observations = Enum.filter(assigns.source_observations, &is_map/1)
 
     assigns =
       assigns
       |> assign(:source_chips, chips)
       |> assign(:has_sources, chips != [])
+      |> assign(:source_observations, observations)
+      |> assign(:has_source_observations, observations != [])
 
     ~H"""
-    <div :if={@has_sources} class="rounded-xl border border-base-200 bg-base-100">
+    <div
+      :if={@has_sources or @has_source_observations}
+      class="rounded-xl border border-base-200 bg-base-100"
+    >
       <div class="px-4 py-3 border-b border-base-200 flex items-center gap-2">
         <.icon name="hero-arrow-path-rounded-square" class="size-4 text-secondary" />
         <span class="text-sm font-semibold">Discovery Sources</span>
@@ -37,7 +44,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
         </span>
       </div>
 
-      <div class="flex flex-wrap gap-2 p-4">
+      <div :if={@has_sources} class="flex flex-wrap gap-2 p-4">
         <span
           :for={chip <- @source_chips}
           class={[
@@ -64,6 +71,42 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
             {chip.item_count}
           </span>
         </span>
+      </div>
+
+      <div :if={@has_source_observations} class="overflow-x-auto border-t border-base-200">
+        <table class="table table-sm w-full">
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th>Instance / Object</th>
+              <th>State</th>
+              <th>Last observed</th>
+              <th>Collection</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={observation <- @source_observations}>
+              <td class="font-medium">{source_display(observation)}</td>
+              <td>
+                <div class="font-mono text-xs">
+                  {observation_value(observation, "source_instance")}
+                </div>
+                <div class="font-mono text-xs text-base-content/60">
+                  {observation_value(observation, "source_object_id")}
+                </div>
+              </td>
+              <td>
+                <span class={source_state_class(observation)}>{source_state(observation)}</span>
+              </td>
+              <td class="font-mono text-xs">
+                {observation_value(observation, "last_observed_at")}
+              </td>
+              <td class="font-mono text-xs">
+                {observation_value(observation, "collection_id")}
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
     """
@@ -161,6 +204,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
   defp source_label_icon("awx"), do: {"AWX / Ansible", "hero-command-line"}
   defp source_label_icon("ansible"), do: {"AWX / Ansible", "hero-command-line"}
   defp source_label_icon("armis"), do: {"Armis", "hero-shield-check"}
+  defp source_label_icon("hpna"), do: {"HPNA", "hero-server-stack"}
   defp source_label_icon("netbox"), do: {"NetBox", "hero-server-stack"}
   defp source_label_icon("unifi"), do: {"UniFi", "hero-wifi"}
   defp source_label_icon("mikrotik"), do: {"MikroTik", "hero-cpu-chip"}
@@ -209,6 +253,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
       {"Device ID", metadata_first(metadata, ["armis_device_id", "source_device_id", "integration_id"]), mono: true},
       {"Category", metadata_first(metadata, ["armis_category", "category"])},
       {"Risk level", metadata_lookup(metadata, "armis_risk_level")}
+    ])
+  end
+
+  defp source_items("hpna", metadata, _row) do
+    build_items([
+      {"Instance", metadata_lookup(metadata, "hpna_instance_id"), mono: true},
+      {"Device ID", metadata_lookup(metadata, "hpna_device_id"), mono: true},
+      {"Partition", metadata_lookup(metadata, "hpna_partition")},
+      {"Type", metadata_lookup(metadata, "hpna_device_type")},
+      {"Status", metadata_lookup(metadata, "hpna_management_status")}
     ])
   end
 
@@ -283,6 +337,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
     ])
   end
 
+  defp source_display(observation) do
+    observation
+    |> observation_value("source")
+    |> normalize_source()
+    |> source_label_icon()
+    |> elem(0)
+  end
+
+  defp source_state(observation) do
+    if observation_value(observation, "present") == true, do: "Current", else: "Absent"
+  end
+
+  defp source_state_class(observation) do
+    base = "badge badge-sm"
+
+    if observation_value(observation, "present") == true,
+      do: base <> " badge-success",
+      else: base <> " badge-warning"
+  end
+
+  defp observation_value(observation, key) when is_map(observation) do
+    map_value(observation, key)
+  end
+
   # ---------------------------------------------------------------------------
   # Helpers
   # ---------------------------------------------------------------------------
@@ -323,7 +401,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
   defp humanize(_source), do: "Source"
 
   defp row_value(row, key) when is_map(row) and is_binary(key) do
-    Map.get(row, key, Map.get(row, String.to_atom(key)))
+    map_value(row, key)
   end
 
   defp row_value(_row, _key), do: nil
@@ -338,7 +416,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
   defp row_metadata(_row), do: %{}
 
   defp metadata_lookup(metadata, key) when is_map(metadata) and is_binary(key) do
-    Map.get(metadata, key, Map.get(metadata, String.to_atom(key)))
+    map_value(metadata, key)
   end
 
   defp metadata_lookup(_metadata, _key), do: nil
@@ -353,4 +431,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
   end
 
   defp metadata_first(_metadata, _keys), do: nil
+
+  defp map_value(map, key) when is_map(map) and is_binary(key) do
+    case Map.fetch(map, key) do
+      {:ok, value} ->
+        value
+
+      :error ->
+        Enum.reduce_while(map, nil, fn
+          {candidate, value}, _acc when is_atom(candidate) ->
+            if Atom.to_string(candidate) == key,
+              do: {:halt, value},
+              else: {:cont, nil}
+
+          _entry, _acc ->
+            {:cont, nil}
+        end)
+    end
+  end
 end

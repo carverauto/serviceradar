@@ -685,6 +685,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/dashboard-packages/:id/disable", DashboardPackagePublishController, :disable)
   end
 
+  scope "/api/v1", ServiceRadarWebNGWeb.Api do
+    pipe_through(:api_key_auth)
+
+    get("/source-inventory", SourceInventoryController, :index)
+  end
+
   ## Authentication routes
   # Password login, logout, and password reset. Credential-bearing
   # POSTs are split into their own sub-scopes so they get the

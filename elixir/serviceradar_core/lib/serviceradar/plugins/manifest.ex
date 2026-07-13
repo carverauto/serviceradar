@@ -74,7 +74,9 @@ defmodule ServiceRadar.Plugins.Manifest do
     "udp_sendto",
     "artifact-staging:v1",
     "advisory-feed:v1",
-    "producer-schedule:v1"
+    "producer-schedule:v1",
+    "action-result-ingest:v1",
+    "action-only:v1"
   ]
   @allowed_producer_dispatch_scopes ["assignment", "package", "target_query"]
   @allowed_producer_command_types ["plugin.run_action", "addon.run_command"]

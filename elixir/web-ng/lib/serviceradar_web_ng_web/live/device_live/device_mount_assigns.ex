@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:device_refresh_last_at, nil)
     |> assign(:device_refresh_timer, nil)
     |> assign(:results, [])
+    |> assign(:source_observations, [])
     |> assign(:panels, [])
     |> assign(:metric_sections, [])
     |> assign(:sysmon_presence, false)

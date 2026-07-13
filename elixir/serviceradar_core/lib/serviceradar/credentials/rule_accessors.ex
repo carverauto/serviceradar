@@ -90,6 +90,7 @@ defmodule ServiceRadar.Credentials.RuleAccessors do
       "generic" -> :generic
       "camera_inventory" -> :camera_inventory
       "camera_stream" -> :camera_stream
+      "device_inventory" -> :device_inventory
       _ -> @inventory_purpose
     end
   end
@@ -130,4 +131,15 @@ defmodule ServiceRadar.Credentials.RuleAccessors do
   defp metadata_atom_key("rtsp_port"), do: :rtsp_port
   defp metadata_atom_key("bootstrap_path"), do: :bootstrap_path
   defp metadata_atom_key("login_path"), do: :login_path
+  defp metadata_atom_key("instance_id"), do: :instance_id
+  defp metadata_atom_key("token_url"), do: :token_url
+  defp metadata_atom_key("api_url"), do: :api_url
+  defp metadata_atom_key("queries"), do: :queries
+  defp metadata_atom_key("page_size"), do: :page_size
+  defp metadata_atom_key("max_rows"), do: :max_rows
+  defp metadata_atom_key("max_result_bytes"), do: :max_result_bytes
+  defp metadata_atom_key("request_timeout_seconds"), do: :request_timeout_seconds
+  defp metadata_atom_key("max_retries"), do: :max_retries
+  defp metadata_atom_key("schedule_enabled"), do: :schedule_enabled
+  defp metadata_atom_key("cadence_seconds"), do: :cadence_seconds
 end

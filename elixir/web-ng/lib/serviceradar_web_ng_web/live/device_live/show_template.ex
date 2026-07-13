@@ -171,7 +171,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             <div class="grid grid-cols-1 gap-4">
               <.ocsf_info_section :if={is_map(@device_row)} device_row={@device_row} />
 
-              <.discovery_sources_section :if={is_map(@device_row)} device_row={@device_row} />
+              <.discovery_sources_section
+                :if={is_map(@device_row)}
+                device_row={@device_row}
+                source_observations={@source_observations}
+              />
 
               <.metadata_summary_section :if={is_map(@device_row)} device_row={@device_row} />
 

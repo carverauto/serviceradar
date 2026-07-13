@@ -111,6 +111,8 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 		cancel:             cancel,
 		runners:            make(map[string]*pluginRunner),
 		streams:            make(map[string]*pluginAssignment),
+		actions:            make(map[string]*pluginAssignment),
+		activeActions:      make(map[string]struct{}),
 		results:            make(chan PluginResult, 1024),
 		signals:            make(chan PluginSignalTelemetry, 1024),
 		conditions:         newPluginConditionDebouncer(time.Now),
@@ -186,6 +188,7 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 	prev := m.runners
 	m.runners = make(map[string]*pluginRunner)
 	m.streams = make(map[string]*pluginAssignment)
+	m.actions = make(map[string]*pluginAssignment)
 	m.mu.Unlock()
 
 	for _, runner := range prev {
@@ -204,6 +207,13 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 			m.prefetchAssignment(assignment)
 			continue
 		}
+		if assignment.isActionOnly() {
+			m.mu.Lock()
+			m.actions[assignment.AssignmentID] = assignment
+			m.mu.Unlock()
+			m.prefetchAssignment(assignment)
+			continue
+		}
 
 		runner := newPluginRunner(m, assignment)
 		m.mu.Lock()
@@ -218,7 +228,8 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 
 // refreshDownloadCredentials copies the freshly minted artifact download
 // URL/token from incoming assignments onto the currently held assignments
-// (scheduled runners and streaming registrations) keyed by assignment ID.
+// (scheduled runners, streaming registrations, and action-only registrations)
+// keyed by assignment ID.
 func (m *PluginManager) refreshDownloadCredentials(incoming []*pluginAssignment) {
 	if m == nil || len(incoming) == 0 {
 		return
@@ -233,13 +244,18 @@ func (m *PluginManager) refreshDownloadCredentials(incoming []*pluginAssignment)
 	}
 
 	m.mu.Lock()
-	current := make([]*pluginAssignment, 0, len(m.runners)+len(m.streams))
+	current := make([]*pluginAssignment, 0, len(m.runners)+len(m.streams)+len(m.actions))
 	for _, runner := range m.runners {
 		if runner != nil && runner.assignment != nil {
 			current = append(current, runner.assignment)
 		}
 	}
 	for _, assignment := range m.streams {
+		if assignment != nil {
+			current = append(current, assignment)
+		}
+	}
+	for _, assignment := range m.actions {
 		if assignment != nil {
 			current = append(current, assignment)
 		}
@@ -283,6 +299,25 @@ func (m *PluginManager) releaseSlot() {
 	if m.concurrentActive > 0 {
 		m.concurrentActive--
 	}
+}
+
+func (m *PluginManager) acquireAction(assignmentID string) bool {
+	m.actionMu.Lock()
+	defer m.actionMu.Unlock()
+
+	if _, exists := m.activeActions[assignmentID]; exists {
+		return false
+	}
+
+	m.activeActions[assignmentID] = struct{}{}
+	return true
+}
+
+func (m *PluginManager) releaseAction(assignmentID string) {
+	m.actionMu.Lock()
+	defer m.actionMu.Unlock()
+
+	delete(m.activeActions, assignmentID)
 }
 
 func (m *PluginManager) reserveConnection() bool {
@@ -388,7 +423,11 @@ func (m *PluginManager) DebugSnapshot() PluginEngineDebugSnapshot {
 	}
 
 	m.mu.RLock()
-	assignments := make([]assignmentWithMode, 0, len(m.runners)+len(m.streams))
+	assignments := make(
+		[]assignmentWithMode,
+		0,
+		len(m.runners)+len(m.streams)+len(m.actions),
+	)
 	for _, runner := range m.runners {
 		if runner == nil || runner.assignment == nil {
 			continue
@@ -405,6 +444,15 @@ func (m *PluginManager) DebugSnapshot() PluginEngineDebugSnapshot {
 		assignments = append(assignments, assignmentWithMode{
 			assignment: assignment,
 			mode:       string(pluginExecutionModeStreaming),
+		})
+	}
+	for _, assignment := range m.actions {
+		if assignment == nil {
+			continue
+		}
+		assignments = append(assignments, assignmentWithMode{
+			assignment: assignment,
+			mode:       string(pluginExecutionModeAction),
 		})
 	}
 	m.mu.RUnlock()
@@ -580,6 +628,7 @@ func (m *PluginManager) Stop() {
 	prev := m.runners
 	m.runners = make(map[string]*pluginRunner)
 	m.streams = make(map[string]*pluginAssignment)
+	m.actions = make(map[string]*pluginAssignment)
 	m.mu.Unlock()
 
 	for _, runner := range prev {
@@ -724,11 +773,11 @@ func (m *PluginManager) lookupRunnerAssignment(assignmentID string) (*pluginAssi
 	defer m.mu.RUnlock()
 
 	runner, ok := m.runners[strings.TrimSpace(assignmentID)]
-	if !ok || runner == nil || runner.assignment == nil {
-		return nil, false
+	if ok && runner != nil && runner.assignment != nil {
+		return runner.assignment, true
 	}
-
-	return runner.assignment, true
+	action, ok := m.actions[strings.TrimSpace(assignmentID)]
+	return action, ok && action != nil
 }
 
 // DrainResults returns up to max pending results.
@@ -935,6 +984,12 @@ func (m *PluginManager) RunAction(ctx context.Context, assignmentID string, invo
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	if !m.acquireAction(assignment.AssignmentID) {
+		m.recordExecution(false)
+		return nil, fmt.Errorf("%w %q", errPluginActionAlreadyRunning, assignment.AssignmentID)
+	}
+	defer m.releaseAction(assignment.AssignmentID)
+
 	if !m.acquireSlot() {
 		m.recordExecution(false)
 		return nil, errPluginAdmissionDenied
@@ -960,6 +1015,9 @@ func (m *PluginManager) RunAction(ctx context.Context, assignmentID string, invo
 	}
 
 	result, err := m.executeActionWithWasm(runCtx, assignment, wasm, configJSON, credentialGrants)
+	if err == nil && assignment.ingestsActionResults() {
+		result, err = m.enqueueActionResult(runCtx, assignment, result)
+	}
 	m.recordExecution(err == nil)
 	return result, err
 }
@@ -1036,6 +1094,11 @@ func (m *PluginManager) lookupRunnerAssignmentByPluginID(pluginID string) (*plug
 		}
 		if runner.assignment.PluginID == pluginID {
 			return runner.assignment, true
+		}
+	}
+	for _, assignment := range m.actions {
+		if assignment != nil && assignment.PluginID == pluginID {
+			return assignment, true
 		}
 	}
 

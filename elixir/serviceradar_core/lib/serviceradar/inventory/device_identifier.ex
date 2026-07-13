@@ -12,6 +12,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
   - `armis_device_id` - Armis platform device ID
   - `integration_id` - Generic integration ID
   - `netbox_device_id` - NetBox device ID
+  - `hardware_serial` - Canonical manufacturer-scoped hardware serial
   - `mac` - MAC address (normalized uppercase, no separators)
 
   Weak identifier:
@@ -36,6 +37,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
     :armis_device_id,
     :integration_id,
     :netbox_device_id,
+    :hardware_serial,
     :mac,
     :ip,
     :passive_fingerprint
@@ -263,8 +265,9 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
                   identifier_type == :armis_device_id -> 1
                   identifier_type == :integration_id -> 2
                   identifier_type == :netbox_device_id -> 3
-                  identifier_type == :mac -> 4
-                  identifier_type == :ip -> 5
+                  identifier_type == :hardware_serial -> 4
+                  identifier_type == :mac -> 5
+                  identifier_type == :ip -> 6
                   true -> 99
                 end
               )

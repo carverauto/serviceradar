@@ -34,7 +34,12 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   # aggregates across a whole scanned subnet) must NOT collapse a record that
   # carries its own distinct hardware MAC onto that canonical — see
   # `distinct_mac_veto?/3`.
-  @non_mac_strong_identifiers [:armis_device_id, :integration_id, :netbox_device_id]
+  @non_mac_strong_identifiers [
+    :armis_device_id,
+    :integration_id,
+    :netbox_device_id,
+    :hardware_serial
+  ]
 
   @type lookup_key :: {atom(), String.t(), String.t()}
   @type lookups :: %{identifiers: %{lookup_key() => String.t()}, ip: %{String.t() => String.t()}}

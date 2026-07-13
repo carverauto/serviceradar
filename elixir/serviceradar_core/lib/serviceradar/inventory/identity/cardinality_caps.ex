@@ -22,7 +22,7 @@ defmodule ServiceRadar.Inventory.Identity.CardinalityCaps do
 
   require Logger
 
-  @default_caps %{mac: 64, default: 8}
+  @default_caps %{mac: 64, hardware_serial: 1, default: 8}
 
   @doc "The configured cap for an identifier type."
   @spec cap_for(atom()) :: pos_integer()

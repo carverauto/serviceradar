@@ -9,11 +9,13 @@ defmodule ServiceRadar.Credentials.CredentialProviderProfile do
   provider-specific constants (provider string, purpose set, plugin ids), the
   broker grant spec, and the stored params template.
 
-  Host is never carried inline: `host_source/0` documents that every provider
-  sources host per-target from the SRQL `items[]` (`:per_target_items`).
+  `host_source/0` documents whether a provider resolves hosts per target from
+  SRQL `items[]` or from validated static endpoint metadata. Static endpoints
+  remain public assignment data; credentials are always brokered separately.
   """
 
   alias ServiceRadar.Credentials.ProviderProfiles.AxisProfile
+  alias ServiceRadar.Credentials.ProviderProfiles.HpnaProfile
   alias ServiceRadar.Credentials.ProviderProfiles.ProxmoxProfile
   alias ServiceRadar.Credentials.ProviderProfiles.UnifiProtectProfile
 
@@ -68,12 +70,13 @@ defmodule ServiceRadar.Credentials.CredentialProviderProfile do
   @doc "Secret-ref field names the config-gen allowlist must resolve for this provider."
   @callback secret_ref_fields() :: [String.t()]
 
-  @doc "Where host originates. All providers source host per-target from SRQL items."
-  @callback host_source() :: :per_target_items
+  @doc "Where provider endpoints originate."
+  @callback host_source() :: :per_target_items | :static_endpoint_metadata
 
   @proxmox_profiles [ProxmoxProfile]
   @camera_profiles [UnifiProtectProfile, AxisProfile]
-  @all_profiles @proxmox_profiles ++ @camera_profiles
+  @inventory_profiles [HpnaProfile]
+  @all_profiles @proxmox_profiles ++ @camera_profiles ++ @inventory_profiles
 
   @doc "All registered provider profiles."
   @spec all_profiles() :: [module()]
@@ -82,6 +85,10 @@ defmodule ServiceRadar.Credentials.CredentialProviderProfile do
   @doc "Camera provider profiles (unifi-protect + axis)."
   @spec camera_profiles() :: [module()]
   def camera_profiles, do: @camera_profiles
+
+  @doc "External inventory provider profiles materialized through producer schedules."
+  @spec inventory_profiles() :: [module()]
+  def inventory_profiles, do: @inventory_profiles
 
   @doc "Resolve a profile module by its provider string, if registered."
   @spec profile_for(String.t()) :: {:ok, module()} | :error

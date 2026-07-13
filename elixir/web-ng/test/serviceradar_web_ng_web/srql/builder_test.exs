@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
   alias ServiceRadarWebNGWeb.SRQL.Builder
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
+  @moduletag :db_free
+
   test "parse supports quoted filter values with spaces" do
     query = ~s|in:devices type:"Access Point" sort:last_seen:desc limit:20|
 
@@ -50,6 +52,27 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
     assert "ap_count" in wifi_sites.filter_fields
     assert "ap_count" in wifi_sites.numeric_fields
     assert "all_server_groups" in wifi_sites.array_fields
+  end
+
+  test "device catalog exposes HPNA source and metadata filters" do
+    devices = Catalog.entity("devices")
+
+    assert "hpna" in devices.known_values["discovery_sources"]
+
+    for field <- [
+          "metadata.hpna_instance_id",
+          "metadata.hpna_device_id",
+          "metadata.hpna_partition",
+          "metadata.hpna_management_status",
+          "metadata.hpna_collection_id"
+        ] do
+      assert field in devices.filter_fields
+    end
+
+    assert {:ok, state} =
+             Builder.parse("in:devices discovery_sources:(hpna) metadata.hpna_partition:IAD")
+
+    assert Enum.any?(state["filters"], &(&1["field"] == "metadata.hpna_partition"))
   end
 
   test "builds default WiFi site query" do

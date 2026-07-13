@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.NorthboundHistoryData
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
+  alias ServiceRadarWebNGWeb.DeviceLive.SourceObservationData
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonProfileData
 
@@ -186,6 +187,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       virtualization_summary: virtualization_summary,
       has_virtualization_guests: virtualization_guests?(virtualization_summary),
       sweep_results: Map.get(parallel_results, :sweep, []),
+      source_observations: Map.get(parallel_results, :source_observations, []),
       sysmon_profile_info: sysmon_profile_info,
       available_profiles: available_profiles,
       network_interfaces: network_interfaces,
@@ -251,6 +253,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       end),
       DeviceTaskData.timed(slow_device_task_ms, :sweep, fn ->
         DiscoveryData.load_sweep_results(current_scope, device_ip)
+      end),
+      DeviceTaskData.timed(slow_device_task_ms, :source_observations, fn ->
+        SourceObservationData.load(current_scope, uid)
       end),
       DeviceTaskData.timed(slow_device_task_ms, :mapper, fn ->
         DiscoveryData.load_mapper_jobs_for_device(scope, device_row)

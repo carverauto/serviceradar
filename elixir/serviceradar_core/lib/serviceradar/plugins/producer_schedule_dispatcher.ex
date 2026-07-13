@@ -478,8 +478,15 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
         if present?(secret_ref) do
           requirement = Map.get(requirements, key, %{})
 
-          case issue_credential_grant(key, secret_ref, requirement, schedule, assignment, opts) do
-            {:ok, grant} -> {:cont, {:ok, [grant | grants]}}
+          case issue_credential_grants_for_requirement(
+                 key,
+                 secret_ref,
+                 requirement,
+                 schedule,
+                 assignment,
+                 opts
+               ) do
+            {:ok, issued} -> {:cont, {:ok, [issued | grants]}}
             {:error, reason} -> {:halt, {:error, reason}}
           end
         else
@@ -487,9 +494,154 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
         end
       end)
       |> case do
+        {:ok, grants} -> {:ok, grants |> Enum.reverse() |> List.flatten()}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp issue_credential_grants_for_requirement(
+         key,
+         secret_ref,
+         requirement,
+         schedule,
+         assignment,
+         opts
+       ) do
+    with {:ok, requirements} <- expand_credential_grant_requirements(key, requirement) do
+      requirements
+      |> Enum.reduce_while({:ok, []}, fn grant_requirement, {:ok, grants} ->
+        with {:ok, resolved_requirement} <-
+               resolve_credential_grant_endpoint(key, grant_requirement, schedule),
+             {:ok, grant} <-
+               issue_credential_grant(
+                 key,
+                 secret_ref,
+                 resolved_requirement,
+                 schedule,
+                 assignment,
+                 opts
+               ) do
+          {:cont, {:ok, [grant | grants]}}
+        else
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+      |> case do
         {:ok, grants} -> {:ok, Enum.reverse(grants)}
         {:error, reason} -> {:error, reason}
       end
+    end
+  end
+
+  defp expand_credential_grant_requirements(key, requirement) do
+    requirement = normalize_map(requirement)
+
+    case map_get(requirement, "grants") do
+      nil ->
+        {:ok, [requirement]}
+
+      grants when is_list(grants) and grants != [] ->
+        if Enum.all?(grants, &is_map/1) do
+          parent = Map.delete(requirement, "grants")
+
+          {:ok,
+           Enum.map(grants, fn grant ->
+             Map.merge(parent, normalize_map(grant))
+           end)}
+        else
+          {:error, {:invalid_schedule_credential_grants, key}}
+        end
+
+      _other ->
+        {:error, {:invalid_schedule_credential_grants, key}}
+    end
+  end
+
+  defp resolve_credential_grant_endpoint(key, requirement, schedule) do
+    allow = normalize_map(map_get(requirement, "allow"))
+
+    case normalize_optional_string(map_get(allow, "url_param")) do
+      nil ->
+        {:ok, requirement}
+
+      url_param ->
+        with {:ok, endpoint} <- schedule_https_endpoint(schedule, url_param),
+             {:ok, inject} <-
+               resolve_credential_grant_injection(
+                 key,
+                 normalize_map(map_get(requirement, "inject")),
+                 url_param,
+                 endpoint,
+                 allow
+               ) do
+          resolved_allow =
+            allow
+            |> Map.delete("url_param")
+            |> Map.delete("url_params")
+            |> Map.put("hosts", [endpoint.host])
+            |> Map.put("ports", [endpoint.port])
+            |> Map.put("paths", [endpoint.path])
+
+          {:ok,
+           requirement
+           |> Map.put("allow", resolved_allow)
+           |> Map.put("inject", inject)}
+        end
+    end
+  end
+
+  defp schedule_https_endpoint(schedule, url_param) do
+    value =
+      schedule.params
+      |> normalize_map()
+      |> map_get(url_param)
+      |> normalize_optional_string()
+
+    with true <- is_binary(value),
+         %URI{} = uri <- URI.parse(value),
+         true <- uri.scheme == "https",
+         true <- valid_credential_endpoint_host?(uri.host),
+         true <- is_nil(uri.userinfo),
+         true <- is_nil(uri.query),
+         true <- is_nil(uri.fragment),
+         port when is_integer(port) and port > 0 and port <= 65_535 <- uri.port || 443,
+         path when is_binary(path) <- uri.path,
+         true <- path != "" and path != "/" and not String.ends_with?(path, "/") do
+      {:ok, %{host: uri.host, port: port, path: path}}
+    else
+      _ -> {:error, {:invalid_schedule_credential_endpoint, url_param}}
+    end
+  end
+
+  defp valid_credential_endpoint_host?(host) when is_binary(host) do
+    host == String.trim(host) and host != "" and
+      String.match?(host, ~r/^[A-Za-z0-9._:-]+$/)
+  end
+
+  defp valid_credential_endpoint_host?(_host), do: false
+
+  defp resolve_credential_grant_injection(key, inject, url_param, endpoint, allow) do
+    inject_url_param = normalize_optional_string(map_get(inject, "url_param"))
+    methods = string_list(map_get(allow, "methods"))
+
+    cond do
+      map_size(inject) == 0 ->
+        {:ok, inject}
+
+      inject_url_param != url_param ->
+        {:error, {:invalid_schedule_credential_injection_endpoint, key}}
+
+      length(methods) != 1 ->
+        {:error, {:invalid_schedule_credential_injection_method, key}}
+
+      true ->
+        {:ok,
+         inject
+         |> Map.delete("url_param")
+         |> Map.put("host", endpoint.host)
+         |> Map.put("path", endpoint.path)
+         |> Map.put("method", methods |> hd() |> String.upcase())}
     end
   end
 
@@ -509,7 +661,9 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
 
     %{
       secret_ref: secret_ref,
-      credential_rule_id: map_get(requirement, "credential_rule_id"),
+      credential_rule_id:
+        map_get(requirement, "credential_rule_id") ||
+          map_get(schedule.metadata || %{}, "credential_rule_id"),
       grant_type: map_get(requirement, "grant_type") || "producer_schedule_credential",
       consumer_kind: credential_consumer_kind(schedule),
       consumer_id: credential_consumer_id(schedule, assignment),

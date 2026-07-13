@@ -11,8 +11,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   alias ServiceRadar.Credentials.NetworkCredentialRulePreview
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Credentials.PluginAssignmentMaterializer
+  alias ServiceRadar.Credentials.ProviderProfiles.HpnaProfile
   alias ServiceRadar.Credentials.SshPrivateKeyCredential
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Plugins.ProducerSchedule
   alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
@@ -20,9 +22,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   require Ash.Query
 
   @current_path "/settings/networks/credentials"
-  @providers ~w(proxmox unifi-protect axis)a
+  @providers ~w(proxmox unifi-protect axis hpna)a
   @auth_methods ~w(proxmox_api_token ssh_private_key username_password api_key certificate opaque)a
-  @purposes ~w(inventory_enrichment console_access discovery generic camera_inventory camera_stream)a
+  @purposes ~w(inventory_enrichment console_access discovery generic camera_inventory camera_stream device_inventory)a
   @scope_types ~w(agent gateway partition)a
   @tls_policies ~w(verify skip_verify)a
   @ssh_host_key_policies ~w(known_hosts trust_on_first_use skip_verify)a
@@ -40,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
        |> assign(:secrets, [])
        |> assign(:secret_options, [])
        |> assign(:secret_names, %{})
+       |> assign(:hpna_schedules, %{})
        |> assign(:agent_options, [])
        |> assign(:loading?, true)
        |> assign(:form_mode, nil)
@@ -107,6 +110,37 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Credential test failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("run_hpna_now", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Map.get(socket.assigns.hpna_schedules, to_string(id)) do
+      %ProducerSchedule{} = schedule ->
+        case schedule
+             |> Ash.Changeset.for_update(:run_now, %{}, scope: scope)
+             |> Ash.update(scope: scope) do
+          {:ok, updated} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "HPNA inventory refresh dispatched")
+             |> assign(
+               :hpna_schedules,
+               Map.put(socket.assigns.hpna_schedules, to_string(id), updated)
+             )}
+
+          {:error, _reason} ->
+            {:noreply, put_flash(socket, :error, "HPNA inventory refresh could not be dispatched")}
+        end
+
+      _ ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "HPNA schedule is not provisioned yet; wait for credential reconciliation"
+         )}
     end
   end
 
@@ -292,6 +326,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                       Axis (VAPIX)
                     </.link>
                   </li>
+                  <li>
+                    <.link navigate={~p"/settings/networks/credentials/new?provider=hpna"}>
+                      HPNA Inventory
+                    </.link>
+                  </li>
                 </ul>
               </div>
             </div>
@@ -306,11 +345,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                     <th>Provider</th>
                     <th>Purpose</th>
                     <th>Scope</th>
-                    <th>Discovery</th>
+                    <th>Runtime</th>
                     <th>Secret</th>
                     <th>Priority</th>
                     <th>Status</th>
-                    <th>Last Test</th>
+                    <th>Last Activity</th>
                     <th class="text-right">Actions</th>
                   </tr>
                 </thead>
@@ -334,9 +373,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                       <td>
                         <span class={[
                           "badge badge-sm",
-                          if(auto_discovery_enabled?(rule), do: "badge-warning", else: "badge-ghost")
+                          runtime_badge_class(rule, @hpna_schedules)
                         ]}>
-                          {if auto_discovery_enabled?(rule), do: "Auto", else: "SRQL"}
+                          {runtime_label(rule, @hpna_schedules)}
                         </span>
                       </td>
                       <td>{Map.get(@secret_names, rule.secret_id, "Unknown")}</td>
@@ -349,9 +388,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                           {if rule.enabled, do: "Enabled", else: "Disabled"}
                         </span>
                       </td>
-                      <td>{format_last_test(rule)}</td>
+                      <td>{runtime_status(rule, @hpna_schedules)}</td>
                       <td>
                         <div class="flex justify-end gap-2">
+                          <button
+                            :if={rule.provider == "hpna"}
+                            type="button"
+                            class="btn btn-ghost btn-xs"
+                            phx-click="run_hpna_now"
+                            phx-value-id={rule.id}
+                            disabled={!Map.has_key?(@hpna_schedules, to_string(rule.id))}
+                          >
+                            Run Now
+                          </button>
                           <button
                             :if={testable_rule?(rule)}
                             type="button"
@@ -362,7 +411,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                             Test
                           </button>
                           <span
-                            :if={!testable_rule?(rule)}
+                            :if={!testable_rule?(rule) and rule.provider != "hpna"}
                             class="tooltip tooltip-left"
                             data-tip="Credential test is not yet available for this provider"
                           >
@@ -371,6 +420,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                             </button>
                           </span>
                           <button
+                            :if={rule.provider != "hpna"}
                             type="button"
                             class="btn btn-ghost btn-xs"
                             phx-click="preview_rule"
@@ -870,7 +920,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               and <span class="font-mono">credential_rule_id</span>
               are generated when the rule materializes.
             </span>
-            <span :if={@provider_value not in ["proxmox", "unifi-protect", "axis"]}>
+            <span :if={@provider_value == "hpna"}>
+              HPNA inventory runs only through the selected agent and the package-owned producer
+              schedule. Endpoints and list-device filters are stored as public configuration;
+              the username/password secret is resolved into fresh endpoint-scoped grants for each
+              scheduled or manual run.
+            </span>
+            <span :if={@provider_value not in ["proxmox", "unifi-protect", "axis", "hpna"]}>
               Select every use this scoped credential should allow. Enabled rules materialize
               plugin inputs for agents in scope; runtime fields such as
               <span class="font-mono">credential_broker</span>
@@ -934,11 +990,24 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               </div>
             </fieldset>
             <.input
+              :if={@provider_value != "hpna"}
               field={@form[:scope_type]}
               type="select"
               label="Scope Type"
               options={enum_options(@scope_types)}
               required
+            />
+            <input
+              :if={@provider_value == "hpna"}
+              type="hidden"
+              name={@form[:scope_type].name}
+              value="agent"
+            />
+            <input
+              :if={@provider_value == "hpna"}
+              type="hidden"
+              name={@form[:tls_policy].name}
+              value="verify"
             />
             <.input
               :if={@scope_type_value == "agent" and @agent_options != []}
@@ -961,6 +1030,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               label="Controller Host Override"
             />
             <.input
+              :if={@provider_value != "hpna"}
               field={@form[:tls_policy]}
               type="select"
               label="TLS Policy"
@@ -977,14 +1047,93 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             />
           </div>
 
-          <.input field={@form[:target_query]} type="textarea" label="Target Query" required />
+          <input
+            :if={@provider_value == "hpna"}
+            type="hidden"
+            name={@form[:target_query].name}
+            value="in:agents"
+          />
+          <.input
+            :if={@provider_value != "hpna"}
+            field={@form[:target_query]}
+            type="textarea"
+            label="Target Query"
+            required
+          />
+          <fieldset :if={@provider_value == "hpna"} class="space-y-4 border-t border-base-200 pt-4">
+            <legend class="text-sm font-semibold">HPNA Inventory</legend>
+            <div class="grid gap-4 md:grid-cols-2">
+              <.input field={@form[:instance_id]} label="Instance ID" required />
+              <.input field={@form[:token_url]} type="url" label="OAuth Token URL" required />
+              <.input field={@form[:api_url]} type="url" label="Automation Wrapper URL" required />
+              <.input
+                field={@form[:cadence_seconds]}
+                type="number"
+                label="Cadence (seconds)"
+                min="3600"
+                max="2592000"
+                required
+              />
+              <.input
+                field={@form[:page_size]}
+                type="number"
+                label="Page Size"
+                min="1"
+                max="5000"
+                required
+              />
+              <.input
+                field={@form[:max_rows]}
+                type="number"
+                label="Maximum Rows"
+                min="1"
+                max="100000"
+                required
+              />
+              <.input
+                field={@form[:max_result_bytes]}
+                type="number"
+                label="Maximum Result Bytes"
+                min="65536"
+                max="12582912"
+                required
+              />
+              <.input
+                field={@form[:request_timeout_seconds]}
+                type="number"
+                label="Request Timeout (seconds)"
+                min="1"
+                max="300"
+                required
+              />
+              <.input
+                field={@form[:max_retries]}
+                type="number"
+                label="Maximum Retries"
+                min="0"
+                max="5"
+                required
+              />
+              <.input
+                field={@form[:schedule_enabled]}
+                type="checkbox"
+                label="Enable recurring inventory refresh"
+              />
+            </div>
+            <.input
+              field={@form[:queries_json]}
+              type="textarea"
+              label="List Device Queries (JSON)"
+              required
+            />
+          </fieldset>
           <.input
             :if={@show_auto_discovery?}
             field={@form[:auto_discovery_enabled]}
             type="checkbox"
             label="Allow auto-discovery credential trials"
           />
-          <.input field={@form[:allowed_ports]} label="Allowed Ports" />
+          <.input :if={@provider_value != "hpna"} field={@form[:allowed_ports]} label="Allowed Ports" />
           <.input field={@form[:description]} type="textarea" label="Description" />
 
           <div class="modal-action">
@@ -1021,7 +1170,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp reload_page_data(socket) do
     scope = socket.assigns.current_scope
-    {rules, secrets, agents} = {load_rules(scope), load_secrets(scope), load_agents(scope)}
+
+    {rules, secrets, agents, hpna_schedules} =
+      {load_rules(scope), load_secrets(scope), load_agents(scope), load_hpna_schedules(scope)}
+
     secret_names = Map.new(secrets, &{&1.id, secret_label(&1)})
 
     socket
@@ -1029,6 +1181,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     |> assign(:secrets, secrets)
     |> assign(:secret_options, Enum.map(secrets, &{secret_label(&1), &1.id}))
     |> assign(:secret_names, secret_names)
+    |> assign(:hpna_schedules, hpna_schedules)
     |> assign(:agent_options, agent_options(agents))
     |> assign(:loading?, false)
   end
@@ -1157,7 +1310,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "tls_policy" => form_string(form, :tls_policy),
       "ssh_host_key_policy" => form_string(form, :ssh_host_key_policy),
       "auto_discovery_enabled" => form_string(form, :auto_discovery_enabled),
-      "controller_host" => form_string(form, :controller_host)
+      "controller_host" => form_string(form, :controller_host),
+      "instance_id" => form_string(form, :instance_id),
+      "token_url" => form_string(form, :token_url),
+      "api_url" => form_string(form, :api_url),
+      "queries_json" => form_string(form, :queries_json),
+      "page_size" => form_string(form, :page_size),
+      "max_rows" => form_string(form, :max_rows),
+      "max_result_bytes" => form_string(form, :max_result_bytes),
+      "request_timeout_seconds" => form_string(form, :request_timeout_seconds),
+      "max_retries" => form_string(form, :max_retries),
+      "schedule_enabled" => form_string(form, :schedule_enabled),
+      "cadence_seconds" => form_string(form, :cadence_seconds)
     }
   end
 
@@ -1194,6 +1358,28 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
+  defp load_hpna_schedules(scope) do
+    ProducerSchedule
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.filter(schedule_id == "hpna.inventory.refresh")
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, schedules} ->
+        Enum.reduce(schedules, %{}, fn schedule, acc ->
+          case schedule.metadata |> normalize_metadata() |> Map.get("credential_rule_id") do
+            rule_id when is_binary(rule_id) and rule_id != "" ->
+              Map.put(acc, rule_id, schedule)
+
+            _ ->
+              acc
+          end
+        end)
+
+      _ ->
+        %{}
+    end
+  end
+
   defp active_agent?(%Agent{status: status, last_seen_time: %DateTime{} = last_seen_time})
        when status in [:connected, :degraded, :connecting] do
     DateTime.diff(DateTime.utc_now(), last_seen_time, :minute) <= 30
@@ -1211,10 +1397,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
            enum_param(params, "auth_method", provider_auth_methods(provider), "auth method"),
          {:ok, purposes} <- purposes_param(params, provider),
          {:ok, scope_type} <- enum_param(params, "scope_type", @scope_types, "scope type"),
+         :ok <- validate_provider_scope(provider, scope_type),
          {:ok, tls_policy} <- enum_param(params, "tls_policy", @tls_policies, "TLS policy"),
          {:ok, ssh_policy} <- ssh_host_key_policy_param(params, auth_method),
          {:ok, priority} <- integer_param(params, "priority", "priority"),
-         {:ok, allowed_ports} <- allowed_ports(params["allowed_ports"]) do
+         {:ok, allowed_ports} <- allowed_ports(params["allowed_ports"]),
+         {:ok, metadata} <- rule_metadata(params, provider, purposes) do
       {:ok,
        %{
          name: required_string(params, "name"),
@@ -1230,7 +1418,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
          allowed_ports: allowed_ports,
          tls_policy: tls_policy,
          ssh_host_key_policy: ssh_policy,
-         metadata: rule_metadata(params, provider, purposes)
+         metadata: metadata
        }}
     end
   rescue
@@ -1419,6 +1607,44 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     }
   end
 
+  defp default_rule_params(%{"provider" => "hpna"}) do
+    %{
+      "name" => "",
+      "description" => "",
+      "provider" => "hpna",
+      "auth_method" => "username_password",
+      "purpose" => "device_inventory",
+      "purposes" => ["device_inventory"],
+      "target_query" => "in:agents",
+      "scope_type" => "agent",
+      "scope_value" => "",
+      "secret_id" => "",
+      "priority" => "100",
+      "allowed_ports" => "",
+      "tls_policy" => "verify",
+      "ssh_host_key_policy" => "known_hosts",
+      "controller_host" => "",
+      "auto_discovery_enabled" => "false",
+      "instance_id" => "",
+      "token_url" => "",
+      "api_url" => "",
+      "queries_json" =>
+        Jason.encode!(
+          [
+            %{"name" => "switches", "parameters" => %{"type" => "Switch"}}
+          ],
+          pretty: true
+        ),
+      "page_size" => "1000",
+      "max_rows" => "25000",
+      "max_result_bytes" => "10485760",
+      "request_timeout_seconds" => "30",
+      "max_retries" => "2",
+      "schedule_enabled" => "false",
+      "cadence_seconds" => "86400"
+    }
+  end
+
   defp default_rule_params(_params) do
     %{
       "name" => "",
@@ -1529,7 +1755,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "tls_policy" => to_string(rule.tls_policy),
       "ssh_host_key_policy" => to_string(rule.ssh_host_key_policy),
       "controller_host" => controller_host_from_metadata(rule.metadata),
-      "auto_discovery_enabled" => auto_discovery_enabled?(rule)
+      "auto_discovery_enabled" => auto_discovery_enabled?(rule),
+      "instance_id" => metadata_form_value(rule.metadata, "instance_id", ""),
+      "token_url" => metadata_form_value(rule.metadata, "token_url", ""),
+      "api_url" => metadata_form_value(rule.metadata, "api_url", ""),
+      "queries_json" =>
+        rule.metadata
+        |> normalize_metadata()
+        |> Map.get("queries", [])
+        |> Jason.encode!(pretty: true),
+      "page_size" => metadata_form_value(rule.metadata, "page_size", 1_000),
+      "max_rows" => metadata_form_value(rule.metadata, "max_rows", 25_000),
+      "max_result_bytes" => metadata_form_value(rule.metadata, "max_result_bytes", 10_485_760),
+      "request_timeout_seconds" => metadata_form_value(rule.metadata, "request_timeout_seconds", 30),
+      "max_retries" => metadata_form_value(rule.metadata, "max_retries", 2),
+      "schedule_enabled" => metadata_form_value(rule.metadata, "schedule_enabled", false),
+      "cadence_seconds" => metadata_form_value(rule.metadata, "cadence_seconds", 86_400)
     }
   end
 
@@ -1549,6 +1790,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     |> put_default_when_blank("target_query", defaults["target_query"])
     |> put_default_when_blank("allowed_ports", defaults["allowed_ports"])
     |> Map.put_new("controller_host", "")
+    |> put_hpna_defaults(provider, defaults)
     |> maybe_clear_camera_only_fields(provider)
   end
 
@@ -1568,15 +1810,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     case to_string(provider) do
       "unifi-protect" -> [:api_key, :username_password]
       "axis" -> [:username_password]
+      "hpna" -> [:username_password]
       _ -> [:proxmox_api_token, :ssh_private_key]
     end
   end
 
   defp provider_purposes(provider) do
-    if camera_provider?(provider) do
-      [:camera_inventory, :camera_stream]
-    else
-      [:inventory_enrichment, :console_access]
+    case to_string(provider) do
+      provider when provider in ["unifi-protect", "axis"] -> [:camera_inventory, :camera_stream]
+      "hpna" -> [:device_inventory]
+      _ -> [:inventory_enrichment, :console_access]
     end
   end
 
@@ -1679,17 +1922,78 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp ssh_host_key_policy_param(_params, _auth_method), do: {:ok, :known_hosts}
 
+  defp rule_metadata(params, :hpna, purposes), do: hpna_rule_metadata(params, purposes)
+
   defp rule_metadata(params, provider, purposes) do
-    maybe_put_metadata_string(
-      %{
-        "purposes" => Enum.map(purposes, &Atom.to_string/1),
-        "auto_discovery_enabled" => to_string(provider) == "proxmox" and boolean_param(params, "auto_discovery_enabled")
-      },
-      "host",
-      params["controller_host"],
-      to_string(provider) == "unifi-protect"
-    )
+    {:ok,
+     maybe_put_metadata_string(
+       %{
+         "purposes" => Enum.map(purposes, &Atom.to_string/1),
+         "auto_discovery_enabled" =>
+           to_string(provider) == "proxmox" and
+             boolean_param(params, "auto_discovery_enabled")
+       },
+       "host",
+       params["controller_host"],
+       to_string(provider) == "unifi-protect"
+     )}
   end
+
+  defp hpna_rule_metadata(params, purposes) do
+    with {:ok, queries} <- decode_hpna_queries(params["queries_json"]),
+         {:ok, page_size} <- strict_integer(params, "page_size"),
+         {:ok, max_rows} <- strict_integer(params, "max_rows"),
+         {:ok, max_result_bytes} <- strict_integer(params, "max_result_bytes"),
+         {:ok, request_timeout_seconds} <- strict_integer(params, "request_timeout_seconds"),
+         {:ok, max_retries} <- strict_integer(params, "max_retries"),
+         {:ok, cadence_seconds} <- strict_integer(params, "cadence_seconds"),
+         true <- cadence_seconds in 3_600..2_592_000 do
+      metadata = %{
+        "purposes" => Enum.map(purposes, &Atom.to_string/1),
+        "instance_id" => required_string(params, "instance_id"),
+        "token_url" => required_string(params, "token_url"),
+        "api_url" => required_string(params, "api_url"),
+        "queries" => queries,
+        "page_size" => page_size,
+        "max_rows" => max_rows,
+        "max_result_bytes" => max_result_bytes,
+        "request_timeout_seconds" => request_timeout_seconds,
+        "max_retries" => max_retries,
+        "schedule_enabled" => boolean_param(params, "schedule_enabled"),
+        "cadence_seconds" => cadence_seconds
+      }
+
+      case HpnaProfile.assignment_params(%{metadata: metadata}) do
+        {:ok, _params} -> {:ok, metadata}
+        {:error, {:invalid_hpna_setting, field}} -> {:error, "Invalid HPNA setting: #{field}"}
+        {:error, _reason} -> {:error, "Invalid HPNA settings"}
+      end
+    else
+      false -> {:error, "HPNA cadence must be between 3600 and 2592000 seconds"}
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    ArgumentError -> {:error, "Required HPNA settings are missing"}
+  end
+
+  defp decode_hpna_queries(value) do
+    case Jason.decode(to_string(value || "")) do
+      {:ok, queries} when is_list(queries) -> {:ok, queries}
+      {:ok, _other} -> {:error, "HPNA queries must be a JSON array"}
+      {:error, _reason} -> {:error, "HPNA queries must be valid JSON"}
+    end
+  end
+
+  defp strict_integer(params, key) do
+    case Integer.parse(to_string(Map.get(params, key, ""))) do
+      {value, ""} -> {:ok, value}
+      _ -> {:error, "Invalid HPNA setting: #{key}"}
+    end
+  end
+
+  defp validate_provider_scope(:hpna, :agent), do: :ok
+  defp validate_provider_scope(:hpna, _scope), do: {:error, "HPNA requires agent scope"}
+  defp validate_provider_scope(_provider, _scope), do: :ok
 
   defp maybe_put_metadata_string(metadata, key, value, true) do
     case blank_to_nil(value) do
@@ -1699,6 +2003,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   defp maybe_put_metadata_string(metadata, _key, _value, _condition), do: metadata
+
+  defp metadata_form_value(metadata, key, default) do
+    metadata
+    |> normalize_metadata()
+    |> Map.get(key, default)
+  end
 
   defp controller_host_from_metadata(metadata) do
     metadata = normalize_metadata(metadata)
@@ -1716,6 +2026,23 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       _value -> params
     end
   end
+
+  defp put_hpna_defaults(params, :hpna, defaults) do
+    normalized =
+      params
+      |> Map.put("scope_type", "agent")
+      |> Map.put("target_query", "in:agents")
+      |> Map.put("allowed_ports", "")
+      |> Map.put("tls_policy", "verify")
+
+    Enum.reduce(
+      ~w(instance_id token_url api_url queries_json page_size max_rows max_result_bytes request_timeout_seconds max_retries schedule_enabled cadence_seconds),
+      normalized,
+      fn key, acc -> put_default_when_blank(acc, key, defaults[key]) end
+    )
+  end
+
+  defp put_hpna_defaults(params, _provider, _defaults), do: params
 
   defp maybe_clear_camera_only_fields(params, provider) when provider in [:"unifi-protect", :axis] do
     params
@@ -1780,7 +2107,24 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   defp managed_rule_metadata_keys do
-    ["purposes", "auto_discovery_enabled", "host", "controller_host", "static_host"]
+    [
+      "purposes",
+      "auto_discovery_enabled",
+      "host",
+      "controller_host",
+      "static_host",
+      "instance_id",
+      "token_url",
+      "api_url",
+      "queries",
+      "page_size",
+      "max_rows",
+      "max_result_bytes",
+      "request_timeout_seconds",
+      "max_retries",
+      "schedule_enabled",
+      "cadence_seconds"
+    ]
   end
 
   defp normalize_metadata(metadata) when is_map(metadata), do: metadata
@@ -1975,6 +2319,42 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     |> Enum.reject(&is_nil/1)
     |> Enum.join(": ")
   end
+
+  defp runtime_label(%{provider: "hpna"} = rule, schedules) do
+    case Map.get(schedules, to_string(rule.id)) do
+      %{enabled: true} -> "Daily"
+      %{} -> "On demand"
+      nil -> "Pending"
+    end
+  end
+
+  defp runtime_label(rule, _schedules) do
+    if auto_discovery_enabled?(rule), do: "Auto", else: "SRQL"
+  end
+
+  defp runtime_badge_class(%{provider: "hpna"} = rule, schedules) do
+    case Map.get(schedules, to_string(rule.id)) do
+      %{enabled: true} -> "badge-success"
+      %{} -> "badge-info"
+      nil -> "badge-warning"
+    end
+  end
+
+  defp runtime_badge_class(rule, _schedules) do
+    if auto_discovery_enabled?(rule), do: "badge-warning", else: "badge-ghost"
+  end
+
+  defp runtime_status(%{provider: "hpna"} = rule, schedules) do
+    case Map.get(schedules, to_string(rule.id)) do
+      %{last_status: status, last_run_at: last_run_at} ->
+        "#{status} / #{format_timestamp(last_run_at)}"
+
+      nil ->
+        "Awaiting provisioning"
+    end
+  end
+
+  defp runtime_status(rule, _schedules), do: format_last_test(rule)
 
   defp format_atom(nil), do: nil
 

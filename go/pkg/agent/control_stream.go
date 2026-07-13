@@ -698,7 +698,13 @@ func (p *PushLoop) handlePluginRunAction(ctx context.Context, cmd *proto.Command
 	resultPayload["invocation_id"] = firstNonEmptyString(resultPayload["invocation_id"], payload.InvocationID)
 	resultPayload["action_id"] = firstNonEmptyString(resultPayload["action_id"], payload.ActionID)
 
-	_ = sender.Send(commandResult(cmd, true, "plugin action completed", resultPayload))
+	commandSucceeded := true
+	message := "plugin action completed"
+	if resultPayload["schema"] == actionResultAckSchema && resultPayload["status"] == "failed" {
+		commandSucceeded = false
+		message = "plugin action failed"
+	}
+	_ = sender.Send(commandResult(cmd, commandSucceeded, message, resultPayload))
 }
 
 func (p *PushLoop) handleAddonRunCommand(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {

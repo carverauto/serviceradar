@@ -14,6 +14,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DeviceSourceObservation
   alias ServiceRadar.Inventory.Identity.AliasGuard
   alias ServiceRadar.Inventory.Identity.EndpointInventoryMoves
   alias ServiceRadar.Inventory.Identity.MergePolicy
@@ -209,6 +210,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     resources = [
       Device,
       DeviceIdentifier,
+      DeviceSourceObservation,
       Interface,
       MergeAudit,
       ServiceCheck,
@@ -224,6 +226,8 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
              Device.get_by_uid(from_device_id, false, actor: actor),
            {:ok, %Device{}} <- Device.get_by_uid(to_device_id, false, actor: actor),
            :ok <- Reassignments.reassign_device_identifiers(from_device_id, to_device_id, actor),
+           :ok <-
+             Reassignments.reassign_source_observations(from_device_id, to_device_id, actor),
            :ok <- Reassignments.reassign_service_checks(from_device_id, to_device_id, actor),
            :ok <- Reassignments.reassign_alerts(from_device_id, to_device_id, actor),
            :ok <- Reassignments.reassign_agents(from_device_id, to_device_id, actor),

@@ -65,6 +65,7 @@ const sidebars: SidebarsConfig = {
       items: [
         {type: 'doc', id: 'sync', label: 'Sync Runtime'},
         {type: 'doc', id: 'armis', label: 'Armis'},
+        {type: 'doc', id: 'hpna-inventory', label: 'HPNA Inventory'},
         {type: 'doc', id: 'netbox', label: 'NetBox'},
         {type: 'doc', id: 'ansible', label: 'Ansible'},
         {type: 'doc', id: 'proxmox', label: 'Proxmox VE'},

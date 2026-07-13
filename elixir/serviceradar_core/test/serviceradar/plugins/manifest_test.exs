@@ -116,7 +116,8 @@ defmodule ServiceRadar.Plugins.ManifestTest do
         "submit_result",
         "artifact-staging:v1",
         "advisory-feed:v1",
-        "producer-schedule:v1"
+        "producer-schedule:v1",
+        "action-result-ingest:v1"
       ])
       |> Map.put("producer_schedules", [
         %{
@@ -146,6 +147,7 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     assert schedule["action_id"] == "advisory.refresh"
     assert schedule["default_cadence_seconds"] == 86_400
     assert schedule["settings_schema"] == %{"type" => "object"}
+    assert "action-result-ingest:v1" in parsed.capabilities
   end
 
   test "producer schedule declarations reject unsafe or incomplete shapes" do

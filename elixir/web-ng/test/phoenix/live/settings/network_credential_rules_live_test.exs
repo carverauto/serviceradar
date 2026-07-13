@@ -323,6 +323,77 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute html =~ "Allow auto-discovery credential trials"
   end
 
+  test "hpna preset seeds selected-agent action schedule settings", %{conn: conn} do
+    {:ok, _lv, html} = live(conn, ~p"/settings/networks/credentials/new?provider=hpna")
+
+    assert html =~ ~s(value="hpna")
+    assert html =~ ~r/<option selected[^>]*value="username_password"/
+    assert checked_purpose?(html, "device_inventory")
+    assert html =~ "HPNA Inventory"
+    assert html =~ "OAuth Token URL"
+    assert html =~ "Automation Wrapper URL"
+    assert html =~ "List Device Queries (JSON)"
+    assert html =~ "Switch"
+    assert html =~ "Enable recurring inventory refresh"
+    refute html =~ "Target Query"
+    refute html =~ "Allowed Ports"
+  end
+
+  test "creates a bounded HPNA inventory credential rule", %{conn: conn, scope: scope} do
+    secret = username_password_secret_fixture(scope, "hpna")
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new?provider=hpna")
+
+    lv
+    |> form("#credential-rule-form",
+      credential_rule: hpna_rule_form_params(secret.id)
+    )
+    |> render_submit()
+
+    assert_patch(lv, ~p"/settings/networks/credentials")
+    html = render(lv)
+    assert html =~ "HPNA production inventory"
+    assert html =~ "Pending"
+
+    rule = get_rule_by_name!(scope, "HPNA production inventory")
+    assert rule.provider == "hpna"
+    assert rule.auth_method == :username_password
+    assert rule.purpose == :device_inventory
+    assert rule.scope_type == :agent
+    assert rule.scope_value == "agent-k8s"
+    assert rule.target_query == "in:agents"
+    assert rule.metadata["instance_id"] == "example-automation-prod"
+
+    assert rule.metadata["queries"] == [
+             %{"name" => "switches", "parameters" => %{"type" => "Switch"}}
+           ]
+
+    assert rule.metadata["schedule_enabled"] == false
+    assert rule.metadata["cadence_seconds"] == 86_400
+  end
+
+  test "rejects unsafe HPNA query keys before saving the rule", %{conn: conn, scope: scope} do
+    secret = username_password_secret_fixture(scope, "hpna")
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new?provider=hpna")
+
+    params =
+      secret.id
+      |> hpna_rule_form_params()
+      |> Map.put(
+        "queries_json",
+        Jason.encode!([
+          %{"name" => "unsafe", "parameters" => %{"command" => "show device"}}
+        ])
+      )
+
+    html =
+      lv
+      |> form("#credential-rule-form", credential_rule: params)
+      |> render_submit()
+
+    assert html =~ "Invalid HPNA setting: queries.parameters.command"
+    refute get_rule_by_name!(scope, "HPNA production inventory")
+  end
+
   test "provider changes clamp auth methods and purposes to provider preset", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
 
@@ -774,6 +845,57 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
       |> Ash.create(scope: scope)
 
     secret
+  end
+
+  defp username_password_secret_fixture(scope, provider) do
+    {:ok, secret} =
+      NetworkCredentialSecret
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "#{provider} service account #{System.unique_integer([:positive])}",
+          provider: provider,
+          credential_kind: :username_password,
+          username: "service-account",
+          secret_payload: "service-account-password",
+          metadata: %{"auth_method" => "username_password"}
+        },
+        scope: scope
+      )
+      |> Ash.create(scope: scope)
+
+    secret
+  end
+
+  defp hpna_rule_form_params(secret_id) do
+    %{
+      "name" => "HPNA production inventory",
+      "description" => "Daily switch inventory",
+      "provider" => "hpna",
+      "auth_method" => "username_password",
+      "purposes" => ["device_inventory"],
+      "target_query" => "in:agents",
+      "scope_type" => "agent",
+      "scope_value" => "agent-k8s",
+      "secret_id" => secret_id,
+      "priority" => "100",
+      "allowed_ports" => "",
+      "tls_policy" => "verify",
+      "instance_id" => "example-automation-prod",
+      "token_url" => "https://hpna.example.test/oauth/token",
+      "api_url" => "https://hpna.example.test/api/automation/wrapper",
+      "queries_json" =>
+        Jason.encode!([
+          %{"name" => "switches", "parameters" => %{"type" => "Switch"}}
+        ]),
+      "page_size" => "1000",
+      "max_rows" => "25000",
+      "max_result_bytes" => "10485760",
+      "request_timeout_seconds" => "30",
+      "max_retries" => "2",
+      "schedule_enabled" => "false",
+      "cadence_seconds" => "86400"
+    }
   end
 
   defp checked_purpose?(html, purpose) do

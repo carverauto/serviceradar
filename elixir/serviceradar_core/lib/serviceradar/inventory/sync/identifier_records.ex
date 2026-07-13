@@ -7,6 +7,7 @@ defmodule ServiceRadar.Inventory.Sync.IdentifierRecords do
 
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.CardinalityCaps
+  alias ServiceRadar.Inventory.Identity.HardwareSerial
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Sync.SourcePolicy
@@ -132,6 +133,17 @@ defmodule ServiceRadar.Inventory.Sync.IdentifierRecords do
   end
 
   def build_identifier_metadata(update) do
-    Map.take(update.metadata, ["sync_service_id", "integration_type"])
+    metadata = Map.take(update.metadata, ["sync_service_id", "integration_type"])
+
+    case HardwareSerial.evidence(update) do
+      {:ok, evidence} ->
+        Map.merge(metadata, %{
+          "hardware_serial_namespace" => evidence.vendor_namespace,
+          "hardware_serial_normalized" => evidence.normalized_serial
+        })
+
+      :error ->
+        metadata
+    end
   end
 end

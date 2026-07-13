@@ -29,21 +29,24 @@ import (
 )
 
 const (
-	pluginHostModule         = "env"
-	pluginDefaultInterval    = 60 * time.Second
-	pluginDefaultTimeout     = 10 * time.Second
-	pluginMaxPayloadBytes    = 2 * 1024 * 1024
-	pluginMaxWasmBytes       = 64 * 1024 * 1024
-	pluginMaxHTTPBodyBytes   = 2 * 1024 * 1024
-	pluginDefaultHTTPTimeout = 15 * time.Second
-	pluginWarmupGrace        = 2 * time.Minute
+	pluginHostModule                 = "env"
+	pluginDefaultInterval            = 60 * time.Second
+	pluginDefaultTimeout             = 10 * time.Second
+	pluginMaxPayloadBytes            = 2 * 1024 * 1024
+	pluginMaxActionIngestResultBytes = 12 * 1024 * 1024
+	pluginMaxWasmBytes               = 64 * 1024 * 1024
+	pluginMaxHTTPBodyBytes           = 2 * 1024 * 1024
+	pluginDefaultHTTPTimeout         = 15 * time.Second
+	pluginWarmupGrace                = 2 * time.Minute
 )
 
 const (
-	pluginCapabilityCameraMediaStream = "camera_media_stream"
-	pluginCapabilityProxmoxConsole    = "proxmox_console_stream"
-	pluginCapabilityEmitTelemetry     = "emit_telemetry"
-	pluginCapabilityArtifactStaging   = "artifact-staging:v1"
+	pluginCapabilityCameraMediaStream  = "camera_media_stream"
+	pluginCapabilityProxmoxConsole     = "proxmox_console_stream"
+	pluginCapabilityEmitTelemetry      = "emit_telemetry"
+	pluginCapabilityArtifactStaging    = "artifact-staging:v1"
+	pluginCapabilityActionResultIngest = "action-result-ingest:v1"
+	pluginCapabilityActionOnly         = "action-only:v1"
 )
 
 const (
@@ -66,6 +69,7 @@ var (
 	errInvalidPath                          = errors.New("invalid path")
 	errPluginAssignmentNotFound             = errors.New("plugin assignment not found")
 	errPluginAdmissionDenied                = errors.New("admission denied: max concurrent reached")
+	errPluginActionAlreadyRunning           = errors.New("plugin action already running for assignment")
 	errPluginActionResultMissing            = errors.New("no result submitted")
 	errStreamingPluginAssignmentNotFound    = errors.New("streaming plugin assignment not found")
 	errStreamingPluginAdmissionDenied       = errors.New("streaming plugin admission denied: max concurrent reached")
@@ -75,6 +79,10 @@ var (
 	errCredentialBrokerMaterialUnavailable  = errors.New("credential broker material unavailable")
 	errCredentialBrokerInjectionUnsupported = errors.New("credential broker injection unsupported")
 	errCredentialBrokerInsecureTLSDenied    = errors.New("credential broker injection denied for insecure TLS request")
+	errCredentialBrokerSecretFieldPresent   = errors.New("credential broker secret field must not be caller supplied")
+	errCredentialBrokerFormInvalid          = errors.New("credential broker form injection request is invalid")
+	errPluginActionResultInvalid            = errors.New("plugin action result is invalid")
+	errPluginActionResultBackpressure       = errors.New("plugin action result queue unavailable")
 )
 
 // PluginManagerConfig configures the Wasm plugin manager.
@@ -119,8 +127,12 @@ type PluginManager struct {
 	mu      sync.RWMutex
 	runners map[string]*pluginRunner
 	streams map[string]*pluginAssignment
+	actions map[string]*pluginAssignment
 	results chan PluginResult
 	signals chan PluginSignalTelemetry
+
+	actionMu      sync.Mutex
+	activeActions map[string]struct{}
 
 	// conditions de-duplicates per-cycle plugin condition events (e.g. Proxmox
 	// resource pressure/bottleneck) so only level transitions are forwarded.

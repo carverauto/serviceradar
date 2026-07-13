@@ -173,6 +173,140 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
     refute_received {:unexpected_device_sync, _, _}
   end
 
+  test "routes a complete HPNA collection through device sync before source activation" do
+    parent = self()
+
+    payload = %{
+      "status" => "OK",
+      "device_discovery" => [
+        %{
+          "schema" => "serviceradar.device_discovery.v1",
+          "source" => "hpna",
+          "collection_id" => "hpna-collection-1",
+          "reference_hash" => String.duplicate("a", 64),
+          "observed_at" => "2026-07-13T18:00:00Z",
+          "metadata" => %{
+            "source_instance" => "example-automation-prod",
+            "snapshot_complete" => true,
+            "query_hash" => String.duplicate("b", 64)
+          },
+          "devices" => [
+            %{
+              "device_id" => "hpna:v1:example-automation-prod:device:201",
+              "hostname" => "iad-asw-01",
+              "ip" => "192.0.2.20",
+              "serial" => "FOC1234ABC",
+              "vendor_name" => "Cisco",
+              "metadata" => %{
+                "integration_id" => "hpna:v1:example-automation-prod:device:201",
+                "integration_type" => "hpna",
+                "hpna_instance_id" => "example-automation-prod",
+                "hpna_device_id" => "201"
+              }
+            }
+          ]
+        }
+      ]
+    }
+
+    assert :ok =
+             DeviceDiscoveryIngestor.ingest(payload, %{partition: "default"},
+               actor: :actor,
+               device_sync: fn updates, _context ->
+                 send(parent, {:device_sync, updates})
+                 :ok
+               end,
+               source_observation_preflight: fn envelope, updates, context ->
+                 send(parent, {:source_preflight, envelope, updates, context})
+                 {:ok, :process}
+               end,
+               source_observation_sync: fn envelope, updates, context ->
+                 send(parent, {:source_sync, envelope, updates, context})
+                 :ok
+               end
+             )
+
+    assert_receive {:source_preflight, preflight_envelope, [preflight_update], preflight_context}
+    assert preflight_envelope["collection_id"] == "hpna-collection-1"
+    assert preflight_update["source"] == "hpna"
+    assert preflight_context == %{actor: :actor, partition: "default"}
+
+    assert_receive {:device_sync, [update]}
+    assert update["source"] == "hpna"
+    assert update["metadata"]["integration_type"] == "hpna"
+    assert update["metadata"]["serial_number"] == "FOC1234ABC"
+
+    assert_receive {:source_sync, envelope, [^update], context}
+    assert envelope["collection_id"] == "hpna-collection-1"
+    assert context == %{actor: :actor, partition: "default"}
+  end
+
+  test "rejects stale HPNA collections before canonical device sync" do
+    parent = self()
+
+    payload = %{
+      "device_discovery" => [
+        %{
+          "schema" => "serviceradar.device_discovery.v1",
+          "source" => "hpna",
+          "devices" => [%{"device_id" => "hpna:v1:lab:device:1", "hostname" => "iad-asw-01"}]
+        }
+      ]
+    }
+
+    assert {:error, :stale_source_snapshot} =
+             DeviceDiscoveryIngestor.ingest(payload, %{partition: "default"},
+               actor: :actor,
+               source_observation_preflight: fn _envelope, _updates, _context ->
+                 {:error, :stale_source_snapshot}
+               end,
+               device_sync: fn _updates, _context ->
+                 send(parent, :unexpected_device_sync)
+                 :ok
+               end,
+               source_observation_sync: fn _envelope, _updates, _context ->
+                 send(parent, :unexpected_source_sync)
+                 :ok
+               end
+             )
+
+    refute_received :unexpected_device_sync
+    refute_received :unexpected_source_sync
+  end
+
+  test "idempotent HPNA collections skip canonical and source writes" do
+    parent = self()
+
+    payload = %{
+      "device_discovery" => [
+        %{
+          "schema" => "serviceradar.device_discovery.v1",
+          "source" => "hpna",
+          "devices" => [%{"device_id" => "hpna:v1:lab:device:1", "hostname" => "iad-asw-01"}]
+        }
+      ]
+    }
+
+    assert :ok =
+             DeviceDiscoveryIngestor.ingest(payload, %{partition: "default"},
+               actor: :actor,
+               source_observation_preflight: fn _envelope, _updates, _context ->
+                 {:ok, :idempotent}
+               end,
+               device_sync: fn _updates, _context ->
+                 send(parent, :unexpected_device_sync)
+                 :ok
+               end,
+               source_observation_sync: fn _envelope, _updates, _context ->
+                 send(parent, :unexpected_source_sync)
+                 :ok
+               end
+             )
+
+    refute_received :unexpected_device_sync
+    refute_received :unexpected_source_sync
+  end
+
   test "advertises support only for device discovery payloads" do
     discovery = %{
       "device_discovery" => [
