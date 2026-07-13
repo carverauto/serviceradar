@@ -1027,6 +1027,15 @@ func TestRunInventorySyncBuildsDeviceDiscovery(t *testing.T) {
 	if disc.Metadata["controller_name"] != "Production AWX" {
 		t.Errorf("metadata.controller_name = %v", disc.Metadata["controller_name"])
 	}
+	if generation, ok := disc.Metadata["source_generation"].(int64); !ok || generation <= 0 {
+		t.Errorf("metadata.source_generation = %#v", disc.Metadata["source_generation"])
+	}
+	if disc.Metadata["complete"] != true {
+		t.Errorf("metadata.complete = %#v, want true", disc.Metadata["complete"])
+	}
+	if fingerprint, ok := disc.Metadata["source_fingerprint"].(string); !ok || len(fingerprint) != 71 || !strings.HasPrefix(fingerprint, "sha256:") {
+		t.Errorf("metadata.source_fingerprint = %#v", disc.Metadata["source_fingerprint"])
+	}
 	if len(disc.Devices) != 3 {
 		t.Fatalf("expected 3 devices, got %d", len(disc.Devices))
 	}
@@ -1110,6 +1119,18 @@ func TestRunInventorySyncContinuesOnPerInventoryError(t *testing.T) {
 	}
 	if _, has := disc.Metadata["error_inventory_8"]; !has {
 		t.Errorf("expected metadata.error_inventory_8 to flag the failure, got %+v", disc.Metadata)
+	}
+	if disc.Metadata["complete"] != false {
+		t.Errorf("partial inventory walk must set metadata.complete=false, got %#v", disc.Metadata["complete"])
+	}
+}
+
+func TestInventorySourceFingerprintIsOrderIndependent(t *testing.T) {
+	first := []sdk.DiscoveredDevice{{DeviceID: "awx:ctrl:host:2"}, {DeviceID: "awx:ctrl:host:1"}}
+	second := []sdk.DiscoveredDevice{{DeviceID: "awx:ctrl:host:1"}, {DeviceID: "awx:ctrl:host:2"}}
+
+	if inventorySourceFingerprint("ctrl", first) != inventorySourceFingerprint("ctrl", second) {
+		t.Fatal("source fingerprint must not depend on AWX result ordering")
 	}
 }
 

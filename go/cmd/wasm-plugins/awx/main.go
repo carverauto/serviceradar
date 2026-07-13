@@ -19,11 +19,13 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1665,13 +1667,15 @@ func runInventorySync(cfg InventorySyncConfig) *sdk.Result {
 
 func runInventorySyncController(cfg InventorySyncControllerConfig) *sdk.Result {
 	now := time.Now().UTC()
+	sourceGeneration := now.UnixNano()
 	discovery := sdk.NewDeviceDiscovery("awx")
 	discovery.ObservedAt = now.Format(time.RFC3339Nano)
-	discovery.CollectionID = "awx-" + cfg.ControllerID + "-" + now.Format("20060102T150405Z")
+	discovery.CollectionID = fmt.Sprintf("awx-%s-%d", cfg.ControllerID, sourceGeneration)
 	if discovery.Metadata == nil {
 		discovery.Metadata = map[string]any{}
 	}
 	discovery.Metadata["controller_id"] = cfg.ControllerID
+	discovery.Metadata["source_generation"] = sourceGeneration
 	if cfg.ControllerName != "" {
 		discovery.Metadata["controller_name"] = cfg.ControllerName
 	}
@@ -1684,11 +1688,15 @@ func runInventorySyncController(cfg InventorySyncControllerConfig) *sdk.Result {
 
 	totalHosts := 0
 	totalInventories := 0
+	complete := true
 	for _, row := range invRows {
 		var inv awxInventoryRow
 		if err := json.Unmarshal(row, &inv); err != nil {
-			// Skip malformed rows but keep going; one bad row shouldn't
-			// fail the whole sync.
+			complete = false
+			continue
+		}
+		if inv.ID <= 0 {
+			complete = false
 			continue
 		}
 		totalInventories++
@@ -1699,12 +1707,18 @@ func runInventorySyncController(cfg InventorySyncControllerConfig) *sdk.Result {
 			// Per-inventory failure: continue with what we have, but
 			// stash a metadata note so DIRE can see partial coverage.
 			discovery.Metadata["error_inventory_"+strconv.Itoa(inv.ID)] = sanitizeError(err)
+			complete = false
 			continue
 		}
 
 		for _, hostRow := range hostRows {
 			var host awxHostRow
 			if err := json.Unmarshal(hostRow, &host); err != nil {
+				complete = false
+				continue
+			}
+			if host.ID <= 0 || host.Inventory != inv.ID {
+				complete = false
 				continue
 			}
 			discovery.AddDevice(buildDiscoveredHost(cfg, inv, host))
@@ -1712,6 +1726,8 @@ func runInventorySyncController(cfg InventorySyncControllerConfig) *sdk.Result {
 		}
 	}
 	discovery.Metadata["inventory_count"] = totalInventories
+	discovery.Metadata["complete"] = complete
+	discovery.Metadata["source_fingerprint"] = inventorySourceFingerprint(cfg.ControllerID, discovery.Devices)
 
 	summary := fmt.Sprintf(
 		"AWX inventory_sync: %d hosts across %d inventories on %s",
@@ -1724,6 +1740,23 @@ func runInventorySyncController(cfg InventorySyncControllerConfig) *sdk.Result {
 	result.WithLabel("inventories", strconv.Itoa(totalInventories))
 	result.WithLabel("hosts", strconv.Itoa(totalHosts))
 	return result
+}
+
+func inventorySourceFingerprint(controllerID string, devices []sdk.DiscoveredDevice) string {
+	ordered := append([]sdk.DiscoveredDevice(nil), devices...)
+	sort.Slice(ordered, func(i, j int) bool {
+		return ordered[i].DeviceID < ordered[j].DeviceID
+	})
+
+	canonical, err := json.Marshal(struct {
+		ControllerID string                 `json:"controller_id"`
+		Devices      []sdk.DiscoveredDevice `json:"devices"`
+	}{ControllerID: controllerID, Devices: ordered})
+	if err != nil {
+		canonical = []byte(controllerID)
+	}
+	digest := sha256.Sum256(canonical)
+	return fmt.Sprintf("sha256:%x", digest[:])
 }
 
 func intFromDiscoveryMetadata(metadata map[string]any, key string) int {
