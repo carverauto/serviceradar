@@ -866,7 +866,11 @@ func (p *PushLoop) handleAWXCommand(ctx context.Context, cmd *proto.CommandReque
 		return
 	}
 
-	success, message, resultPayload := parseAWXPluginResult(resultBytes)
+	verb := strings.TrimSpace(payload.Verb)
+	if verb == "" {
+		verb = strings.TrimSpace(cmd.CommandType)
+	}
+	success, message, resultPayload := parseAWXPluginResult(resultBytes, verb)
 	_ = sender.Send(commandResult(cmd, success, message, resultPayload))
 }
 
@@ -971,35 +975,44 @@ func buildAWXPluginConfig(cmd *proto.CommandRequest, payload awxCommandPayload) 
 // submitted. Success mirrors the plugin's status, and the details JSON — the
 // typed per-verb payload core's AnsibleEventIngestor parses (ok/job/jobs/...)
 // — becomes the command result payload.
-func parseAWXPluginResult(resultBytes []byte) (success bool, message string, payload map[string]any) {
+func parseAWXPluginResult(resultBytes []byte, expectedVerb string) (success bool, message string, payload map[string]any) {
+	expectedVerb = strings.TrimSpace(expectedVerb)
 	envelope := struct {
 		Status  string `json:"status"`
 		Summary string `json:"summary"`
 		Details string `json:"details"`
 	}{}
 	if err := json.Unmarshal(resultBytes, &envelope); err != nil {
-		return false, "invalid awx plugin result", map[string]any{
-			"raw_result_base64": base64.StdEncoding.EncodeToString(resultBytes),
-		}
+		return safeAWXPluginFailure(expectedVerb, "invalid awx plugin result")
 	}
 
 	success = strings.EqualFold(strings.TrimSpace(envelope.Status), "OK")
-
-	message = strings.TrimSpace(envelope.Summary)
-	if message == "" {
-		message = "awx command completed"
+	if !success {
+		return safeAWXPluginFailure(expectedVerb, "awx command failed")
 	}
 
-	if details := strings.TrimSpace(envelope.Details); details != "" {
-		decoded := map[string]any{}
-		if err := json.Unmarshal([]byte(details), &decoded); err == nil {
-			payload = decoded
-		} else {
-			payload = map[string]any{"details": envelope.Details}
-		}
+	details := strings.TrimSpace(envelope.Details)
+	if details == "" {
+		return safeAWXPluginFailure(expectedVerb, "invalid awx plugin result")
 	}
 
-	return success, message, payload
+	decoded := map[string]any{}
+	if err := json.Unmarshal([]byte(details), &decoded); err != nil {
+		return safeAWXPluginFailure(expectedVerb, "invalid awx plugin result")
+	}
+	if decodedVerb, ok := decoded["verb"].(string); !ok || decodedVerb != expectedVerb || decoded["ok"] != true {
+		return safeAWXPluginFailure(expectedVerb, "invalid awx plugin result")
+	}
+
+	return true, "awx command completed", decoded
+}
+
+func safeAWXPluginFailure(expectedVerb, message string) (bool, string, map[string]any) {
+	payload := map[string]any{"ok": false}
+	if expectedVerb != "" {
+		payload["verb"] = expectedVerb
+	}
+	return false, message, payload
 }
 
 func (p *PushLoop) handleMapperRun(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {

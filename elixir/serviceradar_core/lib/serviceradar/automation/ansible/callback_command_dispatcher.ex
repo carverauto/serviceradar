@@ -39,7 +39,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
            CallbackCommandContract.context_matches?(attempt, resources.execution, context) ||
              {:error, :callback_command_context_digest_mismatch},
          {:ok, claimed, lease_token} <- claim(attempt, now, opts) do
-      dispatch_claimed(claimed, lease_token, resources.controller, request, context, now, opts)
+      dispatch_claimed(claimed, lease_token, resources, request, context, now, opts)
     else
       false -> {:error, :callback_command_contract_mismatch}
       {:error, _reason} = error -> error
@@ -136,17 +136,26 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
     )
   end
 
-  defp dispatch_claimed(attempt, lease_token, controller, request, context, now, opts) do
+  defp dispatch_claimed(attempt, lease_token, resources, request, context, now, opts) do
     dispatcher = Keyword.get(opts, :awx_dispatcher, &dispatch_awx/5)
 
-    case dispatcher.(attempt, controller, request, context, opts) do
+    case dispatcher.(attempt, resources.controller, request, context, opts) do
       {:ok, command} ->
         with :ok <- exact_command_id(command, attempt.command_id) do
           mark_dispatched_replay_safe(attempt, lease_token, now, opts)
         end
 
       {:error, reason} ->
-        reconcile_dispatch_error(attempt, lease_token, reason, now, opts)
+        reconcile_dispatch_error(
+          attempt,
+          lease_token,
+          reason,
+          resources,
+          request,
+          context,
+          now,
+          opts
+        )
     end
   end
 
@@ -237,10 +246,19 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
   defp dispatch_awx(_attempt, _controller, _request, _context, _opts),
     do: {:error, :callback_command_stage_not_dispatchable}
 
-  defp reconcile_dispatch_error(attempt, lease_token, reason, now, opts) do
+  defp reconcile_dispatch_error(
+         attempt,
+         lease_token,
+         reason,
+         resources,
+         request,
+         context,
+         now,
+         opts
+       ) do
     case fetch_command(attempt.command_id, opts) do
       {:ok, %AgentCommand{} = command} ->
-        if exact_persisted_command?(command, attempt) do
+        if exact_persisted_command?(command, attempt, resources, request, context) do
           with {:ok, outcome} <- mark_dispatched_replay_safe(attempt, lease_token, now, opts) do
             {:ok,
              if(outcome == :dispatched,
@@ -339,10 +357,23 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
     )
   end
 
-  defp exact_persisted_command?(command, attempt) do
+  defp exact_persisted_command?(command, attempt, resources, request, context) do
     same_identifier?(command.id, attempt.command_id) and
       command.command_type == attempt.command_type and
-      command.agent_id == attempt.dispatch_agent_id
+      command.agent_id == attempt.dispatch_agent_id and
+      CallbackCommandContract.context_matches?(
+        attempt,
+        resources.execution,
+        command.context || %{}
+      ) and
+      command.context == context and
+      CallbackCommandContract.persisted_payload_matches?(
+        attempt,
+        resources.execution,
+        resources.controller,
+        request,
+        command.payload || %{}
+      )
   end
 
   defp exact_command_id(command_id, expected) when is_binary(command_id),

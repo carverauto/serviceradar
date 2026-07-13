@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -626,11 +628,11 @@ func TestParseAWXPluginResultUnwrapsDetailsPayload(t *testing.T) {
 		"labels": {"verb": "awx.launch_job"}
 	}`)
 
-	success, message, payload := parseAWXPluginResult(resultBytes)
+	success, message, payload := parseAWXPluginResult(resultBytes, "awx.launch_job")
 	if !success {
 		t.Fatalf("success = false, want true")
 	}
-	if message != "launched job template 42" {
+	if message != "awx command completed" {
 		t.Fatalf("message = %q", message)
 	}
 	if got := payload["ok"]; got != true {
@@ -654,35 +656,68 @@ func TestParseAWXPluginResultMapsCriticalToFailure(t *testing.T) {
 		"details": "{\"verb\":\"awx.ping\",\"ok\":false,\"error\":\"connect timeout\"}"
 	}`)
 
-	success, message, payload := parseAWXPluginResult(resultBytes)
+	success, message, payload := parseAWXPluginResult(resultBytes, "awx.ping")
 	if success {
 		t.Fatal("success = true, want false for CRITICAL plugin status")
 	}
-	if message != "awx.ping: connect timeout" {
+	if message != "awx command failed" {
 		t.Fatalf("message = %q", message)
 	}
 	if got := payload["ok"]; got != false {
 		t.Fatalf("payload.ok = %v, want false", got)
 	}
-	if got := payload["error"]; got != "connect timeout" {
-		t.Fatalf("payload.error = %v", got)
+	if got := payload["verb"]; got != "awx.ping" {
+		t.Fatalf("payload.verb = %v", got)
 	}
 }
 
-func TestParseAWXPluginResultKeepsNonJSONDetails(t *testing.T) {
+func TestParseAWXPluginResultRejectsNonJSONDetailsWithoutRetainingThem(t *testing.T) {
 	t.Parallel()
 
 	success, message, payload := parseAWXPluginResult(
-		[]byte(`{"status":"UNKNOWN","summary":"AWX configuration invalid: base_url is required","details":"not json"}`),
+		[]byte(`{"status":"OK","summary":"Bearer secret","details":"not json secret"}`),
+		"awx.fetch_job",
 	)
 	if success {
-		t.Fatal("success = true, want false for UNKNOWN plugin status")
+		t.Fatal("success = true, want false for malformed details")
 	}
-	if message != "AWX configuration invalid: base_url is required" {
+	if message != "invalid awx plugin result" {
 		t.Fatalf("message = %q", message)
 	}
-	if got := payload["details"]; got != "not json" {
-		t.Fatalf("payload.details = %v", got)
+	if got := payload["verb"]; got != "awx.fetch_job" || payload["ok"] != false || len(payload) != 2 {
+		t.Fatalf("payload = %#v, want fixed redacted failure", payload)
+	}
+}
+
+func TestParseAWXPluginResultRejectsMalformedEnvelopeWithoutRetainingRawBytes(t *testing.T) {
+	t.Parallel()
+
+	secret := []byte(`Bearer raw-secret-that-must-not-survive`)
+	success, message, payload := parseAWXPluginResult(secret, "awx.launch_job")
+	if success || message != "invalid awx plugin result" {
+		t.Fatalf("unexpected result: success=%v message=%q", success, message)
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	if bytes.Contains(encoded, secret) || bytes.Contains(encoded, []byte(base64.StdEncoding.EncodeToString(secret))) {
+		t.Fatalf("payload retained malformed plugin bytes: %s", encoded)
+	}
+}
+
+func TestParseAWXPluginResultRejectsMismatchedVerb(t *testing.T) {
+	t.Parallel()
+
+	resultBytes := []byte(`{
+		"status": "OK",
+		"summary": "fetched job",
+		"details": "{\"verb\":\"awx.launch_job\",\"ok\":true,\"job\":{\"id\":7}}"
+	}`)
+
+	success, _, payload := parseAWXPluginResult(resultBytes, "awx.fetch_job")
+	if success || payload["verb"] != "awx.fetch_job" || payload["ok"] != false {
+		t.Fatalf("mismatched verb was not rejected: %#v", payload)
 	}
 }
 

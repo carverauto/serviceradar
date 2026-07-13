@@ -402,6 +402,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
   end
 
   defp stringify_deep(value) when is_list(value), do: Enum.map(value, &stringify_deep/1)
+  defp stringify_deep(value) when is_boolean(value) or is_nil(value), do: value
   defp stringify_deep(value) when is_atom(value), do: Atom.to_string(value)
   defp stringify_deep(value), do: value
 
