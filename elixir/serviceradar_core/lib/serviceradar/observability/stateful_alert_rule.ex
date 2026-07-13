@@ -1,6 +1,11 @@
 defmodule ServiceRadar.Observability.StatefulAlertRule do
   @moduledoc """
   Stateful alert rule definitions for threshold windows (N occurrences in T).
+
+  Rules seeded by `ServiceRadar.Observability.RuleSeeder` carry `managed: true`
+  plus a `template_version`/`template_fingerprint` pair so the seeder can
+  reconcile them when the bundled templates change. Clearing `managed`
+  permanently detaches a rule from the seeder.
   """
 
   use ServiceRadar.Observability.PresetRuleResource,
@@ -19,7 +24,10 @@ defmodule ServiceRadar.Observability.StatefulAlertRule do
       :cooldown_seconds,
       :renotify_seconds,
       :event,
-      :alert
+      :alert,
+      :managed,
+      :template_version,
+      :template_fingerprint
     ],
     fields: [
       {:name, :string, [allow_nil?: false]},
@@ -35,7 +43,10 @@ defmodule ServiceRadar.Observability.StatefulAlertRule do
       {:cooldown_seconds, :integer, [default: 300, allow_nil?: false]},
       {:renotify_seconds, :integer, [default: 21_600, allow_nil?: false]},
       {:event, :map, [default: %{}]},
-      {:alert, :map, [default: %{}]}
+      {:alert, :map, [default: %{}]},
+      {:managed, :boolean, [default: false, allow_nil?: false]},
+      {:template_version, :integer, []},
+      {:template_fingerprint, :string, []}
     ],
     identity_fields: [:name],
     active_sort: [priority: :asc, inserted_at: :asc],

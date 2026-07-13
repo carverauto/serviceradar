@@ -92,17 +92,27 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   add-on evicts the series at its memory cap) no `anomaly_clear` ever arrives, so the
   alert would otherwise sit open until manual cleanup.
 
+  Engine silence is not proof of staleness: event-id dedupe hides add-on heartbeats
+  for still-open anomalies. `live_series_keys` carries the series keys of anomaly
+  episodes that are still open (per `platform.anomaly_episodes`); alerts grouped on
+  those series are kept, everything else past `cutoff` resolves.
+
   Runs inside each owning shard and reuses the exact resolve path a real
   `anomaly_clear` takes (`handle_recovery`), so the in-memory ETS snapshot and the
   Postgres `alert_id` stay consistent — a later re-anomaly of the same series opens a
   fresh alert rather than being suppressed by a stale snapshot. Returns the count
   resolved across all shards.
   """
-  @spec resolve_stale_anomalies(String.t(), DateTime.t(), DateTime.t()) ::
+  @spec resolve_stale_anomalies(String.t(), DateTime.t(), DateTime.t(), MapSet.t()) ::
           {:ok, non_neg_integer()} | {:error, term()}
-  def resolve_stale_anomalies(rule_name, %DateTime{} = cutoff, %DateTime{} = now)
+  def resolve_stale_anomalies(
+        rule_name,
+        %DateTime{} = cutoff,
+        %DateTime{} = now,
+        %MapSet{} = live_series_keys \\ MapSet.new()
+      )
       when is_binary(rule_name) do
-    fan_out_resolve({:resolve_stale_anomalies, {rule_name, cutoff, now}})
+    fan_out_resolve({:resolve_stale_anomalies, {rule_name, cutoff, now, live_series_keys}})
   end
 
   @doc "Number of engine shards (configurable, defaults to #{@default_shard_count})."
@@ -206,7 +216,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         table: table,
         rules: [],
         rules_loaded_at: nil,
-        ash_opts: ash_opts
+        ash_opts: ash_opts,
+        repo_unavailable_logged: false,
+        rules_load_error_logged: false
       })
 
     load_state_snapshots(state)
@@ -254,14 +266,18 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   @impl true
-  def handle_call({:resolve_stale_anomalies, {rule_name, cutoff, now}}, _from, state) do
+  def handle_call(
+        {:resolve_stale_anomalies, {rule_name, cutoff, now, live_series_keys}},
+        _from,
+        state
+      ) do
     {state, rules} = load_rules_if_needed(state)
 
     # Only the shard that owns the rule will find it in its loaded set.
     resolved =
       case Enum.find(rules, fn rule -> rule.name == rule_name end) do
         nil -> 0
-        rule -> StateMachine.sweep_stale_anomalies(rule, cutoff, now, state)
+        rule -> StateMachine.sweep_stale_anomalies(rule, cutoff, now, state, live_series_keys)
       end
 
     {:reply, {:ok, resolved}, state}
@@ -269,6 +285,20 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     error ->
       Logger.warning("Stale-anomaly auto-resolve failed: #{inspect(error)}")
       {:reply, {:error, error}, state}
+  end
+
+  # Rolling-deploy compat: shards are Horde-placed cluster-wide, so during a
+  # rolling deploy a worker on an old node can reach a shard running this code
+  # with the legacy 3-tuple (no live-set). Treat it as an empty live-set sweep,
+  # which is exactly the pre-live-set behavior. The reverse skew — this node's
+  # 4-tuple reaching an old-code shard — cannot be patched here: the old shard
+  # crashes with a FunctionClauseError, the caller's `call/2` catch maps the
+  # exit to `{:error, _}` (so the Oban job retries instead of crashing), Horde
+  # restarts the shard, and the next 30-minute sweep after the deploy finishes
+  # succeeds. The tradeoff is bounded by the sweep cadence.
+  @impl true
+  def handle_call({:resolve_stale_anomalies, {rule_name, cutoff, now}}, from, state) do
+    handle_call({:resolve_stale_anomalies, {rule_name, cutoff, now, MapSet.new()}}, from, state)
   end
 
   defp call(shard, message) do
@@ -338,27 +368,105 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   defp load_rules(state) do
     if repo_available?() do
-      rules =
-        StatefulAlertRule
-        |> Ash.Query.for_read(:active, %{})
-        |> Ash.read(state.ash_opts)
-        |> unwrap_page()
-        |> Enum.filter(fn rule -> shard_for_rule_id(rule.id) == state.shard end)
+      case read_active_rules(state) do
+        {:ok, results} ->
+          rules =
+            Enum.filter(results, fn rule -> shard_for_rule_id(rule.id) == state.shard end)
 
-      updated = %{state | rules: rules, rules_loaded_at: System.monotonic_time(:millisecond)}
-      {updated, rules}
+          :telemetry.execute(
+            [:serviceradar, :stateful_alert_engine, :rules_loaded],
+            %{count: length(rules)},
+            %{shard: state.shard}
+          )
+
+          if state.rules_load_error_logged do
+            Logger.info(
+              "StatefulAlertEngine shard #{state.shard} recovered: loaded #{length(rules)} rules"
+            )
+          end
+
+          updated = %{
+            state
+            | rules: rules,
+              rules_loaded_at: System.monotonic_time(:millisecond),
+              rules_load_error_logged: false
+          }
+
+          {updated, rules}
+
+        {:error, error} ->
+          # A returned query error (e.g. schema drift: code selecting a column
+          # an unapplied migration adds) must not be mistaken for "zero rules".
+          # Keep serving the previously loaded rules, leave rules_loaded_at
+          # unstamped so recovery is retried, and fail loudly.
+          :telemetry.execute(
+            [:serviceradar, :stateful_alert_engine, :rules_load_failed],
+            %{count: 1},
+            %{shard: state.shard, node: node()}
+          )
+
+          # Reset the cache stamp so the next evaluation retries the load
+          # instead of serving the stale-success stamp for the cache window.
+          state = %{state | rules_loaded_at: nil}
+
+          state =
+            if state.rules_load_error_logged do
+              state
+            else
+              Logger.error(
+                "StatefulAlertEngine shard #{state.shard} failed to load alert rules; " <>
+                  "keeping #{length(state.rules)} previously loaded rules: #{inspect(error)}"
+              )
+
+              %{state | rules_load_error_logged: true}
+            end
+
+          {state, state.rules}
+      end
     else
-      {state, []}
+      {report_repo_unavailable(state), []}
     end
   rescue
     error ->
-      Logger.warning("Failed to load stateful alert rules: #{inspect(error)}")
-      {state, []}
+      Logger.error("Failed to load stateful alert rules: #{inspect(error)}")
+      {state, state.rules}
   end
 
-  defp unwrap_page({:ok, %Keyset{results: results}}), do: results
-  defp unwrap_page({:ok, results}) when is_list(results), do: results
-  defp unwrap_page(_), do: []
+  defp read_active_rules(%{rules_reader: reader}) when is_function(reader, 0), do: reader.()
+
+  defp read_active_rules(state) do
+    StatefulAlertRule
+    |> Ash.Query.for_read(:active, %{})
+    |> Ash.read(state.ash_opts)
+    |> case do
+      {:ok, %Keyset{results: results}} -> {:ok, results}
+      {:ok, results} when is_list(results) -> {:ok, results}
+      {:error, error} -> {:error, error}
+      other -> {:error, other}
+    end
+  end
+
+  # A shard hosted on a repo-less node (gateway/web tiers) evaluates every batch
+  # against zero rules, silently dropping alerts. Warn once per shard process and
+  # count every occurrence so dashboards can spot misplaced shards.
+  defp report_repo_unavailable(state) do
+    :telemetry.execute(
+      [:serviceradar, :stateful_alert_engine, :repo_unavailable],
+      %{count: 1},
+      %{shard: state.shard, node: node()}
+    )
+
+    if state.repo_unavailable_logged do
+      state
+    else
+      Logger.warning(
+        "StatefulAlertEngine shard #{state.shard} on #{node()} has no repo available; " <>
+          "loading zero alert rules"
+      )
+
+      %{state | repo_unavailable_logged: true}
+    end
+  end
 
   defp load_state_snapshots(state) do
     if repo_available?() do

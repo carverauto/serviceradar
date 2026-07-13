@@ -12,6 +12,7 @@ defmodule ServiceRadar.Observability.AnomalyConfigSeeder do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.AnomalyDetectionConfig
   alias ServiceRadar.Observability.CapacityForecastConfig
+  alias ServiceRadar.Observability.CapacityForecasting.Source
 
   require Logger
 
@@ -86,6 +87,10 @@ defmodule ServiceRadar.Observability.AnomalyConfigSeeder do
 
   @doc false
   def forecast_attrs_from_env(get_env \\ &System.get_env/1) do
+    # The resource validation allows exactly these opt-ins; other tokens would
+    # fail it and abort the whole first-boot seed.
+    opt_in_names = Source.opt_in_names()
+
     %{
       forecast_horizon_seconds:
         int_env(get_env, "SERVICERADAR_CAPACITY_FORECAST_CONFIG_HORIZON_SECONDS", 7_776_000,
@@ -119,7 +124,11 @@ defmodule ServiceRadar.Observability.AnomalyConfigSeeder do
           get_env,
           "SERVICERADAR_CAPACITY_FORECAST_CONFIG_METRIC_CLASS_OVERRIDES_JSON",
           @forecast_default_overrides
-        )
+        ),
+      default_source_opt_ins:
+        get_env
+        |> comma_list_env("SERVICERADAR_CAPACITY_FORECASTING_SOURCE_OPT_INS")
+        |> Enum.filter(&(&1 in opt_in_names))
     }
   end
 
@@ -209,11 +218,14 @@ defmodule ServiceRadar.Observability.AnomalyConfigSeeder do
     |> min(Keyword.fetch!(bounds, :max))
   end
 
+  # Helm renders `{}` for unset JSON map values; an empty object carries no
+  # configuration, so seed the code defaults instead of storing it and
+  # discarding the per-class defaults on fresh installs.
   defp map_env(get_env, name, default) do
     case get_env.(name) do
       value when is_binary(value) ->
         case Jason.decode(value) do
-          {:ok, %{} = parsed} -> parsed
+          {:ok, parsed} when is_map(parsed) and map_size(parsed) > 0 -> parsed
           _ -> default
         end
 
@@ -244,6 +256,20 @@ defmodule ServiceRadar.Observability.AnomalyConfigSeeder do
 
       _ ->
         default
+    end
+  end
+
+  defp comma_list_env(get_env, name) do
+    case get_env.(name) do
+      value when is_binary(value) ->
+        value
+        |> String.split(",", trim: true)
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.uniq()
+
+      _ ->
+        []
     end
   end
 

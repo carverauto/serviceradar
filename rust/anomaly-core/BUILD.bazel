@@ -47,3 +47,24 @@ rust_test(
     ),
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )
+
+# Labeled-corpus scorecard floor gate (OpenSpec overhaul-anomaly-engine-reliability
+# task 1.20.c): replays the committed tools/anomaly-proof corpus through the shared
+# backtest plumbing and enforces spike-precision / drift-recall / drift-FP / score
+# bound floors. Runs in the plain `bazel test tests(//...)` CI sweep.
+rust_test(
+    name = "scorecard_gate_test",
+    size = "large",
+    srcs = ["tests/scorecard_gate.rs"],
+    crate_root = "tests/scorecard_gate.rs",
+    data = [
+        "testdata/scorecard/samples.jsonl.gz",
+        "testdata/scorecard/truth.csv.gz",
+    ],
+    edition = "2024",
+    deps = all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ) + [":serviceradar_anomaly_core"],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)

@@ -1092,9 +1092,29 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
     opts
     |> Keyword.get(
       :sources,
-      Source.defaults(include_sources: Keyword.get(opts, :default_source_opt_ins, []))
+      Source.defaults(include_sources: validated_source_opt_ins(opts))
     )
     |> Enum.map(&Source.from_config/1)
+  end
+
+  defp validated_source_opt_ins(opts) do
+    opt_ins =
+      opts
+      |> Keyword.get(:default_source_opt_ins, [])
+      |> List.wrap()
+      |> Enum.map(&to_string/1)
+
+    known = Source.opt_in_names()
+    {valid, unknown} = Enum.split_with(opt_ins, &(&1 in known))
+
+    if unknown != [] do
+      Logger.warning(
+        "Ignoring unknown capacity forecasting source opt-ins: #{Enum.join(unknown, ", ")}",
+        known_sources: known
+      )
+    end
+
+    valid
   end
 
   defp forecasted_at(%Oban.Job{args: %{"forecasted_at" => iso}}) when is_binary(iso) do

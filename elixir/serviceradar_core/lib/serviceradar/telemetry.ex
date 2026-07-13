@@ -322,7 +322,8 @@ defmodule ServiceRadar.Telemetry do
       endpoint_inventory_metrics() ++
       camera_relay_metrics() ++
       observability_signal_metrics() ++
-      event_writer_metrics() ++ capacity_forecasting_metrics()
+      event_writer_metrics() ++
+      capacity_forecasting_metrics() ++ stateful_alert_engine_metrics()
   end
 
   @doc """
@@ -463,6 +464,30 @@ defmodule ServiceRadar.Telemetry do
         measurement: :sample_count,
         tags: tags,
         description: "Usable history samples fitted by capacity forecasting source evaluations"
+      )
+    ]
+  end
+
+  @doc """
+  Returns StatefulAlertEngine shard health metric definitions.
+  """
+  @spec stateful_alert_engine_metrics() :: list()
+  def stateful_alert_engine_metrics do
+    import Telemetry.Metrics
+
+    [
+      last_value("serviceradar.stateful_alert_engine.rules_loaded.count",
+        event_name: [:serviceradar, :stateful_alert_engine, :rules_loaded],
+        measurement: :count,
+        tags: [:shard],
+        description: "Active alert rules owned by a StatefulAlertEngine shard at its last load"
+      ),
+      counter("serviceradar.stateful_alert_engine.repo_unavailable.count",
+        event_name: [:serviceradar, :stateful_alert_engine, :repo_unavailable],
+        measurement: :count,
+        tags: [:shard, :node],
+        description:
+          "Rule loads skipped because a StatefulAlertEngine shard runs on a repo-less node"
       )
     ]
   end

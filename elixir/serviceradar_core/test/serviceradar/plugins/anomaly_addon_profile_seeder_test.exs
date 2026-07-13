@@ -147,3 +147,150 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeederTest do
     end
   end
 end
+
+defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeederDbTest do
+  @moduledoc """
+  DB-backed coverage for the seed path itself, in particular the
+  operator-profile-exists case: seeding creates the default profile enabled,
+  so when an operator already runs their own enabled anomaly profile the seeder
+  must skip creation (one info line) instead of tripping
+  `SingleEnabledAddonProfile` on every boot.
+  """
+
+  use ServiceRadar.DataCase, async: false
+
+  import ExUnit.CaptureLog
+
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.AddonProfile
+  alias ServiceRadar.Plugins.AnomalyAddonProfileSeeder
+
+  require Ash.Query
+  require Logger
+
+  @moduletag :integration
+
+  setup_all do
+    ServiceRadar.TestSupport.start_core!()
+    :ok
+  end
+
+  setup do
+    actor = SystemActor.system(:anomaly_addon_profile_seeder_db_test)
+    %{actor: actor}
+  end
+
+  test "seeds the enabled default profile when no anomaly profile exists", %{actor: actor} do
+    approved_anomaly_package(actor)
+
+    assert :ok = AnomalyAddonProfileSeeder.seed_defaults(actor: actor)
+    assert {:ok, %AddonProfile{enabled: true}} = seeded_profile(actor)
+  end
+
+  test "skips seeding when an operator-created enabled anomaly profile exists", %{actor: actor} do
+    package = approved_anomaly_package(actor)
+    {:ok, operator} = create_profile(package, "Operator anomaly profile", true, actor)
+
+    log =
+      with_log_level(:info, fn ->
+        capture_log([level: :info], fn ->
+          assert :ok = AnomalyAddonProfileSeeder.seed_defaults(actor: actor)
+        end)
+      end)
+
+    assert log =~ "Skipping anomaly add-on default profile seed"
+    assert log =~ operator.name
+    refute log =~ "Failed to seed anomaly add-on default profile"
+
+    # No seeded duplicate — enabled or disabled — was created.
+    assert {:ok, nil} = seeded_profile(actor)
+  end
+
+  test "a disabled operator profile does not block seeding", %{actor: actor} do
+    package = approved_anomaly_package(actor)
+    {:ok, _operator} = create_profile(package, "Disabled operator profile", false, actor)
+
+    assert :ok = AnomalyAddonProfileSeeder.seed_defaults(actor: actor)
+    assert {:ok, %AddonProfile{enabled: true}} = seeded_profile(actor)
+  end
+
+  defp with_log_level(level, fun) do
+    previous = Logger.level()
+    Logger.configure(level: level)
+
+    try do
+      fun.()
+    after
+      Logger.configure(level: previous)
+    end
+  end
+
+  defp seeded_profile(actor) do
+    seeded_by = "ServiceRadar.Plugins.AnomalyAddonProfileSeeder"
+
+    AddonProfile
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(addon_id == "anomaly" and metadata["seeded_by"] == ^seeded_by)
+    |> Ash.read_one(actor: actor)
+  end
+
+  defp approved_anomaly_package(actor) do
+    unique = System.unique_integer([:positive])
+
+    {:ok, package} =
+      AddonPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          addon_id: "anomaly",
+          version: "0.0.#{unique}",
+          name: "anomaly package #{unique}",
+          artifacts: %{"linux/amd64" => %{}},
+          requires: %{},
+          config_schema: %{
+            "type" => "object",
+            "properties" => %{
+              "metric_feed" => %{
+                "type" => "object",
+                "properties" => %{
+                  "sources" => %{"type" => "array", "items" => %{"type" => "string"}}
+                }
+              }
+            }
+          }
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, package} =
+      package
+      |> Ash.Changeset.for_update(
+        :approve,
+        %{
+          approved_capabilities: [],
+          approved_by: "system:anomaly_addon_profile_seeder_db_test"
+        },
+        actor: actor
+      )
+      |> Ash.update()
+
+    package
+  end
+
+  defp create_profile(package, name, enabled, actor) do
+    AddonProfile
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: name,
+        addon_package_id: package.id,
+        target_query: "in:agents",
+        enabled: enabled
+      },
+      actor: actor
+    )
+    |> Ash.create()
+  end
+end

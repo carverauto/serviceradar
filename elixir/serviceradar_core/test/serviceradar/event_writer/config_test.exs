@@ -75,15 +75,30 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       refute Enum.any?(Config.default_streams(), &(&1.subject == "flow.attributed.>"))
     end
 
-    test "consumes analytics prediction verdicts from the durable events stream" do
+    test "consumes analytics prediction verdicts from a dedicated retention stream" do
       analytics_predictions =
         Enum.find(Config.default_streams(), &(&1.name == "ANALYTICS_PREDICTIONS"))
 
-      assert analytics_predictions.stream_name == "events"
+      # default_streams/0 must splice the shared definition verbatim (both
+      # runtime.exs trees consume the same function).
+      assert analytics_predictions == Config.analytics_predictions_stream()
+
+      # Literal guard on the shared definition: a bad edit to
+      # analytics_predictions_stream/0 must fail here, not just self-compare.
+      assert analytics_predictions.stream_name == "analytics_predictions"
       assert analytics_predictions.subject == "signals.analytics.predictions.>"
 
       assert analytics_predictions.processor ==
                ServiceRadar.EventWriter.Processors.AnalyticsSignals
+
+      # Verdicts must survive core outages >30m: the shared events stream's
+      # MaxAge is pinned to 30m by the otel collector, so the dedicated stream
+      # carries its own bounded discard-old retention (1 GiB / 24h).
+      assert analytics_predictions.stream_retention == "limits"
+      assert analytics_predictions.stream_storage == "file"
+      assert analytics_predictions.stream_discard == "old"
+      assert analytics_predictions.stream_max_bytes == 1_073_741_824
+      assert analytics_predictions.stream_max_age == 86_400_000_000_000
     end
 
     test "routes host metrics through a dedicated limits-retention stream" do

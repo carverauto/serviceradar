@@ -1,3 +1,50 @@
+# ServiceRadar v1.4.15
+
+Fixed anomaly episode payload persistence and silent alert-rule load failures
+found during live verification of the v1.4.14 rollout.
+
+## Whats New
+
+**1.4.15**
+- Anomaly episodes: episode payloads are stored as JSON objects again — the
+  registry double-encoded them, which crashed the device-page anomaly panel;
+  a repair migration re-parses rows written before the fix.
+- Alert engine: rule-query errors are no longer silently treated as an empty
+  rule set. Shards keep their previously loaded rules, log once until
+  recovery, emit failure telemetry, and retry — schema drift can no longer
+  quietly disable alerting.
+- Alert rules: the seeded endpoint inventory vulnerability rule is repaired
+  from the retired causal inventory subject to the analytics subject family.
+
+# ServiceRadar v1.4.14
+
+Restored anomaly and capacity alerting operability from edge detection through
+the alert engine, user surfaces, and operational tripwires.
+
+## Whats New
+
+**1.4.14**
+- Anomaly alerting: production now schedules the seasonal disposition,
+  edge-baseline, configuration-projection, stale-episode, and stale-alert
+  workers in the deployed core runtime. Stateful alert rules reconcile the
+  retired prediction subject prefix, and alert-engine shards no longer land on
+  repo-less gateway nodes.
+- Detection visibility: anomaly episodes are enabled by default, device pages
+  surface CPU findings without a missing disposition record, and stale alert
+  cleanup preserves alerts backed by live episodes. New liveness, ingest
+  silence, and seasonal-baseline freshness tripwires make regressions visible.
+- Capacity forecasting: CPU, interface, and flow sources can be opted in from
+  Settings or deployment configuration; the health view reports skipped series
+  and uses only persisted forecast statuses.
+- Streaming durability: prediction verdicts have a dedicated 24-hour,
+  file-backed JetStream stream, with safe fallback handling during the existing
+  stream migration. Falco consumption aligns with the provisioned events
+  stream.
+- Profile safety and release verification: anomaly profile configuration now
+  has a database-enforced single-enabled-profile invariant, resolving legacy
+  duplicates deterministically at migration time. The anomaly scorecard corpus
+  is committed and exercised by the CI floor gate.
+
 # ServiceRadar v1.4.13
 
 Durable plugin-result delivery and deterministic service-state recovery across

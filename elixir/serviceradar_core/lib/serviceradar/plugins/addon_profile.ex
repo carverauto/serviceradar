@@ -18,6 +18,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
   alias ServiceRadar.Plugins.Changes.SetAssignmentAddonId
   alias ServiceRadar.Plugins.Validations.AddonAssignmentParams
   alias ServiceRadar.Plugins.Validations.AddonPackageApproved
+  alias ServiceRadar.Plugins.Validations.SingleEnabledAddonProfile
 
   @mutable_fields [
     :name,
@@ -36,6 +37,17 @@ defmodule ServiceRadar.Plugins.AddonProfile do
     table "addon_profiles"
     repo ServiceRadar.Repo
     schema "platform"
+
+    custom_indexes do
+      # Race backstop for Validations.SingleEnabledAddonProfile: the
+      # validation reads-then-writes, so two concurrent enables can both pass
+      # it. Predicate must stay in sync with @exclusive_addon_ids there.
+      index [:addon_id],
+        name: "addon_profiles_single_enabled_anomaly_index",
+        unique: true,
+        where: "enabled AND addon_id = 'anomaly'",
+        message: "only one enabled add-on profile is allowed for the anomaly add-on"
+    end
 
     references do
       reference :addon_package, on_delete: :delete
@@ -69,15 +81,22 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       change ApplyAddonConfigDefaults
       validate AddonPackageApproved
       validate AddonAssignmentParams
+      validate SingleEnabledAddonProfile
     end
 
     update :update do
+      # SingleEnabledAddonProfile requires a cross-row read ({:not_atomic, ..}),
+      # so updates must fall back to the non-atomic path (where validate/3
+      # runs) instead of erroring MustBeAtomic.
+      require_atomic? false
+
       accept @mutable_fields ++ [:last_reconciled_at, :last_reconcile_summary]
 
       change SetAssignmentAddonId
       change ApplyAddonConfigDefaults
       validate AddonPackageApproved
       validate AddonAssignmentParams
+      validate SingleEnabledAddonProfile
     end
 
     action :preview do

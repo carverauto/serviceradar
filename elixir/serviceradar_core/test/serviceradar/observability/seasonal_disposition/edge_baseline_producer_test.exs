@@ -239,7 +239,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
                profiles_loader: fn _actor -> {:ok, profiles} end,
                profile_updater: profile_updater,
                assignments_loader: fn _profiles, _actor -> {:ok, assignments} end,
-               assignment_updater: assignment_updater
+               assignment_updater: assignment_updater,
+               heartbeat_recorder: fn _metadata -> :ok end
              )
 
     assert summary.global_series == 0
@@ -289,7 +290,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
                sources: sources(),
                runner: ProfileRunner,
                profiles_loader: fn _actor -> {:ok, profiles} end,
-               profile_updater: updater
+               profile_updater: updater,
+               heartbeat_recorder: fn _metadata -> :ok end
              )
 
     assert summary.profiles_updated == 1
@@ -304,6 +306,135 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
     device = ProfileRunner.device()
     assert Map.has_key?(params["seasonal_baselines"], "#{device}|memory.used_percent")
     assert Map.has_key?(params["seasonal_baselines"], "#{device}|cpu.usage_percent")
+  end
+
+  test "reconcile records a per-run producer heartbeat and stamps no meta key" do
+    test_pid = self()
+    source = Enum.find(Source.defaults(), &(&1.name == "interface_if_in_octets_seasonal"))
+
+    profiles = [%{id: Ecto.UUID.generate(), params: %{}}]
+    assignments = [%{agent_uid: "agent-a", params: %{}}]
+
+    assert {:ok, summary} =
+             EdgeBaselineProducer.reconcile(
+               sources: [source],
+               runner: GovernedInterfaceRunner,
+               profiles_loader: fn _actor -> {:ok, profiles} end,
+               profile_updater: fn profile, params, _actor ->
+                 send(test_pid, {:profile_updated, params})
+                 {:ok, Map.put(profile, :params, params)}
+               end,
+               assignments_loader: fn _profiles, _actor -> {:ok, assignments} end,
+               assignment_updater: fn assignment, params, _actor ->
+                 send(test_pid, {:assignment_updated, params})
+                 {:ok, Map.put(assignment, :params, params)}
+               end,
+               heartbeat_recorder: fn metadata ->
+                 send(test_pid, {:heartbeat, metadata})
+                 :ok
+               end
+             )
+
+    # The freshness tripwire keys off this heartbeat, so a successful run must
+    # record exactly one with the delivery summary as metadata.
+    assert_received {:heartbeat, metadata}
+    refute_received {:heartbeat, _duplicate}
+
+    assert metadata == %{
+             profiles: summary.profiles_total,
+             assignments: summary.assignments_total,
+             profiles_updated: summary.profiles_updated,
+             assignments_updated: summary.assignments_updated,
+             series: summary.series
+           }
+
+    assert_received {:profile_updated, profile_params}
+    assert_received {:assignment_updated, assignment_params}
+
+    # No `seasonal_baselines_meta` sibling key: the DB-stored (previously
+    # approved) package schema has root `additionalProperties: false`, so an
+    # undeclared key would fail params validation on every existing deployment
+    # and break baseline delivery entirely.
+    refute Map.has_key?(profile_params, "seasonal_baselines_meta")
+    refute Map.has_key?(assignment_params, "seasonal_baselines_meta")
+    assert :ok = ConfigSchema.validate_params(load_addon_schema(), assignment_params)
+  end
+
+  test "reconcile heartbeat failures never fail a successful delivery" do
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:ok, _summary} =
+                 EdgeBaselineProducer.reconcile(
+                   sources: sources(),
+                   runner: ProfileRunner,
+                   profiles_loader: fn _actor -> {:ok, [%{id: "profile-1", params: %{}}]} end,
+                   profile_updater: fn profile, params, _actor ->
+                     {:ok, Map.put(profile, :params, params)}
+                   end,
+                   heartbeat_recorder: fn _metadata -> raise "health surface down" end
+                 )
+      end)
+
+    assert log =~ "Failed to record seasonal edge baseline heartbeat"
+  end
+
+  test "reconcile skips params writes when the delivered payload is unchanged" do
+    test_pid = self()
+    source = Enum.find(Source.defaults(), &(&1.name == "interface_if_in_octets_seasonal"))
+
+    run = fn profiles, assignments, tag ->
+      EdgeBaselineProducer.reconcile(
+        sources: [source],
+        runner: GovernedInterfaceRunner,
+        profiles_loader: fn _actor -> {:ok, profiles} end,
+        profile_updater: fn profile, params, _actor ->
+          send(test_pid, {tag, :profile_updated, params})
+          {:ok, Map.put(profile, :params, params)}
+        end,
+        assignments_loader: fn _profiles, _actor -> {:ok, assignments} end,
+        assignment_updater: fn assignment, params, _actor ->
+          send(test_pid, {tag, :assignment_updated, params})
+          {:ok, Map.put(assignment, :params, params)}
+        end,
+        heartbeat_recorder: fn _metadata ->
+          send(test_pid, {tag, :heartbeat})
+          :ok
+        end
+      )
+    end
+
+    profile_id = Ecto.UUID.generate()
+
+    assert {:ok, first} =
+             run.(
+               [%{id: profile_id, params: %{}}],
+               [%{agent_uid: "agent-a", params: %{}}],
+               :first
+             )
+
+    assert first.profiles_updated == 1
+    assert first.assignments_updated == 1
+    assert_received {:first, :profile_updated, profile_params}
+    assert_received {:first, :assignment_updated, assignment_params}
+    assert_received {:first, :heartbeat}
+
+    # Re-running against params that already carry the identical payload must
+    # not write (no hourly no-op churn, no agent config redelivery) — but the
+    # run is still successful, so the heartbeat still fires.
+    assert {:ok, second} =
+             run.(
+               [%{id: profile_id, params: profile_params}],
+               [%{agent_uid: "agent-a", params: assignment_params}],
+               :second
+             )
+
+    assert second.profiles_updated == 0
+    assert second.assignments_updated == 0
+    assert second.profiles_total == 1
+    assert second.assignments_total == 1
+    refute_received {:second, :profile_updated, _params}
+    refute_received {:second, :assignment_updated, _params}
+    assert_received {:second, :heartbeat}
   end
 
   defmodule EmptyRunner do

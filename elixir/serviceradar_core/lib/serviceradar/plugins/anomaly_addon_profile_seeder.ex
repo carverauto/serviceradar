@@ -73,12 +73,28 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeeder do
     with {:ok, package} <- latest_approved_package(actor),
          :ok <- ensure_schema_supports_metric_feed(package),
          {:ok, profile} <- find_seeded_profile(actor),
+         :ok <- ensure_no_conflicting_enabled_profile(profile, actor),
          {:ok, _profile} <- upsert_profile(profile, package, actor) do
       :ok
     else
+      :no_package ->
+        Logger.debug(
+          "Skipping anomaly add-on default profile seed; no approved anomaly package imported yet"
+        )
+
+        :ok
+
       :unsupported_schema ->
         Logger.debug(
           "Skipping anomaly add-on default profile seed; package config schema lacks metric_feed"
+        )
+
+        :ok
+
+      {:operator_profile_exists, %AddonProfile{} = existing} ->
+        Logger.info(
+          "Skipping anomaly add-on default profile seed; enabled profile " <>
+            "\"#{existing.name}\" (#{existing.id}) already carries the deployment config"
         )
 
         :ok
@@ -102,6 +118,8 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeeder do
     end
   end
 
+  defp ensure_schema_supports_metric_feed(nil), do: :no_package
+
   defp ensure_schema_supports_metric_feed(%AddonPackage{config_schema: schema}) do
     properties = Map.get(schema || %{}, "properties", %{})
 
@@ -111,6 +129,25 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeeder do
       :unsupported_schema
     end
   end
+
+  # Seeding creates the default profile enabled, and SingleEnabledAddonProfile
+  # rejects a second enabled anomaly profile. When an operator already runs
+  # their own enabled anomaly profile, skip seeding entirely (a disabled
+  # duplicate would only confuse operators) instead of failing every boot.
+  defp ensure_no_conflicting_enabled_profile(nil, actor) do
+    AddonProfile
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(addon_id == @addon_id and enabled == true)
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, []} -> :ok
+      {:ok, [existing | _]} -> {:operator_profile_exists, existing}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp ensure_no_conflicting_enabled_profile(%AddonProfile{}, _actor), do: :ok
 
   defp find_seeded_profile(actor) do
     AddonProfile

@@ -427,7 +427,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert row.device == %{"uid" => device_uid}
 
     assert {:ok, 1} = AnalyticsSignals.process_batch([message])
-    assert persisted_ocsf_event?(row)
+    # The episode registry (default-on) stamps a deterministic transition
+    # identity onto anomaly rows, so look the persisted row up by device
+    # rather than by the pre-registry (id, time) pair.
+    assert persisted_anomaly_event_for_device?(device_uid)
 
     # The async queue path persists the alert and then syncs incident metadata
     # as a separate write, so wait until the active alert exists AND its incident
@@ -1635,6 +1638,16 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   end
 
   defp metadata_value(_, _), do: nil
+
+  defp persisted_anomaly_event_for_device?(device_uid) do
+    case Repo.query(
+           "SELECT 1 FROM platform.ocsf_events WHERE class_uid = 2004 AND device->>'uid' = $1 LIMIT 1",
+           [device_uid]
+         ) do
+      {:ok, %{num_rows: 1}} -> true
+      _ -> false
+    end
+  end
 
   defp persisted_ocsf_event?(%{id: id, time: %DateTime{} = time}) do
     {:ok, uuid} = uuid_query_param(id)

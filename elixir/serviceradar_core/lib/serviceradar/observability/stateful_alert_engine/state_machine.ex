@@ -278,11 +278,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
   end
 
   # Resolve every open snapshot for `rule` whose last matching record predates
-  # `cutoff` (the series went silent, so no `anomaly_clear` will arrive). Reuses
+  # `cutoff` (the series went silent, so no `anomaly_clear` will arrive) — unless
+  # `live_series_keys` marks the snapshot's series as still open in
+  # `platform.anomaly_episodes`: event-id dedupe hides add-on heartbeats from the
+  # engine, so episode liveness is the staleness source of truth. Reuses
   # `handle_recovery` — the same path a real clear takes — then persists, so the ETS
   # snapshot and Postgres agree. The stale rows are collected before mutating so the
   # `:ets.insert` does not run during the fold.
-  def sweep_stale_anomalies(rule, cutoff, now, state) do
+  def sweep_stale_anomalies(rule, cutoff, now, state, live_series_keys \\ MapSet.new()) do
     stale =
       :ets.foldl(
         fn {key, snapshot}, acc ->
@@ -298,11 +301,26 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
       )
 
     Enum.reduce(stale, 0, fn {key, snapshot}, acc ->
-      resolved = handle_recovery(snapshot, rule, nil, now)
-      persist_snapshot(resolved, rule, state)
-      :ets.insert(state.table, {key, resolved})
-      acc + 1
+      if live_series?(snapshot, live_series_keys) do
+        Logger.debug(
+          "Skipping stale-anomaly resolve for #{inspect(key)}: anomaly episode still open"
+        )
+
+        acc
+      else
+        resolved = handle_recovery(snapshot, rule, nil, now)
+        persist_snapshot(resolved, rule, state)
+        :ets.insert(state.table, {key, resolved})
+        acc + 1
+      end
     end)
+  end
+
+  defp live_series?(snapshot, live_series_keys) do
+    case Map.get(snapshot, :group_values) do
+      %{"anomaly.series_key" => series_key} -> MapSet.member?(live_series_keys, series_key)
+      _ -> false
+    end
   end
 
   defp stale_snapshot?(%DateTime{} = last_seen_at, %DateTime{} = cutoff),

@@ -8,6 +8,8 @@ alias ServiceRadar.Jobs.AlertsRetentionWorker
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
+alias ServiceRadar.Observability.ProductionSchedule
+alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
 
 parse_int_env = fn env_name, default ->
   case System.get_env(env_name) do
@@ -809,7 +811,7 @@ if config_env() == :prod do
       {System.get_env("SERVICERADAR_OBSERVABILITY_RETENTION_CRON") || "17 3 * * *", DataRetentionWorker,
        queue: :maintenance},
       {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker, queue: :maintenance}
-    ] ++ capacity_forecasting_crontab
+    ] ++ capacity_forecasting_crontab ++ ProductionSchedule.cron_entries()
 
   add_cron_entries = fn config, entries ->
     plugins =
@@ -848,7 +850,10 @@ if config_env() == :prod do
     warning_horizon_seconds: capacity_forecasting_warning_horizon_seconds,
     emit_verdicts?: capacity_forecasting_emit_verdicts,
     min_points: "SERVICERADAR_CAPACITY_FORECASTING_MIN_POINTS" |> parse_int_env.(24) |> max(1),
-    seasonal_period: "SERVICERADAR_CAPACITY_FORECASTING_SEASONAL_PERIOD" |> parse_int_env.(24) |> max(1)
+    seasonal_period: "SERVICERADAR_CAPACITY_FORECASTING_SEASONAL_PERIOD" |> parse_int_env.(24) |> max(1),
+    # Comma-separated source names; the worker validates against the known
+    # source list at run time. A non-empty Settings value overrides this.
+    default_source_opt_ins: ProductionSchedule.capacity_source_opt_ins()
 
   config :serviceradar_core, DataRetentionWorker,
     batch_size: observability_retention_batch_size,
@@ -868,6 +873,7 @@ if config_env() == :prod do
 
   config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
   config :serviceradar_core, RefreshTraceSummariesWorker, retention_days: trace_summary_retention_days
+  config :serviceradar_core, SeasonalDispositionWorker, ProductionSchedule.seasonal_disposition_worker_config()
   config :serviceradar_core, ServiceRadar.ControlRepo, control_repo_opts
   config :serviceradar_core, ServiceRadar.FlowAttribution, retention_minutes: flow_attribution_retention_minutes
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
@@ -880,6 +886,12 @@ if config_env() == :prod do
 
   config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
   config :serviceradar_core, :start_ash_oban_scheduler, ash_oban_scheduler_enabled
+
+  # Operator-set stale thresholds for the scheduled anomaly workers; the
+  # worker modules' own defaults apply when unset.
+  for {key, value} <- ProductionSchedule.app_env() do
+    config :serviceradar_core, key, value
+  end
 
   if local_mailer do
     config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
@@ -1000,8 +1012,12 @@ if config_env() == :prod do
         },
         %{
           name: "FALCO",
-          stream_name: "falco_events",
-          subject: "falco.>",
+          # Align with the serviceradar_core tree + Config.default_streams/0:
+          # no deployment provisions a `falco_events` stream / `falco.>`
+          # subject (the mismatch produced constant 404 polls on demo); the
+          # working definition rides the shared `events` stream.
+          stream_name: "events",
+          subject: "falco.logs",
           processor: ServiceRadar.EventWriter.Processors.FalcoEvents,
           batch_size: 100,
           batch_timeout: 1_000
@@ -1077,14 +1093,10 @@ if config_env() == :prod do
           batch_size: 100,
           batch_timeout: 1_000
         },
-        %{
-          name: "ANALYTICS_PREDICTIONS",
-          stream_name: "events",
-          subject: "signals.analytics.predictions.>",
-          processor: AnalyticsSignals,
-          batch_size: 100,
-          batch_timeout: 1_000
-        },
+        # Dedicated anomaly/capacity verdict stream (restore-anomaly-alerting
+        # design D9); definition shared with Config.default_streams/0 so the
+        # retention stanza cannot drift.
+        ServiceRadar.EventWriter.Config.analytics_predictions_stream(),
         %{
           name: "SFLOW_RAW",
           subject: "flows.raw.sflow",

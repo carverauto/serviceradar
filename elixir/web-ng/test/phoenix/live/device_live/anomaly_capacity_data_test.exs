@@ -167,7 +167,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     end
   end
 
-  defmodule EdgeOnlyCPUSRQL do
+  defmodule CPUDispositionSRQL do
     @moduledoc false
 
     def query("in:events" <> _rest = query, _opts) do
@@ -181,7 +181,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
              "status" => "active",
              "severity" => "High",
              "time" => "2026-06-19T00:00:00Z",
-             "message" => "edge-only CPU spike should not be operator visible"
+             "message" => "undispositioned CPU finding stays visible"
+           },
+           %{
+             "metric_class" => "cpu",
+             "status" => "active",
+             "severity" => "High",
+             "time" => "2026-06-19T00:02:00Z",
+             "message" => "explicitly routed CPU finding stays hidden",
+             "anomaly_disposition" => %{"action" => "observe"}
+           },
+           %{
+             "metric_class" => "cpu",
+             "status" => "active",
+             "severity" => "High",
+             "time" => "2026-06-19T00:03:00Z",
+             "message" => "suppressed CPU finding stays hidden",
+             "anomaly_disposition" => %{"action" => "suppress"}
            },
            %{
              "metric_class" => "memory",
@@ -501,6 +517,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     assert data.capacity_filter == %{field: "resource_id", label: "device", value: "router-1"}
     assert data.anomaly_query =~ ~s|service_radar_device_uid:"router-1"|
     assert data.capacity_query =~ ~s|resource_id:"router-1"|
+    assert data.capacity_query =~ "status:projected"
+    refute data.capacity_query =~ "at_risk"
+    refute data.capacity_query =~ "exhaustion_projected"
     refute data.capacity_query =~ "resource_key:"
     refute data.anomaly_query =~ "agent_id:"
     refute data.anomaly_query =~ "host_id:"
@@ -637,15 +656,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     assert Enum.any?(queries, &String.contains?(&1, ~s|service_radar_device_uid:"router-1"|))
   end
 
-  test "hides edge-only CPU findings unless central disposition escalates them" do
-    data = AnomalyCapacityData.load(EdgeOnlyCPUSRQL, %{device_uid: "router-1"}, nil)
+  test "shows CPU findings without a persisted disposition and hides explicitly routed ones" do
+    data = AnomalyCapacityData.load(CPUDispositionSRQL, %{device_uid: "router-1"}, nil)
 
     cpu = Enum.find(data.metric_statuses, &(&1.class == "cpu"))
     memory = Enum.find(data.metric_statuses, &(&1.class == "memory"))
 
-    assert Enum.map(data.anomaly_rows, & &1["metric_class"]) == ["memory"]
-    assert cpu.status == "normal"
-    assert cpu.count == 0
+    assert Enum.map(data.anomaly_rows, & &1["message"]) == [
+             "undispositioned CPU finding stays visible",
+             "non-CPU active finding remains visible"
+           ]
+
+    assert cpu.status == "active"
+    assert cpu.count == 1
     assert memory.status == "active"
     assert memory.count == 1
   end

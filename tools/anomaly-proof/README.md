@@ -84,6 +84,20 @@ tools/anomaly-proof/run_db_feed.sh
 ./target/debug/anomaly-backtest --input $O/samples.jsonl --cusum --emit all > $O/verdicts_cusum.jsonl
 ```
 
+### Committed scorecard corpus + CI floor gate
+
+A gen.py corpus at the defaults (`--seed 1234 --weeks 3 --cadence-s 60`) is
+committed gzipped under `rust/anomaly-core/testdata/scorecard/` and gated in CI
+by `//rust/anomaly-core:scorecard_gate_test`, which enforces floors (spike
+precision, drift recall/FP, score bound) just below the re-measured baseline —
+see the README next to the data. `anomaly-backtest --truth <truth.csv>` prints
+the same scorecard (a Rust port of plot.py's span-matching scorer) without
+needing matplotlib:
+
+```bash
+./target/debug/anomaly-backtest --input $O/samples.jsonl --truth $O/truth.csv --cusum
+```
+
 ## Proven results
 
 | Series / class | What it proves | Result |

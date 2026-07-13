@@ -27,6 +27,7 @@ pub mod cusum;
 pub mod detector;
 pub mod esd;
 pub mod rpca;
+pub mod scorecard;
 pub mod seasonal;
 pub mod signal;
 pub mod stats;

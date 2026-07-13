@@ -117,13 +117,15 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         query |> Repo.all() |> Map.new()
       end
 
+    incoming_ip_owners = incoming_ip_owners(records)
+
     {remapped_records, {remap, conflicts}} =
       Enum.map_reduce(records, {%{}, []}, fn record, {remap, conflicts} ->
         ip = Map.get(record, :ip)
 
         case Map.get(existing_by_ip, ip) do
           nil ->
-            {record, {remap, conflicts}}
+            drop_batch_conflicting_ip(record, incoming_ip_owners, strong_uids, remap, conflicts)
 
           existing_uid when existing_uid == record.uid ->
             {record, {remap, conflicts}}
@@ -155,6 +157,41 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     _ = SourceIdentityDrift.record_conflicts(Enum.reverse(conflicts))
 
     {remapped_records, remap}
+  end
+
+  # A failed INSERT can be caused by two previously-unseen records in the same
+  # bulk statement sharing an IP. There is no database owner to find in that
+  # case, so the old recovery path retried the exact same conflict. Never pick
+  # one source identity as the winner based on record order: remove the
+  # contested IP from every distinct UID and retain their stronger identities.
+  defp incoming_ip_owners(records) do
+    records
+    |> Enum.filter(&(SourcePolicy.valid_ip?(Map.get(&1, :ip))))
+    |> Enum.group_by(&Map.get(&1, :ip), &Map.fetch!(&1, :uid))
+    |> Map.new(fn {ip, uids} -> {ip, Enum.uniq(uids)} end)
+  end
+
+  defp drop_batch_conflicting_ip(record, incoming_ip_owners, strong_uids, remap, conflicts) do
+    ip = Map.get(record, :ip)
+    conflicting_uids = Map.get(incoming_ip_owners, ip, [])
+
+    if length(conflicting_uids) > 1 do
+      conflicting_uid = Enum.find(conflicting_uids, &(&1 != record.uid))
+
+      Logger.info(
+        "SyncIngestor: dropping batch-conflicting IP #{ip} from device #{record.uid} " <>
+          "(also claimed by #{conflicting_uid})"
+      )
+
+      conflict =
+        if MapSet.member?(strong_uids, record.uid),
+          do: SourceIdentityDrift.build_active_ip_conflict(record, conflicting_uid, ip),
+          else: nil
+
+      {Map.put(record, :ip, nil), {remap, prepend_conflict(conflicts, conflict)}}
+    else
+      {record, {remap, conflicts}}
+    end
   end
 
   defp prepend_conflict(conflicts, nil), do: conflicts

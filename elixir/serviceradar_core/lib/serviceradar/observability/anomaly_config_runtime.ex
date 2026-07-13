@@ -125,17 +125,16 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
   def capacity_forecasting_opts_from_settings(nil), do: []
 
   def capacity_forecasting_opts_from_settings(%CapacityForecastConfig{} = settings) do
-    maybe_put_forecast_model(
-      [
-        horizon_seconds: settings.forecast_horizon_seconds,
-        warning_horizon_seconds: settings.warning_horizon_seconds,
-        warning_threshold_percent: settings.warning_threshold_percent,
-        min_points: settings.minimum_history_points,
-        capacity_metric_class_overrides:
-          normalize_metric_class_overrides(settings.metric_class_overrides || %{})
-      ],
-      settings.model
-    )
+    [
+      horizon_seconds: settings.forecast_horizon_seconds,
+      warning_horizon_seconds: settings.warning_horizon_seconds,
+      warning_threshold_percent: settings.warning_threshold_percent,
+      min_points: settings.minimum_history_points,
+      capacity_metric_class_overrides:
+        normalize_metric_class_overrides(settings.metric_class_overrides || %{})
+    ]
+    |> maybe_put_forecast_model(settings.model)
+    |> maybe_put_source_opt_ins(settings.default_source_opt_ins)
   end
 
   @impl true
@@ -292,6 +291,15 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
        do: Keyword.put(opts, :forecast_model, Atom.to_string(model))
 
   defp maybe_put_forecast_model(opts, _model), do: opts
+
+  # DB-derived opts override the env-derived worker config when the worker
+  # merges runtime opts, so the DB opt-in list is forwarded only when an
+  # operator actually selected sources; a default-empty row would otherwise
+  # permanently mask env opt-ins (design D8: DB wins when non-empty, else env).
+  defp maybe_put_source_opt_ins(opts, [_ | _] = opt_ins),
+    do: Keyword.put(opts, :default_source_opt_ins, Enum.map(opt_ins, &to_string/1))
+
+  defp maybe_put_source_opt_ins(opts, _opt_ins), do: opts
 
   defp schedule_refresh(%{refresh_interval_ms: refresh_interval_ms}) do
     Process.send_after(self(), :refresh, positive_int(refresh_interval_ms, @default_refresh_ms))

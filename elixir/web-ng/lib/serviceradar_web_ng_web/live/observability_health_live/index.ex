@@ -6,7 +6,15 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
 
   @anomaly_query "in:events event_type:(anomaly,anomaly_detection) time:last_24h sort:time:desc limit:25"
   @health_query "in:events rollup_stats:anomaly_findings time:last_24h limit:1"
-  @capacity_query "in:capacity_forecasts status:(projected,at_risk,exhaustion_projected) has_exhaustion:true sort:projected_exhaustion_at:asc limit:25"
+  # The worker/DB only ever persist status projected|skipped (DB CHECK);
+  # at_risk/exhaustion_projected never occur as row statuses.
+  @capacity_query "in:capacity_forecasts status:projected has_exhaustion:true sort:projected_exhaustion_at:asc limit:25"
+  # SRQL has no grouped stats for capacity_forecasts (the entity executor
+  # ignores stats clauses), so fetch a bounded recent sample and aggregate
+  # skip reasons per series in Elixir.
+  @capacity_skipped_query "in:capacity_forecasts status:skipped time:last_24h sort:forecasted_at:desc limit:500"
+  @capacity_skipped_top_reasons 3
+  @capacity_skipped_visible_max 4
 
   @impl true
   def mount(_params, _session, socket) do
@@ -144,6 +152,13 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
                   </tr>
                 </tbody>
               </table>
+            </div>
+
+            <div
+              :if={show_capacity_skipped?(@overview)}
+              class="border-t border-base-200 px-5 py-3 text-xs text-base-content/60"
+            >
+              {capacity_skipped_summary(@overview.capacity_skipped)}
             </div>
           </div>
 
@@ -306,6 +321,19 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
       |> result_rows()
       |> Enum.reject(&invalid_capacity_runway_row?/1)
 
+    # Supplemental summary; only fetched when the runway table is small enough
+    # for the summary line to render at all. A failure is logged by query_rows
+    # and hides the line instead of degrading the whole overview to :partial.
+    capacity_skipped =
+      if length(capacity_rows) <= @capacity_skipped_visible_max do
+        @capacity_skipped_query
+        |> query_rows(scope)
+        |> result_rows()
+        |> summarize_skipped_series()
+      else
+        %{count: 0, top_reasons: []}
+      end
+
     anomaly_result =
       if summary.anomaly_count > 0 do
         query_rows(@anomaly_query, scope)
@@ -324,6 +352,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
       anomaly_rows: anomaly_rows,
       health_rows: [],
       capacity_rows: capacity_rows,
+      capacity_skipped: capacity_skipped,
       anomaly_count: summary.anomaly_count || length(anomaly_rows),
       health_count: summary.health_count || length(anomaly_rows),
       capacity_count: max(summary.capacity_count || 0, length(capacity_rows))
@@ -392,10 +421,41 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
       anomaly_rows: [],
       health_rows: [],
       capacity_rows: [],
+      capacity_skipped: %{count: 0, top_reasons: []},
       anomaly_count: 0,
       health_count: 0,
       capacity_count: 0
     }
+  end
+
+  defp summarize_skipped_series(rows) do
+    series =
+      rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.uniq_by(&{value(&1, "resource_id"), value(&1, "resource_key"), value(&1, "metric_name")})
+
+    top_reasons =
+      series
+      |> Enum.frequencies_by(&(value(&1, "skip_reason") || "unknown"))
+      |> Enum.sort_by(fn {reason, count} -> {-count, reason} end)
+      |> Enum.take(@capacity_skipped_top_reasons)
+
+    %{count: length(series), top_reasons: top_reasons}
+  end
+
+  defp show_capacity_skipped?(%{capacity_skipped: %{count: count}, capacity_rows: rows}) do
+    count > 0 and length(rows) <= @capacity_skipped_visible_max
+  end
+
+  defp show_capacity_skipped?(_overview), do: false
+
+  defp capacity_skipped_summary(%{count: count, top_reasons: []}) do
+    "#{count} series skipped in last 24h"
+  end
+
+  defp capacity_skipped_summary(%{count: count, top_reasons: reasons}) do
+    reasons_text = Enum.map_join(reasons, ", ", fn {reason, n} -> "#{reason} #{n}" end)
+    "#{count} series skipped in last 24h (top: #{reasons_text})"
   end
 
   defp rows(%{"results" => rows}) when is_list(rows), do: rows
@@ -442,6 +502,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   defp known_atom_key("resource_key"), do: :resource_key
   defp known_atom_key("resource_label"), do: :resource_label
   defp known_atom_key("severity"), do: :severity
+  defp known_atom_key("skip_reason"), do: :skip_reason
   defp known_atom_key("short_message"), do: :short_message
   defp known_atom_key("source_type"), do: :source_type
   defp known_atom_key("status"), do: :status
