@@ -13,6 +13,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
   alias ServiceRadar.Automation.CallbackGrants.ActionContract
   alias ServiceRadar.Automation.CallbackGrants.Authority
   alias ServiceRadar.Automation.CallbackGrants.Runtime
+  alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
   alias ServiceRadar.Automation.LaunchEnvelopes
 
   @audience "serviceradar.awx.callback/v1"
@@ -30,6 +31,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
          :ok <- exact_action_contract(launch_contract, action_contract),
          :ok <- validate_initiating_authority(plan, action_contract),
          {:ok, response_policy} <- response_policy(plan, launch_contract, opts),
+         {:ok, callback_origin} <- RuntimeConfig.configured_callback_origin(),
          {:ok, lifecycle_opts} <- lifecycle_opts(opts),
          envelope_opts = envelope_opts(opts),
          {:ok, allocation} <- envelopes.allocate(envelope_opts),
@@ -41,6 +43,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
              launch_contract,
              action_contract,
              response_policy,
+             callback_origin,
              lifecycle_opts,
              envelope_opts,
              allocation,
@@ -258,6 +261,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
          launch_contract,
          action_contract,
          response_policy,
+         callback_origin,
          lifecycle_opts,
          envelope_opts,
          allocation,
@@ -282,6 +286,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
          command_id: allocation.command_id,
          allocation: allocation,
          expires_at: expires_at,
+         callback_origin: callback_origin,
          lifecycle_opts: Keyword.put(lifecycle_opts, :now, allocation.issued_at),
          envelope_opts: Keyword.put(envelope_opts, :allocation, allocation),
          credential_type_id: value(plan.snapshot["binding"], :callback_credential_type_id),
@@ -426,6 +431,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator.AshActions 
   alias ServiceRadar.Automation.Ansible.AutomationOperation
   alias ServiceRadar.Automation.Ansible.AwxClient
   alias ServiceRadar.Automation.CallbackGrants.Lifecycle
+  alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
   alias ServiceRadar.Automation.LaunchEnvelopes
 
   @actor SystemActor.system(:ansible_callback_launch_persistence)
@@ -493,29 +499,51 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator.AshActions 
   end
 
   defp seal(plan, callback, operation, execution) do
-    context_attrs = %{
-      tenant_id: plan.operation.tenant_id,
-      child_execution_id: execution.id,
-      controller_id: plan.execution.controller_id,
-      inventory_id: plan.execution.inventory_id,
-      job_template_id: plan.execution.job_template_id,
-      dispatch_agent_id: callback.dispatch_agent_id,
-      expires_at: callback.expires_at
-    }
+    scope = value(callback.grant_attrs, :awx_scope_snapshot) || %{}
+    response = value(callback.grant_attrs, :response_snapshot) || %{}
 
-    issue_grant = fn envelope_ref, command_id ->
-      attrs =
-        callback.grant_attrs
-        |> Map.put(:parent_run_id, operation.id)
-        |> Map.put(:execution_id, execution.id)
-        |> Map.put(:launch_envelope_ref, envelope_ref)
+    with {:ok, callback_origin} <- RuntimeConfig.configured_callback_origin(),
+         :ok <- exact_callback_origin(callback_origin, callback) do
+      context_attrs = %{
+        tenant_id: plan.operation.tenant_id,
+        child_execution_id: execution.id,
+        controller_id: plan.execution.controller_id,
+        inventory_id: plan.execution.inventory_id,
+        job_template_id: plan.execution.job_template_id,
+        dispatch_agent_id: callback.dispatch_agent_id,
+        callback_allowed_origin: callback_origin,
+        manifest_sha256: value(response, :manifest_sha256),
+        scm_revision: value(scope, :scm_revision),
+        content_sha256: value(scope, :content_sha256),
+        callback_phase: value(response, :phase),
+        callback_operation: value(response, :operation),
+        callback_state: value(response, :state),
+        callback_credential_type_id: value(scope, :callback_credential_type_id),
+        callback_credential_organization_id: value(scope, :callback_credential_organization_id),
+        callback_credential_injector_sha256: value(scope, :callback_credential_injector_digest),
+        expires_at: callback.expires_at
+      }
 
-      if command_id == callback.command_id,
-        do: Lifecycle.prepare(attrs, callback.lifecycle_opts),
-        else: {:error, :callback_command_preallocation_mismatch}
+      issue_grant = fn envelope_ref, command_id ->
+        attrs =
+          callback.grant_attrs
+          |> Map.put(:parent_run_id, operation.id)
+          |> Map.put(:execution_id, execution.id)
+          |> Map.put(:launch_envelope_ref, envelope_ref)
+
+        if command_id == callback.command_id,
+          do: Lifecycle.prepare(attrs, callback.lifecycle_opts),
+          else: {:error, :callback_command_preallocation_mismatch}
+      end
+
+      LaunchEnvelopes.prepare_and_seal(context_attrs, issue_grant, callback.envelope_opts)
     end
+  end
 
-    LaunchEnvelopes.prepare_and_seal(context_attrs, issue_grant, callback.envelope_opts)
+  defp exact_callback_origin(origin, callback) do
+    if origin == value(callback, :callback_origin),
+      do: :ok,
+      else: {:error, :automation_callback_origin_changed}
   end
 
   defp exact_preallocation(sealed, callback) do

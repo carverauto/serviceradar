@@ -21,6 +21,34 @@ case System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE") do
     :ok
 end
 
+case System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE") do
+  path when is_binary(path) and path != "" ->
+    envelope_key =
+      RuntimeConfig.load_envelope_key_file!(path)
+
+    config :serviceradar_core,
+      automation_launch_envelope_key: envelope_key,
+      automation_launch_envelope_key_id:
+        System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID", "current")
+
+  _ ->
+    :ok
+end
+
+case System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ORIGIN") do
+  origin when is_binary(origin) and origin != "" ->
+    case RuntimeConfig.canonical_callback_origin(origin) do
+      {:ok, canonical_origin} ->
+        config :serviceradar_core, :automation_callback_origin, canonical_origin
+
+      {:error, _reason} ->
+        raise "invalid ServiceRadar automation callback origin"
+    end
+
+  _ ->
+    :ok
+end
+
 callback_deployment =
   RuntimeConfig.callback_deployment_config!(%{
     enabled: System.get_env("SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED", "false"),

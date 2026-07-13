@@ -16,3 +16,15 @@ tests:
         documentSelector:
           path: metadata.name
           value: serviceradar-secret-generator
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'automation-callback-envelope-key'
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-secret-generator
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'invalid automation callback envelope key'
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-secret-generator

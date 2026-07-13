@@ -3,8 +3,9 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.AshStore do
   Ash/Postgres implementation of the single-resolution envelope store.
 
   The row is locked, the pending grant is re-correlated, the envelope is
-  transitioned, and a secret-free audit row is committed before ciphertext
-  leaves the transaction. Decryption deliberately occurs later in the service.
+  decrypted and validated in memory, transitioned, and committed with a
+  secret-free audit row in one transaction. Ciphertext and plaintext never
+  leave this locked boundary together.
   """
 
   @behaviour ServiceRadar.Automation.LaunchEnvelopes.Store
@@ -51,20 +52,27 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.AshStore do
   def create_sealed(_attrs, _context), do: {:error, :invalid_launch_envelope}
 
   @impl true
-  def consume(reference_verifier, request, now, cipher, _context)
-      when is_binary(reference_verifier) and is_map(request) and is_map(cipher) do
+  def consume(reference_verifier, request, now, cipher, decrypt, _context)
+      when is_binary(reference_verifier) and is_map(request) and is_map(cipher) and
+             is_function(decrypt, 1) do
     transaction(
       fn ->
-        consume_locked(reference_verifier, request, DateTime.truncate(now, :microsecond), cipher)
+        consume_locked(
+          reference_verifier,
+          request,
+          DateTime.truncate(now, :microsecond),
+          cipher,
+          decrypt
+        )
       end,
       nil
     )
   end
 
-  def consume(_reference_verifier, _request, _now, _cipher, _context),
+  def consume(_reference_verifier, _request, _now, _cipher, _decrypt, _context),
     do: {:error, :launch_envelope_denied}
 
-  defp consume_locked(reference_verifier, request, now, cipher) do
+  defp consume_locked(reference_verifier, request, now, cipher, decrypt) do
     with {:ok, envelope} <- lock_by_reference(reference_verifier),
          {:ok, context} <- Context.from_record(envelope),
          :ok <- validate_sealed(envelope, context, request, now, cipher),
@@ -72,6 +80,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.AshStore do
          :ok <- validate_command_binding(command, context, request, now),
          {:ok, grant} <- lock_grant(context.callback_grant_id),
          :ok <- validate_grant_binding(grant, context, request, now),
+         {:ok, material} <- decrypt_locked(envelope, context, decrypt),
          {:ok, resolved} <-
            LaunchEnvelope.mark_resolved(
              envelope,
@@ -82,15 +91,31 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.AshStore do
       {:ok,
        %{
          id: resolved.id,
-         ciphertext: resolved.ciphertext,
-         cipher_version: resolved.cipher_version,
+         material: material,
          context: context,
          expires_at: resolved.expires_at
        }}
     else
       {:error, :launch_envelope_expired} -> expire_locked(reference_verifier, now)
+      {:error, :launch_envelope_decrypt_failed} = error -> error
       {:error, _reason} -> {:error, :launch_envelope_denied}
     end
+  end
+
+  defp decrypt_locked(envelope, context, decrypt) do
+    case decrypt.(%{
+           ciphertext: envelope.ciphertext,
+           cipher_version: envelope.cipher_version,
+           context: context,
+           expires_at: envelope.expires_at
+         }) do
+      {:ok, material} when is_map(material) -> {:ok, material}
+      _ -> {:error, :launch_envelope_decrypt_failed}
+    end
+  rescue
+    _ -> {:error, :launch_envelope_decrypt_failed}
+  catch
+    _, _ -> {:error, :launch_envelope_decrypt_failed}
   end
 
   defp lock_grant(grant_id) do

@@ -99,38 +99,45 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes do
     cipher = %{cipher_version: Cipher.cipher_version(), cipher_key_id: key_id}
     request = Map.put(request, :envelope_ref, reference)
 
+    decrypt = fn sealed ->
+      Cipher.decrypt(
+        sealed.ciphertext,
+        sealed.cipher_version,
+        sealed.context,
+        cipher_opts(opts)
+      )
+    end
+
     with {:ok, verifier} <- Cipher.reference_verifier(reference, cipher_opts(opts)),
-         {:ok, sealed} <- store.consume(verifier, request, now, cipher, store_context),
-         {:ok, material} <-
-           Cipher.decrypt(
-             sealed.ciphertext,
-             sealed.cipher_version,
-             sealed.context,
-             cipher_opts(opts)
-           ) do
+         {:ok, resolved} <-
+           store.consume(verifier, request, now, cipher, decrypt, store_context) do
+      material = resolved.material
+
       {:ok,
        %{
          bearer: material.bearer,
          idempotency_key: material.idempotency_key,
          callback_grant_id: material.callback_grant_id,
-         callback_url: sealed.context.callback_url,
-         callback_allowed_origin: sealed.context.callback_allowed_origin,
-         manifest_sha256: sealed.context.manifest_sha256,
-         scm_revision: sealed.context.scm_revision,
-         content_sha256: sealed.context.content_sha256,
-         callback_phase: sealed.context.callback_phase,
-         callback_operation: sealed.context.callback_operation,
-         callback_state: sealed.context.callback_state,
-         controller_id: sealed.context.controller_id,
-         child_execution_id: sealed.context.child_execution_id,
-         inventory_id: sealed.context.inventory_id,
-         job_template_id: sealed.context.job_template_id,
-         dispatch_agent_id: sealed.context.dispatch_agent_id,
-         command_id: sealed.context.command_id,
-         callback_credential_type_id: sealed.context.callback_credential_type_id,
-         callback_credential_organization_id: sealed.context.callback_credential_organization_id,
-         callback_credential_injector_sha256: sealed.context.callback_credential_injector_sha256,
-         expires_at: sealed.expires_at
+         callback_url: resolved.context.callback_url,
+         callback_allowed_origin: resolved.context.callback_allowed_origin,
+         manifest_sha256: resolved.context.manifest_sha256,
+         scm_revision: resolved.context.scm_revision,
+         content_sha256: resolved.context.content_sha256,
+         callback_phase: resolved.context.callback_phase,
+         callback_operation: resolved.context.callback_operation,
+         callback_state: resolved.context.callback_state,
+         controller_id: resolved.context.controller_id,
+         child_execution_id: resolved.context.child_execution_id,
+         inventory_id: resolved.context.inventory_id,
+         job_template_id: resolved.context.job_template_id,
+         dispatch_agent_id: resolved.context.dispatch_agent_id,
+         command_id: resolved.context.command_id,
+         callback_credential_type_id: resolved.context.callback_credential_type_id,
+         callback_credential_organization_id:
+           resolved.context.callback_credential_organization_id,
+         callback_credential_injector_sha256:
+           resolved.context.callback_credential_injector_sha256,
+         expires_at: resolved.expires_at
        }}
     else
       {:error, :launch_envelope_decrypt_failed} = error -> error

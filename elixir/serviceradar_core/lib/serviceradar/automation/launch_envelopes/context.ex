@@ -8,6 +8,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.Context do
   """
 
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
+  alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
 
   @schema "serviceradar.automation_launch_envelope_context/v1"
   @max_ttl_seconds 600
@@ -299,21 +300,12 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.Context do
   defp callback_origin(value) when is_binary(value) do
     origin = String.trim(value)
 
-    case URI.parse(origin) do
-      %URI{
-        scheme: "https",
-        host: host,
-        userinfo: nil,
-        path: path,
-        query: nil,
-        fragment: nil
-      }
-      when is_binary(host) and host != "" and path in [nil, ""] and
-             byte_size(origin) <= @max_callback_origin_bytes ->
-        {:ok, origin}
-
-      _ ->
-        {:error, :invalid_launch_envelope_callback_origin}
+    with {:ok, canonical} <- RuntimeConfig.canonical_callback_origin(origin),
+         true <- canonical == origin,
+         true <- byte_size(canonical) <= @max_callback_origin_bytes do
+      {:ok, canonical}
+    else
+      _ -> {:error, :invalid_launch_envelope_callback_origin}
     end
   end
 

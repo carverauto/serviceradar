@@ -1908,6 +1908,13 @@ secrets:
 # rejects zero IDs, malformed digests, and missing policy mounts.
 automationCallbacks:
   enabled: false
+  # Server-owned bare HTTPS origin used to derive every callback URL. Empty
+  # inherits webNg.publicUrl. Paths, query strings, userinfo, and HTTP are
+  # rejected at runtime; playbook/catalog/survey data cannot override it.
+  canonicalOrigin: ""
+  # Non-secret identifier for the single active launch-envelope key. Changing
+  # it invalidates outstanding envelopes, whose lifetime is capped at 10m.
+  envelopeKeyId: "current"
   awxCredentialTypeId: 0
   awxOrganizationId: 0
   # Lowercase SHA-256 of the exact AWX custom credential injector definition.

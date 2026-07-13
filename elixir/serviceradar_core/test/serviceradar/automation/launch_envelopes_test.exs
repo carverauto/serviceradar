@@ -74,9 +74,11 @@ defmodule ServiceRadar.Automation.LaunchEnvelopesTest do
     assert Enum.count(results, &match?({:error, :launch_envelope_denied}, &1)) == 7
   end
 
-  test "ciphertext is consumed before a decryption failure" do
+  test "corrupt ciphertext remains sealed until decryption succeeds" do
     store = start_supervised!({Agent, fn -> memory_state() end})
     assert {:ok, prepared} = prepare(store)
+
+    [original] = AutomationLaunchEnvelopeMemoryStore.records(store)
 
     Agent.update(store, fn state ->
       {verifier, record} = Enum.at(state.records, 0)
@@ -87,7 +89,32 @@ defmodule ServiceRadar.Automation.LaunchEnvelopesTest do
     exact = %{agent_id: "agent-farm01", command_id: prepared.command_id}
 
     assert {:error, :launch_envelope_decrypt_failed} = resolve(prepared, exact, store)
-    assert {:error, :launch_envelope_denied} = resolve(prepared, exact, store)
+    assert [%{state: :sealed}] = AutomationLaunchEnvelopeMemoryStore.records(store)
+
+    Agent.update(store, fn state ->
+      {verifier, record} = Enum.at(state.records, 0)
+      put_in(state, [:records, verifier], %{record | ciphertext: original.ciphertext})
+    end)
+
+    assert {:ok, %{bearer: @bearer}} = resolve(prepared, exact, store)
+    assert [%{state: :resolved}] = AutomationLaunchEnvelopeMemoryStore.records(store)
+  end
+
+  test "a wrong active key cannot consume an envelope before rotation settles" do
+    store = start_supervised!({Agent, fn -> memory_state() end})
+    assert {:ok, prepared} = prepare(store)
+    exact = %{agent_id: "agent-farm01", command_id: prepared.command_id}
+
+    assert {:error, :launch_envelope_denied} =
+             LaunchEnvelopes.resolve(prepared.envelope_ref, exact,
+               store: AutomationLaunchEnvelopeMemoryStore,
+               store_context: store,
+               encryption_key: :binary.copy(<<92>>, 32),
+               now: DateTime.add(@issued_at, 30, :second)
+             )
+
+    assert [%{state: :sealed}] = AutomationLaunchEnvelopeMemoryStore.records(store)
+    assert {:ok, %{bearer: @bearer}} = resolve(prepared, exact, store)
   end
 
   test "seal failure leaves no resolvable envelope" do

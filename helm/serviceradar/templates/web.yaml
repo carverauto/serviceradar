@@ -60,6 +60,7 @@
 {{- $automationCallbacksEnabled := false -}}
 {{- if hasKey $automationCallbacks "enabled" -}}{{- $automationCallbacksEnabled = get $automationCallbacks "enabled" -}}{{- end -}}
 {{- $automationCallbackResponsePolicy := default (dict) $automationCallbacks.responsePolicy -}}
+{{- $automationCallbackOrigin := default $webNgPublicUrl $automationCallbacks.canonicalOrigin -}}
 {{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
 {{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
 {{- $datasvc := default (dict) $webNg.datasvc -}}
@@ -504,6 +505,12 @@ spec:
               key: cloak-key
         - name: SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE
           value: "/etc/serviceradar/automation-callback/hmac-keyring.json"
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE
+          value: "/etc/serviceradar/automation-callback/envelope-key"
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID
+          value: {{ default "current" $automationCallbacks.envelopeKeyId | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_ORIGIN
+          value: {{ $automationCallbackOrigin | quote }}
         - name: SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED
           value: {{ $automationCallbacksEnabled | quote }}
         {{- if $automationCallbacksEnabled }}
@@ -677,6 +684,8 @@ spec:
           items:
           - key: automation-callback-hmac-keyring
             path: hmac-keyring.json
+          - key: automation-callback-envelope-key
+            path: envelope-key
       {{- if $automationCallbacksEnabled }}
       - name: automation-callback-response-policy
         secret:

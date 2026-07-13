@@ -2,10 +2,12 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
   use ServiceRadar.DataCase, async: false
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator.AshActions
   alias ServiceRadar.Automation.CallbackGrants.AshStore, as: GrantStore
   alias ServiceRadar.Automation.CallbackGrants.Authority
   alias ServiceRadar.Automation.LaunchEnvelopes
+  alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -49,12 +51,31 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
     def create_sealed(_attrs, _context), do: {:error, :forced_envelope_failure}
 
     @impl true
-    def consume(_verifier, _request, _now, _cipher, _context),
+    def consume(_verifier, _request, _now, _cipher, _decrypt, _context),
       do: {:error, :launch_envelope_denied}
   end
 
   setup_all do
     TestSupport.start_core!()
+    previous_origin = Application.get_env(:serviceradar_core, :automation_callback_origin)
+
+    Application.put_env(
+      :serviceradar_core,
+      :automation_callback_origin,
+      "https://demo.example.com"
+    )
+
+    on_exit(fn ->
+      if previous_origin,
+        do:
+          Application.put_env(
+            :serviceradar_core,
+            :automation_callback_origin,
+            previous_origin
+          ),
+        else: Application.delete_env(:serviceradar_core, :automation_callback_origin)
+    end)
+
     :ok
   end
 
@@ -65,6 +86,28 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
     assert {:ok, persisted} = AshActions.persist_callback_plan(success.plan, success.callback)
     assert persisted.execution.callback_reference == success.callback.grant_id
     assert persisted.callback.command_id == success.callback.command_id
+
+    create_callback_command(success)
+
+    assert {:ok, material} = resolve(success)
+    assert material.callback_grant_id == success.callback.grant_id
+    assert material.callback_allowed_origin == "https://demo.example.com"
+
+    assert material.callback_url ==
+             "https://demo.example.com/api/v1/automation/callback-grants/#{success.callback.grant_id}/actions/remote_access.ssh_ca.bundle.read"
+
+    assert material.manifest_sha256 == String.duplicate("f", 64)
+    assert material.scm_revision == String.duplicate("a", 40)
+    assert material.content_sha256 == String.duplicate("b", 64)
+    assert material.callback_phase == "preflight"
+    assert material.callback_operation == "enroll"
+    assert material.callback_state == "present"
+    assert material.callback_credential_type_id == 6
+    assert material.callback_credential_organization_id == 2
+    assert material.callback_credential_injector_sha256 == String.duplicate("c", 64)
+    assert envelope_state(success) == "resolved"
+    assert resolution_audit_count(success) == 1
+    assert {:error, :launch_envelope_denied} = resolve(success)
 
     assert row_counts(success) == %{
              operations: 1,
@@ -87,6 +130,32 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
              grants: 0,
              envelopes: 0
            }
+  end
+
+  test "decrypt failure keeps a real Ash envelope sealed and concurrent resolution wins once" do
+    fixture = fixture()
+    insert_dependencies(fixture)
+
+    assert {:ok, _persisted} = AshActions.persist_callback_plan(fixture.plan, fixture.callback)
+    create_callback_command(fixture)
+    original_ciphertext = envelope_ciphertext(fixture)
+    corrupt_envelope_ciphertext(fixture, original_ciphertext)
+
+    assert {:error, :launch_envelope_decrypt_failed} =
+             resolve(fixture)
+
+    assert envelope_state(fixture) == "sealed"
+    assert resolution_audit_count(fixture) == 0
+    set_envelope_ciphertext(fixture, original_ciphertext)
+
+    exact = fn -> resolve(fixture) end
+
+    results = Enum.map([Task.async(exact), Task.async(exact)], &Task.await(&1, 10_000))
+
+    assert Enum.count(results, &match?({:ok, %{callback_grant_id: _}}, &1)) == 1
+    assert Enum.count(results, &match?({:error, :launch_envelope_denied}, &1)) == 1
+    assert envelope_state(fixture) == "resolved"
+    assert resolution_audit_count(fixture) == 1
   end
 
   defp fixture(opts \\ []) do
@@ -284,6 +353,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
       command_id: ids.command,
       allocation: allocation,
       expires_at: DateTime.add(now, 120),
+      callback_origin: "https://demo.example.com",
       lifecycle_opts: lifecycle_opts,
       envelope_opts: [
         allocation: allocation,
@@ -439,5 +509,91 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
           [fixture.ids.command]
         )
     }
+  end
+
+  defp create_callback_command(fixture) do
+    actor = SystemActor.system(:callback_launch_orchestrator_db_test)
+
+    assert {:ok, %AgentCommand{}} =
+             AgentCommand.create_command_with_id(
+               %{
+                 command_id: fixture.ids.command,
+                 command_type: "awx.create_callback_credential",
+                 agent_id: "agent-gateway-demo",
+                 partition_id: "default",
+                 payload: %{"launch_envelope_ref" => fixture.callback.allocation.reference},
+                 context: %{"test" => "callback_launch_orchestrator_db"},
+                 ttl_seconds: 300,
+                 expires_at: DateTime.add(fixture.callback.allocation.issued_at, 300, :second),
+                 requested_by: "system:callback_launch_orchestrator_db_test"
+               },
+               actor: actor
+             )
+  end
+
+  defp resolve(fixture, opts \\ []) do
+    LaunchEnvelopes.resolve(
+      fixture.callback.allocation.reference,
+      %{
+        agent_id: "agent-gateway-demo",
+        command_id: fixture.ids.command
+      },
+      Keyword.merge(
+        [
+          encryption_key: @encryption_key,
+          now: DateTime.add(fixture.callback.allocation.issued_at, 30, :second)
+        ],
+        opts
+      )
+    )
+  end
+
+  defp envelope_state(fixture) do
+    then(
+      SQL.query!(
+        Repo,
+        "SELECT state FROM platform.automation_launch_envelopes WHERE command_id = ($1::text)::uuid",
+        [fixture.ids.command]
+      ).rows,
+      fn [[state]] -> state end
+    )
+  end
+
+  defp resolution_audit_count(fixture) do
+    then(
+      SQL.query!(
+        Repo,
+        """
+        SELECT count(*)
+        FROM platform.automation_callback_audit_events
+        WHERE grant_id = ($1::text)::uuid AND event_type = 'envelope_resolved'
+        """,
+        [fixture.ids.grant]
+      ).rows,
+      fn [[count]] -> count end
+    )
+  end
+
+  defp envelope_ciphertext(fixture) do
+    then(
+      SQL.query!(
+        Repo,
+        "SELECT ciphertext FROM platform.automation_launch_envelopes WHERE command_id = ($1::text)::uuid",
+        [fixture.ids.command]
+      ).rows,
+      fn [[ciphertext]] -> ciphertext end
+    )
+  end
+
+  defp corrupt_envelope_ciphertext(fixture, <<first, rest::binary>>) do
+    set_envelope_ciphertext(fixture, <<Bitwise.bxor(first, 1), rest::binary>>)
+  end
+
+  defp set_envelope_ciphertext(fixture, ciphertext) do
+    SQL.query!(
+      Repo,
+      "UPDATE platform.automation_launch_envelopes SET ciphertext = $2 WHERE command_id = ($1::text)::uuid",
+      [fixture.ids.command, ciphertext]
+    )
   end
 end

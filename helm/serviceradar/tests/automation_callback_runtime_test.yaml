@@ -1,0 +1,64 @@
+suite: automation callback runtime contract
+templates:
+  - templates/core.yaml
+  - templates/web.yaml
+tests:
+  - it: derives the server-owned callback origin from the public web origin
+    set:
+      webNg.publicUrl: https://demo.example.com
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_AUTOMATION_CALLBACK_ORIGIN
+            value: https://demo.example.com
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-core
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_AUTOMATION_CALLBACK_ORIGIN
+            value: https://demo.example.com
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-web-ng
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE
+            value: /etc/serviceradar/automation-callback/envelope-key
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-core
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE
+            value: /etc/serviceradar/automation-callback/envelope-key
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-web-ng
+
+  - it: permits an explicit deployment-owned origin and key identifier
+    set:
+      webNg.publicUrl: https://public.example.com
+      automationCallbacks.canonicalOrigin: https://callbacks.example.com:8443
+      automationCallbacks.envelopeKeyId: envelope-v2
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_AUTOMATION_CALLBACK_ORIGIN
+            value: https://callbacks.example.com:8443
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-core
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID
+            value: envelope-v2
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-web-ng

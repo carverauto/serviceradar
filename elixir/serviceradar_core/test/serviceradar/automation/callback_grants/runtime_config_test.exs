@@ -126,6 +126,49 @@ defmodule ServiceRadar.Automation.CallbackGrants.RuntimeConfigTest do
     end
   end
 
+  @tag :tmp_dir
+  test "loads a distinct envelope key only from a securely owned file", %{tmp_dir: tmp_dir} do
+    path = Path.join(tmp_dir, "launch-envelope-key")
+    key = :crypto.strong_rand_bytes(32)
+
+    File.write!(path, Base.encode64(key))
+    File.chmod!(path, 0o640)
+    assert RuntimeConfig.load_envelope_key_file!(path) == key
+
+    File.chmod!(path, 0o660)
+
+    assert_raise RuntimeError, "invalid automation callback launch-envelope key file", fn ->
+      RuntimeConfig.load_envelope_key_file!(path)
+    end
+
+    File.chmod!(path, 0o600)
+    File.write!(path, Base.encode64("short"))
+
+    assert_raise RuntimeError, "invalid automation callback launch-envelope key file", fn ->
+      RuntimeConfig.load_envelope_key_file!(path)
+    end
+  end
+
+  test "canonicalizes only a bare HTTPS callback origin" do
+    assert {:ok, "https://demo.example.com"} =
+             RuntimeConfig.canonical_callback_origin(" HTTPS://Demo.Example.COM ")
+
+    assert {:ok, "https://demo.example.com:8443"} =
+             RuntimeConfig.canonical_callback_origin("https://demo.example.com:8443")
+
+    for rejected <- [
+          "http://demo.example.com",
+          "https://user@demo.example.com",
+          "https://demo.example.com/",
+          "https://demo.example.com/callback",
+          "https://demo.example.com?target=other",
+          "https://demo.example.com#fragment"
+        ] do
+      assert {:error, :automation_callback_origin_unavailable} =
+               RuntimeConfig.canonical_callback_origin(rejected)
+    end
+  end
+
   defp response_policy_document do
     %{
       "schema" => "serviceradar.automation.callback_response_policy/v1",

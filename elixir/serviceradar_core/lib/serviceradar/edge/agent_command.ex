@@ -81,7 +81,7 @@ defmodule ServiceRadar.Edge.AgentCommand do
         changeset =
           case Ash.Changeset.get_argument(changeset, :command_id) do
             nil -> changeset
-            command_id -> Ash.Changeset.change_attribute(changeset, :id, command_id)
+            command_id -> Ash.Changeset.force_change_attribute(changeset, :id, command_id)
           end
 
         ttl = Ash.Changeset.get_attribute(changeset, :ttl_seconds) || 60
@@ -106,7 +106,10 @@ defmodule ServiceRadar.Edge.AgentCommand do
             DateTime.add(DateTime.utc_now(), ttl, :second)
 
         changeset
-        |> Ash.Changeset.change_attribute(:id, Ash.Changeset.get_argument(changeset, :command_id))
+        |> Ash.Changeset.force_change_attribute(
+          :id,
+          Ash.Changeset.get_argument(changeset, :command_id)
+        )
         |> Ash.Changeset.change_attribute(:expires_at, expires_at)
       end
     end

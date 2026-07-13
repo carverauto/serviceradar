@@ -6,15 +6,13 @@ defmodule ServiceRadar.Automation.CallbackGrants.RuntimeConfig do
   alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
 
   @max_file_bytes 8_192
+  @max_envelope_key_file_bytes 128
   @max_keys 4
+  @max_callback_origin_bytes 512
 
   @spec load_verifier_file!(Path.t()) :: keyword()
   def load_verifier_file!(path) when is_binary(path) and path != "" do
-    with {:ok, stat} <- File.stat(path),
-         true <- stat.type == :regular,
-         true <- stat.size in 1..@max_file_bytes,
-         true <- secure_mode?(stat.mode),
-         {:ok, bytes} <- File.read(path),
+    with {:ok, bytes} <- read_secure_file(path, @max_file_bytes),
          {:ok, document} <- Jason.decode(bytes),
          {:ok, config} <- verifier_config(document) do
       config
@@ -60,6 +58,59 @@ defmodule ServiceRadar.Automation.CallbackGrants.RuntimeConfig do
 
   def callback_deployment_config!(_attrs),
     do: raise("invalid automation callback deployment configuration")
+
+  @spec load_envelope_key_file!(Path.t()) :: binary()
+  def load_envelope_key_file!(path) when is_binary(path) and path != "" do
+    with {:ok, bytes} <- read_secure_file(path, @max_envelope_key_file_bytes),
+         {:ok, decoded} <- Base.decode64(String.trim(bytes)),
+         true <- byte_size(decoded) == 32 do
+      decoded
+    else
+      _ -> raise "invalid automation callback launch-envelope key file"
+    end
+  end
+
+  def load_envelope_key_file!(_path),
+    do: raise("automation callback launch-envelope key file is required")
+
+  @spec canonical_callback_origin(term()) :: {:ok, binary()} | {:error, atom()}
+  def canonical_callback_origin(origin) when is_binary(origin) do
+    origin = String.trim(origin)
+
+    with true <- origin != "" and byte_size(origin) <= @max_callback_origin_bytes,
+         true <- String.valid?(origin),
+         %URI{
+           scheme: scheme,
+           host: host,
+           port: parsed_port,
+           userinfo: nil,
+           path: path,
+           query: nil,
+           fragment: nil
+         } <- URI.parse(origin),
+         true <- is_binary(scheme) and String.downcase(scheme) == "https",
+         port = parsed_port || 443,
+         true <- is_binary(host) and host != "" and not Regex.match?(~r/\s/u, host),
+         true <- is_integer(port) and port in 1..65_535,
+         true <- path in [nil, ""],
+         canonical =
+           URI.to_string(%URI{scheme: "https", host: String.downcase(host), port: port}),
+         true <- byte_size(canonical) <= @max_callback_origin_bytes do
+      {:ok, canonical}
+    else
+      _ -> {:error, :automation_callback_origin_unavailable}
+    end
+  end
+
+  def canonical_callback_origin(_origin), do: {:error, :automation_callback_origin_unavailable}
+
+  @spec configured_callback_origin() :: {:ok, binary()} | {:error, atom()}
+  def configured_callback_origin do
+    case Application.fetch_env(:serviceradar_core, :automation_callback_origin) do
+      {:ok, origin} -> canonical_callback_origin(origin)
+      :error -> {:error, :automation_callback_origin_unavailable}
+    end
+  end
 
   @spec verifier_config(map()) :: {:ok, keyword()} | {:error, atom()}
   def verifier_config(%{"active_key_id" => active_key_id, "keys" => encoded_keys} = document)
@@ -120,7 +171,56 @@ defmodule ServiceRadar.Automation.CallbackGrants.RuntimeConfig do
 
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 
-  # Kubernetes projected secrets are mounted 0440 by the chart. Reject any
-  # file readable or writable by "other" users and every executable keyring.
-  defp secure_mode?(mode), do: (mode &&& 0o007) == 0 and (mode &&& 0o111) == 0
+  defp read_secure_file(path, max_bytes) do
+    with {:ok, stat} <- File.stat(path),
+         true <- stat.type == :regular,
+         true <- stat.size in 1..max_bytes,
+         true <- secure_owner?(stat.uid),
+         true <- secure_mode?(stat.mode),
+         {:ok, bytes} <- File.read(path),
+         true <- byte_size(bytes) in 1..max_bytes do
+      {:ok, bytes}
+    else
+      _ -> {:error, :invalid_secure_key_file}
+    end
+  end
+
+  # Kubernetes projected secrets are root-owned and mounted 0440 by the chart.
+  # Local secret files may instead be owned by the effective service user.
+  defp secure_owner?(uid) when is_integer(uid), do: uid in [0, effective_uid()]
+  defp secure_owner?(_uid), do: false
+
+  # Accept only 0400/0440/0600/0640-style permissions. In particular, group
+  # write, every "other" permission, and every executable bit are forbidden.
+  defp secure_mode?(mode) when is_integer(mode) do
+    permissions = mode &&& 0o777
+    (permissions &&& 0o400) == 0o400 and (permissions &&& bnot(0o640)) == 0
+  end
+
+  defp secure_mode?(_mode), do: false
+
+  defp effective_uid do
+    with {:ok, status} <- File.read("/proc/self/status"),
+         [_, uid] <- Regex.run(~r/^Uid:\s+(\d+)/m, status),
+         {uid, ""} <- Integer.parse(uid) do
+      uid
+    else
+      _ -> effective_uid_from_command()
+    end
+  end
+
+  defp effective_uid_from_command do
+    case System.cmd("/usr/bin/id", ["-u"], stderr_to_stdout: true) do
+      {output, 0} ->
+        case Integer.parse(String.trim(output)) do
+          {uid, ""} -> uid
+          _ -> -1
+        end
+
+      _ ->
+        -1
+    end
+  rescue
+    _ -> -1
+  end
 end

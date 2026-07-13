@@ -102,11 +102,31 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
   end
 
   setup do
+    previous_origin = Application.get_env(:serviceradar_core, :automation_callback_origin)
+
+    Application.put_env(
+      :serviceradar_core,
+      :automation_callback_origin,
+      "https://demo.example.com"
+    )
+
     Process.put({PolicyProvider, :test_pid}, self())
     Process.put({FakeActions, :test_pid}, self())
     Process.delete({FakeActions, :mark_result})
     Process.delete({FakeActions, :dispatch_result})
     Process.delete({FakeActions, :revoke_result})
+
+    on_exit(fn ->
+      if previous_origin,
+        do:
+          Application.put_env(
+            :serviceradar_core,
+            :automation_callback_origin,
+            previous_origin
+          ),
+        else: Application.delete_env(:serviceradar_core, :automation_callback_origin)
+    end)
+
     :ok
   end
 
@@ -125,6 +145,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
 
     assert callback.grant_attrs.policy_snapshot["phase"] == nil
     assert callback.grant_attrs.response_snapshot["phase"] == "preflight"
+    assert callback.callback_origin == "https://demo.example.com"
 
     assert_receive {:mark_dispatching, _persisted}
 
@@ -160,6 +181,25 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
              launch(response_policy_provider: OverrideProvider)
 
     refute_receive {:persist_callback_plan, _, _}
+  end
+
+  test "fails closed without a server-owned callback origin" do
+    Application.delete_env(:serviceradar_core, :automation_callback_origin)
+
+    assert {:error, :automation_callback_origin_unavailable} = launch()
+    refute_receive {:persist_callback_plan, _, _}
+  end
+
+  test "ignores callback destinations supplied by launch data" do
+    injected_plan =
+      plan()
+      |> put_in([:callback_contract, :callback_origin], "https://attacker.invalid")
+      |> put_in([:snapshot, "binding", "callback_origin"], "https://attacker.invalid")
+      |> put_in([:command_context, "callback_origin"], "https://attacker.invalid")
+
+    assert {:ok, _result} = launch(plan: injected_plan)
+    assert_receive {:persist_callback_plan, _, callback}
+    assert callback.callback_origin == "https://demo.example.com"
   end
 
   test "loads a configured provider module before checking its callback" do

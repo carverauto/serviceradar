@@ -40,7 +40,6 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.Cipher do
     key_id =
       Keyword.get(opts, :key_id) ||
         Application.get_env(:serviceradar_core, :automation_launch_envelope_key_id) ||
-        System.get_env("AUTOMATION_LAUNCH_ENVELOPE_KEY_ID") ||
         @default_key_id
 
     if is_binary(key_id) and Regex.match?(~r/\A[A-Za-z0-9][A-Za-z0-9._-]{0,63}\z/, key_id),
@@ -238,12 +237,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.Cipher do
   end
 
   defp configured_key do
-    Application.get_env(:serviceradar_core, :automation_launch_envelope_key) ||
-      System.get_env("AUTOMATION_LAUNCH_ENVELOPE_KEY") ||
-      read_key_file(System.get_env("AUTOMATION_LAUNCH_ENVELOPE_KEY_FILE")) ||
-      Application.get_env(:serviceradar_core, :cloak_key) ||
-      System.get_env("CLOAK_KEY") ||
-      read_key_file(System.get_env("CLOAK_KEY_FILE"))
+    Application.get_env(:serviceradar_core, :automation_launch_envelope_key)
   end
 
   defp decode_key(key) when is_binary(key) and byte_size(key) == 32, do: {:ok, key}
@@ -256,15 +250,6 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.Cipher do
   end
 
   defp decode_key(_key), do: {:error, :launch_envelope_key_unavailable}
-
-  defp read_key_file(path) when is_binary(path) and path != "" do
-    case File.read(path) do
-      {:ok, contents} -> String.trim(contents)
-      {:error, _reason} -> nil
-    end
-  end
-
-  defp read_key_file(_path), do: nil
 
   defp secure_equal?(left, right)
        when is_binary(left) and is_binary(right) and byte_size(left) == byte_size(right),

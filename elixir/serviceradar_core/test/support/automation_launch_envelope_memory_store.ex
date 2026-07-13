@@ -59,26 +59,27 @@ defmodule ServiceRadar.TestSupport.AutomationLaunchEnvelopeMemoryStore do
   end
 
   @impl true
-  def consume(reference_verifier, request, now, cipher, pid) do
+  def consume(reference_verifier, request, now, cipher, decrypt, pid) do
     Agent.get_and_update(pid, fn state ->
       case Map.get(state.records, reference_verifier) do
         nil ->
           {{:error, :launch_envelope_denied}, state}
 
         record ->
-          consume_record(record, reference_verifier, request, now, cipher, state)
+          consume_record(record, reference_verifier, request, now, cipher, decrypt, state)
       end
     end)
   end
 
-  defp consume_record(record, reference_verifier, request, now, cipher, state) do
+  defp consume_record(record, reference_verifier, request, now, cipher, decrypt, state) do
     with true <- record.state == :sealed,
          {:ok, context} <- Context.from_record(record),
          false <- Context.expired?(context, now),
          true <- Context.request_matches?(context, request),
          true <- secure_equal?(Context.digest(context), record.context_digest),
          true <- record.cipher_version == cipher.cipher_version,
-         true <- record.cipher_key_id == cipher.cipher_key_id do
+         true <- record.cipher_key_id == cipher.cipher_key_id,
+         {:ok, material} <- decrypt_record(record, context, decrypt) do
       resolved =
         record
         |> Map.put(:state, :resolved)
@@ -86,16 +87,32 @@ defmodule ServiceRadar.TestSupport.AutomationLaunchEnvelopeMemoryStore do
 
       result = %{
         id: resolved.id,
-        ciphertext: resolved.ciphertext,
-        cipher_version: resolved.cipher_version,
+        material: material,
         context: context,
         expires_at: resolved.expires_at
       }
 
       {{:ok, result}, put_in(state, [:records, reference_verifier], resolved)}
     else
+      {:error, :launch_envelope_decrypt_failed} = error -> {error, state}
       _ -> {{:error, :launch_envelope_denied}, state}
     end
+  end
+
+  defp decrypt_record(record, context, decrypt) do
+    case decrypt.(%{
+           ciphertext: record.ciphertext,
+           cipher_version: record.cipher_version,
+           context: context,
+           expires_at: record.expires_at
+         }) do
+      {:ok, material} when is_map(material) -> {:ok, material}
+      _ -> {:error, :launch_envelope_decrypt_failed}
+    end
+  rescue
+    _ -> {:error, :launch_envelope_decrypt_failed}
+  catch
+    _, _ -> {:error, :launch_envelope_decrypt_failed}
   end
 
   defp transaction_key(pid), do: {__MODULE__, pid}
