@@ -55,6 +55,7 @@
 {{- $adminEmail := default "root@localhost" $webNg.adminEmail -}}
 {{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
+{{- $automationCallbacks := default (dict) .Values.automationCallbacks -}}
 {{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
 {{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
 {{- $datasvc := default (dict) $webNg.datasvc -}}
@@ -497,6 +498,14 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: cloak-key
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE
+          value: "/etc/serviceradar/automation-callback/hmac-keyring.json"
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_CREDENTIAL_TYPE_ID
+          value: {{ default 0 $automationCallbacks.awxCredentialTypeId | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_ORGANIZATION_ID
+          value: {{ default 0 $automationCallbacks.awxOrganizationId | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_INJECTOR_DIGEST
+          value: {{ default "" $automationCallbacks.awxInjectorDigest | quote }}
         {{- if $geoipMmdb.enabled }}
         - name: GEOLITE_MMDB_DIR
           value: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
@@ -591,6 +600,9 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
+        - name: automation-callback-secrets
+          mountPath: /etc/serviceradar/automation-callback
+          readOnly: true
         {{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
         - name: nats-creds
           mountPath: /etc/serviceradar/creds
@@ -643,6 +655,13 @@ spec:
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+      - name: automation-callback-secrets
+        secret:
+          secretName: {{ $secrets | quote }}
+          defaultMode: 0440
+          items:
+          - key: automation-callback-hmac-keyring
+            path: hmac-keyring.json
       {{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
       - name: nats-creds
         secret:

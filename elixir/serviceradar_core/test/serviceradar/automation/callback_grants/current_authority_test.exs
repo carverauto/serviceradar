@@ -1,0 +1,465 @@
+defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
+  use ExUnit.Case, async: true
+
+  alias ServiceRadar.Automation.Ansible.Targeting
+  alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
+  alias ServiceRadar.Automation.CallbackGrants.CurrentAuthority
+
+  @action "remote_access.ssh_ca.bundle.read"
+  @permissions ["ansible.runs.launch", "devices.remote_access.ssh.ca_bundle.read"]
+  @now ~U[2026-07-12 22:00:00.000000Z]
+
+  defmodule Source do
+    @moduledoc false
+    @behaviour ServiceRadar.Automation.CallbackGrants.CurrentAuthoritySource
+
+    def load_principal(_type, _id, _owner_id), do: result(:principal)
+    def load_operation(_id), do: result(:operation)
+    def load_execution(_id), do: result(:execution)
+    def load_execution_targets(_id), do: result(:execution_targets)
+    def load_memberships(_ids), do: result(:memberships)
+    def load_current_binding(_controller_id, _template_id), do: result(:binding)
+    def active_holds(_device_uids), do: result(:holds)
+    def callback_credential_contract, do: result(:callback_contract)
+
+    defp result(key), do: {:ok, :current_authority_fixture |> Process.get() |> Map.fetch!(key)}
+  end
+
+  setup do
+    fixture = fixture()
+    Process.put(:current_authority_fixture, fixture)
+    %{fixture: fixture}
+  end
+
+  test "reconstructs only the initiating user's fresh exact authority", %{fixture: fixture} do
+    assert {:ok, authority} = authorize(fixture)
+    assert authority.principal_type == :human
+    assert authority.principal_id == fixture.principal.owner.id
+    assert authority.permissions == @permissions
+    assert authority.job_id == fixture.execution.awx_job_id
+    assert authority.run_state == :running
+    assert authority.job_state == :running
+  end
+
+  test "fails closed after permission contraction", %{fixture: fixture} do
+    contracted = put_in(fixture.principal.profile.permissions, ["ansible.runs.launch"])
+    assert {:error, :current_permission_denied} = authorize(contracted)
+  end
+
+  test "fails closed across tenant drift", %{fixture: fixture} do
+    drifted = put_in(fixture.operation.tenant_id, "another-tenant")
+    assert {:error, :tenant_changed} = authorize(drifted)
+  end
+
+  test "fails closed when exact target membership generation drifts", %{fixture: fixture} do
+    [membership] = fixture.memberships
+    drifted = %{fixture | memberships: [%{membership | source_generation: "generation-8"}]}
+    assert {:error, :target_no_longer_authorized} = authorize(drifted)
+  end
+
+  test "fails closed when the accepted AWX child no longer proves the target set", %{
+    fixture: fixture
+  } do
+    drifted =
+      put_in(
+        fixture.execution.accepted_job_snapshot["scope_verification"]["observed_host_ids"],
+        [101]
+      )
+
+    assert {:error, :target_no_longer_authorized} = authorize(drifted)
+  end
+
+  test "fails closed on reviewed callback organization or injector drift", %{fixture: fixture} do
+    organization_drift = put_in(fixture.binding.callback_credential_organization_id, 3)
+    assert {:error, :awx_binding_changed} = authorize(organization_drift)
+
+    injector_drift =
+      put_in(fixture.binding.callback_credential_injector_digest, String.duplicate("9", 64))
+
+    assert {:error, :awx_binding_changed} = authorize(injector_drift)
+  end
+
+  test "validates the complete immutable approval snapshot against the current binding", %{
+    fixture: fixture
+  } do
+    missing_reviewer = put_in(fixture.binding.reviewed_by_principal_id, nil)
+    assert {:error, :approval_changed} = authorize(missing_reviewer)
+
+    stale =
+      fixture
+      |> put_in(
+        [:grant, :approval_snapshot, "issued_at"],
+        DateTime.to_iso8601(DateTime.add(@now, -301))
+      )
+      |> redigest(:approval_snapshot, :approval_digest)
+
+    assert {:error, :approval_changed} = authorize(stale)
+
+    unexpected =
+      fixture
+      |> put_in([:grant, :approval_snapshot, "unexpected"], true)
+      |> redigest(:approval_snapshot, :approval_digest)
+
+    assert {:error, :approval_changed} = authorize(unexpected)
+  end
+
+  test "validates the versioned callback policy snapshot against current approval facts", %{
+    fixture: fixture
+  } do
+    changed =
+      fixture
+      |> put_in([:grant, :policy_snapshot, "approval_state"], "revoked")
+      |> redigest(:policy_snapshot, :policy_digest)
+
+    assert {:error, :target_policy_changed} = authorize(changed)
+
+    unversioned =
+      fixture
+      |> update_in([:grant, :policy_snapshot], &Map.delete(&1, "schema"))
+      |> redigest(:policy_snapshot, :policy_digest)
+
+    assert {:error, :target_policy_changed} = authorize(unversioned)
+  end
+
+  test "fails closed while a target policy hold is active", %{fixture: fixture} do
+    assert {:error, :target_policy_changed} = authorize(%{fixture | holds: [%{id: "hold-1"}]})
+  end
+
+  test "reconstructs an owned service principal without borrowing system authority", %{
+    fixture: fixture
+  } do
+    service_fixture = service_principal_fixture(fixture)
+
+    assert {:ok, authority} = authorize(service_fixture)
+    assert authority.principal_type == :service_principal
+    assert authority.principal_owner_id == fixture.principal.owner.id
+    assert authority.permissions == @permissions
+
+    contracted = put_in(service_fixture.principal.principal.scopes, ["read"])
+    assert {:error, :current_permission_denied} = authorize(contracted)
+  end
+
+  defp authorize(fixture) do
+    Process.put(:current_authority_fixture, fixture)
+
+    CurrentAuthority.current_authority(:use, fixture.grant,
+      source: Source,
+      now: @now
+    )
+  end
+
+  defp service_principal_fixture(fixture) do
+    owner = fixture.principal.owner
+    profile = fixture.principal.profile
+
+    client = %{
+      id: "0190a4c2-1000-7000-8000-00000000000a",
+      user_id: owner.id,
+      scopes: ["write"],
+      enabled: true,
+      revoked_at: nil,
+      expires_at: DateTime.add(@now, 3_600),
+      updated_at: ~U[2026-07-12 20:02:00.000000Z]
+    }
+
+    authorization_version =
+      Targeting.snapshot_digest(%{
+        "schema" => "serviceradar.service_principal_authorization.v1",
+        "service_principal_id" => client.id,
+        "service_principal_owner_id" => owner.id,
+        "service_principal_updated_at" => DateTime.to_iso8601(client.updated_at),
+        "service_principal_scopes" => ["write"],
+        "owner_status" => "active",
+        "owner_role" => "operator",
+        "owner_updated_at" => DateTime.to_iso8601(owner.updated_at),
+        "profile_id" => profile.id,
+        "profile_updated_at" => DateTime.to_iso8601(profile.updated_at),
+        "fresh_permissions" => @permissions
+      })
+
+    fixture
+    |> put_in([:principal], %{principal: client, owner: owner, profile: profile})
+    |> put_in([:grant, :principal_type], :service_principal)
+    |> put_in([:grant, :principal_id], client.id)
+    |> put_in([:grant, :principal_owner_id], owner.id)
+    |> put_in([:grant, :authorization_version], authorization_version)
+    |> put_in([:operation, :initiator_principal_type], :service_principal)
+    |> put_in([:operation, :initiator_principal_id], client.id)
+    |> put_in([:operation, :service_principal_owner_id], owner.id)
+    |> put_in([:operation, :authorization_version], authorization_version)
+  end
+
+  defp redigest(fixture, snapshot_key, digest_key) do
+    {:ok, digest} = CanonicalJSON.digest(get_in(fixture, [:grant, snapshot_key]))
+    put_in(fixture, [:grant, digest_key], digest)
+  end
+
+  defp fixture do
+    ids = %{
+      user: "0190a4c2-1000-7000-8000-000000000001",
+      profile: "0190a4c2-1000-7000-8000-000000000002",
+      operation: "0190a4c2-1000-7000-8000-000000000003",
+      execution: "0190a4c2-1000-7000-8000-000000000004",
+      controller: "0190a4c2-1000-7000-8000-000000000005",
+      binding: "0190a4c2-1000-7000-8000-000000000006",
+      membership: "0190a4c2-1000-7000-8000-000000000007",
+      approval: "0190a4c2-1000-7000-8000-000000000008"
+    }
+
+    owner = %{
+      id: ids.user,
+      status: :active,
+      role: :operator,
+      updated_at: ~U[2026-07-12 20:00:00.000000Z]
+    }
+
+    profile = %{
+      id: ids.profile,
+      updated_at: ~U[2026-07-12 20:01:00.000000Z],
+      permissions: @permissions
+    }
+
+    authorization_version =
+      Targeting.snapshot_digest(%{
+        "actor_id" => owner.id,
+        "actor_status" => "active",
+        "actor_role" => "operator",
+        "actor_updated_at" => DateTime.to_iso8601(owner.updated_at),
+        "profile_id" => profile.id,
+        "profile_updated_at" => DateTime.to_iso8601(profile.updated_at),
+        "fresh_permissions" => @permissions
+      })
+
+    membership = %{
+      id: ids.membership,
+      controller_id: ids.controller,
+      inventory_id: 34,
+      awx_host_id: 100,
+      canonical_device_uid: "device:linux-01",
+      host_name: "linux-01",
+      ansible_host: "192.168.2.22",
+      source_generation: "generation-7",
+      current: true,
+      enabled: true,
+      link_disposition: :approved
+    }
+
+    target = %{
+      membership_id: membership.id,
+      controller_id: membership.controller_id,
+      inventory_id: membership.inventory_id,
+      awx_host_id: membership.awx_host_id,
+      canonical_device_uid: membership.canonical_device_uid,
+      device_uid: membership.canonical_device_uid,
+      host_name: membership.host_name,
+      awx_host_name: membership.host_name,
+      ansible_host: membership.ansible_host,
+      membership_generation: membership.source_generation
+    }
+
+    target_digest = Targeting.target_digest([target])
+    snapshot_digest = String.duplicate("e", 64)
+    injector_digest = String.duplicate("c", 64)
+
+    scope = %{
+      "controller_id" => ids.controller,
+      "inventory_id" => 34,
+      "job_template_id" => 42,
+      "project_id" => 3,
+      "scm_revision" => String.duplicate("a", 40),
+      "content_sha256" => String.duplicate("b", 64),
+      "execution_environment_id" => 4,
+      "machine_credential_id" => 5,
+      "credential_ids" => [5],
+      "callback_credential_type_id" => 6,
+      "callback_credential_organization_id" => 2,
+      "callback_credential_injector_digest" => injector_digest,
+      "host_limit" => "linux-01",
+      "target_count" => 1,
+      "target_digest" => target_digest,
+      "snapshot_digest" => snapshot_digest,
+      "targets" => [
+        %{
+          "membership_id" => membership.id,
+          "controller_id" => membership.controller_id,
+          "inventory_id" => membership.inventory_id,
+          "awx_host_id" => membership.awx_host_id,
+          "canonical_device_uid" => membership.canonical_device_uid,
+          "host_name" => membership.host_name,
+          "ansible_host" => membership.ansible_host,
+          "membership_generation" => membership.source_generation
+        }
+      ],
+      "binding_id" => ids.binding,
+      "awx_created_by_id" => 11
+    }
+
+    binding = %{
+      id: ids.binding,
+      binding_version: 7,
+      controller_id: ids.controller,
+      job_template_id: 42,
+      allowed_inventory_ids: [34],
+      current: true,
+      approval_state: :approved,
+      approval_id: ids.approval,
+      approval_expires_at: DateTime.add(@now, 3_600),
+      reviewed_by_principal_type: :human,
+      reviewed_by_principal_id: ids.user,
+      reviewed_at: DateTime.add(@now, -3_600),
+      callback_actions: [@action],
+      callback_credential_type_id: 6,
+      callback_credential_organization_id: 2,
+      callback_credential_injector_digest: injector_digest,
+      callback_credential_slot: "ssh_ca_callback",
+      project_id: 3,
+      scm_revision: String.duplicate("a", 40),
+      content_sha256: String.duplicate("b", 64),
+      execution_environment_id: 4,
+      machine_credential_id: 5,
+      credentials: [%{"id" => 5, "kind" => "ssh"}],
+      awx_created_by_id: 11,
+      review_metadata: %{
+        "policy_version" => "ssh-policy-v3",
+        "ticket" => "SEC-1234"
+      }
+    }
+
+    execution = %{
+      id: ids.execution,
+      operation_id: ids.operation,
+      controller_id: ids.controller,
+      inventory_id: 34,
+      job_template_id: 42,
+      project_id: 3,
+      scm_revision: String.duplicate("a", 40),
+      content_sha256: String.duplicate("b", 64),
+      execution_environment_id: 4,
+      machine_credential_id: 5,
+      credential_snapshot: %{
+        "credential_ids" => [5],
+        "dynamic_callback_slot" => "ssh_ca_callback"
+      },
+      host_limit: "linux-01",
+      snapshot_digest: snapshot_digest,
+      dispatch_id: "dispatch-1",
+      awx_job_id: 9_001,
+      state: :scope_verified,
+      metadata: %{"awx_created_by_id" => 11, "target_digest" => target_digest},
+      accepted_job_snapshot: %{
+        "controller_id" => ids.controller,
+        "awx_job_id" => 9_001,
+        "job_template_id" => 42,
+        "inventory_id" => 34,
+        "host_limit" => "linux-01",
+        "project_id" => 3,
+        "scm_revision" => String.duplicate("a", 40),
+        "execution_environment_id" => 4,
+        "awx_created_by_id" => 11,
+        "serviceradar_dispatch_id" => "dispatch-1",
+        "serviceradar_snapshot_digest" => snapshot_digest,
+        "credential_ids" => [5, 91],
+        "scope_verification" => %{
+          "execution_id" => ids.execution,
+          "controller_id" => ids.controller,
+          "awx_job_id" => 9_001,
+          "expected_host_ids" => [100],
+          "observed_host_ids" => [100]
+        }
+      }
+    }
+
+    {:ok, scope_digest} = CanonicalJSON.digest(scope)
+
+    approval_snapshot = %{
+      "binding_id" => binding.id,
+      "binding_version" => binding.binding_version,
+      "approval_id" => binding.approval_id,
+      "approval_expires_at" => DateTime.to_iso8601(binding.approval_expires_at),
+      "reviewed_by_principal_type" => "human",
+      "reviewed_by_principal_id" => binding.reviewed_by_principal_id,
+      "reviewed_at" => DateTime.to_iso8601(binding.reviewed_at),
+      "review_metadata" => binding.review_metadata,
+      "issued_at" => DateTime.to_iso8601(@now)
+    }
+
+    policy_snapshot = %{
+      "schema" => "serviceradar.automation_callback_policy/v1",
+      "action" => @action,
+      "binding_id" => binding.id,
+      "binding_version" => binding.binding_version,
+      "version" => "ssh-policy-v3",
+      "approval_id" => binding.approval_id,
+      "approval_state" => "approved",
+      "approval_expires_at" => DateTime.to_iso8601(binding.approval_expires_at)
+    }
+
+    {:ok, approval_digest} = CanonicalJSON.digest(approval_snapshot)
+
+    {:ok, policy_digest} = CanonicalJSON.digest(policy_snapshot)
+
+    grant = %{
+      id: "0190a4c2-1000-7000-8000-000000000009",
+      state: :active,
+      tenant_id: "platform",
+      parent_run_id: ids.operation,
+      execution_id: ids.execution,
+      principal_type: :human,
+      principal_id: ids.user,
+      principal_owner_id: nil,
+      authorization_version: authorization_version,
+      action: @action,
+      issued_at: @now,
+      awx_scope_snapshot: scope,
+      scope_digest: scope_digest,
+      approval_digest: approval_digest,
+      policy_digest: policy_digest,
+      approval_snapshot: approval_snapshot,
+      policy_snapshot: policy_snapshot,
+      job_binding: %{"job_id" => 9_001},
+      ephemeral_credential_id: 91,
+      binding_verified: true
+    }
+
+    %{
+      grant: grant,
+      principal: %{principal: owner, owner: owner, profile: profile},
+      operation: %{
+        id: ids.operation,
+        tenant_id: "platform",
+        initiator_principal_type: :human,
+        initiator_principal_id: ids.user,
+        service_principal_owner_id: nil,
+        authorization_version: authorization_version,
+        state: :running,
+        callback_actions: [@action],
+        authority_ceiling: %{
+          "permissions" => @permissions,
+          "target_membership_ids" => [membership.id]
+        }
+      },
+      execution: execution,
+      execution_targets: [
+        %{
+          execution_id: ids.execution,
+          membership_id: membership.id,
+          controller_id: ids.controller,
+          inventory_id: 34,
+          awx_host_id: 100,
+          canonical_device_uid: "device:linux-01",
+          membership_generation: "generation-7",
+          host_name: "linux-01",
+          ansible_host: "192.168.2.22"
+        }
+      ],
+      memberships: [membership],
+      binding: binding,
+      holds: [],
+      callback_contract: %{
+        credential_type_id: 6,
+        organization_id: 2,
+        injector_digest: injector_digest
+      }
+    }
+  end
+end

@@ -173,7 +173,13 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlanTest do
 
   test "keeps callback-enabled content unavailable until its owner is installed" do
     callback_binding =
-      reviewed_binding(%{callback_actions: ["remote_access.ssh_ca.bundle.read"]})
+      reviewed_binding(%{
+        callback_actions: ["remote_access.ssh_ca.bundle.read"],
+        callback_credential_type_id: 91,
+        callback_credential_organization_id: 2,
+        callback_credential_injector_digest: String.duplicate("c", 64),
+        callback_credential_slot: "ssh_ca_callback"
+      })
 
     assert {:error, :callback_gate_unavailable} =
              HardenedLaunchPlan.build(intent(%{binding: callback_binding}))
@@ -184,5 +190,10 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlanTest do
              )
 
     assert plan.operation.callback_actions == ["remote_access.ssh_ca.bundle.read"]
+    assert plan.snapshot["binding"]["callback_credential_type_id"] == 91
+    assert plan.snapshot["binding"]["callback_credential_organization_id"] == 2
+
+    assert plan.snapshot["binding"]["callback_credential_injector_digest"] ==
+             String.duplicate("c", 64)
   end
 end

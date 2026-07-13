@@ -81,6 +81,14 @@ defmodule ServiceRadar.Automation.CallbackGrants.Audit do
     ])
   end
 
+  @doc false
+  @spec authorization_grant(map()) :: map()
+  def authorization_grant(grant) when is_map(grant) do
+    grant
+    |> safe_grant()
+    |> Map.put(:policy_snapshot, value(grant, :policy_snapshot))
+  end
+
   defp validate_metadata(metadata) do
     Enum.reduce_while(metadata, :ok, fn {key, value}, :ok ->
       normalized_key = normalize_key(key)

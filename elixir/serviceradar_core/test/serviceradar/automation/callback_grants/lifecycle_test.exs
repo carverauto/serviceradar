@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Automation.CallbackGrants.Audit
   alias ServiceRadar.Automation.CallbackGrants.Authority
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
   alias ServiceRadar.Automation.CallbackGrants.Lifecycle
@@ -314,6 +315,25 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
     %{store: store, authorizer: authorizer, cleanup: cleanup, attrs: attrs, opts: opts}
   end
 
+  test "authorization projection retains policy evidence without exposing it to cleanup" do
+    grant = %{
+      id: @grant_id,
+      policy_snapshot: %{"schema" => "serviceradar.automation_callback_policy/v1"},
+      response_snapshot: %{"sensitive" => true},
+      verifier_digest: <<1, 2, 3>>,
+      launch_envelope_ref: "secret-ref"
+    }
+
+    authorization_grant = Audit.authorization_grant(grant)
+    cleanup_grant = Audit.safe_grant(grant)
+
+    assert authorization_grant.policy_snapshot == grant.policy_snapshot
+    refute Map.has_key?(authorization_grant, :response_snapshot)
+    refute Map.has_key?(authorization_grant, :verifier_digest)
+    refute Map.has_key?(authorization_grant, :launch_envelope_ref)
+    refute Map.has_key?(cleanup_grant, :policy_snapshot)
+  end
+
   test "pending issuance returns opaque bearer and idempotency credentials once", context do
     assert {:ok, %{grant: pending, bearer: bearer, idempotency_key: idempotency_key}} =
              Lifecycle.prepare(context.attrs, context.opts)
@@ -388,6 +408,31 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
     assert grant(context.store).budget_remaining == 1
     assert Agent.get(context.store, & &1.uses) == %{}
     assert Enum.any?(Agent.get(context.store, & &1.audits), &(&1.event == "callback_pending"))
+  end
+
+  test "pending callbacks still require the exact key and immutable request", context do
+    {:ok, issued} = Lifecycle.prepare(context.attrs, context.opts)
+
+    assert {:error, :invalid_idempotency_key} =
+             Lifecycle.consume(
+               @grant_id,
+               issued.bearer,
+               String.duplicate("x", 43),
+               request(context.attrs),
+               context.opts
+             )
+
+    assert {:error, :callback_request_mismatch} =
+             Lifecycle.consume(
+               @grant_id,
+               issued.bearer,
+               issued.idempotency_key,
+               Map.put(request(context.attrs), "manifest_sha256", String.duplicate("0", 64)),
+               context.opts
+             )
+
+    assert grant(context.store).state == :pending
+    assert grant(context.store).budget_remaining == 1
   end
 
   test "activation binds one exact job and cannot expand its scope", context do
@@ -947,8 +992,27 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
         tenant_id: "platform",
         authorization_version: "role-v7"
       },
-      approval_snapshot: %{id: "approval-1", approved: true},
-      policy_snapshot: %{version: "ssh-policy-v3", approved: true},
+      approval_snapshot: %{
+        "binding_id" => "binding-1",
+        "binding_version" => 3,
+        "approval_id" => "approval-1",
+        "approval_expires_at" => DateTime.to_iso8601(DateTime.add(@now, 3_600)),
+        "reviewed_by_principal_type" => "human",
+        "reviewed_by_principal_id" => @principal_id,
+        "reviewed_at" => DateTime.to_iso8601(DateTime.add(@now, -3_600)),
+        "review_metadata" => %{"policy_version" => "ssh-policy-v3"},
+        "issued_at" => DateTime.to_iso8601(@now)
+      },
+      policy_snapshot: %{
+        "schema" => "serviceradar.automation_callback_policy/v1",
+        "action" => @action,
+        "binding_id" => "binding-1",
+        "binding_version" => 3,
+        "version" => "ssh-policy-v3",
+        "approval_id" => "approval-1",
+        "approval_state" => "approved",
+        "approval_expires_at" => DateTime.to_iso8601(DateTime.add(@now, 3_600))
+      },
       issuance_ceiling: issuance_ceiling([response_target]),
       awx_scope_snapshot: %{
         controller_id: "controller-demo",

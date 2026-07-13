@@ -575,6 +575,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreDbTest do
          ask_limit_on_launch, ask_job_type_on_launch, dispatch_markers_retained,
          inventory_groups_verified, inventory_group_names, input_schema,
          input_classifications, callback_actions, callback_credential_type_id,
+         callback_credential_organization_id, callback_credential_injector_digest,
          callback_credential_slot, awx_created_by_id, reviewed_by_principal_type,
          reviewed_by_principal_id, reviewed_at, review_metadata)
       VALUES
@@ -583,7 +584,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreDbTest do
          3, $4, $5, false, 4, ARRAY['{"id":5,"kind":"ssh"}'::jsonb], 5,
          true, false, false, true, false, true, true, ARRAY['linux']::text[],
          '{}'::jsonb, '{}'::jsonb,
-         ARRAY['remote_access.ssh_ca.bundle.read']::text[], 6, 'callback-env', 11,
+         ARRAY['remote_access.ssh_ca.bundle.read']::text[], 6, 2, $6, 'callback-env', 11,
          'human', 'callback-reviewer', (now() AT TIME ZONE 'utc'), '{}'::jsonb)
       """,
       [
@@ -591,7 +592,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreDbTest do
         ids.controller,
         ids.approval,
         String.duplicate("a", 40),
-        String.duplicate("b", 64)
+        String.duplicate("b", 64),
+        String.duplicate("c", 64)
       ]
     )
   end

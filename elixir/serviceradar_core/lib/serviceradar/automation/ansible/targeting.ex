@@ -130,6 +130,14 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
     credential_ids = value(binding, :credential_ids)
     credential_refs = normalize_credential_refs(value(binding, :credentials))
     machine_credential_id = positive_integer(value(binding, :machine_credential_id))
+    callback_actions = List.wrap(value(binding, :callback_actions))
+    callback_type_id = positive_integer(value(binding, :callback_credential_type_id))
+
+    callback_organization_id =
+      positive_integer(value(binding, :callback_credential_organization_id))
+
+    callback_injector_digest = value(binding, :callback_credential_injector_digest)
+    callback_slot = value(binding, :callback_credential_slot)
     job_type = Atom.to_string(mode)
 
     cond do
@@ -181,6 +189,15 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
       is_nil(positive_integer(value(binding, :awx_created_by_id))) ->
         {:error, :binding_awx_identity_required}
 
+      not callback_contract?(
+        callback_actions,
+        callback_type_id,
+        callback_organization_id,
+        callback_injector_digest,
+        callback_slot
+      ) ->
+        {:error, :binding_callback_contract_required}
+
       true ->
         {:ok,
          %{
@@ -194,6 +211,11 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
            machine_credential_id: machine_credential_id,
            job_type: job_type,
            awx_created_by_id: positive_integer(value(binding, :awx_created_by_id)),
+           callback_actions: callback_actions,
+           callback_credential_type_id: callback_type_id,
+           callback_credential_organization_id: callback_organization_id,
+           callback_credential_injector_digest: callback_injector_digest,
+           callback_credential_slot: callback_slot,
            inventory_group_names:
              binding |> value(:inventory_group_names) |> List.wrap() |> Enum.map(&to_string/1)
          }}
@@ -201,6 +223,20 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
   end
 
   def validate_binding(_binding, _plan, _mode), do: {:error, :invalid_binding}
+
+  defp callback_contract?([], nil, nil, nil, nil), do: true
+
+  defp callback_contract?(actions, type_id, organization_id, injector_digest, slot)
+       when is_list(actions) and actions != [] and is_integer(type_id) and
+              is_integer(organization_id) and
+              is_binary(injector_digest) and is_binary(slot) do
+    length(actions) == length(Enum.uniq(actions)) and
+      Enum.all?(actions, &(&1 == "remote_access.ssh_ca.bundle.read")) and
+      Regex.match?(@sha256_hex, injector_digest) and slot != ""
+  end
+
+  defp callback_contract?(_actions, _type_id, _organization_id, _injector_digest, _slot),
+    do: false
 
   @doc """
   Verifies the AWX job's retained launch scope and post-start host summaries.

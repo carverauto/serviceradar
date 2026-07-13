@@ -237,7 +237,12 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
   defp consume_by_state(grant, idempotency_key, request, now, opts) do
     case value(grant, :state) do
       :pending ->
-        with :ok <- audit_pending(grant, opts) do
+        with :ok <- validate_idempotency_key(idempotency_key),
+             :ok <- verify_idempotency_key(idempotency_key, grant, opts),
+             {:ok, expected_request} <- SshCaBundleResponse.expected_request(grant),
+             {:ok, request} <- SshCaBundleResponse.validate_request(request),
+             true <- request == expected_request || {:error, :callback_request_mismatch},
+             :ok <- audit_pending(grant, opts) do
           {:retry,
            %{
              status: 409,
@@ -245,6 +250,9 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
              retryable: true,
              retry_after_seconds: 1
            }}
+        else
+          false -> handle_valid_denial(value(grant, :id), :callback_request_mismatch, opts)
+          {:error, reason} -> handle_valid_denial(value(grant, :id), reason, opts)
         end
 
       state when state in [:active, :consumed] ->
@@ -533,7 +541,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
 
     authorizer.current_authority(
       stage,
-      Audit.safe_grant(grant),
+      Audit.authorization_grant(grant),
       Keyword.get(opts, :authority_context)
     )
   end
