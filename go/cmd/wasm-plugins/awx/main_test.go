@@ -1068,6 +1068,12 @@ func TestRunInventorySyncBuildsDeviceDiscovery(t *testing.T) {
 	if awxMeta["inventory_id"].(int) != 7 {
 		t.Errorf("metadata.awx.inventory_id = %v", awxMeta["inventory_id"])
 	}
+	if awxMeta["ansible_host"] != "10.0.0.5" {
+		t.Errorf("metadata.awx.ansible_host = %v", awxMeta["ansible_host"])
+	}
+	if _, present := awxMeta["variables"]; present {
+		t.Error("secret-capable AWX variables must not enter discovery metadata")
+	}
 
 	web02 := byID["awx:ctrl-uuid-1:host:101"]
 	if web02.IP != "10.0.0.6" {

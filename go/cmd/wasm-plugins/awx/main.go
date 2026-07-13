@@ -1782,12 +1782,13 @@ func buildDiscoveredHost(cfg InventorySyncControllerConfig, inv awxInventoryRow,
 	enabled := host.Enabled
 
 	hostname := host.Name
+	ansibleHost := extractAnsibleHostFromVariables(host.Variables)
 	ip := ""
-	if v := extractAnsibleHostFromVariables(host.Variables); v != "" {
-		if isProbablyIP(v) {
-			ip = v
+	if ansibleHost != "" {
+		if isProbablyIP(ansibleHost) {
+			ip = ansibleHost
 		} else if hostname == "" {
-			hostname = v
+			hostname = ansibleHost
 		}
 	}
 
@@ -1814,7 +1815,7 @@ func buildDiscoveredHost(cfg InventorySyncControllerConfig, inv awxInventoryRow,
 				"host_name":       host.Name,
 				"description":     host.Description,
 				"instance_id":     host.InstanceID,
-				"variables":       host.Variables,
+				"ansible_host":    ansibleHost,
 			},
 		},
 	}
