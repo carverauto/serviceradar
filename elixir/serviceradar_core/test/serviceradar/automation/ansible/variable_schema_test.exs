@@ -327,5 +327,70 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchemaTest do
       assert {:error, {:required_launch_input, "version"}} =
                VariableSchema.validated_non_secret_inputs(vars, %{})
     end
+
+    test "rejects keys that collide after form-key normalization" do
+      vars = [%Var{name: "environment", type: :text}]
+
+      assert {:error, :ambiguous_launch_inputs} =
+               VariableSchema.validated_non_secret_inputs(vars, %{
+                 :environment => "stage",
+                 "environment" => "prod"
+               })
+    end
+  end
+
+  describe "from_binding/1" do
+    test "parses the reviewed binding input contract" do
+      binding = %{
+        input_schema: %{
+          "environment" => %{
+            "type" => "select",
+            "required" => true,
+            "choices" => ["stage", "prod"],
+            "help" => "Deployment environment"
+          },
+          "replicas" => %{"type" => "integer", "min" => 1, "max" => 10}
+        },
+        input_classifications: %{"environment" => "internal", "replicas" => "public"}
+      }
+
+      assert {:ok, [environment, replicas]} = VariableSchema.from_binding(binding)
+      assert %Var{type: :select, required: true, choices: ["stage", "prod"]} = environment
+      assert %Var{type: :integer, min: 1, max: 10, private: false} = replicas
+    end
+
+    test "rejects secret-like names, unreviewed keys, and incomplete classifications" do
+      assert {:error, {:sensitive_binding_input_forbidden, "api_token"}} =
+               VariableSchema.from_binding(%{
+                 input_schema: %{"api_token" => %{"type" => "text"}},
+                 input_classifications: %{"api_token" => "internal"}
+               })
+
+      assert {:error, :binding_input_schema_invalid} =
+               VariableSchema.from_binding(%{
+                 input_schema: %{"region" => %{"type" => "text", "default" => "farm01"}},
+                 input_classifications: %{"region" => "internal"}
+               })
+
+      assert {:error, :binding_input_classifications_invalid} =
+               VariableSchema.from_binding(%{
+                 input_schema: %{"region" => %{"type" => "text"}},
+                 input_classifications: %{}
+               })
+    end
+
+    test "rejects input names that differ only by case" do
+      assert {:error, :binding_input_schema_invalid} =
+               VariableSchema.from_binding(%{
+                 input_schema: %{
+                   "Environment" => %{"type" => "text"},
+                   "environment" => %{"type" => "text"}
+                 },
+                 input_classifications: %{
+                   "Environment" => "internal",
+                   "environment" => "internal"
+                 }
+               })
+    end
   end
 end

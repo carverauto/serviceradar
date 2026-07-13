@@ -302,6 +302,18 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
     refute_receive {:launch, _, _}
   end
 
+  test "rejects membership approval contraction after selection" do
+    for {overrides, expected_error} <- [
+          {%{current: false}, :stale_awx_membership},
+          {%{enabled: false}, :disabled_awx_membership},
+          {%{link_disposition: :proposed}, :unapproved_awx_membership}
+        ] do
+      Process.put({FakeAdapter, :memberships}, {:ok, [membership(overrides)]})
+      assert {:error, ^expected_error} = launch()
+      refute_receive {:launch, _, _}
+    end
+  end
+
   test "rejects expired approval and a canonical-device-wide active hold" do
     Process.put(
       {FakeAdapter, :binding},

@@ -196,6 +196,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                 vars={@ansible_vars}
                 var_values={@ansible_var_values}
                 launch_notice={@ansible_launch_notice}
+                launch_ready={@ansible_launch_ready}
+                launch_resolution={@ansible_launch_resolution}
+                launch_readiness={@ansible_launch_readiness}
+                launch_form={@ansible_launch_form}
               />
 
               <.camera_streams_section

@@ -24,6 +24,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   attr(:vars, :list, default: [])
   attr(:var_values, :map, default: %{})
   attr(:launch_notice, :string, default: nil)
+  attr(:launch_ready, :boolean, default: false)
+  attr(:launch_resolution, :map, default: nil)
+  attr(:launch_readiness, :string, default: nil)
+  attr(:launch_form, :any, required: true)
 
   def ansible_runs_section(assigns) do
     assigns =
@@ -137,6 +141,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
         vars={@vars}
         var_values={@var_values}
         notice={@launch_notice}
+        ready={@launch_ready}
+        resolution={@launch_resolution}
+        readiness={@launch_readiness}
+        form={@launch_form}
       />
     </section>
     """
@@ -149,6 +157,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   attr(:vars, :list, default: [])
   attr(:var_values, :map, default: %{})
   attr(:notice, :string, default: nil)
+  attr(:ready, :boolean, default: false)
+  attr(:resolution, :map, default: nil)
+  attr(:readiness, :string, default: nil)
+  attr(:form, :any, required: true)
 
   defp launch_modal(assigns) do
     ~H"""
@@ -168,8 +180,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
             <.icon name="hero-play" class="size-5 text-primary" />
           </div>
           <div class="min-w-0 flex-1">
-            <h3 class="text-lg font-semibold text-base-content">Launch a playbook</h3>
-            <p class="text-sm text-base-content/60">Runs against this device only.</p>
+            <h3 class="text-lg font-semibold text-base-content">Launch a reviewed playbook</h3>
+            <p class="text-sm text-base-content/60">
+              ServiceRadar resolves the exact AWX membership again on submit.
+            </p>
           </div>
         </div>
 
@@ -179,8 +193,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
         </div>
 
         <.form
-          for={%{}}
-          as={:launch}
+          for={@form}
           id="device-ansible-launch-form"
           phx-change="ansible_launch_change"
           phx-submit="ansible_launch"
@@ -190,7 +203,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
             <label class="label">
               <span class="label-text font-medium">Playbook</span>
               <span class="label-text-alt text-xs text-base-content/60">
-                {length(@playbooks)} launchable
+                {length(@playbooks)} catalog candidate{if length(@playbooks) == 1, do: "", else: "s"}
               </span>
             </label>
             <select name="playbook_id" class="select select-bordered w-full">
@@ -210,13 +223,49 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
             </p>
           </div>
 
+          <div
+            :if={@selected_playbook_id}
+            id="device-ansible-launch-readiness"
+            role="status"
+            class={[
+              "alert",
+              if(@ready, do: "alert-success", else: "alert-warning")
+            ]}
+          >
+            <.icon
+              name={if(@ready, do: "hero-check-circle", else: "hero-shield-exclamation")}
+              class="size-5"
+            />
+            <div class="min-w-0">
+              <p class="text-sm font-medium">{@readiness}</p>
+              <div :if={@ready and @resolution} class="mt-1 flex flex-wrap gap-1.5">
+                <span class="badge badge-success badge-sm">Binding approved</span>
+                <span class="badge badge-success badge-sm">Target ready</span>
+                <span class="badge badge-ghost badge-sm">
+                  Inventory {resolution_value(@resolution, :inventory_id)}
+                </span>
+                <span class="badge badge-ghost badge-sm">
+                  Binding v{resolution_value(@resolution, :binding_version)}
+                </span>
+              </div>
+            </div>
+          </div>
+
           <div :if={@vars != []} class="space-y-3">
-            <h4 class="text-sm font-medium">Variables</h4>
-            <.var_input :for={var <- @vars} var={var} value={Map.get(@var_values, var.name)} />
+            <h4 class="text-sm font-medium">Reviewed inputs</h4>
+            <p class="text-xs text-base-content/60">
+              Only non-secret fields declared by the approved binding are accepted.
+            </p>
+            <.var_input
+              :for={var <- @vars}
+              var={var}
+              value={Map.get(@var_values, var.name)}
+              name={"inputs[#{var.name}]"}
+            />
           </div>
 
           <div :if={@vars == [] and @selected_playbook_id} class="text-xs text-base-content/60">
-            This playbook declares no variables.
+            This reviewed binding declares no operator inputs. Credentials remain pre-bound in AWX.
           </div>
 
           <div class="modal-action">
@@ -226,7 +275,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
             <button
               type="submit"
               class="btn btn-primary"
-              disabled={is_nil(@selected_playbook_id) or @playbooks == []}
+              disabled={is_nil(@selected_playbook_id) or @playbooks == [] or not @ready}
             >
               <.icon name="hero-play" class="size-4" /> Launch
             </button>
@@ -267,18 +316,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
 
   def var_input(%{var: %Var{type: :password}} = assigns) do
     ~H"""
-    <div class="form-control">
-      <label class="label">
-        <span class="label-text">{@var.label}</span>
-        <span class="label-text-alt text-xs text-base-content/60">stored only at launch time</span>
-      </label>
-      <input
-        type="password"
-        name={field_name(@var, @name)}
-        value={@value}
-        class="input input-bordered input-sm font-mono"
-        autocomplete="off"
-      />
+    <div role="alert" class="alert alert-warning">
+      <.icon name="hero-lock-closed" class="size-5" />
+      <span class="text-sm">
+        {@var.label} is a secret input and cannot be collected. Bind it to a reviewed AWX credential.
+      </span>
     </div>
     """
   end
@@ -380,6 +422,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
 
   defp field_name(%Var{name: name}, nil), do: name
   defp field_name(_var, name) when is_binary(name), do: name
+
+  defp resolution_value(resolution, key) when is_map(resolution) do
+    Map.get(resolution, key) || Map.get(resolution, to_string(key)) || "—"
+  end
 
   defp launch_disabled_reason(true, _controller_id), do: nil
   defp launch_disabled_reason(false, nil), do: "This device isn't bound to an AWX controller."

@@ -21,14 +21,13 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
   alias ServiceRadar.Automation.Ansible.HardenedLaunchPlan
   alias ServiceRadar.Automation.Ansible.SecureChildLauncher.AshAdapter
   alias ServiceRadar.Automation.Ansible.Targeting
-  alias ServiceRadar.Automation.Ansible.VariableSchema.Var
+  alias ServiceRadar.Automation.Ansible.VariableSchema
   alias ServiceRadar.Automation.CallbackGrants.ActionContract
   alias ServiceRadar.Automation.CallbackGrants.LaunchContract
 
   @launch_permission "ansible.runs.launch"
   @max_targets 500
   @request_source ~r/\A[a-z][a-z0-9_.:-]{0,127}\z/
-  @sensitive_input_name ~r/(?:\A|_)(?:api_key|authorization|bearer|credential|passwd|password|private_key|secret|token)(?:_|\z)/
   @forbidden_request_keys MapSet.new([
                             "ansible_host",
                             "api_key",
@@ -60,26 +59,6 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
                             "response_policy_provider",
                             "state"
                           ])
-
-  @reserved_input_names MapSet.new([
-                          "allowed_callback_origin",
-                          "allowed_origin",
-                          "callback_manifest_sha256",
-                          "callback_operation",
-                          "callback_origin",
-                          "callback_phase",
-                          "callback_policy",
-                          "callback_response_policy_provider",
-                          "callback_state",
-                          "callback_url",
-                          "desired_state",
-                          "manifest_sha256",
-                          "operation",
-                          "phase",
-                          "remote_access_operation",
-                          "response_policy_provider",
-                          "state"
-                        ])
 
   @type request :: %{
           required(:actor) => map(),
@@ -123,7 +102,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
          :ok <- require_action_permissions(authorization, callback_contract),
          {:ok, held_device_uids} <- adapter.active_hold_device_uids(scope.device_uids),
          :ok <- reject_active_holds(held_device_uids, scope.device_uids),
-         {:ok, variable_schema} <- binding_variable_schema(binding),
+         {:ok, variable_schema} <- VariableSchema.from_binding(binding),
          actor_snapshot =
            actor_snapshot(
              current_actor,
@@ -507,67 +486,6 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
 
   defp reject_active_holds(_held_device_uids, _requested_device_uids),
     do: {:error, :target_hold_lookup_failed}
-
-  defp binding_variable_schema(binding) do
-    case value(binding, :input_schema) do
-      schema when is_map(schema) ->
-        schema
-        |> Enum.sort_by(fn {name, _definition} -> to_string(name) end)
-        |> Enum.reduce_while({:ok, []}, fn {name, definition}, {:ok, acc} ->
-          case binding_var(to_string(name), definition) do
-            {:ok, var} -> {:cont, {:ok, [var | acc]}}
-            error -> {:halt, error}
-          end
-        end)
-        |> case do
-          {:ok, vars} -> {:ok, Enum.reverse(vars)}
-          error -> error
-        end
-
-      _ ->
-        {:error, :binding_input_schema_invalid}
-    end
-  end
-
-  defp binding_var(name, definition) when is_map(definition) and name != "" do
-    with :ok <- non_sensitive_input_name(name),
-         {:ok, type} <- variable_type(value(definition, :type)) do
-      {:ok,
-       %Var{
-         name: name,
-         label: value(definition, :label) || name,
-         type: type,
-         default: nil,
-         required: value(definition, :required) == true,
-         private: false,
-         choices: List.wrap(value(definition, :choices)),
-         min: value(definition, :min),
-         max: value(definition, :max),
-         help: value(definition, :help)
-       }}
-    end
-  end
-
-  defp binding_var(_name, _definition), do: {:error, :binding_input_schema_invalid}
-
-  defp non_sensitive_input_name(name) do
-    normalized = String.downcase(name)
-
-    if Regex.match?(@sensitive_input_name, normalized) or
-         MapSet.member?(@reserved_input_names, normalized),
-       do: {:error, {:sensitive_binding_input_forbidden, name}},
-       else: :ok
-  end
-
-  defp variable_type(type) when type in [:text, "text"], do: {:ok, :text}
-  defp variable_type(type) when type in [:textarea, "textarea"], do: {:ok, :textarea}
-  defp variable_type(type) when type in [:integer, "integer"], do: {:ok, :integer}
-  defp variable_type(type) when type in [:float, "float"], do: {:ok, :float}
-  defp variable_type(type) when type in [:select, "select"], do: {:ok, :select}
-
-  defp variable_type(type) when type in [:multiselect, "multiselect"], do: {:ok, :multiselect}
-
-  defp variable_type(_type), do: {:error, :binding_input_schema_invalid}
 
   defp actor_snapshot(actor, authorization, membership_ids, binding, callback_contract, now) do
     permissions = authorization.permissions |> MapSet.to_list() |> Enum.sort()

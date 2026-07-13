@@ -52,7 +52,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponentsTest do
         selected_playbook_id: nil,
         vars: [],
         var_values: %{},
-        launch_notice: nil
+        launch_notice: nil,
+        launch_ready: false,
+        launch_resolution: nil,
+        launch_readiness: "Select a reviewed playbook.",
+        launch_form: Phoenix.Component.to_form(%{})
       ],
       overrides
     )
@@ -124,18 +128,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponentsTest do
           launch_open: true,
           selected_playbook_id: "pb-1",
           vars: [var],
-          var_values: %{"app_version" => "1.4.0"}
+          var_values: %{"app_version" => "1.4.0"},
+          launch_ready: true,
+          launch_resolution: %{inventory_id: 34, binding_version: 2},
+          launch_readiness: "Reviewed binding and exact target membership are ready."
         )
       )
 
-    assert html =~ "Launch a playbook"
+    assert html =~ "Launch a reviewed playbook"
     assert html =~ ~s(phx-submit="ansible_launch")
     assert html =~ ~s(phx-change="ansible_launch_change")
     # the playbook picker lists the launchable template
     assert html =~ "Deploy nginx"
     # the declared-variable input is rendered, pre-filled with its default
-    assert html =~ ~s(name="app_version")
+    assert html =~ ~s(name="inputs[app_version]")
     assert html =~ ~s(value="1.4.0")
+    assert html =~ "Binding approved"
+    assert html =~ "Inventory 34"
+    refute html =~ ~s(type="password")
   end
 
   test "launch button is disabled with a reason when no playbooks are launchable" do
@@ -148,5 +158,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponentsTest do
     assert html =~ "Run Task"
     assert html =~ "disabled"
     assert html =~ "No launchable playbooks"
+  end
+
+  test "secret variables render a credential-binding warning instead of an input" do
+    secret = %Var{name: "admin_password", label: "Admin password", type: :password, private: true}
+
+    html =
+      render_component(&AnsiblePanelComponents.var_input/1,
+        var: secret,
+        value: nil,
+        name: "inputs[admin_password]"
+      )
+
+    assert html =~ "cannot be collected"
+    refute html =~ "inputs[admin_password]"
+    refute html =~ ~s(type="password")
   end
 end

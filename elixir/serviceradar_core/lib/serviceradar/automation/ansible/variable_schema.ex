@@ -1,12 +1,15 @@
 defmodule ServiceRadar.Automation.Ansible.VariableSchema do
   @moduledoc """
-  Normalizes a `Playbook`'s declared variables into a uniform shape the
-  launch form can render as typed inputs.
+  Normalizes Ansible variable definitions into a uniform typed-input shape.
+
+  Legacy catalog and northbound views can still derive display fields from a
+  mutable playbook survey with `from_playbook/1`. Secure human launch surfaces
+  and `SecureChildLauncher` use only `from_binding/1`, which parses the
+  immutable reviewed binding contract and fails closed.
 
   AWX survey_spec and Ansible vars_prompt are two different sources with
   overlapping intent. This module flattens both into `[%Var{}]` with a
-  consistent set of fields. The LaunchLive page renders one input per
-  entry; on submit it collects values back into an `extra_vars` map.
+  consistent set of fields.
 
   ## Sources
 
@@ -52,6 +55,42 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchema do
           }
   end
 
+  @binding_input_name ~r/\A[A-Za-z_][A-Za-z0-9_]{0,127}\z/
+  @sensitive_input_name ~r/(?:\A|_)(?:api_key|authorization|bearer|credential|passwd|password|private_key|secret|token)(?:_|\z)/
+  @binding_definition_keys MapSet.new([
+                             "type",
+                             "required",
+                             "choices",
+                             "min",
+                             "max",
+                             "label",
+                             "help"
+                           ])
+  @reserved_binding_inputs MapSet.new([
+                             "allowed_callback_origin",
+                             "allowed_origin",
+                             "callback_manifest_sha256",
+                             "callback_operation",
+                             "callback_origin",
+                             "callback_phase",
+                             "callback_policy",
+                             "callback_response_policy_provider",
+                             "callback_state",
+                             "callback_url",
+                             "desired_state",
+                             "manifest_sha256",
+                             "operation",
+                             "phase",
+                             "remote_access_operation",
+                             "response_policy_provider",
+                             "serviceradar_dispatch_id",
+                             "serviceradar_snapshot_digest",
+                             "state"
+                           ])
+  @binding_input_types [:text, :textarea, :integer, :float, :select, :multiselect]
+  @binding_input_classes ["public", "internal"]
+  @max_binding_inputs 100
+
   @doc """
   Normalize a Playbook into a list of `%Var{}`. Returns `[]` when no
   variables are declared.
@@ -75,6 +114,59 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchema do
   end
 
   def from_playbook(_), do: []
+
+  @doc """
+  Parses the immutable input contract on a reviewed AWX template binding.
+
+  This is the sole parser used by secure launch preparation and dispatch. It
+  rejects unknown definition keys, duplicate normalized names, secret-like or
+  callback-reserved names, unsupported types, invalid choices/bounds, and an
+  incomplete input-classification map. It never derives fields from the mutable
+  AWX survey at launch time.
+  """
+  @spec from_binding(map()) :: {:ok, [Var.t()]} | {:error, term()}
+  def from_binding(binding) when is_map(binding) do
+    schema = map_value(binding, :input_schema)
+    classifications = map_value(binding, :input_classifications)
+
+    with {:ok, vars} <- from_binding_schema(schema),
+         :ok <- binding_classifications(vars, classifications) do
+      {:ok, vars}
+    end
+  end
+
+  def from_binding(_binding), do: {:error, :binding_input_schema_invalid}
+
+  @doc false
+  @spec from_binding_schema(map()) :: {:ok, [Var.t()]} | {:error, term()}
+  def from_binding_schema(schema)
+      when is_map(schema) and map_size(schema) <= @max_binding_inputs do
+    entries =
+      schema
+      |> Enum.map(fn {name, definition} -> {to_string(name), definition} end)
+      |> Enum.sort_by(&elem(&1, 0))
+
+    names = Enum.map(entries, &elem(&1, 0))
+    normalized_names = Enum.map(names, &String.downcase/1)
+
+    if length(normalized_names) == length(Enum.uniq(normalized_names)) do
+      entries
+      |> Enum.reduce_while({:ok, []}, fn {name, definition}, {:ok, acc} ->
+        case binding_var(name, definition) do
+          {:ok, var} -> {:cont, {:ok, [var | acc]}}
+          {:error, _reason} = error -> {:halt, error}
+        end
+      end)
+      |> case do
+        {:ok, vars} -> {:ok, Enum.reverse(vars)}
+        error -> error
+      end
+    else
+      {:error, :binding_input_schema_invalid}
+    end
+  end
+
+  def from_binding_schema(_schema), do: {:error, :binding_input_schema_invalid}
 
   @doc false
   @spec from_git_sources([map()], map()) :: [Var.t()]
@@ -249,7 +341,9 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchema do
       |> Enum.map(& &1.name)
       |> Enum.sort()
 
-    normalized_params = Map.new(params, fn {key, value} -> {to_string(key), value} end)
+    normalized_entries = Enum.map(params, fn {key, value} -> {to_string(key), value} end)
+    normalized_params = Map.new(normalized_entries)
+    normalized_params_unique? = length(normalized_entries) == map_size(normalized_params)
 
     unknown =
       normalized_params
@@ -258,6 +352,9 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchema do
       |> Enum.sort()
 
     cond do
+      not normalized_params_unique? ->
+        {:error, :ambiguous_launch_inputs}
+
       sensitive != [] ->
         {:error, {:sensitive_launch_inputs, sensitive}}
 
@@ -381,6 +478,139 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchema do
     end
   end
 
+  defp binding_var(name, definition) when is_binary(name) and is_map(definition) do
+    keys = definition |> Map.keys() |> MapSet.new(&to_string/1)
+    required = map_value(definition, :required)
+    choices = map_value(definition, :choices)
+    min = map_value(definition, :min)
+    max = map_value(definition, :max)
+    label = map_value(definition, :label)
+    help = map_value(definition, :help)
+
+    with :ok <- binding_input_name(name),
+         :ok <- binding_definition_keys(definition, keys),
+         {:ok, type} <- binding_variable_type(map_value(definition, :type)),
+         {:ok, required?} <- binding_required(required),
+         {:ok, normalized_choices} <- binding_choices(type, choices),
+         :ok <- binding_bounds(type, min, max),
+         :ok <- optional_binding_text(label, 255),
+         :ok <- optional_binding_text(help, 2_048) do
+      {:ok,
+       %Var{
+         name: name,
+         label: label || name,
+         type: type,
+         default: nil,
+         required: required?,
+         private: false,
+         choices: normalized_choices,
+         min: min,
+         max: max,
+         help: help
+       }}
+    end
+  end
+
+  defp binding_var(_name, _definition), do: {:error, :binding_input_schema_invalid}
+
+  defp binding_input_name(name) do
+    normalized = String.downcase(name)
+
+    cond do
+      not Regex.match?(@binding_input_name, name) ->
+        {:error, :binding_input_schema_invalid}
+
+      Regex.match?(@sensitive_input_name, normalized) or
+          MapSet.member?(@reserved_binding_inputs, normalized) ->
+        {:error, {:sensitive_binding_input_forbidden, name}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp binding_definition_keys(definition, keys) do
+    if map_size(definition) == MapSet.size(keys) and
+         MapSet.subset?(keys, @binding_definition_keys),
+       do: :ok,
+       else: {:error, :binding_input_schema_invalid}
+  end
+
+  defp binding_variable_type(type) when is_binary(type) do
+    case type do
+      "text" -> {:ok, :text}
+      "textarea" -> {:ok, :textarea}
+      "integer" -> {:ok, :integer}
+      "float" -> {:ok, :float}
+      "select" -> {:ok, :select}
+      "multiselect" -> {:ok, :multiselect}
+      _ -> {:error, :binding_input_schema_invalid}
+    end
+  end
+
+  defp binding_variable_type(type) when type in @binding_input_types, do: {:ok, type}
+  defp binding_variable_type(_type), do: {:error, :binding_input_schema_invalid}
+
+  defp binding_required(nil), do: {:ok, false}
+  defp binding_required(required) when is_boolean(required), do: {:ok, required}
+  defp binding_required(_required), do: {:error, :binding_input_schema_invalid}
+
+  defp binding_choices(type, choices) when type in [:select, :multiselect] do
+    if is_list(choices) and choices != [] and
+         Enum.all?(choices, &(is_binary(&1) and byte_size(&1) in 1..1_024)) and
+         length(choices) == length(Enum.uniq(choices)) do
+      {:ok, choices}
+    else
+      {:error, :binding_input_schema_invalid}
+    end
+  end
+
+  defp binding_choices(_type, choices) when choices in [nil, []], do: {:ok, []}
+  defp binding_choices(_type, _choices), do: {:error, :binding_input_schema_invalid}
+
+  defp binding_bounds(type, min, max) when type in [:integer, :float] do
+    valid_numeric? = fn value -> is_nil(value) or is_number(value) end
+
+    valid? =
+      valid_numeric?.(min) and valid_numeric?.(max) and
+        (is_nil(min) or is_nil(max) or min <= max) and
+        (type != :integer or (integer_or_nil?(min) and integer_or_nil?(max)))
+
+    if valid?, do: :ok, else: {:error, :binding_input_schema_invalid}
+  end
+
+  defp binding_bounds(_type, nil, nil), do: :ok
+  defp binding_bounds(_type, _min, _max), do: {:error, :binding_input_schema_invalid}
+
+  defp integer_or_nil?(nil), do: true
+  defp integer_or_nil?(value), do: is_integer(value)
+
+  defp optional_binding_text(nil, _max), do: :ok
+
+  defp optional_binding_text(value, max) when is_binary(value) and byte_size(value) <= max,
+    do: :ok
+
+  defp optional_binding_text(_value, _max), do: {:error, :binding_input_schema_invalid}
+
+  defp binding_classifications(vars, classifications) when is_map(classifications) do
+    variable_names = MapSet.new(vars, & &1.name)
+    classification_names = classifications |> Map.keys() |> MapSet.new(&to_string/1)
+    normalized_names_unique? = map_size(classifications) == MapSet.size(classification_names)
+
+    valid_values? =
+      Enum.all?(classifications, fn {_name, classification} ->
+        classification in @binding_input_classes
+      end)
+
+    if normalized_names_unique? and MapSet.equal?(variable_names, classification_names) and
+         valid_values?,
+       do: :ok,
+       else: {:error, :binding_input_classifications_invalid}
+  end
+
+  defp binding_classifications(_vars, _classifications),
+    do: {:error, :binding_input_classifications_invalid}
+
   defp coerce(_var, nil), do: :drop
 
   defp coerce(%Var{type: :integer}, ""), do: :drop
@@ -422,4 +652,13 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchema do
 
   defp integer_or_nil(n) when is_integer(n), do: n
   defp integer_or_nil(_), do: nil
+
+  defp map_value(map, key) when is_map(map) do
+    case Map.fetch(map, key) do
+      {:ok, value} -> value
+      :error -> Map.get(map, Atom.to_string(key))
+    end
+  end
+
+  defp map_value(_map, _key), do: nil
 end
