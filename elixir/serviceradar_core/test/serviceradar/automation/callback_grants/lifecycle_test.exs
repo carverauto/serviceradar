@@ -565,6 +565,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
     decoded = Jason.decode!(first.body)
     assert decoded["schema_version"] == "serviceradar.remote_access.ssh_ca_bundle/v1"
     assert decoded["action"] == @action
+    assert decoded["job_id"] == 9_001
     assert decoded["authorization"]["permissions"] == Enum.sort(@required_permissions)
     assert length(decoded["targets"]) == 1
 

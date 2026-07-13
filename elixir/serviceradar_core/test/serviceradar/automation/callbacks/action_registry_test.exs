@@ -64,7 +64,9 @@ defmodule ServiceRadar.Automation.Callbacks.ActionRegistryTest do
     assert schema["additionalProperties"] == false
 
     assert schema["required"] ==
-             ~w(schema_version action manifest_sha256 phase operation state authorization targets)
+             ~w(schema_version action manifest_sha256 job_id phase operation state authorization targets)
+
+    assert schema["properties"]["job_id"] == %{"type" => "integer", "minimum" => 1}
 
     target = schema["$defs"]["target"]
 
