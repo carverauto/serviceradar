@@ -217,7 +217,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         rules: [],
         rules_loaded_at: nil,
         ash_opts: ash_opts,
-        repo_unavailable_logged: false
+        repo_unavailable_logged: false,
+        rules_load_error_logged: false
       })
 
     load_state_snapshots(state)
@@ -367,28 +368,82 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   defp load_rules(state) do
     if repo_available?() do
-      rules =
-        StatefulAlertRule
-        |> Ash.Query.for_read(:active, %{})
-        |> Ash.read(state.ash_opts)
-        |> unwrap_page()
-        |> Enum.filter(fn rule -> shard_for_rule_id(rule.id) == state.shard end)
+      case read_active_rules(state) do
+        {:ok, results} ->
+          rules =
+            Enum.filter(results, fn rule -> shard_for_rule_id(rule.id) == state.shard end)
 
-      :telemetry.execute(
-        [:serviceradar, :stateful_alert_engine, :rules_loaded],
-        %{count: length(rules)},
-        %{shard: state.shard}
-      )
+          :telemetry.execute(
+            [:serviceradar, :stateful_alert_engine, :rules_loaded],
+            %{count: length(rules)},
+            %{shard: state.shard}
+          )
 
-      updated = %{state | rules: rules, rules_loaded_at: System.monotonic_time(:millisecond)}
-      {updated, rules}
+          if state.rules_load_error_logged do
+            Logger.info(
+              "StatefulAlertEngine shard #{state.shard} recovered: loaded #{length(rules)} rules"
+            )
+          end
+
+          updated = %{
+            state
+            | rules: rules,
+              rules_loaded_at: System.monotonic_time(:millisecond),
+              rules_load_error_logged: false
+          }
+
+          {updated, rules}
+
+        {:error, error} ->
+          # A returned query error (e.g. schema drift: code selecting a column
+          # an unapplied migration adds) must not be mistaken for "zero rules".
+          # Keep serving the previously loaded rules, leave rules_loaded_at
+          # unstamped so recovery is retried, and fail loudly.
+          :telemetry.execute(
+            [:serviceradar, :stateful_alert_engine, :rules_load_failed],
+            %{count: 1},
+            %{shard: state.shard, node: node()}
+          )
+
+          # Reset the cache stamp so the next evaluation retries the load
+          # instead of serving the stale-success stamp for the cache window.
+          state = %{state | rules_loaded_at: nil}
+
+          state =
+            if state.rules_load_error_logged do
+              state
+            else
+              Logger.error(
+                "StatefulAlertEngine shard #{state.shard} failed to load alert rules; " <>
+                  "keeping #{length(state.rules)} previously loaded rules: #{inspect(error)}"
+              )
+
+              %{state | rules_load_error_logged: true}
+            end
+
+          {state, state.rules}
+      end
     else
       {report_repo_unavailable(state), []}
     end
   rescue
     error ->
-      Logger.warning("Failed to load stateful alert rules: #{inspect(error)}")
-      {state, []}
+      Logger.error("Failed to load stateful alert rules: #{inspect(error)}")
+      {state, state.rules}
+  end
+
+  defp read_active_rules(%{rules_reader: reader}) when is_function(reader, 0), do: reader.()
+
+  defp read_active_rules(state) do
+    StatefulAlertRule
+    |> Ash.Query.for_read(:active, %{})
+    |> Ash.read(state.ash_opts)
+    |> case do
+      {:ok, %Keyset{results: results}} -> {:ok, results}
+      {:ok, results} when is_list(results) -> {:ok, results}
+      {:error, error} -> {:error, error}
+      other -> {:error, other}
+    end
   end
 
   # A shard hosted on a repo-less node (gateway/web tiers) evaluates every batch
@@ -412,10 +467,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       %{state | repo_unavailable_logged: true}
     end
   end
-
-  defp unwrap_page({:ok, %Keyset{results: results}}), do: results
-  defp unwrap_page({:ok, results}) when is_list(results), do: results
-  defp unwrap_page(_), do: []
 
   defp load_state_snapshots(state) do
     if repo_available?() do

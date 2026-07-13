@@ -468,7 +468,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
       attrs.reopen_count,
       attrs.producer_version,
       attrs.last_transition,
-      Jason.encode!(attrs.last_payload)
+      # Pass the map itself: the $21::jsonb placeholder makes Postgrex use its
+      # jsonb encoder, and a pre-encoded binary here gets JSON-encoded AGAIN,
+      # storing a jsonb string scalar that Ash cannot load as :map.
+      attrs.last_payload
     ]
 
     case repo.query(@upsert_sql, params) do
