@@ -18,7 +18,9 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
 
   `authenticated_controller_id` is taken from the trusted command-result
   binding, not from AWX response data. A response may redundantly contain a
-  controller ID, but it cannot override that authenticated binding.
+  controller ID, but it cannot override that authenticated binding. Callback
+  launches pass one `:expected_ephemeral_credential_id`; the accepted job must
+  then contain exactly the approved base credentials plus that distinct ID.
   """
   @spec bind_accepted_job(execution(), String.t(), map(), keyword()) ::
           {:ok, execution()} | {:error, term()}
@@ -28,7 +30,7 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
       when is_map(execution) and is_binary(authenticated_controller_id) and is_map(job) do
     actions = Keyword.get(opts, :actions, ExecutionLifecycleAshActions)
 
-    case accepted_job_snapshot(execution, authenticated_controller_id, job) do
+    case accepted_job_snapshot(execution, authenticated_controller_id, job, opts) do
       {:ok, snapshot} ->
         bind_verified_snapshot(execution, snapshot, actions)
 
@@ -110,16 +112,21 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
     do: {:error, :invalid_job_host_scope}
 
   @doc false
-  @spec accepted_job_snapshot(execution(), String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def accepted_job_snapshot(execution, authenticated_controller_id, job)
-      when is_map(execution) and is_binary(authenticated_controller_id) and is_map(job) do
-    expected_credentials =
+  @spec accepted_job_snapshot(execution(), String.t(), map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def accepted_job_snapshot(execution, authenticated_controller_id, job, opts \\ [])
+
+  def accepted_job_snapshot(execution, authenticated_controller_id, job, opts)
+      when is_map(execution) and is_binary(authenticated_controller_id) and is_map(job) and
+             is_list(opts) do
+    base_credentials =
       execution
       |> value(:credential_snapshot)
       |> value(:credentials)
       |> normalize_credential_refs()
 
     actual_credentials = job |> value(:credentials) |> normalize_credential_refs()
+    credential_proof = accepted_credential_proof(base_credentials, actual_credentials, opts)
     expected_created_by_id = execution |> value(:metadata) |> value(:awx_created_by_id)
     actual_created_by_id = job |> value(:launched_by) |> value(:id) |> positive_integer()
 
@@ -155,8 +162,10 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
          value(job, :execution_environment_id) || value(job, :execution_environment)
        ) ==
          value(execution, :execution_environment_id)},
+      {:invalid_expected_ephemeral_credential_id,
+       credential_proof != {:error, :invalid_expected_ephemeral_credential_id}},
       {:accepted_credentials_mismatch,
-       expected_credentials != :invalid and expected_credentials == actual_credentials},
+       match?({:ok, _credentials, _ephemeral_id}, credential_proof)},
       {:accepted_integration_identity_missing,
        is_integer(positive_integer(expected_created_by_id))},
       {:accepted_integration_identity_mismatch,
@@ -176,27 +185,31 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
         {:error, reason}
 
       nil ->
-        {:ok,
-         %{
-           "controller_id" => authenticated_controller_id,
-           "awx_job_id" => job_id,
-           "job_template_id" => value(execution, :job_template_id),
-           "inventory_id" => value(execution, :inventory_id),
-           "host_limit" => value(execution, :host_limit),
-           "project_id" => value(execution, :project_id),
-           "scm_revision" => value(execution, :scm_revision),
-           "execution_environment_id" => value(execution, :execution_environment_id),
-           "credentials" => expected_credentials,
-           "credential_ids" => Enum.map(expected_credentials, & &1["id"]),
-           "awx_created_by_id" => positive_integer(expected_created_by_id),
-           "job_type" => expected_mode,
-           "serviceradar_dispatch_id" => value(execution, :dispatch_id),
-           "serviceradar_snapshot_digest" => value(execution, :snapshot_digest)
-         }}
+        {:ok, accepted_credentials, ephemeral_credential_id} = credential_proof
+
+        snapshot = %{
+          "controller_id" => authenticated_controller_id,
+          "awx_job_id" => job_id,
+          "job_template_id" => value(execution, :job_template_id),
+          "inventory_id" => value(execution, :inventory_id),
+          "host_limit" => value(execution, :host_limit),
+          "project_id" => value(execution, :project_id),
+          "scm_revision" => value(execution, :scm_revision),
+          "execution_environment_id" => value(execution, :execution_environment_id),
+          "credentials" => accepted_credentials,
+          "credential_ids" => Enum.map(accepted_credentials, & &1["id"]),
+          "awx_created_by_id" => positive_integer(expected_created_by_id),
+          "job_type" => expected_mode,
+          "serviceradar_dispatch_id" => value(execution, :dispatch_id),
+          "serviceradar_snapshot_digest" => value(execution, :snapshot_digest)
+        }
+
+        {:ok, maybe_put_ephemeral_credential_id(snapshot, ephemeral_credential_id)}
     end
   end
 
-  def accepted_job_snapshot(_execution, _controller_id, _job), do: {:error, :invalid_accepted_job}
+  def accepted_job_snapshot(_execution, _controller_id, _job, _opts),
+    do: {:error, :invalid_accepted_job}
 
   defp bind_verified_snapshot(execution, snapshot, actions) do
     state = value(execution, :state)
@@ -375,6 +388,62 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
   end
 
   defp normalize_credential_refs(_values), do: :invalid
+
+  # AWX credential summary order is not part of the launch contract. Both the
+  # reviewed base refs and observed refs are canonicalized by ID above; this
+  # proof compares the exact resulting set and rejects duplicate IDs.
+  defp accepted_credential_proof(base_credentials, actual_credentials, opts) do
+    with {:ok, ephemeral_credential_id} <-
+           expected_ephemeral_credential_id(opts, base_credentials),
+         {:ok, accepted_credentials} <-
+           accepted_credentials(base_credentials, actual_credentials, ephemeral_credential_id) do
+      {:ok, accepted_credentials, ephemeral_credential_id}
+    end
+  end
+
+  defp expected_ephemeral_credential_id(opts, base_credentials) do
+    case Keyword.get_values(opts, :expected_ephemeral_credential_id) do
+      [] ->
+        {:ok, nil}
+
+      [id] when is_integer(id) and id > 0 ->
+        if base_credentials != :invalid and Enum.any?(base_credentials, &(&1["id"] == id)) do
+          {:error, :invalid_expected_ephemeral_credential_id}
+        else
+          {:ok, id}
+        end
+
+      _values ->
+        {:error, :invalid_expected_ephemeral_credential_id}
+    end
+  end
+
+  defp accepted_credentials(base_credentials, actual_credentials, nil)
+       when is_list(base_credentials) and base_credentials == actual_credentials,
+       do: {:ok, actual_credentials}
+
+  defp accepted_credentials(base_credentials, actual_credentials, ephemeral_credential_id)
+       when is_list(base_credentials) and is_list(actual_credentials) and
+              is_integer(ephemeral_credential_id) do
+    {ephemeral_credentials, observed_base_credentials} =
+      Enum.split_with(actual_credentials, &(&1["id"] == ephemeral_credential_id))
+
+    case ephemeral_credentials do
+      [_credential] when observed_base_credentials == base_credentials ->
+        {:ok, actual_credentials}
+
+      _missing_extra_or_duplicate ->
+        {:error, :accepted_credentials_mismatch}
+    end
+  end
+
+  defp accepted_credentials(_base_credentials, _actual_credentials, _ephemeral_credential_id),
+    do: {:error, :accepted_credentials_mismatch}
+
+  defp maybe_put_ephemeral_credential_id(snapshot, nil), do: snapshot
+
+  defp maybe_put_ephemeral_credential_id(snapshot, ephemeral_credential_id),
+    do: Map.put(snapshot, "ephemeral_credential_id", ephemeral_credential_id)
 
   defp normalize_job_type(type) when type in [:run, "run"], do: "run"
   defp normalize_job_type(type) when type in [:check, "check"], do: "check"

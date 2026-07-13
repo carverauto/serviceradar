@@ -114,6 +114,7 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycleTest do
              %{"id" => 9, "kind" => "cloud"}
            ]
 
+    refute Map.has_key?(snapshot, "ephemeral_credential_id")
     refute_receive {:reject_scope, _, _, _}
   end
 
@@ -153,6 +154,170 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycleTest do
                accepted_job(),
                actions: FakeActions
              )
+  end
+
+  test "binds and persists exactly one expected ephemeral callback credential" do
+    callback_credential = %{"id" => 101, "kind" => "cloud"}
+
+    job =
+      accepted_job(%{
+        "credentials" => [
+          callback_credential,
+          %{"id" => 9, "kind" => "cloud"},
+          %{"id" => 5, "kind" => "ssh"}
+        ]
+      })
+
+    assert {:ok, bound} =
+             ExecutionLifecycle.bind_accepted_job(
+               execution(),
+               @controller_id,
+               job,
+               actions: FakeActions,
+               expected_ephemeral_credential_id: 101
+             )
+
+    assert bound.accepted_job_snapshot["ephemeral_credential_id"] == 101
+    assert bound.accepted_job_snapshot["credential_ids"] == [5, 9, 101]
+
+    assert bound.accepted_job_snapshot["credentials"] == [
+             %{"id" => 5, "kind" => "ssh"},
+             %{"id" => 9, "kind" => "cloud"},
+             callback_credential
+           ]
+
+    accepted_snapshot = bound.accepted_job_snapshot
+    assert_receive {:bind_accepted_job, _, ^accepted_snapshot}
+    refute_receive {:reject_scope, _, _, _}
+  end
+
+  test "ephemeral accepted binding replay requires the same exact credential proof" do
+    job =
+      accepted_job(%{
+        "credentials" => [
+          %{"id" => 5, "kind" => "ssh"},
+          %{"id" => 101, "kind" => "cloud"},
+          %{"id" => 9, "kind" => "cloud"}
+        ]
+      })
+
+    assert {:ok, snapshot} =
+             ExecutionLifecycle.accepted_job_snapshot(
+               execution(),
+               @controller_id,
+               job,
+               expected_ephemeral_credential_id: 101
+             )
+
+    already_bound =
+      execution(%{
+        state: :launching,
+        awx_job_id: 77,
+        accepted_job_snapshot: snapshot
+      })
+
+    assert {:ok, ^already_bound} =
+             ExecutionLifecycle.bind_accepted_job(
+               already_bound,
+               @controller_id,
+               job,
+               actions: FakeActions,
+               expected_ephemeral_credential_id: 101
+             )
+
+    refute_receive {:bind_accepted_job, _, _}
+
+    assert {:error, :accepted_credentials_mismatch} =
+             ExecutionLifecycle.bind_accepted_job(
+               already_bound,
+               @controller_id,
+               job,
+               actions: FakeActions,
+               expected_ephemeral_credential_id: 102
+             )
+
+    assert_receive {:reject_scope, _, _, %{callback_ready?: false}}
+  end
+
+  test "fails closed when the ephemeral credential proof is missing, extra, duplicated, or mismatched" do
+    cases = [
+      {accepted_job(), [expected_ephemeral_credential_id: 101]},
+      {accepted_job(%{
+         "credentials" => [
+           %{"id" => 5, "kind" => "ssh"},
+           %{"id" => 9, "kind" => "cloud"},
+           %{"id" => 101, "kind" => "cloud"},
+           %{"id" => 102, "kind" => "cloud"}
+         ]
+       }), [expected_ephemeral_credential_id: 101]},
+      {accepted_job(%{
+         "credentials" => [
+           %{"id" => 5, "kind" => "ssh"},
+           %{"id" => 9, "kind" => "cloud"},
+           %{"id" => 101, "kind" => "cloud"},
+           %{"id" => 101, "kind" => "cloud"}
+         ]
+       }), [expected_ephemeral_credential_id: 101]},
+      {accepted_job(%{
+         "credentials" => [
+           %{"id" => 5, "kind" => "vault"},
+           %{"id" => 9, "kind" => "cloud"},
+           %{"id" => 101, "kind" => "cloud"}
+         ]
+       }), [expected_ephemeral_credential_id: 101]},
+      {accepted_job(%{
+         "credentials" => [
+           %{"id" => 5, "kind" => "ssh"},
+           %{"id" => 9, "kind" => "cloud"},
+           %{"id" => 101, "kind" => "cloud"}
+         ]
+       }), []}
+    ]
+
+    for {job, opts} <- cases do
+      assert {:error, :accepted_credentials_mismatch} =
+               ExecutionLifecycle.bind_accepted_job(
+                 execution(),
+                 @controller_id,
+                 job,
+                 Keyword.put(opts, :actions, FakeActions)
+               )
+
+      assert_receive {:reject_scope, _, _, %{callback_ready?: false}}
+      refute_receive {:bind_accepted_job, _, _}
+    end
+  end
+
+  test "rejects an invalid, repeated, or base credential ID as the ephemeral expectation" do
+    job =
+      accepted_job(%{
+        "credentials" => [
+          %{"id" => 5, "kind" => "ssh"},
+          %{"id" => 9, "kind" => "cloud"},
+          %{"id" => 101, "kind" => "cloud"}
+        ]
+      })
+
+    invalid_options = [
+      [expected_ephemeral_credential_id: nil],
+      [expected_ephemeral_credential_id: 0],
+      [expected_ephemeral_credential_id: "101"],
+      [expected_ephemeral_credential_id: 5],
+      [expected_ephemeral_credential_id: 101, expected_ephemeral_credential_id: 101]
+    ]
+
+    for opts <- invalid_options do
+      assert {:error, :invalid_expected_ephemeral_credential_id} =
+               ExecutionLifecycle.bind_accepted_job(
+                 execution(),
+                 @controller_id,
+                 job,
+                 Keyword.put(opts, :actions, FakeActions)
+               )
+
+      assert_receive {:reject_scope, _, _, %{callback_ready?: false}}
+      refute_receive {:bind_accepted_job, _, _}
+    end
   end
 
   test "rejects supply-chain, target, mode, and marker drift before job binding" do
