@@ -164,6 +164,13 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         },
         %{
+          key: "devices.remote_access.ssh.ca_bundle.read",
+          label: "Distribute SSH remote-access CA policy",
+          description:
+            "Authorize target-scoped SSH CA bundle and principal policy retrieval by reviewed automation callbacks",
+          default_roles: @admin_roles
+        },
+        %{
           key: "devices.remote_access.rdp.open",
           label: "Open RDP remote access",
           description:

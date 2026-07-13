@@ -197,6 +197,7 @@ config :serviceradar_core,
     ServiceRadar.WifiMap,
     ServiceRadar.Automation.Northbound,
     ServiceRadar.Automation.Ansible,
+    ServiceRadar.Automation.Callbacks,
     ServiceRadar.Security
   ]
 
