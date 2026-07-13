@@ -137,11 +137,7 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	}
 
 	httpClient := pluginHTTPClient(e.manager.httpClient, payload.InsecureSkipVerify, timeout)
-	if awxCredentialEndpoint(reqURL) || awxReviewedCredentialTypeEndpoint(reqURL) {
-		httpClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		}
-	}
+	configurePluginHTTPRedirects(httpClient, grant, reqURL)
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -197,6 +193,26 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	}
 
 	return int32(len(responseBytes))
+}
+
+func configurePluginHTTPRedirects(
+	client *http.Client,
+	grant *credentialBrokerGrant,
+	requestURL *url.URL,
+) {
+	strictAWXGrant := grant != nil &&
+		strings.EqualFold(strings.TrimSpace(grant.GrantType), "awx_oauth2_token")
+	if client == nil ||
+		(!strictAWXGrant && !awxCredentialEndpoint(requestURL) && !awxReviewedCredentialTypeEndpoint(requestURL)) {
+		return
+	}
+
+	// A broker grant is authorized for one canonical request. Go's redirect
+	// handling does not re-enter the plugin host boundary, so following even a
+	// same-host redirect would bypass the grant's method/path/port checks.
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
 }
 
 func (e *pluginExecution) credentialBrokerGrantForHTTP(method string, reqURL *url.URL) (*credentialBrokerGrant, error) {

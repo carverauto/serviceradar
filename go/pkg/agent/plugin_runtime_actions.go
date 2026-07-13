@@ -120,7 +120,7 @@ func pluginActionGrantForHTTPRequest(
 			lastErr = err
 			continue
 		}
-		if err := validatePluginActionGrantAllow(grant.Allow, method, reqURL); err != nil {
+		if err := validatePluginActionGrantAllow(*grant, method, reqURL); err != nil {
 			lastErr = err
 			continue
 		}
@@ -155,12 +155,19 @@ func validatePluginActionCredentialGrantEnvelope(grant credentialBrokerGrant, no
 	return nil
 }
 
-func validatePluginActionGrantAllow(allow credentialBrokerACL, method string, reqURL *url.URL) error {
+func validatePluginActionGrantAllow(grant credentialBrokerGrant, method string, reqURL *url.URL) error {
+	allow := grant.Allow
 	if len(allow.Hosts) == 0 {
 		return errCredentialBrokerGrantDenied
 	}
 
-	if len(allow.Methods) > 0 && !stringInFoldedList(method, allow.Methods) {
+	strictAWXScope := strings.EqualFold(strings.TrimSpace(grant.GrantType), "awx_oauth2_token")
+	// AWX grants are issued by a closed verb registry and must always carry an
+	// exact HTTP scope. Other legacy plugin grants still use host-only ACLs;
+	// tightening those requires per-integration migration instead of silently
+	// breaking Proxmox console or UniFi camera traffic here.
+	if (strictAWXScope && len(allow.Methods) == 0) ||
+		(len(allow.Methods) > 0 && !stringInFoldedList(method, allow.Methods)) {
 		return errCredentialBrokerGrantDenied
 	}
 
@@ -168,7 +175,8 @@ func validatePluginActionGrantAllow(allow credentialBrokerACL, method string, re
 	if requestedPath == "" {
 		requestedPath = "/"
 	}
-	if len(allow.Paths) > 0 && !credentialBrokerPathAllowed(allow.Paths, requestedPath) {
+	if (strictAWXScope && len(allow.Paths) == 0) ||
+		(len(allow.Paths) > 0 && !credentialBrokerPathAllowed(allow.Paths, requestedPath)) {
 		return errCredentialBrokerGrantDenied
 	}
 

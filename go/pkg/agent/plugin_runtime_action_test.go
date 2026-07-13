@@ -313,6 +313,7 @@ func TestValidatePluginActionHTTPGrantRejectsExpiredGrant(t *testing.T) {
 		[]credentialBrokerGrant{{
 			Schema:              "serviceradar.edge_credential_broker_grant.v1",
 			GrantID:             "grant-1",
+			GrantType:           "awx_oauth2_token",
 			CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
 			Allow:               credentialBrokerACL{Methods: []string{"GET"}},
 			ExpiresAt:           time.Now().Add(-time.Minute).Format(time.RFC3339),
@@ -400,6 +401,7 @@ func TestValidatePluginActionHTTPGrantDeniesEmptyHostACL(t *testing.T) {
 		[]credentialBrokerGrant{{
 			Schema:              "serviceradar.edge_credential_broker_grant.v1",
 			GrantID:             "grant-1",
+			GrantType:           "awx_oauth2_token",
 			CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
 			Allow: credentialBrokerACL{
 				Methods: []string{"GET"},
@@ -413,6 +415,125 @@ func TestValidatePluginActionHTTPGrantDeniesEmptyHostACL(t *testing.T) {
 	)
 	if !errors.Is(err, errCredentialBrokerGrantDenied) {
 		t.Fatalf("expected grant denied error, got %v", err)
+	}
+}
+
+func TestValidatePluginActionHTTPGrantDeniesEmptyPathACL(t *testing.T) {
+	t.Parallel()
+
+	_, err := pluginActionGrantForHTTPRequest(
+		[]credentialBrokerGrant{{
+			Schema:              "serviceradar.edge_credential_broker_grant.v1",
+			GrantID:             "grant-1",
+			GrantType:           "awx_oauth2_token",
+			CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+			Allow: credentialBrokerACL{
+				Methods: []string{"GET"},
+				Hosts:   []string{"api.example.com"},
+			},
+			ExpiresAt: time.Now().Add(time.Minute).Format(time.RFC3339),
+		}},
+		"GET",
+		mustParseURL(t, "https://api.example.com/api/v1/devices"),
+		time.Now(),
+	)
+	if !errors.Is(err, errCredentialBrokerGrantDenied) {
+		t.Fatalf("expected grant denied error, got %v", err)
+	}
+}
+
+func TestValidatePluginActionHTTPGrantDeniesEmptyMethodACL(t *testing.T) {
+	t.Parallel()
+
+	_, err := pluginActionGrantForHTTPRequest(
+		[]credentialBrokerGrant{{
+			Schema:              "serviceradar.edge_credential_broker_grant.v1",
+			GrantID:             "grant-1",
+			GrantType:           "awx_oauth2_token",
+			CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+			Allow: credentialBrokerACL{
+				Paths: []string{"=/api/v1/devices"},
+				Hosts: []string{"api.example.com"},
+			},
+			ExpiresAt: time.Now().Add(time.Minute).Format(time.RFC3339),
+		}},
+		"GET",
+		mustParseURL(t, "https://api.example.com/api/v1/devices"),
+		time.Now(),
+	)
+	if !errors.Is(err, errCredentialBrokerGrantDenied) {
+		t.Fatalf("expected grant denied error, got %v", err)
+	}
+}
+
+func TestConfigurePluginHTTPRedirectsDeniesAWXCredentialBackedRedirect(t *testing.T) {
+	t.Parallel()
+
+	client := &http.Client{}
+	requestURL := mustParseURL(t, "https://api.example.com/api/v1/devices")
+	configurePluginHTTPRedirects(
+		client,
+		&credentialBrokerGrant{GrantID: "grant-1", GrantType: "awx_oauth2_token"},
+		requestURL,
+	)
+
+	if client.CheckRedirect == nil {
+		t.Fatal("expected credential-backed redirect policy")
+	}
+	if err := client.CheckRedirect(
+		&http.Request{URL: mustParseURL(t, "https://api.example.com/admin")},
+		nil,
+	); !errors.Is(err, http.ErrUseLastResponse) {
+		t.Fatalf("expected redirect denial, got %v", err)
+	}
+}
+
+func TestConfigurePluginHTTPRedirectsLeavesOrdinaryRequestPolicyUnchanged(t *testing.T) {
+	t.Parallel()
+
+	client := &http.Client{}
+	configurePluginHTTPRedirects(
+		client,
+		nil,
+		mustParseURL(t, "https://api.example.com/api/v1/devices"),
+	)
+
+	if client.CheckRedirect != nil {
+		t.Fatal("ordinary uncredentialed request redirect policy changed")
+	}
+}
+
+func TestLegacyNonAWXHTTPGrantKeepsOptionalMethodAndPathACLs(t *testing.T) {
+	t.Parallel()
+
+	grant := credentialBrokerGrant{
+		Schema:              "serviceradar.edge_credential_broker_grant.v1",
+		GrantID:             "grant-1",
+		GrantType:           "unifi_protect_api",
+		CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+		Allow: credentialBrokerACL{
+			Hosts: []string{"camera.example.com"},
+		},
+		ExpiresAt: time.Now().Add(time.Minute).Format(time.RFC3339),
+	}
+
+	if _, err := pluginActionGrantForHTTPRequest(
+		[]credentialBrokerGrant{grant},
+		"GET",
+		mustParseURL(t, "https://camera.example.com/api/bootstrap"),
+		time.Now(),
+	); err != nil {
+		t.Fatalf("legacy non-AWX host-only grant was rejected: %v", err)
+	}
+
+	client := &http.Client{}
+	configurePluginHTTPRedirects(
+		client,
+		&grant,
+		mustParseURL(t, "https://camera.example.com/api/bootstrap"),
+	)
+	if client.CheckRedirect != nil {
+		t.Fatal("legacy non-AWX redirect behavior changed")
 	}
 }
 
