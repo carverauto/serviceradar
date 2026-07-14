@@ -5,6 +5,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.Plugins.UploadSignature
 
+  @moduletag :unit
+  @moduletag :db_free
+
   @repo_url "https://code.carverauto.dev/carverauto/serviceradar"
   @manifest_yaml """
   id: hello-wasm
@@ -247,6 +250,23 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
              })
   end
 
+  test "rejects oversized resources before extracting the bundle" do
+    Process.put(
+      :first_party_bundle,
+      bundle_with_entries([
+        {~c"docs/oversized.md", String.duplicate("x", 4 * 1024 * 1024 + 1)}
+      ])
+    )
+
+    assert {:error, {:invalid_bundle, :bundle_entry_too_large}} =
+             FirstPartyImporter.import(%{
+               "repo_url" => @repo_url,
+               "release_tag" => "v1.2.3",
+               "plugin_id" => "hello-wasm",
+               "version" => "1.2.3"
+             })
+  end
+
   test "rejects malformed first-party import index assets" do
     Process.put(:first_party_index_body, "[not-an-object]")
 
@@ -408,28 +428,35 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
   def bundle do
     case Process.get(:first_party_bundle) do
       nil ->
-        path = Path.join(System.tmp_dir!(), "hello-wasm-#{System.unique_integer([:positive])}.zip")
-
-        try do
-          {:ok, _zip} =
-            :zip.create(String.to_charlist(path), [
-              {~c"plugin.yaml", @manifest_yaml},
-              {~c"plugin.wasm", @wasm},
-              {~c"config.schema.json", Jason.encode!(%{"type" => "object"})},
-              {~c"display_contract.json", Jason.encode!(%{"schema_version" => 1})},
-              {~c"display/event_log_activity.display.json", Jason.encode!(%{"widgets" => []})},
-              {~c"schemas/ocsf_event_log_activity.schema.json", Jason.encode!(%{"type" => "object"})}
-            ])
-
-          payload = File.read!(path)
-          Process.put(:first_party_bundle, payload)
-          payload
-        after
-          File.rm(path)
-        end
+        payload = bundle_with_entries([])
+        Process.put(:first_party_bundle, payload)
+        payload
 
       payload ->
         payload
+    end
+  end
+
+  def bundle_with_entries(extra_entries) do
+    path = Path.join(System.tmp_dir!(), "hello-wasm-#{System.unique_integer([:positive])}.zip")
+
+    try do
+      {:ok, _zip} =
+        :zip.create(
+          String.to_charlist(path),
+          [
+            {~c"plugin.yaml", @manifest_yaml},
+            {~c"plugin.wasm", @wasm},
+            {~c"config.schema.json", Jason.encode!(%{"type" => "object"})},
+            {~c"display_contract.json", Jason.encode!(%{"schema_version" => 1})},
+            {~c"display/event_log_activity.display.json", Jason.encode!(%{"widgets" => []})},
+            {~c"schemas/ocsf_event_log_activity.schema.json", Jason.encode!(%{"type" => "object"})}
+          ] ++ extra_entries
+        )
+
+      File.read!(path)
+    after
+      File.rm(path)
     end
   end
 

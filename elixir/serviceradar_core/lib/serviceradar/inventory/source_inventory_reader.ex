@@ -23,7 +23,7 @@ defmodule ServiceRadar.Inventory.SourceInventoryReader do
   @max_limit 500
   @max_cursor_bytes 1_024
   @allowed_params ~w(collection cursor instance limit partition presence source)
-  @source_pattern ~r/^[a-z][a-z0-9_-]{0,63}$/
+  @source_pattern ~r/^[a-z0-9][a-z0-9_.-]{0,127}$/
   @instance_pattern ~r/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
   @opaque_id_pattern ~r/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/
   @presence_values ~w(present absent all)
@@ -202,6 +202,7 @@ defmodule ServiceRadar.Inventory.SourceInventoryReader do
         device_type: observation.device_type,
         partition: observation.site_name,
         management_status: observation.management_status,
+        metadata: observation.metadata,
         canonical_hostname: device.hostname,
         canonical_ip: device.ip,
         canonical_mac: device.mac,
@@ -287,6 +288,7 @@ defmodule ServiceRadar.Inventory.SourceInventoryReader do
       "device_type" => row.device_type,
       "partition" => row.partition,
       "management_status" => row.management_status,
+      "metadata" => row.metadata || %{},
       "canonical" => %{
         "hostname" => row.canonical_hostname,
         "ip" => row.canonical_ip,
@@ -322,7 +324,7 @@ defmodule ServiceRadar.Inventory.SourceInventoryReader do
     if unknown == [], do: :ok, else: {:error, {:invalid_query, :unknown_query_parameter}}
   end
 
-  defp parse_source(nil), do: {:ok, "hpna"}
+  defp parse_source(nil), do: {:error, {:invalid_query, :source_required}}
 
   defp parse_source(value) when is_binary(value) do
     source = value |> String.trim() |> String.downcase()

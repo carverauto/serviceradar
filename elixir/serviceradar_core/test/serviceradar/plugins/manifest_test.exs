@@ -177,11 +177,77 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     assert joined =~ "producer_schedules[1].html is not allowed"
   end
 
+  test "signed packages declare credential and inventory integrations without core code" do
+    manifest = integration_manifest()
+
+    assert {:ok, parsed} = Manifest.from_map(manifest)
+
+    assert [profile] = parsed.integrations["credential_profiles"]
+    assert profile["provider"] == "example-inventory"
+    assert profile["provisioning"]["schedule_id"] == "example-inventory.refresh"
+
+    assert [source] = parsed.integrations["inventory_sources"]
+    assert source["source"] == "example-inventory"
+
+    assert source["metadata_fields"] == [
+             %{"key" => "site", "label" => "Site", "format" => "text"}
+           ]
+
+    assert parsed.integrations["documentation"]["path"] == "docs/configuration.md"
+
+    assert parsed.integrations["documentation"]["url"] ==
+             "https://plugins.example.test/example-inventory/v1.0.0/configuration"
+  end
+
+  test "integration documentation rejects non-HTTPS URLs" do
+    manifest =
+      put_in(
+        integration_manifest(),
+        ["integrations", "documentation", "url"],
+        "javascript:alert(1)"
+      )
+
+    assert {:error, errors} = Manifest.from_map(manifest)
+    assert Enum.any?(errors, &String.contains?(&1, "must be an HTTPS URL"))
+  end
+
+  test "integration descriptors reject undeclared schedules and credential requirements" do
+    manifest =
+      put_in(
+        integration_manifest(),
+        ["integrations", "credential_profiles", Access.at(0), "provisioning", "schedule_id"],
+        "missing.refresh"
+      )
+
+    assert {:error, errors} = Manifest.from_map(manifest)
+    assert Enum.any?(errors, &String.contains?(&1, "must reference a declared producer schedule"))
+
+    manifest =
+      put_in(
+        integration_manifest(),
+        [
+          "integrations",
+          "credential_profiles",
+          Access.at(0),
+          "provisioning",
+          "credential_requirement"
+        ],
+        "missing_account"
+      )
+
+    assert {:error, errors} = Manifest.from_map(manifest)
+
+    assert Enum.any?(
+             errors,
+             &String.contains?(&1, "must reference a requirement on the producer schedule")
+           )
+  end
+
   test "northbound action descriptors parse and normalize" do
     manifest =
       Map.put(@valid_manifest, "actions", [
         %{
-          "action_id" => "hpna.disable_port",
+          "action_id" => "example-network.disable_port",
           "version" => "1.0.0",
           "label" => "Disable switch port",
           "description" => "Calls external NMS to disable an interface",
@@ -199,7 +265,7 @@ defmodule ServiceRadar.Plugins.ManifestTest do
 
     assert {:ok, parsed} = Manifest.from_map(manifest)
     assert [action] = parsed.actions
-    assert action.action_id == "hpna.disable_port"
+    assert action.action_id == "example-network.disable_port"
     assert action.scopes == ["interface"]
     assert action.required_context == ["device.ip", "interface.name"]
     assert action.safety_classification == "destructive"
@@ -405,5 +471,61 @@ defmodule ServiceRadar.Plugins.ManifestTest do
 
     assert {:error, errors} = Manifest.validate_config_schema(schema)
     assert Enum.any?(errors, &String.contains?(&1, "unsupported keys"))
+  end
+
+  defp integration_manifest do
+    @valid_manifest
+    |> Map.put("capabilities", @valid_manifest["capabilities"] ++ ["producer-schedule:v1"])
+    |> Map.put("producer_schedules", [
+      %{
+        "schedule_id" => "example-inventory.refresh",
+        "label" => "Refresh example inventory",
+        "action_id" => "example-inventory.refresh",
+        "command_type" => "plugin.run_action",
+        "default_cadence_seconds" => 86_400,
+        "min_cadence_seconds" => 3_600,
+        "max_cadence_seconds" => 2_592_000,
+        "dispatch_scope" => "assignment",
+        "credential_requirements" => %{
+          "inventory_account" => %{
+            "required" => true,
+            "resolution_location" => "agent",
+            "grants" => []
+          }
+        }
+      }
+    ])
+    |> Map.put("integrations", %{
+      "documentation" => %{
+        "title" => "Example inventory configuration",
+        "path" => "docs/configuration.md",
+        "url" => "https://plugins.example.test/example-inventory/v1.0.0/configuration"
+      },
+      "credential_profiles" => [
+        %{
+          "provider" => "example-inventory",
+          "label" => "Example Inventory",
+          "auth_methods" => [
+            %{"id" => "username_password", "credential_kind" => "username_password"}
+          ],
+          "purposes" => ["device_inventory"],
+          "scope_types" => ["agent"],
+          "provisioning" => %{
+            "mode" => "producer_schedule",
+            "schedule_id" => "example-inventory.refresh",
+            "credential_requirement" => "inventory_account"
+          }
+        }
+      ],
+      "inventory_sources" => [
+        %{
+          "source" => "example-inventory",
+          "label" => "Example Inventory",
+          "metadata_fields" => [
+            %{"key" => "site", "label" => "Site", "format" => "text"}
+          ]
+        }
+      ]
+    })
   end
 end

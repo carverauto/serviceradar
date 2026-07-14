@@ -103,15 +103,15 @@ defmodule ServiceRadar.Repo.Migrations.CreateDeviceSourceInventory do
            )
 
     execute("""
-    CREATE INDEX device_source_observations_hpna_hostname_trgm_idx
+    CREATE INDEX device_source_observations_hostname_trgm_idx
       ON #{@prefix}.device_source_observations USING gin (hostname gin_trgm_ops)
-      WHERE source = 'hpna' AND present = true
+      WHERE present = true
     """)
 
     execute("""
-    CREATE INDEX device_source_observations_hpna_serial_trgm_idx
+    CREATE INDEX device_source_observations_serial_trgm_idx
       ON #{@prefix}.device_source_observations USING gin (serial_number gin_trgm_ops)
-      WHERE source = 'hpna' AND present = true
+      WHERE present = true
     """)
   end
 

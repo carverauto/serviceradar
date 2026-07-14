@@ -117,7 +117,6 @@ func TestProcessResultsStreamSubmitsBannerGrabCandidates(t *testing.T) {
 	stats := sweeper.GetBannerGrabStats()
 	if stats == nil {
 		t.Fatalf("GetBannerGrabStats() = nil, want completed stats")
-		return
 	}
 	if stats.CandidatesTotal != 1 || stats.ProbesTotal != 1 {
 		t.Fatalf("banner stats candidates=%d probes=%d, want 1/1", stats.CandidatesTotal, stats.ProbesTotal)

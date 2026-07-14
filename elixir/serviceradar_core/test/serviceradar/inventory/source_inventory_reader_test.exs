@@ -6,28 +6,34 @@ defmodule ServiceRadar.Inventory.SourceInventoryReaderTest do
   test "accepts only bounded typed filters" do
     assert {:ok, opts} =
              SourceInventoryReader.parse_params(%{
-               "source" => "HPNA",
+               "source" => "Example-Inventory",
                "instance" => "example-prod",
                "presence" => "present",
                "partition" => "default",
                "limit" => "250"
              })
 
-    assert opts.source == "hpna"
+    assert opts.source == "example-inventory"
     assert opts.instance == "example-prod"
     assert opts.limit == 250
 
     assert {:error, {:invalid_query, :unknown_query_parameter}} =
              SourceInventoryReader.parse_params(%{
+               "source" => "example-inventory",
                "instance" => "example-prod",
                "sql" => "SELECT * FROM platform.ocsf_devices"
              })
 
     assert {:error, {:invalid_query, :invalid_limit}} =
-             SourceInventoryReader.parse_params(%{"instance" => "example-prod", "limit" => "501"})
+             SourceInventoryReader.parse_params(%{
+               "source" => "example-inventory",
+               "instance" => "example-prod",
+               "limit" => "501"
+             })
 
     assert {:error, {:invalid_query, :invalid_identifier}} =
              SourceInventoryReader.parse_params(%{
+               "source" => "example-inventory",
                "instance" => "example-prod' OR 1=1 --"
              })
   end
@@ -39,7 +45,7 @@ defmodule ServiceRadar.Inventory.SourceInventoryReaderTest do
     encoded =
       %{
         "v" => 1,
-        "source" => "hpna",
+        "source" => "example-inventory",
         "instance" => "example-prod",
         "partition" => "default",
         "presence" => "present",
@@ -55,6 +61,7 @@ defmodule ServiceRadar.Inventory.SourceInventoryReaderTest do
 
     assert {:error, {:invalid_query, :cursor_query_mismatch}} =
              SourceInventoryReader.parse_params(%{
+               "source" => "example-inventory",
                "instance" => "another-instance",
                "cursor" => encoded
              })

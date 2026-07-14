@@ -115,7 +115,7 @@ def run(script, index, server, expect_success):
         }
     )
     result = subprocess.run(
-        [str(script), "carverauto/serviceradar-plugin-hpna", "v0.1.0", str(index)],
+        [str(script), "carverauto/serviceradar-plugin-example-inventory", "v0.1.0", str(index)],
         env=env,
         capture_output=True,
         text=True,

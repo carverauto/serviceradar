@@ -7,72 +7,69 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponentsTest do
 
   @moduletag :db_free
 
-  test "renders HPNA provenance without hiding other discovery sources" do
+  test "renders package-declared inventory provenance without hiding other sources" do
     html =
       render_component(&DiscoverySourcesComponents.discovery_sources_section/1,
         device_row: %{
-          "discovery_sources" => ["armis", "hpna"],
-          "metadata" => %{
-            "armis_device_id" => "armis-42",
-            "hpna_instance_id" => "example-automation-prod",
-            "hpna_device_id" => "12091",
-            "hpna_partition" => "IAD",
-            "hpna_device_type" => "Switch",
-            "hpna_management_status" => "Managed",
-            "hpna_collection_id" => "20260713T180000Z-deadbeef",
-            "hpna_last_observed_at" => "2026-07-13T18:00:00Z",
-            "hpna_present" => true
-          }
+          "discovery_sources" => ["armis", "example-inventory"],
+          "metadata" => %{"armis_device_id" => "armis-42"}
         },
         source_observations: [
           %{
-            "source" => "hpna",
-            "source_instance" => "example-automation-prod",
+            "source" => "example-inventory",
+            "source_label" => "External Network Inventory",
+            "source_instance" => "example-prod",
             "source_object_id" => "12091",
             "collection_id" => "20260713T180000Z-deadbeef",
             "present" => false,
-            "last_observed_at" => "2026-07-13T18:00:00Z"
+            "last_observed_at" => "2026-07-13T18:00:00Z",
+            "metadata" => %{"site" => "IAD", "management_status" => "Managed"},
+            "metadata_fields" => [
+              %{"key" => "site", "label" => "Site"},
+              %{"key" => "management_status", "label" => "Management status"}
+            ]
           }
         ]
       )
 
     assert html =~ "Armis"
-    assert html =~ "HPNA"
-    assert html =~ "example-automation-prod"
+    assert html =~ "Example Inventory"
+    assert html =~ "External Network Inventory"
+    assert html =~ "example-prod"
     assert html =~ "12091"
+    assert html =~ "Site:"
     assert html =~ "IAD"
+    assert html =~ "Management status:"
     assert html =~ "Managed"
     assert html =~ "20260713T180000Z-deadbeef"
     assert html =~ "2026-07-13T18:00:00Z"
-    refute html =~ "Present: Yes"
     assert html =~ "Absent"
   end
 
-  test "renders atom-keyed source observations without creating atoms" do
+  test "renders atom-keyed source observations without creating provider atoms" do
     html =
       render_component(&DiscoverySourcesComponents.discovery_sources_section/1,
-        device_row: %{
-          discovery_sources: ["hpna"],
-          metadata: %{
-            hpna_instance_id: "example-automation-prod",
-            hpna_device_id: "12091"
-          }
-        },
+        device_row: %{discovery_sources: ["other-inventory"], metadata: %{}},
         source_observations: [
           %{
-            source: "hpna",
-            source_instance: "example-automation-prod",
+            source: "other-inventory",
+            source_label: "Other Inventory",
+            source_instance: "other-prod",
             source_object_id: "12091",
             collection_id: "collection-1",
             present: true,
-            last_observed_at: "2026-07-13T18:00:00Z"
+            last_observed_at: "2026-07-13T18:00:00Z",
+            metadata: %{region: "central"},
+            metadata_fields: [%{"key" => "region", "label" => "Region"}]
           }
         ]
       )
 
-    assert html =~ "HPNA"
-    assert html =~ "example-automation-prod"
+    assert html =~ "Other Inventory"
+    assert html =~ "other-prod"
     assert html =~ "12091"
+    assert html =~ "Region:"
+    assert html =~ "central"
     assert html =~ "Current"
   end
 end

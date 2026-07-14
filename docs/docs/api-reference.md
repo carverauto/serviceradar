@@ -130,8 +130,8 @@ endpoints, including:
   inventory.
 - `GET /api/devices/ocsf/export` — export devices as OCSF Device objects.
 - `GET /api/v1/source-inventory` — read a collection-consistent, cursor-paginated
-  source inventory for NCO and other device-read clients. See [HPNA
-  Inventory](./hpna-inventory.md#source-inventory-api).
+  snapshot emitted by an approved inventory plugin. The `source` and `instance`
+  query parameters are required.
 - `GET /health` — unauthenticated readiness probe.
 - `GET /api/admin/*` — administrative endpoints (user management, RBAC role
   profiles, and more) that require admin privileges.

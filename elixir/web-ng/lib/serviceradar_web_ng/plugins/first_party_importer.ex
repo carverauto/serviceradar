@@ -23,6 +23,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
   @bundle_media_type "application/zip"
   @upload_signature_media_type "application/vnd.serviceradar.wasm-plugin.upload-signature.v1+json"
   @max_bundle_bytes 64 * 1024 * 1024
+  @max_uncompressed_bundle_bytes 80 * 1024 * 1024
+  @max_bundle_entries 128
+  @max_resource_bytes 4 * 1024 * 1024
 
   @spec default_index_asset_name() :: String.t()
   def default_index_asset_name, do: @default_index_asset_name
@@ -94,6 +97,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
          {:ok, signature} <- decode_upload_signature(fetched.upload_signature),
          {:ok, manifest_map} <- fetch_bundle_manifest(bundle),
          {:ok, manifest_struct} <- Manifest.from_map(manifest_map),
+         :ok <- verify_integration_resources(bundle, manifest_struct),
          {:ok, wasm} <- fetch_bundle_wasm(bundle),
          content_hash = Storage.sha256(wasm),
          :ok <- verify_upload_signature(signature, manifest_map, content_hash),
@@ -276,7 +280,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
     try do
       File.write!(path, bundle)
 
-      with {:ok, files} <- :zip.extract(String.to_charlist(path), [:memory]),
+      with {:ok, listing} <- :zip.list_dir(String.to_charlist(path)),
+           :ok <- preflight_bundle_entries(listing),
+           {:ok, files} <- :zip.extract(String.to_charlist(path), [:memory]),
            {:ok, entries} <- normalize_bundle_entries(files) do
         {:ok, entries}
       else
@@ -288,34 +294,126 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
     end
   end
 
-  defp normalize_bundle_entries(files) do
-    Enum.reduce_while(files, {:ok, %{}}, fn {name, payload}, {:ok, acc} ->
-      normalized_name = normalize_zip_name(name)
+  defp preflight_bundle_entries(listing) when is_list(listing) do
+    file_entries = Enum.filter(listing, &match?({:zip_file, _, _, _, _, _}, &1))
 
-      cond do
-        is_nil(normalized_name) ->
-          {:halt, {:error, :invalid_bundle_path}}
+    if length(file_entries) > @max_bundle_entries do
+      {:error, :too_many_bundle_entries}
+    else
+      listing
+      |> Enum.reduce_while({:ok, MapSet.new(), 0}, fn entry, {:ok, names, total_size} ->
+        case bundle_listing_entry(entry) do
+          :skip ->
+            {:cont, {:ok, names, total_size}}
 
-        allowed_bundle_entry?(normalized_name) ->
-          {:cont, {:ok, Map.put(acc, normalized_name, payload)}}
+          {:ok, name, size} ->
+            normalized_name = normalize_zip_name(name)
+            next_total_size = total_size + size
 
-        true ->
-          {:halt, {:error, :unexpected_bundle_entry}}
+            cond do
+              is_nil(normalized_name) ->
+                {:halt, {:error, :invalid_bundle_path}}
+
+              MapSet.member?(names, normalized_name) ->
+                {:halt, {:error, :duplicate_bundle_entry}}
+
+              not allowed_bundle_entry?(normalized_name) ->
+                {:halt, {:error, :unexpected_bundle_entry}}
+
+              not allowed_bundle_entry_size?(normalized_name, size) ->
+                {:halt, {:error, :bundle_entry_too_large}}
+
+              next_total_size > @max_uncompressed_bundle_bytes ->
+                {:halt, {:error, :uncompressed_bundle_too_large}}
+
+              true ->
+                {:cont, {:ok, MapSet.put(names, normalized_name), next_total_size}}
+            end
+
+          {:error, reason} ->
+            {:halt, {:error, reason}}
+        end
+      end)
+      |> case do
+        {:ok, _names, _total_size} -> :ok
+        {:error, reason} -> {:error, reason}
       end
-    end)
+    end
+  end
+
+  defp preflight_bundle_entries(_listing), do: {:error, :invalid_bundle_directory}
+
+  defp bundle_listing_entry({:zip_comment, _comment}), do: :skip
+
+  defp bundle_listing_entry({:zip_file, name, file_info, _comment, _offset, _compressed_size}) do
+    case regular_zip_entry_size(file_info) do
+      {:ok, size} -> {:ok, name, size}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp bundle_listing_entry(_entry), do: {:error, :invalid_bundle_directory}
+
+  defp regular_zip_entry_size(file_info)
+       when is_tuple(file_info) and tuple_size(file_info) >= 3 and elem(file_info, 0) == :file_info and
+              elem(file_info, 2) == :regular and is_integer(elem(file_info, 1)) and elem(file_info, 1) >= 0 do
+    {:ok, elem(file_info, 1)}
+  end
+
+  defp regular_zip_entry_size(_file_info), do: {:error, :non_regular_bundle_entry}
+
+  defp normalize_bundle_entries(files) do
+    if length(files) > @max_bundle_entries do
+      {:error, :too_many_bundle_entries}
+    else
+      Enum.reduce_while(files, {:ok, %{}}, fn {name, payload}, {:ok, acc} ->
+        normalized_name = normalize_zip_name(name)
+
+        cond do
+          is_nil(normalized_name) ->
+            {:halt, {:error, :invalid_bundle_path}}
+
+          Map.has_key?(acc, normalized_name) ->
+            {:halt, {:error, :duplicate_bundle_entry}}
+
+          not allowed_bundle_entry?(normalized_name) ->
+            {:halt, {:error, :unexpected_bundle_entry}}
+
+          not allowed_bundle_entry_size?(normalized_name, payload) ->
+            {:halt, {:error, :bundle_entry_too_large}}
+
+          true ->
+            {:cont, {:ok, Map.put(acc, normalized_name, payload)}}
+        end
+      end)
+    end
   end
 
   defp allowed_bundle_entry?(name) do
     name in ["plugin.yaml", "plugin.wasm", "config.schema.json", "display_contract.json"] or
-      String.starts_with?(name, "display/") or String.starts_with?(name, "schemas/")
+      (String.starts_with?(name, "docs/") and Path.extname(name) in [".md", ".txt"]) or
+      ((String.starts_with?(name, "display/") or String.starts_with?(name, "schemas/")) and
+         Path.extname(name) == ".json")
   end
+
+  defp allowed_bundle_entry_size?(name, payload) when is_binary(payload),
+    do: allowed_bundle_entry_size?(name, byte_size(payload))
+
+  defp allowed_bundle_entry_size?("plugin.wasm", size) when is_integer(size), do: size <= @max_bundle_bytes
+
+  defp allowed_bundle_entry_size?("plugin.yaml", size) when is_integer(size), do: size <= 1024 * 1024
+
+  defp allowed_bundle_entry_size?(_name, size) when is_integer(size), do: size <= @max_resource_bytes
+
+  defp allowed_bundle_entry_size?(_name, _payload), do: false
 
   defp normalize_zip_name(name) when is_list(name), do: name |> to_string() |> normalize_zip_name()
 
   defp normalize_zip_name(name) when is_binary(name) do
-    name = String.trim_leading(name, "/")
+    segments = String.split(name, "/", trim: false)
 
-    if String.contains?(name, ["..", "\\"]) or name == "" do
+    if name == "" or String.starts_with?(name, "/") or String.contains?(name, ["\\", <<0>>]) or
+         Enum.any?(segments, &(&1 in ["", ".", ".."])) do
       nil
     else
       name
@@ -336,6 +434,13 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
       {:ok, wasm} when is_binary(wasm) and byte_size(wasm) > 0 -> {:ok, wasm}
       {:ok, _wasm} -> {:error, :invalid_wasm}
       :error -> {:error, :missing_wasm}
+    end
+  end
+
+  defp verify_integration_resources(bundle, manifest) do
+    case get_in(manifest.integrations, ["documentation", "path"]) do
+      nil -> :ok
+      path when is_binary(path) -> if Map.has_key?(bundle, path), do: :ok, else: {:error, :missing_plugin_documentation}
     end
   end
 

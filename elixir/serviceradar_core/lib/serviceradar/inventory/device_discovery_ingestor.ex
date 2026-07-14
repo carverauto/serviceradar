@@ -278,6 +278,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
   defp device_metadata(device, envelope, payload) do
     location = map_value(device, ["location"])
+    envelope_metadata = map_value(envelope, ["metadata"]) || %{}
     base = stringify_map(map_value(device, ["metadata"]) || %{})
 
     base
@@ -285,6 +286,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     |> maybe_put_new("integration_id", integration_id(device, envelope))
     |> maybe_put("plugin_discovery_schema", @schema)
     |> maybe_put("plugin_discovery_source", string_value(envelope, ["source"]))
+    |> maybe_put("plugin_inventory_snapshot", Map.get(envelope_metadata, "snapshot_complete"))
     |> maybe_put("collection_id", string_value(envelope, ["collection_id", "collectionId"]))
     |> maybe_put("reference_hash", string_value(envelope, ["reference_hash", "referenceHash"]))
     |> maybe_put("vendor_name", string_value(device, ["vendor_name", "vendorName", "vendor"]))

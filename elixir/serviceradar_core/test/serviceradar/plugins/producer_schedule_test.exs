@@ -169,17 +169,17 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
     Process.put(:producer_schedule_test_pid, self())
     on_exit(fn -> Process.delete(:producer_schedule_test_pid) end)
 
-    plugin_id = "hpna-inventory-producer-#{uid}"
-    agent_uid = "agent-hpna-inventory-#{uid}"
+    plugin_id = "example-inventory-producer-#{uid}"
+    agent_uid = "agent-example-inventory-#{uid}"
 
     credential_requirements = %{
-      "hpna_service_account" => %{
+      "inventory_service_account" => %{
         "required" => true,
         "resolution_location" => "agent",
         "grants" => [
           %{
             "name" => "token",
-            "grant_type" => "hpna_oauth_password",
+            "grant_type" => "network_automation_oauth_password",
             "purpose" => "device_inventory_token",
             "allow" => %{"methods" => ["POST"], "url_param" => "token_url"},
             "inject" => %{
@@ -192,7 +192,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
           },
           %{
             "name" => "inventory",
-            "grant_type" => "hpna_wrapper_access",
+            "grant_type" => "network_automation_wrapper_access",
             "purpose" => "device_inventory",
             "allow" => %{"methods" => ["POST"], "url_param" => "api_url"}
           }
@@ -223,11 +223,11 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
                  enabled: true,
                  plugin_assignment_id: assignment.id,
                  params: %{
-                   "token_url" => "https://hpna.example.com/oauth/token",
-                   "api_url" => "https://wrapper.example.com/api/hpna"
+                   "token_url" => "https://identity.example.com/oauth/token",
+                   "api_url" => "https://wrapper.example.com/api/inventory"
                  },
                  credential_refs: %{
-                   "hpna_service_account" => "credentialref:hpna:service-account"
+                   "inventory_service_account" => "credentialref:example:service-account"
                  },
                  metadata: %{"credential_rule_id" => Ash.UUID.generate()}
                },
@@ -240,7 +240,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
                actor: actor,
                command_bus: __MODULE__,
                grant_issuer: fn attrs ->
-                 send(test_pid(), {:hpna_credential_grant, attrs})
+                 send(test_pid(), {:inventory_credential_grant, attrs})
 
                  {:ok,
                   %{
@@ -258,11 +258,11 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
                end
              )
 
-    assert_receive {:hpna_credential_grant, token_grant}
-    assert token_grant.grant_type == "hpna_oauth_password"
+    assert_receive {:inventory_credential_grant, token_grant}
+    assert token_grant.grant_type == "network_automation_oauth_password"
     assert token_grant.purpose == "device_inventory_token"
     assert token_grant.allowed_methods == ["POST"]
-    assert token_grant.allowed_hosts == ["hpna.example.com"]
+    assert token_grant.allowed_hosts == ["identity.example.com"]
     assert token_grant.allowed_ports == [443]
     assert token_grant.allowed_paths == ["/oauth/token"]
     assert token_grant.credential_rule_id == schedule.metadata["credential_rule_id"]
@@ -270,20 +270,20 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
     assert token_grant.inject == %{
              "type" => "form_urlencoded",
              "method" => "POST",
-             "host" => "hpna.example.com",
+             "host" => "identity.example.com",
              "path" => "/oauth/token",
              "field_username" => "username",
              "field_password" => "password",
              "fixed_grant_type" => "password"
            }
 
-    assert_receive {:hpna_credential_grant, inventory_grant}
-    assert inventory_grant.grant_type == "hpna_wrapper_access"
+    assert_receive {:inventory_credential_grant, inventory_grant}
+    assert inventory_grant.grant_type == "network_automation_wrapper_access"
     assert inventory_grant.purpose == "device_inventory"
     assert inventory_grant.allowed_methods == ["POST"]
     assert inventory_grant.allowed_hosts == ["wrapper.example.com"]
     assert inventory_grant.allowed_ports == [443]
-    assert inventory_grant.allowed_paths == ["/api/hpna"]
+    assert inventory_grant.allowed_paths == ["/api/inventory"]
     assert inventory_grant.credential_rule_id == schedule.metadata["credential_rule_id"]
     assert inventory_grant.inject == %{}
 

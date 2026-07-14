@@ -59,7 +59,6 @@ func TestGetScannerStatsLabelsRawSYNIPv4(t *testing.T) {
 	stats := sweeper.GetScannerStats()
 	if stats == nil {
 		t.Fatal("expected scanner stats")
-		return
 	}
 	if stats.Protocol != scannerProtocolTCP {
 		t.Fatalf("protocol = %q, want %s", stats.Protocol, scannerProtocolTCP)
@@ -90,7 +89,6 @@ func TestGetScannerStatsLabelsTCPConnect(t *testing.T) {
 	stats := sweeper.GetScannerStats()
 	if stats == nil {
 		t.Fatal("expected scanner stats")
-		return
 	}
 	if stats.AddressFamily != addressFamilyDualStack {
 		t.Fatalf("address family = %q, want %s", stats.AddressFamily, addressFamilyDualStack)

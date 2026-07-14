@@ -79,7 +79,6 @@ func TestFingerprintEventToDiscoveredDeviceTCP(t *testing.T) {
 	alias := devicealias.FromMetadata(metadata)
 	if alias == nil {
 		t.Fatal("devicealias.FromMetadata() = nil, want alias record")
-		return
 	}
 	if alias.CurrentIP != testFingerprintIP {
 		t.Fatalf("alias CurrentIP = %q, want %s", alias.CurrentIP, testFingerprintIP)

@@ -35,6 +35,66 @@ The control plane stores the manifest and config schema in the database and stor
 
 The exact manifest fields, the supported config JSON Schema subset, and the `serviceradar.plugin_result.v1` result schema are documented in full on the [developer portal](https://developer.serviceradar.cloud).
 
+### Package-declared integrations
+
+External inventory plugins own their provider-specific configuration, operator
+documentation, credential profile, schedule binding, inventory source label,
+and source metadata display fields. Put the documentation under `docs/`, define
+the configuration controls in `config.schema.json`, and publish the bounded
+declarative contract under `integrations` in `plugin.yaml`:
+
+```yaml
+producer_schedules:
+  - schedule_id: example-inventory.refresh
+    label: Refresh example inventory
+    action_id: example-inventory.refresh
+    command_type: plugin.run_action
+    default_cadence_seconds: 86400
+    min_cadence_seconds: 3600
+    max_cadence_seconds: 2592000
+    credential_requirements:
+      inventory_account:
+        required: true
+        resolution_location: agent
+        grants: []
+
+integrations:
+  documentation:
+    title: Example inventory configuration
+    path: docs/configuration.md
+  credential_profiles:
+    - provider: example-inventory
+      label: Example Inventory
+      auth_methods:
+        - id: username_password
+          credential_kind: username_password
+      purposes: [device_inventory]
+      scope_types: [agent]
+      provisioning:
+        mode: producer_schedule
+        schedule_id: example-inventory.refresh
+        credential_requirement: inventory_account
+  inventory_sources:
+    - source: example-inventory
+      label: Example Inventory
+      metadata_fields:
+        - key: site
+          label: Site
+```
+
+ServiceRadar validates this data while importing the signed package and builds
+the credentials UI, assignment reconciliation, schedule binding, and discovery
+source display from it. Adding another provider does not require a core catalog
+entry, provider module, documentation page, or workflow. The protected
+`external-wasm-plugin.yml` workflow accepts any repository matching the
+configured external plugin namespace and packages conventional `docs/`,
+`display/`, and `schemas/` resources with the module.
+
+Provider code is never loaded into the control plane. Core consumes only the
+validated descriptor, JSON Schema, generic discovery envelope, and nested
+`source_metadata`; duplicate provider/source claims and attempts to replace a
+reserved built-in provider are rejected.
+
 Plugins that emit OCSF events or OTEL-style logs must also declare
 `signal_schemas` in `plugin.yaml`. Each signal schema points at a payload JSON Schema
 and a declarative display contract shipped with the same package version. See

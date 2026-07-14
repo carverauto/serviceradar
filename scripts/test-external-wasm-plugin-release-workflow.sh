@@ -7,7 +7,7 @@ else
   repo_root="$(git rev-parse --show-toplevel)"
 fi
 
-workflow="${repo_root}/.forgejo/workflows/external-hpna-wasm-plugin.yml"
+workflow="${repo_root}/.forgejo/workflows/external-wasm-plugin.yml"
 
 if ! command -v jq >/dev/null 2>&1 && [[ -n "${TEST_SRCDIR:-}" ]]; then
   case "$(uname -m)" in
@@ -33,7 +33,9 @@ workflow = Path(sys.argv[1]).read_text(encoding="utf-8")
 required = [
     "workflow_dispatch:",
     "^refs/heads/(staging|main)$",
-    "repository: carverauto/serviceradar-plugin-hpna",
+    "plugin_repository:",
+    "^carverauto/serviceradar-plugin-[a-z0-9]",
+    "repository: ${{ github.event.inputs.plugin_repository }}",
     "persist-credentials: false",
     "git -C \"${plugin_root}\" merge-base --is-ancestor",
     "runs-on: serviceradar-signing",
@@ -47,6 +49,7 @@ required = [
     "validate-external-wasm-plugin-bundle.py",
     "generate-wasm-plugin-import-index.sh",
     "publish-external-wasm-plugin-release.sh",
+    "for resource_dir in docs display schemas",
     "token: ${{ secrets.EXTERNAL_PLUGIN_FORGEJO_READ_TOKEN }}",
     "EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN: ${{ secrets.EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN }}",
 ]

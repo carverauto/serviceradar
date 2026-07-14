@@ -54,25 +54,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
     assert "all_server_groups" in wifi_sites.array_fields
   end
 
-  test "device catalog exposes HPNA source and metadata filters" do
+  test "device catalog remains provider-neutral for external inventory plugins" do
     devices = Catalog.entity("devices")
 
-    assert "hpna" in devices.known_values["discovery_sources"]
-
-    for field <- [
-          "metadata.hpna_instance_id",
-          "metadata.hpna_device_id",
-          "metadata.hpna_partition",
-          "metadata.hpna_management_status",
-          "metadata.hpna_collection_id"
-        ] do
-      assert field in devices.filter_fields
-    end
-
-    assert {:ok, state} =
-             Builder.parse("in:devices discovery_sources:(hpna) metadata.hpna_partition:IAD")
-
-    assert Enum.any?(state["filters"], &(&1["field"] == "metadata.hpna_partition"))
+    assert "armis" in devices.known_values["discovery_sources"]
+    refute "example-inventory" in devices.known_values["discovery_sources"]
+    refute Enum.any?(devices.filter_fields, &String.contains?(&1, "example_inventory"))
   end
 
   test "builds default WiFi site query" do

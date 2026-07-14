@@ -11,7 +11,7 @@ import zipfile
 
 
 SCRIPT = Path(__file__).with_name("validate-external-wasm-plugin-bundle.py")
-PLUGIN_ID = "hpna-inventory"
+PLUGIN_ID = "example-inventory"
 VERSION = "0.1.0"
 COMMIT = "a" * 40
 
@@ -21,7 +21,8 @@ def write_fixture(root: Path):
     contents = {
         "config.schema.json": b'{"type":"object"}\n',
         "plugin.wasm": b"\x00asm\x01\x00\x00\x00",
-        "plugin.yaml": f"id: {PLUGIN_ID}\nname: HPNA Inventory\nversion: {VERSION}\n".encode(),
+        "docs/configuration.md": b"# Configuration\n",
+        "plugin.yaml": f"id: {PLUGIN_ID}\nname: Example Inventory\nversion: {VERSION}\n".encode(),
     }
     with zipfile.ZipFile(bundle, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for name, content in contents.items():
@@ -96,7 +97,22 @@ class ValidateExternalBundleTest(unittest.TestCase):
             metadata.write_text(json.dumps(document), encoding="utf-8")
             result = run_validator(metadata, bundle)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("exact external plugin entry set", result.stderr)
+            self.assertIn("unsupported bundle entry", result.stderr)
+
+    def test_rejects_unsupported_document_type(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            metadata, bundle = write_fixture(Path(tmpdir))
+            with zipfile.ZipFile(bundle, "a") as archive:
+                archive.writestr("docs/configuration.html", b"<script>alert(1)</script>")
+            document = json.loads(metadata.read_text(encoding="utf-8"))
+            document["entries"].append(
+                {"archive_path": "docs/configuration.html", "source_path": "configuration.html"}
+            )
+            document["sha256"] = hashlib.sha256(bundle.read_bytes()).hexdigest()
+            metadata.write_text(json.dumps(document), encoding="utf-8")
+            result = run_validator(metadata, bundle)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unsupported bundle entry", result.stderr)
 
 
 if __name__ == "__main__":

@@ -22,6 +22,8 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
   @snapshots_table "device_source_snapshots"
   @hash_pattern ~r/^[0-9a-f]{64}$/i
   @instance_pattern ~r/^[A-Za-z0-9._-]{1,128}$/
+  @source_pattern ~r/^[a-z0-9][a-z0-9_.-]{0,127}$/
+  @metadata_key_pattern ~r/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/
   @replace_observation_fields [
     :device_id,
     :source_integration_id,
@@ -59,19 +61,17 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
   def ingest(envelope, updates, context, opts \\ [])
 
   def ingest(envelope, updates, context, opts) when is_map(envelope) and is_list(updates) do
-    case string_value(envelope, "source") do
-      "hpna" ->
-        resolver = Keyword.get(opts, :resolver, &resolve_device_ids/2)
-        activator = Keyword.get(opts, :activator, &activate_snapshot/2)
+    if complete_snapshot?(envelope) do
+      resolver = Keyword.get(opts, :resolver, &resolve_device_ids/2)
+      activator = Keyword.get(opts, :activator, &activate_snapshot/2)
 
-        with {:ok, snapshot, source_devices} <- normalize_snapshot(envelope, updates, context),
-             {:ok, device_ids} <- resolver.(source_devices, snapshot.partition),
-             {:ok, observations} <- attach_device_ids(source_devices, device_ids) do
-          normalize_activation_result(activator.(snapshot, observations))
-        end
-
-      _other_source ->
-        :ok
+      with {:ok, snapshot, source_devices} <- normalize_snapshot(envelope, updates, context),
+           {:ok, device_ids} <- resolver.(source_devices, snapshot.partition),
+           {:ok, observations} <- attach_device_ids(source_devices, device_ids) do
+        normalize_activation_result(activator.(snapshot, observations))
+      end
+    else
+      :ok
     end
   rescue
     error ->
@@ -94,16 +94,14 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
   def preflight(envelope, updates, context, opts \\ [])
 
   def preflight(envelope, updates, context, opts) when is_map(envelope) and is_list(updates) do
-    case string_value(envelope, "source") do
-      "hpna" ->
-        checker = Keyword.get(opts, :checker, &check_snapshot/1)
+    if complete_snapshot?(envelope) do
+      checker = Keyword.get(opts, :checker, &check_snapshot/1)
 
-        with {:ok, snapshot, _source_devices} <- normalize_snapshot(envelope, updates, context) do
-          normalize_preflight_result(checker.(snapshot))
-        end
-
-      _other_source ->
-        {:ok, :process}
+      with {:ok, snapshot, _source_devices} <- normalize_snapshot(envelope, updates, context) do
+        normalize_preflight_result(checker.(snapshot))
+      end
+    else
+      {:ok, :process}
     end
   rescue
     error ->
@@ -116,6 +114,7 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
   defp normalize_snapshot(envelope, updates, context) do
     metadata = map_value(envelope, "metadata")
     partition = snapshot_partition(updates, context)
+    source = string_value(envelope, "source")
     source_instance = string_value(metadata, "source_instance")
     collection_id = string_value(envelope, "collection_id")
     content_hash = string_value(envelope, "reference_hash")
@@ -125,6 +124,9 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
     cond do
       metadata["snapshot_complete"] != true ->
         {:error, :incomplete_source_snapshot}
+
+      not valid_source?(source) ->
+        {:error, :invalid_inventory_source}
 
       not valid_instance?(source_instance) ->
         {:error, :invalid_source_instance}
@@ -147,7 +149,7 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
       true ->
         snapshot = %{
           partition: partition,
-          source: "hpna",
+          source: source,
           source_instance: source_instance,
           collection_id: collection_id,
           content_hash: String.downcase(content_hash),
@@ -189,7 +191,7 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
 
   defp normalize_source_device(update, snapshot) do
     metadata = map_value(update, "metadata")
-    source_object_id = string_value(metadata, "hpna_device_id")
+    source_object_id = string_value(update, "device_id")
     source_integration_id = string_value(metadata, "integration_id")
     source_metadata = bounded_source_metadata(metadata)
 
@@ -198,7 +200,7 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
         {:error, :invalid_source_object_id}
 
       not bounded_string?(source_integration_id, 320) or
-          not String.starts_with?(source_integration_id, "hpna:v1:") ->
+          not String.starts_with?(source_integration_id, snapshot.source <> ":") ->
         {:error, :invalid_source_integration_id}
 
       source_metadata == :too_large ->
@@ -222,43 +224,44 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
            hostname: bounded_value(update, "hostname", 512),
            ip: bounded_value(update, "ip", 128),
            mac: bounded_value(update, "mac", 256),
-           serial_number:
-             bounded_value(metadata, "serial_number", 256) ||
-               bounded_value(metadata, "hpna_serial_number", 256),
+           serial_number: bounded_value(metadata, "serial_number", 256),
            vendor_name: bounded_value(metadata, "vendor_name", 256),
            model: bounded_value(metadata, "model", 256),
-           device_type:
-             bounded_value(metadata, "hpna_device_type", 128) ||
-               bounded_value(metadata, "device_type", 128),
-           site_name:
-             bounded_value(metadata, "hpna_partition", 256) ||
-               bounded_value(metadata, "site_name", 256),
-           management_status: bounded_value(metadata, "hpna_management_status", 128),
+           device_type: bounded_value(metadata, "device_type", 128),
+           site_name: bounded_value(metadata, "site_name", 256),
+           management_status: bounded_value(metadata, "status", 128),
            metadata: source_metadata
          }}
     end
   end
 
   defp bounded_source_metadata(metadata) do
-    bounded =
-      Map.take(metadata, [
-        "hpna_instance_id",
-        "hpna_device_id",
-        "hpna_partition",
-        "hpna_device_type",
-        "hpna_management_status",
-        "hpna_serial_number",
-        "hpna_exclude_from_poll",
-        "hpna_collection_id",
-        "hpna_last_observed_at",
-        "hpna_present"
-      ])
+    bounded = map_value(metadata, "source_metadata")
 
-    case Jason.encode(bounded) do
-      {:ok, encoded} when byte_size(encoded) <= @max_metadata_bytes -> bounded
+    case {safe_metadata_value?(bounded, 0), Jason.encode(bounded)} do
+      {true, {:ok, encoded}} when byte_size(encoded) <= @max_metadata_bytes -> bounded
       _ -> :too_large
     end
   end
+
+  defp safe_metadata_value?(value, _depth)
+       when is_nil(value) or is_boolean(value) or is_number(value), do: true
+
+  defp safe_metadata_value?(value, _depth) when is_binary(value), do: byte_size(value) <= 4_096
+
+  defp safe_metadata_value?(value, depth) when is_list(value) and depth < 5 do
+    length(value) <= 128 and Enum.all?(value, &safe_metadata_value?(&1, depth + 1))
+  end
+
+  defp safe_metadata_value?(value, depth) when is_map(value) and depth < 5 do
+    map_size(value) <= 128 and
+      Enum.all?(value, fn {key, nested} ->
+        is_binary(key) and Regex.match?(@metadata_key_pattern, key) and
+          safe_metadata_value?(nested, depth + 1)
+      end)
+  end
+
+  defp safe_metadata_value?(_value, _depth), do: false
 
   defp unique_source_objects?(devices) do
     ids = Enum.map(devices, & &1.source_object_id)
@@ -486,6 +489,9 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
     bounded_value(context, :partition, 128) || "default"
   end
 
+  defp complete_snapshot?(envelope),
+    do: map_value(envelope, "metadata")["snapshot_complete"] == true
+
   defp parse_observed_at(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
       {:ok, observed_at, _offset} -> DateTime.truncate(observed_at, :microsecond)
@@ -531,6 +537,7 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
     do: is_binary(value) and value != "" and byte_size(value) <= max
 
   defp valid_instance?(value), do: is_binary(value) and Regex.match?(@instance_pattern, value)
+  defp valid_source?(value), do: is_binary(value) and Regex.match?(@source_pattern, value)
   defp valid_hash?(value), do: is_binary(value) and Regex.match?(@hash_pattern, value)
   defp downcase_or_nil(nil), do: nil
   defp downcase_or_nil(value), do: String.downcase(value)

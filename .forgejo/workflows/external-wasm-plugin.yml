@@ -1,24 +1,24 @@
-name: Publish External HPNA Wasm Plugin
+name: Publish External Wasm Plugin
 
 on:
   workflow_dispatch:
     inputs:
+      plugin_repository:
+        description: "External plugin repository in the carverauto organization."
+        required: true
+        type: string
       plugin_tag:
-        description: "Exact serviceradar-plugin-hpna release tag to rebuild and publish."
+        description: "Exact external plugin release tag to rebuild and publish."
         required: true
         default: "v0.1.0"
         type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.inputs.plugin_tag }}
+  group: ${{ github.workflow }}-${{ github.event.inputs.plugin_repository }}-${{ github.event.inputs.plugin_tag }}
   cancel-in-progress: false
 
 permissions:
   contents: read
-
-env:
-  EXTERNAL_PLUGIN_REPOSITORY: carverauto/serviceradar-plugin-hpna
-  EXTERNAL_PLUGIN_ID: hpna-inventory
 
 jobs:
   build:
@@ -27,6 +27,7 @@ jobs:
     outputs:
       source_commit: ${{ steps.source.outputs.commit }}
       source_committed_at: ${{ steps.source.outputs.committed_at }}
+      plugin_id: ${{ steps.bundle.outputs.plugin_id }}
       plugin_version: ${{ steps.bundle.outputs.version }}
     steps:
       - name: Checkout trusted ServiceRadar release code
@@ -34,8 +35,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Enforce trusted workflow source and plugin tag
+      - name: Enforce trusted workflow source and plugin inputs
         env:
+          PLUGIN_REPOSITORY: ${{ github.event.inputs.plugin_repository }}
           PLUGIN_TAG: ${{ github.event.inputs.plugin_tag }}
         run: |
           set -euo pipefail
@@ -43,15 +45,19 @@ jobs:
             echo "External plugin publication must run from ServiceRadar staging or main" >&2
             exit 1
           fi
+          if [[ ! "${PLUGIN_REPOSITORY}" =~ ^carverauto/serviceradar-plugin-[a-z0-9]+([a-z0-9-]*[a-z0-9])?$ ]]; then
+            echo "Invalid external plugin repository" >&2
+            exit 1
+          fi
           if [[ ! "${PLUGIN_TAG}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
             echo "Invalid external plugin release tag" >&2
             exit 1
           fi
 
-      - name: Checkout external HPNA plugin tag
+      - name: Checkout external plugin tag
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          repository: carverauto/serviceradar-plugin-hpna
+          repository: ${{ github.event.inputs.plugin_repository }}
           ref: ${{ github.event.inputs.plugin_tag }}
           path: external-plugin
           fetch-depth: 0
@@ -117,7 +123,39 @@ jobs:
           cmp "${output_dir}/plugin-first.wasm" "${output_dir}/plugin-second.wasm"
 
           version="${PLUGIN_TAG#v}"
-          stem="${EXTERNAL_PLUGIN_ID}-${version}"
+          plugin_id="$(python3 - "${plugin_root}/plugin.yaml" <<'PY'
+          import re
+          import sys
+
+          values = []
+          for line in open(sys.argv[1], encoding="utf-8"):
+              if line.startswith((" ", "\t", "-", "#")) or ":" not in line:
+                  continue
+              key, value = line.split(":", 1)
+              if key.strip() == "id":
+                  values.append(value.strip().strip("\"'"))
+          if len(values) != 1 or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", values[0]):
+              raise SystemExit("plugin.yaml must declare exactly one valid top-level id")
+          print(values[0])
+          PY
+          )"
+          stem="${plugin_id}-${version}"
+          bundle_entries=(
+            --entry "config.schema.json=${plugin_root}/config.schema.json"
+            --entry "plugin.wasm=${output_dir}/plugin-first.wasm"
+            --entry "plugin.yaml=${plugin_root}/plugin.yaml"
+          )
+          if [[ -f "${plugin_root}/display_contract.json" ]]; then
+            bundle_entries+=(--entry "display_contract.json=${plugin_root}/display_contract.json")
+          fi
+          for resource_dir in docs display schemas; do
+            if [[ -d "${plugin_root}/${resource_dir}" ]]; then
+              while IFS= read -r -d '' resource; do
+                relative="${resource#"${plugin_root}/"}"
+                bundle_entries+=(--entry "${relative}=${resource}")
+              done < <(find "${plugin_root}/${resource_dir}" -type f -print0 | sort -z)
+            fi
+          done
           python3 build/wasm_plugins/assemble_bundle.py \
             --bundle-out "${output_dir}/${stem}.zip" \
             --sha-out "${output_dir}/${stem}.sha256" \
@@ -128,12 +166,10 @@ jobs:
             --artifact-type application/vnd.serviceradar.wasm-plugin.bundle.v1+zip \
             --bundle-media-type application/zip \
             --upload-signature-media-type application/vnd.serviceradar.wasm-plugin.upload-signature.v1+json \
-            --entry "config.schema.json=${plugin_root}/config.schema.json" \
-            --entry "plugin.wasm=${output_dir}/plugin-first.wasm" \
-            --entry "plugin.yaml=${plugin_root}/plugin.yaml"
+            "${bundle_entries[@]}"
 
           metadata="${output_dir}/${stem}.metadata.json"
-          if [[ "$(jq -r '.plugin_id' "${metadata}")" != "${EXTERNAL_PLUGIN_ID}" ]]; then
+          if [[ "$(jq -r '.plugin_id' "${metadata}")" != "${plugin_id}" ]]; then
             echo "External bundle plugin id mismatch" >&2
             exit 1
           fi
@@ -152,6 +188,7 @@ jobs:
             exit 1
           fi
           rm -f "${output_dir}/plugin-first.wasm" "${output_dir}/plugin-second.wasm"
+          printf 'plugin_id=%s\n' "${plugin_id}" >>"${GITHUB_OUTPUT}"
           printf 'version=%s\n' "${version}" >>"${GITHUB_OUTPUT}"
 
       - name: Install pinned Syft
@@ -159,13 +196,14 @@ jobs:
 
       - name: Generate external source SPDX SBOM
         run: |
+          plugin_id="$(jq -r '.plugin_id' "${GITHUB_WORKSPACE}"/external-plugin-dist/*.metadata.json)"
           syft scan dir:"${GITHUB_WORKSPACE}/external-plugin" \
-            -o spdx-json="${GITHUB_WORKSPACE}/external-plugin-dist/hpna-inventory.spdx.json"
+            -o spdx-json="${GITHUB_WORKSPACE}/external-plugin-dist/${plugin_id}.spdx.json"
 
       - name: Retain unprivileged build output
         uses: actions/upload-artifact@v3
         with:
-          name: external-hpna-wasm-${{ github.run_id }}
+          name: external-wasm-${{ github.run_id }}
           path: external-plugin-dist/
           if-no-files-found: error
 
@@ -218,7 +256,7 @@ jobs:
       - name: Restore unprivileged build output
         uses: actions/download-artifact@v3
         with:
-          name: external-hpna-wasm-${{ github.run_id }}
+          name: external-wasm-${{ github.run_id }}
           path: external-plugin-dist
 
       - name: Install release tools
@@ -260,7 +298,7 @@ jobs:
           python3 ./scripts/validate-external-wasm-plugin-bundle.py \
             --metadata "${metadata}" \
             --bundle "${bundle}" \
-            --plugin-id "${EXTERNAL_PLUGIN_ID}" \
+            --plugin-id "${{ needs.build.outputs.plugin_id }}" \
             --version "${PLUGIN_VERSION}" \
             --source-commit "${SOURCE_COMMIT}"
 
@@ -311,20 +349,21 @@ jobs:
 
       - name: Publish verified index to external Forgejo release
         env:
+          PLUGIN_REPOSITORY: ${{ github.event.inputs.plugin_repository }}
           PLUGIN_TAG: ${{ github.event.inputs.plugin_tag }}
           EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN: ${{ secrets.EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN }}
           EXTERNAL_PLUGIN_TARGET_COMMITISH: ${{ needs.build.outputs.source_commit }}
           FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
         run: |
           ./scripts/publish-external-wasm-plugin-release.sh \
-            "${EXTERNAL_PLUGIN_REPOSITORY}" \
+            "${PLUGIN_REPOSITORY}" \
             "${PLUGIN_TAG}" \
             "${RUNNER_TEMP}/serviceradar-wasm-plugin-index.json"
 
       - name: Retain signed release evidence
         uses: actions/upload-artifact@v3
         with:
-          name: external-hpna-wasm-signed-${{ github.run_id }}
+          name: external-wasm-signed-${{ github.run_id }}
           path: |
             external-plugin-dist/
             ${{ runner.temp }}/serviceradar-wasm-plugin-index.json

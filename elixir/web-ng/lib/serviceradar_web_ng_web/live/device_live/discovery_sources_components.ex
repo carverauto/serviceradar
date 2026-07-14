@@ -94,6 +94,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
                 <div class="font-mono text-xs text-base-content/60">
                   {observation_value(observation, "source_object_id")}
                 </div>
+                <div
+                  :for={item <- observation_metadata_items(observation)}
+                  class="text-xs text-base-content/60"
+                >
+                  <span class="font-medium">{item.label}:</span> {item.value}
+                </div>
               </td>
               <td>
                 <span class={source_state_class(observation)}>{source_state(observation)}</span>
@@ -204,7 +210,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
   defp source_label_icon("awx"), do: {"AWX / Ansible", "hero-command-line"}
   defp source_label_icon("ansible"), do: {"AWX / Ansible", "hero-command-line"}
   defp source_label_icon("armis"), do: {"Armis", "hero-shield-check"}
-  defp source_label_icon("hpna"), do: {"HPNA", "hero-server-stack"}
   defp source_label_icon("netbox"), do: {"NetBox", "hero-server-stack"}
   defp source_label_icon("unifi"), do: {"UniFi", "hero-wifi"}
   defp source_label_icon("mikrotik"), do: {"MikroTik", "hero-cpu-chip"}
@@ -253,16 +258,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
       {"Device ID", metadata_first(metadata, ["armis_device_id", "source_device_id", "integration_id"]), mono: true},
       {"Category", metadata_first(metadata, ["armis_category", "category"])},
       {"Risk level", metadata_lookup(metadata, "armis_risk_level")}
-    ])
-  end
-
-  defp source_items("hpna", metadata, _row) do
-    build_items([
-      {"Instance", metadata_lookup(metadata, "hpna_instance_id"), mono: true},
-      {"Device ID", metadata_lookup(metadata, "hpna_device_id"), mono: true},
-      {"Partition", metadata_lookup(metadata, "hpna_partition")},
-      {"Type", metadata_lookup(metadata, "hpna_device_type")},
-      {"Status", metadata_lookup(metadata, "hpna_management_status")}
     ])
   end
 
@@ -338,11 +333,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
   end
 
   defp source_display(observation) do
+    case observation_value(observation, "source_label") do
+      label when is_binary(label) and label != "" -> label
+      _ -> observation |> observation_value("source") |> normalize_source() |> source_label_icon() |> elem(0)
+    end
+  end
+
+  defp observation_metadata_items(observation) do
+    metadata = observation_value(observation, "metadata") || %{}
+
     observation
-    |> observation_value("source")
-    |> normalize_source()
-    |> source_label_icon()
-    |> elem(0)
+    |> observation_value("metadata_fields")
+    |> List.wrap()
+    |> Enum.reduce([], fn field, items ->
+      value = metadata |> metadata_lookup(field["key"]) |> format_value()
+
+      if value in [nil, ""] do
+        items
+      else
+        items ++ [%{label: field["label"] || humanize(field["key"]), value: value}]
+      end
+    end)
   end
 
   defp source_state(observation) do

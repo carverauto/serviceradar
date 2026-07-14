@@ -128,4 +128,23 @@ defmodule ServiceRadarWebNGWeb.Components.PluginConfigFormTest do
     assert html =~ "Open the configuration guide"
     assert html =~ "https://docs.serviceradar.cloud/docs/proxmox#console-access"
   end
+
+  test "prefers package documentation and rejects unsafe schema links" do
+    schema = %{
+      "type" => "object",
+      "x-serviceradar-docs-url" => "javascript:alert(1)",
+      "properties" => %{}
+    }
+
+    html =
+      render_component(&PluginConfigForm.plugin_config_fields/1, %{
+        schema: schema,
+        params: %{},
+        base_name: "assignment[params]",
+        docs_url: "https://plugins.example.test/example-inventory/v1.0.0/configuration"
+      })
+
+    assert html =~ "https://plugins.example.test/example-inventory/v1.0.0/configuration"
+    refute html =~ "javascript:alert(1)"
+  end
 end

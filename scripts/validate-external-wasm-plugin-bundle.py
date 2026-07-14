@@ -13,13 +13,17 @@ import zipfile
 ARTIFACT_TYPE = "application/vnd.serviceradar.wasm-plugin.bundle.v1+zip"
 BUNDLE_MEDIA_TYPE = "application/zip"
 UPLOAD_SIGNATURE_MEDIA_TYPE = "application/vnd.serviceradar.wasm-plugin.upload-signature.v1+json"
-EXPECTED_ENTRIES = {"config.schema.json", "plugin.wasm", "plugin.yaml"}
+REQUIRED_ENTRIES = {"config.schema.json", "plugin.wasm", "plugin.yaml"}
 ENTRY_LIMITS = {
     "config.schema.json": 4 * 1024 * 1024,
+    "display_contract.json": 4 * 1024 * 1024,
     "plugin.wasm": 64 * 1024 * 1024,
     "plugin.yaml": 1024 * 1024,
 }
 MAX_BUNDLE_BYTES = 64 * 1024 * 1024
+MAX_BUNDLE_ENTRIES = 128
+MAX_RESOURCE_BYTES = 4 * 1024 * 1024
+MAX_UNCOMPRESSED_BYTES = 72 * 1024 * 1024
 MAX_METADATA_BYTES = 1024 * 1024
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 PLUGIN_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -67,6 +71,28 @@ def read_bounded(archive: zipfile.ZipFile, info: zipfile.ZipInfo, limit: int) ->
     if total != info.file_size:
         raise ValueError(f"bundle entry size changed while reading: {info.filename}")
     return b"".join(chunks)
+
+
+def resource_limit(name: str) -> int:
+    if name in ENTRY_LIMITS:
+        return ENTRY_LIMITS[name]
+    if name.startswith("docs/") and Path(name).suffix.lower() in {".md", ".txt"}:
+        return MAX_RESOURCE_BYTES
+    if name.startswith(("display/", "schemas/")) and Path(name).suffix.lower() == ".json":
+        return MAX_RESOURCE_BYTES
+    raise ValueError(f"unsupported bundle entry: {name}")
+
+
+def validate_entry_name(name: str):
+    path = Path(name)
+    if (
+        not name
+        or name.startswith("/")
+        or "\\" in name
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        raise ValueError(f"unsafe bundle entry: {name}")
+    resource_limit(name)
 
 
 def simple_manifest_fields(raw: bytes):
@@ -119,23 +145,38 @@ def validate_metadata(metadata_path: Path, bundle_path: Path, plugin_id: str, ve
     if not isinstance(entries, list):
         raise ValueError("metadata entries must be an array")
     archive_paths = [entry.get("archive_path") for entry in entries if isinstance(entry, dict)]
-    if len(archive_paths) != len(entries) or set(archive_paths) != EXPECTED_ENTRIES or len(archive_paths) != 3:
-        raise ValueError("metadata does not declare the exact external bundle entry set")
+    if len(archive_paths) != len(entries) or len(archive_paths) > MAX_BUNDLE_ENTRIES:
+        raise ValueError("metadata entries are invalid")
+    if len(set(archive_paths)) != len(archive_paths):
+        raise ValueError("metadata declares duplicate bundle entries")
+    if not REQUIRED_ENTRIES.issubset(archive_paths):
+        raise ValueError("metadata is missing a required external bundle entry")
+    for name in archive_paths:
+        if not isinstance(name, str):
+            raise ValueError("metadata archive paths must be strings")
+        validate_entry_name(name)
 
 
 def validate_archive(bundle_path: Path, plugin_id: str, version: str):
     with zipfile.ZipFile(bundle_path, "r") as archive:
         infos = archive.infolist()
         names = [info.filename for info in infos]
-        if set(names) != EXPECTED_ENTRIES or len(names) != 3:
-            raise ValueError("bundle does not contain the exact external plugin entry set")
+        if len(names) > MAX_BUNDLE_ENTRIES or len(set(names)) != len(names):
+            raise ValueError("bundle contains too many or duplicate entries")
+        if not REQUIRED_ENTRIES.issubset(names):
+            raise ValueError("bundle is missing a required external plugin entry")
 
         contents = {}
+        total_uncompressed = 0
         for info in infos:
             mode = info.external_attr >> 16
-            if info.is_dir() or stat.S_ISLNK(mode) or Path(info.filename).name != info.filename:
+            validate_entry_name(info.filename)
+            if info.is_dir() or stat.S_ISLNK(mode):
                 raise ValueError(f"unsafe bundle entry: {info.filename}")
-            contents[info.filename] = read_bounded(archive, info, ENTRY_LIMITS[info.filename])
+            total_uncompressed += info.file_size
+            if total_uncompressed > MAX_UNCOMPRESSED_BYTES:
+                raise ValueError("bundle uncompressed size exceeds its limit")
+            contents[info.filename] = read_bounded(archive, info, resource_limit(info.filename))
 
     fields = simple_manifest_fields(contents["plugin.yaml"])
     if fields != {"id": plugin_id, "version": version}:

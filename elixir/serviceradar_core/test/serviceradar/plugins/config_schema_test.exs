@@ -94,6 +94,67 @@ defmodule ServiceRadar.Plugins.ConfigSchemaTest do
     end
   end
 
+  test "validates and normalizes package-owned object arrays with local definitions" do
+    schema = %{
+      "$schema" => "https://json-schema.org/draft/2020-12/schema",
+      "type" => "object",
+      "additionalProperties" => false,
+      "required" => ["queries"],
+      "properties" => %{
+        "queries" => %{
+          "type" => "array",
+          "minItems" => 1,
+          "maxItems" => 8,
+          "items" => %{
+            "type" => "object",
+            "additionalProperties" => false,
+            "required" => ["name", "parameters"],
+            "properties" => %{
+              "name" => %{"type" => "string"},
+              "parameters" => %{"$ref" => "#/$defs/queryParameters"}
+            }
+          }
+        }
+      },
+      "$defs" => %{
+        "queryParameters" => %{
+          "type" => "object",
+          "minProperties" => 1,
+          "maxProperties" => 4,
+          "additionalProperties" => false,
+          "properties" => %{
+            "type" => %{"type" => "string"},
+            "ip" => %{"type" => "string"},
+            "context" => %{"type" => "string"}
+          },
+          "dependentRequired" => %{"context" => ["ip"]}
+        }
+      }
+    }
+
+    assert :ok = ConfigSchema.validate_schema(schema)
+
+    params = %{
+      "queries" => Jason.encode!([%{"name" => "switches", "parameters" => %{"type" => "Switch"}}])
+    }
+
+    assert %{
+             "queries" => [
+               %{"name" => "switches", "parameters" => %{"type" => "Switch"}}
+             ]
+           } = ConfigSchema.normalize_params(schema, params)
+
+    assert :ok =
+             ConfigSchema.validate_params(schema, ConfigSchema.normalize_params(schema, params))
+
+    assert {:error, _errors} =
+             ConfigSchema.validate_params(schema, %{
+               "queries" => [
+                 %{"name" => "context", "parameters" => %{"context" => "child"}}
+               ]
+             })
+  end
+
   test "blank numeric form values are omitted instead of persisted as strings or defaults" do
     schema = %{
       "type" => "object",

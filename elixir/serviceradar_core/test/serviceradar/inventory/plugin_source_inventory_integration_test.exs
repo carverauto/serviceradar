@@ -1,4 +1,4 @@
-defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
+defmodule ServiceRadar.Inventory.PluginSourceInventoryIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
@@ -20,15 +20,16 @@ defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
   end
 
   setup do
-    {:ok, actor: SystemActor.system(:hpna_source_inventory_test)}
+    {:ok, actor: SystemActor.system(:plugin_source_inventory_test)}
   end
 
-  test "HPNA converges with Armis by scoped serial and preserves both source identities", %{
-    actor: actor
-  } do
+  test "plugin inventory converges with Armis by scoped serial and preserves both source identities",
+       %{
+         actor: actor
+       } do
     suffix = unique_suffix()
     armis_id = "armis-#{suffix}"
-    hpna_id = "hpna:v1:lab-#{suffix}:device:201"
+    plugin_integration_id = "example-inventory:v1:lab-#{suffix}:device:201"
     serial = "FOC#{suffix}ABC"
 
     assert :ok =
@@ -53,27 +54,27 @@ defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
 
     assert :ok =
              DeviceDiscoveryIngestor.ingest(
-               hpna_payload(
+               inventory_payload(
                  "lab-#{suffix}",
                  "collection-#{suffix}-1",
                  ~U[2026-07-13 18:00:00Z],
-                 [hpna_device("201", "iad-asw-#{suffix}", serial)]
+                 [inventory_device("201", "iad-asw-#{suffix}", serial)]
                ),
                %{partition: "default"},
                actor: actor
              )
 
-    hpna_identifier = identifier!(actor, :integration_id, hpna_id)
+    plugin_integration_identifier = identifier!(actor, :integration_id, plugin_integration_id)
     serial_identifier = identifier!(actor, :hardware_serial, "cisco:#{serial}")
 
-    assert hpna_identifier.device_id == armis_identifier.device_id
+    assert plugin_integration_identifier.device_id == armis_identifier.device_id
     assert serial_identifier.device_id == armis_identifier.device_id
 
     assert {:ok, device} = Device.get_by_uid(armis_identifier.device_id, false, actor: actor)
-    assert Enum.sort(device.discovery_sources) == ["armis", "hpna"]
+    assert Enum.sort(device.discovery_sources) == ["armis", "example-inventory"]
     assert device.metadata["integration_type"] == "armis"
     assert device.metadata["armis_device_id"] == armis_id
-    assert device.metadata["hpna_device_id"] == "201"
+    assert device.metadata["source_metadata"]["partition"] == "IAD"
 
     [observation] =
       actor
@@ -85,7 +86,9 @@ defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
     assert observation.serial_number == serial
   end
 
-  test "a later complete snapshot marks missing HPNA observations absent", %{actor: actor} do
+  test "a later complete snapshot marks missing plugin inventory observations absent", %{
+    actor: actor
+  } do
     suffix = unique_suffix()
     instance = "presence-#{suffix}"
     first_collection = "collection-#{suffix}-1"
@@ -93,9 +96,9 @@ defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
 
     assert :ok =
              DeviceDiscoveryIngestor.ingest(
-               hpna_payload(instance, first_collection, ~U[2026-07-13 18:00:00Z], [
-                 hpna_device("301", "ord-asw-301", "FOC#{suffix}301"),
-                 hpna_device("302", "ord-asw-302", "FOC#{suffix}302")
+               inventory_payload(instance, first_collection, ~U[2026-07-13 18:00:00Z], [
+                 inventory_device("301", "ord-asw-301", "FOC#{suffix}301"),
+                 inventory_device("302", "ord-asw-302", "FOC#{suffix}302")
                ]),
                %{partition: "default"},
                actor: actor
@@ -103,8 +106,8 @@ defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
 
     assert :ok =
              DeviceDiscoveryIngestor.ingest(
-               hpna_payload(instance, second_collection, ~U[2026-07-14 18:00:00Z], [
-                 hpna_device("301", "ord-asw-301", "FOC#{suffix}301")
+               inventory_payload(instance, second_collection, ~U[2026-07-14 18:00:00Z], [
+                 inventory_device("301", "ord-asw-301", "FOC#{suffix}301")
                ]),
                %{partition: "default"},
                actor: actor
@@ -125,8 +128,8 @@ defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
     # changing the activated snapshot.
     assert :ok =
              DeviceDiscoveryIngestor.ingest(
-               hpna_payload(instance, second_collection, ~U[2026-07-14 18:00:00Z], [
-                 hpna_device("301", "ord-asw-301", "FOC#{suffix}301")
+               inventory_payload(instance, second_collection, ~U[2026-07-14 18:00:00Z], [
+                 inventory_device("301", "ord-asw-301", "FOC#{suffix}301")
                ]),
                %{partition: "default"},
                actor: actor
@@ -165,11 +168,11 @@ defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
 
     assert :ok =
              DeviceDiscoveryIngestor.ingest(
-               hpna_payload(
+               inventory_payload(
                  instance,
                  "collection-conflict-#{suffix}",
                  ~U[2026-07-13 18:00:00Z],
-                 [hpna_device("401", hostname, "HP#{suffix}", ip)]
+                 [inventory_device("401", hostname, "HP#{suffix}", ip)]
                ),
                %{partition: "default"},
                actor: actor
@@ -177,10 +180,10 @@ defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
 
     armis_owner = identifier!(actor, :armis_device_id, armis_id).device_id
 
-    hpna_owner =
-      identifier!(actor, :integration_id, "hpna:v1:#{instance}:device:401").device_id
+    plugin_owner =
+      identifier!(actor, :integration_id, "example-inventory:v1:#{instance}:device:401").device_id
 
-    refute hpna_owner == armis_owner
+    refute plugin_owner == armis_owner
   end
 
   test "source inventory pages stay pinned to one complete collection", %{actor: actor} do
@@ -190,16 +193,20 @@ defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
 
     assert :ok =
              DeviceDiscoveryIngestor.ingest(
-               hpna_payload(instance, first_collection, ~U[2026-07-13 18:00:00Z], [
-                 hpna_device("501", "iad-asw-501", "FOC#{suffix}501"),
-                 hpna_device("502", "iad-asw-502", "FOC#{suffix}502")
+               inventory_payload(instance, first_collection, ~U[2026-07-13 18:00:00Z], [
+                 inventory_device("501", "iad-asw-501", "FOC#{suffix}501"),
+                 inventory_device("502", "iad-asw-502", "FOC#{suffix}502")
                ]),
                %{partition: "default"},
                actor: actor
              )
 
     assert {:ok, first_page} =
-             SourceInventoryReader.list(%{"instance" => instance, "limit" => "1"})
+             SourceInventoryReader.list(%{
+               "source" => "example-inventory",
+               "instance" => instance,
+               "limit" => "1"
+             })
 
     assert first_page["collection"]["id"] == first_collection
     assert first_page["collection"]["expected_present_count"] == 2
@@ -209,6 +216,7 @@ defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
 
     assert {:ok, second_page} =
              SourceInventoryReader.list(%{
+               "source" => "example-inventory",
                "instance" => instance,
                "collection" => first_collection,
                "cursor" => cursor,
@@ -222,11 +230,11 @@ defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
 
     assert :ok =
              DeviceDiscoveryIngestor.ingest(
-               hpna_payload(
+               inventory_payload(
                  instance,
                  "reader-collection-#{suffix}-2",
                  ~U[2026-07-13 19:00:00Z],
-                 [hpna_device("501", "iad-asw-501", "FOC#{suffix}501")]
+                 [inventory_device("501", "iad-asw-501", "FOC#{suffix}501")]
                ),
                %{partition: "default"},
                actor: actor
@@ -234,6 +242,7 @@ defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
 
     assert {:error, :source_collection_changed} =
              SourceInventoryReader.list(%{
+               "source" => "example-inventory",
                "instance" => instance,
                "collection" => first_collection,
                "cursor" => cursor,
@@ -257,7 +266,7 @@ defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
   defp observations!(actor, instance) do
     {:ok, observations} =
       DeviceSourceObservation
-      |> Ash.Query.filter(source == "hpna" and source_instance == ^instance)
+      |> Ash.Query.filter(source == "example-inventory" and source_instance == ^instance)
       |> Ash.read(actor: actor)
 
     observations
@@ -266,13 +275,13 @@ defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
   defp snapshot!(actor, instance) do
     {:ok, [snapshot]} =
       DeviceSourceSnapshot
-      |> Ash.Query.filter(source == "hpna" and source_instance == ^instance)
+      |> Ash.Query.filter(source == "example-inventory" and source_instance == ^instance)
       |> Ash.read(actor: actor)
 
     snapshot
   end
 
-  defp hpna_payload(instance, collection_id, observed_at, devices) do
+  defp inventory_payload(instance, collection_id, observed_at, devices) do
     hash_seed = :sha256 |> :crypto.hash(collection_id) |> Base.encode16(case: :lower)
 
     %{
@@ -280,7 +289,7 @@ defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
       "device_discovery" => [
         %{
           "schema" => "serviceradar.device_discovery.v1",
-          "source" => "hpna",
+          "source" => "example-inventory",
           "collection_id" => collection_id,
           "reference_hash" => hash_seed,
           "observed_at" => DateTime.to_iso8601(observed_at),
@@ -293,10 +302,10 @@ defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
           },
           "devices" =>
             Enum.map(devices, fn device ->
-              integration_id = "hpna:v1:#{instance}:device:#{device.id}"
+              integration_id = "example-inventory:v1:#{instance}:device:#{device.id}"
 
               %{
-                "device_id" => integration_id,
+                "device_id" => device.id,
                 "hostname" => device.hostname,
                 "ip" => device.ip,
                 "serial" => device.serial,
@@ -305,14 +314,13 @@ defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
                 "type" => "Switch",
                 "metadata" => %{
                   "integration_id" => integration_id,
-                  "integration_type" => "hpna",
-                  "hpna_instance_id" => instance,
-                  "hpna_device_id" => device.id,
-                  "hpna_partition" => "IAD",
-                  "hpna_device_type" => "Switch",
-                  "hpna_management_status" => "Managed",
-                  "hpna_serial_number" => device.serial,
-                  "hpna_present" => true
+                  "integration_type" => "example-inventory",
+                  "source_metadata" => %{
+                    "instance_id" => instance,
+                    "partition" => "IAD",
+                    "management_status" => "Managed",
+                    "present" => true
+                  }
                 }
               }
             end)
@@ -321,7 +329,7 @@ defmodule ServiceRadar.Inventory.HPNASourceInventoryIntegrationTest do
     }
   end
 
-  defp hpna_device(id, hostname, serial, ip \\ nil) do
+  defp inventory_device(id, hostname, serial, ip \\ nil) do
     %{
       id: id,
       hostname: hostname,

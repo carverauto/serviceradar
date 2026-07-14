@@ -22,7 +22,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   require Ash.Query
 
   @repo_url "https://code.carverauto.dev/carverauto/serviceradar"
-  @external_repo_url "https://code.carverauto.dev/carverauto/serviceradar-plugin-hpna"
+  @external_repo_url "https://code.carverauto.dev/carverauto/serviceradar-plugin-example-inventory"
   @manifest_yaml """
   id: live-first-party-plugin
   name: Live First-party Plugin
@@ -57,7 +57,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       cond do
         String.contains?(
           url,
-          "/api/v1/repos/carverauto/serviceradar-plugin-hpna/releases?per_page="
+          "/api/v1/repos/carverauto/serviceradar-plugin-example-inventory/releases?per_page="
         ) ->
           {:ok,
            %Req.Response{
@@ -67,7 +67,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
         String.contains?(
           url,
-          "/api/v1/repos/carverauto/serviceradar-plugin-hpna/releases/tags/v2.0.0"
+          "/api/v1/repos/carverauto/serviceradar-plugin-example-inventory/releases/tags/v2.0.0"
         ) ->
           {:ok, %Req.Response{status: 200, body: PluginPackageLiveTest.external_release()}}
 
@@ -87,7 +87,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
         String.ends_with?(url, "/serviceradar-wasm-plugin-index.json") ->
           body =
             cond do
-              String.contains?(url, "serviceradar-plugin-hpna") ->
+              String.contains?(url, "serviceradar-plugin-example-inventory") ->
                 PluginPackageLiveTest.external_index()
 
               String.contains?(url, "/v1.0.0/") ->
@@ -566,13 +566,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   def external_release do
     %{
       "tag_name" => "v2.0.0",
-      "name" => "HPNA plugin v2.0.0",
-      "html_url" => "https://code.carverauto.dev/carverauto/serviceradar-plugin-hpna/releases/tag/v2.0.0",
+      "name" => "Example inventory plugin v2.0.0",
+      "html_url" => "https://code.carverauto.dev/carverauto/serviceradar-plugin-example-inventory/releases/tag/v2.0.0",
       "assets" => [
         %{
           "name" => "serviceradar-wasm-plugin-index.json",
           "browser_download_url" =>
-            "https://code.carverauto.dev/carverauto/serviceradar-plugin-hpna/releases/download/v2.0.0/serviceradar-wasm-plugin-index.json"
+            "https://code.carverauto.dev/carverauto/serviceradar-plugin-example-inventory/releases/download/v2.0.0/serviceradar-wasm-plugin-index.json"
         }
       ]
     }
@@ -625,9 +625,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
           "name" => "Live First-party Plugin",
           "version" => "2.0.0",
           "bundle_url" =>
-            "https://code.carverauto.dev/carverauto/serviceradar-plugin-hpna/releases/download/v2.0.0/live-first-party-plugin.zip",
+            "https://code.carverauto.dev/carverauto/serviceradar-plugin-example-inventory/releases/download/v2.0.0/live-first-party-plugin.zip",
           "upload_signature_url" =>
-            "https://code.carverauto.dev/carverauto/serviceradar-plugin-hpna/releases/download/v2.0.0/live-first-party-plugin.upload-signature.json",
+            "https://code.carverauto.dev/carverauto/serviceradar-plugin-example-inventory/releases/download/v2.0.0/live-first-party-plugin.upload-signature.json",
           "bundle_digest" => Storage.sha256(bundle()),
           "oci_ref" => "registry.carverauto.dev/serviceradar/wasm-plugin-live-first-party-plugin:v2.0.0"
         }

@@ -20,7 +20,7 @@ gazelle(
 )
 
 exports_files([
-    ".forgejo/workflows/external-hpna-wasm-plugin.yml",
+    ".forgejo/workflows/external-wasm-plugin.yml",
     ".forgejo/workflows/image-security.yml",
     ".forgejo/workflows/native-addons.yml",
     ".forgejo/workflows/release.yml",

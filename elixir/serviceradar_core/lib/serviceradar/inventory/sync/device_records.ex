@@ -123,11 +123,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
 
   defp prefer_positive_int(_new_value, old_value), do: old_value
 
-  # HPNA source identity lives in typed identifiers and source observations.
-  # Dropping only generic identity keys prevents an HPNA refresh from replacing
-  # an existing Armis integration identity; hpna_* fields remain available.
-  defp persisted_metadata(metadata, "hpna") do
-    Map.drop(metadata, ["integration_id", "integration_type"])
+  # Complete plugin inventories keep source identity in typed identifiers and
+  # source observations. They must not replace another source's canonical identity.
+  defp persisted_metadata(%{"plugin_inventory_snapshot" => true} = metadata, _source) do
+    Map.drop(metadata, ["integration_id", "integration_type", "plugin_inventory_snapshot"])
   end
 
   defp persisted_metadata(metadata, _source), do: metadata

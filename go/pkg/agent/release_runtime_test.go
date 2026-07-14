@@ -270,7 +270,6 @@ func TestActivateStagedReleaseAcceptsAbsoluteCurrentTargetUnderRuntimeRoot(t *te
 	}
 	if state == nil {
 		t.Fatal("expected activation state")
-		return
 	}
 	if got, want := state.PreviousTarget, filepath.Join(releaseVersionsDirName, releaseSeedVersionDir); got != want {
 		t.Fatalf("previous target = %q, want %q", got, want)

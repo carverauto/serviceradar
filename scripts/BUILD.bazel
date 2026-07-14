@@ -8,7 +8,7 @@ exports_files([
     "check-native-addon-version-bumps.sh",
     "swiftlint_bazel.sh",
     "test-release-publish-contracts.sh",
-    "test-external-wasm-plugin-release-contracts.sh",
+    "test-external-wasm-plugin-release-workflow.sh",
     "test-verify-native-addon-publish-negative.sh",
     "test-wasm-plugin-publish-context.sh",
     "validate-release-tag.sh",
@@ -36,16 +36,16 @@ sh_test(
 )
 
 sh_test(
-    name = "external_wasm_plugin_release_contracts_test",
+    name = "external_wasm_plugin_release_workflow_test",
     timeout = "short",
-    srcs = ["test-external-wasm-plugin-release-contracts.sh"],
+    srcs = ["test-external-wasm-plugin-release-workflow.sh"],
     data = [
         "install-external-wasm-tinygo.sh",
         "publish-external-wasm-plugin-release.sh",
         "test-publish-external-wasm-plugin-release.py",
         "test-validate-external-wasm-plugin-bundle.py",
         "validate-external-wasm-plugin-bundle.py",
-        "//:.forgejo/workflows/external-hpna-wasm-plugin.yml",
+        "//:.forgejo/workflows/external-wasm-plugin.yml",
         "@jq_linux_amd64//file",
         "@jq_linux_arm64//file",
     ],

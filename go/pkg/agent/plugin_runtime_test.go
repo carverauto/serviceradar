@@ -396,7 +396,7 @@ func TestPluginAssignmentClassifiesActionOnlyCapability(t *testing.T) {
 	assignment := newPluginAssignment(
 		&proto.PluginAssignmentConfig{
 			AssignmentId: "action-1",
-			PluginId:     "hpna-inventory",
+			PluginId:     "example-inventory",
 			Entrypoint:   "run_check",
 			Capabilities: []string{pluginCapabilityActionOnly, pluginCapabilityActionResultIngest},
 		},
@@ -434,7 +434,7 @@ func TestPluginManagerApplyConfigSeparatesStreamingAssignments(t *testing.T) {
 			},
 			{
 				AssignmentId: "action-1",
-				PluginId:     "hpna-inventory",
+				PluginId:     "example-inventory",
 				Entrypoint:   "run_check",
 				Enabled:      true,
 				IntervalSec:  60,
@@ -465,7 +465,7 @@ func TestPluginManagerApplyConfigSeparatesStreamingAssignments(t *testing.T) {
 	if _, ok := mgr.actions["action-1"]; !ok {
 		t.Fatal("expected action-only assignment to be cataloged without a runner")
 	}
-	if assignment, ok := mgr.lookupRunnerAssignment("action-1"); !ok || assignment.PluginID != "hpna-inventory" {
+	if assignment, ok := mgr.lookupRunnerAssignment("action-1"); !ok || assignment.PluginID != "example-inventory" {
 		t.Fatal("expected exact action lookup to find action-only assignment")
 	}
 }
@@ -706,7 +706,6 @@ func TestPluginConfigFromConfigJSONFallback(t *testing.T) {
 
 	if config == nil {
 		t.Fatal("expected plugin config fallback")
-		return
 	}
 	if config.EngineLimits.GetMaxMemoryMb() != 256 ||
 		config.EngineLimits.GetMaxCpuMs() != 750 ||

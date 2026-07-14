@@ -77,13 +77,13 @@ class AssembleBundleTest(unittest.TestCase):
             manifest = tmp / "plugin.yaml"
             wasm = tmp / "plugin.wasm"
             schema = tmp / "config.schema.json"
-            bundle = tmp / "hpna-inventory-0.1.0.zip"
-            sha = tmp / "hpna-inventory-0.1.0.sha256"
-            metadata = tmp / "hpna-inventory-0.1.0.metadata.json"
+            bundle = tmp / "example-inventory-0.1.0.zip"
+            sha = tmp / "example-inventory-0.1.0.sha256"
+            metadata = tmp / "example-inventory-0.1.0.metadata.json"
             commit = "a" * 40
 
             manifest.write_text(
-                "id: hpna-inventory\nname: HPNA Inventory\nversion: 0.1.0\n",
+                "id: example-inventory\nname: Example Inventory\nversion: 0.1.0\n",
                 encoding="utf-8",
             )
             wasm.write_bytes(b"\x00asm")
@@ -121,10 +121,10 @@ class AssembleBundleTest(unittest.TestCase):
             )
 
             metadata_json = json.loads(metadata.read_text(encoding="utf-8"))
-            self.assertEqual(metadata_json["plugin_id"], "hpna-inventory")
-            self.assertEqual(metadata_json["plugin_name"], "HPNA Inventory")
+            self.assertEqual(metadata_json["plugin_id"], "example-inventory")
+            self.assertEqual(metadata_json["plugin_name"], "Example Inventory")
             self.assertEqual(metadata_json["plugin_version"], "0.1.0")
-            self.assertEqual(metadata_json["repository_name"], "wasm-plugin-hpna-inventory")
+            self.assertEqual(metadata_json["repository_name"], "wasm-plugin-example-inventory")
             self.assertEqual(metadata_json["source_commit"], commit)
             self.assertEqual(metadata_json["source_committed_at"], "2026-07-13T12:00:00-05:00")
 

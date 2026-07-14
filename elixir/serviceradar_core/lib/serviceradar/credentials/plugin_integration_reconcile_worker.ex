@@ -1,7 +1,7 @@
-defmodule ServiceRadar.Credentials.HpnaCredentialRuleReconcileWorker do
+defmodule ServiceRadar.Credentials.PluginIntegrationReconcileWorker do
   @moduledoc """
-  Periodically converges HPNA credential-rule state into one selected-agent
-  action-only assignment and its disabled-by-default producer schedule.
+  Periodically converges package-declared credential integrations into selected-agent
+  assignments and producer schedules.
   """
 
   use Oban.Worker,
@@ -10,7 +10,7 @@ defmodule ServiceRadar.Credentials.HpnaCredentialRuleReconcileWorker do
     unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Credentials.HpnaInventoryProvisioner
+  alias ServiceRadar.Credentials.PluginIntegrationProvisioner
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
@@ -32,18 +32,18 @@ defmodule ServiceRadar.Credentials.HpnaCredentialRuleReconcileWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
-    actor = SystemActor.system(:hpna_credential_rule_reconcile_worker)
+    actor = SystemActor.system(:plugin_integration_reconcile_worker)
 
-    result = HpnaInventoryProvisioner.reconcile_all(actor: actor)
+    result = PluginIntegrationProvisioner.reconcile_all(actor: actor)
     schedule_next()
 
     case result do
       {:ok, summary} ->
-        Logger.info("Reconciled HPNA inventory credential rule", summary: inspect(summary))
+        Logger.info("Reconciled plugin credential integrations", summary: inspect(summary))
         :ok
 
       {:error, reason} ->
-        Logger.warning("Failed to reconcile HPNA inventory credential rule",
+        Logger.warning("Failed to reconcile plugin credential integrations",
           reason: inspect(reason)
         )
 
@@ -68,7 +68,7 @@ defmodule ServiceRadar.Credentials.HpnaCredentialRuleReconcileWorker do
     seconds =
       Application.get_env(
         :serviceradar_core,
-        :hpna_credential_rule_reconcile_interval_seconds,
+        :plugin_integration_reconcile_interval_seconds,
         @default_reschedule_seconds
       )
 

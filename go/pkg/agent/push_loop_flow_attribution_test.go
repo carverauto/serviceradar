@@ -206,7 +206,6 @@ func TestFlowAttributionDeliveryQueueAcknowledgesOnlyDeliveredPrefix(t *testing.
 
 	if first == nil {
 		t.Fatal("first pending batch is nil")
-		return
 	}
 	if retry != first {
 		t.Fatal("unacknowledged delivery loaded a different batch")

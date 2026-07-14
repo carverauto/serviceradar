@@ -79,22 +79,22 @@ func TestPluginManagerActionAdmissionIsScopedToAssignment(t *testing.T) {
 	manager := NewPluginManager(t.Context(), PluginManagerConfig{})
 	defer manager.Stop()
 
-	if !manager.acquireAction("hpna-primary") {
+	if !manager.acquireAction("inventory-primary") {
 		t.Fatal("first action should acquire the assignment")
 	}
-	if manager.acquireAction("hpna-primary") {
+	if manager.acquireAction("inventory-primary") {
 		t.Fatal("overlapping action for the same assignment should be rejected")
 	}
 	if !manager.acquireAction("other-inventory") {
 		t.Fatal("an unrelated assignment should be admitted")
 	}
 
-	manager.releaseAction("hpna-primary")
-	if !manager.acquireAction("hpna-primary") {
+	manager.releaseAction("inventory-primary")
+	if !manager.acquireAction("inventory-primary") {
 		t.Fatal("assignment should be admitted after the active action completes")
 	}
 
-	manager.releaseAction("hpna-primary")
+	manager.releaseAction("inventory-primary")
 	manager.releaseAction("other-inventory")
 }
 
@@ -379,7 +379,7 @@ func TestApplyCredentialBrokerFormInjectionTargetsExactEndpoint(t *testing.T) {
 	req, err := http.NewRequestWithContext(
 		t.Context(),
 		http.MethodPost,
-		"https://hpna.example.com/oauth/token",
+		"https://identity.example.com/oauth/token",
 		strings.NewReader("scope=inventory"),
 	)
 	if err != nil {
@@ -389,7 +389,7 @@ func TestApplyCredentialBrokerFormInjectionTargetsExactEndpoint(t *testing.T) {
 	grant := credentialBrokerGrant{Inject: map[string]string{
 		"type":             "form_urlencoded",
 		"method":           http.MethodPost,
-		"host":             "hpna.example.com",
+		"host":             "identity.example.com",
 		"path":             "/oauth/token",
 		"field_username":   "username",
 		"field_password":   "password",
@@ -431,7 +431,7 @@ func TestApplyCredentialBrokerFormInjectionRejectsCallerSecretField(t *testing.T
 	req, err := http.NewRequestWithContext(
 		t.Context(),
 		http.MethodPost,
-		"https://hpna.example.com/oauth/token",
+		"https://identity.example.com/oauth/token",
 		strings.NewReader("username=caller-supplied"),
 	)
 	if err != nil {
@@ -440,7 +440,7 @@ func TestApplyCredentialBrokerFormInjectionRejectsCallerSecretField(t *testing.T
 	grant := credentialBrokerGrant{Inject: map[string]string{
 		"type":           "form_urlencoded",
 		"method":         http.MethodPost,
-		"host":           "hpna.example.com",
+		"host":           "identity.example.com",
 		"path":           "/oauth/token",
 		"field_username": "username",
 	}}
@@ -459,7 +459,7 @@ func TestApplyCredentialBrokerFormInjectionIgnoresOtherEndpoint(t *testing.T) {
 	req, err := http.NewRequestWithContext(
 		t.Context(),
 		http.MethodPost,
-		"https://hpna.example.com/api/devices",
+		"https://identity.example.com/api/devices",
 		strings.NewReader(`{"command":"list device"}`),
 	)
 	if err != nil {
@@ -468,7 +468,7 @@ func TestApplyCredentialBrokerFormInjectionIgnoresOtherEndpoint(t *testing.T) {
 	grant := credentialBrokerGrant{Inject: map[string]string{
 		"type":           "form_urlencoded",
 		"method":         http.MethodPost,
-		"host":           "hpna.example.com",
+		"host":           "identity.example.com",
 		"path":           "/oauth/token",
 		"field_username": "username",
 	}}
@@ -493,13 +493,13 @@ func TestApplyCredentialBrokerFormInjectionRequiresHTTPSAndMaterial(t *testing.T
 	grant := credentialBrokerGrant{Inject: map[string]string{
 		"type":           "form_urlencoded",
 		"method":         http.MethodPost,
-		"host":           "hpna.example.com",
+		"host":           "identity.example.com",
 		"path":           "/oauth/token",
 		"field_username": "username",
 	}}
 
 	httpReq, err := http.NewRequestWithContext(
-		t.Context(), http.MethodPost, "http://hpna.example.com/oauth/token", nil,
+		t.Context(), http.MethodPost, "http://identity.example.com/oauth/token", nil,
 	)
 	if err != nil {
 		t.Fatalf("create HTTP request: %v", err)
@@ -511,7 +511,7 @@ func TestApplyCredentialBrokerFormInjectionRequiresHTTPSAndMaterial(t *testing.T
 	}
 
 	httpsReq, err := http.NewRequestWithContext(
-		t.Context(), http.MethodPost, "https://hpna.example.com/oauth/token", nil,
+		t.Context(), http.MethodPost, "https://identity.example.com/oauth/token", nil,
 	)
 	if err != nil {
 		t.Fatalf("create HTTPS request: %v", err)
@@ -527,21 +527,21 @@ func TestPluginManagerEnqueueActionResultQueuesFullPayloadAndReturnsBoundedAck(t
 	manager := NewPluginManager(t.Context(), PluginManagerConfig{Logger: logger.NewTestLogger()})
 	defer manager.Stop()
 	assignment := &pluginAssignment{
-		AssignmentID: "hpna-assignment-1",
-		PluginID:     "hpna-inventory",
-		Name:         "HPNA Inventory",
+		AssignmentID: "inventory-assignment-1",
+		PluginID:     "example-inventory",
+		Name:         "Example Inventory",
 		Capabilities: map[string]bool{pluginCapabilityActionResultIngest: true},
 	}
 	payload := []byte(`{
 		"status":"OK",
-		"summary":"Collected HPNA inventory",
+		"summary":"Collected example inventory",
 		"device_discovery":[{
 			"schema":"serviceradar.device_discovery.v1",
-			"collection_id":"hpna-collection-1",
+			"collection_id":"example-collection-1",
 			"reference_hash":"sha256:abc123",
 			"devices":[
-				{"source_id":"hpna:v1:prod:device:1","metadata":{"private":"do-not-return"}},
-				{"source_id":"hpna:v1:prod:device:2"}
+				{"source_id":"example-inventory:v1:prod:device:1","metadata":{"private":"do-not-return"}},
+				{"source_id":"example-inventory:v1:prod:device:2"}
 			],
 			"metadata":{
 				"page_count":2,
@@ -589,9 +589,9 @@ func TestPluginManagerEnqueueActionResultRejectsInvalidAndBackpressure(t *testin
 	t.Parallel()
 
 	assignment := &pluginAssignment{
-		AssignmentID: "hpna-assignment-1",
-		PluginID:     "hpna-inventory",
-		Name:         "HPNA Inventory",
+		AssignmentID: "inventory-assignment-1",
+		PluginID:     "example-inventory",
+		Name:         "Example Inventory",
 	}
 	manager := NewPluginManager(t.Context(), PluginManagerConfig{Logger: logger.NewTestLogger()})
 	defer manager.Stop()

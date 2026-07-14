@@ -173,7 +173,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
     refute_received {:unexpected_device_sync, _, _}
   end
 
-  test "routes a complete HPNA collection through device sync before source activation" do
+  test "routes a complete plugin inventory collection through device sync before source activation" do
     parent = self()
 
     payload = %{
@@ -181,27 +181,29 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
       "device_discovery" => [
         %{
           "schema" => "serviceradar.device_discovery.v1",
-          "source" => "hpna",
-          "collection_id" => "hpna-collection-1",
+          "source" => "example-inventory",
+          "collection_id" => "example-collection-1",
           "reference_hash" => String.duplicate("a", 64),
           "observed_at" => "2026-07-13T18:00:00Z",
           "metadata" => %{
-            "source_instance" => "example-automation-prod",
+            "source_instance" => "example-prod",
             "snapshot_complete" => true,
             "query_hash" => String.duplicate("b", 64)
           },
           "devices" => [
             %{
-              "device_id" => "hpna:v1:example-automation-prod:device:201",
+              "device_id" => "201",
               "hostname" => "iad-asw-01",
               "ip" => "192.0.2.20",
               "serial" => "FOC1234ABC",
               "vendor_name" => "Cisco",
               "metadata" => %{
-                "integration_id" => "hpna:v1:example-automation-prod:device:201",
-                "integration_type" => "hpna",
-                "hpna_instance_id" => "example-automation-prod",
-                "hpna_device_id" => "201"
+                "integration_id" => "example-inventory:v1:example-prod:device:201",
+                "integration_type" => "example-inventory",
+                "source_metadata" => %{
+                  "instance_id" => "example-prod",
+                  "partition" => "IAD"
+                }
               }
             }
           ]
@@ -227,29 +229,31 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
              )
 
     assert_receive {:source_preflight, preflight_envelope, [preflight_update], preflight_context}
-    assert preflight_envelope["collection_id"] == "hpna-collection-1"
-    assert preflight_update["source"] == "hpna"
+    assert preflight_envelope["collection_id"] == "example-collection-1"
+    assert preflight_update["source"] == "example-inventory"
     assert preflight_context == %{actor: :actor, partition: "default"}
 
     assert_receive {:device_sync, [update]}
-    assert update["source"] == "hpna"
-    assert update["metadata"]["integration_type"] == "hpna"
+    assert update["source"] == "example-inventory"
+    assert update["metadata"]["integration_type"] == "example-inventory"
     assert update["metadata"]["serial_number"] == "FOC1234ABC"
 
     assert_receive {:source_sync, envelope, [^update], context}
-    assert envelope["collection_id"] == "hpna-collection-1"
+    assert envelope["collection_id"] == "example-collection-1"
     assert context == %{actor: :actor, partition: "default"}
   end
 
-  test "rejects stale HPNA collections before canonical device sync" do
+  test "rejects stale plugin inventory collections before canonical device sync" do
     parent = self()
 
     payload = %{
       "device_discovery" => [
         %{
           "schema" => "serviceradar.device_discovery.v1",
-          "source" => "hpna",
-          "devices" => [%{"device_id" => "hpna:v1:lab:device:1", "hostname" => "iad-asw-01"}]
+          "source" => "example-inventory",
+          "devices" => [
+            %{"device_id" => "example-inventory:v1:lab:device:1", "hostname" => "iad-asw-01"}
+          ]
         }
       ]
     }
@@ -274,15 +278,17 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
     refute_received :unexpected_source_sync
   end
 
-  test "idempotent HPNA collections skip canonical and source writes" do
+  test "idempotent plugin inventory collections skip canonical and source writes" do
     parent = self()
 
     payload = %{
       "device_discovery" => [
         %{
           "schema" => "serviceradar.device_discovery.v1",
-          "source" => "hpna",
-          "devices" => [%{"device_id" => "hpna:v1:lab:device:1", "hostname" => "iad-asw-01"}]
+          "source" => "example-inventory",
+          "devices" => [
+            %{"device_id" => "example-inventory:v1:lab:device:1", "hostname" => "iad-asw-01"}
+          ]
         }
       ]
     }

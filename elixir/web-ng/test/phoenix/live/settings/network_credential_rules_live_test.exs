@@ -6,8 +6,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Plugins.Plugin
+  alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
+  alias ServiceRadarWebNG.Plugins.Packages
 
   require Ash.Query
 
@@ -323,47 +326,53 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute html =~ "Allow auto-discovery credential trials"
   end
 
-  test "hpna preset seeds selected-agent action schedule settings", %{conn: conn} do
-    {:ok, _lv, html} = live(conn, ~p"/settings/networks/credentials/new?provider=hpna")
+  test "package descriptor seeds selected-agent schedule settings", %{conn: conn} do
+    seed_example_inventory_package!()
+    {:ok, _lv, html} = live(conn, ~p"/settings/networks/credentials/new?provider=example-inventory")
 
-    assert html =~ ~s(value="hpna")
+    assert html =~ ~s(value="example-inventory")
     assert html =~ ~r/<option selected[^>]*value="username_password"/
     assert checked_purpose?(html, "device_inventory")
-    assert html =~ "HPNA Inventory"
+    assert html =~ "Example Inventory"
+    assert html =~ "Instance ID"
     assert html =~ "OAuth Token URL"
-    assert html =~ "Automation Wrapper URL"
-    assert html =~ "List Device Queries (JSON)"
+    assert html =~ "Inventory API URL"
+    assert html =~ "Query Sets"
     assert html =~ "Switch"
     assert html =~ "Enable recurring inventory refresh"
     refute html =~ "Target Query"
     refute html =~ "Allowed Ports"
   end
 
-  test "creates a bounded HPNA inventory credential rule", %{conn: conn, scope: scope} do
-    secret = username_password_secret_fixture(scope, "hpna")
-    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new?provider=hpna")
+  test "creates a bounded package-declared inventory credential rule", %{conn: conn, scope: scope} do
+    seed_example_inventory_package!()
+    secret = username_password_secret_fixture(scope, "example-inventory")
+
+    {:ok, lv, _html} =
+      live(conn, ~p"/settings/networks/credentials/new?provider=example-inventory")
 
     lv
     |> form("#credential-rule-form",
-      credential_rule: hpna_rule_form_params(secret.id)
+      credential_rule: example_inventory_rule_form_params(secret.id)
     )
     |> render_submit()
 
     assert_patch(lv, ~p"/settings/networks/credentials")
     html = render(lv)
-    assert html =~ "HPNA production inventory"
+    assert html =~ "Example production inventory"
     assert html =~ "Pending"
 
-    rule = get_rule_by_name!(scope, "HPNA production inventory")
-    assert rule.provider == "hpna"
+    rule = get_rule_by_name!(scope, "Example production inventory")
+    assert rule.provider == "example-inventory"
     assert rule.auth_method == :username_password
     assert rule.purpose == :device_inventory
     assert rule.scope_type == :agent
     assert rule.scope_value == "agent-k8s"
     assert rule.target_query == "in:agents"
-    assert rule.metadata["instance_id"] == "example-automation-prod"
+    assert rule.metadata["plugin_integration"]
+    assert rule.metadata["plugin_config"]["instance_id"] == "example-prod"
 
-    assert rule.metadata["queries"] == [
+    assert rule.metadata["plugin_config"]["queries"] == [
              %{"name" => "switches", "parameters" => %{"type" => "Switch"}}
            ]
 
@@ -371,18 +380,21 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert rule.metadata["cadence_seconds"] == 86_400
   end
 
-  test "rejects unsafe HPNA query keys before saving the rule", %{conn: conn, scope: scope} do
-    secret = username_password_secret_fixture(scope, "hpna")
-    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new?provider=hpna")
+  test "rejects config outside the package JSON Schema", %{conn: conn, scope: scope} do
+    seed_example_inventory_package!()
+    secret = username_password_secret_fixture(scope, "example-inventory")
+
+    {:ok, lv, _html} =
+      live(conn, ~p"/settings/networks/credentials/new?provider=example-inventory")
 
     params =
       secret.id
-      |> hpna_rule_form_params()
-      |> Map.put(
-        "queries_json",
-        Jason.encode!([
+      |> example_inventory_rule_form_params()
+      |> put_in(
+        ["plugin_config", "queries"],
+        [
           %{"name" => "unsafe", "parameters" => %{"command" => "show device"}}
-        ])
+        ]
       )
 
     html =
@@ -390,8 +402,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
       |> form("#credential-rule-form", credential_rule: params)
       |> render_submit()
 
-    assert html =~ "Invalid HPNA setting: queries.parameters.command"
-    refute get_rule_by_name!(scope, "HPNA production inventory")
+    assert html =~ "Invalid plugin configuration"
+    refute get_rule_by_name!(scope, "Example production inventory")
   end
 
   test "provider changes clamp auth methods and purposes to provider preset", %{conn: conn} do
@@ -867,11 +879,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     secret
   end
 
-  defp hpna_rule_form_params(secret_id) do
+  defp example_inventory_rule_form_params(secret_id) do
     %{
-      "name" => "HPNA production inventory",
+      "name" => "Example production inventory",
       "description" => "Daily switch inventory",
-      "provider" => "hpna",
+      "provider" => "example-inventory",
       "auth_method" => "username_password",
       "purposes" => ["device_inventory"],
       "target_query" => "in:agents",
@@ -881,20 +893,173 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
       "priority" => "100",
       "allowed_ports" => "",
       "tls_policy" => "verify",
-      "instance_id" => "example-automation-prod",
-      "token_url" => "https://hpna.example.test/oauth/token",
-      "api_url" => "https://hpna.example.test/api/automation/wrapper",
-      "queries_json" =>
-        Jason.encode!([
+      "plugin_config" => %{
+        "instance_id" => "example-prod",
+        "token_url" => "https://identity.example.test/oauth/token",
+        "api_url" => "https://inventory.example.test/api",
+        "queries" => [
           %{"name" => "switches", "parameters" => %{"type" => "Switch"}}
-        ]),
-      "page_size" => "1000",
-      "max_rows" => "25000",
-      "max_result_bytes" => "10485760",
-      "request_timeout_seconds" => "30",
-      "max_retries" => "2",
+        ]
+      },
       "schedule_enabled" => "false",
       "cadence_seconds" => "86400"
+    }
+  end
+
+  defp seed_example_inventory_package! do
+    actor = system_actor()
+    plugin_id = "example-inventory-plugin-#{System.unique_integer([:positive])}"
+
+    Plugin
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        plugin_id: plugin_id,
+        name: "Example Inventory",
+        description: "Package-declared inventory provider"
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+
+    manifest = example_inventory_manifest(plugin_id)
+
+    package =
+      PluginPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          plugin_id: plugin_id,
+          name: "Example Inventory",
+          version: "1.0.0",
+          entrypoint: "run_check",
+          runtime: "wasi-preview1",
+          outputs: "serviceradar.plugin_result.v1",
+          manifest: manifest,
+          config_schema: example_inventory_config_schema(),
+          signature: %{},
+          source_type: :github,
+          source_commit: "test-#{plugin_id}"
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    assert {:ok, _approved} = Packages.approve(package.id, %{}, actor: actor)
+  end
+
+  defp example_inventory_manifest(plugin_id) do
+    %{
+      "id" => plugin_id,
+      "name" => "Example Inventory",
+      "version" => "1.0.0",
+      "entrypoint" => "run_check",
+      "runtime" => "wasi-preview1",
+      "outputs" => "serviceradar.plugin_result.v1",
+      "capabilities" => ["get_config", "producer-schedule:v1"],
+      "permissions" => %{"allowed_domains" => ["*"]},
+      "resources" => %{
+        "requested_cpu_ms" => 5_000,
+        "requested_memory_mb" => 64,
+        "max_open_connections" => 2
+      },
+      "producer_schedules" => [
+        %{
+          "schedule_id" => "example-inventory.refresh",
+          "label" => "Refresh example inventory",
+          "action_id" => "example-inventory.refresh",
+          "command_type" => "plugin.run_action",
+          "default_cadence_seconds" => 86_400,
+          "min_cadence_seconds" => 3_600,
+          "max_cadence_seconds" => 2_592_000,
+          "dispatch_scope" => "assignment",
+          "timeout_seconds" => 900,
+          "credential_requirements" => %{
+            "inventory_account" => %{
+              "required" => true,
+              "resolution_location" => "agent",
+              "grants" => []
+            }
+          }
+        }
+      ],
+      "integrations" => %{
+        "documentation" => %{
+          "title" => "Example inventory configuration",
+          "path" => "docs/configuration.md"
+        },
+        "credential_profiles" => [
+          %{
+            "provider" => "example-inventory",
+            "label" => "Example Inventory",
+            "auth_methods" => [
+              %{"id" => "username_password", "credential_kind" => "username_password"}
+            ],
+            "purposes" => ["device_inventory"],
+            "scope_types" => ["agent"],
+            "provisioning" => %{
+              "mode" => "producer_schedule",
+              "schedule_id" => "example-inventory.refresh",
+              "credential_requirement" => "inventory_account"
+            }
+          }
+        ],
+        "inventory_sources" => [
+          %{
+            "source" => "example-inventory",
+            "label" => "Example Inventory",
+            "metadata_fields" => []
+          }
+        ]
+      }
+    }
+  end
+
+  defp example_inventory_config_schema do
+    %{
+      "type" => "object",
+      "additionalProperties" => false,
+      "required" => ["instance_id", "token_url", "api_url", "queries"],
+      "properties" => %{
+        "instance_id" => %{
+          "type" => "string",
+          "title" => "Instance ID",
+          "pattern" => "^[A-Za-z0-9._-]+$"
+        },
+        "token_url" => %{
+          "type" => "string",
+          "title" => "OAuth Token URL",
+          "format" => "uri",
+          "pattern" => "^https://"
+        },
+        "api_url" => %{
+          "type" => "string",
+          "title" => "Inventory API URL",
+          "format" => "uri",
+          "pattern" => "^https://"
+        },
+        "queries" => %{
+          "type" => "array",
+          "title" => "Query Sets",
+          "minItems" => 1,
+          "default" => [
+            %{"name" => "switches", "parameters" => %{"type" => "Switch"}}
+          ],
+          "items" => %{
+            "type" => "object",
+            "additionalProperties" => false,
+            "required" => ["name", "parameters"],
+            "properties" => %{
+              "name" => %{"type" => "string"},
+              "parameters" => %{
+                "type" => "object",
+                "additionalProperties" => false,
+                "properties" => %{"type" => %{"type" => "string"}}
+              }
+            }
+          }
+        }
+      }
     }
   end
 
