@@ -30,8 +30,15 @@ CNPG.
 
 ## Configuration
 
-Import and approve a signed `hpna-inventory` plugin bundle before creating the
-credential rule. In **Settings > Network Credential Rules**, select **HPNA
+In **Settings > Plugins**, load
+`https://code.carverauto.dev/carverauto/serviceradar-plugin-hpna` as the catalog
+repository, import the signed `hpna-inventory` package from its versioned
+release, review its requested capabilities, and approve it. The repository
+selector is available only to operators with plugin staging permission and the
+importer still enforces the trusted Forgejo host, upload signature, cosign
+signature, OCI digest, and bundle identity.
+
+After approval, open **Settings > Network Credential Rules**, select **HPNA
 Inventory** and configure:
 
 - An encrypted HPNA username/password credential.

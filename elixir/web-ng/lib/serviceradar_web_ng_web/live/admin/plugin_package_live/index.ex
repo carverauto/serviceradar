@@ -71,6 +71,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:first_party_release_tag, selected_first_party_release(release_options, nil))
         |> assign(:first_party_release_selected?, false)
         |> assign(:first_party_repo_url, first_party_repo_url())
+        |> assign_first_party_repository_form()
         |> assign(:import_running?, false)
         |> assign(:show_create_modal, false)
         |> assign(:show_details_modal, false)
@@ -247,6 +248,29 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
      socket
      |> assign(:first_party_release_selected?, true)
      |> assign_first_party_catalog_view(socket.assigns.first_party_catalog_all, release_tag)}
+  end
+
+  def handle_event("select_first_party_repository", _params, %{assigns: %{can_stage_plugins: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to stage plugin packages.")}
+  end
+
+  def handle_event("select_first_party_repository", %{"catalog_repository" => %{"repo_url" => repo_url}}, socket) do
+    repo_url = normalize_first_party_repo_url(repo_url)
+
+    {:noreply,
+     socket
+     |> assign(:first_party_repo_url, repo_url)
+     |> assign_first_party_repository_form()
+     |> assign(:first_party_release_selected?, false)
+     |> assign(:first_party_release_tag, nil)
+     |> assign(:first_party_catalog, [])
+     |> assign(:first_party_catalog_all, [])
+     |> assign(:first_party_catalog_page, 1)
+     |> load_first_party_catalog()}
+  end
+
+  def handle_event("select_first_party_repository", _params, socket) do
+    {:noreply, put_flash(socket, :error, "Catalog repository is required.")}
   end
 
   def handle_event("first_party_catalog_page", %{"page" => page}, socket) do
@@ -998,7 +1022,28 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 Signed Wasm plugins discovered from {@first_party_repo_url}, plus imported packages.
               </p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center justify-end gap-2">
+              <.form
+                :if={@can_stage_plugins}
+                for={@first_party_repository_form}
+                id="select-first-party-repository-form"
+                phx-submit="select_first_party_repository"
+                class="flex w-full min-w-0 items-center gap-2 sm:w-auto"
+              >
+                <.input
+                  field={@first_party_repository_form[:repo_url]}
+                  id="first-party-repository-url"
+                  type="url"
+                  label="Catalog repository"
+                  label_class="sr-only"
+                  wrapper_class="min-w-0 flex-1 sm:w-80"
+                  class="input input-sm input-bordered w-full"
+                  required
+                />
+                <.ui_button type="submit" variant="ghost" size="sm">
+                  <.icon name="hero-folder-open" class="size-4" /> Load
+                </.ui_button>
+              </.form>
               <form
                 :if={@first_party_release_options != []}
                 id="select-plugin-release-form"
@@ -2280,6 +2325,23 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp first_party_repo_url do
     config = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])
     Keyword.get(config, :repo_url, FirstPartyImporter.default_repo_url())
+  end
+
+  defp normalize_first_party_repo_url(repo_url) when is_binary(repo_url) do
+    case String.trim(repo_url) do
+      "" -> first_party_repo_url()
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_first_party_repo_url(_repo_url), do: first_party_repo_url()
+
+  defp assign_first_party_repository_form(socket) do
+    assign(
+      socket,
+      :first_party_repository_form,
+      to_form(%{"repo_url" => socket.assigns.first_party_repo_url}, as: :catalog_repository)
+    )
   end
 
   defp first_party_sync_limit do
