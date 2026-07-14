@@ -1,0 +1,20 @@
+# Change: Scaffold the causal security engine: verdict lattice, observation model, crate family
+
+## Why
+
+The causal engine chassis shipped by `add-causal-engine` reasons about reliability; repositioning ServiceRadar toward cross-domain intrusion detection (NDR/XDR) needs a security-specific reasoning substrate — a lawful `SecVerdict` lattice, a stable `Observation` model, and a family of isolated crates — before any detection logic can be authored. This Phase-0 foundation establishes those primitives so later milestones (detections, identity/asset bridge, mitigation, feedback) build on a proven, order-invariant reasoning core rather than re-deciding it.
+
+## What Changes
+
+- **NEW flat `rust/causal-*` crate family** (root-workspace members, mirroring `rust/anomaly-*`): `causal-model`, `causal-ports`, `causal-context`, `causal-ingest`, `causal-causaloids`, `causal-reasoning`, `causal-mitigation`, `causal-emit`, `causal-config`, and the `causal-engine` binary. This milestone scaffolds all of them but only fills `causal-model`, `causal-ports`, and the confidence-construction/state-feed seam in `causal-ingest`; the rest are compile-clean stubs later milestones fill. Package names take the `serviceradar-` prefix.
+- **NEW `SecVerdict` type + lawful `Verdict` lattice impl** in `causal-model`: `bottom`/`top`/`meet`/`join`/`complement`, with `join` the idempotent LUB (`stage.max`, confidence LUB, `severity.max`, evidence union), `Benign` as bottom, satisfying `Default + Clone + Send + Sync + 'static + Debug`.
+- **NEW corroboration-fusion contract** kept OUT of `Verdict::join` (noisy-OR / inverse-variance would break the absorption/idempotence lattice laws and double-count diamonds) and specified to run inside a fusion node's `bind`/State channel, clustering correlated same-session evidence before combining across independent clusters and reconstructing an `Uncertain(mean, sigma)` that bounded SPRT can test.
+- **NEW stable `Observation` model** behind an `ObservationSource` trait in `causal-model`/`causal-ports`: `entity` (canonical `sr:` id), `domain`, `confidence: UncertainF64`, `features`, `ocsf_event_id`, `observed_at` — so no SRQL/NATS/CNPG types leak into reasoning.
+- **NEW central per-domain confidence construction** skeleton in `causal-ingest`: since the edge (`rust/anomaly-core`) emits z-score/severity/episodes and NOT `Uncertain`, L1 constructs each `Observation.confidence` centrally from the edge signal plus a calibration source.
+- **Enable the app-level `signals.state.<table>` transition feed** (`STATE_CHANGE_EVENTS_ENABLED`) as an L1 `ObservationSource`, NOT pgoutput CDC.
+
+## Impact
+
+- Affected specs: `causal-security-reasoning` (ADDED), `causal-security-observations` (ADDED).
+- Affected code: NEW `rust/causal-model`, `rust/causal-ports`, `rust/causal-context`, `rust/causal-ingest`, `rust/causal-causaloids`, `rust/causal-reasoning`, `rust/causal-mitigation`, `rust/causal-emit`, `rust/causal-config`, `rust/causal-engine` (bin) + their `BUILD.bazel`; root `Cargo.toml` `members`; `event_writer/state_change_publisher.ex` feed enablement (`STATE_CHANGE_EVENTS_ENABLED`).
+- Dependencies / Coordinate: EXTENDS the settled `add-causal-engine` chassis (fused pod, three ingestion feeds, `signals.analytics.predictions.>` → `AnalyticsSignals` emission, `god_view_nif` demotion, reliability causaloids C1–C13) — this milestone refines its single-crate modules (`context_hydrator`/`domain_model`/`reasoner`/`emitter`/`snapshot`) into the flat crate family and MUST NOT redefine the chassis. Downstream siblings build on this foundation: `add-causal-security-detections` (S1–S7 causaloids in `causal-causaloids`/`causal-reasoning`), `add-identity-asset-flow-bridge` (identity↔asset↔flow context), `add-causal-mitigation` (policy engine in `causal-mitigation`), and `add-causal-detection-feedback` (analyst-label calibration feeding this milestone's confidence construction). Depends on DeepCausality (`deep_causality`, `deep_causality_uncertain`, `deep_causality_algebra`) and `ultragraph 0.9`.
