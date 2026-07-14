@@ -20,6 +20,7 @@ wasm_plugin_publish_init "${REPO_ROOT}"
 REGISTRY_HOST="${OCI_REGISTRY:-registry.carverauto.dev}"
 OCI_PROJECT="${OCI_PROJECT:-serviceradar}"
 OUTPUT="${OUTPUT:-${REPO_ROOT}/serviceradar-wasm-plugin-index.json}"
+GENERATED_AT="${GENERATED_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 
 if [[ "$#" -eq 0 ]]; then
   TAG="sha-$(git -C "${REPO_ROOT}" rev-parse HEAD)"
@@ -43,7 +44,7 @@ trap 'rm -f "${tmp}"' EXIT
 
 printf '{"schema_version":1,"release_tag":%s,"generated_at":%s,"plugins":[' \
   "$(jq -Rn --arg tag "${TAG}" '$tag')" \
-  "$(jq -Rn --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '$now')" >"${tmp}"
+  "$(jq -Rn --arg now "${GENERATED_AT}" '$now')" >"${tmp}"
 
 first=true
 for metadata in "${metadata_files[@]}"; do
