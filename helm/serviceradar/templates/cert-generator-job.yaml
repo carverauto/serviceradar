@@ -1,3 +1,11 @@
+{{- $certs := default dict .Values.certs -}}
+{{- $generator := default dict (get $certs "generator") -}}
+{{- $generatorEnabled := true -}}
+{{- if hasKey $generator "enabled" -}}
+{{- $generatorEnabled = get $generator "enabled" -}}
+{{- end -}}
+{{- $hostedRuntime := eq "true" (include "serviceradar.hostedRuntimeEnabled" .) -}}
+{{- if and $generatorEnabled (not $hostedRuntime) }}
 {{- $certJobImage := include "serviceradar.cnpgImageName" (dict "Values" .Values "cnpg" .Values.cnpg) -}}
 ---
 apiVersion: v1
@@ -28,7 +36,12 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
-  verbs: ["get", "list", "create", "update", "patch"]
+  resourceNames:
+    - {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+  verbs: ["get", "patch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["create"]
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -273,3 +286,4 @@ spec:
       volumes:
       - name: tmp
         emptyDir: {}
+{{- end }}

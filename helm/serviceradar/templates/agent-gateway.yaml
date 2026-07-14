@@ -210,6 +210,10 @@ spec:
           value: {{ $clusterCoreNodeBasename | quote }}
         - name: GATEWAY_CERT_DIR
           value: "/etc/serviceradar/certs"
+        - name: GATEWAY_CA_CERT_FILE
+          value: "/etc/serviceradar/issuer/root.pem"
+        - name: GATEWAY_CA_KEY_FILE
+          value: "/etc/serviceradar/issuer/root-key.pem"
         - name: DATASVC_ENABLED
           value: "true"
         - name: DATASVC_ADDRESS
@@ -248,6 +252,9 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
+        - name: issuer-ca
+          mountPath: /etc/serviceradar/issuer
+          readOnly: true
         {{- if and $natsPublishingEnabled (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate) }}
         - name: nats-creds
           mountPath: /etc/serviceradar/creds
@@ -280,6 +287,13 @@ spec:
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "gateway.pem" "gateway-key.pem") | indent 12 }}
+      - name: issuer-ca
+        secret:
+          secretName: {{ include "serviceradar.runtimeIssuerSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "root-key.pem") | indent 12 }}
       {{- if and $natsPublishingEnabled (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate) }}
       - name: nats-creds
         secret:

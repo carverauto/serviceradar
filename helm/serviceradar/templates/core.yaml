@@ -718,6 +718,8 @@ spec:
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "core.pem" "core-key.pem" "cnpg-client.pem" "cnpg-client-key.pem") | indent 12 }}
       {{- if $automationCallbacksEnabled }}
       - name: automation-callback-envelope
         secret:
