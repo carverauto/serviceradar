@@ -6477,13 +6477,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serviceradar-netprobe-ebpf"
-version = "0.1.0"
-dependencies = [
- "aya-ebpf",
-]
-
-[[package]]
 name = "serviceradar-powerdns-addon"
 version = "0.1.2"
 dependencies = [
