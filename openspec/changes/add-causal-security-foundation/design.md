@@ -91,17 +91,80 @@ Constraints inherited from the chassis and verified against the repo:
     `rust/causal-engine/crates/*` (rejected — needs a second `Cargo.lock` +
     `crate.from_cargo` in `MODULE.bazel`, causing crate-universe skew).
 
+- **Decision: confidence is a deterministic `(mean, variance)` summary, not a live
+  `Uncertain`; `join` is max-on-mean.** The verdict carries
+  `ConfidenceSummary { mean: f64 /* [0,1] */, variance: f64 }`. `SecVerdict::join`
+  selects the operand with the greater mean (tie → smaller variance) — an exact
+  chain-lattice LUB (unconditionally idempotent/commutative/associative/absorptive),
+  an `f64` compare, O(1), **no sampling and no graph growth on the hot path**. The
+  full `Uncertain::normal(mean, variance.sqrt())` is reconstructed exactly once, at
+  the CSM, for the single SPRT per incident hypothesis; reconstruction is one leaf
+  node (`from_samples` already collapses to `Normal(mean,std)`, `uncertain_f64.rs:12-26`).
+  `expected_value`/`standard_deviation` (fixed-N, no early-exit,
+  `uncertain_statistics.rs:17-29,33-62`) therefore never run on the reasoning path.
+  - Investigated: DeepCausality DOES ship `impl Verdict for Uncertain<f64>` with a
+    lazy O(1) `join = max` node (`uncertain_verdict.rs:45-74`), but its idempotence
+    holds ONLY when both operands are the same shared `Arc` leaf. At a real
+    reconvergence the two confidences are independently computed leaves, so
+    `join = max` becomes `E[max(A,B)] > A` — upward-biased, NOT idempotent (the same
+    diamond-inflation we moved noisy-OR out of `join` to avoid), and it deepens the
+    lazy graph so the SPRT walks a larger DAG each reconvergence.
+  - Alternatives considered: a live `Uncertain<f64>` verdict + DC-native
+    `Verdict::join` (rejected — fragile Arc-sharing idempotence that reconvergence
+    violates → confidence inflation; graph-depth-growing SPRT cost; larger cache-leak
+    surface; and inconsistent with §4.3, which reconstructs a fresh `normal` leaf).
+  - Follow-up: align the note §4.2 (`uncertain_max(ca,cb)`) and the
+    `causal-security-reasoning` "Security Verdict Lattice" requirement to this summary
+    form.
+
+- **Decision: Phase-0 calibration is a per-domain static config table reusing the
+  deployed 4.0/8.0 z-score cutpoints.** The edge emits a robust median/MAD z-score in
+  `[0,∞)` (`ReasonVerdict.score`), no probability/variance. L1 constructs
+  `ConfidenceSummary` per domain via a config table with two families: (a) continuous
+  domains (metric-series edge + DNS entropy, flow periodicity, auth/scan rates, BGP
+  churn) map the z-score through a monotone logistic `mean = σ(k·(z − z0))` anchored so
+  z=threshold(3.0)→~0.5, z=4→~0.6, z=8→~0.9 — matching the shipped anomaly severity
+  bands (`anomaly-addon verdict.rs:461-473`; seasonal_disposition `severity_score`
+  {20,55,75} `verdict_emitter.ex:235-252`); (b) near-binary domains (IOC exact/CIDR
+  match, BGP new-origin/sub-prefix, auth first-seen) map a hit directly to
+  high-mean/low-variance (a z-score is meaningless — the zero-dispersion fallback fires),
+  a miss emits no Observation. Variance widens on low information (`!anomalous`/pending,
+  `baseline_count < 30`, magnitude-fallback score).
+  - Rationale: reusing the 4.0/8.0 cutpoints keeps the security engine in numeric
+    parity with the deployed anomaly bands (AGENTS.md single-source rule), and the table
+    is the exact seam the Phase-4 analyst-label loop (`add-causal-detection-feedback`)
+    re-fits.
+  - Alternatives considered: a fit-probability heuristic like `1 − rmse/scale` (rejected
+    — the repo already deleted that overclaim; keep the mean provisional and the variance
+    honestly wide until the label loop calibrates).
+
+- **Decision: the DC sample cache is cleared whole at the per-tick barrier.** Because
+  confidence flows as a summary and the only `Uncertain` materialization + sampling is
+  the single SPRT per incident hypothesis at the CSM, the process-global cache
+  (`global_cache.rs`: `OnceLock<RwLock<HashMap>>`, keyed `(uncertain_id, sample_index,
+  sampler)`, unbounded, fresh monotonic IDs per construction) holds only the current
+  tick's draws. The reasoning loop SHALL call `with_global_cache(|c| c.clear())` at the
+  tick barrier (after all incident evaluations, no SPRT in flight), turning the memo into
+  per-tick scratch, and SHALL bound SPRT `max_samples` (~200, not the 1000 default).
+  - Investigated: the only reclamation lever is the whole-cache `clear()`
+    (`global_cache.rs:87`); there is no per-node eviction, TTL, or capacity. IDs are never
+    reused, so cross-tick memo gives no benefit — reconstruct fresh each tick + clear.
+  - Alternatives considered: holding `Uncertain` handles stable across ticks to reuse the
+    memo (rejected — new evidence each tick means we WANT fresh draws; stable handles serve
+    stale draws). Upstream ask: a thread-local (DC already uses one under `cfg(test)`) or
+    scoped/id-range cache would remove the manual clear — flagged for a DC contribution.
+
 ## Risks / Trade-offs
 
-- **`Uncertain` LUB semantics for confidence** → `confidence.max` as an
-  `Uncertain` LUB must be defined so that the join stays idempotent and lawful;
-  mis-defining it (e.g., as a mean) would break the lattice. Mitigation: spec the
-  LUB explicitly and unit-test idempotence/associativity/absorption.
-- **Process-global DC sample cache** (`global_cache.rs`, never-cleared memo) →
-  reusing Uncertain IDs across ticks serves stale draws and grows unbounded.
-  Mitigation: this milestone only defines the fusion contract; hot-path cache
-  `clear()` semantics are deferred to the reasoning-loop milestone but flagged in
-  Open Questions.
+- **Confidence LUB correctness** → RESOLVED by carrying a `(mean, variance)` summary
+  and defining `join` as max-on-mean (a chain lattice), instead of a live `Uncertain`
+  whose DC-native `join = max` is only idempotent for shared `Arc` leaves and inflates
+  at reconvergence. Mitigation: unit-test idempotence/associativity/absorption on the
+  summary lattice.
+- **Process-global DC sample cache** (`global_cache.rs`, unbounded, fresh IDs per
+  construction) → RESOLVED by confining `Uncertain` materialization to the per-incident
+  SPRT and clearing the whole cache at the per-tick barrier (see Decisions). Residual: a
+  scoped/thread-local cache is a cleaner upstream fix.
 - **Scaffolding many empty crates** → risk of drift/dead crates. Mitigation:
   every crate must compile green under both `cargo` and Bazel from day one; empty
   crates carry a `//! ` module doc stating the milestone that fills them.
@@ -132,13 +195,23 @@ Constraints inherited from the chassis and verified against the repo:
 
 ## Open Questions
 
-- What exactly is the `Uncertain` LUB for the confidence field — `max` over
-  `expected_value`, or a lattice join over the distribution — and does it keep
-  `expected_value`/`standard_deviation` (fixed 1000-sample, no early-exit) off the
-  hot path? (Resolve before the reasoning-loop milestone.)
-- Which calibration source seeds the initial score→`Uncertain(mean, variance)`
-  mapping before the analyst-label surface exists (owned by
-  `add-causal-detection-feedback`)? A static prior is the Phase-0 placeholder.
-- Per-tick DC sample-cache `clear()` semantics vs. entity/Uncertain-ID reuse —
-  deferred to the reasoning-loop milestone but must be settled before SPRT runs on
-  the hot path.
+The three original Phase-0 open questions were investigated against the DeepCausality
+and anomaly-core source and are now RESOLVED in Decisions above:
+
+- ~~`Uncertain` LUB for confidence~~ → RESOLVED: `(mean, variance)` summary + max-on-mean
+  chain lattice; the full `Uncertain` is materialized only at the CSM SPRT, so
+  `expected_value`/`standard_deviation` never run on the reasoning path.
+- ~~Calibration seed~~ → RESOLVED: a per-domain static config table reusing the deployed
+  4.0/8.0 z-score cutpoints (logistic for continuous domains, direct high-mean for
+  near-binary), re-fit later by `add-causal-detection-feedback`.
+- ~~Per-tick sample-cache semantics~~ → RESOLVED: whole-cache `with_global_cache(|c| c.clear())`
+  at the tick barrier; SPRT `max_samples` bounded (~200).
+
+Residual (do not block Phase 0):
+
+- Exact logistic parameters (`k`, `z0`) and per-domain base variance for the calibration
+  table — set conservative defaults now; tune against real traffic + the label loop.
+- SPRT `(threshold, confidence, epsilon)` operating point per stage — depends on the
+  calibration and the perf budget (Q6 in the note); set in the reasoning-loop milestone.
+- Upstream DC ask: a scoped/thread-local sample cache (DC already uses a thread-local
+  under `cfg(test)`) to remove the manual per-tick clear when reasoning parallelizes.

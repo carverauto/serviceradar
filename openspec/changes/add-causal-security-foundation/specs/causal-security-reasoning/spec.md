@@ -7,13 +7,19 @@
 `SecVerdict` SHALL implement DeepCausality's lawful `Verdict` lattice, providing
 `bottom`, `top`, `meet`, `join`, and `complement`. `join(self, other)` SHALL be
 the idempotent least-upper-bound (LUB): it SHALL take `stage.max`, combine
-confidence as an `Uncertain` LUB (`confidence.max`), take `severity.max`, and
-union the evidence sets. `Benign` SHALL be the lattice bottom (the `join`
-identity). `SecVerdict` MUST additionally satisfy `Default + Clone + Send + Sync
-+ 'static + Debug` so it satisfies the graph-reasoning `V: Verdict` bound. The
-`join` operation SHALL obey the lattice laws (commutativity, associativity, and
-absorption/idempotence) so that reconvergent graph propagation is order-invariant
-and diamond paths do not double-count evidence.
+confidence by **max-on-mean over the deterministic `ConfidenceSummary { mean,
+variance }`** (the operand with the greater `mean` wins; ties SHALL break toward
+the smaller `variance`), take `severity.max`, and union the evidence sets. The
+confidence combine SHALL NOT be a live-`Uncertain` `max` node: DeepCausality's
+`impl Verdict for Uncertain<f64>` is idempotent only when both operands are the
+same shared `Arc` leaf and produces an upward-biased `E[max(A,B)] > A` at a real
+reconvergence, so it MUST NOT be used as the verdict confidence. `Benign` SHALL be
+the lattice bottom (the `join` identity). `SecVerdict` MUST additionally satisfy
+`Default + Clone + Send + Sync + 'static + Debug` so it satisfies the
+graph-reasoning `V: Verdict` bound. The `join` operation SHALL obey the lattice
+laws (commutativity, associativity, and absorption/idempotence) so that
+reconvergent graph propagation is order-invariant and diamond paths do not
+double-count evidence.
 
 #### Scenario: Reconvergent join of two Incident verdicts escalates without double-counting
 
@@ -22,9 +28,11 @@ and diamond paths do not double-count evidence.
   severity, with overlapping and distinct evidence
 - **THEN** `join` SHALL produce a single `Incident` for that entity whose stage
   is the `max` of the two, whose severity is the `max` of the two, and whose
-  confidence is the `Uncertain` LUB of the two
+  confidence is the `ConfidenceSummary` of the greater-mean operand (tie → smaller
+  variance)
 - **AND** the merged evidence SHALL be the de-duplicated union so that evidence
   shared by both inputs appears exactly once
+- **AND** `join` SHALL perform no sampling (it is an `f64`/field comparison)
 
 #### Scenario: Benign is the join identity (bottom)
 
@@ -72,10 +80,12 @@ only.
 
 Cross-domain fusion SHALL proceed in two steps: first cluster correlated
 same-session evidence into ONE evidence unit at its representative (maximum)
-confidence, then combine only ACROSS independent clusters, and finally reconstruct
-an `Uncertain(mean, sigma)` from the combined clusters so that a Sequential
-Probability Ratio Test (SPRT) — using an `UncertainParameter` with a bounded
-`max_samples` of approximately 200 — can test it. Correlated same-session
+confidence, then combine only ACROSS independent clusters. Both steps SHALL be
+performed **closed-form on the deterministic `ConfidenceSummary { mean, variance }`
+values** (no sampling). The combined summary SHALL then be materialized as an
+`Uncertain::normal(mean, variance.sqrt())` **exactly once, at the CSM**, so that a
+Sequential Probability Ratio Test (SPRT) — using an `UncertainParameter` with a
+bounded `max_samples` of approximately 200 — can test it. Correlated same-session
 evidence SHALL NOT be combined as if it were independent.
 
 #### Scenario: DNS + resolved-IP-IOC + flow-to-IP collapse to one session cluster before combining
@@ -87,7 +97,41 @@ evidence SHALL NOT be combined as if it were independent.
   session cluster at their representative (maximum) confidence
 - **AND** that single session cluster SHALL then be combined only across the
   independent host-runtime cluster, and the combined result SHALL be reconstructed
-  as an `Uncertain(mean, sigma)` that a bounded SPRT (`max_samples` ~200) can test
+  as an `Uncertain::normal(mean, sigma)` — exactly once, at the CSM — that a
+  bounded SPRT (`max_samples` ~200) can test
+
+### Requirement: Confidence Representation and Hot-Path Sampling Discipline
+
+Confidence SHALL flow through the reasoning graph as a deterministic
+`ConfidenceSummary { mean: f64 in [0,1], variance: f64 }`, not as a live
+`Uncertain`. All `join` and closed-form fusion operations SHALL operate on the
+summary WITHOUT sampling. An `Uncertain::normal(mean, variance.sqrt())` SHALL be
+materialized exactly once per incident hypothesis — at the CSM — for the single
+bounded SPRT; `expected_value` and `standard_deviation` (fixed-N, no early-exit)
+MUST NOT be called on the reasoning path. Because DeepCausality's global sample
+cache is process-global, unbounded, and allocates a fresh id per `Uncertain`
+construction, the reasoning loop SHALL clear the whole cache
+(`with_global_cache(|c| c.clear())`) at the per-tick barrier — after all incident
+evaluations for the tick complete and while no SPRT is in flight — so the cache
+acts as bounded per-tick scratch rather than an unbounded leak.
+
+#### Scenario: Reconvergent join composes confidence without sampling
+
+- **WHEN** verdicts are folded through the kill-chain graph, including reconvergent
+  joins
+- **THEN** every `join` and closed-form fusion step SHALL read and write only the
+  `ConfidenceSummary` fields and SHALL draw zero samples
+- **AND** the only `Uncertain` materialization and sampling SHALL be the single
+  bounded SPRT per incident hypothesis at the CSM
+
+#### Scenario: The DC sample cache is cleared at the tick barrier
+
+- **WHEN** a reasoning tick finishes evaluating all incident hypotheses and no SPRT
+  is in flight
+- **THEN** the reasoning loop SHALL clear the whole DeepCausality global sample
+  cache so the next tick starts from empty
+- **AND** SPRT evaluations SHALL use a bounded `max_samples` (approximately 200),
+  not the 1000-sample default
 
 ### Requirement: Causal Security Crate Family
 

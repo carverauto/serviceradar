@@ -30,38 +30,51 @@ Phase-0 foundation for the causal SECURITY engine. Extends the settled
 
 ## 2. SecVerdict + lawful lattice (capability: causal-security-reasoning)
 
-- [ ] 2.1 Define the `SecVerdict` enum in `causal-model` (`Benign` bottom;
-  `Incident { entity, stage, confidence: UncertainF64, severity, evidence:
-  Vec<EvidenceRef> }`), plus `Stage` (ATT&CK-tactic-ordered, `Ord`), `Severity`,
-  `EvidenceRef` (with `cluster: EvidenceCluster`), and `Confidence = UncertainF64`.
+- [ ] 2.1 Define `ConfidenceSummary { mean: f64 /* [0,1] */, variance: f64 }` in
+  `causal-model` (deterministic; `Copy`), plus the `SecVerdict` enum (`Benign`
+  bottom; `Incident { entity, stage, confidence: ConfidenceSummary, severity,
+  evidence: Vec<EvidenceRef> }`), `Stage` (ATT&CK-tactic-ordered, `Ord`),
+  `Severity`, `EvidenceRef` (with `signal_conf: ConfidenceSummary`, `cluster:
+  EvidenceCluster`), and `type Confidence = ConfidenceSummary`.
 - [ ] 2.2 Implement `Verdict` for `SecVerdict`: `bottom` = `Benign`; `top` =
-  saturated `Incident` (`Stage::Impact`, confidence ≈ 1, max severity); `join` =
-  idempotent LUB (`stage.max`, confidence LUB via `uncertain_max`, `severity.max`,
-  de-duplicated evidence union); `meet` = GLB (`stage.min`/`confidence.min`/
-  `severity.min`); `complement` over the confidence field.
+  saturated `Incident` (`Stage::Impact`, `mean` ≈ 1, max severity); `join` =
+  idempotent LUB (`stage.max`; confidence **max-on-mean** — the greater-`mean`
+  operand wins, tie → smaller `variance`; `severity.max`; de-duplicated evidence
+  union). Do NOT use DeepCausality's live-`Uncertain` `Verdict::join` for
+  confidence (non-idempotent across independent leaves). `meet` = GLB
+  (`stage.min`/lower-mean/`severity.min`); `complement` over the mean.
 - [ ] 2.3 Derive/implement `Default + Clone + Send + Sync + 'static + Debug` on
   `SecVerdict` to satisfy the graph-reasoning `V: Verdict` bound.
-- [ ] 2.4 Unit-test the lattice laws: `join` idempotence, commutativity,
-  associativity, absorption, `Benign` as join identity, and the reconvergent
-  two-`Incident`-same-entity escalation with evidence union (no double-count).
+- [ ] 2.4 Unit-test the lattice laws on the `ConfidenceSummary` max-on-mean lattice:
+  `join` idempotence, commutativity, associativity, absorption, `Benign` as join
+  identity, the reconvergent two-`Incident`-same-entity escalation with evidence
+  union (no double-count), and that `join` performs no sampling.
 
-## 3. Corroboration fusion contract (capability: causal-security-reasoning)
+## 3. Corroboration fusion + hot-path discipline (capability: causal-security-reasoning)
 
 - [ ] 3.1 Author the fusion helpers in a fusion-node module (NOT in
-  `Verdict::join`): `group_by_cluster` → per-cluster `uncertain_max` collapse;
-  cross-cluster `inverse_variance_mean`/`inverse_variance_sigma`; reconstruct
-  `Uncertain::normal(mean, sigma)`.
-- [ ] 3.2 Wire an `UncertainParameter` (threshold, confidence, epsilon, bounded
-  `max_samples` ~200) so SPRT can test the reconstructed `Uncertain`.
-- [ ] 3.3 Unit-test: identical evidence arriving by two diamond paths is counted
-  once (join), and same-session DNS+IOC+flow collapse to one cluster before
-  combining with the independent host-runtime cluster.
+  `Verdict::join`), operating **closed-form on `ConfidenceSummary`** (no sampling):
+  `group_by_cluster` → per-cluster max-on-mean collapse; cross-cluster
+  `inverse_variance_mean`/`inverse_variance_sigma` (and/or noisy-OR on means) over
+  the summaries.
+- [ ] 3.2 At the CSM only, reconstruct `Uncertain::normal(mean, variance.sqrt())`
+  from the fused summary and wire an `UncertainParameter` with a bounded
+  `max_samples` (~200) for the single SPRT. Keep `expected_value`/
+  `standard_deviation` off the reasoning path entirely.
+- [ ] 3.3 Implement the per-tick DC sample-cache clear: call
+  `with_global_cache(|c| c.clear())` at the tick barrier (after all incident
+  evaluations, no SPRT in flight); document that the whole-cache clear is the only
+  DC lever and must not run mid-flight.
+- [ ] 3.4 Unit-test: identical evidence arriving by two diamond paths is counted
+  once (join); same-session DNS+IOC+flow collapse to one cluster before combining
+  with the independent host-runtime cluster; and fusion draws zero samples until
+  the single CSM SPRT.
 
 ## 4. Observation model + ports seam (capability: causal-security-observations)
 
 - [ ] 4.1 Define `Observation { entity: EntityKey (canonical sr: id), domain:
-  Domain, confidence: UncertainF64, features: DomainFeatures, ocsf_event_id: Uuid,
-  observed_at: Timestamp }` and the `Domain`/`DomainFeatures` enums in
+  Domain, confidence: ConfidenceSummary, features: DomainFeatures, ocsf_event_id:
+  Uuid, observed_at: Timestamp }` and the `Domain`/`DomainFeatures` enums in
   `causal-model`.
 - [ ] 4.2 Define the boundary traits in `causal-ports`: `ObservationSource`
   (`stream` + `snapshot`), `ContextStore`, `Emitter`, `MitigationPolicy`,
@@ -71,12 +84,20 @@ Phase-0 foundation for the causal SECURITY engine. Extends the settled
 
 ## 5. Central confidence construction (capability: causal-security-observations)
 
-- [ ] 5.1 In `causal-ingest`, add the score→`Uncertain(mean, variance)`
-  construction skeleton that maps an edge z-score/OCSF severity plus a calibration
-  source into `Observation.confidence` (net-new; not a pass-through).
-- [ ] 5.2 Seed a static-prior calibration placeholder (the analyst-label
-  calibration is owned by `add-causal-detection-feedback`); unit-test a
-  metric-series z-score mapping to an `Uncertain(mean, variance)`.
+- [ ] 5.1 In `causal-ingest`, add the score→`ConfidenceSummary` construction that
+  maps an edge robust z-score (`ReasonVerdict.score`) / OCSF severity into
+  `Observation.confidence` (net-new; not a pass-through). Route it through a
+  `causal-config` calibration table.
+- [ ] 5.2 Define the per-domain static calibration table: (a) continuous family —
+  logistic `σ(k·(z − z0))` anchored to reuse the deployed 4.0/8.0 z-score cutpoints
+  (numeric parity with `anomaly-addon severity_id_from_score`); (b) near-binary
+  family — direct high-mean/low-variance on a hit (IOC/CIDR match, BGP
+  new-origin/sub-prefix, auth first-seen), no `Observation` on a miss; variance
+  widened on low information (`!anomalous`/pending, thin baseline, magnitude
+  fallback). Keep it config (`add-causal-detection-feedback` re-fits it).
+- [ ] 5.3 Unit-test: a metric-series z-score maps to a `ConfidenceSummary` at the
+  4.0/8.0 anchors, and an IOC match maps to high-mean/low-variance while a miss
+  yields no `Observation`.
 
 ## 6. Enable the state-change feed (capability: causal-security-observations)
 
