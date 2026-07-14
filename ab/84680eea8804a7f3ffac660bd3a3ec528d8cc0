@@ -1,0 +1,112 @@
+rust/causal-mitigation/BUILD.bazel
+  s_6f8eb423821667::t_c9ce2ef06c2e35 1-28
+rust/causal-reasoning/src/sprt.rs
+  s_6f8eb423821667::t_bee460f0b0ddb0 16,18-21,23,32,41-43,46-47
+  s_6f8eb423821667::t_da3e68fefecd03 1-15,17,22,24-31,33-40,44-45,48-82
+openspec/notes/sr-causal-engine.md
+  s_6f8eb423821667::t_0a35e728b91399 615-620
+rust/causal-model/src/verdict.rs
+  s_6f8eb423821667::t_0cd70080b7c047 87-96,106,109,111-119
+  s_6f8eb423821667::t_130a9a00a948e0 239-244,270-281,283-289,301-306,314-319,329-334
+  s_6f8eb423821667::t_8890888179da31 1-86,97-105,107-108,110,120-238,245-269,282,290-300,307-313,320-328,335-347
+rust/causal-model/src/observation.rs
+  s_6f8eb423821667::t_fd6eb41fdf6cd2 1-21
+rust/causal-context/src/lib.rs
+  s_6f8eb423821667::t_785535c1ff9e92 1-7
+rust/causal-context/Cargo.toml
+  s_6f8eb423821667::t_21bd9dc8b5220e 1-15
+rust/causal-emit/Cargo.toml
+  s_6f8eb423821667::t_30053b89387f32 1-15
+rust/causal-mitigation/src/lib.rs
+  s_6f8eb423821667::t_99ed578d49cac7 1-7
+rust/causal-model/src/entity.rs
+  s_6f8eb423821667::t_77e6210c0de6d3 1-17,21-43
+  s_6f8eb423821667::t_73d3d1dd3e2a17 18-20
+rust/causal-ports/BUILD.bazel
+  s_6f8eb423821667::t_7bccc8d5021c16 1-27
+rust/causal-causaloids/Cargo.toml
+  s_6f8eb423821667::t_f591d6abec91b3 1-16
+openspec/specs/causal-security-observations/spec.md
+  s_6f8eb423821667::t_05d3f521d91a9e 1-80
+rust/causal-ingest/Cargo.toml
+  s_6f8eb423821667::t_9c7ea0be8d196b 17
+  s_6f8eb423821667::t_37a3da4a1736eb 1-16,18-24
+openspec/specs/causal-security-reasoning/spec.md
+  s_6f8eb423821667::t_05d3f521d91a9e 1-165
+rust/causal-emit/BUILD.bazel
+  s_6f8eb423821667::t_58f65ac22ceee9 1-28
+rust/causal-mitigation/Cargo.toml
+  s_6f8eb423821667::t_808f0d1e7288d0 1-15
+rust/causal-model/src/confidence.rs
+  s_6f8eb423821667::t_8eebbbefdc5744 1-19,24-49,55-58,64-126,131-135,143-144
+  s_6f8eb423821667::t_130a9a00a948e0 20-23,50-54,59-63,127-130,136-142
+rust/causal-config/src/lib.rs
+  s_6f8eb423821667::t_38984c241c496d 1-62,68-87,92-103,108-109,118-124,132-133,141-154
+  s_6f8eb423821667::t_130a9a00a948e0 63-67,88-91,104-107,110-117,125-131,134-140
+rust/causal-emit/src/lib.rs
+  s_6f8eb423821667::t_44d9e4083a744d 1-9
+Cargo.toml
+  s_6f8eb423821667::t_f33697963db868 31-40
+rust/causal-ingest/src/lib.rs
+  s_6f8eb423821667::t_130a9a00a948e0 40-43,95-98,125-137,146-152
+  s_6f8eb423821667::t_f75685328ccfa4 1-39,44-94,99-124,138-145,153-162
+rust/causal-model/BUILD.bazel
+  s_6f8eb423821667::t_60dad920b7f73c 1-39
+rust/causal-causaloids/src/lib.rs
+  s_6f8eb423821667::t_56d6f9ede91439 1-5
+rust/causal-engine/BUILD.bazel
+  s_6f8eb423821667::t_fe2984327c0b91 1-34
+rust/causal-reasoning/src/lib.rs
+  s_6f8eb423821667::t_9ecc44ed747e50 1-12
+rust/causal-context/BUILD.bazel
+  s_6f8eb423821667::t_664f617a265b61 1-28
+rust/causal-ingest/BUILD.bazel
+  s_6f8eb423821667::t_030c7890faf4e5 1-43
+rust/causal-model/Cargo.toml
+  s_6f8eb423821667::t_ef91921033f5d0 1-17
+rust/causal-reasoning/BUILD.bazel
+  s_6f8eb423821667::t_fa00f3a29a3075 1-41
+rust/causal-engine/src/main.rs
+  s_6f8eb423821667::t_50616d8bb5e5f1 1-34
+rust/causal-model/src/lib.rs
+  s_6f8eb423821667::t_d2bb6914a21fd4 1-24
+rust/causal-ports/Cargo.toml
+  s_6f8eb423821667::t_beef8e2f3c2998 1-14
+rust/causal-engine/Cargo.toml
+  s_6f8eb423821667::t_67253112847c8e 1-22
+  s_6f8eb423821667::t_342c6059a236f4 23
+rust/causal-config/BUILD.bazel
+  s_6f8eb423821667::t_5cd9aba5894135 1-39
+rust/causal-reasoning/Cargo.toml
+  s_6f8eb423821667::t_c0936401f1a1a2 1-17
+rust/causal-causaloids/BUILD.bazel
+  s_6f8eb423821667::t_91049b0b767f95 1-29
+rust/causal-ports/src/lib.rs
+  s_6f8eb423821667::t_575e8a8df0a3b5 1-56
+rust/causal-config/Cargo.toml
+  s_6f8eb423821667::t_8b4b58f4401c6d 1-14
+openspec/changes/archive/2026-07-14-add-causal-security-foundation/design.md
+  s_6f8eb423821667::t_88e1b198b7f1da 172-176,186-189
+openspec/changes/archive/2026-07-14-add-causal-security-foundation/tasks.md
+  s_6f8eb423821667::t_ed8f4b85c0a4a9 7-15,18,23,25,28-46,50-67,71-87,91-92,94-98,102-112,116-124,128-130
+Cargo.lock
+  s_6f8eb423821667::t_a3b9048a717de1 1579,1583-1591,1625-1630,1637-1647,1657-1670,6133-6222
+MODULE.bazel.lock
+  s_6f8eb423821667::t_3923b194091578 5943,5945,5972-5982,5989,5991,6564,7451-7463,7529-7541,7555-7567,7581-7593
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "ab84680eea8804a7f3ffac660bd3a3ec528d8cc0",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
