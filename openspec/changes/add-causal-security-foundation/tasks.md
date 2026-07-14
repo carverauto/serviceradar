@@ -22,11 +22,12 @@ Phase-0 foundation for the causal SECURITY engine. Extends the settled
   `causal-causaloids`/`causal-reasoning` on `deep_causality`; `causal-reasoning`
   on `ultragraph = "0.9"`; `causal-ingest` on `srql` + NATS (feature-gated).
 - [ ] 1.5 Add a `BUILD.bazel` per crate (`rust_library` + `all_crate_deps(...)`;
-  the bin adds `rust_binary`); mark later-milestone crates with a `//!` module doc
-  naming the milestone that fills them.
-- [ ] 1.6 Verify BOTH `cargo build`/`cargo clippy -D warnings`/`cargo fmt --check`
-  AND `bazel build` are green for every new crate (a green cargo build does not
-  prove the Bazel build).
+  the bin adds `rust_binary`) so CI can build the crates; mark later-milestone
+  crates with a `//!` module doc naming the milestone that fills them.
+- [ ] 1.6 Verify `cargo build`/`cargo clippy -D warnings`/`cargo fmt --check`/
+  `cargo test` are green for every new crate — **Cargo is the local gate**. Bazel
+  is NOT verified locally (its config is broken on non-x86 and is not worth fixing);
+  the `BUILD.bazel` files are validated in **CI (x86)** instead.
 
 ## 2. SecVerdict + lawful lattice (capability: causal-security-reasoning)
 
