@@ -1821,7 +1821,24 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
 
   defp insert_user!(label) do
     id = Ecto.UUID.generate()
+    profile_id = Ecto.UUID.generate()
     now = DateTime.utc_now()
+
+    Repo.insert_all("role_profiles", [
+      %{
+        id: Ecto.UUID.dump!(profile_id),
+        system_name: nil,
+        name: "Remote Access Test #{label} #{System.unique_integer([:positive])}",
+        description: "Persistence-backed authority for remote access tests",
+        permissions: [
+          "devices.remote_access.ssh.open",
+          "devices.remote_access.rdp.open"
+        ],
+        system: false,
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
 
     Repo.insert_all("ng_users", [
       %{
@@ -1829,6 +1846,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
         email: "remote-access-#{label}-#{System.unique_integer([:positive])}@example.test",
         display_name: "Remote Access #{label}",
         role: "admin",
+        role_profile_id: Ecto.UUID.dump!(profile_id),
         inserted_at: now,
         updated_at: now
       }

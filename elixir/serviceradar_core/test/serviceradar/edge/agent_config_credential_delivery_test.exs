@@ -18,18 +18,21 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.CredentialSecretResolutionAudit
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.SecretRefs
+  alias ServiceRadar.ProcessRegistry
 
   @moduletag :integration
 
   @api_token_payload "root@pam!sr-inventory=abc123-secret"
   @rotated_api_token_payload "root@pam!sr-inventory=rotated-secret"
   @awx_host_credential_sentinel "__SERVICERADAR_AWX_INVENTORY_HOST_CREDENTIAL__"
+  @default_partition "default"
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
@@ -47,6 +50,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
 
     system = SystemActor.system(:credential_delivery_test)
     agent_uid = "cred-delivery-agent-#{unique_id}"
+    register_control_session!(agent_uid, @default_partition)
 
     {:ok, admin: admin, system: system, agent_uid: agent_uid, unique_id: unique_id}
   end
@@ -115,7 +119,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
     assert {:ok, stale_expiry, _offset} = DateTime.from_iso8601(stale_payload["expires_at"])
     assert DateTime.before?(stale_expiry, DateTime.utc_now())
 
-    {:ok, _assignment} =
+    _assignment =
       PluginAssignment
       |> Ash.Changeset.for_create(
         :create,
@@ -154,9 +158,9 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
         },
         actor: admin
       )
-      |> Ash.create()
+      |> create_without_notifications!()
 
-    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
     assert [plugin] = config.plugins
     template = plugin.params["template"]
@@ -186,7 +190,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
     # Refresh-on-expiry must not destabilize the config version: each
     # generation re-mints a short-TTL grant, and the rotating payload is
     # excluded from the version hash (like download tokens).
-    {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid)
+    {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
     assert config.config_version == config2.config_version
 
     delivered2 =
@@ -222,7 +226,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
       |> CredentialBrokerGrant.issue_attrs()
       |> CredentialBrokerGrant.issue_grant(actor: system)
 
-    {:ok, _assignment} =
+    _assignment =
       PluginAssignment
       |> Ash.Changeset.for_create(
         :create,
@@ -240,9 +244,9 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
         },
         actor: admin
       )
-      |> Ash.create()
+      |> create_without_notifications!()
 
-    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
     assert [plugin] = config.plugins
     assert plugin.params["api_token"] == @api_token_payload
@@ -264,7 +268,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
     stale_grant_1 = issue_expired_grant!(system, secret, agent_uid)
     stale_grant_2 = issue_expired_grant!(system, secret, agent_uid)
 
-    {:ok, _assignment} =
+    _assignment =
       PluginAssignment
       |> Ash.Changeset.for_create(
         :create,
@@ -296,9 +300,9 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
         },
         actor: admin
       )
-      |> Ash.create()
+      |> create_without_notifications!()
 
-    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
     assert [plugin] = config.plugins
     controllers = plugin.params["controllers"]
 
@@ -363,7 +367,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
              "api_token"
            ]) == @api_token_payload
 
-    {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid)
+    {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
     assert config.config_version == config2.config_version
   end
 
@@ -389,7 +393,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
       |> CredentialBrokerGrant.issue_attrs()
       |> CredentialBrokerGrant.issue_grant(actor: system)
 
-    {:ok, _assignment} =
+    _assignment =
       PluginAssignment
       |> Ash.Changeset.for_create(
         :create,
@@ -407,10 +411,11 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
         },
         actor: admin
       )
-      |> Ash.create()
+      |> create_without_notifications!()
 
     # First fetch (agent has no version) delivers and audits.
-    assert {:ok, config} = AgentConfigGenerator.get_config_if_changed(agent_uid, "")
+    assert {:ok, config} =
+             AgentConfigGenerator.get_config_if_changed(agent_uid, @default_partition, "")
 
     assert config.plugins |> hd() |> Map.fetch!(:params) |> Map.get("api_token") ==
              @api_token_payload
@@ -422,13 +427,21 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
     # new audit row even though the credential is still resolved to compute the
     # version hash (fj #4428).
     assert :not_modified =
-             AgentConfigGenerator.get_config_if_changed(agent_uid, config.config_version)
+             AgentConfigGenerator.get_config_if_changed(
+               agent_uid,
+               @default_partition,
+               config.config_version
+             )
 
     assert audit_count(secret, system) == after_delivery
 
     # A poll whose version no longer matches DOES deliver and audit again.
     assert {:ok, _config2} =
-             AgentConfigGenerator.get_config_if_changed(agent_uid, "stale-version")
+             AgentConfigGenerator.get_config_if_changed(
+               agent_uid,
+               @default_partition,
+               "stale-version"
+             )
 
     assert audit_count(secret, system) == after_delivery + 1
   end
@@ -436,6 +449,26 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   defp audit_count(secret, system) do
     {:ok, audits} = CredentialSecretResolutionAudit.list_for_secret(secret.id, actor: system)
     length(audits)
+  end
+
+  defp create_without_notifications!(changeset) do
+    case Ash.create(changeset,
+           domain: ServiceRadar.Plugins,
+           return_notifications?: true
+         ) do
+      {:ok, record, _notifications} -> record
+      {:error, error} -> raise Ash.Error.to_error_class(error)
+    end
+  end
+
+  defp update_without_notifications!(changeset) do
+    case Ash.update(changeset,
+           domain: ServiceRadar.Plugins,
+           return_notifications?: true
+         ) do
+      {:ok, record, _notifications} -> record
+      {:error, error} -> raise Ash.Error.to_error_class(error)
+    end
   end
 
   defp create_connected_agent(actor, agent_uid) do
@@ -452,6 +485,35 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
       actor: actor
     )
     |> Ash.create()
+  end
+
+  defp register_control_session!(agent_uid, partition_id) do
+    assert {:ok, _pid} =
+             ProcessRegistry.register(
+               {:agent_control, partition_id, agent_uid, node()},
+               %{
+                 agent_id: agent_uid,
+                 partition_id: partition_id,
+                 gateway_node: node(),
+                 capabilities: ["wasm"]
+               }
+             )
+
+    await_control_partition!(agent_uid, partition_id, 40)
+  end
+
+  defp await_control_partition!(_agent_uid, _partition_id, 0),
+    do: flunk("test control-session partition did not converge")
+
+  defp await_control_partition!(agent_uid, partition_id, attempts) do
+    case AgentCommandBus.resolve_control_session_evidence(partition_id, agent_uid, nil) do
+      {:ok, %{agent_id: ^agent_uid, partition_id: ^partition_id}} ->
+        :ok
+
+      _other ->
+        Process.sleep(10)
+        await_control_partition!(agent_uid, partition_id, attempts - 1)
+    end
   end
 
   defp create_proxmox_secret!(actor, unique_id) do
@@ -491,16 +553,16 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   defp create_approved_plugin_package!(actor, unique_id) do
     plugin_id = "proxmox-inventory-#{unique_id}"
 
-    {:ok, _plugin} =
+    _plugin =
       Plugin
       |> Ash.Changeset.for_create(
         :create,
         %{plugin_id: plugin_id, name: "Proxmox Inventory #{unique_id}"},
         actor: actor
       )
-      |> Ash.create()
+      |> create_without_notifications!()
 
-    {:ok, package} =
+    package =
       PluginPackage
       |> Ash.Changeset.for_create(
         :create,
@@ -530,21 +592,21 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
         },
         actor: actor
       )
-      |> Ash.create()
+      |> create_without_notifications!()
 
-    {:ok, package} =
+    package =
       package
       |> Ash.Changeset.for_update(
         :update,
         %{wasm_object_key: "plugins/#{unique_id}/plugin.wasm"},
         actor: actor
       )
-      |> Ash.update()
+      |> update_without_notifications!()
 
-    {:ok, package} =
+    package =
       package
       |> Ash.Changeset.for_update(:approve, %{approved_by: "test"}, actor: actor)
-      |> Ash.update()
+      |> update_without_notifications!()
 
     package
   end
@@ -552,16 +614,16 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   defp create_approved_awx_inventory_package!(actor, unique_id) do
     plugin_id = "awx-inventory-sync"
 
-    {:ok, _plugin} =
+    _plugin =
       Plugin
       |> Ash.Changeset.for_create(
         :create,
         %{plugin_id: plugin_id, name: "AWX Inventory Sync #{unique_id}"},
         actor: actor
       )
-      |> Ash.create()
+      |> create_without_notifications!()
 
-    {:ok, package} =
+    package =
       PluginPackage
       |> Ash.Changeset.for_create(
         :create,
@@ -591,21 +653,21 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
         },
         actor: actor
       )
-      |> Ash.create()
+      |> create_without_notifications!()
 
-    {:ok, package} =
+    package =
       package
       |> Ash.Changeset.for_update(
         :update,
         %{wasm_object_key: "plugins/awx-inventory/#{unique_id}/plugin.wasm"},
         actor: actor
       )
-      |> Ash.update()
+      |> update_without_notifications!()
 
-    {:ok, package} =
+    package =
       package
       |> Ash.Changeset.for_update(:approve, %{approved_by: "test"}, actor: actor)
-      |> Ash.update()
+      |> update_without_notifications!()
 
     package
   end

@@ -192,6 +192,7 @@ defmodule ServiceRadar.Edge.RemoteConsoleTarget do
     end
   end
 
+  defp atom_string(nil), do: nil
   defp atom_string(value) when is_atom(value), do: Atom.to_string(value)
   defp atom_string(value) when is_binary(value), do: value
   defp atom_string(_value), do: nil

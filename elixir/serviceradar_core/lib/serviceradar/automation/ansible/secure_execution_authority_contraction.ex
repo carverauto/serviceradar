@@ -132,7 +132,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionAuthorityContraction do
         operation_id: attempt.operation_id,
         execution_id: attempt.execution_id,
         controller_id: attempt.controller_id,
-        dispatch_agent_id: attempt.dispatch_agent_id
+        dispatch_agent_id: attempt.dispatch_agent_id,
+        dispatch_partition_id: attempt.dispatch_partition_id
       },
       execution,
       request,

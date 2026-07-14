@@ -186,7 +186,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentialsTest do
                signer: SignerStub,
                audit_writer: {AuditWriterStub, test_pid: self()},
                test_pid: self(),
-               idp_claims: %{"groups" => ["linux-admins"]}
+               idp_claims: %{
+                 "groups" => ["linux-admins"],
+                 "service_radar_auth_method" => "oidc"
+               }
              )
 
     assert_receive {:sign_user_certificate, sign_request}

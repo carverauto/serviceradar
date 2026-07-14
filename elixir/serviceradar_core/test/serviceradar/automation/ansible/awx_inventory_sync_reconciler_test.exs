@@ -64,13 +64,13 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
     end
 
     @impl true
-    def find_enabled_assignment(agent_uid, plugin_package_id, _actor) do
+    def find_enabled_assignment(partition_id, agent_uid, plugin_package_id, _actor) do
       record =
         __MODULE__
         |> Agent.get(&Map.values/1)
         |> Enum.find(
-          &(&1.agent_uid == agent_uid and &1.plugin_package_id == plugin_package_id and
-              &1.enabled)
+          &(&1.partition_id == partition_id and &1.agent_uid == agent_uid and
+              &1.plugin_package_id == plugin_package_id and &1.enabled)
         )
 
       {:ok, record}
@@ -79,6 +79,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
     defp spec_to_record(spec, existing \\ %{}) do
       %{
         id: Map.get(existing, :id, Ecto.UUID.generate()),
+        partition_id: spec.partition_id,
         agent_uid: spec.agent_uid,
         plugin_package_id: spec.plugin_package_id,
         source: :policy,
@@ -118,7 +119,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
              AwxInventorySyncReconciler.reconcile_controllers(controllers,
                plugin_package: package,
                store: MemoryStore,
-               grant_template: &grant_template/1
+               grant_template: &grant_template/1,
+               partition_resolver: &partition_for_agent/1
              )
 
     assert stats.desired_assignments == 2
@@ -147,14 +149,16 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
                [controller("ctrl-1", "agent-a", "https://awx.example.com", "secret-a")],
                plugin_package: package,
                store: MemoryStore,
-               grant_template: &grant_template/1
+               grant_template: &grant_template/1,
+               partition_resolver: &partition_for_agent/1
              )
 
     assert {:ok, stats} =
              AwxInventorySyncReconciler.reconcile_controllers([],
                plugin_package: package,
                store: MemoryStore,
-               grant_template: &grant_template/1
+               grant_template: &grant_template/1,
+               partition_resolver: &partition_for_agent/1
              )
 
     assert stats.disabled == 1
@@ -173,7 +177,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
              AwxInventorySyncReconciler.reconcile_controllers(controllers,
                plugin_package: package,
                store: MemoryStore,
-               grant_template: &grant_template/1
+               grant_template: &grant_template/1,
+               partition_resolver: &partition_for_agent/1
              )
 
     assert stats.desired_assignments == 1
@@ -190,7 +195,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
                [controller("ctrl-a", "agent-a", "https://awx-a.example.com", "secret-a")],
                plugin_package: package,
                store: MemoryStore,
-               grant_template: &grant_template/1
+               grant_template: &grant_template/1,
+               partition_resolver: &partition_for_agent/1
              )
 
     assert MemoryStore.records()["ansible:awx-inventory-sync:agent-a"].enabled == true
@@ -205,7 +211,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
                ],
                plugin_package: package,
                store: MemoryStore,
-               grant_template: &grant_template/1
+               grant_template: &grant_template/1,
+               partition_resolver: &partition_for_agent/1
              )
 
     assert stats.disabled == 1
@@ -225,7 +232,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
              AwxInventorySyncReconciler.reconcile_controllers(controllers,
                plugin_package: package,
                store: MemoryStore,
-               grant_template: &grant_template/1
+               grant_template: &grant_template/1,
+               partition_resolver: &partition_for_agent/1
              )
 
     assert MemoryStore.records()["ansible:awx-inventory-sync:agent-a"].enabled == true
@@ -239,7 +247,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
                controllers: controllers,
                plugin_package: package,
                store: MemoryStore,
-               grant_template: &grant_template/1
+               grant_template: &grant_template/1,
+               partition_resolver: &partition_for_agent/1
              )
 
     assert stats.disabled == 0
@@ -259,7 +268,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
              AwxInventorySyncReconciler.reconcile_controllers(controllers,
                plugin_package: package,
                store: MemoryStore,
-               grant_template: &grant_template/1
+               grant_template: &grant_template/1,
+               partition_resolver: &partition_for_agent/1
              )
 
     # agent-a's controller removed. A per-agent reconcile for agent-a retracts
@@ -271,7 +281,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
                ],
                plugin_package: package,
                store: MemoryStore,
-               grant_template: &grant_template/1
+               grant_template: &grant_template/1,
+               partition_resolver: &partition_for_agent/1
              )
 
     assert stats.disabled == 1
@@ -292,6 +303,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
       metadata: Keyword.get(opts, :metadata, %{})
     }
   end
+
+  defp partition_for_agent(agent_id), do: {:ok, "test-partition:" <> agent_id}
 
   defp grant_template(controller) do
     {:ok, secret_id} = Controller.credential_secret_id_for(controller, :sync)

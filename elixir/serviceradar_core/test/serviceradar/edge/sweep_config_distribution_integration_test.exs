@@ -92,7 +92,7 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
     assert compiled_group["ports"] == profile.ports
     assert compiled_group["modes"] == profile.sweep_modes
 
-    {:ok, agent_config} = AgentConfigGenerator.generate_config(agent_id)
+    {:ok, agent_config} = AgentConfigGenerator.generate_config(agent_id, "default")
     payload = Jason.decode!(agent_config.config_json)
     sweep_payload = payload["sweep"]
     generated_group = Enum.find(sweep_payload["groups"], &(&1["sweep_group_id"] == group.id))

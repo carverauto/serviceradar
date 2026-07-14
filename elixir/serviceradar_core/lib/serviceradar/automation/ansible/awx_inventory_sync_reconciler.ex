@@ -75,13 +75,21 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconciler do
       }
 
       with_reconcile_lock(opts, fn ->
-        PolicyAssignmentReconciler.reconcile(policy, rows,
+        reconcile_opts = [
           actor: actor,
           resolver: __MODULE__.Resolver,
           planner: __MODULE__.Planner,
           store: Keyword.get(opts, :store, PolicyAssignmentReconciler.AshStore),
           agent_scope: Keyword.get(opts, :agent_scope)
-        )
+        ]
+
+        reconcile_opts =
+          case Keyword.fetch(opts, :partition_resolver) do
+            {:ok, resolver} -> Keyword.put(reconcile_opts, :partition_resolver, resolver)
+            :error -> reconcile_opts
+          end
+
+        PolicyAssignmentReconciler.reconcile(policy, rows, reconcile_opts)
       end)
     end
   end

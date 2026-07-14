@@ -82,6 +82,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionAuthorityContractionTes
     assert cancel_attempt.purpose == :terminal_cleanup
     assert cancel_attempt.command_type == "awx.cancel_job"
     assert cancel_attempt.expected_job_id == 77
+    assert cancel_attempt.dispatch_partition_id == "farm01"
     assert cancel_attempt.state == :planned
     assert DateTime.diff(cancel_attempt.deadline_at, @now, :second) == 60
 
@@ -110,7 +111,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionAuthorityContractionTes
           operation_id: operation_id,
           execution_id: execution_id,
           controller_id: controller_id,
-          dispatch_agent_id: "edge-agent-1"
+          dispatch_agent_id: "edge-agent-1",
+          dispatch_partition_id: "farm01"
         },
         execution,
         request,

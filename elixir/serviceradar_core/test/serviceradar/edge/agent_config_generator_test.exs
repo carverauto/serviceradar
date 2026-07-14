@@ -21,6 +21,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   alias ServiceRadar.Plugins.PluginPackage
 
   @moduletag :integration
+  @default_partition "default"
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
@@ -52,9 +53,9 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     {:ok, actor: actor, agent_uid: agent_uid, unique_id: unique_id}
   end
 
-  describe "generate_config/1" do
+  describe "generate_config/2" do
     test "returns empty config when no checks exist", %{agent_uid: agent_uid} do
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert config.checks == []
       assert config.heartbeat_interval_sec == 30
@@ -88,7 +89,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         )
         |> Ash.create()
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert length(config.checks) == 1
       [check] = config.checks
@@ -127,7 +128,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         )
         |> Ash.create(actor: actor)
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       credentials =
         config.config_json
@@ -146,7 +147,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     } do
       create_active_bumblebee_snapshot!(actor, unique_id)
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
       payload = Jason.decode!(config.config_json)
 
       assert payload["bumblebee"] == %{"enabled" => false}
@@ -175,7 +176,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         "findings_only" => true
       })
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
       payload = Jason.decode!(config.config_json)
 
       assert payload["bumblebee"]["enabled"] == true
@@ -187,7 +188,9 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert config.bumblebee_config.enabled
       assert config.bumblebee_config.catalog.snapshot_ref == snapshot.snapshot_ref
 
-      {:ok, other_config} = AgentConfigGenerator.generate_config(other_agent_uid)
+      {:ok, other_config} =
+        AgentConfigGenerator.generate_config(other_agent_uid, @default_partition)
+
       other_payload = Jason.decode!(other_config.config_json)
 
       assert other_payload["bumblebee"] == %{"enabled" => false}
@@ -205,7 +208,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         "scan_profile" => "kubernetes"
       })
 
-      {:ok, config} = AgentConfigGenerator.generate_config("k8s-agent")
+      {:ok, config} = AgentConfigGenerator.generate_config("k8s-agent", @default_partition)
       payload = Jason.decode!(config.config_json)
 
       assert payload["bumblebee"]["enabled"] == true
@@ -256,7 +259,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         |> Ash.Changeset.for_update(:disable, %{}, actor: actor)
         |> Ash.update()
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       # Only enabled check should be included
       assert length(config.checks) == 1
@@ -264,26 +267,32 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     end
   end
 
-  describe "get_config_if_changed/2" do
+  describe "get_config_if_changed/3" do
     test "returns :not_modified when version matches", %{agent_uid: agent_uid} do
       # First, get the config to obtain the version
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       # Request with the same version
-      result = AgentConfigGenerator.get_config_if_changed(agent_uid, config.config_version)
+      result =
+        AgentConfigGenerator.get_config_if_changed(
+          agent_uid,
+          @default_partition,
+          config.config_version
+        )
 
       assert result == :not_modified
     end
 
     test "returns config when version differs", %{agent_uid: agent_uid} do
-      result = AgentConfigGenerator.get_config_if_changed(agent_uid, "v-old-version")
+      result =
+        AgentConfigGenerator.get_config_if_changed(agent_uid, @default_partition, "v-old-version")
 
       assert {:ok, config} = result
       assert config.config_version != "v-old-version"
     end
 
     test "returns config when version is empty", %{agent_uid: agent_uid} do
-      result = AgentConfigGenerator.get_config_if_changed(agent_uid, "")
+      result = AgentConfigGenerator.get_config_if_changed(agent_uid, @default_partition, "")
 
       assert {:ok, _config} = result
     end
@@ -347,8 +356,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
   describe "version hash stability" do
     test "same config produces same version hash", %{agent_uid: agent_uid} do
-      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid)
-      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       # Version hash should be deterministic
       assert config1.config_version == config2.config_version
@@ -362,7 +371,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       {:ok, _agent} = create_connected_agent(actor, agent_uid)
 
       # Get initial config
-      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       # Add a check (enabled by default)
       {:ok, _check} =
@@ -380,7 +389,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         |> Ash.create()
 
       # Get config again
-      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       # Version should be different now
       assert config1.config_version != config2.config_version
@@ -457,25 +466,22 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         |> Ash.Changeset.for_update(:approve, %{approved_by: "test"}, actor: actor)
         |> Ash.update()
 
-      {:ok, _assignment} =
-        PluginAssignment
-        |> Ash.Changeset.for_create(
-          :create,
+      _assignment =
+        create_plugin_assignment!(
+          agent_uid,
           %{
-            agent_uid: agent_uid,
             plugin_package_id: package.id,
             enabled: true,
             interval_seconds: 60,
             timeout_seconds: 10,
             params: %{}
           },
-          actor: actor
+          actor
         )
-        |> Ash.create()
 
-      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
       Process.sleep(1_100)
-      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert config1.config_version == config2.config_version
       refute config1.plugins == []
@@ -552,28 +558,23 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         |> Ash.Changeset.for_update(:approve, %{approved_by: "test"}, actor: actor)
         |> Ash.update()
 
-      {:ok, active_assignment} =
-        PluginAssignment
-        |> Ash.Changeset.for_create(
-          :create,
+      active_assignment =
+        create_plugin_assignment!(
+          agent_uid,
           %{
-            agent_uid: agent_uid,
             plugin_package_id: package.id,
             enabled: true,
             interval_seconds: 60,
             timeout_seconds: 10,
             params: %{}
           },
-          actor: actor
+          actor
         )
-        |> Ash.create()
 
-      {:ok, _disabled_assignment} =
-        PluginAssignment
-        |> Ash.Changeset.for_create(
-          :create,
+      _disabled_assignment =
+        create_plugin_assignment!(
+          agent_uid,
           %{
-            agent_uid: agent_uid,
             plugin_package_id: package.id,
             source: :policy,
             source_key: "plugin-disabled-duplicate:#{unique_id}",
@@ -583,11 +584,10 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
             timeout_seconds: 20,
             params: %{}
           },
-          actor: actor
+          actor
         )
-        |> Ash.create()
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert [plugin] = config.plugins
       assert plugin.assignment_id == to_string(active_assignment.id)
@@ -677,12 +677,10 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         )
         |> Ash.update()
 
-      {:ok, _assignment} =
-        PluginAssignment
-        |> Ash.Changeset.for_create(
-          :create,
+      _assignment =
+        create_plugin_assignment!(
+          agent_uid,
           %{
-            agent_uid: agent_uid,
             plugin_package_id: package.id,
             enabled: true,
             interval_seconds: 60,
@@ -699,11 +697,10 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
               max_open_connections: 10
             }
           },
-          actor: actor
+          actor
         )
-        |> Ash.create()
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
       [plugin] = config.plugins
 
       assert plugin.permissions == %{
@@ -825,28 +822,27 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         )
         |> Ash.update()
 
-      {:ok, _assignment} =
-        PluginAssignment
-        |> Ash.Changeset.for_create(
-          :create,
+      _assignment =
+        create_plugin_assignment!(
+          agent_uid,
           %{
-            agent_uid: agent_uid,
             plugin_package_id: package.id,
             enabled: true,
             interval_seconds: 60,
             timeout_seconds: 10,
             params: %{}
           },
-          actor: actor
+          actor
         )
-        |> Ash.create()
 
-      {:ok, config_without} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config_without} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
       refute "http_request" in hd(config_without.plugins).capabilities
 
       # Idempotent: an unchanged config generates the same version hash (guards
       # against volatile-field churn making the != assertion below trivially pass).
-      {:ok, config_without_again} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config_without_again} =
+        AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+
       assert config_without_again.config_version == config_without.config_version
 
       # Grant http_request on the SAME package + assignment (revoke -> restage ->
@@ -866,7 +862,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         )
         |> Ash.update()
 
-      {:ok, config_with} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config_with} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
       assert "http_request" in hd(config_with.plugins).capabilities
 
       # The capability grant MUST change the version hash so the gateway serves a
@@ -933,23 +929,20 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       )
       |> Ash.update()
 
-    {:ok, _assignment} =
-      PluginAssignment
-      |> Ash.Changeset.for_create(
-        :create,
+    _assignment =
+      create_plugin_assignment!(
+        agent_uid,
         %{
-          agent_uid: agent_uid,
           plugin_package_id: package.id,
           enabled: true,
           interval_seconds: 60,
           timeout_seconds: 10,
           params: %{}
         },
-        actor: actor
+        actor
       )
-      |> Ash.create()
 
-    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
     config.plugins
     |> Enum.find(&(&1.plugin_id == plugin_id))
@@ -974,7 +967,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
   describe "sysmon config" do
     test "includes disabled sysmon config when no profile exists", %{agent_uid: agent_uid} do
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       # Should have sysmon_config field with disabled values
       assert config.sysmon_config
@@ -992,7 +985,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     end
 
     test "sysmon config affects version hash", %{agent_uid: agent_uid} do
-      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       # Create a custom sysmon profile (this would normally be done through the seeder/UI)
       # For now, we just verify that the config includes sysmon and has a version
@@ -1000,12 +993,12 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert String.starts_with?(config1.config_version, "v")
 
       # Same config should produce same hash
-      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
       assert config1.config_version == config2.config_version
     end
 
     test "sysmon_config is proto-compatible struct", %{agent_uid: agent_uid} do
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       # Verify it's the proto struct
       assert is_struct(config.sysmon_config, Monitoring.SysmonConfig)
@@ -1032,7 +1025,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     test "includes disabled visibility config before profiles are configured", %{
       agent_uid: agent_uid
     } do
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert %Monitoring.VisibilityConfig{} = visibility = config.visibility_config
       assert visibility.enabled == false
@@ -1073,11 +1066,11 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         |> Ash.create()
 
       ConfigServer.invalidate(:sweep)
-      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       Process.sleep(5)
       ConfigServer.invalidate(:sweep)
-      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert config1.config_version == config2.config_version
     end
@@ -1106,7 +1099,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       ConfigServer.invalidate(:sweep)
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
       payload = Jason.decode!(config.config_json)
 
       assert Map.has_key?(payload, "sweep")
@@ -1169,7 +1162,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       ConfigServer.invalidate(:sweep)
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, partition)
       payload = Jason.decode!(config.config_json)
 
       if payload["sweep"]["groups"] do
@@ -1184,7 +1177,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       AgentRegistry.unregister_agent(agent_uid)
     end
 
-    test "registered agent with multiple gateway entries uses freshest capable partition", %{
+    test "authenticated partition selects the matching config with multiple gateway entries", %{
       actor: actor,
       unique_id: unique_id
     } do
@@ -1255,7 +1248,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
         ConfigServer.invalidate(:sweep)
 
-        {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+        {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, fresh_partition)
         payload = Jason.decode!(config.config_json)
         group_names = Enum.map(payload["sweep"]["groups"] || [], & &1["name"])
 
@@ -1308,7 +1301,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       ConfigServer.invalidate(:sweep)
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
       payload = Jason.decode!(config.config_json)
 
       if payload["sweep"]["groups"] do
@@ -1385,7 +1378,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       ConfigServer.invalidate(:sweep)
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
       payload = Jason.decode!(config.config_json)
 
       group =
@@ -1453,7 +1446,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       ConfigServer.invalidate(:sweep)
 
-      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
       version1 = config1.config_version
 
       # Update SRQL targeting
@@ -1466,7 +1459,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       ConfigServer.invalidate(:sweep)
 
-      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
       version2 = config2.config_version
 
       # Version should be different after criteria update
@@ -1515,7 +1508,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       ConfigServer.invalidate(:sweep)
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
       payload = Jason.decode!(config.config_json)
 
       if payload["sweep"]["groups"] do
@@ -1551,7 +1544,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       ConfigServer.invalidate(:sweep)
 
-      {:ok, config} = AgentConfigGenerator.generate_config(other_agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(other_agent_uid, @default_partition)
       payload = Jason.decode!(config.config_json)
       group_names = Enum.map(payload["sweep"]["groups"] || [], & &1["name"])
 
@@ -1575,7 +1568,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       {:ok, _assignment} = assign_addon(actor, agent_uid, package)
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert [addon] = config.addons
       assert addon.addon_id == package.addon_id
@@ -1602,7 +1595,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       {:ok, _assignment} = assign_addon(actor, agent_uid, package)
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert [addon] = config.addons
       assert addon.capabilities == ["remoteaccess", "diagnostics"]
@@ -1636,7 +1629,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         )
         |> Ash.update()
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert config.addons == []
     end
@@ -1656,7 +1649,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       {:ok, _assignment} = assign_addon(actor, agent_uid, package)
 
-      {:ok, before} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, before} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       # An executable upgrade (new install_path) must change config_version so a
       # polling agent stops receiving :not_modified and relaunches the new binary.
@@ -1665,7 +1658,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         |> Ash.Changeset.for_update(:update, %{install_path: "/opt/sr/bin/v2"}, actor: actor)
         |> Ash.update()
 
-      {:ok, after_change} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, after_change} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       refute before.config_version == after_change.config_version
     end
@@ -1742,7 +1735,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       {:ok, _assignment} = assign_addon(actor, agent_uid, package)
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert [addon] = config.addons
       assert addon.delivery == :pushed_artifact
@@ -1772,7 +1765,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       {:ok, _assignment} = assign_addon(actor, agent_uid, package)
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert config.addons == []
     end
@@ -1797,7 +1790,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       {:ok, _assignment} = assign_addon(actor, agent_uid, package)
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert config.addons == []
     end
@@ -1821,7 +1814,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       {:ok, _assignment} = assign_addon(actor, agent_uid, package)
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert config.addons == []
     end
@@ -1847,7 +1840,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       {:ok, _assignment} = assign_addon(actor, agent_uid, package)
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert config.addons == []
     end
@@ -1879,7 +1872,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       {:ok, _assignment} = assign_addon(actor, agent_uid, package)
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert config.addons == []
     end
@@ -1905,7 +1898,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       {:ok, _assignment} = assign_addon(actor, agent_uid, package)
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert [addon] = config.addons
       assert addon.addon_id == package.addon_id
@@ -1947,7 +1940,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
           }
         )
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert [addon] = config.addons
       assert addon.addon_id == "otel-collector"
@@ -1999,7 +1992,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
           }
         )
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert config.addons == []
     end
@@ -2041,7 +2034,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
           "agent_forward" => %{"max_bytes" => 1_048_576}
         })
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       assert [addon] = config.addons
       assert addon.addon_id == "otel-collector"
@@ -2070,7 +2063,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       {:ok, _assignment} = assign_addon(actor, "k8s-agent", package)
 
-      {:ok, config} = AgentConfigGenerator.generate_config("k8s-agent")
+      {:ok, config} = AgentConfigGenerator.generate_config("k8s-agent", @default_partition)
 
       assert [addon] = config.addons
       assert addon.addon_id == "bumblebee"
@@ -2109,7 +2102,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       {:ok, _assignment} = assign_addon(actor, agent_uid, package)
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
 
       # The netprobe assignment compiles as a systemd-service add-on carrying the per-arch
       # artifact + file capabilities the root-owned agent-updater applies via setcap.
@@ -2211,6 +2204,67 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       actor: actor
     )
     |> Ash.create()
+  end
+
+  defp register_control_session!(agent_uid, partition_id) do
+    assert {:ok, _pid} =
+             ServiceRadar.ProcessRegistry.register(
+               {:agent_control, partition_id, agent_uid, node()},
+               %{
+                 agent_id: agent_uid,
+                 partition_id: partition_id,
+                 gateway_node: node(),
+                 capabilities: ["wasm"]
+               }
+             )
+
+    await_control_partition!(agent_uid, partition_id, 40)
+  end
+
+  defp create_plugin_assignment!(agent_uid, attrs, actor) do
+    ServiceRadar.TestSupport.drain_dependency_dispatcher_tasks()
+    register_control_session!(agent_uid, @default_partition)
+
+    try do
+      changeset =
+        Ash.Changeset.for_create(
+          PluginAssignment,
+          :create,
+          Map.put(attrs, :agent_uid, agent_uid),
+          actor: actor
+        )
+
+      case Ash.create(changeset,
+             domain: ServiceRadar.Plugins,
+             return_notifications?: true
+           ) do
+        {:ok, assignment, _notifications} -> assignment
+        {:error, error} -> raise Ash.Error.to_error_class(error)
+      end
+    after
+      :ok =
+        ServiceRadar.ProcessRegistry.unregister(
+          {:agent_control, @default_partition, agent_uid, node()}
+        )
+    end
+  end
+
+  defp await_control_partition!(_agent_uid, _partition_id, 0),
+    do: flunk("test control-session partition did not converge")
+
+  defp await_control_partition!(agent_uid, partition_id, attempts) do
+    case ServiceRadar.Edge.AgentCommandBus.resolve_control_session_evidence(
+           partition_id,
+           agent_uid,
+           nil
+         ) do
+      {:ok, %{agent_id: ^agent_uid, partition_id: ^partition_id}} ->
+        :ok
+
+      _other ->
+        Process.sleep(10)
+        await_control_partition!(agent_uid, partition_id, attempts - 1)
+    end
   end
 
   defp create_active_bumblebee_snapshot!(actor, unique_id) do

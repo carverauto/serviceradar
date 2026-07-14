@@ -94,12 +94,14 @@ defmodule ServiceRadar.Inventory.VirtualizationV3IdentityDbTest do
 
     farm = %{
       integration_id: Ecto.UUID.generate(),
-      controller_id: Ecto.UUID.generate()
+      controller_id: Ecto.UUID.generate(),
+      partition_id: "farm01"
     }
 
     tonka = %{
       integration_id: Ecto.UUID.generate(),
-      controller_id: Ecto.UUID.generate()
+      controller_id: Ecto.UUID.generate(),
+      partition_id: "tonka01"
     }
 
     farm_payload = payload(cluster, node, vmid, "10.210.1.11", "10.210.1.21")

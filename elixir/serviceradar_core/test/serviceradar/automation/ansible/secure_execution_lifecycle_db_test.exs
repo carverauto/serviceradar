@@ -32,7 +32,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionLifecycleDbTest do
           operation_id: fixture.operation.id,
           execution_id: fixture.execution.id,
           controller_id: fixture.controller_id,
-          dispatch_agent_id: "edge-secure-db"
+          dispatch_agent_id: "edge-secure-db",
+          dispatch_partition_id: "farm01"
         },
         fixture.execution,
         request,

@@ -262,6 +262,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreDbTest do
       execution_id: active.execution_id,
       controller_id: active.awx_scope_snapshot["controller_id"],
       dispatch_agent_id: active.dispatch_agent_id,
+      dispatch_partition_id: active.dispatch_partition_id,
       awx_job_id: active.job_binding["job_id"],
       credential_id: active.ephemeral_credential_id,
       result_status: :deleted
@@ -624,6 +625,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreDbTest do
       job_binding: nil,
       ephemeral_credential_id: nil,
       dispatch_agent_id: "agent-gateway-demo",
+      dispatch_partition_id: "farm01",
       launch_envelope_ref: "vault-envelope:callback-grant-1",
       verifier_digest: <<7::256>>,
       verifier_key_id: "callback-v1",

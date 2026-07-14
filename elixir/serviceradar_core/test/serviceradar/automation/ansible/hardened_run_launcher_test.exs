@@ -65,12 +65,19 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncherTest do
     }
   end
 
+  defp controller, do: %{id: "controller-1", agent_id: "edge-agent-1"}
+
+  defp edge_principal("edge-agent-1") do
+    {:ok, %{agent_id: "edge-agent-1", partition_id: "farm01"}}
+  end
+
   test "persists the complete plan before external dispatch" do
-    controller = %{id: "controller-1"}
+    controller = controller()
 
     assert {:ok, result} =
              HardenedRunLauncher.launch(plan(), controller,
                actions: FakeActions,
+               edge_principal_resolver: &edge_principal/1,
                schedule_id: "schedule-1"
              )
 
@@ -85,7 +92,10 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncherTest do
     Process.put(:persist_result, {:error, {:target_create_failed, :duplicate}})
 
     assert {:error, {:target_create_failed, :duplicate}} =
-             HardenedRunLauncher.launch(plan(), %{id: "controller-1"}, actions: FakeActions)
+             HardenedRunLauncher.launch(plan(), controller(),
+               actions: FakeActions,
+               edge_principal_resolver: &edge_principal/1
+             )
 
     assert_receive {:persist_plan, _, _}
     refute_receive {:dispatch, _}
@@ -95,7 +105,10 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncherTest do
     Process.put(:dispatch_result, {:error, %{password: "never-persist-this"}})
 
     assert {:ok, result} =
-             HardenedRunLauncher.launch(plan(), %{id: "controller-1"}, actions: FakeActions)
+             HardenedRunLauncher.launch(plan(), controller(),
+               actions: FakeActions,
+               edge_principal_resolver: &edge_principal/1
+             )
 
     assert result.dispatch_outcome == {:deferred, "internal_error"}
     refute inspect(result) =~ "never-persist-this"

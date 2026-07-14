@@ -442,7 +442,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
         |> Ash.create()
 
       # Generate full agent config
-      {:ok, agent_config} = AgentConfigGenerator.generate_config(agent_id)
+      {:ok, agent_config} = AgentConfigGenerator.generate_config(agent_id, "default")
       payload = Jason.decode!(agent_config.config_json)
 
       # SNMP is carried in the dedicated proto field, not in config_json.
