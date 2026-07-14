@@ -1,0 +1,29 @@
+openspec/notes/sr-causal-engine.md
+  s_6f8eb423821667::t_63b433e74bacfc 139-145
+  s_6f8eb423821667::t_b03e73525fbaae 247-251
+  s_6f8eb423821667::t_d93f61fc7265e4 680-693
+  s_6f8eb423821667::t_4a808b2745c2ee 645-653
+  s_6f8eb423821667::t_d4c0f6d8aa85d5 156
+  s_6f8eb423821667::t_a46f53a924bf99 227-235,237-241
+  s_6f8eb423821667::t_a321e6859bf6d8 292-293,299-305
+  s_6f8eb423821667::t_03d309206b6034 311-315,322-324,326-327,329-330,332-333,335,338-342
+  s_6f8eb423821667::t_ae7ae8440a036b 503-506
+  s_6f8eb423821667::t_5aa07bd822d9a0 615-619
+  s_6f8eb423821667::t_ca61cc2b2d2fea 669-674
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "de52c51dee25402cbb44113bd369cdb204730d65",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
