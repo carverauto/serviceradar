@@ -1,0 +1,19 @@
+.bazelversion
+  s_e3f2df8186f705::t_fcd90be58809f9 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "a6d0b9fb48f9d2f714d8590b208abedf7f882f96",
+  "prompts": {},
+  "sessions": {
+    "s_e3f2df8186f705": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a543ca56a55c4ecf2",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
