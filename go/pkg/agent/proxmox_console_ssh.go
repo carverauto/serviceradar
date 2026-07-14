@@ -306,6 +306,9 @@ func dialProxmoxConsoleSSH(ctx context.Context, cfg proxmoxConsoleSSHConfig) (pr
 	}()
 	if err := rawConn.SetDeadline(time.Now().Add(timeout)); err != nil {
 		_ = rawConn.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, err
 	}
 
@@ -336,6 +339,9 @@ func dialProxmoxConsoleSSH(ctx context.Context, cfg proxmoxConsoleSSHConfig) (pr
 	if err := rawConn.SetDeadline(time.Time{}); err != nil {
 		_ = session.Close()
 		_ = client.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, err
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
