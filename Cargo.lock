@@ -1893,12 +1893,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
-name = "dyn-clone"
-version = "1.0.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
-
-[[package]]
 name = "ecdsa"
 version = "0.17.0-rc.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2944,7 +2938,6 @@ checksum = "bd070e393353796e801d209ad339e89596eb4c8d430d18ede6a1cced8fafbd99"
 dependencies = [
  "autocfg",
  "hashbrown 0.12.3",
- "serde 1.0.228",
 ]
 
 [[package]]
@@ -4135,9 +4128,9 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 
 [[package]]
 name = "openssl-src"
-version = "300.6.0+3.6.2"
+version = "300.6.1+3.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8e8cbfd3a4a8c8f089147fd7aaa33cf8c7450c4d09f8f80698a0cf093abeff4"
+checksum = "46eb8fb9fb3b61ce1c0f8a026c4c1a0714d3a9e138e7fbde78753ce2babc3846"
 dependencies = [
  "cc",
 ]
@@ -4174,7 +4167,6 @@ dependencies = [
  "async-nats",
  "chrono",
  "clap 4.6.1",
- "config-bootstrap",
  "env_logger 0.11.10",
  "flate2 1.1.9",
  "hex",
@@ -4189,12 +4181,10 @@ dependencies = [
  "rustls",
  "rustls-pemfile",
  "serde 1.0.228",
- "serde_json 1.0.150",
  "serviceradar-metric-proto",
  "tempfile",
  "tokio",
  "tokio-rustls",
- "tokio-stream",
  "toml 0.8.23",
  "tonic 0.12.3",
  "tonic-build",
@@ -5271,26 +5261,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ref-cast"
-version = "1.0.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f354300ae66f76f1c85c5f84693f0ce81d747e2c3f21a45fef496d89c960bf7d"
-dependencies = [
- "ref-cast-impl",
-]
-
-[[package]]
-name = "ref-cast-impl"
-version = "1.0.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7186006dcb21920990093f30e3dea63b7d6e977bf1256be20c3563a5db070da"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
 name = "ref_slice"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5757,30 +5727,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "schemars"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cd191f9397d57d581cddd31014772520aa448f65ef991055d7f61582c65165f"
-dependencies = [
- "dyn-clone",
- "ref-cast",
- "serde 1.0.228",
- "serde_json 1.0.150",
-]
-
-[[package]]
-name = "schemars"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2b42f36aa1cd011945615b92222f6bf73c599a102a300334cd7f8dbeec726cc"
-dependencies = [
- "dyn-clone",
- "ref-cast",
- "serde 1.0.228",
- "serde_json 1.0.150",
-]
-
-[[package]]
 name = "scoped-futures"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6000,37 +5946,6 @@ dependencies = [
  "itoa 1.0.18",
  "ryu",
  "serde 1.0.228",
-]
-
-[[package]]
-name = "serde_with"
-version = "3.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "381b283ce7bc6b476d903296fb59d0d36633652b633b27f64db4fb46dcbfc3b9"
-dependencies = [
- "base64",
- "chrono",
- "hex",
- "indexmap 1.9.3",
- "indexmap 2.14.0",
- "schemars 0.9.0",
- "schemars 1.2.1",
- "serde_core",
- "serde_json 1.0.150",
- "serde_with_macros",
- "time",
-]
-
-[[package]]
-name = "serde_with_macros"
-version = "3.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6d4e30573c8cb306ed6ab1dca8423eec9a463ea0e155f45399455e0368b27e0"
-dependencies = [
- "darling",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
 ]
 
 [[package]]
@@ -6267,23 +6182,19 @@ dependencies = [
  "anyhow",
  "async-nats",
  "clap 4.6.1",
- "config-bootstrap",
- "env_logger 0.11.10",
  "flate2 1.1.9",
  "glob",
  "kafka",
- "kvutil",
  "log 0.4.30",
  "may",
  "notify",
- "openssl",
  "pem",
- "prost 0.13.5",
  "quickcheck",
  "rand 0.8.6",
  "rcgen",
  "redis",
  "rustls",
+ "rustls-pemfile",
  "serde 1.0.228",
  "serde_json 0.8.6",
  "spiffe",
@@ -6444,7 +6355,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-nats",
- "bytes",
  "clap 4.6.1",
  "config-bootstrap",
  "env_logger 0.10.2",
@@ -6766,6 +6676,7 @@ dependencies = [
  "http",
  "kvutil",
  "once_cell",
+ "openssl-sys",
  "parking_lot",
  "pq-sys",
  "pretty_assertions",
@@ -6773,7 +6684,6 @@ dependencies = [
  "rustls-pemfile",
  "serde 1.0.228",
  "serde_json 1.0.150",
- "serde_with",
  "serial_test",
  "sha2 0.10.9",
  "thiserror 1.0.69",
@@ -6785,6 +6695,26 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid 1.23.1",
+]
+
+[[package]]
+name = "srql-integration-tests"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "http",
+ "pretty_assertions",
+ "rustls",
+ "rustls-pemfile",
+ "serde 1.0.228",
+ "serde_json 1.0.150",
+ "serial_test",
+ "srql",
+ "tokio",
+ "tokio-postgres",
+ "tower 0.5.3",
+ "tracing-subscriber",
 ]
 
 [[package]]

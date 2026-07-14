@@ -536,7 +536,6 @@ use_repo(
     "io_opentelemetry_go_otel_sdk_log",
     "io_opentelemetry_go_otel_sdk_metric",
     "io_opentelemetry_go_otel_trace",
-    "io_opentelemetry_go_proto_otlp",
     "org_golang_google_grpc",
     "org_golang_google_protobuf",
     "org_golang_x_crypto",
@@ -579,110 +578,12 @@ register_toolchains("@rust_toolchains//:all")
 
 # --- Rust crate dependencies (crate_universe) --------------------------------
 
-crates = use_extension(
-    "@rules_rust//crate_universe:extensions.bzl",
-    "crate",
-)
-crates.annotation(
-    build_script_data = ["@bazel_tools//tools/proto:protoc"],
-    build_script_env = {
-        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
-    },
-    crate = "cri-api",
-    repositories = ["rust_crates"],
-)
-crates.annotation(
-    additive_build_file_content = """
-load("@bazel_skylib//rules:write_file.bzl", "write_file")
-
-write_file(
-    name = "workspace_perl_tool",
-    out = "perl-wrapper.sh",
-    content = [
-        "#!/usr/bin/env bash",
-        "set -euo pipefail",
-        'exec perl "$@"',
-    ],
-    is_executable = True,
-)
-""",
-    build_script_data = [
-        ":workspace_perl_tool",
-        "@rust_crates__openssl-src-300.6.0-3.6.2//:openssl_src_runfiles",
-        "@rust_crates__openssl-src-300.6.0-3.6.2//:openssl_src_readme",
-    ],
-    build_script_env = {
-        "OPENSSL_SRC_PERL": "$(execpath :workspace_perl_tool)",
-        "RULES_RUST_OPENSSL_SRC_DIR": "$(location @rust_crates__openssl-src-300.6.0-3.6.2//:openssl_src_readme)",
-    },
-    crate = "openssl-sys",
-    repositories = ["rust_crates"],
-)
-crates.annotation(
-    additive_build_file_content = """
-filegroup(
-    name = "openssl_src_runfiles",
-    srcs = glob(
-        allow_empty = True,
-        include = ["**"],
-        exclude = [
-            "**/* *",
-            ".tmp_git_root/**/*",
-            "BUILD",
-            "BUILD.bazel",
-            "WORKSPACE",
-            "WORKSPACE.bazel",
-        ],
-    ),
-    visibility = ["//visibility:public"],
-)
-
-filegroup(
-    name = "openssl_src_readme",
-    srcs = ["README.md"],
-    visibility = ["//visibility:public"],
-)
-""",
-    crate = "openssl-src",
-    patch_args = ["-p1"],
-    patches = ["//third_party/rust_patches:openssl_src_runfiles_patch"],
-    repositories = ["rust_crates"],
-)
-
-# libzetta is an optional dependency for sysmon ZFS support
-crates.spec(
-    package = "libzetta",
-    repositories = ["rust_crates"],
-    version = "0.5.0",
-)
-
-# IronRDP core/PDU crates are optional for the RDP helper feature build. Keep
-# connector/CredSSP crates out of the workspace until their dependency graph is
-# reviewed separately.
-crates.spec(
-    default_features = False,
-    features = ["alloc"],
-    package = "ironrdp-core",
-    repositories = ["rust_crates"],
-    version = "0.1.5",
-)
-crates.spec(
-    default_features = False,
-    features = ["alloc"],
-    package = "ironrdp-pdu",
-    repositories = ["rust_crates"],
-    version = "0.7.0",
-)
-crates.from_cargo(
-    name = "rust_crates",
-    cargo_config = "//:.cargo/config.toml",
-    cargo_lockfile = "//:Cargo.lock",
-    manifests = ["//:Cargo.toml"],
-)
-use_repo(
-    crates,
-    "rust_crates",
-)
+# The former `@rust_crates` crate_universe from_cargo extension (with its cri-api/
+# openssl-sys/openssl-src annotations and libzetta/ironrdp specs) was removed here:
+# Rust third-party deps are now locally vendored under //third_party/crates via the
+# crates_vendor rule in //third_party/BUILD.bazel. Consumers load
+# //third_party/crates:defs.bzl. Removing this extension eliminates the slow Cargo
+# splicing step. See openspec migrate-bazel-rust-crate-vendoring.
 
 rdp_connector_crates = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
 rdp_connector_crates.from_cargo(
