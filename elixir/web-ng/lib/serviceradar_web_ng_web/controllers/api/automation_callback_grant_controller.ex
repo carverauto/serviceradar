@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.Api.AutomationCallbackGrantController do
   defp respond(conn, {:ok, %{status: 200, content_type: "application/json", body: body}}) when is_binary(body) do
     conn
     |> private_response_headers()
-    |> put_resp_header("content-type", "application/json")
+    |> put_resp_content_type("application/json")
     |> send_resp(200, body)
   end
 
@@ -36,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.Api.AutomationCallbackGrantController do
     conn
     |> private_response_headers()
     |> put_resp_header("retry-after", "1")
-    |> put_resp_header("content-type", "application/json")
+    |> put_resp_content_type("application/json")
     |> send_resp(409, @pending_body)
   end
 
@@ -45,7 +45,7 @@ defmodule ServiceRadarWebNGWeb.Api.AutomationCallbackGrantController do
   defp denied(conn) do
     conn
     |> private_response_headers()
-    |> put_resp_header("content-type", "application/json")
+    |> put_resp_content_type("application/json")
     |> send_resp(401, @denied_body)
   end
 

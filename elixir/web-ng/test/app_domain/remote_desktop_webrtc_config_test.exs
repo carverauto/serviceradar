@@ -133,6 +133,42 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTCConfigTest do
     end
   end
 
+  test "accepts mounted secret symlinks and rejects relative or oversized TURN secret files" do
+    root = Path.join(System.tmp_dir!(), "serviceradar-turn-path-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf(root) end)
+
+    target = Path.join(root, "target")
+    symlink = Path.join(root, "shared-secret")
+    File.write!(target, String.duplicate("a", 32))
+    File.ln_s!(target, symlink)
+
+    assert %{turn_shared_secret: secret} =
+             RemoteDesktopWebRTCConfig.load!(
+               ice_servers_json: Jason.encode!([%{"urls" => "turn:turn.example.com"}]),
+               turn_shared_secret_file: symlink
+             )
+
+    assert secret == String.duplicate("a", 32)
+
+    assert_raise ArgumentError, ~r/file is unreadable/, fn ->
+      RemoteDesktopWebRTCConfig.load!(
+        ice_servers_json: Jason.encode!([%{"urls" => "turn:turn.example.com"}]),
+        turn_shared_secret_file: "relative/shared-secret"
+      )
+    end
+
+    oversized = Path.join(root, "oversized")
+    File.write!(oversized, String.duplicate("a", 515))
+
+    assert_raise ArgumentError, ~r/file is unreadable/, fn ->
+      RemoteDesktopWebRTCConfig.load!(
+        ice_servers_json: Jason.encode!([%{"urls" => "turn:turn.example.com"}]),
+        turn_shared_secret_file: oversized
+      )
+    end
+  end
+
   test "rejects TURN credential TTLs above one hour" do
     for invalid <- [0, -1, 3_601, "3601", "not-a-number"] do
       assert_raise ArgumentError, ~r/TTL must be between 1 and 3600 seconds/, fn ->

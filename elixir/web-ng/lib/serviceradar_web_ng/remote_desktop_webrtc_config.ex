@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTCConfig do
   @max_url_bytes 512
   @min_turn_secret_bytes 32
   @max_turn_secret_bytes 512
+  @max_turn_secret_file_bytes @max_turn_secret_bytes + 2
   @default_credential_ttl_seconds 600
   @max_credential_ttl_seconds 3_600
 
@@ -102,7 +103,7 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTCConfig do
 
   defp normalize_urls!(url) when is_binary(url), do: normalize_urls!([url])
 
-  defp normalize_urls!(urls) when is_list(urls) and length(urls) > 0 and length(urls) <= @max_urls_per_server do
+  defp normalize_urls!([_ | _] = urls) when length(urls) <= @max_urls_per_server do
     Enum.map(urls, &normalize_url!/1)
   end
 
@@ -239,18 +240,52 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTCConfig do
     if normalized_path == "" do
       missing_turn_secret!()
     else
-      secret =
-        case File.read(normalized_path) do
-          {:ok, contents} -> contents
-          {:error, _reason} -> raise ArgumentError, "remote desktop TURN shared-secret file is unreadable"
-        end
-
+      secret = read_turn_secret!(normalized_path)
       validate_turn_secret!(secret)
     end
   end
 
   defp load_turn_shared_secret!(_path, true), do: missing_turn_secret!()
   defp load_turn_shared_secret!(_path, false), do: nil
+
+  defp read_turn_secret!(path) do
+    expanded_path = Path.expand(path)
+
+    with :absolute <- Path.type(path),
+         true <- path == expanded_path,
+         {:ok, io_device} <-
+           :file.open(String.to_charlist(expanded_path), [:read, :binary, :raw]) do
+      try do
+        read_bounded_turn_secret!(io_device)
+      after
+        :file.close(io_device)
+      end
+    else
+      _error -> raise ArgumentError, "remote desktop TURN shared-secret file is unreadable"
+    end
+  end
+
+  defp read_bounded_turn_secret!(io_device) do
+    case :file.position(io_device, :cur) do
+      {:ok, 0} ->
+        case :file.read(io_device, @max_turn_secret_file_bytes + 1) do
+          :eof ->
+            ""
+
+          {:ok, contents} when byte_size(contents) <= @max_turn_secret_file_bytes ->
+            case :file.read(io_device, 1) do
+              :eof -> contents
+              _more_or_error -> unreadable_turn_secret!()
+            end
+
+          _oversized_or_error ->
+            unreadable_turn_secret!()
+        end
+
+      _non_regular ->
+        unreadable_turn_secret!()
+    end
+  end
 
   defp validate_turn_secret!(secret) do
     normalized = secret |> String.trim_trailing("\n") |> String.trim_trailing("\r")
@@ -274,6 +309,10 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTCConfig do
   defp missing_turn_secret! do
     raise ArgumentError,
           "remote desktop TURN endpoints require a mounted TURN REST shared-secret file"
+  end
+
+  defp unreadable_turn_secret! do
+    raise ArgumentError, "remote desktop TURN shared-secret file is unreadable"
   end
 
   defp invalid_credential_ttl! do
