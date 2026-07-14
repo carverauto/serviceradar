@@ -46,6 +46,8 @@ sh_test(
         "test-validate-external-wasm-plugin-bundle.py",
         "validate-external-wasm-plugin-bundle.py",
         "//:.forgejo/workflows/external-hpna-wasm-plugin.yml",
+        "@jq_linux_amd64//file",
+        "@jq_linux_arm64//file",
     ],
 )
 
