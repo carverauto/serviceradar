@@ -34,7 +34,15 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
-const websocketReadLimitExceeded = "websocket: read limit exceeded"
+const (
+	websocketReadLimitExceeded = "websocket: read limit exceeded"
+	webSocketSecureScheme      = "wss"
+)
+
+var (
+	errProxmoxConsoleWebSocketDialTimeout = errors.New("proxmox console WebSocket dial timed out")
+	errProxmoxConsoleWebSocketDialFailed  = errors.New("proxmox console WebSocket dial failed")
+)
 
 type pluginWebSocketDialer func(
 	context.Context,
@@ -360,7 +368,7 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 	}
 
 	parsed, err := url.Parse(wsURL)
-	if err != nil || parsed.Host == "" || (parsed.Scheme != "ws" && parsed.Scheme != "wss") {
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "ws" && parsed.Scheme != webSocketSecureScheme) {
 		return pluginErrInvalid
 	}
 
@@ -370,10 +378,10 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 	}
 
 	httpURL := *parsed
-	if parsed.Scheme == "wss" {
-		httpURL.Scheme = "https"
+	if parsed.Scheme == webSocketSecureScheme {
+		httpURL.Scheme = httpsScheme
 	} else {
-		httpURL.Scheme = "http"
+		httpURL.Scheme = httpScheme
 	}
 	port, validPort := pluginHTTPRequestPort(&httpURL)
 	if !validPort || !e.assignment.Permissions.allowsHTTPPort(port) {
@@ -421,14 +429,14 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 		if errors.Is(err, context.DeadlineExceeded) {
 			logErr := err
 			if proxmoxBinding != nil {
-				logErr = errors.New("Proxmox console WebSocket dial timed out")
+				logErr = errProxmoxConsoleWebSocketDialTimeout
 			}
 			e.logPluginHostWebSocketFailure(logErr, parsed, "timeout")
 			return pluginErrTimeout
 		}
 		logErr := err
 		if proxmoxBinding != nil {
-			logErr = errors.New("Proxmox console WebSocket dial failed")
+			logErr = errProxmoxConsoleWebSocketDialFailed
 		}
 		e.logPluginHostWebSocketFailure(logErr, parsed, "connect_failed")
 		return pluginErrInternal

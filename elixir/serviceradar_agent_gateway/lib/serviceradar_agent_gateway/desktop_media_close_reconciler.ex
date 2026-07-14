@@ -57,31 +57,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaCloseReconciler do
     sessions = state.tracker.pending_core_cleanups()
 
     reconciled =
-      Enum.reduce(sessions, 0, fn session, count ->
-        case close_core(state.forwarder, session.desktop_session_id) do
-          :ok ->
-            case state.tracker.complete_pending_core_cleanup(
-                   session.desktop_session_id,
-                   session.media_session_id,
-                   session.agent_id,
-                   %{media_ingest_id: session.media_ingest_id}
-                 ) do
-              :ok ->
-                count + 1
-
-              {:error, :not_found} ->
-                count
-
-              {:error, reason} ->
-                log_failure(session.desktop_session_id, {:tracker_completion_failed, reason})
-                count
-            end
-
-          {:error, reason} ->
-            log_failure(session.desktop_session_id, reason)
-            count
-        end
-      end)
+      Enum.reduce(sessions, 0, &reconcile_session(&1, &2, state))
 
     {:ok, reconciled}
   rescue
@@ -100,6 +76,36 @@ defmodule ServiceRadarAgentGateway.DesktopMediaCloseReconciler do
       {:error, :reconciliation_failed}
   end
 
+  defp reconcile_session(session, count, state) do
+    case close_core(state.forwarder, session.desktop_session_id) do
+      :ok ->
+        complete_pending_core_cleanup(state.tracker, session, count)
+
+      {:error, reason} ->
+        log_failure(session.desktop_session_id, reason)
+        count
+    end
+  end
+
+  defp complete_pending_core_cleanup(tracker, session, count) do
+    case tracker.complete_pending_core_cleanup(
+           session.desktop_session_id,
+           session.media_session_id,
+           session.agent_id,
+           %{media_ingest_id: session.media_ingest_id}
+         ) do
+      :ok ->
+        count + 1
+
+      {:error, :not_found} ->
+        count
+
+      {:error, reason} ->
+        log_failure(session.desktop_session_id, {:tracker_completion_failed, reason})
+        count
+    end
+  end
+
   defp close_core(forwarder, desktop_session_id) do
     case forwarder.close_session(desktop_session_id) do
       :ok -> :ok
@@ -114,10 +120,18 @@ defmodule ServiceRadarAgentGateway.DesktopMediaCloseReconciler do
 
   defp log_failure(desktop_session_id, reason) do
     Logger.warning("Desktop media core cleanup remains pending",
-      desktop_session_id: desktop_session_id,
+      desktop_session_id: safe_log_identifier(desktop_session_id),
       reason: inspect(reason)
     )
   end
+
+  defp safe_log_identifier(value) when is_binary(value) do
+    if byte_size(value) <= 128 and Regex.match?(~r/\A[A-Za-z0-9_.:-]+\z/, value),
+      do: value,
+      else: "invalid"
+  end
+
+  defp safe_log_identifier(_value), do: "invalid"
 
   defp configured_interval do
     Application.get_env(

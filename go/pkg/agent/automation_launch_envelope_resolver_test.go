@@ -13,6 +13,12 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+const (
+	testAutomationLaunchCommandID    = "01980a6d-4a62-7b3f-a249-5f825874ca41"
+	testAutomationLaunchGrantID      = "01980a6d-4a62-7b3f-a249-5f825874ca53"
+	testAutomationLaunchMismatchedID = "01980a6d-4a62-7b3f-a249-5f825874ca99"
+)
+
 type fakeAutomationLaunchEnvelopeGateway struct {
 	request   *proto.AutomationLaunchEnvelopeResolveRequest
 	response  *proto.AutomationLaunchEnvelopeResolveResponse
@@ -34,8 +40,8 @@ func (f *fakeAutomationLaunchEnvelopeGateway) ResolveAutomationLaunchEnvelope(
 }
 
 func TestAutomationLaunchEnvelopeResolverBindsAgentAndCommand(t *testing.T) {
-	commandID := "01980a6d-4a62-7b3f-a249-5f825874ca41"
-	grantID := "01980a6d-4a62-7b3f-a249-5f825874ca53"
+	commandID := testAutomationLaunchCommandID
+	grantID := testAutomationLaunchGrantID
 	reference := launchEnvelopeReferencePrefix + string(encodedToken('r'))
 	now := time.Unix(1_752_368_600, 0).UTC()
 	response := validAutomationLaunchEnvelopeResponse(now.Add(100*time.Second), commandID, grantID)
@@ -104,8 +110,8 @@ func TestAutomationLaunchEnvelopeResolverBindsAgentAndCommand(t *testing.T) {
 }
 
 func TestAutomationLaunchEnvelopeResolverDeniesIncompleteOrRejectedResponse(t *testing.T) {
-	validGrantID := "01980a6d-4a62-7b3f-a249-5f825874ca53"
-	commandID := "01980a6d-4a62-7b3f-a249-5f825874ca41"
+	validGrantID := testAutomationLaunchGrantID
+	commandID := testAutomationLaunchCommandID
 	now := time.Date(2026, 7, 13, 1, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name   string
@@ -125,7 +131,7 @@ func TestAutomationLaunchEnvelopeResolverDeniesIncompleteOrRejectedResponse(t *t
 		}},
 		{name: "wrong agent", mutate: func(value *proto.AutomationLaunchEnvelopeResolveResponse) { value.DispatchAgentId = "agent-other" }},
 		{name: "wrong command", mutate: func(value *proto.AutomationLaunchEnvelopeResolveResponse) {
-			value.CommandId = "01980a6d-4a62-7b3f-a249-5f825874ca99"
+			value.CommandId = testAutomationLaunchMismatchedID
 		}},
 	}
 
@@ -191,8 +197,8 @@ func TestAutomationLaunchEnvelopeMaterialDestroyClearsBearer(t *testing.T) {
 
 func TestAutomationLaunchEnvelopeResolverBridgesExactAWXMaterialOnce(t *testing.T) {
 	now := time.Date(2026, 7, 13, 1, 0, 0, 0, time.UTC)
-	commandID := "01980a6d-4a62-7b3f-a249-5f825874ca41"
-	grantID := "01980a6d-4a62-7b3f-a249-5f825874ca53"
+	commandID := testAutomationLaunchCommandID
+	grantID := testAutomationLaunchGrantID
 	reference := launchEnvelopeReferencePrefix + string(encodedToken('r'))
 	response := validAutomationLaunchEnvelopeResponse(now.Add(5*time.Minute), commandID, grantID)
 	responseBuffers := automationLaunchEnvelopeResponseBuffers(response)
@@ -252,8 +258,8 @@ func TestAutomationLaunchEnvelopeResolverBridgesExactAWXMaterialOnce(t *testing.
 
 func TestAutomationLaunchEnvelopeResolverRejectsAWXBindingOrMetadataTamper(t *testing.T) {
 	now := time.Date(2026, 7, 13, 1, 0, 0, 0, time.UTC)
-	commandID := "01980a6d-4a62-7b3f-a249-5f825874ca41"
-	grantID := "01980a6d-4a62-7b3f-a249-5f825874ca53"
+	commandID := testAutomationLaunchCommandID
+	grantID := testAutomationLaunchGrantID
 	reference := launchEnvelopeReferencePrefix + string(encodedToken('r'))
 
 	bindingMutations := []struct {
@@ -261,10 +267,10 @@ func TestAutomationLaunchEnvelopeResolverRejectsAWXBindingOrMetadataTamper(t *te
 		mutate func(*AWXCallbackCredentialBinding)
 	}{
 		{name: "dispatch agent", mutate: func(value *AWXCallbackCredentialBinding) { value.DispatchAgentID = "agent-other" }},
-		{name: "command", mutate: func(value *AWXCallbackCredentialBinding) { value.CommandID = "01980a6d-4a62-7b3f-a249-5f825874ca99" }},
-		{name: "controller", mutate: func(value *AWXCallbackCredentialBinding) { value.ControllerID = "01980a6d-4a62-7b3f-a249-5f825874ca99" }},
+		{name: "command", mutate: func(value *AWXCallbackCredentialBinding) { value.CommandID = testAutomationLaunchMismatchedID }},
+		{name: "controller", mutate: func(value *AWXCallbackCredentialBinding) { value.ControllerID = testAutomationLaunchMismatchedID }},
 		{name: "child execution", mutate: func(value *AWXCallbackCredentialBinding) {
-			value.ChildExecutionID = "01980a6d-4a62-7b3f-a249-5f825874ca99"
+			value.ChildExecutionID = testAutomationLaunchMismatchedID
 		}},
 		{name: "inventory", mutate: func(value *AWXCallbackCredentialBinding) { value.InventoryID++ }},
 		{name: "template", mutate: func(value *AWXCallbackCredentialBinding) { value.JobTemplateID++ }},

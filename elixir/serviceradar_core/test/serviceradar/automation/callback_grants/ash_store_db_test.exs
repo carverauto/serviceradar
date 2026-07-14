@@ -342,7 +342,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreDbTest do
     # A 2xx cancel response is only a request acknowledgement. It must not
     # synthesize a terminal cleanup-completed event before a later exact job
     # observation confirms terminal state.
-    assert Enum.count(events, &(&1.event_type == :cleanup_completed)) == 0
+    refute Enum.any?(events, &(&1.event_type == :cleanup_completed))
   end
 
   test "response fingerprint and size checks fail before any use row", context do

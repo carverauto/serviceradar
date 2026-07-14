@@ -52,6 +52,13 @@ type httpResponsePayload struct {
 	BodyEncoding string            `json:"body_encoding,omitempty"`
 }
 
+const (
+	httpScheme  = "http"
+	httpsScheme = "https"
+)
+
+var errPluginHTTPTooManyRedirects = errors.New("stopped after 10 redirects")
+
 // The insecure transport cache preserves connection reuse for the explicit
 // plugin-level insecure TLS opt-in while keeping base client transports immutable.
 //
@@ -205,6 +212,19 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		_ = resp.Body.Close()
 	}()
 
+	return e.writePluginHTTPResponse(mod, resp, payload, method, respPtr, respLen, proxmoxBinding, reqURL)
+}
+
+func (e *pluginExecution) writePluginHTTPResponse(
+	mod api.Module,
+	resp *http.Response,
+	payload httpRequestPayload,
+	method string,
+	respPtr uint32,
+	respLen uint32,
+	proxmoxBinding *pluginHostAuthorityBinding,
+	reqURL *url.URL,
+) int32 {
 	limited := io.LimitReader(resp.Body, pluginMaxHTTPBodyBytes+1)
 	bodyBytes, err := io.ReadAll(limited)
 	if err != nil {
@@ -282,9 +302,9 @@ func pluginHTTPRequestPort(reqURL *url.URL) (int, bool) {
 
 	var defaultPort int
 	switch strings.ToLower(strings.TrimSpace(reqURL.Scheme)) {
-	case "http":
+	case httpScheme:
 		defaultPort = 80
-	case "https":
+	case httpsScheme:
 		defaultPort = 443
 	default:
 		return 0, false
@@ -334,7 +354,7 @@ func configurePluginHTTPRedirects(
 			return previousCheckRedirect(req, via)
 		}
 		if len(via) >= 10 {
-			return errors.New("stopped after 10 redirects")
+			return errPluginHTTPTooManyRedirects
 		}
 		return nil
 	}

@@ -1685,9 +1685,9 @@ func portForURL(parsed *url.URL) int {
 		return parsePositiveInt(port)
 	}
 	switch parsed.Scheme {
-	case "https":
+	case httpsScheme:
 		return 443
-	case "http":
+	case httpScheme:
 		return 80
 	default:
 		return 0
@@ -1715,7 +1715,7 @@ func proxmoxCredentialTestBaseURL(raw string) (string, error) {
 	if err != nil || parsed.Host == "" {
 		return "", errInvalidProxmoxBaseURL
 	}
-	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+	if parsed.Scheme != httpsScheme && parsed.Scheme != httpScheme {
 		return "", errInvalidProxmoxBaseURLScheme
 	}
 

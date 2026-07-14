@@ -40,6 +40,10 @@ const (
 	CredentialBrokerAWXCallbackBodyHandler = "awx_callback_credential.v1"
 )
 
+var errCredentialBrokerRequestBodyMultipleValues = errors.New(
+	"credential broker request body policy must contain one object",
+)
+
 // CredentialBrokerGrant is the runtime-neutral grant shape used by Wasm plugins
 // and native add-ons when requesting gateway-mediated credential resolution.
 type CredentialBrokerGrant struct {
@@ -101,7 +105,7 @@ func (p *CredentialBrokerRequestBodyPolicy) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return errors.New("credential broker request body policy must contain one object")
+		return errCredentialBrokerRequestBodyMultipleValues
 	}
 
 	*p = CredentialBrokerRequestBodyPolicy(decoded)

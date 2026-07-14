@@ -347,7 +347,10 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
       Map.new(metadata)
     )
 
-    Logger.warning("Rejected desktop media frame owner binding", metadata)
+    Logger.warning(
+      "Rejected desktop media frame owner binding",
+      Keyword.update(metadata, :desktop_session_id, "invalid", &safe_log_identifier/1)
+    )
 
     raise GRPC.RPCError, status: :permission_denied, message: frame_owner_error_message(reason)
   end
@@ -522,7 +525,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
 
       other ->
         Logger.warning("Desktop media core ingress cleanup failed; close remains pending",
-          desktop_session_id: desktop_session_id,
+          desktop_session_id: safe_log_identifier(desktop_session_id),
           reason: inspect(other)
         )
 
@@ -531,7 +534,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
   rescue
     error ->
       Logger.warning("Desktop media core ingress cleanup raised; close remains pending",
-        desktop_session_id: desktop_session_id,
+        desktop_session_id: safe_log_identifier(desktop_session_id),
         reason: Exception.message(error)
       )
 
@@ -539,7 +542,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
   catch
     :exit, reason ->
       Logger.warning("Desktop media core ingress cleanup exited; close remains pending",
-        desktop_session_id: desktop_session_id,
+        desktop_session_id: safe_log_identifier(desktop_session_id),
         reason: inspect(reason)
       )
 
@@ -561,6 +564,14 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
   defp capacity_error_message(:gateway, limit) do
     "per-gateway desktop media session limit exceeded (limit=#{limit})"
   end
+
+  defp safe_log_identifier(value) when is_binary(value) do
+    if byte_size(value) <= 128 and Regex.match?(~r/\A[A-Za-z0-9_.:-]+\z/, value),
+      do: value,
+      else: "invalid"
+  end
+
+  defp safe_log_identifier(_value), do: "invalid"
 
   defp extract_identity_from_stream(stream) do
     MediaIdentity.extract_identity_from_stream(stream, identity_resolver(), "Desktop media")

@@ -329,11 +329,12 @@ func TestProxmoxConsoleSSHHostKeyCallbackRejectsSkipVerifyAtLeaf(t *testing.T) {
 func TestDialProxmoxConsoleSSHRevocationCancelsStalledHandshake(t *testing.T) {
 	t.Parallel()
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	var listenConfig net.ListenConfig
+	listener, err := listenConfig.Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	accepted := make(chan net.Conn, 1)
 	go func() {
@@ -363,7 +364,7 @@ func TestDialProxmoxConsoleSSHRevocationCancelsStalledHandshake(t *testing.T) {
 	var serverConn net.Conn
 	select {
 	case serverConn = <-accepted:
-		defer serverConn.Close()
+		defer func() { _ = serverConn.Close() }()
 	case <-time.After(time.Second):
 		t.Fatal("SSH test peer did not accept the connection")
 	}

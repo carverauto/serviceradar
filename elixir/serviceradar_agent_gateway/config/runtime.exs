@@ -501,7 +501,18 @@ if config_env() == :prod do
       :service_name,
       :message_size,
       :payload_kind,
-      :event_id
+      :event_id,
+      :command_id,
+      :expected_command_type,
+      :reported_command_type,
+      :phase,
+      :desktop_session_id,
+      :command_type,
+      :success,
+      :payload_field_count,
+      :progress_percent,
+      :config_version,
+      :section_count
     ]
 
   config :logger,

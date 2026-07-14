@@ -48,7 +48,7 @@ func pluginHTTPClientWithTrustedCAs(paths []string) (*http.Client, error) {
 
 	roots, err := x509.SystemCertPool()
 	if err != nil {
-		return nil, fmt.Errorf("%w: load system roots: %v", errPluginHTTPTrustUnavailable, err)
+		return nil, fmt.Errorf("%w: load system roots: %w", errPluginHTTPTrustUnavailable, err)
 	}
 	if roots == nil {
 		return nil, fmt.Errorf("%w: empty system root pool", errPluginHTTPTrustUnavailable)
@@ -95,13 +95,13 @@ func pluginHTTPClientWithTrustedCAs(paths []string) (*http.Client, error) {
 func readBoundedPluginHTTPCAFile(path string) ([]byte, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("%w: open CA file: %v", errPluginHTTPTrustUnavailable, err)
+		return nil, fmt.Errorf("%w: open CA file: %w", errPluginHTTPTrustUnavailable, err)
 	}
 	defer func() { _ = file.Close() }()
 
 	pemBytes, err := io.ReadAll(io.LimitReader(file, maxPluginHTTPTrustedCABytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("%w: read CA file: %v", errPluginHTTPTrustUnavailable, err)
+		return nil, fmt.Errorf("%w: read CA file: %w", errPluginHTTPTrustUnavailable, err)
 	}
 	if len(pemBytes) == 0 || len(pemBytes) > maxPluginHTTPTrustedCABytes {
 		clear(pemBytes)

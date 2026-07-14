@@ -48,6 +48,17 @@ const (
 	proxmoxAssignmentPolicyDomain         = "serviceradar.proxmox.assignment-policy.v1"
 	proxmoxSSHHostKeyPolicyKnownHosts     = "known_hosts"
 	proxmoxSSHHostKeyPolicyTrustFirstUse  = "trust_on_first_use"
+	proxmoxProviderName                   = "proxmox"
+	proxmoxObjectKindCluster              = "cluster"
+	proxmoxObjectKindNode                 = "node"
+	proxmoxObjectKindQEMU                 = "qemu"
+	proxmoxObjectKindLXC                  = "lxc"
+	proxmoxAPIStatusSegment               = "status"
+	proxmoxAPIAgentSegment                = "agent"
+	proxmoxResolutionLocationAgent        = "agent"
+	proxmoxTargetKindQEMUGuest            = "qemu_guest"
+	proxmoxTargetKindLXCGuest             = "lxc_guest"
+	proxmoxTargetKindPVEHost              = "pve_host"
 	maximumPluginHostAuthorityBindings    = 512
 	maximumPluginHostAuthorityStringBytes = 4096
 )
@@ -61,8 +72,8 @@ var allowedPluginHostAuthorityTargetIDKeys = map[string]struct{}{ //nolint:goche
 	"device_uid":              {},
 	"integration_id":          {},
 	"provider_ref":            {},
-	"node":                    {},
-	"cluster":                 {},
+	proxmoxObjectKindNode:     {},
+	proxmoxObjectKindCluster:  {},
 	"vmid":                    {},
 	"target_kind":             {},
 	"controller_id":           {},
@@ -226,7 +237,7 @@ func validatePluginHostAuthorityBinding(
 	pluginID string,
 	policyBinding proxmoxAssignmentPolicyBinding,
 ) (pluginHostAuthorityBinding, error) {
-	if !validPluginHostAuthorityString(wire.BindingID) || wire.Provider != "proxmox" ||
+	if !validPluginHostAuthorityString(wire.BindingID) || wire.Provider != proxmoxProviderName ||
 		!validPluginHostAuthorityString(wire.CredentialRuleID) ||
 		wire.CredentialRuleID != policyBinding.CredentialRuleID ||
 		wire.AssignmentPolicyVersion != policyBinding.PolicyVersion ||
@@ -238,7 +249,7 @@ func validatePluginHostAuthorityBinding(
 
 	origin, scheme, err := canonicalPluginHostAuthorityOrigin(wire.Origin)
 	originURL, originParseErr := url.Parse(origin)
-	if err != nil || originParseErr != nil || origin != wire.Origin || scheme != "https" ||
+	if err != nil || originParseErr != nil || origin != wire.Origin || scheme != httpsScheme ||
 		originURL == nil || net.ParseIP(originURL.Hostname()) == nil || wire.InsecureSkipVerify {
 		return pluginHostAuthorityBinding{}, errPluginHostAuthorityMalformed
 	}
@@ -283,7 +294,7 @@ func validatePluginHostAuthorityGrant(grant credentialBrokerGrant, pluginID, cre
 	if !validPluginHostAuthorityString(grant.GrantID) ||
 		!validPluginHostAuthorityString(grant.CredentialSecretRef) ||
 		grant.CredentialRuleID != credentialRuleID ||
-		grant.ResolutionLocation != "agent" && grant.ResolutionLocation != "hybrid" {
+		grant.ResolutionLocation != proxmoxResolutionLocationAgent && grant.ResolutionLocation != "hybrid" {
 		return errPluginHostAuthorityMalformed
 	}
 	if grant.Consumer["kind"] != "plugin" || grant.Consumer["id"] != pluginID {
@@ -333,7 +344,7 @@ func validatePluginHostAuthorityTargetIDs(values map[string]string) (map[string]
 			}
 		case "object_kind":
 			switch value {
-			case "cluster", "node", "qemu", "lxc":
+			case proxmoxObjectKindCluster, proxmoxObjectKindNode, proxmoxObjectKindQEMU, proxmoxObjectKindLXC:
 			default:
 				return nil, errPluginHostAuthorityMalformed
 			}
@@ -351,7 +362,7 @@ func validateProxmoxConsoleBindingTargetIDs(targetIDs map[string]string) error {
 		"device_uid",
 		"integration_id",
 		"provider_ref",
-		"node",
+		proxmoxObjectKindNode,
 		"controller_id",
 		"provider_instance_ref",
 		"native_cluster_id",
@@ -376,21 +387,23 @@ func validateProxmoxConsoleBindingTargetIDs(targetIDs map[string]string) error {
 	}
 
 	switch targetIDs["object_kind"] {
-	case "node":
+	case proxmoxObjectKindNode:
 		if targetIDs["target_kind"] != "" || targetIDs["vmid"] != "" ||
 			targetIDs["controller_device_uid"] != "" || targetIDs["controller_provider_ref"] != "" ||
-			subject.node != targetIDs["node"] || targetIDs["native_object_id"] != targetIDs["node"] {
+			subject.node != targetIDs[proxmoxObjectKindNode] ||
+			targetIDs["native_object_id"] != targetIDs[proxmoxObjectKindNode] {
 			return errPluginHostAuthorityMalformed
 		}
-	case "qemu", "lxc":
+	case proxmoxObjectKindQEMU, proxmoxObjectKindLXC:
 		if targetIDs["controller_device_uid"] == "" || targetIDs["controller_provider_ref"] == "" ||
 			targetIDs["target_kind"] != proxmoxTargetKind(targetIDs["object_kind"]) ||
 			targetIDs["vmid"] != targetIDs["native_object_id"] {
 			return errPluginHostAuthorityMalformed
 		}
 		controller, ok := parseAgentProxmoxProviderRef(targetIDs["controller_provider_ref"])
-		if !ok || controller.objectKind != "node" || controller.node != targetIDs["node"] ||
-			controller.nativeObjectID != targetIDs["node"] ||
+		if !ok || controller.objectKind != proxmoxObjectKindNode ||
+			controller.node != targetIDs[proxmoxObjectKindNode] ||
+			controller.nativeObjectID != targetIDs[proxmoxObjectKindNode] ||
 			!proxmoxConsoleSourceFieldsMatch(targetIDs, controller) {
 			return errPluginHostAuthorityMalformed
 		}
@@ -398,7 +411,7 @@ func validateProxmoxConsoleBindingTargetIDs(targetIDs map[string]string) error {
 		return errPluginHostAuthorityMalformed
 	}
 
-	if cluster := targetIDs["cluster"]; cluster != "" && cluster != targetIDs["native_cluster_id"] {
+	if cluster := targetIDs[proxmoxObjectKindCluster]; cluster != "" && cluster != targetIDs["native_cluster_id"] {
 		return errPluginHostAuthorityMalformed
 	}
 
@@ -601,7 +614,7 @@ func canonicalPluginHostAuthorityOrigin(raw string) (origin, scheme string, err 
 	}
 
 	scheme = strings.ToLower(parsed.Scheme)
-	if scheme != "http" && scheme != "https" {
+	if scheme != httpScheme && scheme != httpsScheme {
 		return "", "", errPluginHostAuthorityMalformed
 	}
 	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
@@ -621,7 +634,7 @@ func canonicalPluginHostAuthorityRequestOrigin(requestURL *url.URL) (string, err
 		return "", errPluginHostAuthorityDenied
 	}
 	scheme := strings.ToLower(requestURL.Scheme)
-	if scheme != "http" && scheme != "https" {
+	if scheme != httpScheme && scheme != httpsScheme {
 		return "", errPluginHostAuthorityDenied
 	}
 	host := strings.ToLower(strings.TrimSuffix(requestURL.Hostname(), "."))
@@ -911,14 +924,18 @@ func proxmoxInventoryHostAuthorityRequestAllowed(method string, requestURL *url.
 	}
 
 	segments := strings.Split(strings.TrimPrefix(requestURL.Path, "/"), "/")
+	return proxmoxInventoryPathAllowed(segments)
+}
+
+func proxmoxInventoryPathAllowed(segments []string) bool {
 	if len(segments) < 3 || segments[0] != "api2" || segments[1] != "json" {
 		return false
 	}
 	if len(segments) == 3 && (segments[2] == "version" || segments[2] == "nodes") {
 		return true
 	}
-	if len(segments) == 4 && segments[2] == "cluster" &&
-		(segments[3] == "status" || segments[3] == "resources") {
+	if len(segments) == 4 && segments[2] == proxmoxObjectKindCluster &&
+		(segments[3] == proxmoxAPIStatusSegment || segments[3] == "resources") {
 		return true
 	}
 	if len(segments) < 5 || segments[2] != "nodes" || !validProxmoxInventoryPathSegment(segments[3]) {
@@ -927,22 +944,31 @@ func proxmoxInventoryHostAuthorityRequestAllowed(method string, requestURL *url.
 
 	switch {
 	case len(segments) == 5:
-		switch segments[4] {
-		case "status", "storage", "network", "qemu", "lxc":
-			return true
-		}
+		return proxmoxInventoryNodeCollectionAllowed(segments[4])
 	case len(segments) == 6:
 		return segments[4] == "disks" && segments[5] == "list" ||
-			segments[4] == "ceph" && segments[5] == "status"
-	case len(segments) == 7 && (segments[4] == "qemu" || segments[4] == "lxc"):
+			segments[4] == "ceph" && segments[5] == proxmoxAPIStatusSegment
+	case len(segments) == 7 &&
+		(segments[4] == proxmoxObjectKindQEMU || segments[4] == proxmoxObjectKindLXC):
 		_, validVMID := parseStrictPositiveInt(segments[5])
-		return validVMID && (segments[6] == "config" || segments[4] == "lxc" && segments[6] == "interfaces")
-	case len(segments) == 8 && segments[4] == "qemu" && segments[6] == "agent":
+		return validVMID &&
+			(segments[6] == "config" || segments[4] == proxmoxObjectKindLXC && segments[6] == "interfaces")
+	case len(segments) == 8 && segments[4] == proxmoxObjectKindQEMU &&
+		segments[6] == proxmoxAPIAgentSegment:
 		_, validVMID := parseStrictPositiveInt(segments[5])
 		return validVMID && (segments[7] == "network-get-interfaces" || segments[7] == "get-fsinfo")
 	}
 
 	return false
+}
+
+func proxmoxInventoryNodeCollectionAllowed(resource string) bool {
+	switch resource {
+	case proxmoxAPIStatusSegment, "storage", "network", proxmoxObjectKindQEMU, proxmoxObjectKindLXC:
+		return true
+	default:
+		return false
+	}
 }
 
 func validProxmoxInventoryPathSegment(value string) bool {
@@ -979,7 +1005,7 @@ func (e *pluginExecution) proxmoxHostAuthorityForHTTPRequest(
 	if e.mode != pluginExecutionModeScheduled && e.mode != pluginExecutionModeStreaming {
 		return nil, errPluginHostAuthorityDenied
 	}
-	if requestURL == nil || !strings.EqualFold(requestURL.Scheme, "https") {
+	if requestURL == nil || !strings.EqualFold(requestURL.Scheme, httpsScheme) {
 		return nil, errPluginHostAuthorityDenied
 	}
 
@@ -1130,142 +1156,176 @@ type proxmoxConsoleTargetIdentity struct {
 
 func parseAgentProxmoxProviderRef(raw string) (proxmoxConsoleTargetIdentity, bool) {
 	parts := strings.Split(strings.TrimSpace(raw), ":")
-	if len(parts) < 3 || parts[0] != "proxmox" {
+	if len(parts) < 3 || parts[0] != proxmoxProviderName {
 		return proxmoxConsoleTargetIdentity{}, false
 	}
-	if parts[1] == "v3" && len(parts) == 7 {
-		instance, ok := parseAgentProxmoxProviderInstanceRef(strings.Join(parts[:5], ":"))
-		nativeID, nativeIDOK := decodeCanonicalProxmoxV3NativeComponent(parts[6])
-		kind := parts[5]
-		if !ok || !nativeIDOK {
-			return proxmoxConsoleTargetIdentity{}, false
-		}
-		switch kind {
-		case "node":
-			return proxmoxConsoleTargetIdentity{
-				cluster:             instance.nativeClusterID,
-				node:                nativeID,
-				kind:                "pve_host",
-				integrationID:       instance.integrationID,
-				controllerID:        instance.controllerID,
-				providerInstanceRef: instance.providerInstanceRef,
-				nativeClusterID:     instance.nativeClusterID,
-				objectKind:          kind,
-				nativeObjectID:      nativeID,
-			}, true
-		case "qemu", "lxc":
-			vmid, ok := parseStrictPositiveInt(nativeID)
-			if !ok {
-				return proxmoxConsoleTargetIdentity{}, false
-			}
-			return proxmoxConsoleTargetIdentity{
-				cluster:             instance.nativeClusterID,
-				kind:                proxmoxTargetKind(kind),
-				vmid:                vmid,
-				integrationID:       instance.integrationID,
-				controllerID:        instance.controllerID,
-				providerInstanceRef: instance.providerInstanceRef,
-				nativeClusterID:     instance.nativeClusterID,
-				objectKind:          kind,
-				nativeObjectID:      nativeID,
-			}, true
-		default:
-			return proxmoxConsoleTargetIdentity{}, false
-		}
+
+	switch parts[1] {
+	case "v3":
+		return parseAgentProxmoxProviderRefV3(parts)
+	case "v2":
+		return parseAgentProxmoxProviderRefV2(parts)
+	case proxmoxObjectKindNode:
+		return parseAgentProxmoxLegacyNodeRef(parts)
+	case "guest":
+		return parseAgentProxmoxLegacyGuestRef(parts)
+	case proxmoxObjectKindCluster:
+		return parseAgentProxmoxLegacyClusterRef(parts)
+	default:
+		return proxmoxConsoleTargetIdentity{}, false
 	}
-	if parts[1] == "v2" && len(parts) == 5 && parts[2] != "" {
-		cluster, clusterErr := url.PathUnescape(parts[2])
-		nativeID, nativeIDErr := url.PathUnescape(parts[4])
-		kind := strings.ToLower(parts[3])
-		if clusterErr != nil || nativeIDErr != nil || !validPluginHostAuthorityString(cluster) ||
-			!validPluginHostAuthorityString(nativeID) {
-			return proxmoxConsoleTargetIdentity{}, false
-		}
-		switch kind {
-		case "node":
-			return proxmoxConsoleTargetIdentity{
-				cluster:         cluster,
-				node:            nativeID,
-				kind:            "pve_host",
-				nativeClusterID: cluster,
-				objectKind:      kind,
-				nativeObjectID:  nativeID,
-			}, true
-		case "vm", "qemu", "lxc":
-			vmid, ok := parseStrictPositiveInt(nativeID)
-			if !ok {
-				return proxmoxConsoleTargetIdentity{}, false
-			}
-			return proxmoxConsoleTargetIdentity{
-				cluster:         cluster,
-				kind:            proxmoxTargetKind(kind),
-				vmid:            vmid,
-				nativeClusterID: cluster,
-				objectKind:      kind,
-				nativeObjectID:  nativeID,
-			}, true
-		default:
-			return proxmoxConsoleTargetIdentity{}, false
-		}
+}
+
+func parseAgentProxmoxProviderRefV3(parts []string) (proxmoxConsoleTargetIdentity, bool) {
+	if len(parts) != 7 {
+		return proxmoxConsoleTargetIdentity{}, false
+	}
+	instance, ok := parseAgentProxmoxProviderInstanceRef(strings.Join(parts[:5], ":"))
+	nativeID, nativeIDOK := decodeCanonicalProxmoxV3NativeComponent(parts[6])
+	kind := parts[5]
+	if !ok || !nativeIDOK {
+		return proxmoxConsoleTargetIdentity{}, false
 	}
 
-	if parts[1] == "node" && len(parts) == 3 && parts[2] != "" {
+	switch kind {
+	case proxmoxObjectKindNode:
 		return proxmoxConsoleTargetIdentity{
-			node:           parts[2],
-			kind:           "pve_host",
-			objectKind:     "node",
-			nativeObjectID: parts[2],
+			cluster:             instance.nativeClusterID,
+			node:                nativeID,
+			kind:                proxmoxTargetKindPVEHost,
+			integrationID:       instance.integrationID,
+			controllerID:        instance.controllerID,
+			providerInstanceRef: instance.providerInstanceRef,
+			nativeClusterID:     instance.nativeClusterID,
+			objectKind:          kind,
+			nativeObjectID:      nativeID,
 		}, true
-	}
-	if parts[1] == "guest" && len(parts) == 5 && parts[2] != "" {
-		vmid, ok := parseStrictPositiveInt(parts[4])
-		if !ok {
+	case proxmoxObjectKindQEMU, proxmoxObjectKindLXC:
+		vmid, validVMID := parseStrictPositiveInt(nativeID)
+		if !validVMID {
 			return proxmoxConsoleTargetIdentity{}, false
 		}
 		return proxmoxConsoleTargetIdentity{
-			node:           parts[2],
-			kind:           proxmoxTargetKind(parts[3]),
-			vmid:           vmid,
-			objectKind:     strings.ToLower(parts[3]),
-			nativeObjectID: parts[4],
+			cluster:             instance.nativeClusterID,
+			kind:                proxmoxTargetKind(kind),
+			vmid:                vmid,
+			integrationID:       instance.integrationID,
+			controllerID:        instance.controllerID,
+			providerInstanceRef: instance.providerInstanceRef,
+			nativeClusterID:     instance.nativeClusterID,
+			objectKind:          kind,
+			nativeObjectID:      nativeID,
 		}, true
-	}
-
-	if parts[1] != "cluster" || len(parts) < 5 || parts[2] == "" {
+	default:
 		return proxmoxConsoleTargetIdentity{}, false
 	}
-	if parts[3] == "node" && len(parts) == 5 && parts[4] != "" {
+}
+
+func parseAgentProxmoxProviderRefV2(parts []string) (proxmoxConsoleTargetIdentity, bool) {
+	if len(parts) != 5 || parts[2] == "" {
+		return proxmoxConsoleTargetIdentity{}, false
+	}
+	cluster, clusterErr := url.PathUnescape(parts[2])
+	nativeID, nativeIDErr := url.PathUnescape(parts[4])
+	kind := strings.ToLower(parts[3])
+	if clusterErr != nil || nativeIDErr != nil || !validPluginHostAuthorityString(cluster) ||
+		!validPluginHostAuthorityString(nativeID) {
+		return proxmoxConsoleTargetIdentity{}, false
+	}
+
+	switch kind {
+	case proxmoxObjectKindNode:
+		return proxmoxConsoleTargetIdentity{
+			cluster:         cluster,
+			node:            nativeID,
+			kind:            proxmoxTargetKindPVEHost,
+			nativeClusterID: cluster,
+			objectKind:      kind,
+			nativeObjectID:  nativeID,
+		}, true
+	case "vm", proxmoxObjectKindQEMU, proxmoxObjectKindLXC:
+		vmid, validVMID := parseStrictPositiveInt(nativeID)
+		if !validVMID {
+			return proxmoxConsoleTargetIdentity{}, false
+		}
+		return proxmoxConsoleTargetIdentity{
+			cluster:         cluster,
+			kind:            proxmoxTargetKind(kind),
+			vmid:            vmid,
+			nativeClusterID: cluster,
+			objectKind:      kind,
+			nativeObjectID:  nativeID,
+		}, true
+	default:
+		return proxmoxConsoleTargetIdentity{}, false
+	}
+}
+
+func parseAgentProxmoxLegacyNodeRef(parts []string) (proxmoxConsoleTargetIdentity, bool) {
+	if len(parts) != 3 || parts[2] == "" {
+		return proxmoxConsoleTargetIdentity{}, false
+	}
+	return proxmoxConsoleTargetIdentity{
+		node:           parts[2],
+		kind:           proxmoxTargetKindPVEHost,
+		objectKind:     proxmoxObjectKindNode,
+		nativeObjectID: parts[2],
+	}, true
+}
+
+func parseAgentProxmoxLegacyGuestRef(parts []string) (proxmoxConsoleTargetIdentity, bool) {
+	if len(parts) != 5 || parts[2] == "" {
+		return proxmoxConsoleTargetIdentity{}, false
+	}
+	vmid, ok := parseStrictPositiveInt(parts[4])
+	if !ok {
+		return proxmoxConsoleTargetIdentity{}, false
+	}
+	return proxmoxConsoleTargetIdentity{
+		node:           parts[2],
+		kind:           proxmoxTargetKind(parts[3]),
+		vmid:           vmid,
+		objectKind:     strings.ToLower(parts[3]),
+		nativeObjectID: parts[4],
+	}, true
+}
+
+func parseAgentProxmoxLegacyClusterRef(parts []string) (proxmoxConsoleTargetIdentity, bool) {
+	if len(parts) < 5 || parts[2] == "" {
+		return proxmoxConsoleTargetIdentity{}, false
+	}
+	if parts[3] == proxmoxObjectKindNode && len(parts) == 5 && parts[4] != "" {
 		return proxmoxConsoleTargetIdentity{
 			cluster:         parts[2],
 			node:            parts[4],
-			kind:            "pve_host",
+			kind:            proxmoxTargetKindPVEHost,
 			nativeClusterID: parts[2],
-			objectKind:      "node",
+			objectKind:      proxmoxObjectKindNode,
 			nativeObjectID:  parts[4],
 		}, true
 	}
-	if parts[3] == "guest" && len(parts) == 7 && parts[4] != "" {
-		vmid, ok := parseStrictPositiveInt(parts[6])
-		if !ok {
-			return proxmoxConsoleTargetIdentity{}, false
-		}
-		return proxmoxConsoleTargetIdentity{
-			cluster:         parts[2],
-			node:            parts[4],
-			kind:            proxmoxTargetKind(parts[5]),
-			vmid:            vmid,
-			nativeClusterID: parts[2],
-			objectKind:      strings.ToLower(parts[5]),
-			nativeObjectID:  parts[6],
-		}, true
+	if parts[3] != "guest" || len(parts) != 7 || parts[4] == "" {
+		return proxmoxConsoleTargetIdentity{}, false
 	}
-	return proxmoxConsoleTargetIdentity{}, false
+	vmid, ok := parseStrictPositiveInt(parts[6])
+	if !ok {
+		return proxmoxConsoleTargetIdentity{}, false
+	}
+	return proxmoxConsoleTargetIdentity{
+		cluster:         parts[2],
+		node:            parts[4],
+		kind:            proxmoxTargetKind(parts[5]),
+		vmid:            vmid,
+		nativeClusterID: parts[2],
+		objectKind:      strings.ToLower(parts[5]),
+		nativeObjectID:  parts[6],
+	}, true
 }
 
 func parseAgentProxmoxProviderInstanceRef(raw string) (proxmoxConsoleTargetIdentity, bool) {
 	trimmed := strings.TrimSpace(raw)
 	parts := strings.Split(trimmed, ":")
-	if len(parts) != 5 || parts[0] != "proxmox" || parts[1] != "v3" ||
+	if len(parts) != 5 || parts[0] != proxmoxProviderName || parts[1] != "v3" ||
 		!isCanonicalPluginUUID(parts[2]) || !isCanonicalPluginUUID(parts[3]) {
 		return proxmoxConsoleTargetIdentity{}, false
 	}
@@ -1321,7 +1381,7 @@ func isCanonicalPluginUUID(value string) bool {
 				return false
 			}
 		default:
-			if !(value[i] >= '0' && value[i] <= '9') && !(value[i] >= 'a' && value[i] <= 'f') {
+			if (value[i] < '0' || value[i] > '9') && (value[i] < 'a' || value[i] > 'f') {
 				return false
 			}
 		}
@@ -1331,12 +1391,12 @@ func isCanonicalPluginUUID(value string) bool {
 
 func proxmoxTargetKind(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "qemu", "vm", "qemu_guest":
-		return "qemu_guest"
-	case "lxc", "container", "lxc_guest":
-		return "lxc_guest"
-	case "node", "host", "pve_host":
-		return "pve_host"
+	case proxmoxObjectKindQEMU, "vm", proxmoxTargetKindQEMUGuest:
+		return proxmoxTargetKindQEMUGuest
+	case proxmoxObjectKindLXC, "container", proxmoxTargetKindLXCGuest:
+		return proxmoxTargetKindLXCGuest
+	case proxmoxObjectKindNode, "host", proxmoxTargetKindPVEHost:
+		return proxmoxTargetKindPVEHost
 	default:
 		return ""
 	}
@@ -1371,11 +1431,11 @@ func pluginHostAuthorityTargetIDsMatchConsole(
 	// Node/cluster/source IDs always describe the owning PVE controller; guest
 	// vmid/kind/object identity always describes the console subject.
 	objectKind := strings.ToLower(strings.TrimSpace(targetIDs["object_kind"]))
-	controllerScoped := objectKind == "node"
+	controllerScoped := objectKind == proxmoxObjectKindNode
 	for key, expected := range targetIDs {
 		var actual string
 		switch key {
-		case "node", "cluster", "controller_id", "provider_instance_ref", "native_cluster_id":
+		case proxmoxObjectKindNode, proxmoxObjectKindCluster, "controller_id", "provider_instance_ref", "native_cluster_id":
 			actual = identity.controller[key]
 		case "controller_device_uid":
 			actual = identity.controller["device_uid"]
@@ -1400,23 +1460,38 @@ func pluginHostAuthorityTargetIDsMatchConsole(
 	return true
 }
 
-func consoleSpecAuthorityIdentityFromSession(spec proxmoxConsoleSessionSpec) (consoleSpecAuthorityIdentity, bool) {
-	mergeExact := func(current *string, candidate string) bool {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" {
-			return true
-		}
-		if *current != "" && *current != candidate {
-			return false
-		}
-		*current = candidate
-		return true
-	}
+type consoleSpecAuthorityState struct {
+	deviceUID                string
+	providerRef              string
+	controllerDeviceUID      string
+	controllerRef            string
+	targetKind               string
+	node                     string
+	cluster                  string
+	vmid                     int
+	integrationID            string
+	controllerID             string
+	providerInstanceRef      string
+	nativeClusterID          string
+	objectKind               string
+	nativeObjectID           string
+	controllerObjectKind     string
+	controllerNativeObjectID string
+}
 
+func consoleSpecAuthorityIdentityFromSession(spec proxmoxConsoleSessionSpec) (consoleSpecAuthorityIdentity, bool) {
+	state, ok := newConsoleSpecAuthorityState(spec)
+	if !ok || !state.mergeSubjectProviderRef() || !state.mergeControllerProviderRef() {
+		return consoleSpecAuthorityIdentity{}, false
+	}
+	return state.identity(), true
+}
+
+func newConsoleSpecAuthorityState(spec proxmoxConsoleSessionSpec) (consoleSpecAuthorityState, bool) {
 	deviceUID := strings.TrimSpace(spec.DeviceUID)
 	if targetDeviceUID := strings.TrimSpace(spec.Target.DeviceUID); targetDeviceUID != "" {
 		if deviceUID != "" && deviceUID != targetDeviceUID {
-			return consoleSpecAuthorityIdentity{}, false
+			return consoleSpecAuthorityState{}, false
 		}
 		deviceUID = targetDeviceUID
 	}
@@ -1424,19 +1499,19 @@ func consoleSpecAuthorityIdentityFromSession(spec proxmoxConsoleSessionSpec) (co
 	providerRef := strings.TrimSpace(spec.Target.ProviderRef)
 	targetRef := strings.TrimSpace(spec.Target.TargetRef)
 	if providerRef != "" && targetRef != "" && providerRef != targetRef {
-		return consoleSpecAuthorityIdentity{}, false
+		return consoleSpecAuthorityState{}, false
 	}
 	providerRef = firstNonEmpty(providerRef, targetRef)
 	controllerDeviceUID := strings.TrimSpace(spec.Target.ControllerDeviceUID)
 	controllerRef := strings.TrimSpace(spec.Target.ControllerRef)
 	if deviceUID == "" || providerRef == "" || controllerDeviceUID == "" || controllerRef == "" {
-		return consoleSpecAuthorityIdentity{}, false
+		return consoleSpecAuthorityState{}, false
 	}
 
 	targetKind := proxmoxTargetKind(spec.TargetKind)
 	if targetKindFromTarget := proxmoxTargetKind(spec.Target.TargetKind); targetKindFromTarget != "" {
 		if targetKind != "" && targetKind != targetKindFromTarget {
-			return consoleSpecAuthorityIdentity{}, false
+			return consoleSpecAuthorityState{}, false
 		}
 		targetKind = targetKindFromTarget
 	}
@@ -1444,115 +1519,124 @@ func consoleSpecAuthorityIdentityFromSession(spec proxmoxConsoleSessionSpec) (co
 	node := strings.TrimSpace(spec.Target.Node)
 	ownerNode := strings.TrimSpace(spec.Target.OwnerNode)
 	if node != "" && ownerNode != "" && node != ownerNode {
-		return consoleSpecAuthorityIdentity{}, false
+		return consoleSpecAuthorityState{}, false
 	}
 	node = firstNonEmpty(node, ownerNode)
-	cluster := strings.TrimSpace(spec.Target.Cluster)
-	vmid := spec.Target.VMID
 	integrationID := strings.TrimSpace(spec.Target.IntegrationID)
 	controllerIntegrationID := strings.TrimSpace(spec.Target.ControllerIntegrationID)
-	if integrationID == "" || controllerIntegrationID == "" || integrationID != controllerIntegrationID {
-		return consoleSpecAuthorityIdentity{}, false
-	}
 	controllerID := strings.TrimSpace(spec.Target.ControllerID)
 	providerInstanceRef := strings.TrimSpace(spec.Target.ProviderInstanceRef)
 	nativeClusterID := strings.TrimSpace(spec.Target.NativeClusterID)
-	objectKind := strings.ToLower(strings.TrimSpace(spec.Target.ObjectKind))
-	nativeObjectID := strings.TrimSpace(spec.Target.NativeObjectID)
-	controllerObjectKind := ""
-	controllerNativeObjectID := ""
-	if vmid < 0 || controllerID == "" || providerInstanceRef == "" || nativeClusterID == "" {
-		return consoleSpecAuthorityIdentity{}, false
+	if integrationID == "" || controllerIntegrationID == "" || integrationID != controllerIntegrationID ||
+		spec.Target.VMID < 0 || controllerID == "" || providerInstanceRef == "" || nativeClusterID == "" {
+		return consoleSpecAuthorityState{}, false
 	}
 
-	parsedSubject, subjectOK := parseAgentProxmoxProviderRef(providerRef)
-	if !subjectOK || parsedSubject.integrationID == "" {
-		return consoleSpecAuthorityIdentity{}, false
-	}
-	if parsed := parsedSubject; subjectOK {
-		if parsed.cluster != "" {
-			if cluster != "" && cluster != parsed.cluster {
-				return consoleSpecAuthorityIdentity{}, false
-			}
-			cluster = parsed.cluster
-		}
-		if parsed.node != "" {
-			if node != "" && node != parsed.node {
-				return consoleSpecAuthorityIdentity{}, false
-			}
-			node = parsed.node
-		}
-		if parsed.kind != "" {
-			if targetKind != "" && targetKind != parsed.kind {
-				return consoleSpecAuthorityIdentity{}, false
-			}
-			targetKind = parsed.kind
-		}
-		if parsed.vmid > 0 {
-			if vmid > 0 && vmid != parsed.vmid {
-				return consoleSpecAuthorityIdentity{}, false
-			}
-			vmid = parsed.vmid
-		}
-		if !mergeExact(&integrationID, parsed.integrationID) ||
-			!mergeExact(&controllerID, parsed.controllerID) ||
-			!mergeExact(&providerInstanceRef, parsed.providerInstanceRef) ||
-			!mergeExact(&nativeClusterID, parsed.nativeClusterID) ||
-			!mergeExact(&objectKind, parsed.objectKind) ||
-			!mergeExact(&nativeObjectID, parsed.nativeObjectID) {
-			return consoleSpecAuthorityIdentity{}, false
-		}
-	}
+	return consoleSpecAuthorityState{
+		deviceUID:           deviceUID,
+		providerRef:         providerRef,
+		controllerDeviceUID: controllerDeviceUID,
+		controllerRef:       controllerRef,
+		targetKind:          targetKind,
+		node:                node,
+		cluster:             strings.TrimSpace(spec.Target.Cluster),
+		vmid:                spec.Target.VMID,
+		integrationID:       integrationID,
+		controllerID:        controllerID,
+		providerInstanceRef: providerInstanceRef,
+		nativeClusterID:     nativeClusterID,
+		objectKind:          strings.ToLower(strings.TrimSpace(spec.Target.ObjectKind)),
+		nativeObjectID:      strings.TrimSpace(spec.Target.NativeObjectID),
+	}, true
+}
 
-	parsedController, controllerOK := parseAgentProxmoxProviderRef(controllerRef)
-	if !controllerOK || parsedController.integrationID == "" || parsedController.objectKind != "node" {
-		return consoleSpecAuthorityIdentity{}, false
+func mergeExactProxmoxIdentityField(current *string, candidate string) bool {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return true
 	}
-	if parsed := parsedController; controllerOK {
-		if parsed.cluster != "" && !mergeExact(&cluster, parsed.cluster) {
-			return consoleSpecAuthorityIdentity{}, false
-		}
-		if parsed.node != "" && !mergeExact(&node, parsed.node) {
-			return consoleSpecAuthorityIdentity{}, false
-		}
-		if !mergeExact(&integrationID, parsed.integrationID) ||
-			!mergeExact(&controllerID, parsed.controllerID) ||
-			!mergeExact(&providerInstanceRef, parsed.providerInstanceRef) ||
-			!mergeExact(&nativeClusterID, parsed.nativeClusterID) ||
-			!mergeExact(&controllerObjectKind, parsed.objectKind) ||
-			!mergeExact(&controllerNativeObjectID, parsed.nativeObjectID) {
-			return consoleSpecAuthorityIdentity{}, false
-		}
+	if *current != "" && *current != candidate {
+		return false
 	}
+	*current = candidate
+	return true
+}
 
+func (state *consoleSpecAuthorityState) mergeSubjectProviderRef() bool {
+	parsed, ok := parseAgentProxmoxProviderRef(state.providerRef)
+	if !ok || parsed.integrationID == "" {
+		return false
+	}
+	if parsed.cluster != "" && !mergeExactProxmoxIdentityField(&state.cluster, parsed.cluster) {
+		return false
+	}
+	if parsed.node != "" && !mergeExactProxmoxIdentityField(&state.node, parsed.node) {
+		return false
+	}
+	if parsed.kind != "" && !mergeExactProxmoxIdentityField(&state.targetKind, parsed.kind) {
+		return false
+	}
+	if parsed.vmid > 0 {
+		if state.vmid > 0 && state.vmid != parsed.vmid {
+			return false
+		}
+		state.vmid = parsed.vmid
+	}
+	return mergeExactProxmoxIdentityField(&state.integrationID, parsed.integrationID) &&
+		mergeExactProxmoxIdentityField(&state.controllerID, parsed.controllerID) &&
+		mergeExactProxmoxIdentityField(&state.providerInstanceRef, parsed.providerInstanceRef) &&
+		mergeExactProxmoxIdentityField(&state.nativeClusterID, parsed.nativeClusterID) &&
+		mergeExactProxmoxIdentityField(&state.objectKind, parsed.objectKind) &&
+		mergeExactProxmoxIdentityField(&state.nativeObjectID, parsed.nativeObjectID)
+}
+
+func (state *consoleSpecAuthorityState) mergeControllerProviderRef() bool {
+	parsed, ok := parseAgentProxmoxProviderRef(state.controllerRef)
+	if !ok || parsed.integrationID == "" || parsed.objectKind != proxmoxObjectKindNode {
+		return false
+	}
+	if parsed.cluster != "" && !mergeExactProxmoxIdentityField(&state.cluster, parsed.cluster) {
+		return false
+	}
+	if parsed.node != "" && !mergeExactProxmoxIdentityField(&state.node, parsed.node) {
+		return false
+	}
+	return mergeExactProxmoxIdentityField(&state.integrationID, parsed.integrationID) &&
+		mergeExactProxmoxIdentityField(&state.controllerID, parsed.controllerID) &&
+		mergeExactProxmoxIdentityField(&state.providerInstanceRef, parsed.providerInstanceRef) &&
+		mergeExactProxmoxIdentityField(&state.nativeClusterID, parsed.nativeClusterID) &&
+		mergeExactProxmoxIdentityField(&state.controllerObjectKind, parsed.objectKind) &&
+		mergeExactProxmoxIdentityField(&state.controllerNativeObjectID, parsed.nativeObjectID)
+}
+
+func (state consoleSpecAuthorityState) identity() consoleSpecAuthorityIdentity {
 	subject := map[string]string{
-		"device_uid":            deviceUID,
-		"integration_id":        integrationID,
-		"provider_ref":          providerRef,
-		"target_kind":           targetKind,
-		"controller_id":         controllerID,
-		"provider_instance_ref": providerInstanceRef,
-		"native_cluster_id":     nativeClusterID,
-		"object_kind":           objectKind,
-		"native_object_id":      nativeObjectID,
+		"device_uid":            state.deviceUID,
+		"integration_id":        state.integrationID,
+		"provider_ref":          state.providerRef,
+		"target_kind":           state.targetKind,
+		"controller_id":         state.controllerID,
+		"provider_instance_ref": state.providerInstanceRef,
+		"native_cluster_id":     state.nativeClusterID,
+		"object_kind":           state.objectKind,
+		"native_object_id":      state.nativeObjectID,
 	}
-	if vmid > 0 {
-		subject["vmid"] = strconv.Itoa(vmid)
+	if state.vmid > 0 {
+		subject["vmid"] = strconv.Itoa(state.vmid)
 	}
-
 	controller := map[string]string{
-		"device_uid":            controllerDeviceUID,
-		"integration_id":        integrationID,
-		"provider_ref":          controllerRef,
-		"node":                  node,
-		"cluster":               cluster,
-		"controller_id":         controllerID,
-		"provider_instance_ref": providerInstanceRef,
-		"native_cluster_id":     nativeClusterID,
-		"object_kind":           controllerObjectKind,
-		"native_object_id":      controllerNativeObjectID,
+		"device_uid":             state.controllerDeviceUID,
+		"integration_id":         state.integrationID,
+		"provider_ref":           state.controllerRef,
+		proxmoxObjectKindNode:    state.node,
+		proxmoxObjectKindCluster: state.cluster,
+		"controller_id":          state.controllerID,
+		"provider_instance_ref":  state.providerInstanceRef,
+		"native_cluster_id":      state.nativeClusterID,
+		"object_kind":            state.controllerObjectKind,
+		"native_object_id":       state.controllerNativeObjectID,
 	}
-	if targetKind == "pve_host" {
+	if state.targetKind == proxmoxTargetKindPVEHost {
 		// The console subject and controller are the same inventory object for a
 		// PVE host. This fallback remains forbidden for guest sessions.
 		for _, key := range []string{
@@ -1563,8 +1647,7 @@ func consoleSpecAuthorityIdentityFromSession(spec proxmoxConsoleSessionSpec) (co
 			}
 		}
 	}
-
-	return consoleSpecAuthorityIdentity{subject: subject, controller: controller}, true
+	return consoleSpecAuthorityIdentity{subject: subject, controller: controller}
 }
 
 func consoleSpecOriginMatchesBinding(spec proxmoxConsoleSessionSpec, binding pluginHostAuthorityBinding) bool {
@@ -1596,7 +1679,7 @@ func expectedProxmoxConsolePaths(
 	if !valid || !pluginHostAuthorityTargetIDsMatchConsole(binding.targetIDs, identity) {
 		return "", "", errPluginHostAuthorityDenied
 	}
-	nodeValue := identity.controller["node"]
+	nodeValue := identity.controller[proxmoxObjectKindNode]
 	if nodeValue == "" || strings.ContainsAny(nodeValue, "/\\%") {
 		return "", "", errPluginHostAuthorityDenied
 	}
@@ -1606,18 +1689,18 @@ func expectedProxmoxConsolePaths(
 
 	switch strings.TrimSpace(spec.ConsoleMode) {
 	case "proxmox_termproxy":
-		if kind == "lxc_guest" && vmid > 0 {
+		if kind == proxmoxTargetKindLXCGuest && vmid > 0 {
 			vmidText := strconv.Itoa(vmid)
 			return "/api2/json/nodes/" + node + "/lxc/" + vmidText + "/termproxy",
 				"/api2/json/nodes/" + node + "/lxc/" + vmidText + "/vncwebsocket", nil
 		}
-		if kind != "pve_host" {
+		if kind != proxmoxTargetKindPVEHost {
 			return "", "", errPluginHostAuthorityDenied
 		}
 		return "/api2/json/nodes/" + node + "/termproxy",
 			"/api2/json/nodes/" + node + "/vncwebsocket", nil
 	case "proxmox_vncwebsocket":
-		if kind != "qemu_guest" || vmid <= 0 {
+		if kind != proxmoxTargetKindQEMUGuest || vmid <= 0 {
 			return "", "", errPluginHostAuthorityDenied
 		}
 		vmidText := strconv.Itoa(vmid)
@@ -1821,12 +1904,12 @@ func (e *pluginExecution) proxmoxHostAuthorityForWebSocket(
 		return nil, nil
 	}
 	if e.mode != pluginExecutionModeStreaming || e.assignment.PluginID != proxmoxConsolePluginID ||
-		requestURL == nil || requestURL.Scheme != "wss" {
+		requestURL == nil || requestURL.Scheme != webSocketSecureScheme {
 		return nil, errPluginHostAuthorityDenied
 	}
 
 	httpURL := *requestURL
-	httpURL.Scheme = "https"
+	httpURL.Scheme = httpsScheme
 	origin, err := canonicalPluginHostAuthorityRequestOrigin(&httpURL)
 	if err != nil {
 		return nil, errPluginHostAuthorityDenied
@@ -1920,7 +2003,7 @@ func (e *pluginExecution) trustedProxmoxConsoleSSHConfig(
 	if err != nil {
 		return proxmoxConsoleSSHConfig{}, errPluginHostAuthorityDenied
 	}
-	if proxmoxTargetKind(firstNonEmpty(binding.targetIDs["target_kind"], e.consoleSessionSpec.TargetKind)) != "pve_host" ||
+	if proxmoxTargetKind(firstNonEmpty(binding.targetIDs["target_kind"], e.consoleSessionSpec.TargetKind)) != proxmoxTargetKindPVEHost ||
 		(e.consoleSessionSpec.Target.SSHPort != 0 && e.consoleSessionSpec.Target.SSHPort != 22) {
 		return proxmoxConsoleSSHConfig{}, formatPluginHostAuthorityError(binding)
 	}
@@ -1963,7 +2046,7 @@ func (e *pluginExecution) trustedProxmoxConsoleSSHConfig(
 			SSHPort:             22,
 			ProviderRef:         firstNonEmpty(e.consoleSessionSpec.Target.ProviderRef, e.consoleSessionSpec.Target.TargetRef),
 			TargetRef:           e.consoleSessionSpec.Target.TargetRef,
-			TargetKind:          "pve_host",
+			TargetKind:          proxmoxTargetKindPVEHost,
 			ConsoleMode:         "ssh",
 			IntegrationID:       e.consoleSessionSpec.Target.IntegrationID,
 			Cluster:             e.consoleSessionSpec.Target.Cluster,

@@ -260,6 +260,13 @@ func TestAWXInventoryMixedVersionWireKeepsHostParamsOutsideLegacyVisibleField(t 
 			field10Params = append([]byte(nil), value...)
 		case 23:
 			field23HostParams = append([]byte(nil), value...)
+		case protowire.MinValidNumber,
+			protowire.FirstReservedNumber,
+			protowire.LastReservedNumber,
+			protowire.MaxValidNumber:
+			continue
+		default:
+			continue
 		}
 	}
 
@@ -359,7 +366,7 @@ func TestAWXInventoryCredentialPathPolicy(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.path, func(t *testing.T) {
-			request, err := http.NewRequest(http.MethodGet, "https://awx.example.test"+test.path, nil)
+			request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://awx.example.test"+test.path, nil)
 			if err != nil {
 				t.Fatalf("new request: %v", err)
 			}
@@ -533,7 +540,8 @@ func TestScheduledAWXInventoryCredentialRequiresExactInsecureTLSPolicy(t *testin
 	assignment := testAWXInventoryAssignmentWithInsecureTLS(t)
 	exec := &pluginExecution{assignment: assignment, mode: pluginExecutionModeScheduled}
 
-	request, err := http.NewRequest(
+	request, err := http.NewRequestWithContext(
+		t.Context(),
 		http.MethodGet,
 		"https://awx-a.example.test/api/v2/inventories/",
 		nil,

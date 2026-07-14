@@ -499,7 +499,7 @@ func validateReleaseArtifactURL(rawURL string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %w", errReleaseArtifactURLInvalid, err)
 	}
-	if parsed == nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.Host == "" {
+	if parsed == nil || !strings.EqualFold(parsed.Scheme, httpsScheme) || parsed.Host == "" {
 		return errReleaseArtifactURLInvalid
 	}
 	return nil
@@ -1176,7 +1176,7 @@ func validateReleaseRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= 5 {
 		return errReleaseRedirectLimitExceeded
 	}
-	if req == nil || req.URL == nil || !strings.EqualFold(req.URL.Scheme, "https") {
+	if req == nil || req.URL == nil || !strings.EqualFold(req.URL.Scheme, httpsScheme) {
 		return errReleaseRedirectInsecure
 	}
 	if len(via) == 0 || via[0] == nil || via[0].URL == nil {
@@ -1209,9 +1209,9 @@ func releaseURLPort(parsed *url.URL) string {
 		return port
 	}
 	switch {
-	case strings.EqualFold(parsed.Scheme, "https"):
+	case strings.EqualFold(parsed.Scheme, httpsScheme):
 		return "443"
-	case strings.EqualFold(parsed.Scheme, "http"):
+	case strings.EqualFold(parsed.Scheme, httpScheme):
 		return "80"
 	default:
 		return ""

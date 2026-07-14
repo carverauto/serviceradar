@@ -539,8 +539,7 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
   defp valid_bounds?(nil, max), do: is_number(max)
   defp valid_bounds?(min, max), do: min <= max
 
-  defp event_jobs(jobs)
-       when is_list(jobs) and length(jobs) >= 1 and length(jobs) <= @max_event_jobs do
+  defp event_jobs(jobs) when is_list(jobs) and jobs != [] and length(jobs) <= @max_event_jobs do
     with {:ok, safe_jobs} <- reduce_list(jobs, &event_job/1),
          job_ids = Enum.map(safe_jobs, & &1["job_id"]),
          true <- length(job_ids) == length(Enum.uniq(job_ids)) do
@@ -553,7 +552,7 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
   defp event_jobs(_jobs), do: :error
 
   defp legacy_event_jobs(jobs)
-       when is_list(jobs) and length(jobs) >= 1 and length(jobs) <= @max_event_jobs do
+       when is_list(jobs) and jobs != [] and length(jobs) <= @max_event_jobs do
     with {:ok, safe_jobs} <- reduce_list(jobs, &legacy_event_job/1),
          job_ids = Enum.map(safe_jobs, & &1["job_id"]),
          true <- length(job_ids) == length(Enum.uniq(job_ids)) do
@@ -986,7 +985,7 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
        when is_integer(value) and value >= -@max_int64 and value <= @max_int64, do: {:ok, value}
 
   defp optional_number(value) when is_float(value) do
-    if value == value and value >= -1.0e308 and value <= 1.0e308, do: {:ok, value}, else: :error
+    if abs(value) <= 1.0e308, do: {:ok, value}, else: :error
   end
 
   defp optional_number(_value), do: :error
@@ -994,7 +993,7 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
   defp nonnegative_number(value) when is_integer(value) and value >= 0, do: {:ok, value}
 
   defp nonnegative_number(value) when is_float(value) and value >= 0 do
-    if value == value and value <= 1.0e308, do: {:ok, value}, else: :error
+    if value <= 1.0e308, do: {:ok, value}, else: :error
   end
 
   defp nonnegative_number(_value), do: :error

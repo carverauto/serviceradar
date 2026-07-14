@@ -44,6 +44,7 @@ const (
 	maxAWXCallbackURLBytes             = 2048
 	maxAWXCallbackOriginBytes          = 512
 	maxAWXCallbackMaterialTTL          = 10 * time.Minute
+	awxCallbackCredentialInputCount    = 10
 )
 
 var (
@@ -55,17 +56,19 @@ var (
 	errAWXCallbackCredentialInputConsumed    = errors.New("awx callback credential input already consumed")
 )
 
-var awxCallbackCredentialInputNames = [...]string{
-	"callback_url",
-	"callback_grant",
-	"callback_idempotency_key",
-	"callback_allowed_origin",
-	"callback_manifest_sha256",
-	"scm_revision",
-	"content_sha256",
-	"callback_phase",
-	"callback_operation",
-	"callback_state",
+func awxCallbackCredentialInputNames() [awxCallbackCredentialInputCount]string {
+	return [awxCallbackCredentialInputCount]string{
+		"callback_url",
+		"callback_grant",
+		"callback_idempotency_key",
+		"callback_allowed_origin",
+		"callback_manifest_sha256",
+		"scm_revision",
+		"content_sha256",
+		"callback_phase",
+		"callback_operation",
+		"callback_state",
+	}
 }
 
 // AWXCallbackCredentialBinding is the non-secret, durable command binding for
@@ -369,6 +372,7 @@ func (input *awxCallbackCredentialMemoryInput) consumeInputs(
 	var name, description string
 	var credentialTypeID, organizationID int
 	var rawInputs map[string]string
+	inputNames := awxCallbackCredentialInputNames()
 	if json.Unmarshal(root["name"], &name) != nil ||
 		json.Unmarshal(root["description"], &description) != nil ||
 		json.Unmarshal(root["credential_type"], &credentialTypeID) != nil ||
@@ -378,10 +382,10 @@ func (input *awxCallbackCredentialMemoryInput) consumeInputs(
 		description != awxCallbackCredentialDescription ||
 		credentialTypeID != input.Binding.CredentialTypeID ||
 		organizationID != input.Binding.OrganizationID ||
-		!exactStringSet(mapKeys(rawInputs), awxCallbackCredentialInputNames[:]) {
+		!exactStringSet(mapKeys(rawInputs), inputNames[:]) {
 		return nil, errAWXCallbackCredentialInputInvalid
 	}
-	for _, key := range awxCallbackCredentialInputNames {
+	for _, key := range inputNames {
 		if rawInputs[key] != awxCallbackCredentialInputSentinel {
 			return nil, errAWXCallbackCredentialInputInvalid
 		}
@@ -428,7 +432,7 @@ func encodeAWXCallbackCredentialCreateBody(
 	encoded = append(encoded, `,"description":`...)
 	encoded = strconv.AppendQuote(encoded, description)
 	encoded = append(encoded, `,"inputs":{`...)
-	for i, key := range awxCallbackCredentialInputNames {
+	for i, key := range awxCallbackCredentialInputNames() {
 		if i > 0 {
 			encoded = append(encoded, ',')
 		}
@@ -508,12 +512,12 @@ func validCallbackURL(rawURL, rawOrigin string) bool {
 		return false
 	}
 	callback, err := url.Parse(rawURL)
-	if err != nil || callback.Scheme != "https" || callback.Host == "" || callback.User != nil ||
+	if err != nil || callback.Scheme != httpsScheme || callback.Host == "" || callback.User != nil ||
 		callback.RawQuery != "" || callback.Fragment != "" {
 		return false
 	}
 	origin, err := url.Parse(rawOrigin)
-	if err != nil || origin.Scheme != "https" || origin.Host == "" || origin.User != nil ||
+	if err != nil || origin.Scheme != httpsScheme || origin.Host == "" || origin.User != nil ||
 		origin.Path != "" || origin.RawQuery != "" || origin.Fragment != "" {
 		return false
 	}
@@ -548,7 +552,7 @@ func boundedOpaqueValue(value []byte, minBytes, maxBytes int) bool {
 	}
 	for _, char := range value {
 		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
-			(char >= '0' && char <= '9') || bytes.ContainsRune([]byte("._~:-"), rune(char)) {
+			(char >= '0' && char <= '9') || strings.ContainsRune("._~:-", rune(char)) {
 			continue
 		}
 		return false
@@ -561,7 +565,7 @@ func lowerHexBytes(value []byte, minBytes, maxBytes int) bool {
 		return false
 	}
 	for _, char := range value {
-		if !((char >= 'a' && char <= 'f') || (char >= '0' && char <= '9')) {
+		if (char < 'a' || char > 'f') && (char < '0' || char > '9') {
 			return false
 		}
 	}
@@ -599,7 +603,7 @@ func uuidLike(value string) bool {
 			}
 			continue
 		}
-		if !((char >= 'a' && char <= 'f') || (char >= '0' && char <= '9')) {
+		if (char < 'a' || char > 'f') && (char < '0' || char > '9') {
 			return false
 		}
 	}
@@ -615,20 +619,11 @@ func lowerHexRange(value string, minBytes, maxBytes int) bool {
 		return false
 	}
 	for _, char := range value {
-		if !((char >= 'a' && char <= 'f') || (char >= '0' && char <= '9')) {
+		if (char < 'a' || char > 'f') && (char < '0' || char > '9') {
 			return false
 		}
 	}
 	return true
-}
-
-func oneOf(value string, allowed ...string) bool {
-	for _, candidate := range allowed {
-		if value == candidate {
-			return true
-		}
-	}
-	return false
 }
 
 func awxCallbackArgInt(args map[string]any, key string) (int, bool) {

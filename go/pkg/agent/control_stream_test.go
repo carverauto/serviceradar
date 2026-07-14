@@ -489,7 +489,9 @@ func waitForCommandResult(t *testing.T, stream *fakeControlStreamClient, command
 	return nil
 }
 
-const testAWXCommandPayload = `{
+const (
+	testAWXFetchJobVerb   = "awx.fetch_job"
+	testAWXCommandPayload = `{
 	"schema": "serviceradar.awx_command.v1",
 	"verb": "awx.ping",
 	"args": {},
@@ -506,6 +508,7 @@ const testAWXCommandPayload = `{
 		"allow": {"hosts": ["awx.example.com"], "methods": ["GET"], "paths": ["/api/v2/"]}
 	}
 }`
+)
 
 func TestHandleCommandRoutesAWXVerbsToAWXPlugin(t *testing.T) {
 	t.Parallel()
@@ -652,7 +655,7 @@ func TestBuildAWXPluginConfigFallsBackToCommandType(t *testing.T) {
 	t.Parallel()
 
 	configJSON, err := buildAWXPluginConfig(
-		&proto.CommandRequest{CommandType: "awx.fetch_job"},
+		&proto.CommandRequest{CommandType: testAWXFetchJobVerb},
 		awxCommandPayload{BaseURL: "https://awx.example.com"},
 	)
 	if err != nil {
@@ -663,7 +666,7 @@ func TestBuildAWXPluginConfigFallsBackToCommandType(t *testing.T) {
 	if err := json.Unmarshal(configJSON, &config); err != nil {
 		t.Fatalf("decode config: %v", err)
 	}
-	if got := config["verb"]; got != "awx.fetch_job" {
+	if got := config["verb"]; got != testAWXFetchJobVerb {
 		t.Fatalf("verb = %v, want command type fallback awx.fetch_job", got)
 	}
 }
@@ -726,7 +729,7 @@ func TestParseAWXPluginResultRejectsNonJSONDetailsWithoutRetainingThem(t *testin
 
 	success, message, payload := parseAWXPluginResult(
 		[]byte(`{"status":"OK","summary":"Bearer secret","details":"not json secret"}`),
-		"awx.fetch_job",
+		testAWXFetchJobVerb,
 	)
 	if success {
 		t.Fatal("success = true, want false for malformed details")
@@ -734,7 +737,7 @@ func TestParseAWXPluginResultRejectsNonJSONDetailsWithoutRetainingThem(t *testin
 	if message != "invalid awx plugin result" {
 		t.Fatalf("message = %q", message)
 	}
-	if got := payload["verb"]; got != "awx.fetch_job" || payload["ok"] != false || len(payload) != 2 {
+	if got := payload["verb"]; got != testAWXFetchJobVerb || payload["ok"] != false || len(payload) != 2 {
 		t.Fatalf("payload = %#v, want fixed redacted failure", payload)
 	}
 }
@@ -765,8 +768,8 @@ func TestParseAWXPluginResultRejectsMismatchedVerb(t *testing.T) {
 		"details": "{\"verb\":\"awx.launch_job\",\"ok\":true,\"job\":{\"id\":7}}"
 	}`)
 
-	success, _, payload := parseAWXPluginResult(resultBytes, "awx.fetch_job")
-	if success || payload["verb"] != "awx.fetch_job" || payload["ok"] != false {
+	success, _, payload := parseAWXPluginResult(resultBytes, testAWXFetchJobVerb)
+	if success || payload["verb"] != testAWXFetchJobVerb || payload["ok"] != false {
 		t.Fatalf("mismatched verb was not rejected: %#v", payload)
 	}
 }

@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -34,7 +35,11 @@ func TestPluginHTTPClientWithTrustedCAsAugmentsSystemRoots(t *testing.T) {
 		t.Fatal("expected configured plugin HTTP client")
 	}
 
-	resp, err := client.Get(server.URL)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := client.Do(request)
 	if err != nil {
 		t.Fatalf("verified request with configured CA: %v", err)
 	}
@@ -76,9 +81,21 @@ func TestPluginHTTPClientWithTrustedCAsFailsClosed(t *testing.T) {
 func TestUnavailablePluginHTTPClientRejectsTransport(t *testing.T) {
 	t.Parallel()
 
-	expected := errors.New("invalid CA configuration")
+	expected := fmt.Errorf("test invalid CA configuration: %w", errPluginHTTPTrustUnavailable)
 	client := unavailablePluginHTTPClient(expected)
-	_, err := client.Get("https://awx.example.test/api/v2/ping/")
+	request, err := http.NewRequestWithContext(
+		t.Context(),
+		http.MethodGet,
+		"https://awx.example.test/api/v2/ping/",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := client.Do(request)
+	if resp != nil {
+		defer func() { _ = resp.Body.Close() }()
+	}
 	if !errors.Is(err, expected) {
 		t.Fatalf("request error = %v, want %v", err, expected)
 	}
@@ -103,7 +120,11 @@ func TestInvalidPluginHTTPTrustRemainsUnavailableForInsecureRequest(t *testing.T
 
 	unavailable := unavailablePluginHTTPClient(trustErr)
 	client := pluginHTTPClient(unavailable, true, time.Second)
-	resp, err := client.Get(server.URL)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := client.Do(request)
 	if resp != nil {
 		_ = resp.Body.Close()
 		t.Fatalf("response = %#v, want no network response", resp)

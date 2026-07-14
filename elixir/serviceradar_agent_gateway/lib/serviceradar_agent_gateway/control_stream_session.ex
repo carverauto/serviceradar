@@ -188,29 +188,34 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   defp dispatch_console_frame(frame, expected_control_evidence, state) do
     case normalize_console_frame(frame) do
       {:ok, frame} ->
-        case verify_expected_control_evidence(state, expected_control_evidence) do
-          :ok ->
-            response = %Monitoring.ControlStreamResponse{payload: {:console_frame, frame}}
-
-            case send_stream_reply(state.stream, response) do
-              {:ok, stream} ->
-                {:reply, :ok, %{state | stream: stream}}
-
-              {:error, reason} ->
-                Logger.warning(
-                  "Failed to send Proxmox console frame to agent",
-                  [agent_id: safe_log_identifier(state.agent_id)] ++
-                    SafeFailureEvidence.log_metadata(reason)
-                )
-
-                {:reply, {:error, reason}, state}
-            end
-
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
-        end
+        dispatch_verified_console_frame(frame, expected_control_evidence, state)
 
       {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp dispatch_verified_console_frame(frame, expected_control_evidence, state) do
+    case verify_expected_control_evidence(state, expected_control_evidence) do
+      :ok -> send_console_frame_reply(frame, state)
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp send_console_frame_reply(frame, state) do
+    response = %Monitoring.ControlStreamResponse{payload: {:console_frame, frame}}
+
+    case send_stream_reply(state.stream, response) do
+      {:ok, stream} ->
+        {:reply, :ok, %{state | stream: stream}}
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to send Proxmox console frame to agent",
+          [agent_id: safe_log_identifier(state.agent_id)] ++
+            SafeFailureEvidence.log_metadata(reason)
+        )
+
         {:reply, {:error, reason}, state}
     end
   end
@@ -267,16 +272,20 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
         :ok
 
       {:error, {:already_registered, pid}} when pid == self() ->
-        case ProcessRegistry.update_value(key, fn _current -> metadata end) do
-          :error -> {:error, :control_session_registration_lost}
-          {_new, _old} -> :ok
-        end
+        update_existing_session_registration(key, metadata)
 
       {:error, {:already_registered, pid}} ->
         {:error, {:control_session_already_registered, pid}}
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp update_existing_session_registration(key, metadata) do
+    case ProcessRegistry.update_value(key, fn _current -> metadata end) do
+      :error -> {:error, :control_session_registration_lost}
+      {_new, _old} -> :ok
     end
   end
 
@@ -464,15 +473,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       []
     else
       assignments
-      |> Enum.reduce_while({:ok, %{}}, fn assignment, {:ok, normalized} ->
-        with {:ok, proof} <- normalize_plugin_assignment_proof(assignment),
-             key = {proof.assignment_id, proof.plugin_id},
-             false <- Map.has_key?(normalized, key) do
-          {:cont, {:ok, Map.put(normalized, key, proof)}}
-        else
-          _ -> {:halt, :error}
-        end
-      end)
+      |> Enum.reduce_while({:ok, %{}}, &reduce_plugin_assignment/2)
       |> case do
         {:ok, normalized} ->
           normalized
@@ -486,6 +487,16 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   def normalize_applied_plugin_assignments(_assignments), do: []
+
+  defp reduce_plugin_assignment(assignment, {:ok, normalized}) do
+    with {:ok, proof} <- normalize_plugin_assignment_proof(assignment),
+         key = {proof.assignment_id, proof.plugin_id},
+         false <- Map.has_key?(normalized, key) do
+      {:cont, {:ok, Map.put(normalized, key, proof)}}
+    else
+      _ -> {:halt, :error}
+    end
+  end
 
   defp normalize_plugin_assignment_proof(%Monitoring.PluginAssignmentPolicyAck{} = proof) do
     assignment_id = trimmed_string(proof.assignment_id)

@@ -32,6 +32,8 @@ const (
 	testAWXCallbackCommand = "018f3f56-aaaa-4bbb-8ccc-123456789abc"
 )
 
+var errTestAWXCallbackCredentialLeak = errors.New("upstream leaked callback bearer abcdef")
+
 func TestValidateAWXCallbackCredentialBindingRequiresExactSelectedAgentScope(t *testing.T) {
 	t.Parallel()
 
@@ -370,7 +372,7 @@ func TestResolveAWXCallbackCredentialMemoryInputUsesOpaqueBindingAndSanitizesErr
 		t.Fatalf("resolver binding = %#v", resolver.binding)
 	}
 
-	resolver.err = errors.New("upstream leaked callback bearer abcdef")
+	resolver.err = errTestAWXCallbackCredentialLeak
 	_, err = resolveAWXCallbackCredentialMemoryInput(t.Context(), resolver, testAWXCallbackBinding(), now)
 	if !errors.Is(err, errAWXCallbackCredentialResolutionDenied) ||
 		err.Error() != errAWXCallbackCredentialResolutionDenied.Error() {
@@ -458,8 +460,9 @@ func testAWXCallbackMaterial(expiresAt time.Time) AWXCallbackCredentialMaterial 
 
 func callbackCredentialSentinelBody(t *testing.T) []byte {
 	t.Helper()
-	inputs := make(map[string]string, len(awxCallbackCredentialInputNames))
-	for _, key := range awxCallbackCredentialInputNames {
+	inputNames := awxCallbackCredentialInputNames()
+	inputs := make(map[string]string, len(inputNames))
+	for _, key := range inputNames {
 		inputs[key] = awxCallbackCredentialInputSentinel
 	}
 	body, err := json.Marshal(map[string]any{

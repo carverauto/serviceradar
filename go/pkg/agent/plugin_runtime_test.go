@@ -21,10 +21,13 @@ import (
 )
 
 const (
-	unknownStatus          = "UNKNOWN"
-	testPluginAssignmentID = "assign-1"
-	testQueuedAssignmentID = "already-queued"
-	testPluginPagePayload  = `{"page":2}`
+	unknownStatus                 = "UNKNOWN"
+	testPluginAssignmentID        = "assign-1"
+	testPluginConsoleAssignmentID = "console-1"
+	testPluginConsoleHostname     = "pve-1.example"
+	testPluginConsoleIP           = "192.0.2.10"
+	testQueuedAssignmentID        = "already-queued"
+	testPluginPagePayload         = `{"page":2}`
 )
 
 func TestAdmitAssignmentsEnforcesLimits(t *testing.T) {
@@ -1205,7 +1208,7 @@ func TestPluginManagerRevokesActiveStreamingExecutionOnRemovalOrGenerationChange
 			if err != nil {
 				t.Fatalf("OpenCameraRelayStream returned error: %v", err)
 			}
-			defer stream.Close()
+			defer func() { _ = stream.Close() }()
 
 			select {
 			case <-started:
@@ -1238,7 +1241,7 @@ func TestPluginManagerOpenProxmoxConsoleStreamUsesStreamingBridge(t *testing.T) 
 	}
 
 	options := testConsoleAuthorityOptions()
-	options.assignmentID = "console-1"
+	options.assignmentID = testPluginConsoleAssignmentID
 	options.paramsJSON = `{
 		"policy_id":"network-credential-rule:proxmox-rule-1:console_access",
 		"policy_version":1,
@@ -1255,7 +1258,7 @@ func TestPluginManagerOpenProxmoxConsoleStreamUsesStreamingBridge(t *testing.T) 
 	assignment.WasmObject = "proxmox-console.wasm"
 
 	manager.mu.Lock()
-	manager.streams["console-1"] = assignment
+	manager.streams[testPluginConsoleAssignmentID] = assignment
 	manager.mu.Unlock()
 
 	observed := make(chan pluginProxmoxConsoleInputFrame, 2)
@@ -1266,7 +1269,7 @@ func TestPluginManagerOpenProxmoxConsoleStreamUsesStreamingBridge(t *testing.T) 
 		configJSON []byte,
 		bridge *pluginProxmoxConsoleBridge,
 	) error {
-		if assignment.AssignmentID != "console-1" {
+		if assignment.AssignmentID != testPluginConsoleAssignmentID {
 			t.Fatalf("unexpected assignment id: %s", assignment.AssignmentID)
 		}
 		if len(wasm) == 0 {
@@ -1283,7 +1286,7 @@ func TestPluginManagerOpenProxmoxConsoleStreamUsesStreamingBridge(t *testing.T) 
 			t.Fatalf("unexpected console config: %#v", console)
 		}
 		target, _ := config["target"].(map[string]any)
-		if target["hostname"] != "pve-1.example" || target["ip"] != "192.0.2.10" {
+		if target["hostname"] != testPluginConsoleHostname || target["ip"] != testPluginConsoleIP {
 			t.Fatalf("unexpected console target: %#v", target)
 		}
 
@@ -1314,10 +1317,10 @@ func TestPluginManagerOpenProxmoxConsoleStreamUsesStreamingBridge(t *testing.T) 
 	spec.SessionID = "session-1"
 	spec.AgentID = "agent-1"
 	spec.GatewayID = "gateway-1"
-	spec.PluginAssignmentID = "console-1"
+	spec.PluginAssignmentID = testPluginConsoleAssignmentID
 	bindTestProxmoxSessionPolicy(t, &spec, assignment)
-	spec.Target.Hostname = "pve-1.example"
-	spec.Target.IP = "192.0.2.10"
+	spec.Target.Hostname = testPluginConsoleHostname
+	spec.Target.IP = testPluginConsoleIP
 	spec.Cols = 120
 	spec.Rows = 40
 	pty, err := manager.OpenProxmoxConsoleStream(t.Context(), spec)

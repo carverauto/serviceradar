@@ -226,7 +226,7 @@ func gatewayArtifactDownloadRequiresMTLS(downloadURL string) bool {
 		return true
 	}
 
-	return strings.EqualFold(parsed.Scheme, "https")
+	return strings.EqualFold(parsed.Scheme, httpsScheme)
 }
 
 // errAddonAssignmentsDeferred is the section-level error reported when one or more

@@ -154,7 +154,8 @@ func readDeploymentRuntimeFile(probe deploymentRuntimeProbe, path string) ([]byt
 
 func isLXCContainerValue(value string) bool {
 	value = strings.ToLower(strings.TrimSpace(value))
-	return value == "lxc" || strings.HasPrefix(value, "lxc-") || strings.HasPrefix(value, "lxc.")
+	return value == deploymentTypeLXC || strings.HasPrefix(value, deploymentTypeLXC+"-") ||
+		strings.HasPrefix(value, deploymentTypeLXC+".")
 }
 
 func cgroupIdentifiesLXC(content string) bool {

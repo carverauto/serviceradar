@@ -290,7 +290,7 @@ func awxInventoryCredentialBinding(
 		return awxInventoryHostCredentialBinding{}, errAWXInventoryHostCredentialMalformed
 	}
 	hostInsecure, ok := strictMapBool(hostController, "insecure_skip_verify")
-	if !ok || hostInsecure != publicInsecure || (publicScheme != "https" && publicInsecure) {
+	if !ok || hostInsecure != publicInsecure || (publicScheme != httpsScheme && publicInsecure) {
 		return awxInventoryHostCredentialBinding{}, errAWXInventoryHostCredentialMalformed
 	}
 
@@ -334,7 +334,7 @@ func canonicalAWXControllerOrigin(raw string) (origin, baseURL, scheme string, e
 	}
 
 	scheme = strings.ToLower(strings.TrimSpace(parsed.Scheme))
-	if scheme != "http" && scheme != "https" {
+	if scheme != httpScheme && scheme != httpsScheme {
 		return "", "", "", errAWXInventoryHostCredentialMalformed
 	}
 	host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(parsed.Hostname()), "."))
@@ -352,7 +352,7 @@ func canonicalAWXControllerOrigin(raw string) (origin, baseURL, scheme string, e
 	if strings.Contains(host, ":") {
 		baseHost = "[" + host + "]"
 	}
-	defaultPort := (scheme == "http" && port == 80) || (scheme == "https" && port == 443)
+	defaultPort := (scheme == httpScheme && port == 80) || (scheme == httpsScheme && port == 443)
 	if !defaultPort {
 		baseHost = net.JoinHostPort(host, strconv.Itoa(port))
 	}
@@ -479,7 +479,7 @@ func canonicalAWXRequestOrigin(requestURL *url.URL) (origin, host string, port i
 		return "", "", 0, errAWXInventoryHostCredentialDenied
 	}
 	scheme := strings.ToLower(strings.TrimSpace(requestURL.Scheme))
-	if scheme != "http" && scheme != "https" {
+	if scheme != httpScheme && scheme != httpsScheme {
 		return "", "", 0, errAWXInventoryHostCredentialDenied
 	}
 	host = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(requestURL.Hostname()), "."))

@@ -45,6 +45,11 @@ const (
 	testProxmoxOrigin              = "https://192.0.2.10:8006"
 )
 
+var (
+	errUnexpectedProxmoxWebSocketDial = errors.New("unexpected websocket dial")
+	errUnexpectedProxmoxSSHDial       = errors.New("unexpected SSH dial")
+)
+
 type testProxmoxHostAuthorityOptions struct {
 	assignmentID       string
 	pluginID           string
@@ -989,7 +994,7 @@ func TestProxmoxWebSocketRevocationBarrierStopsDialAfterCredentialResolution(t *
 		bool,
 	) (*websocket.Conn, *http.Response, error) {
 		dialCalls++
-		return nil, nil, errors.New("unexpected websocket dial")
+		return nil, nil, errUnexpectedProxmoxWebSocketDial
 	}
 
 	done := make(chan int32, 1)
@@ -1070,7 +1075,7 @@ func TestProxmoxSSHRevocationBarrierStopsDialAfterCredentialResolution(t *testin
 		bridge,
 		func(context.Context, proxmoxConsoleSSHConfig) (proxmoxConsoleSSHSession, error) {
 			dialCalled = true
-			return nil, errors.New("unexpected SSH dial")
+			return nil, errUnexpectedProxmoxSSHDial
 		},
 	)
 	if !errors.Is(err, errPluginHostAuthorityDenied) {
