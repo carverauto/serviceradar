@@ -52,6 +52,13 @@ type httpResponsePayload struct {
 	BodyEncoding string            `json:"body_encoding,omitempty"`
 }
 
+const (
+	httpScheme  = "http"
+	httpsScheme = "https"
+)
+
+var errPluginHTTPTooManyRedirects = errors.New("stopped after 10 redirects")
+
 // The insecure transport cache preserves connection reuse for the explicit
 // plugin-level insecure TLS opt-in while keeping base client transports immutable.
 //
@@ -84,14 +91,30 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		return pluginErrInvalid
 	}
 
-	host := reqURL.Hostname()
-	if !e.assignment.Permissions.allowsDomain(host) {
-		return pluginErrDenied
-	}
-
 	method := strings.ToUpper(strings.TrimSpace(payload.Method))
 	if method == "" {
 		method = http.MethodGet
+	}
+
+	pluginBody, err := decodeBody(payload)
+	if err != nil {
+		return pluginErrInvalid
+	}
+	defer clear(pluginBody)
+
+	proxmoxBinding, err := e.proxmoxHostAuthorityForHTTPRequest(
+		method,
+		reqURL,
+		pluginBody,
+		payload.InsecureSkipVerify,
+	)
+	if err != nil {
+		e.logPluginHostHTTPDenied(err, reqURL, method)
+		return pluginErrDenied
+	}
+	if !pluginHTTPRequestDestinationAllowed(&e.assignment.Permissions, reqURL) &&
+		!pluginHostAuthorityDestinationAllowed(&e.assignment.Permissions, reqURL, proxmoxBinding) {
+		return pluginErrDenied
 	}
 
 	grant, err := e.credentialBrokerGrantForHTTP(method, reqURL)
@@ -100,9 +123,26 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		return pluginErrDenied
 	}
 
-	body, err := decodeBody(payload)
+	rewrittenBody, err := e.rewriteAWXCallbackCredentialBody(method, reqURL, pluginBody)
 	if err != nil {
-		return pluginErrInvalid
+		e.logPluginHostHTTPDenied(err, reqURL, method)
+		return pluginErrDenied
+	}
+	defer clear(rewrittenBody)
+	authorizedBody, authorizedContentType, err := e.authorizeCredentialBrokerHTTPRequestBody(
+		grant,
+		method,
+		reqURL,
+		rewrittenBody,
+	)
+	if err != nil {
+		e.logPluginHostHTTPDenied(err, reqURL, method)
+		return pluginErrDenied
+	}
+	defer clear(authorizedBody)
+	if err := e.reserveCredentialBrokerMutation(grant, method); err != nil {
+		e.logPluginHostHTTPDenied(err, reqURL, method)
+		return pluginErrDenied
 	}
 
 	timeout := pluginDefaultHTTPTimeout
@@ -113,7 +153,7 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	httpReq, err := http.NewRequestWithContext(reqCtx, method, reqURL.String(), bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(reqCtx, method, reqURL.String(), bytes.NewReader(authorizedBody))
 	if err != nil {
 		return pluginErrInvalid
 	}
@@ -124,13 +164,42 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		}
 		httpReq.Header.Set(key, value)
 	}
+	enforceCredentialBrokerContentType(httpReq, authorizedContentType)
+	hostCredentialBound, err := e.applyAWXInventoryHostCredential(
+		httpReq,
+		payload.InsecureSkipVerify,
+	)
+	if err != nil {
+		e.logPluginHostHTTPDenied(err, reqURL, method)
+		return pluginErrDenied
+	}
+	if err := e.applyProxmoxHostAuthorityCredential(ctx, httpReq, proxmoxBinding); err != nil {
+		e.logPluginHostHTTPDenied(err, reqURL, method)
+		return pluginErrDenied
+	}
+	hostCredentialBound = hostCredentialBound || proxmoxBinding != nil
 
 	if err := e.applyCredentialBrokerInjection(ctx, httpReq, grant, payload.InsecureSkipVerify); err != nil {
 		e.logPluginHostHTTPDenied(err, reqURL, method)
 		return pluginErrDenied
 	}
 
-	resp, err := pluginHTTPClient(e.manager.httpClient, payload.InsecureSkipVerify, timeout).Do(httpReq)
+	httpClient := pluginHTTPClient(e.manager.httpClient, payload.InsecureSkipVerify, timeout)
+	configurePluginHTTPRedirects(httpClient, grant, reqURL, &e.assignment.Permissions)
+	if hostCredentialBound {
+		// Host-retained credentials are authorized for this one canonical
+		// request. Redirect handling does not re-enter the host credential gate,
+		// so never replay the bearer, including to a same-origin location.
+		httpClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+	}
+	if proxmoxBinding != nil {
+		if err := e.ensureActiveProxmoxAssignment(reqCtx); err != nil {
+			return pluginErrDenied
+		}
+	}
+	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			e.logPluginHostHTTPFailure(err, reqURL, method, "timeout")
@@ -143,6 +212,19 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		_ = resp.Body.Close()
 	}()
 
+	return e.writePluginHTTPResponse(mod, resp, payload, method, respPtr, respLen, proxmoxBinding, reqURL)
+}
+
+func (e *pluginExecution) writePluginHTTPResponse(
+	mod api.Module,
+	resp *http.Response,
+	payload httpRequestPayload,
+	method string,
+	respPtr uint32,
+	respLen uint32,
+	proxmoxBinding *pluginHostAuthorityBinding,
+	reqURL *url.URL,
+) int32 {
 	limited := io.LimitReader(resp.Body, pluginMaxHTTPBodyBytes+1)
 	bodyBytes, err := io.ReadAll(limited)
 	if err != nil {
@@ -152,6 +234,23 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	if int64(len(bodyBytes)) > pluginMaxHTTPBodyBytes {
 		return pluginErrTooLarge
 	}
+	if proxmoxBinding != nil && e.assignment.PluginID == proxmoxConsolePluginID {
+		protectedBody, protectErr := e.protectProxmoxConsoleProxyResponse(
+			proxmoxBinding,
+			reqURL,
+			resp.StatusCode,
+			bodyBytes,
+		)
+		if protectErr != nil {
+			clear(bodyBytes)
+			return pluginErrDenied
+		}
+		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+			clear(bodyBytes)
+			bodyBytes = protectedBody
+		}
+	}
+	defer clear(bodyBytes)
 
 	if strings.EqualFold(strings.TrimSpace(payload.ResponseMode), "status_body") {
 		responseBytes := []byte(strconv.Itoa(resp.StatusCode) + "\n")
@@ -185,6 +284,80 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	}
 
 	return int32(len(responseBytes))
+}
+
+func pluginHTTPRequestDestinationAllowed(permissions *pluginPermissions, reqURL *url.URL) bool {
+	if permissions == nil || reqURL == nil || reqURL.Host == "" {
+		return false
+	}
+
+	port, ok := pluginHTTPRequestPort(reqURL)
+	return ok && permissions.allowsHTTPPort(port) && permissions.allowsHTTPHost(reqURL.Hostname())
+}
+
+func pluginHTTPRequestPort(reqURL *url.URL) (int, bool) {
+	if reqURL == nil {
+		return 0, false
+	}
+
+	var defaultPort int
+	switch strings.ToLower(strings.TrimSpace(reqURL.Scheme)) {
+	case httpScheme:
+		defaultPort = 80
+	case httpsScheme:
+		defaultPort = 443
+	default:
+		return 0, false
+	}
+
+	rawPort := reqURL.Port()
+	if rawPort == "" {
+		return defaultPort, true
+	}
+
+	port, err := strconv.Atoi(rawPort)
+	if err != nil || port < 1 || port > 65535 {
+		return 0, false
+	}
+
+	return port, true
+}
+
+func configurePluginHTTPRedirects(
+	client *http.Client,
+	grant *credentialBrokerGrant,
+	requestURL *url.URL,
+	permissions *pluginPermissions,
+) {
+	strictAWXGrant := grant != nil &&
+		strings.EqualFold(strings.TrimSpace(grant.GrantType), "awx_oauth2_token")
+	if client == nil {
+		return
+	}
+
+	// A broker grant is authorized for one canonical request. Go's redirect
+	// handling does not re-enter the plugin host boundary, so following even a
+	// same-host redirect would bypass the grant's method/path/port checks.
+	if strictAWXGrant || awxCredentialEndpoint(requestURL) || awxReviewedCredentialTypeEndpoint(requestURL) {
+		client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+		return
+	}
+
+	previousCheckRedirect := client.CheckRedirect
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if req == nil || !pluginHTTPRequestDestinationAllowed(permissions, req.URL) {
+			return http.ErrUseLastResponse
+		}
+		if previousCheckRedirect != nil {
+			return previousCheckRedirect(req, via)
+		}
+		if len(via) >= 10 {
+			return errPluginHTTPTooManyRedirects
+		}
+		return nil
+	}
 }
 
 func (e *pluginExecution) credentialBrokerGrantForHTTP(method string, reqURL *url.URL) (*credentialBrokerGrant, error) {
@@ -437,7 +610,13 @@ func pluginHTTPClient(base *http.Client, insecureSkipVerify bool, timeout time.D
 
 func pluginHTTPInsecureTransport(transport http.RoundTripper) http.RoundTripper {
 	baseTransport, ok := transport.(*http.Transport)
-	if !ok || baseTransport == nil {
+	if transport != nil && (!ok || baseTransport == nil) {
+		// An explicit custom transport owns its TLS and denial policy. Replacing
+		// it with the process default would bypass wrappers such as the
+		// fail-closed transport installed when configured CA roots cannot load.
+		return transport
+	}
+	if baseTransport == nil {
 		baseTransport, ok = http.DefaultTransport.(*http.Transport)
 		if !ok || baseTransport == nil {
 			baseTransport = &http.Transport{}

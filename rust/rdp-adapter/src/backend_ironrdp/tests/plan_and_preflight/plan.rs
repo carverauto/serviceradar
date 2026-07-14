@@ -109,7 +109,7 @@ fn connector_probe_plan_carries_kerberos_metadata() {
         .expect("Kerberos config present");
 
     assert!(kerberos.kdc_proxy_url.is_some());
-    assert_eq!(kerberos.hostname.as_deref(), Some("win.example"));
+    assert_eq!(kerberos.hostname, "win.example");
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -120,12 +120,32 @@ fn connector_probe_plan_rejects_invalid_kdc_proxy_url() {
         .target
         .metadata
         .insert(METADATA_KDC_PROXY_URL.to_owned(), "not a url".to_owned());
+    payload.target.metadata.insert(
+        METADATA_KERBEROS_HOSTNAME.to_owned(),
+        "win.example".to_owned(),
+    );
     let plan = build_nonsecret_connection_plan(&payload).expect("plan");
 
     let err = match build_connector_kerberos_config_for_plan(&plan) {
         Ok(_) => panic!("invalid KDC proxy URL accepted"),
         Err(err) => err,
     };
+
+    assert_eq!(err, BackendError::Unsupported(INVALID_CONNECTION_PLAN));
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+#[test]
+fn connector_probe_kdc_proxy_requires_kerberos_hostname() {
+    let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+    payload.target.metadata.insert(
+        METADATA_KDC_PROXY_URL.to_owned(),
+        "tcp://kdc.example:88".to_owned(),
+    );
+    let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+
+    let err = build_connector_kerberos_config_for_plan(&plan)
+        .expect_err("KDC proxy without a Kerberos hostname accepted");
 
     assert_eq!(err, BackendError::Unsupported(INVALID_CONNECTION_PLAN));
 }
@@ -146,8 +166,7 @@ fn connector_kerberos_binding_revalidation_rejects_drift() {
     let config = build_connector_kerberos_config_for_plan(&plan).expect("Kerberos config");
     let binding = connector_kerberos_binding_from_config(&config);
     let mut drifted = config.clone();
-    drifted.as_mut().expect("Kerberos config present").hostname =
-        Some("changed.example".to_owned());
+    drifted.as_mut().expect("Kerberos config present").hostname = "changed.example".to_owned();
 
     let err = validate_connector_kerberos_binding(&binding, &drifted).expect_err("drift");
 

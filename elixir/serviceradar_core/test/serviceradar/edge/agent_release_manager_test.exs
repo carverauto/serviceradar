@@ -1056,12 +1056,13 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
 
   defp start_control_session(agent_id, test_pid) do
     metadata = %{
+      agent_id: agent_id,
       partition_id: "default",
       capabilities: ["agent"],
       connected_at: DateTime.utc_now()
     }
 
-    name = ProcessRegistry.via({:agent_control, agent_id}, metadata)
+    name = ProcessRegistry.via({:agent_control, "default", agent_id, node()}, metadata)
     {:ok, pid} = TestControlSession.start_link(name: name, test_pid: test_pid)
 
     on_exit(fn ->

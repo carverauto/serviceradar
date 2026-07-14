@@ -149,7 +149,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
     assert source_id == to_string(source.id)
 
     assert {:error, {:database_error, %RuntimeError{message: message}}} =
-             AgentConfigGenerator.generate_config(agent.uid)
+             AgentConfigGenerator.generate_config(agent.uid, "default")
 
     assert message =~ "failed to load integration config"
     assert message =~ to_string(source.id)

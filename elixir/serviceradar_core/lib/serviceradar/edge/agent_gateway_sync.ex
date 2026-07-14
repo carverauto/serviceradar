@@ -12,6 +12,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias Ash.Error.Invalid
   alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
+  alias ServiceRadar.Automation.LaunchEnvelopes
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Edge.AgentArtifactDelivery
@@ -33,8 +35,17 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   @spec get_config_if_changed(String.t(), String.t()) ::
           :not_modified | {:ok, map()} | {:error, term()}
-  def get_config_if_changed(agent_id, config_version) do
-    ServiceRadar.Edge.AgentConfigGenerator.get_config_if_changed(agent_id, config_version)
+  def get_config_if_changed(_agent_id, _config_version),
+    do: {:error, :authenticated_partition_required}
+
+  @spec get_config_if_changed(String.t(), String.t(), String.t()) ::
+          :not_modified | {:ok, map()} | {:error, term()}
+  def get_config_if_changed(agent_id, partition_id, config_version) do
+    ServiceRadar.Edge.AgentConfigGenerator.get_config_if_changed(
+      agent_id,
+      partition_id,
+      config_version
+    )
   end
 
   @spec component_type_for_component_id(String.t()) :: {:ok, atom()} | {:error, term()}
@@ -215,6 +226,28 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   def resolve_credential_broker_grant(_request), do: {:error, :invalid_credential_broker_request}
+
+  @spec resolve_automation_launch_envelope(map()) :: {:ok, map()} | {:error, term()}
+  def resolve_automation_launch_envelope(%{} = request) do
+    reference = string_value(map_value(request, :envelope_ref))
+    command_id = string_value(map_value(request, :command_id))
+    agent_id = string_value(map_value(request, :agent_id))
+    partition_id = string_value(map_value(request, :partition_id))
+
+    with :ok <- present_required(reference, :envelope_ref),
+         :ok <- present_required(command_id, :command_id),
+         :ok <- present_required(agent_id, :agent_id),
+         :ok <- present_required(partition_id, :partition_id) do
+      LaunchEnvelopes.resolve(reference, %{
+        agent_id: agent_id,
+        partition_id: partition_id,
+        command_id: command_id
+      })
+    end
+  end
+
+  def resolve_automation_launch_envelope(_request),
+    do: {:error, :invalid_automation_launch_envelope_request}
 
   @doc """
   Ensure a device record exists for the agent's host.
@@ -1385,9 +1418,9 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         :ok
 
       {:error, reason} ->
-        Logger.warning("Failed to expire credential broker grant after TTL rejection",
-          grant_id: grant.id,
-          reason: inspect(reason)
+        Logger.warning(
+          "Failed to expire credential broker grant after TTL rejection",
+          [grant_id: grant.id] ++ SafeFailureEvidence.log_metadata(reason)
         )
 
         :ok

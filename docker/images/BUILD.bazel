@@ -9,6 +9,7 @@ load(
     "declare_elixir_release_container_amd64",
     "declare_elixir_release_container_with_debs_amd64",
     "declare_web_ng_release_container_amd64",
+    "file_layer_amd64",
 )
 load(
     "//docker/images:service_images.bzl",
@@ -91,6 +92,13 @@ declare_alpine_netutils_rootfs_amd64()
 
 # web-ng (Phoenix) -----------------------------------------------------------
 
+file_layer_amd64(
+    name = "sshca_signer_layer_amd64",
+    src = "//go/cmd/tools/sshca-signer:sshca-signer",
+    target_compatible_with = [],
+    target_path = "usr/local/bin/serviceradar-sshca-signer",
+)
+
 declare_web_ng_release_container_amd64(
     name = "web_ng_image_amd64",
     base_image_name = "web_ng_image_base_amd64",
@@ -106,6 +114,7 @@ declare_web_ng_release_container_amd64(
     },
     workdir = "/app",
     exposed_ports = ["4000/tcp"],
+    extra_tars = [":sshca_signer_layer_amd64"],
     image_title = "serviceradar-web-ng",
     local_repo_tag = "registry.carverauto.dev/serviceradar/serviceradar-web-ng:local",
     target_compatible_with = [],
@@ -125,6 +134,7 @@ declare_elixir_release_container_amd64(
         "MIX_ENV": "prod",
     },
     workdir = "/app",
+    extra_tars = [":sshca_signer_layer_amd64"],
     image_title = "serviceradar-core-elx",
     local_repo_tag = "registry.carverauto.dev/serviceradar/serviceradar-core-elx:local",
 )

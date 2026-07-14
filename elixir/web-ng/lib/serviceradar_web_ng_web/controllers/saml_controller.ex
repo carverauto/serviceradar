@@ -26,7 +26,6 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Identity.User
   alias ServiceRadar.Security.Lockouts
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Hooks
@@ -651,23 +650,32 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
     # Extract user info from assertion
     user_info = extract_user_info(assertion)
 
-    case find_or_create_user(user_info, actor) do
-      {:ok, user} ->
-        # Record authentication
-        User.record_authentication(user, actor: actor)
+    with {:ok, user} <- find_or_create_user(user_info, actor),
+         {:ok, user} <- SSOProvisioning.record_successful_authentication(user, :saml, actor) do
+      # Trigger auth hooks
+      Hooks.on_user_authenticated(user, %{"method" => "saml", "assertion" => assertion})
 
-        # Trigger auth hooks
-        Hooks.on_user_authenticated(user, %{"method" => "saml", "assertion" => assertion})
+      _ = UserAuthEvents.record_login(conn, user, :saml)
 
-        _ = UserAuthEvents.record_login(conn, user, :saml)
+      # Determine redirect destination
+      return_to = relay_state || ~p"/dashboard"
 
-        # Determine redirect destination
-        return_to = relay_state || ~p"/dashboard"
+      identity_claims =
+        user_info.attributes
+        |> Map.merge(%{
+          "email" => user_info.email,
+          "name" => user_info.name,
+          "sub" => user_info.external_id
+        })
+        |> Map.put("service_radar_auth_method", "saml")
 
-        conn
-        |> put_flash(:info, "Signed in successfully via SAML.")
-        |> UserAuth.log_in_user(user, %{"return_to" => return_to})
-
+      conn
+      |> put_flash(:info, "Signed in successfully via SAML.")
+      |> UserAuth.log_in_user(user, %{
+        "return_to" => return_to,
+        "identity_claims" => identity_claims
+      })
+    else
       {:error, :unsafe_account_linking} ->
         Logger.warning("SAML authentication rejected implicit email-based account linking")
         record_validated_failure(conn, user_info, :unsafe_account_linking)

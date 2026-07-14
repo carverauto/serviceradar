@@ -11,7 +11,10 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
   use GenServer
 
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Edge.ProxmoxConsoleCompatibility
   alias ServiceRadar.Edge.ProxmoxConsolePubSub
+
+  require Logger
 
   @callback start_link(map(), pid(), keyword()) :: GenServer.on_start()
   @callback send_input(pid(), binary()) :: :ok | {:error, term()}
@@ -36,22 +39,49 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
 
   @impl true
   def init({session, owner, opts}) do
-    Process.monitor(owner)
-    :ok = ProxmoxConsolePubSub.subscribe(session.id)
+    command_bus = Keyword.get(opts, :command_bus, AgentCommandBus)
+    compatibility = Keyword.get(opts, :compatibility, ProxmoxConsoleCompatibility)
+    pubsub = Keyword.get(opts, :pubsub, ProxmoxConsolePubSub)
 
-    state = %{
-      session: session,
-      owner: owner,
-      required_gateway_node: nil,
-      closed?: false
-    }
+    with {:ok, policy_binding} <- session_policy_binding(session),
+         {:ok, control_evidence} <-
+           resolve_control_evidence(
+             command_bus,
+             session,
+             Keyword.get(opts, :required_gateway_node)
+           ),
+         :ok <-
+           compatibility.verify(session, policy_binding, control_evidence,
+             agent_loader: Keyword.get(opts, :agent_loader, &default_agent_loader/1)
+           ),
+         {:ok, required_gateway_node} <- evidence_gateway_node(control_evidence),
+         {:ok, required_control_session_pid} <- evidence_control_session_pid(control_evidence),
+         :ok <- pubsub.subscribe(session.id) do
+      Process.monitor(owner)
 
-    cols = Keyword.get(opts, :cols)
-    rows = Keyword.get(opts, :rows)
+      state = %{
+        session: session,
+        owner: owner,
+        command_bus: command_bus,
+        pubsub: pubsub,
+        required_gateway_node: required_gateway_node,
+        required_control_session_pid: required_control_session_pid,
+        required_control_evidence: control_evidence,
+        assignment_policy_version: policy_binding.version,
+        assignment_policy_fingerprint: policy_binding.fingerprint,
+        closed?: false
+      }
 
-    case send_frame(state, "open", open_frame_data(session, cols, rows), cols, rows, nil) do
-      :ok -> {:ok, state}
+      cols = Keyword.get(opts, :cols)
+      rows = Keyword.get(opts, :rows)
+
+      case send_frame(state, "open", open_frame_data(session, cols, rows), cols, rows, nil) do
+        :ok -> {:ok, state}
+        {:error, reason} -> {:stop, reason}
+      end
+    else
       {:error, reason} -> {:stop, reason}
+      other -> {:stop, {:console_broker_init_failed, other}}
     end
   end
 
@@ -71,20 +101,58 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
   end
 
   @impl true
-  def handle_info({:proxmox_console_frame, %{frame_type: "data", data: data}}, state)
-      when is_binary(data) do
-    send(state.owner, {:proxmox_console_data, data})
-    {:noreply, state}
-  end
-
-  def handle_info({:proxmox_console_frame, %{frame_type: frame_type, reason: reason}}, state)
-      when frame_type in ["close", "error"] do
-    send(state.owner, {:proxmox_console_closed, reason || frame_type})
-    {:stop, :normal, %{state | closed?: true}}
+  def handle_info({:proxmox_console_frame, frame}, state) when is_map(frame) do
+    case verify_route_binding(frame, state) do
+      :ok -> handle_console_frame(frame, state)
+      {:error, reason} -> reject_frame(frame, state, reason)
+    end
   end
 
   def handle_info({:proxmox_console_frame, _frame}, state), do: {:noreply, state}
   def handle_info({:DOWN, _ref, :process, _pid, reason}, state), do: {:stop, reason, state}
+  def handle_info(_message, state), do: {:noreply, state}
+
+  defp handle_console_frame(%{frame_type: "data", data: data}, state) when is_binary(data) do
+    send(state.owner, {:proxmox_console_data, data})
+    {:noreply, state}
+  end
+
+  defp handle_console_frame(%{frame_type: frame_type, reason: reason}, state)
+       when frame_type in ["close", "error"] do
+    send(state.owner, {:proxmox_console_closed, reason || frame_type})
+    {:stop, :normal, %{state | closed?: true}}
+  end
+
+  defp handle_console_frame(_frame, state), do: {:noreply, state}
+
+  defp verify_route_binding(frame, state) do
+    cond do
+      frame_string(frame, "session_id") != to_string(state.session.id) ->
+        {:error, :session_binding_mismatch}
+
+      frame_string(frame, "agent_id") != to_string(state.session.agent_id) ->
+        {:error, :agent_binding_mismatch}
+
+      frame_value(frame, "gateway_node") != state.required_gateway_node ->
+        {:error, :gateway_binding_mismatch}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp reject_frame(frame, state, reason) do
+    Logger.warning("Rejected Proxmox console frame with mismatched route binding",
+      session_id: to_string(state.session.id),
+      expected_agent_id: to_string(state.session.agent_id),
+      expected_gateway_node: inspect(state.required_gateway_node),
+      received_agent_id: frame_string(frame, "agent_id"),
+      received_gateway_node: inspect(frame_value(frame, "gateway_node")),
+      reason: reason
+    )
+
+    {:noreply, state}
+  end
 
   @impl true
   def terminate(reason, %{closed?: false} = state) do
@@ -95,20 +163,130 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
   def terminate(_reason, _state), do: :ok
 
   defp send_frame(state, frame_type, data, cols, rows, reason) do
-    frame = %{
-      session_id: state.session.id,
-      frame_type: frame_type,
-      data: data || "",
-      cols: uint32(cols),
-      rows: uint32(rows),
-      reason: reason || "",
-      timestamp: System.system_time(:second)
-    }
+    frame =
+      maybe_put_open_policy(
+        %{
+          session_id: state.session.id,
+          frame_type: frame_type,
+          data: data || "",
+          cols: uint32(cols),
+          rows: uint32(rows),
+          reason: reason || "",
+          timestamp: System.system_time(:second)
+        },
+        frame_type,
+        state
+      )
 
-    AgentCommandBus.send_console_frame(state.session.agent_id, frame,
-      required_gateway_node: state.required_gateway_node
+    state.command_bus.send_console_frame(state.session.agent_id, frame,
+      required_gateway_node: state.required_gateway_node,
+      required_control_session_pid: state.required_control_session_pid,
+      required_control_evidence: state.required_control_evidence
     )
   end
+
+  defp maybe_put_open_policy(frame, "open", state) do
+    frame
+    |> Map.put(:assignment_policy_version, state.assignment_policy_version)
+    |> Map.put(:assignment_policy_fingerprint, state.assignment_policy_fingerprint)
+  end
+
+  defp maybe_put_open_policy(frame, _frame_type, _state), do: frame
+
+  defp resolve_control_evidence(command_bus, session, preferred_gateway_node) do
+    preferred_gateway_node =
+      preferred_gateway_node || metadata_string(metadata_map(session), "gateway_node")
+
+    with {:ok, partition_id} <- assignment_partition_id(session) do
+      case command_bus.resolve_control_session_evidence(
+             partition_id,
+             session.agent_id,
+             preferred_gateway_node
+           ) do
+        {:ok, evidence} when is_map(evidence) -> {:ok, evidence}
+        {:error, reason} -> {:error, reason}
+        _other -> {:error, :console_control_evidence_unavailable}
+      end
+    end
+  end
+
+  defp assignment_partition_id(session) do
+    case metadata_string(metadata_map(session), "assignment_partition_id") do
+      partition_id when is_binary(partition_id) and partition_id != "" -> {:ok, partition_id}
+      _partition_id -> {:error, :console_assignment_partition_binding_missing}
+    end
+  end
+
+  defp evidence_gateway_node(evidence) do
+    case Map.get(evidence, :gateway_node) || Map.get(evidence, "gateway_node") do
+      gateway_node when is_binary(gateway_node) ->
+        case String.trim(gateway_node) do
+          "" -> {:error, :console_gateway_unavailable}
+          value -> {:ok, value}
+        end
+
+      gateway_node when is_atom(gateway_node) ->
+        {:ok, gateway_node}
+
+      _gateway_node ->
+        {:error, :console_gateway_unavailable}
+    end
+  end
+
+  defp evidence_control_session_pid(evidence) do
+    case Map.get(evidence, :control_session_pid) || Map.get(evidence, "control_session_pid") do
+      pid when is_pid(pid) -> {:ok, pid}
+      _pid -> {:error, :console_control_evidence_unavailable}
+    end
+  end
+
+  defp default_agent_loader(agent_id) do
+    ServiceRadar.Infrastructure.Agent.get_by_uid(agent_id,
+      actor: ServiceRadar.Actors.SystemActor.system(:proxmox_console_compatibility)
+    )
+  end
+
+  defp session_policy_binding(session) do
+    metadata = metadata_map(session)
+    version = Map.get(metadata, "plugin_assignment_version")
+    fingerprint = metadata_string(metadata, "plugin_assignment_policy_fingerprint")
+    rule = Map.get(metadata, "credential_rule", %{})
+
+    rule_version = if is_map(rule), do: Map.get(rule, "assignment_version")
+
+    rule_fingerprint =
+      if is_map(rule), do: metadata_string(rule, "assignment_policy_fingerprint")
+
+    if is_integer(version) and version > 0 and version == rule_version and
+         valid_policy_fingerprint?(fingerprint) and fingerprint == rule_fingerprint do
+      {:ok, %{version: version, fingerprint: fingerprint}}
+    else
+      {:error, :console_assignment_policy_binding_missing}
+    end
+  end
+
+  defp valid_policy_fingerprint?(fingerprint) when is_binary(fingerprint),
+    do: Regex.match?(~r/\A[0-9a-f]{64}\z/, fingerprint)
+
+  defp valid_policy_fingerprint?(_fingerprint), do: false
+
+  defp frame_string(frame, key) do
+    case frame_value(frame, key) do
+      value when is_binary(value) -> value
+      value when is_atom(value) -> Atom.to_string(value)
+      value when is_integer(value) -> Integer.to_string(value)
+      _value -> nil
+    end
+  end
+
+  defp frame_value(frame, "session_id") when is_map(frame),
+    do: Map.get(frame, "session_id") || Map.get(frame, :session_id)
+
+  defp frame_value(frame, "agent_id") when is_map(frame),
+    do: Map.get(frame, "agent_id") || Map.get(frame, :agent_id)
+
+  defp frame_value(frame, "gateway_node") when is_map(frame),
+    do: Map.get(frame, "gateway_node") || Map.get(frame, :gateway_node)
 
   defp uint32(value) when is_integer(value) and value > 0, do: min(value, 65_535)
   defp uint32(_value), do: 0

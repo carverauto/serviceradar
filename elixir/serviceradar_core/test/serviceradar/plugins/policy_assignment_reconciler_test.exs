@@ -68,32 +68,38 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
     @impl true
     def create_assignment(spec, _actor) do
       record = spec_to_record(spec)
-      Agent.update(__MODULE__, &Map.put(&1, record.source_key, record))
+      Agent.update(__MODULE__, &Map.put(&1, {record.partition_id, record.source_key}, record))
       {:ok, record}
     end
 
     @impl true
     def update_assignment(existing, spec, _actor) do
       record = spec_to_record(spec, existing)
-      Agent.update(__MODULE__, &Map.put(&1, record.source_key, record))
+      Agent.update(__MODULE__, &Map.put(&1, {record.partition_id, record.source_key}, record))
       {:ok, record}
     end
 
     @impl true
     def disable_assignment(existing, _actor) do
       disabled = Map.put(existing, :enabled, false)
-      Agent.update(__MODULE__, &Map.put(&1, disabled.source_key, disabled))
+
+      Agent.update(
+        __MODULE__,
+        &Map.put(&1, {disabled.partition_id, disabled.source_key}, disabled)
+      )
+
       {:ok, disabled}
     end
 
     @impl true
-    def find_enabled_assignment(agent_uid, plugin_package_id, _actor) do
+    def find_enabled_assignment(partition_id, agent_uid, plugin_package_id, _actor) do
       record =
         Agent.get(__MODULE__, fn state ->
           state
           |> Map.values()
           |> Enum.find(
-            &(&1.agent_uid == agent_uid and &1.plugin_package_id == plugin_package_id and
+            &(&1.partition_id == partition_id and &1.agent_uid == agent_uid and
+                &1.plugin_package_id == plugin_package_id and
                 &1.enabled)
           )
         end)
@@ -101,10 +107,13 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
       {:ok, record}
     end
 
+    def rows, do: Agent.get(__MODULE__, &Map.values/1)
+
     defp spec_to_record(spec, existing \\ %{}) do
       %{
         id: Map.get(existing, :id, Ecto.UUID.generate()),
         agent_uid: spec.agent_uid,
+        partition_id: spec.partition_id,
         plugin_package_id: spec.plugin_package_id,
         source: :policy,
         source_key: spec.assignment_key,
@@ -166,7 +175,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
     end
 
     @impl true
-    def find_enabled_assignment(_agent_uid, _plugin_package_id, _actor) do
+    def find_enabled_assignment(_partition_id, _agent_uid, _plugin_package_id, _actor) do
       {:ok, Agent.get(__MODULE__, & &1.existing)}
     end
 
@@ -213,6 +222,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
              PolicyAssignmentReconciler.reconcile(policy, [],
                resolver: ResolverV1,
                store: MemoryStore,
+               partition_resolver: fn "agent-a" -> {:ok, "farm01"} end,
                generated_at: "2026-02-21T23:30:00Z"
              )
 
@@ -225,6 +235,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
              PolicyAssignmentReconciler.reconcile(policy, [],
                resolver: ResolverV1,
                store: MemoryStore,
+               partition_resolver: fn "agent-a" -> {:ok, "farm01"} end,
                generated_at: "2026-02-21T23:30:00Z"
              )
 
@@ -236,6 +247,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
              PolicyAssignmentReconciler.reconcile(policy, [],
                resolver: ResolverV2,
                store: MemoryStore,
+               partition_resolver: fn "agent-a" -> {:ok, "farm01"} end,
                generated_at: "2026-02-21T23:31:00Z"
              )
 
@@ -250,6 +262,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
     existing = %{
       id: Ecto.UUID.generate(),
       agent_uid: "agent-a",
+      partition_id: "farm01",
       plugin_package_id: package_id,
       source: :policy,
       source_key: "drifted-old-source-key",
@@ -275,6 +288,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
              PolicyAssignmentReconciler.reconcile(policy, [],
                resolver: ResolverV1,
                store: DriftedStore,
+               partition_resolver: fn "agent-a" -> {:ok, "farm01"} end,
                generated_at: "2026-02-21T23:30:00Z"
              )
 
@@ -288,5 +302,40 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
     assert adopted.policy_id == "policy-NEW"
     assert adopted.source_key != "drifted-old-source-key"
     assert adopted.enabled == true
+  end
+
+  test "same agent UID rebind creates a new partition-bound row and disables the old row" do
+    policy = %{
+      policy_id: "policy-rebind",
+      policy_version: 1,
+      plugin_package_id: Ecto.UUID.generate(),
+      params_template: %{},
+      enabled: true
+    }
+
+    assert {:ok, _} =
+             PolicyAssignmentReconciler.reconcile(policy, [],
+               resolver: ResolverV1,
+               store: MemoryStore,
+               partition_resolver: fn "agent-a" -> {:ok, "farm01"} end,
+               generated_at: "2026-07-13T20:00:00Z"
+             )
+
+    assert {:ok, stats} =
+             PolicyAssignmentReconciler.reconcile(policy, [],
+               resolver: ResolverV1,
+               store: MemoryStore,
+               partition_resolver: fn "agent-a" -> {:ok, "tonka01"} end,
+               generated_at: "2026-07-13T20:00:00Z"
+             )
+
+    assert stats.upserted == 1
+    assert stats.disabled == 1
+
+    rows = MemoryStore.rows()
+    assert Enum.count(rows, &(&1.agent_uid == "agent-a")) == 2
+    assert rows |> Enum.map(& &1.source_key) |> Enum.uniq() |> length() == 1
+    assert Enum.any?(rows, &(&1.partition_id == "farm01" and &1.enabled == false))
+    assert Enum.any?(rows, &(&1.partition_id == "tonka01" and &1.enabled == true))
   end
 end

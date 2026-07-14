@@ -1,0 +1,170 @@
+{{- $remoteAccess := default (dict) .Values.remoteAccess -}}
+{{- $desktop := default (dict) $remoteAccess.desktop -}}
+{{- $rdp := default (dict) $desktop.rdp -}}
+{{- $webRTC := default (dict) $rdp.webRTC -}}
+{{- $networkPolicy := default (dict) $webRTC.networkPolicy -}}
+{{- $enabled := false -}}
+{{- if hasKey $networkPolicy "enabled" -}}
+  {{- $enabled = get $networkPolicy "enabled" -}}
+{{- end -}}
+{{- if $enabled -}}
+  {{- $chartNetworkPolicy := default (dict) .Values.networkPolicy -}}
+  {{- if not (default false $chartNetworkPolicy.enabled) -}}
+    {{- fail "remoteAccess.desktop.rdp.webRTC.networkPolicy.enabled requires networkPolicy.enabled=true" -}}
+  {{- end -}}
+  {{- if not (default false $rdp.enabled) -}}
+    {{- fail "remoteAccess.desktop.rdp.webRTC.networkPolicy.enabled requires remoteAccess.desktop.rdp.enabled=true" -}}
+  {{- end -}}
+
+  {{- $allowedCIDRs := default (list) $networkPolicy.allowedCIDRs -}}
+  {{- if not (kindIs "slice" $allowedCIDRs) -}}
+    {{- fail "remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs must be a non-empty list" -}}
+  {{- end -}}
+  {{- if eq (len $allowedCIDRs) 0 -}}
+    {{- fail "remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs must be a non-empty list" -}}
+  {{- end -}}
+
+  {{- range $cidr := $allowedCIDRs -}}
+    {{- if not (kindIs "string" $cidr) -}}
+      {{- fail "remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs entries must be IPv4 or IPv6 CIDR strings" -}}
+    {{- end -}}
+    {{- if ne $cidr (trim $cidr) -}}
+      {{- fail (printf "remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs contains invalid CIDR %q" $cidr) -}}
+    {{- end -}}
+
+    {{- $ipv4Pattern := `^((0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}(0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])/([1-9]|[12][0-9]|3[0-2])$` -}}
+    {{- $validCIDR := regexMatch $ipv4Pattern $cidr -}}
+
+    {{- if and (not $validCIDR) (contains ":" $cidr) -}}
+      {{- $cidrParts := splitList "/" $cidr -}}
+      {{- if eq (len $cidrParts) 2 -}}
+        {{- $address := index $cidrParts 0 -}}
+        {{- $prefix := index $cidrParts 1 -}}
+        {{- $prefixValid := regexMatch `^([1-9]|[1-9][0-9]|1[01][0-9]|12[0-8])$` $prefix -}}
+        {{- $addressValid := and (regexMatch `^[0-9A-Fa-f:]+$` $address) (not (contains ":::" $address)) -}}
+        {{- $compressed := splitList "::" $address -}}
+        {{- if and $prefixValid $addressValid (le (len $compressed) 2) -}}
+          {{- $groups := list -}}
+          {{- range $side := $compressed -}}
+            {{- if ne $side "" -}}
+              {{- $groups = concat $groups (splitList ":" $side) -}}
+            {{- end -}}
+          {{- end -}}
+          {{- $groupsValid := true -}}
+          {{- range $group := $groups -}}
+            {{- if not (regexMatch `^[0-9A-Fa-f]{1,4}$` $group) -}}
+              {{- $groupsValid = false -}}
+            {{- end -}}
+          {{- end -}}
+          {{- if eq (len $compressed) 2 -}}
+            {{- $validCIDR = and $groupsValid (lt (len $groups) 8) -}}
+          {{- else -}}
+            {{- $validCIDR = and $groupsValid (eq (len $groups) 8) -}}
+          {{- end -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+
+    {{- if not $validCIDR -}}
+      {{- fail (printf "remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs contains invalid or catch-all CIDR %q" $cidr) -}}
+    {{- end -}}
+  {{- end -}}
+  {{- $allowedCIDRsV4 := list -}}
+  {{- $allowedCIDRsV6 := list -}}
+  {{- range $cidr := $allowedCIDRs -}}
+    {{- if contains ":" $cidr -}}
+      {{- $allowedCIDRsV6 = append $allowedCIDRsV6 $cidr -}}
+    {{- else -}}
+      {{- $allowedCIDRsV4 = append $allowedCIDRsV4 $cidr -}}
+    {{- end -}}
+  {{- end -}}
+
+  {{- $udpPorts := default (list) $networkPolicy.allowedUDPPorts -}}
+  {{- $tcpPorts := default (list) $networkPolicy.allowedTCPPorts -}}
+  {{- if or (not (kindIs "slice" $udpPorts)) (not (kindIs "slice" $tcpPorts)) -}}
+    {{- fail "remoteAccess.desktop.rdp.webRTC.networkPolicy allowedUDPPorts and allowedTCPPorts must be lists" -}}
+  {{- end -}}
+  {{- if eq (add (len $udpPorts) (len $tcpPorts)) 0 -}}
+    {{- fail "remoteAccess.desktop.rdp.webRTC.networkPolicy requires at least one explicit UDP or TCP port" -}}
+  {{- end -}}
+  {{- range $protocolAndPorts := list (dict "protocol" "UDP" "ports" $udpPorts) (dict "protocol" "TCP" "ports" $tcpPorts) -}}
+    {{- range $port := $protocolAndPorts.ports -}}
+      {{- $portText := printf "%v" $port -}}
+      {{- if not (regexMatch `^[0-9]+$` $portText) -}}
+        {{- fail (printf "remoteAccess.desktop.rdp.webRTC.networkPolicy %s port %q must be an integer between 1 and 65535" $protocolAndPorts.protocol $portText) -}}
+      {{- end -}}
+      {{- $portNumber := int $port -}}
+      {{- if or (lt $portNumber 1) (gt $portNumber 65535) -}}
+        {{- fail (printf "remoteAccess.desktop.rdp.webRTC.networkPolicy %s port %q must be an integer between 1 and 65535" $protocolAndPorts.protocol $portText) -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+  {{- $calico := default (dict) $chartNetworkPolicy.calicoLogDenied -}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-remote-access-rdp-webrtc-egress
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: core
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-core
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+      {{- range $cidr := $allowedCIDRs }}
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      {{- end }}
+      ports:
+      {{- range $port := $udpPorts }}
+        - protocol: UDP
+          port: {{ int $port }}
+      {{- end }}
+      {{- range $port := $tcpPorts }}
+        - protocol: TCP
+          port: {{ int $port }}
+      {{- end }}
+{{- if default false $calico.enabled }}
+---
+# Calico's ordered final-Deny policy is stronger than Kubernetes additive
+# allow semantics. Insert the same bounded core-only exception immediately
+# before that deny policy when the operator enables it.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-remote-access-rdp-webrtc-egress-calico
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: core
+spec:
+  order: {{ subf (default 1000 $calico.order) 1 }}
+  selector: "app == 'serviceradar-core'"
+  types:
+    - Egress
+  egress:
+  {{- range $protocolAndPorts := list (dict "protocol" "UDP" "ports" $udpPorts) (dict "protocol" "TCP" "ports" $tcpPorts) }}
+    {{- if gt (len $protocolAndPorts.ports) 0 }}
+      {{- range $familyCIDRs := list $allowedCIDRsV4 $allowedCIDRsV6 }}
+        {{- if gt (len $familyCIDRs) 0 }}
+    - action: Allow
+      protocol: {{ $protocolAndPorts.protocol }}
+      destination:
+        nets:
+          {{- range $cidr := $familyCIDRs }}
+          - {{ $cidr | quote }}
+          {{- end }}
+        ports:
+          {{- range $port := $protocolAndPorts.ports }}
+          - {{ int $port }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end -}}

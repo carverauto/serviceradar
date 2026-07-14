@@ -3,9 +3,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuer do
   Issues SSH certificates from a trusted SSO identity context.
 
   Browser request parameters may identify the session, target, public key, and
-  requested login principals, but IdP claims must come from the server-side
-  authenticated login context or a freshly verified IdP token. This boundary
-  strips caller-supplied claims before invoking certificate policy.
+  requested Unix login account. Certificate principals and IdP claims must come
+  from server-side target policy and the authenticated login context. This
+  boundary strips caller-supplied claims before invoking certificate policy.
   """
 
   alias ServiceRadar.Credentials.CredentialRedactor
@@ -20,8 +20,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuer do
 
   def issue(actor, request_attrs, opts) when is_map(request_attrs) do
     result =
-      with :ok <- require_sso_identity(actor, opts),
-           {:ok, claims} <- authoritative_claims(actor, opts) do
+      with {:ok, claims} <- authoritative_claims(actor, opts),
+           :ok <- require_sso_identity(claims, opts) do
         attrs =
           request_attrs
           |> Map.drop(@identity_claim_keys)
@@ -67,9 +67,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuer do
         gateway_id: request_value(request_attrs, "gateway_id"),
         protocol: request_value(request_attrs, "protocol") || "ssh",
         target: request_value(request_attrs, "target"),
-        requested_principals:
-          request_value(request_attrs, "requested_principals") ||
-            request_value(request_attrs, "principals")
+        ssh_username: request_value(request_attrs, "username")
       })
 
     write_audit_event(actor, details, opts)
@@ -152,11 +150,11 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuer do
     |> String.slice(0, 500)
   end
 
-  defp require_sso_identity(actor, opts) do
+  defp require_sso_identity(claims, opts) do
     if Keyword.get(opts, :require_sso?, true) do
       trusted_auth_methods = Keyword.get(opts, :trusted_auth_methods, @trusted_auth_methods)
 
-      if auth_method(actor) in Enum.map(trusted_auth_methods, &normalize_atom/1) do
+      if session_auth_method(claims) in Enum.map(trusted_auth_methods, &normalize_atom/1) do
         :ok
       else
         {:error, :sso_identity_required}
@@ -182,7 +180,6 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuer do
       "email" => actor_field(actor, :email),
       "name" => actor_field(actor, :display_name),
       "service_radar_user_id" => actor_field(actor, :id),
-      "service_radar_auth_method" => actor_field(actor, :last_auth_method),
       "service_radar_role" => actor_field(actor, :role)
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
@@ -193,9 +190,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuer do
     Map.new(map, fn {key, value} -> {to_string(key), value} end)
   end
 
-  defp auth_method(actor) do
-    actor
-    |> actor_field(:last_auth_method)
+  defp session_auth_method(claims) do
+    claims
+    |> Map.get("service_radar_auth_method")
     |> normalize_atom()
   end
 

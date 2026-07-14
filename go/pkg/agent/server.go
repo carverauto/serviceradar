@@ -522,10 +522,16 @@ func (s *Server) initPluginManager(ctx context.Context) {
 	}
 
 	cacheDir := filepath.Join(s.configDir, "plugins")
+	pluginHTTPClient, err := pluginHTTPClientWithTrustedCAs(s.config.PluginHTTPTrustedCAFiles)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Plugin HTTP trust configuration invalid; outbound plugin HTTP disabled")
+		pluginHTTPClient = unavailablePluginHTTPClient(err)
+	}
 	s.pluginManager = NewPluginManager(ctx, PluginManagerConfig{
 		CacheDir:           cacheDir,
 		LocalStoreDir:      s.configDir,
 		Logger:             s.logger,
+		HTTPClient:         pluginHTTPClient,
 		ArtifactHTTPClient: s.gatewayArtifactHTTPClient(),
 		CredentialBroker:   s.credentialBroker,
 		ArtifactUploader:   s.artifactUploader,

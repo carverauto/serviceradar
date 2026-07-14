@@ -15,7 +15,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLaunchLiveTest do
     }
   end
 
-  test "renders selected inventory devices without ansible-specific fields", %{conn: conn} do
+  test "renders selected canonical devices without raw or secret launch inputs", %{conn: conn} do
     uid = "ansible-launch-device-#{System.unique_integer([:positive])}"
 
     Repo.insert_all("ocsf_devices", [
@@ -33,8 +33,12 @@ defmodule ServiceRadarWebNGWeb.AnsibleLaunchLiveTest do
     {:ok, _view, html} = live(conn, ~p"/ansible/launch?devices=#{uid}")
 
     assert html =~ "camera-01"
-    assert html =~ "Ansible-managed"
-    assert html =~ "badge badge-error"
-    assert html =~ "No launchable playbooks"
+    assert html =~ "Canonical UID"
+    assert html =~ "Reviewed launch contract"
+    assert html =~ ~s(id="secure-ansible-launch-form")
+    assert html =~ ~s(id="secure-ansible-launch-submit")
+    refute html =~ "raw JSON"
+    refute html =~ "extra_vars"
+    refute html =~ ~s(type="password")
   end
 end

@@ -73,12 +73,24 @@ sha256_from_ref_path() {
   fi
 }
 
-module_lock_has_file_hash() {
-  local ref="$1" path="$2" expected_hash="$3"
-  local module_lock
+hash_index_has_file_hash() {
+  local ref="$1" index_path="$2" path="$3" expected_hash="$4"
+  local hash_index
 
-  module_lock="$(git show "${ref}:MODULE.bazel.lock" 2>/dev/null)" || return 1
-  grep -Fq "FILE:@@//${path} ${expected_hash}" <<<"${module_lock}"
+  hash_index="$(git show "${ref}:${index_path}" 2>/dev/null)" || return 1
+  grep -Fq "FILE:@@//${path} ${expected_hash}" <<<"${hash_index}"
+}
+
+module_lock_has_file_hash() {
+  hash_index_has_file_hash "$1" "MODULE.bazel.lock" "$2" "$3"
+}
+
+vendor_inputs_have_file_hash() {
+  hash_index_has_file_hash \
+    "$1" \
+    "third_party/crates/.serviceradar-vendor-inputs" \
+    "$2" \
+    "$3"
 }
 
 addon_ids() {
@@ -244,7 +256,7 @@ inventory_stanza_changed() {
 # deletions (retiring an add-on bundle) does not add anything to the signed
 # import index for a surviving add-on, so it does not require a version bump.
 inventory_adds_content() {
-  git diff "${BASE_REF}" "${HEAD_REF}" -- build/native_addons/addon_inventory.bzl |
+  git diff --no-renames "${BASE_REF}" "${HEAD_REF}" -- build/native_addons/addon_inventory.bzl |
     awk '
       /^\+\+\+/ { next }
       /^\+/ {
@@ -267,10 +279,11 @@ version_changed() {
   [[ -n "${new_version}" && "${old_version}" != "${new_version}" ]]
 }
 
-changed_paths="$(git diff --name-only "${BASE_REF}" "${HEAD_REF}")"
+changed_paths="$(git diff --name-only --no-renames "${BASE_REF}" "${HEAD_REF}")"
 required_bumps=""
 version_checks=""
-rust_bazel_lock_checks=""
+rust_vendor_input_checks=""
+rdp_connector_bazel_lock_check=false
 inventory_changed=false
 inventory_mapped=false
 
@@ -281,6 +294,14 @@ while IFS= read -r path; do
     inventory_changed=true
     continue
   fi
+
+  # Large crate-vendor refreshes can contain thousands of third_party paths.
+  # None can map to an add-on payload directly, so avoid running every add-on
+  # path matcher for unrelated repository subtrees.
+  case "${path}" in
+    addons/*|rust/*|go/cmd/*|go/pkg/*) ;;
+    *) continue ;;
+  esac
 
   while IFS= read -r addon; do
     if path_belongs_to_addon "${addon}" "${path}"; then
@@ -295,7 +316,7 @@ while IFS= read -r path; do
     cargo_path="$(cargo_version_path "${addon}" 2>/dev/null || true)"
     if [[ -n "${cargo_path}" && "${path}" == "${cargo_path}" ]]; then
       version_checks="${version_checks}${addon}"$'\n'
-      rust_bazel_lock_checks="${rust_bazel_lock_checks}${addon}"$'\n'
+      rust_vendor_input_checks="${rust_vendor_input_checks}${addon}"$'\n'
     fi
 
     bazel_path="$(bazel_version_path "${addon}" 2>/dev/null || true)"
@@ -303,6 +324,14 @@ while IFS= read -r path; do
       version_checks="${version_checks}${addon}"$'\n'
     fi
   done < <(addon_ids)
+
+  case "${path}" in
+    rust/rdp-connector-probe/Cargo.lock|rust/rdp-connector-probe/Cargo.toml)
+      required_bumps="${required_bumps}rdp"$'\n'
+      version_checks="${version_checks}rdp"$'\n'
+      rdp_connector_bazel_lock_check=true
+      ;;
+  esac
 done <<<"${changed_paths}"
 
   if [[ "${inventory_changed}" == true ]]; then
@@ -337,7 +366,7 @@ fi
 
 required_bumps="$(printf '%s' "${required_bumps}" | sort -u | sed '/^$/d')"
 version_checks="$(printf '%s' "${version_checks}" | sort -u | sed '/^$/d')"
-rust_bazel_lock_checks="$(printf '%s' "${rust_bazel_lock_checks}" | sort -u | sed '/^$/d')"
+rust_vendor_input_checks="$(printf '%s' "${rust_vendor_input_checks}" | sort -u | sed '/^$/d')"
 
 while IFS= read -r addon; do
   [[ -n "${addon}" ]] || continue
@@ -372,7 +401,7 @@ while IFS= read -r addon; do
   for lock_input_path in "Cargo.lock" "${cargo_path}"; do
     expected_hash="$(sha256_from_ref_path "${HEAD_REF}" "${lock_input_path}")"
 
-    if ! module_lock_has_file_hash "${HEAD_REF}" "${lock_input_path}" "${expected_hash}"; then
+    if ! vendor_inputs_have_file_hash "${HEAD_REF}" "${lock_input_path}" "${expected_hash}"; then
       missing_lock_hashes="${missing_lock_hashes}  ${lock_input_path}: ${expected_hash}"$'\n'
     fi
   done
@@ -382,19 +411,49 @@ while IFS= read -r addon; do
   fi
 
   cat >&2 <<EOF
-error: ${addon} Rust add-on metadata changed but MODULE.bazel.lock is stale
+error: ${addon} Rust add-on metadata changed but the vendor snapshot is stale
 ${missing_lock_hashes}
-${cargo_path} changed, but Bazel crate_universe lock metadata does not record
+${cargo_path} changed, but the committed Rust vendor snapshot does not record
 the current Cargo input hash(es) above.
 
-Rust native add-on packages are built through Bazel crate_universe metadata. Run:
-  bazel --batch mod deps --lockfile_mode=update
+Rust native add-on packages are built through the committed crate vendor tree. Run:
+  scripts/vendor.sh
 
-Then commit the refreshed MODULE.bazel.lock so release packaging uses the same
-Cargo package metadata as the source tree.
+Then commit the refreshed third_party/crates tree and
+third_party/crates/.serviceradar-vendor-inputs so release packaging uses the
+same Cargo package metadata as the source tree.
 EOF
   exit 1
-done <<<"${rust_bazel_lock_checks}"
+done <<<"${rust_vendor_input_checks}"
+
+if [[ "${rdp_connector_bazel_lock_check}" == true ]]; then
+  missing_lock_hashes=""
+
+  for lock_input_path in \
+    "rust/rdp-connector-probe/Cargo.lock" \
+    "rust/rdp-connector-probe/Cargo.toml"; do
+    expected_hash="$(sha256_from_ref_path "${HEAD_REF}" "${lock_input_path}")"
+
+    if ! module_lock_has_file_hash "${HEAD_REF}" "${lock_input_path}" "${expected_hash}"; then
+      missing_lock_hashes="${missing_lock_hashes}  ${lock_input_path}: ${expected_hash}"$'\n'
+    fi
+  done
+
+  if [[ -n "${missing_lock_hashes}" ]]; then
+    cat >&2 <<EOF
+error: RDP connector metadata changed but MODULE.bazel.lock is stale
+${missing_lock_hashes}
+The production RDP helper resolves its connector/CredSSP dependency graph from
+the isolated rdp_connector_crates universe. Run:
+  bazel --batch mod deps --lockfile_mode=update
+
+Run the command twice if the first pass rewrites a Cargo lockfile, then commit
+the refreshed MODULE.bazel.lock so release packaging uses the reviewed isolated
+connector dependency graph.
+EOF
+    exit 1
+  fi
+fi
 
 while IFS= read -r addon; do
   [[ -n "${addon}" ]] || continue

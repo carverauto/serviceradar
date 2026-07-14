@@ -11,6 +11,20 @@ defmodule ServiceRadarAgentGateway.TestSupport.DesktopMediaFrameForwarderStub do
     )
   end
 
+  def close_session(desktop_session_id) do
+    notify({:close_desktop_media_ingress, desktop_session_id})
+
+    case Application.get_env(
+           :serviceradar_agent_gateway,
+           :desktop_media_frame_forwarder_close_result,
+           :ok
+         ) do
+      {:raise, message} -> raise message
+      {:exit, reason} -> exit(reason)
+      result -> result
+    end
+  end
+
   defp ack_for(frame, session) do
     %Desktopmedia.DesktopMediaAck{
       desktop_session_id: frame.desktop_session_id,

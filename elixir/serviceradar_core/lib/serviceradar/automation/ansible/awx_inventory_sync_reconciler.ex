@@ -75,13 +75,21 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconciler do
       }
 
       with_reconcile_lock(opts, fn ->
-        PolicyAssignmentReconciler.reconcile(policy, rows,
+        reconcile_opts = [
           actor: actor,
           resolver: __MODULE__.Resolver,
           planner: __MODULE__.Planner,
           store: Keyword.get(opts, :store, PolicyAssignmentReconciler.AshStore),
           agent_scope: Keyword.get(opts, :agent_scope)
-        )
+        ]
+
+        reconcile_opts =
+          case Keyword.fetch(opts, :partition_resolver) do
+            {:ok, resolver} -> Keyword.put(reconcile_opts, :partition_resolver, resolver)
+            :error -> reconcile_opts
+          end
+
+        PolicyAssignmentReconciler.reconcile(policy, rows, reconcile_opts)
       end)
     end
   end
@@ -294,12 +302,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconciler do
          {:ok, controller_id} <- required_string(controller, [:id, "id"], "controller id"),
          {:ok, agent_id} <- required_string(controller, [:agent_id, "agent_id"], "agent_id"),
          {:ok, base_url} <- required_string(controller, [:base_url, "base_url"], "base_url"),
-         {:ok, secret_id} <-
-           required_string(
-             controller,
-             [:credential_secret_id, "credential_secret_id"],
-             "credential_secret_id"
-           ) do
+         {:ok, secret_id} <- Controller.credential_secret_id_for(controller, :sync) do
       timeout_ms = metadata_int(controller, "timeout_ms", @default_timeout_ms)
 
       {:ok,
@@ -382,9 +385,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconciler do
   end
 
   defp metadata_bool(map, key, default) do
-    case raw_value(metadata(map), [key, String.to_atom(key)]) do
-      value when is_boolean(value) -> value
-      value when is_binary(value) -> String.downcase(String.trim(value)) in ~w(1 true yes on)
+    case raw_value(metadata(map), [key, :insecure_skip_verify]) do
+      true -> true
+      false -> false
       _ -> default
     end
   end

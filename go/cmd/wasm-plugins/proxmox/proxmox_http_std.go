@@ -16,7 +16,7 @@ func getJSON[T any](cfg Config, target Target, token, path string, out *T) error
 		URL:                strings.TrimRight(target.BaseURL, "/") + path,
 		Headers:            map[string]string{"Authorization": token, "Accept": "application/json"},
 		TimeoutMS:          cfg.TimeoutMS,
-		InsecureSkipVerify: cfg.InsecureSkipVerify,
+		InsecureSkipVerify: false,
 	})
 	if err != nil {
 		return err

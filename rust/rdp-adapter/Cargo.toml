@@ -1,6 +1,6 @@
 [package]
 name = "serviceradar-rdp-adapter"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["ServiceRadar Team"]
 description = "ServiceRadar RDP helper adapter"
@@ -8,39 +8,18 @@ license = "Apache-2.0"
 
 [features]
 default = []
-ironrdp-backend = [
-    "dep:ironrdp-blocking",
-    "dep:ironrdp-connector",
-    "dep:ironrdp-core",
-    "dep:ironrdp-graphics",
-    "dep:ironrdp-pdu",
-    "dep:ironrdp-session",
-    "dep:rustls",
-    "dep:rustls-native-certs",
-    "dep:x509-cert",
-]
+# Compatibility marker for the Bazel-only production helper target. The
+# connector/CredSSP/PKI graph is supplied by the isolated
+# @rdp_connector_crates universe rooted at rust/rdp-connector-probe/Cargo.lock;
+# it must not enter the shared ServiceRadar Cargo.lock.
+ironrdp-backend = []
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(serviceradar_rdp_connector_link_probe)'] }
 
 [dependencies]
-# audited 2026-05-18, RUSTSEC-clean in root lock for the RDP adapter path; Apache-2.0 OR MIT.
-ironrdp-blocking = { version = "=0.8.0", default-features = false, optional = true }
-# audited 2026-05-18, RUSTSEC-clean in root lock for the RDP adapter path; Apache-2.0 OR MIT.
-ironrdp-connector = { version = "=0.8.0", default-features = false, optional = true }
-# audited 2026-05-18, RUSTSEC-clean in root lock for the RDP adapter path.
-ironrdp-core = { version = "=0.1.5", default-features = false, features = ["alloc"], optional = true }
-# audited 2026-05-18, RUSTSEC-clean in root lock for the RDP adapter path; Apache-2.0 OR MIT.
-ironrdp-graphics = { version = "=0.7.0", default-features = false, optional = true }
-# audited 2026-05-18, RUSTSEC-clean in root lock for the RDP adapter path; pulls md-5 0.10.6 transitively for RDP crypto parsing.
-ironrdp-pdu = { version = "=0.7.0", default-features = false, features = ["alloc"], optional = true }
-# audited 2026-05-18, RUSTSEC-clean in root lock for the RDP adapter path; Apache-2.0 OR MIT.
-ironrdp-session = { version = "=0.8.0", default-features = false, optional = true }
-rustls = { version = "=0.23.40", default-features = false, features = ["std", "ring"], optional = true }
-rustls-native-certs = { version = "=0.8.3", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-x509-cert = { version = "=0.2.5", optional = true }
 zeroize = { version = "1", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]

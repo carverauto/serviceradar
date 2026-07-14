@@ -4,8 +4,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.RemoteAccessData do
   use ServiceRadarWebNGWeb, :verified_routes
 
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNG.RemoteAccessDesktopTargets
   alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
   alias ServiceRadarWebNGWeb.FeatureFlags
+
+  @rdp_open_permission "devices.remote_access.rdp.open"
 
   def can_ssh?(scope, device_row) do
     FeatureFlags.remote_access_ssh_enabled?() and ssh_capable_device?(device_row) and
@@ -22,6 +25,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.RemoteAccessData do
       RBAC.can?(scope, "settings.edge.manage")
   end
 
+  def rdp_target_for_device(scope, device_uid) when is_binary(device_uid) do
+    cond do
+      not FeatureFlags.remote_access_desktop_rdp_enabled?() ->
+        {:error, :disabled}
+
+      not RBAC.can?(scope, @rdp_open_permission) ->
+        {:error, :forbidden}
+
+      true ->
+        case RemoteAccessDesktopTargets.list_authorized(scope) do
+          {:ok, targets} ->
+            case Enum.find(targets, &authorized_device_target?(&1, device_uid)) do
+              nil -> {:error, :not_found}
+              target -> {:ok, target}
+            end
+
+          {:error, _reason} ->
+            {:error, :unavailable}
+        end
+    end
+  end
+
+  def rdp_target_for_device(_scope, _device_uid), do: {:error, :not_found}
+
   def rdp_target_new_path(device_uid, device_row) do
     params =
       %{
@@ -34,6 +61,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.RemoteAccessData do
       |> Map.new()
 
     ~p"/settings/networks/desktop-targets/new?#{params}"
+  end
+
+  def rdp_launch_path(device_uid) when is_binary(device_uid) do
+    ~p"/devices/#{device_uid}/remote-access/rdp"
   end
 
   defp rdp_target_host(row) when is_map(row) do
@@ -113,6 +144,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.RemoteAccessData do
   end
 
   defp windows_device?(_device_row), do: false
+
+  defp authorized_device_target?(target, device_uid) when is_map(target) do
+    Map.get(target, "enabled") != false and
+      Map.get(target, "target_kind") == "inventory_device" and
+      Map.get(target, "device_uid") == device_uid
+  end
+
+  defp authorized_device_target?(_target, _device_uid), do: false
 
   defp device_identity_values(device_row) when is_map(device_row) do
     Enum.flat_map(

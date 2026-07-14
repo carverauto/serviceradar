@@ -6,6 +6,8 @@ import Config
 alias Cluster.Strategy.DNSPoll
 alias Cluster.Strategy.Kubernetes.DNS
 alias Geolix.Adapter.MMDB2
+alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
+alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
 alias ServiceRadar.Edge.RemoteAccessSSHCACommandSigner
 alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
@@ -16,6 +18,62 @@ alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecas
 alias ServiceRadar.Observability.DataRetentionWorker
 alias ServiceRadar.Observability.ProductionSchedule
 alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
+
+callback_deployment =
+  RuntimeConfig.callback_deployment_config!(%{
+    enabled: System.get_env("SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED", "false"),
+    credential_type_id: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_CREDENTIAL_TYPE_ID"),
+    organization_id: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_ORGANIZATION_ID"),
+    injector_digest: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_INJECTOR_DIGEST"),
+    response_policy_file: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_RESPONSE_POLICY_FILE")
+  })
+
+if is_map(callback_deployment) do
+  # Automation callback bearer verification is file-only: never accept HMAC
+  # key material directly from an environment variable where process
+  # inspection can expose it. An enabled deployment fails boot when any
+  # custody input is missing or malformed.
+  verifier_config =
+    "SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE"
+    |> System.get_env()
+    |> RuntimeConfig.load_verifier_file!()
+
+  envelope_key =
+    "SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE"
+    |> System.get_env()
+    |> RuntimeConfig.load_envelope_key_file!()
+
+  callback_origin =
+    case System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ORIGIN") do
+      origin when is_binary(origin) and origin != "" ->
+        case RuntimeConfig.canonical_callback_origin(origin) do
+          {:ok, canonical_origin} -> canonical_origin
+          {:error, _reason} -> raise "invalid ServiceRadar automation callback origin"
+        end
+
+      _ ->
+        raise "ServiceRadar automation callback origin is required"
+    end
+
+  config :serviceradar_core,
+         FileCallbackResponsePolicyProvider,
+         callback_deployment.response_policy_provider_config
+
+  config :serviceradar_core,
+         :automation_callback_awx_credential_contract,
+         callback_deployment.credential_contract
+
+  config :serviceradar_core,
+         :automation_callback_response_policy_provider,
+         callback_deployment.response_policy_provider
+
+  config :serviceradar_core,
+    automation_callback_grants: [verifier_config: verifier_config],
+    automation_launch_envelope_key: envelope_key,
+    automation_launch_envelope_key_id:
+      System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID", "current"),
+    automation_callback_origin: callback_origin
+end
 
 # Netprobe native add-on package — signed artifact refs for the package seeder.
 # native-addons.yml emits per-arch object_key/sha256/signature refs in its import index;

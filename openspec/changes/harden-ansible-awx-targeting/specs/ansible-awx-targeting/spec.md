@@ -70,11 +70,15 @@ Every launch SHALL record and authorize the initiating human or explicitly owned
 - **THEN** change invalidation or bounded pulse/watchdog reauthorization revokes callbacks, cancels active children, stops later waves, and records `cancel_failed` plus mutation holds when stop/rollback is unproven
 
 ### Requirement: Launch inputs and credential custody are secret safe
-Catalog bindings SHALL pin template, project, immutable SCM commit/content hash, execution environment, allowed inventories, approved machine credential references, reviewed static custom credentials or dynamic custom-credential type/slots, non-secret input schema, callback action declarations, and check-mode behavior. Moving branch/tag refs and project `update_on_launch` are forbidden. The accepted job SHALL match template, inventory, literal limit, project, exact `scm_revision`, execution environment, credential IDs/types, and check/run mode before binding. ServiceRadar SHALL accept only declared typed non-secret inputs; AWX surveys SHALL be restricted to reviewed non-secret prompts. This child SHALL NOT collect/resolve secret launch values. It MAY persist canonical public/internal values, classifications, credential references, and plan digests, but MUST NOT persist/transport plaintext secret-capable raw YAML, arbitrary `extra_vars`, callback bearers, API tokens, passwords, private keys, become/vault secrets, or secret-value digests in run/schedule rows, Oban args, commands, audit, PaperTrail, events, logs, support data, backup, or UI.
+Catalog bindings SHALL pin template, project, immutable SCM commit/content hash, execution environment, allowed inventories, approved machine credential references, reviewed static custom credentials or dynamic custom-credential type/slots, non-secret input schema, callback action declarations, and check-mode behavior. Moving branch/tag refs and project `update_on_launch` are forbidden. The accepted job SHALL match template, inventory, literal limit, project, exact `scm_revision`, execution environment, credential IDs/types, and check/run mode before binding. ServiceRadar SHALL accept only declared typed non-secret inputs; input schemas MUST reject `ansible_*` transport/connection variables and inventory/play magic variables that could retarget or change execution scope through extra-variable precedence. AWX surveys SHALL be restricted to reviewed non-secret prompts. This child SHALL NOT collect/resolve secret launch values. It MAY persist canonical public/internal values, classifications, credential references, and plan digests, but MUST NOT persist/transport plaintext secret-capable raw YAML, arbitrary `extra_vars`, callback bearers, API tokens, passwords, private keys, become/vault secrets, or secret-value digests in run/schedule rows, Oban args, commands, audit, PaperTrail, events, logs, support data, backup, or UI.
 
 #### Scenario: User submits undeclared raw variables
 - **WHEN** a launch supplies raw YAML, an undeclared field, or a sensitive value outside its reviewed credential mechanism
 - **THEN** ServiceRadar rejects the request before run creation or AWX contact
+
+#### Scenario: Reviewed input attempts to override Ansible execution scope
+- **WHEN** a binding or survey declares `ansible_host`, `ansible_connection`, another `ansible_*` variable, or an inventory/play magic variable as operator input
+- **THEN** the binding is non-launchable and the value never reaches AWX `extra_vars`
 
 #### Scenario: Reviewed sensitive input is required
 - **WHEN** a bound template requires a password, key, vault/become value, or other secret
@@ -91,6 +95,85 @@ Catalog bindings SHALL pin template, project, immutable SCM commit/content hash,
 #### Scenario: Accepted job supply chain drifts
 - **WHEN** AWX reports a different project commit, execution environment, credential ID/type, check/run mode, template, inventory, or literal limit
 - **THEN** ServiceRadar refuses job binding, invokes cancellation/cleanup, and records the exact non-secret drift
+
+### Requirement: AWX controller bearer use is endpoint attenuated
+Every on-demand AWX controller bearer grant SHALL contain non-empty method, host, normalized effective port, and verb-specific exact or argument-derived path ACLs. ServiceRadar SHALL accept only an origin-only HTTP(S) controller URL, derive port 443 for HTTPS or 80 for HTTP when no explicit port is supplied, and bind the grant to that one host and port. Each supported plugin verb SHALL have an explicit reviewed endpoint mapping. A generic `/api/v2/` fallback is forbidden. Unknown verbs, malformed verb arguments, unsupported schemes, empty hosts, invalid ports, embedded URL credentials, and controller URL path/query/fragment input SHALL fail before grant issuance, secret resolution, HTTP execution, or command dispatch.
+
+The agent host MAY augment operating-system trust roots with an operator-configured bounded list of absolute PEM CA bundle paths for credential-bearing plugin HTTP. It SHALL load and validate those bundles outside Wasm memory, SHALL NOT place their contents in plugin configuration or allow a module to select/replace them, and SHALL keep certificate and hostname verification enabled. A configured relative, missing, unreadable, empty, oversized, or certificate-free bundle SHALL disable outbound plugin HTTP rather than fall back to an unverified transport. A trust-bundle change SHALL require host reinitialization before use.
+
+Every unsafe on-demand AWX request SHALL use a v2 bearer grant with a typed request-body policy and a non-empty grant ID. Launch policy SHALL bind a strict maximum size and SHA-256 to exact control-plane-serialized bytes transported outside Wasm; the trusted agent SHALL replace, not trust or canonicalize, the plugin body. Empty-body mutations SHALL explicitly carry `mode: empty`. Secret-bearing callback creation SHALL use only the reviewed `awx_callback_credential.v1` trusted host rewriter. Each unsafe grant SHALL authorize at most one mutation. Body-policy validation, exact-byte substitution or trusted rewrite, content-type/framing enforcement, and one-use reservation SHALL complete before controller-token resolution and transport. Legacy v1 SHALL remain valid only for safe empty-body reads and scheduled inventory sync; an unsafe AWX request under v1 SHALL fail closed.
+
+Before opaque launch-body encoding, ServiceRadar SHALL validate the entire derived body as a `CredentialRedactor` fixpoint. Launch `extra_vars` SHALL contain only reviewed names with bounded non-secret scalar values or scalar lists. Nested maps/lists, transport-retargeting names, private keys, PVE tokens, secret-bearing fields, and any redactor-changing content in `extra_vars`, limits, tags, or other launch fields SHALL be rejected before grant issuance. Missing or mismatched trusted bytes, an unreviewed body source/handler/content type, a non-empty body under an empty policy, a body on a safe AWX request, replay beyond the mutation limit, or any plugin attempt to change inventory, limit, credentials, or extra variables SHALL perform no resolver call and no network request. Trusted body buffers SHALL be cleared after use.
+
+Scheduled `awx-inventory-sync` SHALL transport resolved sync bearers only in protobuf `PluginAssignmentConfig.host_params_json` field 23 and SHALL place only a fixed non-secret sentinel, never the bearer, broker payload, secret reference, or host envelope, in `params_json` exposed through Wasm `get_config`. The control-plane config-version projection SHALL replace raw host-envelope bearer values with deterministic SHA-256 fingerprints so rotation changes the version without placing raw credentials in the canonical version payload. An older agent receiving a new-control-plane assignment SHALL ignore unknown field 23 and fail closed with sentinel-only public params. A newer agent SHALL parse host material separately without merging it into `params_json`, SHALL reject any reserved host-envelope key inside public params, and MAY accept and scrub the legacy inline-token layout from an older control plane during the bounded rolling bridge. The trusted agent SHALL recognize only the exact inventory-sync plugin/entrypoint, retain one canonical HTTP(S) origin plus exact TLS verification policy per controller, and include a non-secret digest of public and host-only material in the assignment fingerprint. Malformed material, duplicate canonical origins or controller identities, ambiguous envelope/public rows, invalid bearer bytes, or origin/TLS mismatch SHALL leave no usable binding.
+
+The dedicated host-envelope decoder SHALL reject unknown fields, trailing JSON, and empty controller identities so a future envelope extension cannot be interpreted as a weaker v1 contract by an older agent.
+
+The scheduled host SHALL inject a retained bearer only when the plugin supplies the exact sentinel for an empty-body `GET` under `/api/v2/inventories/` on that exact origin with the configured `insecure_skip_verify` value. It SHALL reject other methods, bodies, origins, paths, plaintext/plugin-selected bearer values, encoded or double-encoded traversal, and TLS-policy mismatches before transport. Query values MUST NOT alter path/origin/credential selection. The credential-bearing edge HTTP boundary MUST NOT follow redirects.
+
+#### Scenario: Exact template launch is dispatched
+- **WHEN** ServiceRadar launches reviewed job template `42` through `https://awx.example.com`
+- **THEN** its v2 bearer grant permits only `POST`, host `awx.example.com`, port `443`, exact path `/api/v2/job_templates/42/launch/`, and the exact control-plane-produced launch bytes for one mutation
+
+#### Scenario: AWX uses an internal certificate authority
+- **WHEN** the selected agent is configured with the internal CA bundle and AWX presents a hostname-valid certificate issued by that CA
+- **THEN** the host verifies the TLS chain using its augmented trust pool while the Wasm module receives neither the CA bytes nor a trust-selection control
+
+#### Scenario: Configured private CA cannot be loaded
+- **WHEN** a configured plugin HTTP CA path is relative, missing, unreadable, oversized, empty, or contains no certificate
+- **THEN** the agent disables outbound plugin HTTP and does not send the AWX bearer over an unverified connection
+
+#### Scenario: Plug-in changes launch scope in its request body
+- **WHEN** AWX Wasm changes the launch inventory, limit, credential IDs, or `extra_vars`, or supplies any other body than the authorized launch body
+- **THEN** the trusted host sends only the exact bound control-plane bytes, or fails before bearer resolution and transport when those bytes are absent or invalid
+
+#### Scenario: Mutating grant is replayed
+- **WHEN** the plug-in attempts a second unsafe request using the same one-use v2 grant
+- **THEN** the edge host rejects it before controller-token resolution and network transport
+
+#### Scenario: Legacy on-demand grant attempts mutation
+- **WHEN** an on-demand AWX v1 grant is used for POST, PUT, PATCH, or DELETE
+- **THEN** the edge host rejects it while safe empty-body reads and scheduled inventory-sync remain compatible
+
+#### Scenario: Callback creation needs secret body fields
+- **WHEN** the callback lifecycle creates an ephemeral AWX credential
+- **THEN** only the reviewed trusted host rewriter constructs the body from in-memory material, and no authorized raw body or secret input enters command data or Wasm config
+
+#### Scenario: Controller scope cannot be derived
+- **WHEN** a verb is unknown, an ID-bearing argument is malformed, or the controller URL has an invalid scheme, host, port, credentials, path, query, or fragment
+- **THEN** ServiceRadar issues no bearer grant, resolves no controller token, performs no AWX HTTP request, and dispatches no command
+
+#### Scenario: Credential-backed AWX endpoint redirects
+- **WHEN** an allowed AWX endpoint returns any redirect, including one to the same host or a different port
+- **THEN** the edge HTTP boundary rejects the response without replaying the bearer at the redirect destination
+
+#### Scenario: Scheduled inventory config reaches Wasm
+- **WHEN** the control plane delivers resolved credentials for one or more scheduled AWX controllers
+- **THEN** Wasm sees normalized controller metadata and the fixed host-injection sentinel while the trusted agent alone retains the exact-origin bearer bindings
+
+#### Scenario: New control plane reaches an older agent
+- **WHEN** a control plane sends sentinel-only `params_json` and bearer material in protobuf field 23 to an agent that does not know field 23
+- **THEN** the older agent ignores the unknown host field, receives no reusable credential, and the scheduled sync fails closed instead of exposing the bearer through `get_config`
+
+#### Scenario: Host envelope is smuggled through public params
+- **WHEN** an assignment places `_serviceradar_host_credentials` in `params_json`, even if its structure and controller rows otherwise appear valid
+- **THEN** the newer agent rejects the assignment to empty Wasm config and retains no credential binding
+
+#### Scenario: Host envelope carries unreviewed semantics
+- **WHEN** protobuf field 23 contains an unknown envelope or controller field, trailing JSON, or an empty controller identity
+- **THEN** the newer agent rejects the whole host credential set, exposes empty Wasm config, and retains no bearer binding
+
+#### Scenario: New agent receives a legacy assignment
+- **WHEN** an older control plane sends the bounded legacy inline-token inventory-sync layout to a newer agent
+- **THEN** the newer agent extracts and scrubs the token before `get_config` and applies the same exact-origin, path, method, body, and TLS host checks
+
+#### Scenario: Scheduled plugin changes credential scope
+- **WHEN** scheduled AWX Wasm requests a different origin, a path outside `/api/v2/inventories/`, a non-GET method, a request body, a plaintext bearer, traversal encoding, or a TLS policy different from its host binding
+- **THEN** the trusted agent denies the request before any network transport or bearer transmission
+
+#### Scenario: Scheduled controller bearer rotates
+- **WHEN** host-only controller bearer material changes while Wasm-visible params remain identical
+- **THEN** the assignment fingerprint changes and the refreshed host binding is applied without exposing bearer material in the fingerprint or Wasm config
 
 ### Requirement: Check mode and callback actions cannot be variable-forged
 Dry runs SHALL use native AWX check mode or a separately reviewed check template. A raw variable MUST NOT simulate check mode. For callback-enabled content, the immutable authority snapshot SHALL pin the exact reviewed action plus ephemeral custom-credential type/dynamic slot. The targeting child SHALL call callback-owned lifecycle interfaces: `prepare(snapshot, actor)` after the complete local plan exists; `materialize_attach(ref, child)` so the trusted dispatcher creates/binds the per-child instance and appends only its ID to dispatch state; `bind_activate(ref, controller, job, full_snapshot)` only after exact post-start job-host-summary equality marks the child `scope_verified`, with callback requests remaining pending before then; and `revoke_cleanup(ref, outcome)` to revoke/close grant state as appropriate and detach/delete the instance on create/launch/scope mismatch/ambiguity/partial-dispatch/cancel/consumption and every successful or failed terminal outcome. This child MUST NOT mint, resolve, activate, consume, or revoke a grant itself. Reusable static callback credentials and callback AWX external state before local plan commit are forbidden. Browsers, surveys, inventory, ordinary variables, and workers MUST NOT supply or override callback URLs, bearers, actions, credential instances, or response data.
@@ -110,6 +193,8 @@ Dry runs SHALL use native AWX check mode or a separately reviewed check template
 ### Requirement: AWX jobs and events are controller-child-target scoped
 ServiceRadar SHALL bind an accepted job as `(controller_id, awx_job_id)` to exactly one local child execution and immutable snapshot. Polling, watchdog, cancellation, links, state transitions, and OCSF projection SHALL use that binding. Per-host results SHALL correlate by AWX host ID within the child target snapshot. Name-only events SHALL be enriched from job-scoped AWX host evidence to exactly one host ID or fail visibly; hostname/address fallback is forbidden.
 
+Every AWX result SHALL be projected into a reviewed secret-free schema at the edge and control-plane ingress and SHALL satisfy a 3 MiB encoded aggregate budget. Only a gateway-tracked `awx.*` command MAY receive that enlarged budget; other and untracked commands remain under the generic cap. Event results SHALL carry contract version `2`, contain at most ten unique jobs and ten projected events per job, retain only reviewed structural fields and numeric `rc`, and use fixed failures. During the one-release v0.1.5 rolling bridge, ingress MAY accept only the exact legacy event envelope and MUST re-project it into bounded v2 windows, normalize null idle arrays and arbitrary errors, and discard all raw module/controller fields before persistence or fanout.
+
 #### Scenario: Controllers reuse a job ID
 - **WHEN** two AWX controllers each return job ID `42`
 - **THEN** ServiceRadar attributes each job/event only within its controller and child execution
@@ -121,6 +206,14 @@ ServiceRadar SHALL bind an accepted job as `(controller_id, awx_job_id)` to exac
 #### Scenario: Event target is unknown or ambiguous
 - **WHEN** an event cannot be enriched to exactly one snapshotted AWX host ID or names an extra target
 - **THEN** ServiceRadar records an attribution failure and does not apply it to a guessed target
+
+#### Scenario: AWX package is still on event contract v0.1.5 during rollout
+- **WHEN** the prior package returns a null idle array, arbitrary failure text, or more than ten raw events for an otherwise exact bounded job batch
+- **THEN** ingress discards the failure text and raw module fields, normalizes idle state, and advances through projected ten-event v2 windows without skipping a watermark
+
+#### Scenario: Projected AWX result exceeds its aggregate budget
+- **WHEN** individually valid catalog, survey, summary, or event fields encode above 3 MiB
+- **THEN** the plug-in and ingress fail the command with fixed secret-free evidence rather than forwarding or partially persisting the oversized result
 
 ### Requirement: Dispatch ambiguity and cancellation fail closed
 ServiceRadar SHALL bind a unique dispatch nonce and full child snapshot before contacting AWX and add reserved typed non-secret launch `extra_vars` `serviceradar_dispatch_id` and `serviceradar_snapshot_digest`; users/catalog/surveys cannot set/override them. A binding SHALL be non-launchable if AWX does not accept and the resulting job retain/echo the exact values. It SHALL activate a controller-local job binding only after the accepted job markers, template, inventory, literal limit, project/commit, execution environment, credentials, and mode match. On timeout, bounded recent-job enumeration SHALL be scoped by controller/template/inventory/launch window/integration identity and then compare the exact retained markers. Exactly one match may reconcile; zero/multiple become `dispatch_ambiguous`, MUST NOT be blindly retried, and cannot activate callbacks. If any child fails/ambiguous during parent dispatch, ServiceRadar SHALL stop undispatched children, cancel every accepted child, revoke prepared callbacks, and persist `dispatch_partial`; cancellation uncertainty additionally persists `cancel_failed`. Copied/relaunched jobs SHALL require a new authorized operation.

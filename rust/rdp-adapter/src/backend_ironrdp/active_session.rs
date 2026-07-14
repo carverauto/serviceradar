@@ -26,6 +26,7 @@ struct ActiveStageSessionProbe<W: Write> {
     session_binding_id: String,
     media_session_id: String,
     next_sequence: u64,
+    terminal: bool,
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -58,7 +59,7 @@ impl<W: Write> ActiveStageSessionProbe<W> {
         session_binding_id: String,
         media_session_id: String,
     ) -> Self {
-        let active_stage = ironrdp_session::ActiveStage::new(connection_result);
+        let active_stage = active_stage_from_connection_result_for_probe(connection_result);
         let image = ironrdp_session::image::DecodedImage::new(
             ironrdp_graphics::image_processing::PixelFormat::RgbA32,
             desktop_size.width,
@@ -74,17 +75,19 @@ impl<W: Write> ActiveStageSessionProbe<W> {
             session_binding_id,
             media_session_id,
             next_sequence: 0,
+            terminal: false,
         }
     }
 
     fn input(&mut self, frame: &DesktopFrame) -> Result<ActiveStageOutputProbe, BackendError> {
+        self.require_active()?;
         let events = map_desktop_input_events_for_probe(frame)?;
         let outputs = self
             .active_stage
             .process_fastpath_input(&mut self.image, &events)
             .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
 
-        handle_active_stage_outputs_for_probe(
+        let probe = handle_active_stage_outputs_for_probe(
             outputs,
             &mut self.upstream,
             &mut self.media_queue,
@@ -94,7 +97,9 @@ impl<W: Write> ActiveStageSessionProbe<W> {
             &self.media_session_id,
             &mut self.next_sequence,
             frame.timestamp,
-        )
+        )?;
+
+        self.observe_outputs(probe)
     }
 
     fn graceful_shutdown(&mut self) -> Result<ActiveStageOutputProbe, BackendError> {
@@ -122,12 +127,13 @@ impl<W: Write> ActiveStageSessionProbe<W> {
         frame: &[u8],
         timestamp_unix_nano: i64,
     ) -> Result<ActiveStageOutputProbe, BackendError> {
+        self.require_active()?;
         let outputs = self
             .active_stage
             .process(&mut self.image, action, frame)
             .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
 
-        handle_active_stage_outputs_for_probe(
+        let probe = handle_active_stage_outputs_for_probe(
             outputs,
             &mut self.upstream,
             &mut self.media_queue,
@@ -137,7 +143,9 @@ impl<W: Write> ActiveStageSessionProbe<W> {
             &self.media_session_id,
             &mut self.next_sequence,
             timestamp_unix_nano,
-        )
+        )?;
+
+        self.observe_outputs(probe)
     }
 
     fn drain_media_frames(&mut self) -> Vec<Vec<u8>> {
@@ -146,6 +154,30 @@ impl<W: Write> ActiveStageSessionProbe<W> {
 
     fn upstream_ref(&self) -> &W {
         &self.upstream
+    }
+
+    fn require_active(&self) -> Result<(), BackendError> {
+        if self.terminal {
+            Err(BackendError::Unsupported(ACTIVE_SESSION_TERMINATED))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn observe_outputs(
+        &mut self,
+        probe: ActiveStageOutputProbe,
+    ) -> Result<ActiveStageOutputProbe, BackendError> {
+        if probe.terminal_outputs == 0 {
+            Ok(probe)
+        } else {
+            // IronRDP 0.11 exposes server deactivation and optional control
+            // transports separately from its active stage. Until this helper
+            // owns reactivation, multitransport, and auto-detect sequences,
+            // make the unsupported server transition sticky and fail closed.
+            self.terminal = true;
+            Err(BackendError::Unsupported(ACTIVE_SESSION_TERMINATED))
+        }
     }
 }
 
@@ -156,7 +188,7 @@ impl<W: Write> RdpBackendSession for ActiveStageSessionProbe<W> {
     }
 
     fn ack(&mut self, _ack: &crate::protocol::DesktopMediaAck) -> Result<(), BackendError> {
-        Ok(())
+        self.require_active()
     }
 
     fn close(&mut self, _payload: &DesktopClosePayload) -> Result<(), BackendError> {
@@ -231,6 +263,7 @@ impl<S: Read, W: Write> ActiveStageNetworkPumpSessionProbe<S, W> {
 #[cfg(serviceradar_rdp_connector_link_probe)]
 impl<S: Read + Write, W: Write> RdpBackendSession for ActiveStageNetworkPumpSessionProbe<S, W> {
     fn input(&mut self, frame: &DesktopFrame) -> Result<(), BackendError> {
+        self.inner.require_active()?;
         let events = map_desktop_input_events_for_probe(frame)?;
         let outputs = self
             .inner
@@ -238,12 +271,12 @@ impl<S: Read + Write, W: Write> RdpBackendSession for ActiveStageNetworkPumpSess
             .process_fastpath_input(&mut self.inner.image, &events)
             .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
 
-        self.handle_outputs_to_network(outputs, frame.timestamp)
-            .map(|_| ())
+        let probe = self.handle_outputs_to_network(outputs, frame.timestamp)?;
+        self.inner.observe_outputs(probe).map(|_| ())
     }
 
     fn ack(&mut self, _ack: &crate::protocol::DesktopMediaAck) -> Result<(), BackendError> {
-        Ok(())
+        self.inner.require_active()
     }
 
     fn close(&mut self, payload: &DesktopClosePayload) -> Result<(), BackendError> {
@@ -258,6 +291,7 @@ impl<S: Read + Write, W: Write> RdpBackendSession for ActiveStageNetworkPumpSess
     }
 
     fn pump(&mut self) -> Result<(), BackendError> {
+        self.inner.require_active()?;
         let (action, frame) = self
             .framed
             .read_pdu()
@@ -268,8 +302,8 @@ impl<S: Read + Write, W: Write> RdpBackendSession for ActiveStageNetworkPumpSess
             .process(&mut self.inner.image, action, &frame)
             .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
 
-        self.handle_outputs_to_network(outputs, self.timestamp_unix_nano)
-            .map(|_| ())
+        let probe = self.handle_outputs_to_network(outputs, self.timestamp_unix_nano)?;
+        self.inner.observe_outputs(probe).map(|_| ())
     }
 
     fn drain_media_frames(&mut self) -> Result<Vec<Vec<u8>>, BackendError> {

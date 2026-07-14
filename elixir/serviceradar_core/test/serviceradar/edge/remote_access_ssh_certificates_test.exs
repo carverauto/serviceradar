@@ -6,6 +6,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
   alias ServiceRadar.Security.RateLimiter
 
   @permission RemoteAccessSSHCertificatePolicy.permission()
+  @principal "srp_v1_6d8b1e49fbe24ad487ce2c5c"
 
   setup do
     on_exit(fn -> :ets.delete_all_objects(RateLimiter.__table__()) end)
@@ -66,10 +67,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
       session_id: "session-1",
       agent_id: "agent-1",
       gateway_id: "gateway-1",
+      username: "mfreeman",
       public_key: "ssh-ed25519 AAAATEST user@workstation",
       target: %{device_uid: "device-1", host: "10.0.0.10"},
-      allowed_principals: ["root", "ubuntu"],
-      requested_principals: ["ubuntu"],
+      accounts: [%{name: "mfreeman", principals: [@principal]}],
       ttl_seconds: 900
     }
 
@@ -83,14 +84,14 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
                     %{
                       public_key: "ssh-ed25519 AAAATEST user@workstation",
                       key_id: "sr:remote-access:session-1:user-1:agent-1:ssh:device-1",
-                      principals: ["ubuntu"],
+                      principals: [@principal],
                       ttl_seconds: 900,
                       audit: %{
                         actor_id: "user-1",
                         agent_id: "agent-1",
                         protocol: "ssh",
                         target_ref: "device-1",
-                        ssh_username: "ubuntu"
+                        ssh_username: "mfreeman"
                       }
                     }}
 
@@ -101,12 +102,12 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
     assert issued.credential_mode == "ssh_certificate"
 
     assert issued.ssh == %{
-             "username" => "ubuntu",
+             "username" => "mfreeman",
              "certificate" => "ssh-ed25519-cert-v01@openssh.com AAAATEST"
            }
 
     assert issued.key_id == "sr:remote-access:session-1:user-1:agent-1:ssh:device-1"
-    assert issued.principals == ["ubuntu"]
+    assert issued.principals == [@principal]
     assert issued.fingerprint == "SHA256:fingerprint"
     assert issued.serial == 42
     assert issued.ca_key_id == "ca-main"
@@ -117,8 +118,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
              gateway_id: "gateway-1",
              protocol: "ssh",
              target_ref: "device-1",
-             principals: ["ubuntu"],
-             ssh_username: "ubuntu",
+             principals: [@principal],
+             ssh_username: "mfreeman",
              ttl_seconds: 900,
              permission: @permission,
              certificate_fingerprint: "SHA256:fingerprint",
@@ -164,9 +165,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
              RemoteAccessSSHCertificates.issue(actor, %{
                session_id: "session-1",
                agent_id: "agent-1",
+               username: "mfreeman",
                public_key: "ssh-ed25519 AAAATEST",
                target: %{device_uid: "device-1"},
-               allowed_principals: ["ubuntu"]
+               accounts: [%{name: "mfreeman", principals: [@principal]}]
              })
 
     assert_receive {:configured_sign_user_certificate,
@@ -185,9 +187,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
                %{
                  session_id: "session-1",
                  agent_id: "agent-1",
+                 username: "mfreeman",
                  public_key: "ssh-ed25519 AAAATEST",
                  target: %{device_uid: "device-1"},
-                 allowed_principals: ["root"]
+                 accounts: [%{name: "mfreeman", principals: [@principal]}]
                },
                signer: ErrorSignerStub
              )
@@ -199,9 +202,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
     attrs = %{
       session_id: "session-1",
       agent_id: "agent-1",
+      username: "mfreeman",
       public_key: "ssh-ed25519 AAAATEST",
       target: %{device_uid: "device-1"},
-      allowed_principals: ["ubuntu"]
+      accounts: [%{name: "mfreeman", principals: [@principal]}]
     }
 
     assert {:ok, _issued} =

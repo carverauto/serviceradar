@@ -110,7 +110,7 @@ defmodule ServiceRadar.Plugins.OtelCollectorAddonPackageSeederTest do
       )
       |> Ash.create()
 
-    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, "default")
 
     assert [addon] = config.addons
     assert addon.addon_id == "otel-collector"

@@ -117,6 +117,7 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilder do
 
   defp normalize_device_row(row) do
     uid = ValueUtils.string_value(row, [:uid, "uid", :device_uid, "device_uid", :id, "id"])
+    metadata = ValueUtils.map_value(row, [:metadata, "metadata"], stringify_keys: true) || %{}
 
     if ValueUtils.blank_string?(uid) do
       nil
@@ -131,8 +132,59 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilder do
         "site" => ValueUtils.string_value(row, [:site, "site", :region, "region"]),
         "zone" => ValueUtils.string_value(row, [:zone, "zone"]),
         "labels" =>
-          ValueUtils.map_value(row, [:labels, "labels", :tags, "tags"], stringify_keys: true)
+          ValueUtils.map_value(row, [:labels, "labels", :tags, "tags"], stringify_keys: true),
+        # Safe source/ownership evidence used by trusted host-authority
+        # generation. Preserve only an explicit finite set; arbitrary device
+        # metadata can contain unrelated or sensitive integration data.
+        "integration_id" =>
+          device_string(row, metadata, [:integration_id, "integration_id"], ["integration_id"]),
+        "provider_ref" =>
+          device_string(
+            row,
+            metadata,
+            [:provider_ref, "provider_ref"],
+            ["hypervisor_provider_ref", "provider_ref"]
+          ),
+        "node" => device_string(row, metadata, [:node, "node"], ["node", "proxmox_node"]),
+        "cluster" =>
+          device_string(
+            row,
+            metadata,
+            [:cluster, "cluster"],
+            ["cluster", "proxmox_cluster"]
+          ),
+        "vmid" => device_string(row, metadata, [:vmid, "vmid"], ["hypervisor_vmid", "vmid"]),
+        "target_kind" => device_target_kind(row, metadata),
+        "device_role" =>
+          device_string(row, metadata, [:device_role, "device_role"], ["device_role"]),
+        "proxmox_base_url" =>
+          device_string(
+            row,
+            metadata,
+            [:proxmox_base_url, "proxmox_base_url"],
+            ["proxmox_base_url"]
+          )
       })
+    end
+  end
+
+  defp device_string(row, metadata, row_keys, metadata_keys) do
+    ValueUtils.string_value(row, row_keys) || ValueUtils.string_value(metadata, metadata_keys)
+  end
+
+  defp device_target_kind(row, metadata) do
+    explicit =
+      device_string(row, metadata, [:target_kind, "target_kind"], ["target_kind"])
+
+    guest_type = ValueUtils.string_value(metadata, ["hypervisor_guest_type", "guest_type"])
+    device_role = ValueUtils.string_value(metadata, ["device_role"])
+
+    cond do
+      explicit not in [nil, ""] -> explicit
+      guest_type in ["lxc", "container"] -> "lxc_guest"
+      guest_type in ["qemu", "vm"] -> "qemu_guest"
+      device_role == "hypervisor" -> "pve_host"
+      true -> nil
     end
   end
 

@@ -6,6 +6,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentialsTest do
   alias ServiceRadar.Edge.RemoteAccessSSHSessionCredentials
 
   @permission RemoteAccessSSHCertificatePolicy.permission()
+  @principal "srp_v1_6d8b1e49fbe24ad487ce2c5c"
 
   defmodule SignerStub do
     @moduledoc false
@@ -111,13 +112,15 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentialsTest do
       session_id: "session-1",
       agent_id: "agent-1",
       gateway_id: "gateway-1",
+      username: "mfreeman",
       public_key: "ssh-ed25519 AAAATEST user@workstation",
       private_key: "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
       passphrase: "session-passphrase",
       target: %{device_uid: "device-1", host: "10.0.0.10"},
+      accounts: [%{name: "mfreeman", principals: [@principal]}],
       claims: %{"groups" => ["linux-admins"]},
       principal_mappings: [
-        %{"source" => "groups", "value" => "linux-admins", "principals" => ["ubuntu"]}
+        %{"source" => "groups", "value" => "linux-admins", "principals" => [@principal]}
       ],
       ttl_seconds: 900
     }
@@ -141,7 +144,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentialsTest do
            }
 
     assert grant.broker_opts[:ssh_certificate].ssh == %{
-             "username" => "ubuntu",
+             "username" => "mfreeman",
              "certificate" => "ssh-ed25519-cert-v01@openssh.com AAAATEST"
            }
 
@@ -165,14 +168,15 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentialsTest do
     attrs = %{
       session_id: "session-1",
       agent_id: "agent-1",
+      username: "mfreeman",
       public_key: "ssh-ed25519 AAAATEST user@workstation",
       private_key: "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
       claims: %{"groups" => ["browser-admins"]},
       target: %{device_uid: "device-1", host: "10.0.0.10"},
+      accounts: [%{name: "mfreeman", principals: [@principal]}],
       principal_mappings: [
-        %{"source" => "groups", "value" => "linux-admins", "principals" => ["ubuntu"]}
-      ],
-      requested_principals: ["ubuntu"]
+        %{"source" => "groups", "value" => "linux-admins", "principals" => [@principal]}
+      ]
     }
 
     assert {:ok, grant} =
@@ -182,18 +186,21 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentialsTest do
                signer: SignerStub,
                audit_writer: {AuditWriterStub, test_pid: self()},
                test_pid: self(),
-               idp_claims: %{"groups" => ["linux-admins"]}
+               idp_claims: %{
+                 "groups" => ["linux-admins"],
+                 "service_radar_auth_method" => "oidc"
+               }
              )
 
     assert_receive {:sign_user_certificate, sign_request}
     assert_receive {:audit, audit}
     assert audit[:action] == :remote_access_ssh_certificate_issue
-    assert sign_request.principals == ["ubuntu"]
+    assert sign_request.principals == [@principal]
     refute inspect(sign_request) =~ "OPENSSH PRIVATE KEY"
     refute inspect(sign_request) =~ "browser-admins"
 
     assert grant.broker_opts[:ssh_certificate].credential_mode == "ssh_certificate"
-    assert grant.broker_opts[:ssh_certificate].ssh["username"] == "ubuntu"
+    assert grant.broker_opts[:ssh_certificate].ssh["username"] == "mfreeman"
     assert grant.broker_opts[:metadata]["ssh"]["private_key"] =~ "OPENSSH PRIVATE KEY"
     refute inspect(grant.audit) =~ "OPENSSH PRIVATE KEY"
     assert grant.audit.credential_custody_mode == "short_lived_certificate"
@@ -209,9 +216,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHSessionCredentialsTest do
                %{
                  session_id: "session-1",
                  agent_id: "agent-1",
+                 username: "mfreeman",
                  public_key: "ssh-ed25519 AAAATEST",
                  target: %{device_uid: "device-1"},
-                 allowed_principals: ["ubuntu"]
+                 accounts: [%{name: "mfreeman", principals: [@principal]}]
                },
                signer: SignerStub
              )

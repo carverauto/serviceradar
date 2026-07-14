@@ -27,7 +27,6 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -35,7 +34,23 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
-const websocketReadLimitExceeded = "websocket: read limit exceeded"
+const (
+	websocketReadLimitExceeded = "websocket: read limit exceeded"
+	webSocketSecureScheme      = "wss"
+)
+
+var (
+	errProxmoxConsoleWebSocketDialTimeout = errors.New("proxmox console WebSocket dial timed out")
+	errProxmoxConsoleWebSocketDialFailed  = errors.New("proxmox console WebSocket dial failed")
+)
+
+type pluginWebSocketDialer func(
+	context.Context,
+	string,
+	http.Header,
+	time.Duration,
+	bool,
+) (*websocket.Conn, *http.Response, error)
 
 func (e *pluginExecution) hostTCPConnect(ctx context.Context, mod api.Module, addrPtr, addrLen, port, timeoutMS uint32) int32 {
 	if !e.hasCapability("tcp_connect") {
@@ -277,6 +292,8 @@ func (e *pluginExecution) deleteConn(handle uint32) net.Conn {
 func (e *pluginExecution) closeAll() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	clearProxmoxConsoleTicketState(e.proxmoxConsoleTicket)
+	e.proxmoxConsoleTicket = nil
 	for handle, conn := range e.conns {
 		_ = conn.Close()
 		delete(e.conns, handle)
@@ -351,26 +368,38 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 	}
 
 	parsed, err := url.Parse(wsURL)
-	if err != nil || parsed.Host == "" {
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "ws" && parsed.Scheme != webSocketSecureScheme) {
 		return pluginErrInvalid
 	}
 
-	host := parsed.Hostname()
-	if !e.assignment.Permissions.allowsDomain(host) {
+	proxmoxBinding, err := e.proxmoxHostAuthorityForWebSocket(parsed, headers, insecureSkipVerify)
+	if err != nil {
 		return pluginErrDenied
 	}
 
-	port := 80
-	if parsed.Scheme == "wss" {
-		port = 443
+	httpURL := *parsed
+	if parsed.Scheme == webSocketSecureScheme {
+		httpURL.Scheme = httpsScheme
+	} else {
+		httpURL.Scheme = httpScheme
 	}
-	if parsed.Port() != "" {
-		if p, err := strconv.Atoi(parsed.Port()); err == nil {
-			port = p
-		}
-	}
-	if !e.assignment.Permissions.allowsPort(port) {
+	port, validPort := pluginHTTPRequestPort(&httpURL)
+	if !validPort || !e.assignment.Permissions.allowsHTTPPort(port) {
 		return pluginErrDenied
+	}
+	if !e.assignment.Permissions.allowsHTTPHost(parsed.Hostname()) &&
+		!pluginHostAuthorityDestinationAllowed(&e.assignment.Permissions, &httpURL, proxmoxBinding) {
+		return pluginErrDenied
+	}
+	if err := e.applyProxmoxHostAuthorityWebSocketCredential(ctx, headers, proxmoxBinding); err != nil {
+		return pluginErrDenied
+	}
+	if proxmoxBinding != nil {
+		dialURL, consumeErr := e.consumeProxmoxConsoleTicket(parsed, proxmoxBinding)
+		if consumeErr != nil {
+			return pluginErrDenied
+		}
+		wsURL = dialURL.String()
 	}
 
 	timeout := time.Duration(timeoutMS) * time.Millisecond
@@ -378,26 +407,38 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 		timeout = e.assignment.Timeout
 	}
 
-	dialer := websocket.Dialer{
-		HandshakeTimeout: timeout,
-	}
-	if insecureSkipVerify {
-		dialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
-	}
-
 	dialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	if proxmoxBinding != nil {
+		if err := e.ensureActiveProxmoxAssignment(dialCtx); err != nil {
+			return pluginErrDenied
+		}
+	}
 
-	conn, resp, err := dialer.DialContext(dialCtx, wsURL, headers)
+	conn, resp, err := e.dialPluginWebSocket(
+		dialCtx,
+		wsURL,
+		headers,
+		timeout,
+		insecureSkipVerify,
+	)
 	if resp != nil && resp.Body != nil {
 		_ = resp.Body.Close()
 	}
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			e.logPluginHostWebSocketFailure(err, parsed, "timeout")
+			logErr := err
+			if proxmoxBinding != nil {
+				logErr = errProxmoxConsoleWebSocketDialTimeout
+			}
+			e.logPluginHostWebSocketFailure(logErr, parsed, "timeout")
 			return pluginErrTimeout
 		}
-		e.logPluginHostWebSocketFailure(err, parsed, "connect_failed")
+		logErr := err
+		if proxmoxBinding != nil {
+			logErr = errProxmoxConsoleWebSocketDialFailed
+		}
+		e.logPluginHostWebSocketFailure(logErr, parsed, "connect_failed")
 		return pluginErrInternal
 	}
 
@@ -408,6 +449,24 @@ func (e *pluginExecution) hostWebSocketConnect(ctx context.Context, mod api.Modu
 	}
 
 	return int32(handle)
+}
+
+func (e *pluginExecution) dialPluginWebSocket(
+	ctx context.Context,
+	wsURL string,
+	headers http.Header,
+	timeout time.Duration,
+	insecureSkipVerify bool,
+) (*websocket.Conn, *http.Response, error) {
+	if e != nil && e.webSocketDialer != nil {
+		return e.webSocketDialer(ctx, wsURL, headers, timeout, insecureSkipVerify)
+	}
+
+	dialer := websocket.Dialer{HandshakeTimeout: timeout}
+	if insecureSkipVerify {
+		dialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
+	}
+	return dialer.DialContext(ctx, wsURL, headers)
 }
 
 func (e *pluginExecution) logPluginHostWebSocketFailure(err error, wsURL *url.URL, reason string) {

@@ -5,6 +5,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
+  alias ServiceRadar.Automation.LaunchEnvelopes.CommandPayload
   alias ServiceRadar.Camera.RelaySourceResolver
   alias ServiceRadar.ControlRepo
   alias ServiceRadar.Credentials.CredentialRedactor
@@ -35,51 +36,117 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   @endpoint_inventory_force_fresh_rate_bucket :endpoint_inventory_force_fresh_scan
   @endpoint_inventory_force_fresh_rate_limit 4
   @endpoint_inventory_force_fresh_rate_window_seconds 300
+  @preallocated_callback_command_types [
+    "awx.create_callback_credential",
+    "awx.fetch_callback_credential",
+    "awx.launch_job",
+    "awx.fetch_job",
+    "awx.list_recent_jobs",
+    "awx.fetch_job_host_summaries",
+    "awx.cancel_job",
+    "awx.delete_callback_credential"
+  ]
+  @callback_command_context_schema "serviceradar.automation_callback_command/v1"
+  @secure_execution_command_context_schema "serviceradar.automation_execution_command/v1"
+  @secure_execution_command_types [
+    "awx.launch_job",
+    "awx.fetch_job",
+    "awx.list_recent_jobs",
+    "awx.fetch_job_host_summaries",
+    "awx.cancel_job"
+  ]
 
   def dispatch(agent_id, command_type, payload, opts \\ []) do
+    payload_map = normalize_payload(payload)
+
+    with {:ok, command_id} <-
+           canonical_optional_command_id(
+             command_type,
+             Keyword.get(opts, :command_id),
+             payload_map
+           ),
+         :ok <- validate_preallocated_transmit_payload(command_type, payload_map, opts) do
+      do_dispatch(agent_id, command_type, payload, opts, command_id)
+    end
+  end
+
+  defp do_dispatch(agent_id, command_type, payload, opts, command_id) do
     ttl_seconds = Keyword.get(opts, :ttl_seconds, @default_ttl_seconds)
     created_at = System.system_time(:second)
     required_partition = Keyword.get(opts, :required_partition)
     required_capability = Keyword.get(opts, :required_capability)
     source = normalize_source(Keyword.get(opts, :source, :on_demand))
-    partition_id = resolve_partition(opts, required_partition)
     context = opts |> Keyword.get(:context, %{}) |> normalize_context()
     required_gateway_node = resolve_required_gateway_node(opts, context)
+
+    case resolve_initial_dispatch_partition(
+           agent_id,
+           required_gateway_node,
+           opts,
+           required_partition
+         ) do
+      {:error, reason} ->
+        {:error, reason}
+
+      partition_id ->
+        do_dispatch_in_partition(agent_id, command_type, payload, opts, command_id, %{
+          partition_id: partition_id,
+          ttl_seconds: ttl_seconds,
+          created_at: created_at,
+          required_partition: required_partition,
+          required_capability: required_capability,
+          required_gateway_node: required_gateway_node,
+          source: source,
+          context: context
+        })
+    end
+  end
+
+  defp do_dispatch_in_partition(agent_id, command_type, payload, opts, command_id, dispatch) do
+    requested_command_id = Keyword.get(opts, :command_id)
     transmit_payload = Keyword.get(opts, :transmit_payload, payload)
     payload_map = normalize_payload(payload)
 
-    command_attrs = %{
-      command_type: command_type,
-      agent_id: agent_id,
-      partition_id: partition_id,
-      payload: payload_map,
-      context: context,
-      ttl_seconds: ttl_seconds,
-      requested_by: requested_by_id(Keyword.get(opts, :actor))
-    }
+    command_attrs =
+      maybe_put(
+        %{
+          command_type: command_type,
+          agent_id: agent_id,
+          partition_id: dispatch.partition_id,
+          payload: payload_map,
+          context: dispatch.context,
+          ttl_seconds: dispatch.ttl_seconds,
+          requested_by: requested_by_id(Keyword.get(opts, :actor))
+        },
+        :command_id,
+        command_id
+      )
 
     ash_opts = [actor: SystemActor.system(:agent_command_bus)]
 
-    with :ok <- reject_sensitive_transmit_payload(transmit_payload),
+    with {:ok, command_id} <-
+           normalize_preallocated_command_id(command_type, requested_command_id),
+         command_attrs = maybe_put(command_attrs, :command_id, command_id),
+         :ok <- reject_sensitive_transmit_payload(transmit_payload),
          :ok <- reject_endpoint_inventory_blob_payload(command_type, transmit_payload),
-         :ok <- ensure_dispatch_capacity(agent_id, command_type, source, ash_opts),
+         :ok <- ensure_dispatch_capacity(agent_id, command_type, dispatch.source, ash_opts),
          {:ok, command} <- create_command(command_attrs, ash_opts) do
       _ = AgentCommandCleanupWorker.ensure_scheduled()
 
       payload_json =
         encode_payload(command_payload_for_transmit(command_type, transmit_payload, command))
 
-      context = command_context_for_transmit(command_type, context, command)
+      context = command_context_for_transmit(command_type, dispatch.context, command)
 
       dispatch_created_command(command, %{
         agent_id: agent_id,
         command_type: command_type,
         payload_json: payload_json,
-        ttl_seconds: ttl_seconds,
-        created_at: created_at,
-        required_partition: required_partition,
-        required_capability: required_capability,
-        required_gateway_node: required_gateway_node,
+        ttl_seconds: dispatch.ttl_seconds,
+        created_at: dispatch.created_at,
+        required_partition: dispatch.required_partition,
+        required_capability: dispatch.required_capability,
+        required_gateway_node: dispatch.required_gateway_node,
         context: context,
         ash_opts: ash_opts
       })
@@ -93,6 +160,22 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       {:error, :sensitive_transmit_payload_denied}
     end
   end
+
+  defp normalize_preallocated_command_id("awx.create_callback_credential", nil),
+    do: {:error, :preallocated_command_id_required}
+
+  defp normalize_preallocated_command_id(_command_type, nil), do: {:ok, nil}
+
+  defp normalize_preallocated_command_id(command_type, command_id)
+       when command_type in @preallocated_callback_command_types and is_binary(command_id) do
+    case Ecto.UUID.cast(command_id) do
+      {:ok, normalized} -> {:ok, normalized}
+      :error -> {:error, :invalid_preallocated_command_id}
+    end
+  end
+
+  defp normalize_preallocated_command_id(_command_type, _command_id),
+    do: {:error, :preallocated_command_id_denied}
 
   defp reject_endpoint_inventory_blob_payload(command_type, payload) do
     if endpoint_inventory_command_type?(command_type) and
@@ -115,7 +198,14 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         ctx.created_at
       )
 
-    case lookup_control_session(ctx.agent_id, ctx.required_gateway_node) do
+    dispatch_partition =
+      command_partition(command) || normalize_optional_string(ctx.required_partition)
+
+    case lookup_control_session(
+           ctx.agent_id,
+           ctx.required_gateway_node,
+           dispatch_partition
+         ) do
       {:ok, pid, metadata} ->
         dispatch_to_session(
           command,
@@ -204,24 +294,58 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     command_context =
       build_command_context(ctx.context, command, actual_partition, ctx.created_at)
 
-    case call_control_session(
-           ctx.agent_id,
-           pid,
-           {:send_command, command_request, command_context}
-         ) do
-      {:ok, _} ->
-        _ = mark_sent(command, [partition_id: actual_partition], ctx.ash_opts)
-        {:ok, command.id}
+    case bind_dispatch_partition(command, actual_partition) do
+      :ok ->
+        case call_control_session(
+               ctx.agent_id,
+               pid,
+               {:send_command, command_request, command_context},
+               metadata
+             ) do
+          {:ok, _} ->
+            _ = mark_sent(command, [partition_id: actual_partition], ctx.ash_opts)
+            {:ok, command.id}
+
+          {:error, reason} ->
+            _ = mark_failed(command, reason, ctx.ash_opts)
+            {:error, reason}
+
+          other ->
+            _ = mark_failed(command, other, ctx.ash_opts)
+            {:error, other}
+        end
 
       {:error, reason} ->
         _ = mark_failed(command, reason, ctx.ash_opts)
         {:error, reason}
-
-      other ->
-        _ = mark_failed(command, other, ctx.ash_opts)
-        {:error, other}
     end
   end
+
+  # Persist the mTLS/control-session partition before bytes can reach the
+  # agent. ACK/progress/result handlers compare against this immutable dispatch
+  # evidence, so an immediate response cannot race a post-send partition write.
+  defp bind_dispatch_partition(command, partition_id)
+       when is_binary(partition_id) and partition_id != "" do
+    case control_repo().query(
+           """
+           UPDATE platform.agent_commands
+           SET partition_id = $2,
+               updated_at = now() AT TIME ZONE 'utc'
+           WHERE command_id = $1::text::uuid
+             AND status = 'queued'
+             AND (partition_id IS NULL OR partition_id = $2)
+           RETURNING command_id
+           """,
+           [command_id(command), partition_id]
+         ) do
+      {:ok, %{num_rows: 1}} -> :ok
+      {:ok, _result} -> {:error, :command_dispatch_partition_bind_rejected}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp bind_dispatch_partition(_command, _partition_id),
+    do: {:error, :command_dispatch_partition_required}
 
   def dispatch_for_assignment(partition, agent_id, capability, command_type, payload, opts \\ []) do
     partition = normalize_partition(partition)
@@ -430,8 +554,24 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     dispatch(agent_id, "camera.close_relay", payload, opts)
   end
 
+  def push_config(agent_id)
+
   def push_config(agent_id) when is_binary(agent_id) do
-    with {:ok, pid, _metadata} <- lookup_control_session(agent_id) do
+    with {:ok, partition_id} <- unique_control_partition(agent_id) do
+      push_config(partition_id, agent_id)
+    end
+  end
+
+  def push_config(_agent_id), do: {:error, :invalid_agent_id}
+
+  @doc """
+  Pushes configuration to one authenticated `{partition_id, agent_id}` control
+  principal.
+  """
+  def push_config(partition_id, agent_id)
+
+  def push_config(partition_id, agent_id) when is_binary(partition_id) and is_binary(agent_id) do
+    with {:ok, pid, metadata} <- lookup_control_session(agent_id, nil, partition_id) do
       # Only re-deliver when the config VERSION actually changed. A dependency
       # write (e.g. a credential-broker grant re-mint that rewrites the assignment
       # row but is stripped from the version hash) must not restart the agent's
@@ -439,6 +579,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       # never finish. Reuse the same version-aware path the poll uses.
       case AgentConfigGenerator.get_config_if_changed(
              agent_id,
+             partition_from_metadata(metadata),
              agent_known_config_version(agent_id)
            ) do
         :not_modified ->
@@ -447,7 +588,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         {:ok, config} ->
           response = AgentConfigGenerator.to_proto_response(config)
 
-          case call_control_session(agent_id, pid, {:push_config, response}) do
+          case call_control_session(agent_id, pid, {:push_config, response}, metadata) do
             :ok -> :ok
             {:error, reason} -> {:error, reason}
             other -> {:error, other}
@@ -462,7 +603,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       {:error, {:database_error, error}}
   end
 
-  def push_config(_agent_id), do: {:error, :invalid_agent_id}
+  def push_config(_partition_id, _agent_id), do: {:error, :invalid_edge_principal}
 
   # The agent's last acknowledged config version — what it is actually running.
   # Used to decide whether a dependency-triggered push would change anything.
@@ -479,13 +620,25 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   def send_console_frame(agent_id, frame, opts) when is_binary(agent_id) and is_map(frame) do
     required_gateway_node = Keyword.get(opts, :required_gateway_node)
+    required_partition = Keyword.get(opts, :required_partition)
+    required_session_pid = Keyword.get(opts, :required_control_session_pid)
+    required_evidence = Keyword.get(opts, :required_control_evidence)
 
-    case lookup_control_session(agent_id, required_gateway_node) do
-      {:ok, pid, _metadata} ->
-        call_control_session(agent_id, pid, {:send_console_frame, frame})
+    case {required_session_pid, required_evidence} do
+      {pid, evidence} when is_pid(pid) and is_map(evidence) ->
+        call_exact_control_session(pid, {:send_console_frame, frame, evidence})
 
-      {:error, reason} ->
-        {:error, reason}
+      {nil, nil} ->
+        case lookup_control_session(agent_id, required_gateway_node, required_partition) do
+          {:ok, pid, metadata} ->
+            call_control_session(agent_id, pid, {:send_console_frame, frame}, metadata)
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      _incomplete_binding ->
+        {:error, :invalid_control_session_binding}
     end
   end
 
@@ -503,19 +656,32 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     list_online_sessions()
   end
 
-  defp call_control_session(agent_id, pid, request) do
+  defp call_control_session(agent_id, pid, request, metadata) do
     GenServer.call(pid, request, @send_timeout)
   catch
     :exit, {:noproc, _} ->
-      maybe_unregister_local({:agent_control, agent_id})
+      maybe_unregister_control_session(agent_id, pid, metadata)
       {:error, :control_session_unavailable}
 
     :exit, {:normal, _} ->
-      maybe_unregister_local({:agent_control, agent_id})
+      maybe_unregister_control_session(agent_id, pid, metadata)
       {:error, :control_session_unavailable}
 
     :exit, reason ->
-      maybe_unregister_local({:agent_control, agent_id})
+      maybe_unregister_control_session(agent_id, pid, metadata)
+      {:error, {:control_session_exit, reason}}
+  end
+
+  defp call_exact_control_session(pid, request) do
+    GenServer.call(pid, request, @send_timeout)
+  catch
+    :exit, {:noproc, _} ->
+      {:error, :control_session_unavailable}
+
+    :exit, {:normal, _} ->
+      {:error, :control_session_unavailable}
+
+    :exit, reason ->
       {:error, {:control_session_exit, reason}}
   end
 
@@ -1054,47 +1220,183 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     )
   end
 
-  defp lookup_control_session(agent_id, required_gateway_node \\ nil) do
+  defp lookup_control_session(agent_id, required_gateway_node, required_partition) do
     if registry_available?() do
-      lookup_registered_session(agent_id, required_gateway_node)
+      lookup_registered_session(agent_id, required_gateway_node, required_partition)
     else
       {:error, :registry_unavailable}
     end
   end
 
-  defp lookup_registered_session(agent_id, required_gateway_node) do
-    agent_id
-    |> lookup_control_session_entries()
-    |> pick_control_session(agent_id, required_gateway_node)
+  # An agent id is not an authority boundary. Legacy callers may use it only to
+  # enumerate the live partitions; selection is then repeated through the exact
+  # partition-scoped registry lookup. Multiple partitions fail closed.
+  defp lookup_registered_session(agent_id, required_gateway_node, nil) do
+    with {:ok, partition_id} <- unique_control_partition(agent_id) do
+      lookup_registered_session(agent_id, required_gateway_node, partition_id)
+    end
   end
 
-  @doc false
-  def lookup_control_session_entries(agent_id) when is_binary(agent_id) do
-    if ProcessRegistry.registry_present?() do
-      ProcessRegistry.lookup_agent_control(agent_id)
-    else
-      case ProcessRegistry.core_node() do
-        nil ->
-          []
+  defp lookup_registered_session(agent_id, required_gateway_node, partition_id)
+       when is_binary(partition_id) do
+    case normalize_optional_string(partition_id) do
+      nil ->
+        {:error, :authenticated_partition_required}
 
-        node ->
-          case :erpc.call(node, ProcessRegistry, :lookup_agent_control, [agent_id], 5_000) do
-            entries when is_list(entries) -> entries
-            _ -> []
-          end
-      end
+      partition_id ->
+        partition_id
+        |> lookup_control_session_entries(agent_id)
+        |> pick_control_session(partition_id, agent_id, required_gateway_node)
+    end
+  end
+
+  defp lookup_registered_session(_agent_id, _required_gateway_node, _partition_id),
+    do: {:error, :authenticated_partition_required}
+
+  @doc false
+  def lookup_control_session_entries(partition_id, agent_id)
+      when is_binary(partition_id) and is_binary(agent_id) do
+    if ProcessRegistry.registry_present?() do
+      ProcessRegistry.lookup_agent_control(partition_id, agent_id)
+    else
+      registry_rpc(:lookup_agent_control, [partition_id, agent_id])
     end
   rescue
     error ->
-      Logger.warning("[AgentCommandBus] control-session lookup RPC failed: #{inspect(error)}")
+      Logger.warning(
+        "[AgentCommandBus] exact control-session lookup RPC failed: #{inspect(error)}"
+      )
+
       []
+  end
+
+  def lookup_control_session_entries(_partition_id, _agent_id), do: []
+
+  @doc false
+  # Fleet enumeration only. Never select a command/evidence authority directly
+  # from this result; use lookup_control_session_entries/2 after choosing a
+  # server-owned partition.
+  def lookup_control_session_entries(agent_id) when is_binary(agent_id) do
+    list_control_session_entries(agent_id)
   end
 
   def lookup_control_session_entries(_agent_id), do: []
 
+  @doc false
+  def list_control_session_entries(agent_id) when is_binary(agent_id) do
+    if ProcessRegistry.registry_present?() do
+      ProcessRegistry.list_agent_controls(agent_id)
+    else
+      registry_rpc(:list_agent_controls, [agent_id])
+    end
+  rescue
+    error ->
+      Logger.warning(
+        "[AgentCommandBus] control-session enumeration RPC failed: #{inspect(error)}"
+      )
+
+      []
+  end
+
+  def list_control_session_entries(_agent_id), do: []
+
+  defp registry_rpc(function, args) do
+    case ProcessRegistry.core_node() do
+      nil ->
+        []
+
+      node ->
+        case :erpc.call(node, ProcessRegistry, function, args, 5_000) do
+          entries when is_list(entries) -> entries
+          _ -> []
+        end
+    end
+  end
+
+  defp unique_control_partition(agent_id) when is_binary(agent_id) do
+    partitions =
+      agent_id
+      |> list_control_session_entries()
+      |> Enum.reduce(MapSet.new(), fn entry, partitions ->
+        case control_entry_partition(entry, agent_id) do
+          {:ok, partition_id} -> MapSet.put(partitions, partition_id)
+          :error -> partitions
+        end
+      end)
+      |> MapSet.to_list()
+
+    case partitions do
+      [partition_id] -> {:ok, partition_id}
+      [] -> {:error, {:agent_offline, agent_id}}
+      _multiple -> {:error, {:agent_partition_ambiguous, agent_id}}
+    end
+  end
+
+  defp unique_control_partition(_agent_id), do: {:error, :invalid_agent_id}
+
+  defp control_entry_partition({pid, metadata}, agent_id) when is_pid(pid) and is_map(metadata) do
+    partition_id = partition_from_metadata(metadata)
+
+    if process_alive?(pid) and agent_from_metadata(metadata) == agent_id and
+         is_binary(partition_id) do
+      {:ok, partition_id}
+    else
+      :error
+    end
+  end
+
+  defp control_entry_partition(_entry, _agent_id), do: :error
+
   def resolve_control_gateway_node(agent_id, preferred_gateway_node \\ nil)
 
   def resolve_control_gateway_node(agent_id, preferred_gateway_node) when is_binary(agent_id) do
+    case resolve_control_session_evidence(agent_id, preferred_gateway_node) do
+      {:ok, evidence} -> {:ok, evidence.gateway_node}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def resolve_control_gateway_node(_agent_id, _preferred_gateway_node),
+    do: {:error, :invalid_agent_id}
+
+  def resolve_control_gateway_node(partition_id, agent_id, preferred_gateway_node)
+      when is_binary(partition_id) and is_binary(agent_id) do
+    case resolve_control_session_evidence(partition_id, agent_id, preferred_gateway_node) do
+      {:ok, evidence} -> {:ok, evidence.gateway_node}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def resolve_control_gateway_node(_partition_id, _agent_id, _preferred_gateway_node),
+    do: {:error, :invalid_edge_principal}
+
+  @doc """
+  Returns evidence observed by the authenticated agent control stream.
+
+  The registry metadata is written by the gateway session after mTLS identity
+  verification; callers must not substitute browser, plugin-result, or console
+  payload fields for this evidence.
+  """
+  def resolve_control_session_evidence(agent_id, preferred_gateway_node \\ nil)
+
+  def resolve_control_session_evidence(agent_id, preferred_gateway_node)
+      when is_binary(agent_id) do
+    with {:ok, partition_id} <- unique_control_partition(agent_id) do
+      resolve_control_session_evidence(partition_id, agent_id, preferred_gateway_node)
+    end
+  end
+
+  def resolve_control_session_evidence(_agent_id, _preferred_gateway_node),
+    do: {:error, :invalid_agent_id}
+
+  @doc """
+  Returns control evidence for one exact certificate-derived edge principal.
+
+  The partition is supplied by server-owned assignment/session state. Browser,
+  plugin-result, and console payload fields are never accepted as authority.
+  """
+  def resolve_control_session_evidence(partition_id, agent_id, preferred_gateway_node)
+      when is_binary(partition_id) and is_binary(agent_id) do
     # The preferred node is a HINT (where the source was last relayed), not a
     # hard requirement: if the agent's control session has since moved to a
     # different gateway node (agent reconnect, gateway pod roll), return the
@@ -1102,13 +1404,13 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     # the stored assignment. Treating the hint as a strict filter made every
     # relay open fail {:agent_offline, ...} forever once the stored
     # assigned_gateway_id went stale.
-    case lookup_control_session(agent_id, preferred_gateway_node) do
-      {:ok, _pid, metadata} ->
-        {:ok, gateway_node_from_metadata(metadata)}
+    case lookup_control_session(agent_id, preferred_gateway_node, partition_id) do
+      {:ok, pid, metadata} ->
+        {:ok, control_session_evidence(pid, metadata)}
 
       {:error, {:agent_offline, _}} when not is_nil(preferred_gateway_node) ->
-        case lookup_control_session(agent_id, nil) do
-          {:ok, _pid, metadata} -> {:ok, gateway_node_from_metadata(metadata)}
+        case lookup_control_session(agent_id, nil, partition_id) do
+          {:ok, pid, metadata} -> {:ok, control_session_evidence(pid, metadata)}
           {:error, reason} -> {:error, reason}
         end
 
@@ -1117,13 +1419,43 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     end
   end
 
-  def resolve_control_gateway_node(_agent_id, _preferred_gateway_node),
-    do: {:error, :invalid_agent_id}
+  def resolve_control_session_evidence(_partition_id, _agent_id, _preferred_gateway_node),
+    do: {:error, :invalid_edge_principal}
 
-  defp pick_control_session(entries, agent_id, required_gateway_node) do
+  defp control_session_evidence(pid, metadata) when is_pid(pid) and is_map(metadata) do
+    %{
+      control_session_pid: pid,
+      agent_id: Map.get(metadata, :agent_id) || Map.get(metadata, "agent_id"),
+      partition_id: partition_from_metadata(metadata),
+      gateway_node: gateway_node_from_metadata(metadata),
+      capabilities: capabilities_from_metadata(metadata),
+      config_version: Map.get(metadata, :config_version) || Map.get(metadata, "config_version"),
+      pending_config_version:
+        Map.get(metadata, :pending_config_version) ||
+          Map.get(metadata, "pending_config_version"),
+      applied_plugin_assignments:
+        Map.get(metadata, :applied_plugin_assignments) ||
+          Map.get(metadata, "applied_plugin_assignments") || []
+    }
+  end
+
+  defp control_session_evidence(_pid, _metadata) do
+    %{
+      control_session_pid: nil,
+      agent_id: nil,
+      partition_id: nil,
+      gateway_node: nil,
+      capabilities: [],
+      config_version: nil,
+      pending_config_version: nil,
+      applied_plugin_assignments: []
+    }
+  end
+
+  defp pick_control_session(entries, partition_id, agent_id, required_gateway_node) do
     entries
     |> Enum.uniq_by(fn {pid, metadata} -> {pid, gateway_node_from_metadata(metadata)} end)
-    |> Enum.filter(&valid_control_session_entry?(&1, agent_id))
+    |> Enum.filter(&valid_control_session_entry?(&1, partition_id, agent_id))
     |> Enum.filter(&required_gateway_node_match?(&1, required_gateway_node))
     |> Enum.sort_by(fn {_pid, metadata} ->
       control_session_preference(metadata, required_gateway_node)
@@ -1147,19 +1479,21 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     end
   end
 
-  defp valid_control_session_entry?({pid, _metadata}, agent_id) when is_pid(pid) do
-    if process_alive?(pid) do
+  defp valid_control_session_entry?({pid, metadata}, partition_id, agent_id)
+       when is_pid(pid) and is_map(metadata) do
+    principal_matches? =
+      agent_from_metadata(metadata) == agent_id and
+        partition_from_metadata(metadata) == partition_id
+
+    if principal_matches? and process_alive?(pid) do
       true
     else
-      maybe_unregister_local({:agent_control, agent_id})
+      maybe_unregister_control_session(agent_id, pid, metadata)
       false
     end
   end
 
-  defp valid_control_session_entry?(_entry, agent_id) do
-    maybe_unregister_local({:agent_control, agent_id})
-    false
-  end
+  defp valid_control_session_entry?(_entry, _partition_id, _agent_id), do: false
 
   defp list_online_sessions do
     if ProcessRegistry.registry_present?() do
@@ -1172,22 +1506,54 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     end
   end
 
-  defp build_online_session({key, pid, metadata}) do
-    agent_id = elem(key, 1)
-    metadata = if(is_map(metadata), do: metadata, else: %{})
+  defp build_online_session(
+         {{:agent_control, partition_id, agent_id, _gateway_node} = key, pid, metadata}
+       )
+       when is_binary(partition_id) and is_binary(agent_id) and is_map(metadata) do
+    %{
+      key: key,
+      agent_id: agent_id,
+      pid: pid,
+      metadata: metadata,
+      partition_id: partition_id,
+      capabilities: capabilities_from_metadata(metadata),
+      canonical_principal?:
+        agent_from_metadata(metadata) == agent_id and
+          partition_from_metadata(metadata) == partition_id
+    }
+  end
 
+  defp build_online_session({{:agent_control, agent_id, _node} = key, pid, metadata})
+       when is_binary(agent_id) and is_map(metadata) do
+    build_legacy_online_session(key, pid, metadata, agent_id)
+  end
+
+  defp build_online_session({{:agent_control, agent_id} = key, pid, metadata})
+       when is_binary(agent_id) and is_map(metadata) do
+    build_legacy_online_session(key, pid, metadata, agent_id)
+  end
+
+  defp build_online_session(_entry), do: nil
+
+  defp build_legacy_online_session(key, pid, metadata, agent_id) do
     %{
       key: key,
       agent_id: agent_id,
       pid: pid,
       metadata: metadata,
       partition_id: partition_from_metadata(metadata),
-      capabilities: capabilities_from_metadata(metadata)
+      capabilities: capabilities_from_metadata(metadata),
+      canonical_principal?: false
     }
   end
 
-  defp valid_online_session?(%{agent_id: agent_id, pid: pid, key: key}) do
-    alive? = is_binary(agent_id) and process_alive?(pid)
+  defp valid_online_session?(%{
+         agent_id: agent_id,
+         partition_id: partition_id,
+         pid: pid,
+         key: key
+       }) do
+    alive? = is_binary(agent_id) and is_binary(partition_id) and process_alive?(pid)
 
     if !alive? do
       maybe_unregister_local(key)
@@ -1196,10 +1562,12 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     alive?
   end
 
+  defp valid_online_session?(_session), do: false
+
   defp pick_online_agent(partition, capability) do
     list_online_sessions()
     |> Enum.filter(fn session ->
-      session.partition_id == partition and
+      session.canonical_principal? and session.partition_id == partition and
         (capability == nil or capability in session.capabilities)
     end)
     |> Enum.sort_by(& &1.agent_id)
@@ -1213,10 +1581,9 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     if node(pid) == node() do
       Process.alive?(pid)
     else
-      if :rpc.call(node(pid), Process, :alive?, [pid], 1_000) do
-        true
-      else
-        false
+      case :rpc.call(node(pid), Process, :alive?, [pid], 1_000) do
+        true -> true
+        _unavailable_or_dead -> false
       end
     end
   end
@@ -1334,6 +1701,53 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     |> normalize_partition()
   end
 
+  # Seed an online command with the authenticated control-session partition so
+  # the subsequent monotonic pre-send bind can only confirm that tuple. If the
+  # session moves partitions between this lookup and dispatch, binding fails
+  # closed and no bytes are sent. Offline lifecycle records retain the existing
+  # server-side required/default partition because they cannot yield a result.
+  defp resolve_initial_dispatch_partition(
+         agent_id,
+         required_gateway_node,
+         opts,
+         required_partition
+       ) do
+    evidence_result =
+      case requested_partition(opts, required_partition) do
+        nil ->
+          resolve_control_session_evidence(agent_id, required_gateway_node)
+
+        partition_id ->
+          resolve_control_session_evidence(partition_id, agent_id, required_gateway_node)
+      end
+
+    case evidence_result do
+      {:ok, %{partition_id: partition_id}}
+      when is_binary(partition_id) and partition_id != "" ->
+        partition_id
+
+      {:error, {:agent_partition_ambiguous, _agent_id}} = error ->
+        error
+
+      _unavailable ->
+        resolve_partition(opts, required_partition)
+    end
+  end
+
+  defp requested_partition(opts, required_partition) do
+    context = opts |> Keyword.get(:context, %{}) |> normalize_context()
+
+    Enum.find_value(
+      [
+        required_partition,
+        Keyword.get(opts, :partition_id),
+        Map.get(context, :partition_id),
+        Map.get(context, "partition_id")
+      ],
+      &normalize_optional_string/1
+    )
+  end
+
   defp build_command_request(command_id, command_type, payload_json, ttl_seconds, created_at) do
     %Monitoring.CommandRequest{
       command_id: command_id,
@@ -1428,8 +1842,26 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     :ok
   end
 
+  defp maybe_unregister_control_session(agent_id, pid, metadata) do
+    partition_id = partition_from_metadata(metadata)
+
+    if is_binary(agent_id) and is_binary(partition_id) and is_pid(pid) do
+      maybe_unregister_local({:agent_control, partition_id, agent_id, node(pid)})
+    else
+      :ok
+    end
+  end
+
   defp partition_from_metadata(metadata) do
-    Map.get(metadata, :partition_id) || Map.get(metadata, "partition_id") || "default"
+    metadata
+    |> Map.get(:partition_id, Map.get(metadata, "partition_id"))
+    |> normalize_optional_string()
+  end
+
+  defp agent_from_metadata(metadata) do
+    metadata
+    |> Map.get(:agent_id, Map.get(metadata, "agent_id"))
+    |> normalize_optional_string()
   end
 
   defp gateway_node_from_metadata(metadata) do
@@ -1442,6 +1874,14 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     |> List.wrap()
     |> Enum.map(&to_string/1)
   end
+
+  defp command_partition(command) when is_map(command) do
+    command
+    |> Map.get(:partition_id, Map.get(command, "partition_id"))
+    |> normalize_optional_string()
+  end
+
+  defp command_partition(_command), do: nil
 
   defp mark_failed(command, reason, ash_opts) do
     if control_repo_available?() do
@@ -1526,7 +1966,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp create_command(attrs, ash_opts) do
     if control_repo_available?() do
-      command_id = Ecto.UUID.generate()
+      command_id = Map.get(attrs, :command_id) || Ecto.UUID.generate()
       ttl_seconds = Map.get(attrs, :ttl_seconds) || 60
 
       expires_at =
@@ -1589,9 +2029,105 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
           {:error, reason}
       end
     else
-      AgentCommand.create_command(attrs, ash_opts)
+      case Map.get(attrs, :command_id) do
+        nil ->
+          AgentCommand.create_command(attrs, ash_opts)
+
+        command_id ->
+          AgentCommand
+          |> Ash.Changeset.for_create(:create_with_id, Map.put(attrs, :command_id, command_id))
+          |> Ash.create(ash_opts)
+      end
     end
   end
+
+  defp canonical_optional_command_id("awx.create_callback_credential", nil, _payload),
+    do: {:error, :preallocated_command_id_required}
+
+  defp canonical_optional_command_id(_command_type, nil, _payload), do: {:ok, nil}
+
+  defp canonical_optional_command_id("awx.create_callback_credential", value, payload)
+       when is_binary(value) do
+    with {:ok, command_id} <- canonical_command_id(value),
+         {:ok, _reference} <- CommandPayload.parse(payload) do
+      {:ok, command_id}
+    end
+  end
+
+  defp canonical_optional_command_id("awx.create_callback_credential", _value, _payload),
+    do: {:error, :invalid_command_id}
+
+  defp canonical_optional_command_id(command_type, value, _payload)
+       when command_type in @preallocated_callback_command_types and is_binary(value),
+       do: canonical_command_id(value)
+
+  defp canonical_optional_command_id(_command_type, _value, _payload),
+    do: {:error, :preallocated_command_id_not_allowed}
+
+  defp canonical_command_id(value) do
+    case Ecto.UUID.cast(String.trim(value)) do
+      {:ok, command_id} -> {:ok, command_id}
+      :error -> {:error, :invalid_command_id}
+    end
+  end
+
+  defp validate_preallocated_transmit_payload(command_type, payload, opts)
+       when command_type in @preallocated_callback_command_types do
+    context = opts |> Keyword.get(:context, %{}) |> normalize_context()
+
+    cond do
+      Keyword.get(opts, :callback_command_attempt) == true ->
+        with true <- is_binary(Keyword.get(opts, :command_id)),
+             true <- normalize_source(Keyword.get(opts, :source, :on_demand)) == :automation,
+             true <- context["schema"] == @callback_command_context_schema,
+             true <- context["verb"] == command_type,
+             :ok <- reject_callback_transmit_override(command_type, payload, opts) do
+          :ok
+        else
+          false -> {:error, :preallocated_callback_attempt_context_required}
+          {:error, _reason} = error -> error
+        end
+
+      Keyword.get(opts, :secure_execution_attempt) == true ->
+        with true <- command_type in @secure_execution_command_types,
+             true <- is_binary(Keyword.get(opts, :command_id)),
+             true <- normalize_source(Keyword.get(opts, :source, :on_demand)) == :automation,
+             true <- context["schema"] == @secure_execution_command_context_schema,
+             true <- context["verb"] == command_type,
+             true <-
+               context["stage"] in ~w(launch_job fetch_job list_recent_jobs fetch_host_summaries cancel_job),
+             false <- Map.has_key?(context, "callback_grant_id") do
+          :ok
+        else
+          _ -> {:error, :preallocated_secure_execution_attempt_context_required}
+        end
+
+      not is_nil(Keyword.get(opts, :command_id)) ->
+        {:error, :preallocated_callback_attempt_context_required}
+
+      command_type == "awx.create_callback_credential" ->
+        {:error, :preallocated_callback_attempt_context_required}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_preallocated_transmit_payload(_command_type, _payload, _opts), do: :ok
+
+  defp reject_callback_transmit_override("awx.create_callback_credential", payload, opts) do
+    case Keyword.fetch(opts, :transmit_payload) do
+      :error ->
+        :ok
+
+      {:ok, transmit_payload} ->
+        if normalize_payload(transmit_payload) == payload,
+          do: :ok,
+          else: {:error, :callback_credential_payload_override_forbidden}
+    end
+  end
+
+  defp reject_callback_transmit_override(_command_type, _payload, _opts), do: :ok
 
   defp mark_sent(command, attrs, _ash_opts) do
     update_command_status(

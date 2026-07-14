@@ -559,30 +559,6 @@ alias(
 )
 
 alias(
-    name = "ironrdp-core-0.1.5",
-    actual = "//third_party/crates/ironrdp-core-0.1.5:ironrdp_core",
-    tags = ["manual"],
-)
-
-alias(
-    name = "ironrdp-core",
-    actual = "//third_party/crates/ironrdp-core-0.1.5:ironrdp_core",
-    tags = ["manual"],
-)
-
-alias(
-    name = "ironrdp-pdu-0.7.0",
-    actual = "//third_party/crates/ironrdp-pdu-0.7.0:ironrdp_pdu",
-    tags = ["manual"],
-)
-
-alias(
-    name = "ironrdp-pdu",
-    actual = "//third_party/crates/ironrdp-pdu-0.7.0:ironrdp_pdu",
-    tags = ["manual"],
-)
-
-alias(
     name = "jsonwebtoken-10.4.0",
     actual = "//third_party/crates/jsonwebtoken-10.4.0:jsonwebtoken",
     tags = ["manual"],

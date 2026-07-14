@@ -284,6 +284,8 @@ defmodule ServiceRadar.ProcessRegistry do
   def select_by_type(type) do
     # Match keys that start with the type atom and include the node key
     match_spec = [
+      {{{type, :"$1", :"$2", :"$3"}, :"$4", :"$5"}, [],
+       [{{{{type, :"$1", :"$2", :"$3"}}, :"$4", :"$5"}}]},
       {{{type, :"$1", :"$2"}, :"$3", :"$4"}, [], [{{{{type, :"$1", :"$2"}}, :"$3", :"$4"}}]},
       {{{type, :"$1"}, :"$2", :"$3"}, [], [{{{{type, :"$1"}}, :"$2", :"$3"}}]}
     ]
@@ -463,21 +465,52 @@ defmodule ServiceRadar.ProcessRegistry do
   end
 
   @doc """
-  Looks up active control-stream sessions for an agent.
+  Looks up active control-stream sessions for one authenticated edge principal.
 
-  Newer gateway nodes register control streams with a node-scoped key so
-  reconnects on one gateway do not evict a live stream on another gateway while
-  Horde is converging. The legacy two-tuple key is still read for compatibility.
+  Control authority is keyed by the certificate-derived `{partition_id,
+  agent_id}` pair. The gateway node remains part of the registry key so rolling
+  reconnects on separate gateways can coexist while Horde converges.
   """
-  @spec lookup_agent_control(String.t()) :: [{pid(), map()}]
-  def lookup_agent_control(agent_id) when is_binary(agent_id) do
+  @spec lookup_agent_control(String.t(), String.t()) :: [{pid(), map()}]
+  def lookup_agent_control(partition_id, agent_id)
+      when is_binary(partition_id) and is_binary(agent_id) do
     match_spec = [
+      {{{:agent_control, partition_id, agent_id, :"$1"}, :"$2", :"$3"}, [], [{{:"$2", :"$3"}}]}
+    ]
+
+    Horde.Registry.select(@registry_name, match_spec)
+  end
+
+  @doc """
+  Enumerates every control stream carrying an agent id across all partitions.
+
+  This is a fleet-observation API only. Its result is not an authority lookup:
+  callers that send commands, resolve credentials, or consume plugin evidence
+  must first choose a server-owned partition and then call
+  `lookup_agent_control/2`.
+
+  Legacy two- and three-element keys are included only so operators can observe
+  them during a rolling upgrade. They are never returned by the exact lookup.
+  """
+  @spec list_agent_controls(String.t()) :: [{pid(), map()}]
+  def list_agent_controls(agent_id) when is_binary(agent_id) do
+    match_spec = [
+      {{{:agent_control, :"$1", agent_id, :"$2"}, :"$3", :"$4"}, [], [{{:"$3", :"$4"}}]},
       {{{:agent_control, agent_id, :"$1"}, :"$2", :"$3"}, [], [{{:"$2", :"$3"}}]},
       {{{:agent_control, agent_id}, :"$1", :"$2"}, [], [{{:"$1", :"$2"}}]}
     ]
 
     Horde.Registry.select(@registry_name, match_spec)
   end
+
+  @doc """
+  Legacy agent-only control-stream enumeration.
+
+  This delegates to `list_agent_controls/1` and must not be used to select an
+  authoritative session. Use `lookup_agent_control/2` for all control actions.
+  """
+  @spec lookup_agent_control(String.t()) :: [{pid(), map()}]
+  def lookup_agent_control(agent_id) when is_binary(agent_id), do: list_agent_controls(agent_id)
 
   @doc """
   Updates heartbeat for an agent.

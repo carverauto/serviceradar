@@ -3,6 +3,15 @@ defmodule ServiceRadar.Security.RateLimiterTest do
 
   alias ServiceRadar.Security.RateLimiter
 
+  setup_all do
+    case Process.whereis(RateLimiter) do
+      nil -> start_supervised!(RateLimiter)
+      _pid -> :ok
+    end
+
+    :ok
+  end
+
   setup do
     # The Application supervisor already starts RateLimiter. Each test
     # clears the table for isolation but does not restart the GenServer
@@ -116,6 +125,21 @@ defmodule ServiceRadar.Security.RateLimiterTest do
   describe "resolve_bucket/2" do
     test "resolves from config when present" do
       assert {5, 60} = RateLimiter.resolve_bucket(:auth_local)
+    end
+
+    test "retains security-sensitive defaults when parent release config is absent" do
+      previous = Application.get_env(:serviceradar_core, RateLimiter)
+      Application.delete_env(:serviceradar_core, RateLimiter)
+
+      on_exit(fn ->
+        if is_nil(previous),
+          do: Application.delete_env(:serviceradar_core, RateLimiter),
+          else: Application.put_env(:serviceradar_core, RateLimiter, previous)
+      end)
+
+      assert {5, 60} = RateLimiter.resolve_bucket(:auth_local)
+      assert {5, 300} = RateLimiter.resolve_bucket(:auth_password_reset)
+      assert {60, 60} = RateLimiter.resolve_bucket(:totally_unknown_bucket)
     end
 
     test "falls back to default_bucket for unknown bucket names" do

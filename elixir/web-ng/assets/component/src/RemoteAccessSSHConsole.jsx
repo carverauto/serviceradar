@@ -18,6 +18,26 @@ function normalizeKey(value) {
   return value.replace(/\r\n/g, "\n").trim()
 }
 
+export function buildSshAttachCredential({
+  credentialMode,
+  username,
+  privateKey,
+  passphrase,
+  publicKey,
+}) {
+  const credential = {
+    username: username.trim(),
+    private_key: normalizeKey(privateKey),
+    passphrase: passphrase.trim(),
+  }
+
+  if (credentialMode === "ssh_certificate") {
+    credential.public_key = normalizeKey(publicKey)
+  }
+
+  return credential
+}
+
 function base64Digest(buffer) {
   const bytes = new Uint8Array(buffer)
   let binary = ""
@@ -488,7 +508,7 @@ export function Component({
       return
     }
 
-    if (credentialMode === "user_present" && !sshUsername) {
+    if (!sshUsername) {
       setOpening(false)
       setError("SSH username is required.")
       return
@@ -552,16 +572,13 @@ export function Component({
         clearRemembered(deviceUid)
       }
 
-      const nextCredential = {
+      const nextCredential = buildSshAttachCredential({
+        credentialMode,
         username: sshUsername,
-        private_key: key,
-        passphrase: passphrase.trim(),
-      }
-
-      if (credentialMode === "ssh_certificate") {
-        nextCredential.public_key = publicKeyValue
-        nextCredential.requested_principals = sshUsername ? [sshUsername] : []
-      }
+        privateKey: key,
+        passphrase,
+        publicKey: publicKeyValue,
+      })
 
       setCredential(nextCredential)
       setSession(payload.data)
@@ -761,9 +778,7 @@ export function Component({
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="form-control">
               <div className="label">
-                <span className="label-text">
-                  {credentialMode === "ssh_certificate" ? "Requested login principal" : "SSH username"}
-                </span>
+                <span className="label-text">SSH username</span>
               </div>
               <input
                 className="input input-bordered"

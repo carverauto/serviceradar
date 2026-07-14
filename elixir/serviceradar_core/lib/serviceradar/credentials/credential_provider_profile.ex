@@ -38,9 +38,6 @@ defmodule ServiceRadar.Credentials.CredentialProviderProfile do
 
   @doc """
   Whether a rule is eligible for a purpose.
-
-  Proxmox overrides this to keep the historical coupling where an
-  `inventory_enrichment` API-token rule is also console-eligible.
   """
   @callback rule_has_purpose?(rule :: map(), purpose()) :: boolean()
 

@@ -1,1 +1,9 @@
 ddc5367687b6cbb2303b4b6a14954a3529773490:scripts/sign-wasm-plugin-publish.sh:generic-api-key:55
+# Synthetic credential IDs used to prove controller provenance checks fail closed.
+993886f218e1f847b8d569c12d7a3ff2ed96b8e7:elixir/serviceradar_core/test/serviceradar/automation/ansible/secure_child_launcher_test.exs:generic-api-key:146
+993886f218e1f847b8d569c12d7a3ff2ed96b8e7:elixir/serviceradar_core/test/serviceradar/automation/ansible/secure_child_launcher_test.exs:generic-api-key:147
+993886f218e1f847b8d569c12d7a3ff2ed96b8e7:elixir/serviceradar_core/test/serviceradar/automation/ansible/controller_provenance_test.exs:generic-api-key:388
+993886f218e1f847b8d569c12d7a3ff2ed96b8e7:elixir/serviceradar_core/test/serviceradar/automation/ansible/controller_provenance_test.exs:generic-api-key:389
+993886f218e1f847b8d569c12d7a3ff2ed96b8e7:elixir/serviceradar_core/test/serviceradar/automation/ansible/controller_provenance_test.exs:generic-api-key:390
+# Synthetic PEM-shaped rejection fixture removed from the tip but retained in PR history.
+1f50b9c46160066a551450f2362eaceecff655cf:elixir/serviceradar_core/test/serviceradar/automation/ansible/awx_client_test.exs:private-key:711

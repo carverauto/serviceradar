@@ -33,6 +33,8 @@ fn connector_config(desktop_size: ironrdp_connector::DesktopSize) -> ironrdp_con
         bitmap: None,
         dig_product_id: String::new(),
         client_dir: "C:\\Windows\\System32\\mstscax.dll".to_owned(),
+        alternate_shell: String::new(),
+        work_dir: String::new(),
         platform: ironrdp_pdu::rdp::capability_sets::MajorPlatformType::UNIX,
         hardware_id: None,
         request_data: None,
@@ -41,8 +43,10 @@ fn connector_config(desktop_size: ironrdp_connector::DesktopSize) -> ironrdp_con
         performance_flags: ironrdp_pdu::rdp::client_info::PerformanceFlags::default(),
         license_cache: None,
         timezone_info: ironrdp_pdu::rdp::client_info::TimezoneInfo::default(),
+        compression_type: None,
         enable_server_pointer: false,
         pointer_software_rendering: false,
+        multitransport_flags: None,
     }
 }
 

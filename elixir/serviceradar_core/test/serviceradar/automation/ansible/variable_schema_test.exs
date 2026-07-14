@@ -281,4 +281,168 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchemaTest do
       assert VariableSchema.extra_vars_from_form(vars(), %{}) == %{}
     end
   end
+
+  describe "validated_non_secret_inputs/2" do
+    test "canonicalizes declared typed non-secret inputs" do
+      vars = [
+        %Var{name: "version", type: :text, required: true},
+        %Var{name: "replicas", type: :integer, min: 1, max: 10},
+        %Var{name: "environment", type: :select, choices: ["stage", "prod"]}
+      ]
+
+      assert {:ok, %{"version" => "1.2.3", "replicas" => 3, "environment" => "prod"}} =
+               VariableSchema.validated_non_secret_inputs(vars, %{
+                 "version" => "1.2.3",
+                 "replicas" => "3",
+                 "environment" => "prod"
+               })
+    end
+
+    test "rejects an entire binding that declares a private/password input" do
+      vars = [
+        %Var{name: "version", type: :text},
+        %Var{name: "password", type: :password, private: true}
+      ]
+
+      assert {:error, {:sensitive_launch_inputs, ["password"]}} =
+               VariableSchema.validated_non_secret_inputs(vars, %{"version" => "1.2.3"})
+    end
+
+    test "rejects undeclared fields and invalid typed values" do
+      vars = [%Var{name: "replicas", type: :integer, min: 1, max: 10}]
+
+      assert {:error, {:undeclared_launch_inputs, ["password"]}} =
+               VariableSchema.validated_non_secret_inputs(vars, %{"password" => "secret"})
+
+      assert {:error, {:invalid_launch_input, "replicas"}} =
+               VariableSchema.validated_non_secret_inputs(vars, %{"replicas" => "many"})
+
+      assert {:error, {:launch_input_out_of_bounds, "replicas"}} =
+               VariableSchema.validated_non_secret_inputs(vars, %{"replicas" => "11"})
+    end
+
+    test "requires mandatory values" do
+      vars = [%Var{name: "version", type: :text, required: true}]
+
+      assert {:error, {:required_launch_input, "version"}} =
+               VariableSchema.validated_non_secret_inputs(vars, %{})
+    end
+
+    test "rejects keys that collide after form-key normalization" do
+      vars = [%Var{name: "environment", type: :text}]
+
+      assert {:error, :ambiguous_launch_inputs} =
+               VariableSchema.validated_non_secret_inputs(vars, %{
+                 :environment => "stage",
+                 "environment" => "prod"
+               })
+    end
+  end
+
+  describe "from_binding/1" do
+    test "parses the reviewed binding input contract" do
+      binding = %{
+        input_schema: %{
+          "environment" => %{
+            "type" => "select",
+            "required" => true,
+            "choices" => ["stage", "prod"],
+            "help" => "Deployment environment"
+          },
+          "replicas" => %{"type" => "integer", "min" => 1, "max" => 10}
+        },
+        input_classifications: %{"environment" => "internal", "replicas" => "public"}
+      }
+
+      assert {:ok, [environment, replicas]} = VariableSchema.from_binding(binding)
+      assert %Var{type: :select, required: true, choices: ["stage", "prod"]} = environment
+      assert %Var{type: :integer, min: 1, max: 10, private: false} = replicas
+    end
+
+    test "rejects secret-like names, unreviewed keys, and incomplete classifications" do
+      assert {:error, {:sensitive_binding_input_forbidden, "api_token"}} =
+               VariableSchema.from_binding(%{
+                 input_schema: %{"api_token" => %{"type" => "text"}},
+                 input_classifications: %{"api_token" => "internal"}
+               })
+
+      assert {:error, :binding_input_schema_invalid} =
+               VariableSchema.from_binding(%{
+                 input_schema: %{"region" => %{"type" => "text", "default" => "farm01"}},
+                 input_classifications: %{"region" => "internal"}
+               })
+
+      assert {:error, :binding_input_classifications_invalid} =
+               VariableSchema.from_binding(%{
+                 input_schema: %{"region" => %{"type" => "text"}},
+                 input_classifications: %{}
+               })
+    end
+
+    test "uses canonical token boundaries for sensitive input names" do
+      for name <- [
+            "apiKey",
+            "APIKey",
+            "APIKEY",
+            "MYAPITOKEN",
+            "privateKey",
+            "bearerToken",
+            "password1",
+            "credentialValue"
+          ] do
+        refute VariableSchema.reviewed_input_name?(name)
+
+        assert {:error, {:sensitive_binding_input_forbidden, ^name}} =
+                 VariableSchema.from_binding(%{
+                   input_schema: %{name => %{"type" => "text"}},
+                   input_classifications: %{name => "internal"}
+                 })
+      end
+
+      for name <- [
+            "environment",
+            "qemuGuestAgentState",
+            "apiary_zone",
+            "key_rotation_days",
+            "tokenizer_mode"
+          ] do
+        assert VariableSchema.reviewed_input_name?(name)
+      end
+    end
+
+    test "rejects Ansible transport and magic-variable names" do
+      for name <- [
+            "ansible_host",
+            "ansible_connection",
+            "ansible_python_interpreter",
+            "inventory_hostname",
+            "hostvars",
+            "groups",
+            "play_hosts"
+          ] do
+        assert {:error, {:sensitive_binding_input_forbidden, ^name}} =
+                 VariableSchema.from_binding(%{
+                   input_schema: %{name => %{"type" => "text"}},
+                   input_classifications: %{name => "internal"}
+                 })
+      end
+
+      assert VariableSchema.reviewed_input_name?("qemu_guest_agent_state")
+      refute VariableSchema.reviewed_input_name?("Ansible_User")
+    end
+
+    test "rejects input names that differ only by case" do
+      assert {:error, :binding_input_schema_invalid} =
+               VariableSchema.from_binding(%{
+                 input_schema: %{
+                   "Environment" => %{"type" => "text"},
+                   "environment" => %{"type" => "text"}
+                 },
+                 input_classifications: %{
+                   "Environment" => "internal",
+                   "environment" => "internal"
+                 }
+               })
+    end
+  end
 end

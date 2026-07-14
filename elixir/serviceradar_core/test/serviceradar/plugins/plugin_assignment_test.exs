@@ -1,10 +1,12 @@
 defmodule ServiceRadar.Plugins.PluginAssignmentTest do
   use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.PolicyAssignmentReconciler
+  alias ServiceRadar.ProcessRegistry
 
   require Ash.Query
 
@@ -51,6 +53,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
   } do
     plugin_id = "duplicate-guard-#{unique_id}"
     agent_uid = "agent-duplicate-guard-#{unique_id}"
+    register_control_session!(agent_uid, "farm01")
     {:ok, package} = create_approved_package(actor, plugin_id)
 
     assert {:ok, _policy_assignment} =
@@ -98,6 +101,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
   } do
     plugin_id = "single-enabled-assignment-#{unique_id}"
     agent_uid = "agent-single-enabled-assignment-#{unique_id}"
+    register_control_session!(agent_uid, "farm01")
     {:ok, package} = create_approved_package(actor, plugin_id)
 
     assert {:ok, assignment} =
@@ -147,6 +151,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
   } do
     plugin_id = "disabled-duplicate-assignment-#{unique_id}"
     agent_uid = "agent-disabled-duplicate-assignment-#{unique_id}"
+    register_control_session!(agent_uid, "farm01")
     {:ok, package} = create_approved_package(actor, plugin_id)
 
     assert {:ok, _active} =
@@ -194,6 +199,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
   } do
     plugin_id = "policy-package-update-#{unique_id}"
     agent_uid = "agent-policy-package-update-#{unique_id}"
+    register_control_session!(agent_uid, "farm01")
     {:ok, old_package} = create_approved_package(actor, plugin_id)
     {:ok, new_package} = create_package_version(actor, plugin_id, "1.0.1")
 
@@ -245,6 +251,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
   } do
     plugin_id = "policy-adopts-manual-#{unique_id}"
     agent_uid = "agent-policy-adopts-manual-#{unique_id}"
+    register_control_session!(agent_uid, "farm01")
     {:ok, old_package} = create_approved_package(actor, plugin_id)
     {:ok, new_package} = create_package_version(actor, plugin_id, "1.0.1")
 
@@ -298,7 +305,11 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
 
     assert {:ok, [assignment]} =
              PluginAssignment
-             |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_uid}, actor: actor)
+             |> Ash.Query.for_read(
+               :by_agent,
+               %{agent_uid: agent_uid, partition_id: manual_assignment.partition_id},
+               actor: actor
+             )
              |> Ash.Query.filter(plugin_id == ^plugin_id and enabled == true)
              |> Ash.read(actor: actor)
 
@@ -307,6 +318,115 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
     assert assignment.policy_id == policy.policy_id
     assert assignment.plugin_package_id == new_package.id
     refute assignment.params["legacy"]
+  end
+
+  test "same UID and source key resolve only inside the authenticated partition", %{
+    actor: actor,
+    unique_id: unique_id
+  } do
+    plugin_id = "partition-source-key-#{unique_id}"
+    agent_uid = "agent-partition-source-key-#{unique_id}"
+    source_key = "shared-source-key:#{unique_id}"
+    {:ok, package} = create_approved_package(actor, plugin_id)
+
+    register_control_session!(agent_uid, "farm01")
+    assert {:ok, farm} = create_policy_assignment(actor, package, agent_uid, source_key)
+    unregister_control_session!("farm01", agent_uid)
+    register_control_session!(agent_uid, "tonka01")
+    assert {:ok, tonka} = create_policy_assignment(actor, package, agent_uid, source_key)
+
+    assert farm.id != tonka.id
+    assert farm.partition_id == "farm01"
+    assert tonka.partition_id == "tonka01"
+
+    assert {:ok, %PluginAssignment{id: farm_id}} =
+             read_by_partition_source_key(actor, "farm01", source_key)
+
+    assert farm_id == farm.id
+
+    assert {:ok, %PluginAssignment{id: tonka_id}} =
+             read_by_partition_source_key(actor, "tonka01", source_key)
+
+    assert tonka_id == tonka.id
+    assert {:ok, nil} = read_by_partition_source_key(actor, "other", source_key)
+  end
+
+  defp create_policy_assignment(actor, package, agent_uid, source_key) do
+    PluginAssignment
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        agent_uid: agent_uid,
+        plugin_package_id: package.id,
+        source: :policy,
+        source_key: source_key,
+        policy_id: "policy-#{source_key}",
+        enabled: true,
+        interval_seconds: 300,
+        timeout_seconds: 30,
+        params: %{}
+      },
+      actor: actor
+    )
+    |> Ash.create()
+  end
+
+  defp read_by_partition_source_key(actor, partition_id, source_key) do
+    PluginAssignment
+    |> Ash.Query.for_read(
+      :by_partition_source_key,
+      %{partition_id: partition_id, source: :policy, source_key: source_key},
+      actor: actor
+    )
+    |> Ash.read_one(actor: actor)
+  end
+
+  defp register_control_session!(agent_uid, partition_id) do
+    assert {:ok, _pid} =
+             ProcessRegistry.register(
+               {:agent_control, partition_id, agent_uid, node()},
+               %{
+                 agent_id: agent_uid,
+                 partition_id: partition_id,
+                 gateway_node: node(),
+                 capabilities: ["wasm"]
+               }
+             )
+
+    assert_control_partition(agent_uid, partition_id, 40)
+  end
+
+  defp unregister_control_session!(partition_id, agent_uid) do
+    :ok = ProcessRegistry.unregister({:agent_control, partition_id, agent_uid, node()})
+    assert_control_session_absent(agent_uid, 40)
+  end
+
+  defp assert_control_partition(_agent_uid, _partition_id, 0),
+    do: flunk("control-session partition did not converge")
+
+  defp assert_control_partition(agent_uid, partition_id, attempts) do
+    case AgentCommandBus.resolve_control_session_evidence(partition_id, agent_uid, nil) do
+      {:ok, %{agent_id: ^agent_uid, partition_id: ^partition_id}} ->
+        :ok
+
+      _other ->
+        Process.sleep(10)
+        assert_control_partition(agent_uid, partition_id, attempts - 1)
+    end
+  end
+
+  defp assert_control_session_absent(_agent_uid, 0),
+    do: flunk("control-session removal did not converge")
+
+  defp assert_control_session_absent(agent_uid, attempts) do
+    case AgentCommandBus.resolve_control_session_evidence(agent_uid) do
+      {:error, _reason} ->
+        :ok
+
+      _other ->
+        Process.sleep(10)
+        assert_control_session_absent(agent_uid, attempts - 1)
+    end
   end
 
   defp create_approved_package(actor, plugin_id) do

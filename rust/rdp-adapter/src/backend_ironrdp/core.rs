@@ -22,6 +22,8 @@ use zeroize::Zeroizing;
 
 const CONNECTOR_NOT_IMPLEMENTED: &str =
     "IronRDP backend is linked, but live auth/media/demo validation is incomplete";
+const ACTIVE_SESSION_TERMINATED: &str =
+    "IronRDP active session entered a terminated or unsupported control state";
 const MEMORY_USER_REQUIRED: &str =
     "IronRDP backend currently requires a memory-user credential grant";
 const INVALID_CONNECTION_PLAN: &str = "IronRDP connection plan is invalid";

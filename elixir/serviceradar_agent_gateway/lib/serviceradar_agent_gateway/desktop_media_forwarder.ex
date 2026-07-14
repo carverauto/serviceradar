@@ -21,6 +21,17 @@ defmodule ServiceRadarAgentGateway.DesktopMediaForwarder do
     end
   end
 
+  def close_session(desktop_session_id, opts \\ []) when is_binary(desktop_session_id) do
+    with {:ok, core_node} <- resolve_core_node(opts),
+         :ok <- ensure_core_connected(core_node, opts) do
+      do_close_session(
+        desktop_session_id,
+        Keyword.put(opts, :core_node, core_node),
+        retry_attempts(opts)
+      )
+    end
+  end
+
   defp do_forward_frame(frame, session, opts, remaining_attempts) do
     case rpc_module(opts).call(
            core_node(opts),
@@ -49,6 +60,37 @@ defmodule ServiceRadarAgentGateway.DesktopMediaForwarder do
 
       other ->
         {:error, {:unexpected_forward_response, other}}
+    end
+  end
+
+  defp do_close_session(desktop_session_id, opts, remaining_attempts) do
+    case rpc_module(opts).call(
+           core_node(opts),
+           ingress_module(opts),
+           :close_session,
+           [desktop_session_id],
+           timeout(opts)
+         ) do
+      {:badrpc, :nodedown} when remaining_attempts > 0 ->
+        Logger.warning(
+          "Desktop media close hit :nodedown talking to core-elx; retrying (remaining=#{remaining_attempts})"
+        )
+
+        _ = ensure_core_connected(core_node(opts), opts)
+        do_close_session(desktop_session_id, opts, remaining_attempts - 1)
+
+      {:badrpc, reason} ->
+        Logger.error("Failed to close desktop media ingress on core-elx: #{inspect(reason)}")
+        {:error, :core_unavailable}
+
+      :ok ->
+        :ok
+
+      {:error, _reason} = error ->
+        error
+
+      other ->
+        {:error, {:unexpected_close_response, other}}
     end
   end
 

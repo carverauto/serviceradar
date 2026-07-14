@@ -197,9 +197,39 @@ fn build_active_stage_for_probe(
     let (connection_result, desktop_size) = build_connection_result_for_probe(plan, credential);
 
     (
-        ironrdp_session::ActiveStage::new(connection_result),
+        active_stage_from_connection_result_for_probe(connection_result),
         desktop_size,
     )
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn active_stage_from_connection_result_for_probe(
+    connection_result: ironrdp_connector::ConnectionResult,
+) -> ironrdp_session::ActiveStage {
+    let ironrdp_connector::ConnectionResult {
+        io_channel_id,
+        user_channel_id,
+        message_channel_id,
+        share_id,
+        static_channels,
+        desktop_size: _,
+        enable_server_pointer,
+        pointer_software_rendering,
+        activation_factory: _,
+        compression_type,
+    } = connection_result;
+
+    ironrdp_session::ActiveStageBuilder {
+        static_channels,
+        user_channel_id,
+        io_channel_id,
+        message_channel_id,
+        share_id,
+        compression_type,
+        enable_server_pointer,
+        pointer_software_rendering,
+    }
+    .build()
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -216,18 +246,21 @@ fn build_connection_result_for_probe(
         config.clone(),
         default_connector_client_addr_for_probe(),
     );
-    let connection_activation =
-        ironrdp_connector::connection_activation::ConnectionActivationSequence::new(
+    let activation_factory =
+        ironrdp_connector::connection_activation::ConnectionActivationFactory::new(
             config, 1003, 1004,
         );
     let connection_result = ironrdp_connector::ConnectionResult {
         io_channel_id: 1003,
         user_channel_id: 1004,
+        message_channel_id: None,
+        share_id: 0,
         static_channels: connector.static_channels,
         desktop_size,
         enable_server_pointer: false,
         pointer_software_rendering: false,
-        connection_activation,
+        activation_factory,
+        compression_type: None,
     };
 
     (connection_result, desktop_size)
@@ -255,7 +288,9 @@ fn summarize_active_stage_outputs_for_probe(
             | ironrdp_session::ActiveStageOutput::PointerPosition { .. }
             | ironrdp_session::ActiveStageOutput::PointerBitmap(_)
             | ironrdp_session::ActiveStageOutput::Terminate(_)
-            | ironrdp_session::ActiveStageOutput::DeactivateAll(_) => {}
+            | ironrdp_session::ActiveStageOutput::DeactivateAll
+            | ironrdp_session::ActiveStageOutput::MultitransportRequest(_)
+            | ironrdp_session::ActiveStageOutput::AutoDetect(_) => {}
         }
     }
 
@@ -345,7 +380,9 @@ where
                 media_queue.push_back(media_frame);
             }
             ironrdp_session::ActiveStageOutput::Terminate(_)
-            | ironrdp_session::ActiveStageOutput::DeactivateAll(_) => {
+            | ironrdp_session::ActiveStageOutput::DeactivateAll
+            | ironrdp_session::ActiveStageOutput::MultitransportRequest(_)
+            | ironrdp_session::ActiveStageOutput::AutoDetect(_) => {
                 probe.terminal_outputs += 1;
             }
             ironrdp_session::ActiveStageOutput::PointerDefault
@@ -406,4 +443,3 @@ fn encode_graphics_update_for_probe(
     encode_desktop_media_frame(&frame, policy)
         .map_err(|_| BackendError::Unsupported(INVALID_GRAPHICS_UPDATE))
 }
-

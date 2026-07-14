@@ -26,9 +26,10 @@ defmodule ServiceRadar.Plugins.Validations.NoShadowedManualAssignment do
 
   defp reject_shadowed_manual_assignment(changeset) do
     agent_uid = Ash.Changeset.get_attribute(changeset, :agent_uid)
+    partition_id = Ash.Changeset.get_attribute(changeset, :partition_id)
     plugin_package_id = Ash.Changeset.get_attribute(changeset, :plugin_package_id)
 
-    if blank?(agent_uid) or is_nil(plugin_package_id) do
+    if blank?(agent_uid) or blank?(partition_id) or is_nil(plugin_package_id) do
       :ok
     else
       actor = SystemActor.system(:plugin_assignment_validation)
@@ -36,8 +37,8 @@ defmodule ServiceRadar.Plugins.Validations.NoShadowedManualAssignment do
       PluginAssignment
       |> Ash.Query.for_read(:read)
       |> Ash.Query.filter(
-        agent_uid == ^agent_uid and plugin_package_id == ^plugin_package_id and
-          source == :policy and enabled == true
+        partition_id == ^partition_id and agent_uid == ^agent_uid and
+          plugin_package_id == ^plugin_package_id and source == :policy and enabled == true
       )
       |> Ash.Query.limit(1)
       |> Ash.read_one(actor: actor)

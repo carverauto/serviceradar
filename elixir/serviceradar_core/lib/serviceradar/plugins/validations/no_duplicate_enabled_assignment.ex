@@ -27,6 +27,7 @@ defmodule ServiceRadar.Plugins.Validations.NoDuplicateEnabledAssignment do
 
   defp reject_duplicate_enabled_assignment(changeset) do
     agent_uid = changed_or_current(changeset, :agent_uid)
+    partition_id = changed_or_current(changeset, :partition_id)
 
     package_id = changed_or_current(changeset, :plugin_package_id)
 
@@ -34,7 +35,8 @@ defmodule ServiceRadar.Plugins.Validations.NoDuplicateEnabledAssignment do
 
     with false <- blank?(agent_uid),
          {:ok, plugin_id} <- load_plugin_id(package_id),
-         {:ok, assignments} <- enabled_assignments(agent_uid, plugin_id) do
+         false <- blank?(partition_id),
+         {:ok, assignments} <- enabled_assignments(partition_id, agent_uid, plugin_id) do
       assignments
       |> Enum.reject(&(current_id && &1.id == current_id))
       |> case do
@@ -72,12 +74,15 @@ defmodule ServiceRadar.Plugins.Validations.NoDuplicateEnabledAssignment do
     end
   end
 
-  defp enabled_assignments(agent_uid, plugin_id) do
+  defp enabled_assignments(partition_id, agent_uid, plugin_id) do
     actor = SystemActor.system(:plugin_assignment_validation)
 
     PluginAssignment
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(agent_uid == ^agent_uid and plugin_id == ^plugin_id and enabled == true)
+    |> Ash.Query.filter(
+      partition_id == ^partition_id and agent_uid == ^agent_uid and plugin_id == ^plugin_id and
+        enabled == true
+    )
     |> Ash.read(actor: actor)
   end
 

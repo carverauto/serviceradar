@@ -3,35 +3,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
   Device-detail Ansible panel: AWX-managed detection, run-history loading,
   and the in-page launch modal.
 
-  A device is "AWX-managed" when the AWX inventory sync has stamped
-  `metadata.awx.*` onto it (the same signal `RunLauncher` uses to derive the
-  ansible inventory ref). `metadata.awx.controller_id` is the AWX controller
-  the device belongs to; only playbooks bound to that controller's job
-  templates are launchable against it.
+  The AWX inventory metadata on a device controls panel visibility and catalog
+  filtering only. The secure launch path does not derive target identity from
+  that metadata; it resolves the canonical device UID to durable approved AWX
+  memberships instead.
 
-  Reads and launches go through Ash with a `SystemActor` — mirroring the
-  existing `AnsibleLive.LaunchLive` / `RunsIndex` pages — while the human
-  operator is gated up-front with `RBAC.can?/2` and recorded on the run via
-  `requested_by_actor_id`. `RunLauncher` internally reads the AWX `Controller`
-  (which requires a manage permission most launchers lack), so a `SystemActor`
-  is the correct actor for the dispatch path.
+  Catalog and history reads use the authenticated human scope. Launches go
+  through `SecureLaunchService`, which resolves reviewed bindings and durable
+  AWX memberships again on submit before dispatch. Device metadata is display
+  context only and never becomes execution identity.
   """
 
-  import Phoenix.Component, only: [assign: 3]
-  import Phoenix.LiveView, only: [put_flash: 3]
+  import Phoenix.Component, only: [assign: 3, to_form: 1]
+  import Phoenix.LiveView, only: [push_navigate: 2, put_flash: 3]
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.Playbook
   alias ServiceRadar.Automation.Ansible.PlaybookRunTarget
-  alias ServiceRadar.Automation.Ansible.RunLauncher
-  alias ServiceRadar.Automation.Ansible.VariableSchema
+  alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
+  alias ServiceRadar.Automation.Ansible.SecureLaunchService
   alias ServiceRadar.Automation.Ansible.VariableSchema.Var
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.AnsibleLive.AutomationHistory
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
 
   require Logger
 
-  @actor_name :device_ansible_panel
   @runs_limit 50
 
   ## Defaults ------------------------------------------------------------------
@@ -42,6 +38,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
     |> assign(:device_awx_managed, false)
     |> assign(:can_view_ansible_runs, false)
     |> assign(:ansible_controller_id, nil)
+    |> assign(:ansible_secure_history, [])
     |> assign(:ansible_runs, [])
     |> assign(:ansible_playbooks, [])
     |> reset_launch_modal()
@@ -54,6 +51,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
     |> assign(:ansible_vars, [])
     |> assign(:ansible_var_values, %{})
     |> assign(:ansible_launch_notice, nil)
+    |> assign(:ansible_launch_ready, false)
+    |> assign(:ansible_launch_resolution, nil)
+    |> assign(:ansible_launch_readiness, "Select a playbook to verify its reviewed binding and target membership.")
+    |> assign(:ansible_launch_form, to_form(%{}))
   end
 
   ## Detection -----------------------------------------------------------------
@@ -138,14 +139,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
     managed? = awx_managed?(device_row)
     controller_id = awx_controller_id(device_row)
 
-    runs = if managed? and can_view?, do: load_runs(uid), else: []
-    playbooks = if managed? and RBAC.can?(scope, "ansible.runs.launch"), do: load_playbooks(controller_id), else: []
+    runs = if managed? and can_view?, do: load_runs(uid, scope), else: []
+    secure_history = if managed? and can_view?, do: load_secure_history(uid, scope), else: []
+
+    playbooks =
+      if managed? and RBAC.can?(scope, "ansible.runs.launch"),
+        do: load_playbooks(controller_id, scope),
+        else: []
 
     socket =
       socket
       |> assign(:device_awx_managed, managed?)
       |> assign(:can_view_ansible_runs, can_view?)
       |> assign(:ansible_controller_id, controller_id)
+      |> assign(:ansible_secure_history, secure_history)
       |> assign(:ansible_runs, runs)
       |> assign(:ansible_playbooks, playbooks)
 
@@ -155,34 +162,53 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
   @doc "Reload just the run history (used on Ansible PubSub updates)."
   def refresh_runs(socket) do
     if socket.assigns[:device_awx_managed] and socket.assigns[:can_view_ansible_runs] do
-      assign(socket, :ansible_runs, load_runs(socket.assigns.device_uid))
+      socket
+      |> assign(
+        :ansible_secure_history,
+        load_secure_history(socket.assigns.device_uid, socket.assigns.current_scope)
+      )
+      |> assign(:ansible_runs, load_runs(socket.assigns.device_uid, socket.assigns.current_scope))
     else
       socket
     end
   end
 
-  defp load_runs(uid) when is_binary(uid) do
-    case PlaybookRunTarget.list_for_device(uid, actor: actor()) do
+  defp load_runs(uid, scope) when is_binary(uid) do
+    case PlaybookRunTarget.list_for_device(uid, scope: scope) do
       {:ok, targets} -> Enum.take(targets, @runs_limit)
       _ -> []
     end
   end
 
-  defp load_runs(_), do: []
+  defp load_runs(_uid, _scope), do: []
+
+  defp load_secure_history(uid, scope) when is_binary(uid) do
+    case AutomationHistory.list_device_history(uid, scope, @runs_limit) do
+      {:ok, records} -> records
+      _ -> []
+    end
+  end
+
+  defp load_secure_history(_uid, _scope), do: []
 
   # Launchable playbooks bound to this device's AWX controller. Reuses the
   # canonical `Playbook.list_launchable/2` read (single source of truth shared
   # with the ad-hoc launch page and northbound sync) scoped to the controller,
   # rather than a hand-rolled query that silently returned [] when the resource
   # had no primary read action.
-  defp load_playbooks(controller_id) when is_binary(controller_id) do
-    case Playbook.list_launchable(%{controller_id: controller_id}, actor: actor()) do
-      {:ok, rows} -> rows
-      _ -> []
+  defp load_playbooks(controller_id, scope) when is_binary(controller_id) do
+    case Playbook.list_launchable(%{controller_id: controller_id}, scope: scope) do
+      {:ok, rows} ->
+        Enum.filter(rows, fn playbook ->
+          playbook.source_type == :awx and playbook.parse_status == :ok
+        end)
+
+      _ ->
+        []
     end
   end
 
-  defp load_playbooks(_), do: []
+  defp load_playbooks(_controller_id, _scope), do: []
 
   ## Launch modal --------------------------------------------------------------
 
@@ -201,24 +227,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
   @doc "phx-change on the launch form: track selection + typed values."
   def change_launch(socket, params) do
     playbook_id = params["playbook_id"] || socket.assigns.ansible_selected_playbook_id
+    input_params = input_params(params)
 
     socket =
       assign(
         socket,
         :ansible_var_values,
-        Map.merge(socket.assigns.ansible_var_values, var_values_from_params(socket.assigns.ansible_vars, params))
+        Map.merge(
+          socket.assigns.ansible_var_values,
+          var_values_from_params(socket.assigns.ansible_vars, input_params)
+        )
       )
 
     if playbook_id == socket.assigns.ansible_selected_playbook_id do
       socket
     else
-      playbook = Enum.find(socket.assigns.ansible_playbooks, &(&1.id == playbook_id))
-      vars = if playbook, do: VariableSchema.from_playbook(playbook), else: []
-
-      socket
-      |> assign(:ansible_selected_playbook_id, playbook_id)
-      |> assign(:ansible_vars, vars)
-      |> assign(:ansible_var_values, defaults_for(vars))
+      prepare_launch(socket, playbook_id)
     end
   end
 
@@ -239,34 +263,72 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
 
   defp do_launch(socket, playbook_id, params) do
     scope = socket.assigns.current_scope
-    extra_vars = VariableSchema.extra_vars_from_form(socket.assigns.ansible_vars, params)
+    inputs = input_params(params)
 
-    intent = %{
-      playbook_id: playbook_id,
-      device_uids: [socket.assigns.device_uid],
-      extra_vars: extra_vars,
-      requested_by_actor_id: actor_id(scope)
-    }
+    case SecureLaunchService.launch(
+           scope.user,
+           [socket.assigns.device_uid],
+           playbook_id,
+           inputs,
+           mode: :run,
+           request_source: :device_details
+         ) do
+      {:ok, result} ->
+        socket =
+          socket
+          |> reset_launch_modal()
+          |> put_flash(:info, secure_launch_success(result))
 
-    case RunLauncher.launch(intent, actor: actor()) do
-      {:ok, _run} ->
-        socket
-        |> reset_launch_modal()
-        |> put_flash(:info, "Launch dispatched — the run will appear in the history below.")
-        |> refresh_runs()
+        navigate_to_operation(socket, result)
 
       {:error, reason} ->
-        Logger.info("Device Ansible launch failed", reason: inspect(reason))
+        Logger.info("Device Ansible launch failed", SafeFailureEvidence.log_metadata(reason))
         assign(socket, :ansible_launch_notice, launch_error_message(reason))
     end
   end
 
   ## Helpers -------------------------------------------------------------------
 
-  defp actor, do: SystemActor.system(@actor_name)
+  defp prepare_launch(socket, playbook_id) do
+    scope = socket.assigns.current_scope
 
-  defp actor_id(%{user: %{id: id}}), do: id
-  defp actor_id(_), do: nil
+    case SecureLaunchService.prepare(
+           scope.user,
+           [socket.assigns.device_uid],
+           playbook_id
+         ) do
+      {:ok, resolution} ->
+        ready? = resolution.run_mode_supported == true
+
+        socket
+        |> assign(:ansible_selected_playbook_id, playbook_id)
+        |> assign(:ansible_vars, resolution.variables)
+        |> assign(:ansible_var_values, %{})
+        |> assign(:ansible_launch_ready, ready?)
+        |> assign(:ansible_launch_resolution, resolution)
+        |> assign(
+          :ansible_launch_readiness,
+          if(ready?,
+            do: "Reviewed binding and exact target membership are ready.",
+            else: "This binding is not approved for run mode."
+          )
+        )
+        |> assign(:ansible_launch_notice, nil)
+
+      {:error, reason} ->
+        socket
+        |> assign(:ansible_selected_playbook_id, playbook_id)
+        |> assign(:ansible_vars, [])
+        |> assign(:ansible_var_values, %{})
+        |> assign(:ansible_launch_ready, false)
+        |> assign(:ansible_launch_resolution, nil)
+        |> assign(:ansible_launch_readiness, launch_error_message(reason))
+        |> assign(:ansible_launch_notice, nil)
+    end
+  end
+
+  defp input_params(%{"inputs" => inputs}) when is_map(inputs), do: inputs
+  defp input_params(_params), do: %{}
 
   defp var_values_from_params(vars, params) when is_list(vars) and is_map(params) do
     Enum.reduce(vars, %{}, fn %Var{name: name}, acc ->
@@ -279,38 +341,56 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
 
   defp var_values_from_params(_vars, _params), do: %{}
 
-  defp defaults_for(vars) do
-    Enum.reduce(vars, %{}, fn %Var{} = var, acc ->
-      case var.default do
-        nil -> acc
-        default -> Map.put(acc, var.name, to_string_default(default))
-      end
-    end)
-  end
-
-  defp to_string_default(value) when is_binary(value), do: value
-  defp to_string_default(value) when is_integer(value) or is_float(value), do: to_string(value)
-  defp to_string_default(true), do: "true"
-  defp to_string_default(false), do: "false"
-  defp to_string_default(value), do: inspect(value)
-
   defp blank?(nil), do: true
   defp blank?(""), do: true
   defp blank?(value) when is_binary(value), do: String.trim(value) == ""
   defp blank?(_), do: false
 
   @doc false
-  def launch_error_message(:devices_required), do: "This device isn't in an AWX inventory."
-  def launch_error_message(:unmanaged_devices), do: "This device isn't ansible-managed."
+  def launch_error_message(:devices_required), do: "This device is not an eligible canonical target."
 
-  def launch_error_message(:mixed_controllers), do: "This device spans multiple AWX controllers."
+  def launch_error_message({:target_not_ready, _device_uid}),
+    do: "This target has no human-approved, current, enabled AWX membership for this binding."
 
-  def launch_error_message(:unknown_playbook), do: "Playbook not found."
-  def launch_error_message(:unknown_controller), do: "AWX controller not found."
-  def launch_error_message(:playbook_unbound), do: "Playbook isn't bound to an AWX job template."
+  def launch_error_message(:no_common_approved_inventory),
+    do: "The selected targets do not share an approved AWX inventory for this binding."
 
-  def launch_error_message(:git_sourced_not_supported_v1),
-    do: "Git-sourced playbooks need an AWX template binding before they're launchable."
+  def launch_error_message(:ambiguous_common_approved_inventory),
+    do: "More than one approved AWX inventory matches; an operator must resolve the ambiguity."
 
-  def launch_error_message(other), do: String.slice("Launch failed: #{inspect(other)}", 0, 240)
+  def launch_error_message({:ambiguous_target_membership, _device_uid}),
+    do: "A target has multiple approved memberships in the selected inventory."
+
+  def launch_error_message(:binding_not_approved), do: "The AWX template has no current approval."
+  def launch_error_message(:binding_approval_expired), do: "The AWX template approval has expired."
+  def launch_error_message(:binding_mode_not_approved), do: "The reviewed binding does not allow run mode."
+
+  def launch_error_message({:required_launch_input, name}), do: "#{name} is required by the reviewed binding."
+
+  def launch_error_message({:invalid_launch_input, name}), do: "#{name} is not a valid value for the reviewed binding."
+
+  def launch_error_message({:invalid_launch_choice, name}), do: "#{name} is not one of the reviewed choices."
+
+  def launch_error_message({:launch_input_out_of_bounds, name}), do: "#{name} is outside the reviewed bounds."
+
+  def launch_error_message({:undeclared_launch_inputs, _names}),
+    do: "The request contained an input that is not declared by the reviewed binding."
+
+  def launch_error_message(:ambiguous_launch_inputs), do: "The request contained ambiguous reviewed-input fields."
+
+  def launch_error_message(:playbook_not_found), do: "Playbook not found."
+  def launch_error_message(:awx_playbook_required), do: "Only reviewed AWX playbooks can run here."
+
+  def launch_error_message(_other), do: "Launch failed because current approval or authorization could not be verified."
+
+  defp secure_launch_success(%{operation: %{id: id}}) when is_binary(id) do
+    "Secure launch dispatched as operation #{id}."
+  end
+
+  defp secure_launch_success(_result), do: "Secure launch dispatched."
+
+  defp navigate_to_operation(socket, %{operation: %{id: id}}) when is_binary(id),
+    do: push_navigate(socket, to: "/ansible/operations/#{id}")
+
+  defp navigate_to_operation(socket, _result), do: push_navigate(socket, to: "/ansible/operations")
 end

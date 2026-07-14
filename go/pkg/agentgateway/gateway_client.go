@@ -760,6 +760,29 @@ func (g *GatewayClient) ResolveCredentialGrant(
 	return resp, nil
 }
 
+// ResolveAutomationLaunchEnvelope resolves a single-use callback bearer through
+// the agent-gateway's distinct mTLS-authenticated launch-envelope RPC.
+func (g *GatewayClient) ResolveAutomationLaunchEnvelope(
+	ctx context.Context,
+	req *proto.AutomationLaunchEnvelopeResolveRequest,
+) (*proto.AutomationLaunchEnvelopeResolveResponse, error) {
+	g.mu.RLock()
+	client := g.client
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || client == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	resp, err := client.ResolveAutomationLaunchEnvelope(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("resolve automation launch envelope: %w", err)
+	}
+
+	return resp, nil
+}
+
 // OpenRelaySession reserves an authenticated camera media ingress session.
 func (g *GatewayClient) OpenRelaySession(ctx context.Context, req *proto.OpenRelaySessionRequest) (*proto.OpenRelaySessionResponse, error) {
 	g.mu.RLock()

@@ -23,6 +23,10 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTCSignalingManager do
     rpc(:close_session, [session_id, viewer_session_id, opts], opts)
   end
 
+  def close_all_for_session(session_id, opts) when is_binary(session_id) do
+    rpc(:close_all_for_session, [session_id, opts], opts)
+  end
+
   defp rpc(function, args, opts) do
     module = remote_manager_module()
     timeout = Keyword.get(opts, :rpc_timeout, @default_rpc_timeout)

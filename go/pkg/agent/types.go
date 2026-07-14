@@ -55,6 +55,7 @@ type Server struct {
 	mapperService      *MapperService
 	pluginManager      *PluginManager
 	credentialBroker   CredentialBrokerResolver
+	launchEnvelopes    *controlPlaneAutomationLaunchEnvelopeResolver
 	artifactUploader   PluginArtifactUploader
 	sidecarStatus      sidecarStatusProvider
 	sidecarManager     sidecarLifecycleManager
@@ -173,11 +174,15 @@ type ServerConfig struct {
 	AddonCgroupRoot string `json:"addon_cgroup_root,omitempty"`
 
 	// Gateway configuration for push-based architecture
-	GatewayAddr             string                 `json:"gateway_addr,omitempty"`              // Address of the agent-gateway to push status to
-	GatewaySecurity         *models.SecurityConfig `json:"gateway_security,omitempty"`          // Security config for gateway connection
-	PushInterval            Duration               `json:"push_interval,omitempty"`             // How often to run the push loop (default: 30s)
-	StatusDebounceInterval  Duration               `json:"status_debounce_interval,omitempty"`  // Minimum interval between unchanged status pushes
-	StatusHeartbeatInterval Duration               `json:"status_heartbeat_interval,omitempty"` // Maximum interval between status pushes (heartbeat)
+	GatewayAddr     string                 `json:"gateway_addr,omitempty"`     // Address of the agent-gateway to push status to
+	GatewaySecurity *models.SecurityConfig `json:"gateway_security,omitempty"` // Security config for gateway connection
+	// PluginHTTPTrustedCAFiles extends the host-side Wasm HTTP client's system
+	// trust store with operator-managed PEM CA bundles. Wasm modules never receive
+	// the bundle contents and cannot select or replace the trust roots.
+	PluginHTTPTrustedCAFiles []string `json:"plugin_http_trusted_ca_files,omitempty"`
+	PushInterval             Duration `json:"push_interval,omitempty"`             // How often to run the push loop (default: 30s)
+	StatusDebounceInterval   Duration `json:"status_debounce_interval,omitempty"`  // Minimum interval between unchanged status pushes
+	StatusHeartbeatInterval  Duration `json:"status_heartbeat_interval,omitempty"` // Maximum interval between status pushes (heartbeat)
 
 	// Embedded sync runtime
 	SyncRuntimeEnabled *bool                          `json:"sync_runtime_enabled,omitempty"` // Enable embedded integration sync runtime

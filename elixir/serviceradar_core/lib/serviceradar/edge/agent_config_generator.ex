@@ -22,10 +22,15 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   ## Usage
 
       # Generate full config for an agent
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_id)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_id, authenticated_partition_id)
 
       # Check if config has changed (returns :not_modified or {:ok, config})
-      result = AgentConfigGenerator.get_config_if_changed(agent_id, current_version)
+      result =
+        AgentConfigGenerator.get_config_if_changed(
+          agent_id,
+          authenticated_partition_id,
+          current_version
+        )
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -33,13 +38,15 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
-  alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Edge.AgentArtifacts
+  alias ServiceRadar.Edge.RemoteConsoleTargetResolver
   alias ServiceRadar.Edge.SNMPProtoMapper
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.SyncConfigGenerator
   alias ServiceRadar.Inventory.BumblebeeCatalogSnapshot
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.ProxmoxSourceScopeResolver
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
@@ -48,6 +55,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Plugins.MapUtils
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Plugins.ProxmoxHostAuthority
   alias ServiceRadar.Plugins.RetiredNativeAddons
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Plugins.StorageToken
@@ -70,6 +78,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       "api_token_secret_ref" => %{"secretRef" => true}
     }
   }
+  @awx_inventory_sync_plugin_id "awx-inventory-sync"
+  @awx_inventory_sync_entrypoint "inventory_sync"
+  @awx_inventory_host_credential_sentinel "__SERVICERADAR_AWX_INVENTORY_HOST_CREDENTIAL__"
+  @awx_inventory_host_credentials_key "_serviceradar_host_credentials"
+  @awx_inventory_host_credentials_schema "serviceradar.awx_inventory_host_credentials.v1"
 
   @type check_config :: %{
           check_id: String.t(),
@@ -113,6 +126,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
           outputs: String.t(),
           capabilities: [String.t()],
           params: map(),
+          host_params: map() | nil,
           permissions: map(),
           resources: map(),
           enabled: boolean(),
@@ -145,10 +159,15 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     - `{:error, reason}` - If config generation fails
   """
   @spec generate_config(String.t()) :: {:ok, agent_config()} | {:error, term()}
-  def generate_config(agent_id) do
-    {config, audits} = generate_collecting_audits(agent_id)
-    commit_deferred_audits(audits)
-    {:ok, config}
+  def generate_config(_agent_id), do: {:error, :authenticated_partition_required}
+
+  @spec generate_config(String.t(), String.t()) :: {:ok, agent_config()} | {:error, term()}
+  def generate_config(agent_id, partition_id) do
+    with {:ok, partition_id} <- authenticated_partition(partition_id) do
+      {config, audits} = generate_collecting_audits(agent_id, partition_id)
+      commit_deferred_audits(audits)
+      {:ok, config}
+    end
   rescue
     error ->
       Logger.error("Failed to generate config for agent #{agent_id}: #{inspect(error)}")
@@ -180,7 +199,20 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   @spec get_config_if_changed(String.t(), String.t()) ::
           :not_modified | {:ok, agent_config()} | {:error, term()}
   def get_config_if_changed(agent_id, current_version) do
-    {config, deferred_audits} = generate_collecting_audits(agent_id)
+    _ = {agent_id, current_version}
+    {:error, :authenticated_partition_required}
+  end
+
+  @spec get_config_if_changed(String.t(), String.t(), String.t()) ::
+          :not_modified | {:ok, agent_config()} | {:error, term()}
+  def get_config_if_changed(agent_id, partition_id, current_version) do
+    with {:ok, partition_id} <- authenticated_partition(partition_id) do
+      do_get_config_if_changed(agent_id, partition_id, current_version)
+    end
+  end
+
+  defp do_get_config_if_changed(agent_id, partition_id, current_version) do
+    {config, deferred_audits} = generate_collecting_audits(agent_id, partition_id)
 
     if config.config_version == current_version do
       # Nothing delivered this poll — drop the audits collected while resolving
@@ -269,24 +301,30 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   @doc """
   Generates and converts the current agent config directly into a proto response.
   """
-  @spec generate_proto_response(String.t()) :: Monitoring.AgentConfigResponse.t()
-  def generate_proto_response(agent_id) when is_binary(agent_id) do
-    {config, audits} = generate_collecting_audits(agent_id)
-    commit_deferred_audits(audits)
-    to_proto_response(config)
+  @spec generate_proto_response(String.t()) :: {:error, :authenticated_partition_required}
+  def generate_proto_response(_agent_id), do: {:error, :authenticated_partition_required}
+
+  @spec generate_proto_response(String.t(), String.t()) ::
+          Monitoring.AgentConfigResponse.t() | {:error, term()}
+  def generate_proto_response(agent_id, partition_id) when is_binary(agent_id) do
+    with {:ok, partition_id} <- authenticated_partition(partition_id) do
+      {config, audits} = generate_collecting_audits(agent_id, partition_id)
+      commit_deferred_audits(audits)
+      to_proto_response(config)
+    end
   end
 
-  defp generate_config!(agent_id) do
+  defp generate_config!(agent_id, partition_id) do
     checks = load_agent_checks!(agent_id)
     sync_payload = load_sync_payload!(agent_id)
-    sweep_config = load_sweep_config(agent_id)
-    mapper_config = load_mapper_config(agent_id)
-    sysmon_config = load_sysmon_config(agent_id)
-    snmp_config = load_snmp_config(agent_id)
-    visibility_config = load_visibility_config(agent_id)
-    bumblebee_config = load_bumblebee_config(agent_id)
-    endpoint_inventory_config = load_endpoint_inventory_config(agent_id)
-    plugin_assignments = load_plugin_assignments(agent_id)
+    sweep_config = load_sweep_config(partition_id, agent_id)
+    mapper_config = load_mapper_config(partition_id, agent_id)
+    sysmon_config = load_sysmon_config(partition_id, agent_id)
+    snmp_config = load_snmp_config(partition_id, agent_id)
+    visibility_config = load_visibility_config(partition_id, agent_id)
+    bumblebee_config = load_bumblebee_config(partition_id, agent_id)
+    endpoint_inventory_config = load_endpoint_inventory_config(partition_id, agent_id)
+    plugin_assignments = load_plugin_assignments(agent_id, partition_id)
     plugin_engine_limits = load_plugin_engine_limits(agent_id)
     addon_assignments = load_addon_assignments(agent_id)
 
@@ -329,12 +367,16 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     checks
   end
 
-  defp load_plugin_assignments(agent_id) do
+  defp load_plugin_assignments(agent_id, partition_id) do
     actor = SystemActor.system(:agent_config_generator)
 
     assignments =
       PluginAssignment
-      |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id}, actor: actor)
+      |> Ash.Query.for_read(
+        :by_edge_principal,
+        %{agent_uid: agent_id, partition_id: partition_id},
+        actor: actor
+      )
       |> Ash.Query.filter(enabled == true)
       |> Ash.Query.sort(updated_at: :desc, inserted_at: :desc)
       |> Ash.Query.load(:plugin_package)
@@ -345,6 +387,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     |> Enum.filter(&has_approved_package?/1)
     |> Enum.uniq_by(&logical_plugin_id/1)
     |> Enum.map(&build_plugin_assignment_config/1)
+    |> Enum.reject(&is_nil/1)
   rescue
     e ->
       Logger.warning("Error loading plugin assignments: #{inspect(e)}")
@@ -995,48 +1038,433 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     config_schema = normalize_map(package.config_schema)
     download_request = StorageToken.download_request(package.id, package.wasm_object_key)
 
-    %{
-      assignment_id: to_string(assignment.id),
-      plugin_id: package.plugin_id,
-      package_id: package.id,
-      version: package.version,
-      name: package.name,
-      entrypoint: package.entrypoint,
-      runtime: package.runtime,
-      outputs: package.outputs,
-      capabilities: effective_capabilities(package, manifest),
-      params: resolve_plugin_params(config_schema, assignment.params, assignment),
-      permissions: effective_permissions(assignment, package, manifest),
-      resources: effective_resources(assignment, package, manifest),
-      enabled: assignment.enabled,
-      interval_sec: assignment.interval_seconds || 60,
-      timeout_sec: assignment.timeout_seconds || 10,
-      wasm_object_key: package.wasm_object_key,
-      content_hash: package.content_hash,
-      source_type: normalize_source_type(package.source_type),
-      download_url: download_request && download_request.url,
-      download_token: download_request && download_request.token
-    }
+    with {:ok, source_scope} <- resolve_proxmox_assignment_scope(assignment, package),
+         resolved_params = resolve_plugin_params(config_schema, assignment.params, assignment),
+         {:ok, resolved_params} <-
+           maybe_enrich_proxmox_host_authority_targets(
+             resolved_params,
+             package.plugin_id,
+             package.entrypoint,
+             assignment,
+             source_scope
+           ),
+         {wasm_params, host_params} =
+           partition_plugin_host_params(
+             package.plugin_id,
+             package.entrypoint,
+             resolved_params,
+             assignment.id
+           ),
+         :ok <-
+           ensure_proxmox_host_authority(
+             package.plugin_id,
+             package.entrypoint,
+             host_params
+           ) do
+      %{
+        assignment_id: to_string(assignment.id),
+        plugin_id: package.plugin_id,
+        package_id: package.id,
+        version: package.version,
+        name: package.name,
+        entrypoint: package.entrypoint,
+        runtime: package.runtime,
+        outputs: package.outputs,
+        capabilities: effective_capabilities(package, manifest),
+        params: wasm_params,
+        host_params: host_params,
+        permissions: effective_permissions(assignment, package, manifest),
+        resources: effective_resources(assignment, package, manifest),
+        enabled: assignment.enabled,
+        interval_sec: assignment.interval_seconds || 60,
+        timeout_sec: assignment.timeout_seconds || 10,
+        wasm_object_key: package.wasm_object_key,
+        content_hash: package.content_hash,
+        source_type: normalize_source_type(package.source_type),
+        download_url: download_request && download_request.url,
+        download_token: download_request && download_request.token
+      }
+    else
+      {:error, _reason} ->
+        Logger.warning(
+          "Skipping Proxmox plugin assignment #{assignment.id}: authoritative source and host binding validation failed"
+        )
+
+        nil
+    end
+  end
+
+  defp resolve_proxmox_assignment_scope(
+         %PluginAssignment{} = assignment,
+         %PluginPackage{} = package
+       ) do
+    if ProxmoxHostAuthority.assignment?(package.plugin_id, package.entrypoint) do
+      ProxmoxSourceScopeResolver.resolve_assignment(assignment,
+        actor: SystemActor.system(:proxmox_assignment_source_scope),
+        agent_id: assignment.agent_uid,
+        partition_id: assignment.partition_id,
+        assignment_id: assignment.id,
+        plugin_id: package.plugin_id
+      )
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp ensure_proxmox_host_authority(plugin_id, entrypoint, host_params) do
+    if ProxmoxHostAuthority.assignment?(plugin_id, entrypoint) do
+      case host_params do
+        %{"schema" => "serviceradar.plugin_host_authority.v1", "bindings" => [_ | _]} -> :ok
+        _ -> {:error, :proxmox_host_authority_unavailable}
+      end
+    else
+      :ok
+    end
+  end
+
+  # Scheduled AWX inventory tokens are transported to the trusted agent host in
+  # one reserved envelope, but never remain in the params map that backs Wasm
+  # get_config. The agent removes the envelope, retains exact origin bindings in
+  # host memory, and exposes only the sentinel to the plugin.
+  defp partition_plugin_host_params(
+         @awx_inventory_sync_plugin_id,
+         @awx_inventory_sync_entrypoint,
+         params,
+         _assignment_id
+       )
+       when is_map(params) do
+    params = normalize_map(params)
+
+    case Map.get(params, "controllers") do
+      controllers when is_list(controllers) and controllers != [] ->
+        {wasm_controllers, host_controllers} =
+          Enum.map_reduce(controllers, [], fn controller, host_controllers ->
+            controller = normalize_map(controller)
+
+            host_controller = %{
+              "controller_id" => Map.get(controller, "controller_id"),
+              "base_url" => Map.get(controller, "base_url"),
+              "api_token" => Map.get(controller, "api_token"),
+              "insecure_skip_verify" => Map.get(controller, "insecure_skip_verify", false) == true
+            }
+
+            wasm_controller =
+              controller
+              |> Map.drop([
+                "credential_broker",
+                "api_token_secret_ref",
+                "_secret_material",
+                "api_token"
+              ])
+              |> Map.put("api_token", @awx_inventory_host_credential_sentinel)
+
+            {wasm_controller, [host_controller | host_controllers]}
+          end)
+
+        host_params = %{
+          "schema" => @awx_inventory_host_credentials_schema,
+          "controllers" => Enum.reverse(host_controllers)
+        }
+
+        wasm_params =
+          params
+          |> Map.drop([
+            @awx_inventory_host_credentials_key,
+            "credential_broker",
+            "api_token_secret_ref",
+            "_secret_material",
+            "api_token"
+          ])
+          |> Map.put("controllers", wasm_controllers)
+
+        {wasm_params, host_params}
+
+      _ ->
+        # A malformed assignment must not fall back to exposing an inline
+        # secret. The agent will receive no host binding and deny all scheduled
+        # AWX HTTP requests for this assignment.
+        {%{}, nil}
+    end
+  end
+
+  defp partition_plugin_host_params(plugin_id, entrypoint, params, assignment_id) do
+    if ProxmoxHostAuthority.assignment?(plugin_id, entrypoint) do
+      ProxmoxHostAuthority.partition(plugin_id, entrypoint, params, assignment_id)
+    else
+      {params, nil}
+    end
+  end
+
+  # Proxmox assignment source UUIDs come only from the current policy assignment
+  # and its immutable credential rule. Result-owned or SRQL-projected provenance
+  # is overwritten before host authority is built. Console items additionally
+  # resolve the authoritative v3 guest -> owner PVE chain; any missing,
+  # ambiguous, or cross-source item rejects the whole assignment.
+  defp maybe_enrich_proxmox_host_authority_targets(
+         params,
+         "proxmox-inventory",
+         "run_check",
+         assignment,
+         source_scope
+       )
+       when is_map(params) and is_map(source_scope) do
+    params = normalize_map(params)
+
+    with :ok <- ensure_proxmox_target_collection(params) do
+      params
+      |> stamp_proxmox_source_scope(source_scope, assignment)
+      |> map_proxmox_target_collections(fn item ->
+        {:ok, stamp_proxmox_source_scope(item, source_scope, assignment)}
+      end)
+    end
+  end
+
+  defp maybe_enrich_proxmox_host_authority_targets(
+         params,
+         "proxmox-console",
+         "run_console",
+         assignment,
+         source_scope
+       )
+       when is_map(params) and is_map(source_scope) do
+    params = normalize_map(params)
+    actor = SystemActor.system(:proxmox_host_authority_target)
+
+    with :ok <- ensure_proxmox_target_collection(params) do
+      params
+      |> stamp_proxmox_source_scope(source_scope, assignment)
+      |> map_proxmox_target_collections(
+        &enrich_proxmox_console_target(&1, actor, source_scope, assignment)
+      )
+    end
+  end
+
+  defp maybe_enrich_proxmox_host_authority_targets(
+         _params,
+         plugin_id,
+         entrypoint,
+         _assignment,
+         _source_scope
+       )
+       when plugin_id in ["proxmox-inventory", "proxmox-console"] and
+              entrypoint in ["run_check", "run_console"],
+       do: {:error, :proxmox_source_scope_unavailable}
+
+  defp maybe_enrich_proxmox_host_authority_targets(
+         params,
+         _plugin_id,
+         _entrypoint,
+         _assignment,
+         _source_scope
+       ),
+       do: {:ok, params}
+
+  defp stamp_proxmox_source_scope(map, source_scope, assignment) when is_map(map) do
+    map
+    |> normalize_map()
+    |> Map.put("integration_id", to_string(source_scope.integration_id))
+    |> Map.put("controller_id", to_string(source_scope.controller_id))
+    |> Map.put("credential_rule_id", to_string(source_scope.credential_rule_id))
+    |> Map.put("plugin_assignment_id", to_string(source_scope.assignment_id))
+    |> Map.put("agent_id", to_string(assignment.agent_uid))
+  end
+
+  defp ensure_proxmox_target_collection(params) do
+    targets = List.wrap(Map.get(params, "targets"))
+
+    input_items =
+      params
+      |> Map.get("inputs")
+      |> List.wrap()
+      |> Enum.flat_map(fn
+        %{} = input -> input |> normalize_map() |> Map.get("items") |> List.wrap()
+        _input -> []
+      end)
+
+    if Enum.any?(targets ++ input_items, &is_map/1),
+      do: :ok,
+      else: {:error, :proxmox_assignment_targets_missing}
+  end
+
+  defp map_proxmox_target_collections(params, mapper) when is_function(mapper, 1) do
+    with {:ok, params} <- map_proxmox_input_items(params, mapper) do
+      map_proxmox_direct_targets(params, mapper)
+    end
+  end
+
+  defp map_proxmox_input_items(params, mapper) do
+    case Map.get(params, "inputs") do
+      nil ->
+        {:ok, params}
+
+      inputs when is_list(inputs) ->
+        with {:ok, mapped_inputs} <-
+               map_result(inputs, fn
+                 %{} = input ->
+                   input = normalize_map(input)
+
+                   case Map.get(input, "items") do
+                     nil ->
+                       {:ok, input}
+
+                     items when is_list(items) ->
+                       with {:ok, mapped_items} <- map_result(items, mapper) do
+                         {:ok, Map.put(input, "items", mapped_items)}
+                       end
+
+                     _items ->
+                       {:error, :invalid_proxmox_input_items}
+                   end
+
+                 _input ->
+                   {:error, :invalid_proxmox_input}
+               end) do
+          {:ok, Map.put(params, "inputs", mapped_inputs)}
+        end
+
+      _inputs ->
+        {:error, :invalid_proxmox_inputs}
+    end
+  end
+
+  defp map_proxmox_direct_targets(params, mapper) do
+    case Map.get(params, "targets") do
+      nil ->
+        {:ok, params}
+
+      targets when is_list(targets) ->
+        with {:ok, mapped_targets} <- map_result(targets, mapper) do
+          {:ok, Map.put(params, "targets", mapped_targets)}
+        end
+
+      _targets ->
+        {:error, :invalid_proxmox_targets}
+    end
+  end
+
+  defp map_result(values, mapper) when is_list(values) and is_function(mapper, 1) do
+    values
+    |> Enum.reduce_while({:ok, []}, fn value, {:ok, acc} ->
+      case mapper.(value) do
+        {:ok, mapped} -> {:cont, {:ok, [mapped | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, reversed} -> {:ok, Enum.reverse(reversed)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp enrich_proxmox_console_target(item, actor, source_scope, assignment) when is_map(item) do
+    item = normalize_map(item)
+    device_uid = Map.get(item, "device_uid") || Map.get(item, "uid") || Map.get(item, "device_id")
+
+    with device_uid when is_binary(device_uid) and device_uid != "" <- device_uid,
+         {:ok, %Device{} = device} <- Device.get_by_uid(device_uid, false, actor: actor),
+         {:ok, target} <-
+           RemoteConsoleTargetResolver.resolve_proxmox(device, %{}, ash_opts: [actor: actor]),
+         :ok <- ensure_proxmox_target_source_scope(target, source_scope) do
+      controller = Map.get(target, :controller, %{})
+
+      item
+      |> stamp_proxmox_source_scope(source_scope, assignment)
+      |> put_present_string("device_uid", device.uid)
+      |> put_present_string("proxmox_base_url", Map.get(controller, :base_url))
+      |> put_present_string("integration_id", Map.get(target, :integration_id))
+      |> put_present_string("identity_version", Map.get(target, :identity_version))
+      |> put_present_string("identity_state", Map.get(target, :identity_state))
+      |> put_present_string("controller_id", Map.get(target, :controller_id))
+      |> put_present_string("provider_ref", Map.get(target, :provider_ref))
+      |> put_present_string("provider_instance_ref", Map.get(target, :provider_instance_ref))
+      |> put_present_string("native_cluster_id", Map.get(target, :native_cluster_id))
+      |> put_present_string("object_kind", Map.get(target, :object_kind))
+      |> put_present_string("native_object_id", Map.get(target, :native_object_id))
+      |> put_present_string("inventory_row_id", Map.get(target, :inventory_row_id))
+      |> put_present_string("owner_host_id", Map.get(target, :owner_host_id))
+      |> put_present_string("node", Map.get(target, :node))
+      |> put_present_string("cluster", Map.get(target, :cluster))
+      |> put_present_string("vmid", Map.get(target, :vmid))
+      |> put_present_string("target_kind", Map.get(target, :target_kind))
+      |> put_present_string("controller_device_uid", Map.get(controller, :device_uid))
+      |> put_present_string("controller_integration_id", Map.get(controller, :integration_id))
+      |> put_present_string("controller_identity_version", Map.get(controller, :identity_version))
+      |> put_present_string("controller_identity_state", Map.get(controller, :identity_state))
+      |> put_present_string("controller_provider_ref", Map.get(controller, :provider_ref))
+      |> put_present_string(
+        "controller_provider_instance_ref",
+        Map.get(controller, :provider_instance_ref)
+      )
+      |> put_present_string(
+        "controller_native_cluster_id",
+        Map.get(controller, :native_cluster_id)
+      )
+      |> put_present_string("controller_object_kind", Map.get(controller, :object_kind))
+      |> put_present_string("controller_native_object_id", Map.get(controller, :native_object_id))
+      |> put_present_string(
+        "controller_virtualization_host_id",
+        Map.get(controller, :virtualization_host_id)
+      )
+      |> then(&{:ok, &1})
+    else
+      _ -> {:error, :authoritative_proxmox_console_target_unavailable}
+    end
+  end
+
+  defp enrich_proxmox_console_target(_item, _actor, _source_scope, _assignment),
+    do: {:error, :invalid_proxmox_console_target}
+
+  defp ensure_proxmox_target_source_scope(target, source_scope) do
+    if target.integration_id == source_scope.integration_id and
+         target.controller_id == source_scope.controller_id,
+       do: :ok,
+       else: {:error, :proxmox_console_source_scope_mismatch}
+  end
+
+  defp put_present_string(map, _key, nil), do: map
+
+  defp put_present_string(map, key, value) do
+    value = if is_atom(value), do: Atom.to_string(value), else: to_string(value)
+    value = String.trim(value)
+    if value == "", do: map, else: Map.put(map, key, value)
   end
 
   defp resolve_plugin_params(config_schema, params, %PluginAssignment{} = assignment) do
     params = normalize_map(params)
-    config_schema = maybe_add_policy_credential_secret_fields(config_schema, params, assignment)
-    params = materialize_controller_credentials(params, assignment)
-    {params, resolve_opts} = materialize_credential_broker_grant(params, assignment)
+    package = assignment.plugin_package
 
-    case SecretRefs.resolve_runtime_params(config_schema, params, resolve_opts) do
-      {:ok, resolved} ->
-        resolved
-
-      {:error, errors} ->
-        Logger.warning(
-          "Failed to resolve plugin secret refs for assignment #{assignment.id}: #{Enum.join(errors, "; ")}"
+    if policy_assignment?(assignment) and
+         ProxmoxHostAuthority.assignment?(package.plugin_id, package.entrypoint) do
+      # Proxmox credentials are resolved only by the trusted agent-side broker
+      # connector. Config delivery refreshes the short-lived grant, but never
+      # resolves the referenced secret into control-plane params or Wasm memory.
+      {refreshed_params, _grant} =
+        CredentialBrokerDelivery.refresh_embedded_grant(params,
+          agent_id: assignment.agent_uid,
+          consumer_id: logical_plugin_id(assignment)
         )
 
-        SecretRefs.public_params(params)
+      refreshed_params
+    else
+      config_schema = maybe_add_policy_credential_secret_fields(config_schema, params, assignment)
+      params = materialize_controller_credentials(params, assignment)
+      {params, resolve_opts} = materialize_credential_broker_grant(params, assignment)
+
+      case SecretRefs.resolve_runtime_params(config_schema, params, resolve_opts) do
+        {:ok, resolved} ->
+          resolved
+
+        {:error, errors} ->
+          Logger.warning(
+            "Failed to resolve plugin secret refs for assignment #{assignment.id}: #{Enum.join(errors, "; ")}"
+          )
+
+          SecretRefs.public_params(params)
+      end
     end
   end
+
+  defp policy_assignment?(%PluginAssignment{source: source}), do: source in [:policy, "policy"]
 
   # Task 3.2 (refactor-device-identity-reconciliation): policy assignments carry
   # a short-TTL credential-broker grant payload minted at reconcile time.
@@ -1094,11 +1522,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # Generates a config with a deferred-audit collector active, returning the
   # config plus the audits collected during generation (chronological order).
   # The collector is always restored, even on error.
-  defp generate_collecting_audits(agent_id) do
+  defp generate_collecting_audits(agent_id, partition_id) do
     previous = Process.put(@audit_collector_key, [])
 
     try do
-      config = generate_config!(agent_id)
+      config = generate_config!(agent_id, partition_id)
       {config, Enum.reverse(Process.get(@audit_collector_key, []))}
     after
       case previous do
@@ -1107,6 +1535,15 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       end
     end
   end
+
+  defp authenticated_partition(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> {:error, :authenticated_partition_required}
+      partition_id -> {:ok, partition_id}
+    end
+  end
+
+  defp authenticated_partition(_value), do: {:error, :authenticated_partition_required}
 
   defp commit_deferred_audits(audits), do: Enum.each(audits, &SecretBroker.write_audit/1)
 
@@ -1628,7 +2065,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     config_json =
       full_payload
       |> Map.put("plugins", %{
-        "assignments" => plugin_assignments,
+        # host_params is transport material for the typed plugin_config proto,
+        # never part of the generic JSON config surface.
+        "assignments" => Enum.map(plugin_assignments, &public_plugin_assignment/1),
         "engine_limits" => plugin_engine_limits
       })
       |> Jason.encode!()
@@ -1650,6 +2089,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       addons: addon_assignments
     }
   end
+
+  defp public_plugin_assignment(assignment) when is_map(assignment) do
+    assignment
+    |> Map.delete(:host_params)
+    |> Map.delete("host_params")
+  end
+
+  defp public_plugin_assignment(assignment), do: assignment
 
   # Convert a ServiceCheck record to our check config format
   defp convert_check_to_config(%ServiceCheck{} = check) do
@@ -1731,7 +2178,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     sorted_plugins =
       plugin_assignments
       |> Enum.sort_by(& &1.assignment_id)
-      |> Enum.map(&stable_plugin_assignment/1)
+      |> Enum.map(&plugin_assignment_version_projection/1)
 
     sorted_addons =
       addon_assignments
@@ -1874,16 +2321,60 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp stable_config_fragment(value), do: value
 
-  defp stable_plugin_assignment(assignment) when is_map(assignment) do
+  @doc false
+  @spec plugin_assignment_version_projection(term()) :: term()
+  def plugin_assignment_version_projection(assignment) when is_map(assignment) do
     assignment
     |> Map.delete(:download_url)
     |> Map.delete("download_url")
     |> Map.delete(:download_token)
     |> Map.delete("download_token")
     |> stable_assignment_params()
+    |> fingerprint_host_only_params()
   end
 
-  defp stable_plugin_assignment(assignment), do: assignment
+  def plugin_assignment_version_projection(assignment), do: assignment
+
+  # The raw token is required only in the typed proto delivered to the trusted
+  # agent host. Version computation needs token-rotation sensitivity, not the
+  # credential itself, so replace every host-only api_token value with a
+  # deterministic fixed-width fingerprint before canonical JSON hashing.
+  defp fingerprint_host_only_params(assignment) do
+    assignment
+    |> fingerprint_host_only_params_key(:host_params)
+    |> fingerprint_host_only_params_key("host_params")
+  end
+
+  defp fingerprint_host_only_params_key(assignment, key) do
+    case Map.fetch(assignment, key) do
+      {:ok, host_params} -> Map.put(assignment, key, fingerprint_host_param_value(host_params))
+      :error -> assignment
+    end
+  end
+
+  defp fingerprint_host_param_value(%{} = value) do
+    Map.new(value, fn
+      {key, secret} when key in [:api_token, "api_token"] ->
+        {key, host_param_secret_fingerprint(secret)}
+
+      {key, nested} ->
+        {key, fingerprint_host_param_value(nested)}
+    end)
+  end
+
+  defp fingerprint_host_param_value(value) when is_list(value),
+    do: Enum.map(value, &fingerprint_host_param_value/1)
+
+  defp fingerprint_host_param_value(value), do: value
+
+  defp host_param_secret_fingerprint(secret) when is_binary(secret) do
+    "sha256:" <> Base.encode16(:crypto.hash(:sha256, secret), case: :lower)
+  end
+
+  defp host_param_secret_fingerprint(secret) do
+    encoded = :erlang.term_to_binary(secret, [:deterministic])
+    "sha256:" <> Base.encode16(:crypto.hash(:sha256, encoded), case: :lower)
+  end
 
   # The delivered `credential_broker` grant payload rotates whenever the
   # embedded grant is re-minted on expiry (task 3.2), which can happen on every
@@ -2193,6 +2684,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp to_proto_plugin_assignment(assignment) do
     params = resolved_assignment_params(assignment)
+    host_params = Map.get(assignment, :host_params) || Map.get(assignment, "host_params")
     source_fields = proto_assignment_source_fields(assignment)
 
     %Monitoring.PluginAssignmentConfig{
@@ -2217,21 +2709,35 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       source_repo_url: source_fields.source_repo_url,
       source_commit: source_fields.source_commit,
       download_url: assignment_string(assignment.download_url),
-      download_token: source_fields.download_token
+      download_token: source_fields.download_token,
+      # Deliberately separate from params_json for mixed-version safety. An old
+      # agent ignores unknown protobuf field 23 and therefore cannot expose the
+      # host-only envelope through Wasm get_config.
+      host_params_json: encode_json(host_params)
     }
   end
 
   defp resolved_assignment_params(assignment) do
     params = normalize_map(assignment.params)
+    plugin_id = Map.get(assignment, :plugin_id) || Map.get(assignment, "plugin_id") || ""
+    entrypoint = Map.get(assignment, :entrypoint) || Map.get(assignment, "entrypoint") || ""
 
-    schema =
-      assignment
-      |> proto_assignment_config_schema()
-      |> maybe_add_policy_credential_secret_fields(params, assignment)
+    if ProxmoxHostAuthority.assignment?(plugin_id, entrypoint) do
+      # Defensive mixed-version boundary: even callers that construct proto
+      # assignments directly cannot re-resolve legacy inline Proxmox secrets.
+      # Without a separately prepared host authority the old/new agent both see
+      # only the public sentinel and fail closed.
+      ProxmoxHostAuthority.public_params(plugin_id, params)
+    else
+      schema =
+        assignment
+        |> proto_assignment_config_schema()
+        |> maybe_add_policy_credential_secret_fields(params, assignment)
 
-    case SecretRefs.resolve_runtime_params(schema, params) do
-      {:ok, resolved} -> resolved
-      {:error, _} -> params
+      case SecretRefs.resolve_runtime_params(schema, params) do
+        {:ok, resolved} -> resolved
+        {:error, _} -> params
+      end
     end
   end
 
@@ -2275,10 +2781,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   # Load sweep configuration from the AgentConfig system
   # This uses the ConfigServer which compiles sweep configs from SweepGroup/SweepProfile resources
-  defp load_sweep_config(agent_id) do
-    # Resolve partition from agent registry, fall back to "default"
-    partition = get_agent_partition(agent_id)
-
+  defp load_sweep_config(partition, agent_id) do
     Logger.debug(
       "AgentConfigGenerator: loading sweep config for agent_id=#{inspect(agent_id)}, partition=#{inspect(partition)}"
     )
@@ -2310,8 +2813,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   # Load mapper discovery configuration from the AgentConfig system
-  defp load_mapper_config(agent_id) do
-    partition = get_agent_partition(agent_id)
+  defp load_mapper_config(partition, agent_id) do
     actor = SystemActor.system(:mapper_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 
@@ -2342,51 +2844,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
-  # Resolve the partition for an agent from the registry
-  # Falls back to "default" if agent is not registered or has no partition
-  defp get_agent_partition(agent_id) do
-    case AgentRegistry.lookup(agent_id) do
-      [] ->
-        Logger.debug(
-          "AgentConfigGenerator: agent #{agent_id} not found in registry, using partition=default"
-        )
-
-        "default"
-
-      entries ->
-        {_pid, metadata} = select_agent_registry_entry(entries)
-        partition = metadata[:partition_id] || "default"
-
-        Logger.debug(
-          "AgentConfigGenerator: resolved partition=#{partition} for agent #{agent_id}"
-        )
-
-        partition
-    end
-  end
-
-  defp select_agent_registry_entry([entry]), do: entry
-
-  defp select_agent_registry_entry(entries) do
-    Enum.max_by(entries, fn {_pid, metadata} ->
-      {
-        metadata[:status] == :connected,
-        metadata[:capabilities] != [],
-        metadata_time_score(metadata[:last_heartbeat]),
-        metadata_time_score(metadata[:connected_at]),
-        metadata_time_score(metadata[:registered_at])
-      }
-    end)
-  end
-
-  defp metadata_time_score(%DateTime{} = timestamp), do: DateTime.to_unix(timestamp, :microsecond)
-  defp metadata_time_score(_timestamp), do: 0
-
   # Load sysmon configuration from the AgentConfig system
   # This uses the ConfigServer which compiles sysmon configs from SysmonProfile resources
-  defp load_sysmon_config(agent_id) do
-    # Resolve partition from agent registry, fall back to "default"
-    partition = get_agent_partition(agent_id)
+  defp load_sysmon_config(partition, agent_id) do
     actor = SystemActor.system(:sysmon_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 
@@ -2410,8 +2870,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   # Load SNMP configuration from the AgentConfig system
   # This uses the ConfigServer which compiles snmp configs from SNMPProfile resources
-  defp load_snmp_config(agent_id) do
-    partition = get_agent_partition(agent_id)
+  defp load_snmp_config(partition, agent_id) do
     actor = SystemActor.system(:snmp_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 
@@ -2434,8 +2893,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   # Load visibility configuration from the AgentConfig system.
-  defp load_visibility_config(agent_id) do
-    partition = get_agent_partition(agent_id)
+  defp load_visibility_config(partition, agent_id) do
     actor = SystemActor.system(:visibility_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 
@@ -2460,8 +2918,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
-  defp load_bumblebee_config(agent_id) do
-    partition = get_agent_partition(agent_id)
+  defp load_bumblebee_config(partition, agent_id) do
     actor = SystemActor.system(:bumblebee_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 
@@ -2555,8 +3012,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp disabled_feature_config, do: %{"enabled" => false}
 
-  defp load_endpoint_inventory_config(agent_id) do
-    partition = get_agent_partition(agent_id)
+  defp load_endpoint_inventory_config(partition, agent_id) do
     actor = SystemActor.system(:endpoint_inventory_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 

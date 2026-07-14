@@ -1,0 +1,208 @@
+suite: remote access RDP WebRTC egress network policy
+templates:
+  - templates/remote-access-rdp-webrtc-network-policy.yaml
+tests:
+  - it: renders one core-only additive ICE egress policy with explicit CIDRs and ports
+    set:
+      networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs:
+        - 192.0.2.10/32
+        - 2001:db8:1::10/128
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedUDPPorts:
+        - 3478
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedTCPPorts:
+        - 3478
+        - 5349
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: serviceradar-remote-access-rdp-webrtc-egress
+      - equal:
+          path: spec.podSelector.matchLabels.app
+          value: serviceradar-core
+      - equal:
+          path: spec.policyTypes
+          value:
+            - Egress
+      - equal:
+          path: spec.egress[0].to
+          value:
+            - ipBlock:
+                cidr: 192.0.2.10/32
+            - ipBlock:
+                cidr: 2001:db8:1::10/128
+      - equal:
+          path: spec.egress[0].ports
+          value:
+            - protocol: UDP
+              port: 3478
+            - protocol: TCP
+              port: 3478
+            - protocol: TCP
+              port: 5349
+
+  - it: fails closed when the chart-wide NetworkPolicy is disabled
+    set:
+      remoteAccess.desktop.rdp.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs:
+        - 192.0.2.10/32
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedUDPPorts:
+        - 3478
+    asserts:
+      - failedTemplate:
+          errorMessage: remoteAccess.desktop.rdp.webRTC.networkPolicy.enabled requires networkPolicy.enabled=true
+
+  - it: renders a higher-priority core-only Calico exception before ordered final deny
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.calicoLogDenied.enabled: true
+      networkPolicy.calicoLogDenied.order: 1000
+      remoteAccess.desktop.rdp.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs:
+        - 192.0.2.10/32
+        - 2001:db8:1::10/128
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedUDPPorts:
+        - 3478
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedTCPPorts:
+        - 5349
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: spec.order
+          value: 999
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-remote-access-rdp-webrtc-egress-calico
+      - equal:
+          path: spec.selector
+          value: "app == 'serviceradar-core'"
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-remote-access-rdp-webrtc-egress-calico
+      - equal:
+          path: spec.egress
+          value:
+            - action: Allow
+              protocol: UDP
+              destination:
+                nets:
+                  - 192.0.2.10/32
+                ports:
+                  - 3478
+            - action: Allow
+              protocol: UDP
+              destination:
+                nets:
+                  - 2001:db8:1::10/128
+                ports:
+                  - 3478
+            - action: Allow
+              protocol: TCP
+              destination:
+                nets:
+                  - 192.0.2.10/32
+                ports:
+                  - 5349
+            - action: Allow
+              protocol: TCP
+              destination:
+                nets:
+                  - 2001:db8:1::10/128
+                ports:
+                  - 5349
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-remote-access-rdp-webrtc-egress-calico
+
+  - it: fails closed when RDP is disabled
+    set:
+      networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs:
+        - 192.0.2.10/32
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedUDPPorts:
+        - 3478
+    asserts:
+      - failedTemplate:
+          errorMessage: remoteAccess.desktop.rdp.webRTC.networkPolicy.enabled requires remoteAccess.desktop.rdp.enabled=true
+
+  - it: fails closed on an empty CIDR list
+    set:
+      networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedUDPPorts:
+        - 3478
+    asserts:
+      - failedTemplate:
+          errorMessage: remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs must be a non-empty list
+
+  - it: rejects DNS names in the CIDR list
+    set:
+      networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs:
+        - stun.example.com
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedUDPPorts:
+        - 3478
+    asserts:
+      - failedTemplate:
+          errorMessage: 'remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs contains invalid or catch-all CIDR "stun.example.com"'
+
+  - it: rejects catch-all destinations
+    set:
+      networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs:
+        - 0.0.0.0/0
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedUDPPorts:
+        - 3478
+    asserts:
+      - failedTemplate:
+          errorMessage: 'remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs contains invalid or catch-all CIDR "0.0.0.0/0"'
+
+  - it: rejects malformed IPv6 CIDRs
+    set:
+      networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs:
+        - 2001:db8:::1/129
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedUDPPorts:
+        - 3478
+    asserts:
+      - failedTemplate:
+          errorMessage: 'remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs contains invalid or catch-all CIDR "2001:db8:::1/129"'
+
+  - it: requires at least one explicit transport port
+    set:
+      networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs:
+        - 192.0.2.10/32
+    asserts:
+      - failedTemplate:
+          errorMessage: remoteAccess.desktop.rdp.webRTC.networkPolicy requires at least one explicit UDP or TCP port
+
+  - it: rejects out-of-range transport ports
+    set:
+      networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.enabled: true
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedCIDRs:
+        - 192.0.2.10/32
+      remoteAccess.desktop.rdp.webRTC.networkPolicy.allowedTCPPorts:
+        - 65536
+    asserts:
+      - failedTemplate:
+          errorMessage: 'remoteAccess.desktop.rdp.webRTC.networkPolicy TCP port "65536" must be an integer between 1 and 65535'

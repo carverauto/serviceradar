@@ -61,6 +61,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCControllerTest do
     end)
 
     user = admin_user_fixture()
+    Process.put(:remote_desktop_webrtc_test_user_id, user.id)
     {:ok, token, _claims} = Guardian.create_access_token(user)
     conn = Plug.Conn.put_req_header(conn, "authorization", "Bearer #{token}")
 
@@ -69,31 +70,33 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCControllerTest do
     Application.put_env(
       :serviceradar_web_ng,
       :remote_access_session_fetcher,
-      fn requested_id, _opts -> {:ok, desktop_session(requested_id, status: :active)} end
+      fn requested_id, _opts ->
+        {:ok, desktop_session(requested_id, status: :active, requested_by: user.id)}
+      end
     )
 
-    %{conn: conn, session_id: session_id}
+    %{conn: conn, session_id: session_id, user: user, token: token}
   end
 
-  test "creates a desktop webrtc signaling session", %{conn: conn, session_id: session_id} do
-    viewer_session_id = Ecto.UUID.generate()
-
+  test "creates a desktop webrtc signaling session", %{conn: conn, session_id: session_id, user: user} do
     Application.put_env(
       :serviceradar_web_ng,
       :remote_access_desktop_webrtc_create_result,
-      {:ok,
-       %{
-         viewer_session_id: viewer_session_id,
-         signaling_state: "offer_created",
-         offer_sdp: "v=0\r\n..."
-       }}
+      fn _requested_id, opts ->
+        {:ok,
+         %{
+           viewer_session_id: opts[:viewer_session_id],
+           signaling_state: "offer_created",
+           offer_sdp: "v=0\r\n..."
+         }}
+      end
     )
 
     conn = post(conn, ~p"/api/remote-access/sessions/#{session_id}/webrtc/session", %{})
     body = json_response(conn, 201)
 
     assert body["data"]["session_id"] == session_id
-    assert body["data"]["viewer_session_id"] == viewer_session_id
+    assert {:ok, _viewer_session_id} = Ecto.UUID.cast(body["data"]["viewer_session_id"])
     assert body["data"]["transport"] == "webrtc_desktop_media"
     assert body["data"]["signaling_state"] == "offer_created"
     assert body["data"]["offer_sdp"] == "v=0\r\n..."
@@ -101,11 +104,31 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCControllerTest do
     assert body["data"]["ice_servers"] == [%{"urls" => ["stun:stun.example.com:3478"]}]
 
     assert_receive {:desktop_webrtc_create_session, ^session_id, opts}
-    assert opts[:scope]
+    assert opts[:actor_id] == user.id
+    refute Keyword.has_key?(opts, :scope)
+    assert opts[:viewer_session_id] == body["data"]["viewer_session_id"]
     assert opts[:ice_servers] == [%{urls: ["stun:stun.example.com:3478"]}]
   end
 
-  test "submits a desktop webrtc answer", %{conn: conn, session_id: session_id} do
+  test "returns 429 when desktop viewer capacity is exhausted", %{conn: conn, session_id: session_id} do
+    Application.put_env(
+      :serviceradar_web_ng,
+      :remote_access_desktop_webrtc_create_result,
+      {:error, {:viewer_limit_exceeded, :session, 2}}
+    )
+
+    conn = post(conn, ~p"/api/remote-access/sessions/#{session_id}/webrtc/session", %{})
+    body = json_response(conn, 429)
+
+    assert body == %{
+             "error" => "desktop_webrtc_viewer_limit_exceeded",
+             "message" => "desktop WebRTC viewer capacity is exhausted",
+             "scope" => "session",
+             "limit" => 2
+           }
+  end
+
+  test "submits a desktop webrtc answer", %{conn: conn, session_id: session_id, user: user} do
     viewer_session_id = Ecto.UUID.generate()
 
     Application.put_env(
@@ -127,10 +150,11 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCControllerTest do
     assert body["data"]["signaling_state"] == "answer_applied"
 
     assert_receive {:desktop_webrtc_submit_answer, ^session_id, ^viewer_session_id, "v=0\r\nanswer", opts}
-    assert opts[:scope]
+    assert opts[:actor_id] == user.id
+    refute Keyword.has_key?(opts, :scope)
   end
 
-  test "adds a desktop webrtc ice candidate", %{conn: conn, session_id: session_id} do
+  test "adds a desktop webrtc ice candidate", %{conn: conn, session_id: session_id, user: user} do
     viewer_session_id = Ecto.UUID.generate()
 
     Application.put_env(
@@ -154,7 +178,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCControllerTest do
     assert_receive {:desktop_webrtc_add_candidate, ^session_id, ^viewer_session_id,
                     %{"candidate" => "candidate:1 1 UDP 1234 10.0.0.1 4000 typ host"}, opts}
 
-    assert opts[:scope]
+    assert opts[:actor_id] == user.id
+    refute Keyword.has_key?(opts, :scope)
   end
 
   test "returns 404 when RDP remote access is disabled", %{conn: conn, session_id: session_id} do
@@ -200,7 +225,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCControllerTest do
     assert body["message"] == "remote desktop session is still activating"
   end
 
-  test "closes a desktop webrtc signaling session", %{conn: conn, session_id: session_id} do
+  test "closes a desktop webrtc signaling session", %{conn: conn, session_id: session_id, user: user} do
     viewer_session_id = Ecto.UUID.generate()
 
     Application.put_env(
@@ -222,7 +247,47 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCControllerTest do
     assert body["data"]["signaling_state"] == "closed"
 
     assert_receive {:desktop_webrtc_close_session, ^session_id, ^viewer_session_id, opts}
-    assert opts[:scope]
+    assert opts[:actor_id] == user.id
+    refute Keyword.has_key?(opts, :scope)
+  end
+
+  test "every signaling operation hides sessions owned by another user", %{
+    session_id: session_id,
+    token: token
+  } do
+    viewer_session_id = Ecto.UUID.generate()
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :remote_access_session_fetcher,
+      fn requested_id, _opts ->
+        {:ok, desktop_session(requested_id, requested_by: Ecto.UUID.generate())}
+      end
+    )
+
+    operations = [
+      {:post, "/api/remote-access/sessions/#{session_id}/webrtc/session", %{}},
+      {:post, "/api/remote-access/sessions/#{session_id}/webrtc/session/#{viewer_session_id}/answer",
+       %{"sdp" => "v=0\r\nanswer"}},
+      {:post, "/api/remote-access/sessions/#{session_id}/webrtc/session/#{viewer_session_id}/candidates",
+       %{"candidate" => "candidate:1 1 UDP 1234 203.0.113.10 4000 typ host"}},
+      {:delete, "/api/remote-access/sessions/#{session_id}/webrtc/session/#{viewer_session_id}", %{}}
+    ]
+
+    for {method, path, params} <- operations do
+      conn =
+        build_conn()
+        |> Plug.Conn.put_req_header("authorization", "Bearer #{token}")
+        |> dispatch_request(method, path, params)
+
+      body = json_response(conn, 404)
+      assert body["error"] == "remote_access_session_not_found"
+    end
+
+    refute_receive {:desktop_webrtc_create_session, _session_id, _opts}
+    refute_receive {:desktop_webrtc_submit_answer, _session_id, _viewer_id, _sdp, _opts}
+    refute_receive {:desktop_webrtc_add_candidate, _session_id, _viewer_id, _candidate, _opts}
+    refute_receive {:desktop_webrtc_close_session, _session_id, _viewer_id, _opts}
   end
 
   defp desktop_session(session_id, overrides) do
@@ -237,6 +302,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCControllerTest do
       agent_id: "agent-1",
       gateway_id: "gateway-1",
       credential_custody_mode: :user_present,
+      requested_by: Process.get(:remote_desktop_webrtc_test_user_id),
       status: :active,
       rbac_decision: :allowed,
       attach_expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
@@ -251,4 +317,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCControllerTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+
+  defp dispatch_request(conn, :post, path, params), do: post(conn, path, params)
+  defp dispatch_request(conn, :delete, path, params), do: delete(conn, path, params)
 end

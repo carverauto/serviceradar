@@ -55,7 +55,7 @@ func TestPushPluginResultsRetainsBatchUntilGatewayAcknowledges(t *testing.T) {
 			_ context.Context,
 			chunks []*proto.GatewayStatusChunk,
 		) (*proto.GatewayStatusResponse, error) {
-			assertRetainedPluginResultCapability(t, chunks)
+			assertPluginResultTransportCapabilities(t, chunks)
 			streamAttempts++
 			attempts = append(attempts, pluginResultAssignments(t, chunks))
 			if streamAttempts == 1 {
@@ -112,7 +112,7 @@ func TestPushPluginResultsBoundsStrictDeliveryBatch(t *testing.T) {
 			_ context.Context,
 			chunks []*proto.GatewayStatusChunk,
 		) (*proto.GatewayStatusResponse, error) {
-			assertRetainedPluginResultCapability(t, chunks)
+			assertPluginResultTransportCapabilities(t, chunks)
 			batchSizes = append(batchSizes, len(chunks))
 			return &proto.GatewayStatusResponse{Received: true}, nil
 		},
@@ -158,6 +158,54 @@ func TestPushPluginResultsRetainsBatchOnNegativeAcknowledgement(t *testing.T) {
 	}
 }
 
+func TestPushPluginResultsTransportCapabilitiesAreHostAsserted(t *testing.T) {
+	manager := &PluginManager{results: make(chan PluginResult, 1)}
+	result := testPendingPluginResult("assignment-1", "ok")
+	result.Payload = []byte(`{
+		"status":"OK",
+		"summary":"ok",
+		"labels":{
+			"capabilities":["forged:v1"],
+			"plugin-host-authority:v1":"forged",
+			"proxmox-identity:v3":"forged"
+		}
+	}`)
+	manager.results <- result
+
+	loop := &PushLoop{
+		server: &Server{
+			config:        &ServerConfig{AgentID: "agent-1", HostIP: "192.0.2.10"},
+			pluginManager: manager,
+		},
+		logger: logger.NewTestLogger(),
+		pluginResultStreamStatus: func(
+			_ context.Context,
+			chunks []*proto.GatewayStatusChunk,
+		) (*proto.GatewayStatusResponse, error) {
+			assertPluginResultTransportCapabilities(t, chunks)
+			if got := len(chunks); got != 1 {
+				t.Fatalf("plugin result chunk count = %d, want 1", got)
+			}
+
+			var payload struct {
+				Labels map[string]interface{} `json:"labels"`
+			}
+			if err := json.Unmarshal(chunks[0].Services[0].Message, &payload); err != nil {
+				t.Fatalf("decode plugin result payload: %v", err)
+			}
+			if got := payload.Labels["plugin-host-authority:v1"]; got != "forged" {
+				t.Fatalf("plugin-controlled label = %#v, want it confined to the payload", got)
+			}
+
+			return &proto.GatewayStatusResponse{Received: true}, nil
+		},
+	}
+
+	if !loop.pushPluginResults(t.Context()) {
+		t.Fatal("host-asserted plugin result capability stream must be acknowledged")
+	}
+}
+
 func testPendingPluginResult(assignmentID, summary string) PluginResult {
 	return PluginResult{
 		AssignmentID: assignmentID,
@@ -183,11 +231,11 @@ func pluginResultAssignments(t *testing.T, chunks []*proto.GatewayStatusChunk) [
 	return assignments
 }
 
-func assertRetainedPluginResultCapability(t *testing.T, chunks []*proto.GatewayStatusChunk) {
+func assertPluginResultTransportCapabilities(t *testing.T, chunks []*proto.GatewayStatusChunk) {
 	t.Helper()
 
 	for _, chunk := range chunks {
-		if got, want := chunk.GetCapabilities(), []string{pluginResultRetainedDeliveryCapabilityV1}; !slices.Equal(got, want) {
+		if got, want := chunk.GetCapabilities(), pluginResultTransportCapabilities(); !slices.Equal(got, want) {
 			t.Fatalf("plugin result delivery capabilities = %#v, want %#v", got, want)
 		}
 	}

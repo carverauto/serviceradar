@@ -1,8 +1,7 @@
+#!/usr/bin/env bash
 #
 # Copyright (c) "2026" . Marvin Hansen All Rights Reserved.
 #
-
-#!/usr/bin/env bash
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -52,3 +51,52 @@ fi
 # Build all vendored deps with those two patches applied;
 # In case the patch is incompatible with a newer version, it will fail here.
 bazel build  //third_party/crates/...
+
+# Record the exact Cargo inputs that produced the committed vendor tree. The root
+# crate universe no longer has a from_cargo extension in MODULE.bazel, so its input
+# hashes do not belong in MODULE.bazel.lock. Native add-on release gates consume
+# this deterministic index instead and can reject a stale vendor snapshot without
+# re-vendoring the whole workspace in every CI job.
+VENDOR_INPUTS="third_party/crates/.serviceradar-vendor-inputs"
+VENDOR_INPUTS_TMP="$(mktemp "${VENDOR_INPUTS}.XXXXXX")"
+trap 'rm -f "${VENDOR_INPUTS_TMP}"' EXIT
+
+python3 - "${REPO_ROOT}" >"${VENDOR_INPUTS_TMP}" <<'PY'
+import hashlib
+import json
+import pathlib
+import subprocess
+import sys
+
+root = pathlib.Path(sys.argv[1]).resolve()
+metadata = json.loads(
+    subprocess.check_output(
+        [
+            "cargo",
+            "metadata",
+            "--locked",
+            "--offline",
+            "--no-deps",
+            "--format-version",
+            "1",
+        ],
+        cwd=root,
+        text=True,
+    )
+)
+
+paths = {root / "Cargo.lock", root / "Cargo.toml"}
+paths.update(
+    pathlib.Path(package["manifest_path"]).resolve()
+    for package in metadata["packages"]
+)
+
+for path in sorted(paths):
+    relative_path = path.relative_to(root).as_posix()
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    print(f"FILE:@@//{relative_path} {digest}")
+PY
+
+mv "${VENDOR_INPUTS_TMP}" "${VENDOR_INPUTS}"
+trap - EXIT
+echo "Recorded Cargo vendor inputs in ${VENDOR_INPUTS}"

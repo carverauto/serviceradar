@@ -48,7 +48,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsIndex do
 
       {:ok,
        socket
-       |> assign(:page_title, "Ansible Runs")
+       |> assign(:page_title, "Legacy Ansible runs")
        |> assign(:state_filter, "all")
        |> assign(:state_filters, @state_filters)
        |> assign(:run_count, length(runs))
@@ -101,9 +101,12 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsIndex do
   def render(assigns) do
     ~H"""
     <div class="mx-auto w-full max-w-7xl p-6 space-y-4">
-      <header class="flex items-center justify-between">
+      <header class="flex items-center justify-between gap-4">
         <div>
-          <h1 class="text-2xl font-semibold">Ansible Runs</h1>
+          <div class="flex flex-wrap items-center gap-2">
+            <h1 class="text-2xl font-semibold">Legacy Ansible runs</h1>
+            <span class="badge badge-outline badge-sm">PlaybookRun</span>
+          </div>
           <p class="text-sm text-base-content/70">
             {@run_count} run{if @run_count == 1, do: "", else: "s"} shown
             (filter: {@state_filter}, capped at {@page_limit}).
@@ -111,6 +114,20 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsIndex do
         </div>
         <button type="button" class="btn btn-sm btn-ghost" phx-click="refresh">Refresh</button>
       </header>
+
+      <div role="note" class="alert alert-info">
+        <.icon name="hero-information-circle" class="size-5" />
+        <div class="flex-1">
+          <p class="font-medium">Pre-hardening run telemetry</p>
+          <p class="text-sm">
+            These PlaybookRun records are retained for task/event history and are not hardened
+            AutomationOperation scope evidence.
+          </p>
+        </div>
+        <.link navigate={~p"/ansible/operations"} class="btn btn-ghost btn-sm">
+          Secure operations
+        </.link>
+      </div>
 
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-sm text-base-content/60 mr-1">Filter:</span>

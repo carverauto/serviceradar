@@ -16,7 +16,18 @@ config :logger, :console,
     :service_name,
     :message_size,
     :payload_kind,
-    :event_id
+    :event_id,
+    :command_id,
+    :expected_command_type,
+    :reported_command_type,
+    :phase,
+    :desktop_session_id,
+    :command_type,
+    :success,
+    :payload_field_count,
+    :progress_percent,
+    :config_version,
+    :section_count
   ]
 
 config :serviceradar_agent_gateway, :icmp_metrics_publisher,
@@ -93,6 +104,7 @@ config :serviceradar_core,
     ServiceRadar.WifiMap,
     ServiceRadar.Automation.Northbound,
     ServiceRadar.Automation.Ansible,
+    ServiceRadar.Automation.Callbacks,
     ServiceRadar.Security,
     # Import environment specific config (if present)
     ServiceRadar.Spatial

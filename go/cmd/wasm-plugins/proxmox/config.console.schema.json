@@ -1,88 +1,16 @@
 {
   "type": "object",
+  "additionalProperties": false,
   "title": "Proxmox Console",
-  "description": "Operator-visible console assignment settings. Credential broker grants, credential rule IDs, and session context are injected when a user opens a console session.",
+  "description": "Operator-visible console presentation settings. Target, session, credential, and transport authority are injected through the trusted agent host boundary.",
   "x-serviceradar-docs-url": "https://docs.serviceradar.cloud/docs/proxmox#console-access",
   "properties": {
-    "credential_broker": {
-      "type": "object",
-      "description": "Injected credential broker grant for the scoped console credential rule.",
-      "x-serviceradar-ui-hidden": true
-    },
-    "credential_rule_id": {
-      "type": "string",
-      "description": "Network credential rule that authorized this console plugin assignment.",
-      "x-serviceradar-ui-hidden": true
-    },
-    "api_token_secret_ref": {
-      "type": "string",
-      "description": "Internal Proxmox API token reference resolved into api_token only in scoped agent runtime config.",
-      "secretRef": true,
-      "x-internal": true,
-      "x-serviceradar-ui-hidden": true
-    },
-    "credential_secret": {
-      "type": "string",
-      "description": "Injected decrypted SSH console credential payload resolved from the scoped credential rule.",
-      "secretRef": true,
-      "x-internal": true,
-      "x-serviceradar-ui-hidden": true
-    },
-    "console": {
-      "type": "object",
-      "description": "Injected non-secret console session context from the agent streaming runtime.",
-      "x-serviceradar-ui-hidden": true
-    },
-    "target": {
-      "type": "object",
-      "description": "Injected target selected from ServiceRadar plugin inputs. Agent-local override for command-line testing only.",
-      "x-serviceradar-ui-hidden": true,
-      "properties": {
-        "device_uid": { "type": "string" },
-        "base_url": { "type": "string" },
-        "hostname": { "type": "string" },
-        "ip": { "type": "string" },
-        "ssh_port": { "type": "integer", "default": 22 }
-      }
-    },
-    "ssh": {
-      "type": "object",
-      "description": "Agent-local SSH credential fallback for customers that keep console credentials off the control plane. Central settings should use credential broker grants instead.",
-      "x-serviceradar-ui-hidden": true,
-      "properties": {
-        "username": { "type": "string" },
-        "password": {
-          "type": "string",
-          "format": "password",
-          "x-serviceradar-sensitive": true
-        },
-        "private_key": {
-          "type": "string",
-          "format": "password",
-          "x-serviceradar-sensitive": true
-        },
-        "passphrase": {
-          "type": "string",
-          "format": "password",
-          "x-serviceradar-sensitive": true
-        }
-      }
-    },
     "timeout_ms": {
       "type": "integer",
       "description": "Console connector timeout in milliseconds.",
-      "default": 30000
-    },
-    "ssh_host_key_policy": {
-      "type": "string",
-      "description": "SSH host key verification policy.",
-      "enum": ["known_hosts", "trust_on_first_use", "skip_verify"],
-      "default": "known_hosts"
-    },
-    "insecure_skip_verify": {
-      "type": "boolean",
-      "description": "Allow TLS verification bypass for Proxmox API console transports.",
-      "default": false
+      "default": 30000,
+      "minimum": 1000,
+      "maximum": 300000
     }
   }
 }

@@ -22,6 +22,9 @@ func loadConfig() (Config, error) {
 }
 
 func configFromJSON(raw json.RawMessage) (Config, error) {
+	if containsForbiddenProxmoxPublicConfigJSON(raw) {
+		return defaultConfig(), errors.New("legacy credential or TLS override is forbidden")
+	}
 	if looksLikePluginInputsJSON(raw) {
 		return configFromPluginInputsJSON(raw)
 	}
@@ -35,6 +38,9 @@ func configFromJSON(raw json.RawMessage) (Config, error) {
 }
 
 func configFromMap(raw map[string]any) (Config, error) {
+	if containsForbiddenProxmoxPublicConfigValue(raw) {
+		return defaultConfig(), errors.New("legacy credential or TLS override is forbidden")
+	}
 	if looksLikePluginInputs(raw) {
 		return configFromPluginInputs(raw)
 	}
@@ -124,13 +130,11 @@ func applyConfigJSON(raw json.RawMessage, cfg *Config) error {
 func applyConfigStruct(decoded configJSON, cfg *Config) {
 	cfg.BaseURL = decoded.BaseURL
 	cfg.APIToken = decoded.APIToken
-	cfg.APITokenSecretRef = decoded.APITokenSecretRef
 	cfg.Targets = decoded.Targets
 	cfg.TimeoutMS = decoded.TimeoutMS
 	cfg.MaxResponseBytes = decoded.MaxResponseBytes
 	cfg.MaxGuests = decoded.MaxGuests
 	cfg.IncludeGuests = decoded.IncludeGuests
-	cfg.InsecureSkipVerify = decoded.InsecureSkipVerify
 	cfg.AutoDiscovery = decoded.AutoDiscovery
 }
 func (cfg *Config) applyDefaults() {
@@ -409,14 +413,45 @@ func normalizeBaseURL(value string) string {
 
 func normalizeProxmoxAPIToken(value string) string {
 	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	if strings.HasPrefix(value, "PVEAPIToken=") {
+	if value == hostCredentialSentinel {
 		return value
 	}
+	return ""
+}
 
-	return "PVEAPIToken=" + value
+func containsForbiddenProxmoxPublicConfigJSON(raw json.RawMessage) bool {
+	var decoded any
+	return json.Unmarshal(raw, &decoded) == nil && containsForbiddenProxmoxPublicConfigValue(decoded)
+}
+
+func containsForbiddenProxmoxPublicConfigValue(value any) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			switch key {
+			case "api_token_secret_ref", "credential_secret_ref", "credential_broker", "insecure_skip_verify",
+				"ssh", "ssh_host_key_policy":
+				return true
+			case "api_token", "credential_secret":
+				text, ok := child.(string)
+				if !ok || text != hostCredentialSentinel {
+					return true
+				}
+			case "password", "private_key", "passphrase":
+				return true
+			}
+			if containsForbiddenProxmoxPublicConfigValue(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if containsForbiddenProxmoxPublicConfigValue(child) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func dedupeTargets(targets []Target) []Target {

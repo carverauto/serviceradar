@@ -2,9 +2,11 @@ defmodule ServiceRadar.Observability.PluginResultRepairAssignmentSupport do
   @moduledoc false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.ProcessRegistry
 
   @doc false
   def create_repair_assignment!(status) do
@@ -17,20 +19,29 @@ defmodule ServiceRadar.Observability.PluginResultRepairAssignmentSupport do
   @doc false
   def create_repair_assignment_for_package!(status, package, opts \\ []) do
     actor = SystemActor.system(:plugin_result_repair_test)
+    agent_uid = String.trim(status.agent_id)
+    partition_id = String.trim(Map.get(status, :partition, "default"))
 
-    assignment_changeset =
-      Ash.Changeset.for_create(
-        PluginAssignment,
-        :create,
-        %{
-          agent_uid: String.trim(status.agent_id),
-          plugin_package_id: package.id,
-          enabled: Keyword.get(opts, :enabled, true)
-        },
-        actor: actor
-      )
+    register_control_session!(agent_uid, partition_id)
 
-    create_without_notifications!(assignment_changeset)
+    try do
+      assignment_changeset =
+        Ash.Changeset.for_create(
+          PluginAssignment,
+          :create,
+          %{
+            agent_uid: agent_uid,
+            plugin_package_id: package.id,
+            enabled: Keyword.get(opts, :enabled, true)
+          },
+          actor: actor
+        )
+
+      create_without_notifications!(assignment_changeset)
+    after
+      :ok =
+        ProcessRegistry.unregister({:agent_control, partition_id, agent_uid, node()})
+    end
   end
 
   @doc false
@@ -108,6 +119,35 @@ defmodule ServiceRadar.Observability.PluginResultRepairAssignmentSupport do
          ) do
       {:ok, record, _notifications} -> record
       {:error, error} -> raise Ash.Error.to_error_class(error)
+    end
+  end
+
+  defp register_control_session!(agent_uid, partition_id) do
+    {:ok, _pid} =
+      ProcessRegistry.register(
+        {:agent_control, partition_id, agent_uid, node()},
+        %{
+          agent_id: agent_uid,
+          partition_id: partition_id,
+          gateway_node: node(),
+          capabilities: ["wasm"]
+        }
+      )
+
+    await_control_partition!(agent_uid, partition_id, 40)
+  end
+
+  defp await_control_partition!(_agent_uid, _partition_id, 0),
+    do: raise("test control-session partition did not converge")
+
+  defp await_control_partition!(agent_uid, partition_id, attempts) do
+    case AgentCommandBus.resolve_control_session_evidence(partition_id, agent_uid, nil) do
+      {:ok, %{agent_id: ^agent_uid, partition_id: ^partition_id}} ->
+        :ok
+
+      _other ->
+        Process.sleep(10)
+        await_control_partition!(agent_uid, partition_id, attempts - 1)
     end
   end
 end

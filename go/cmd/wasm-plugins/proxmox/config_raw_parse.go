@@ -14,11 +14,8 @@ import (
 //
 // In particular, serviceradar.plugin_inputs.v1 payloads apply the `template`
 // object wholesale, exactly like configFromPluginInputsPayload does via
-// applyConfigStruct. Core resolves api_token_secret_ref at config delivery and
-// writes the resolved token into template.api_token, so dropping the template
-// (as the pre-#4386 TinyGo parser did) loses the API token, TLS policy
-// (insecure_skip_verify), timeout_ms, max_guests, include_guests and
-// auto_discovery_enabled for every scheduled run.
+// applyConfigStruct. The API token visible to Wasm is only the fixed host
+// credential sentinel; the agent injects real material after authorization.
 func configFromRawConfigGJSON(raw string) Config {
 	if !gjson.Valid(raw) {
 		// std: json.Unmarshal fails -> configFromRawConfig falls back to
@@ -29,6 +26,9 @@ func configFromRawConfigGJSON(raw string) Config {
 	root := gjson.Parse(raw)
 	if !root.IsObject() {
 		// std: unmarshalling a non-object into configJSON errors out.
+		return defaultConfig()
+	}
+	if rawContainsForbiddenProxmoxPublicConfig(root) {
 		return defaultConfig()
 	}
 
@@ -55,7 +55,7 @@ func rawLooksLikePluginInputs(root gjson.Result) bool {
 
 // configFromRawPluginInputs mirrors configFromPluginInputsPayload: validate the
 // payload, apply the template wholesale, then derive per-target entries that
-// inherit the (runtime-resolved) template API token.
+// inherit the host credential sentinel.
 func configFromRawPluginInputs(root gjson.Result) Config {
 	if !rawPluginInputsValid(root) {
 		return defaultConfig()
@@ -134,7 +134,6 @@ func rawPluginInputsValid(root gjson.Result) bool {
 func applyRawConfigStruct(node gjson.Result, cfg *Config) {
 	cfg.BaseURL = node.Get("base_url").String()
 	cfg.APIToken = node.Get("api_token").String()
-	cfg.APITokenSecretRef = node.Get("api_token_secret_ref").String()
 	cfg.Targets = rawConfigTargets(node.Get("targets"))
 	cfg.TimeoutMS = int(node.Get("timeout_ms").Int())
 	cfg.MaxResponseBytes = int(node.Get("max_response_bytes").Int())
@@ -144,8 +143,41 @@ func applyRawConfigStruct(node gjson.Result, cfg *Config) {
 		includeGuests := value.Bool()
 		cfg.IncludeGuests = &includeGuests
 	}
-	cfg.InsecureSkipVerify = node.Get("insecure_skip_verify").Bool()
 	cfg.AutoDiscovery = node.Get("auto_discovery_enabled").Bool()
+}
+
+func rawContainsForbiddenProxmoxPublicConfig(node gjson.Result) bool {
+	forbidden := false
+	if node.IsObject() {
+		node.ForEach(func(key, value gjson.Result) bool {
+			switch key.String() {
+			case "api_token_secret_ref", "credential_secret_ref", "credential_broker", "insecure_skip_verify",
+				"ssh", "ssh_host_key_policy":
+				forbidden = true
+				return false
+			case "api_token", "credential_secret":
+				if value.String() != hostCredentialSentinel {
+					forbidden = true
+					return false
+				}
+			case "password", "private_key", "passphrase":
+				forbidden = true
+				return false
+			}
+			if rawContainsForbiddenProxmoxPublicConfig(value) {
+				forbidden = true
+				return false
+			}
+			return true
+		})
+	} else if node.IsArray() {
+		for _, child := range node.Array() {
+			if rawContainsForbiddenProxmoxPublicConfig(child) {
+				return true
+			}
+		}
+	}
+	return forbidden
 }
 
 // rawConfigTargets mirrors decoding configJSON.Targets: absent/null yields nil,

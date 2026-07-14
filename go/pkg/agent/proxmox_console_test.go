@@ -779,7 +779,8 @@ func testDesktopConsoleTarget(t *testing.T) remoteaccess.DesktopTarget {
 			Host: "rdp.example",
 		},
 		Credential: remoteaccess.DesktopCredentialPolicy{
-			Mode: remoteaccess.DesktopCredentialModeMemoryUser,
+			Mode:              remoteaccess.DesktopCredentialModeMemoryUser,
+			AllowedPrincipals: []string{"alice"},
 		},
 		Screen: remoteaccess.DesktopScreenPolicy{
 			MaxWidth:   1280,

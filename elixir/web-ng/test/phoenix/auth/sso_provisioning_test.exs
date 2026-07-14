@@ -8,6 +8,37 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNGWeb.Auth.SSOProvisioning
 
+  describe "record_successful_authentication/3" do
+    test "persists the trusted OIDC and SAML authentication method" do
+      actor = SystemActor.system(:test)
+
+      for provider <- [:oidc, :saml] do
+        user = user_fixture(%{email: "#{provider}-login@example.com"})
+
+        assert {:ok, recorded} =
+                 SSOProvisioning.record_successful_authentication(user, provider, actor)
+
+        assert recorded.authenticated_at
+        assert recorded.last_login_at
+        assert recorded.last_auth_method == provider
+
+        assert {:ok, persisted} = Ash.get(User, user.id, actor: actor)
+        assert persisted.last_auth_method == provider
+      end
+    end
+
+    test "does not make local password authentication SSO-eligible" do
+      actor = SystemActor.system(:test)
+      user = user_fixture(%{email: "local-login@example.com"})
+
+      assert {:error, :unsupported_sso_provider} =
+               SSOProvisioning.record_successful_authentication(user, :password, actor)
+
+      assert {:ok, persisted} = Ash.get(User, user.id, actor: actor)
+      assert is_nil(persisted.last_auth_method)
+    end
+  end
+
   describe "find_or_create_user/4" do
     test "rejects implicit linking to an existing local account by email" do
       user = user_fixture(%{email: "existing@example.com"})

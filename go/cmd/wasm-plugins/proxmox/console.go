@@ -20,18 +20,13 @@ var errConsoleBridgeUnavailable = errors.New("Proxmox console bridge unavailable
 var errConsoleConnectorUnsupported = errors.New("Proxmox console connector is not configured")
 
 type consoleConfig struct {
-	CredentialBroker   map[string]any  `json:"credential_broker,omitempty"`
-	CredentialRuleID   string          `json:"credential_rule_id"`
-	APIToken           string          `json:"api_token,omitempty"`
-	APITokenSecretRef  string          `json:"api_token_secret_ref,omitempty"`
-	Console            consoleContext  `json:"console"`
-	Target             consoleTarget   `json:"target,omitempty"`
-	SSH                consoleSSH      `json:"ssh,omitempty"`
-	CredentialSecret   json.RawMessage `json:"credential_secret,omitempty"`
-	TimeoutMS          int             `json:"timeout_ms"`
-	InsecureSkipVerify bool            `json:"insecure_skip_verify"`
-	SSHHostKeyPolicy   string          `json:"ssh_host_key_policy"`
-	PluginInputs       json.RawMessage `json:"plugin_inputs,omitempty"`
+	CredentialRuleID string          `json:"credential_rule_id"`
+	APIToken         string          `json:"api_token,omitempty"`
+	HostCredential   string          `json:"credential_secret,omitempty"`
+	Console          consoleContext  `json:"console"`
+	Target           consoleTarget   `json:"target,omitempty"`
+	TimeoutMS        int             `json:"timeout_ms"`
+	PluginInputs     json.RawMessage `json:"plugin_inputs,omitempty"`
 }
 
 type consoleContext struct {
@@ -48,22 +43,28 @@ type consoleContext struct {
 }
 
 type consoleTarget struct {
-	DeviceUID   string `json:"device_uid,omitempty"`
-	BaseURL     string `json:"base_url,omitempty"`
-	Hostname    string `json:"hostname,omitempty"`
-	IP          string `json:"ip,omitempty"`
-	SSHPort     int    `json:"ssh_port,omitempty"`
-	ProviderRef string `json:"provider_ref,omitempty"`
-	TargetRef   string `json:"target_ref,omitempty"`
-	TargetKind  string `json:"target_kind,omitempty"`
-	ConsoleMode string `json:"console_mode,omitempty"`
-}
-
-type consoleSSH struct {
-	Username   string `json:"username,omitempty"`
-	Password   string `json:"password,omitempty"`
-	PrivateKey string `json:"private_key,omitempty"`
-	Passphrase string `json:"passphrase,omitempty"`
+	DeviceUID               string `json:"device_uid,omitempty"`
+	BaseURL                 string `json:"base_url,omitempty"`
+	Hostname                string `json:"hostname,omitempty"`
+	IP                      string `json:"ip,omitempty"`
+	SSHPort                 int    `json:"ssh_port,omitempty"`
+	ProviderRef             string `json:"provider_ref,omitempty"`
+	TargetRef               string `json:"target_ref,omitempty"`
+	TargetKind              string `json:"target_kind,omitempty"`
+	ConsoleMode             string `json:"console_mode,omitempty"`
+	IntegrationID           string `json:"integration_id,omitempty"`
+	Cluster                 string `json:"cluster,omitempty"`
+	Node                    string `json:"node,omitempty"`
+	OwnerNode               string `json:"owner_node,omitempty"`
+	VMID                    int    `json:"vmid,omitempty"`
+	ControllerDeviceUID     string `json:"controller_device_uid,omitempty"`
+	ControllerRef           string `json:"controller_ref,omitempty"`
+	ControllerIntegrationID string `json:"controller_integration_id,omitempty"`
+	ControllerID            string `json:"controller_id,omitempty"`
+	ProviderInstanceRef     string `json:"provider_instance_ref,omitempty"`
+	NativeClusterID         string `json:"native_cluster_id,omitempty"`
+	ObjectKind              string `json:"object_kind,omitempty"`
+	NativeObjectID          string `json:"native_object_id,omitempty"`
 }
 
 type consoleOpenRequest struct {
@@ -166,20 +167,32 @@ func runConsoleWithDeps(cfg consoleConfig, deps consoleDeps) error {
 }
 
 func validateConsoleConfig(cfg consoleConfig) error {
-	if strings.TrimSpace(cfg.CredentialRuleID) == "" && strings.TrimSpace(cfg.Console.CredentialRuleID) == "" {
+	credentialRuleID := strings.TrimSpace(cfg.CredentialRuleID)
+	consoleCredentialRuleID := strings.TrimSpace(cfg.Console.CredentialRuleID)
+	if credentialRuleID == "" || consoleCredentialRuleID == "" || credentialRuleID != consoleCredentialRuleID {
 		return errors.New("credential_rule_id is required")
-	}
-	if len(cfg.CredentialBroker) == 0 {
-		return errors.New("credential_broker is required")
 	}
 	if strings.TrimSpace(cfg.Console.SessionID) == "" {
 		return errors.New("console.session_id is required")
+	}
+	if strings.TrimSpace(cfg.Console.PluginAssignmentID) == "" {
+		return errors.New("console.plugin_assignment_id is required")
 	}
 	if strings.TrimSpace(cfg.Target.Hostname) == "" && strings.TrimSpace(cfg.Target.IP) == "" && strings.TrimSpace(cfg.Target.BaseURL) == "" {
 		return errors.New("console target host is required")
 	}
 	if cfg.TimeoutMS > maxTimeoutMS {
 		return errors.New("timeout_ms exceeds maximum")
+	}
+	switch strings.TrimSpace(cfg.Console.ConsoleMode) {
+	case "", "ssh":
+		if cfg.HostCredential != hostCredentialSentinel {
+			return errors.New("SSH console requires the host credential sentinel")
+		}
+	case "proxmox_termproxy", "proxmox_vncwebsocket":
+		if cfg.APIToken != hostCredentialSentinel {
+			return errors.New("Proxmox API console requires the host credential sentinel")
+		}
 	}
 	return nil
 }
@@ -196,7 +209,7 @@ func loadConsoleConfig() (consoleConfig, error) {
 }
 
 func defaultConsoleConfig() consoleConfig {
-	return consoleConfig{TimeoutMS: defaultTimeoutMS, SSHHostKeyPolicy: "known_hosts"}
+	return consoleConfig{TimeoutMS: defaultTimeoutMS}
 }
 
 func consoleConfigFromMap(raw map[string]any) (consoleConfig, error) {
@@ -227,6 +240,9 @@ func consoleConfigFromMap(raw map[string]any) (consoleConfig, error) {
 }
 
 func applyConsoleConfigMap(raw map[string]any, cfg *consoleConfig) error {
+	if containsForbiddenProxmoxPublicConfigValue(raw) {
+		return errors.New("legacy credential or TLS override is forbidden")
+	}
 	encoded, err := json.Marshal(raw)
 	if err != nil {
 		return err
@@ -265,9 +281,19 @@ func consoleTargetFromPluginInputs(payload *sdk.PluginInputsPayload, deviceUID s
 				stringValue(input.Item, "provider_ref"),
 				stringValue(input.Item, "target_ref"),
 			),
-			TargetRef:   stringValue(input.Item, "target_ref"),
-			TargetKind:  stringValue(input.Item, "target_kind"),
-			ConsoleMode: stringValue(input.Item, "console_mode"),
+			TargetRef:           stringValue(input.Item, "target_ref"),
+			TargetKind:          stringValue(input.Item, "target_kind"),
+			ConsoleMode:         stringValue(input.Item, "console_mode"),
+			IntegrationID:       stringValue(input.Item, "integration_id"),
+			Cluster:             stringValue(input.Item, "cluster"),
+			Node:                stringValue(input.Item, "node"),
+			OwnerNode:           stringValue(input.Item, "owner_node"),
+			VMID:                intValue(input.Item, "vmid"),
+			ControllerID:        stringValue(input.Item, "controller_id"),
+			ProviderInstanceRef: stringValue(input.Item, "provider_instance_ref"),
+			NativeClusterID:     stringValue(input.Item, "native_cluster_id"),
+			ObjectKind:          stringValue(input.Item, "object_kind"),
+			NativeObjectID:      stringValue(input.Item, "native_object_id"),
 		}
 	}
 	return consoleTarget{}
@@ -284,8 +310,10 @@ type proxmoxConsoleProxyResponse struct {
 }
 
 type proxmoxConsoleTargetRef struct {
-	Node string
-	VMID int
+	Cluster    string
+	Node       string
+	TargetKind string
+	VMID       int
 }
 
 func streamProxmoxAPIConsole(
@@ -293,7 +321,7 @@ func streamProxmoxAPIConsole(
 	bridge proxmoxConsoleBridge,
 	dial func(context.Context, sdk.WebSocketDialRequest, time.Duration) (websocketConsoleConn, error),
 ) error {
-	token := normalizeProxmoxAPIToken(firstNonEmpty(cfg.APIToken, apiTokenFromCredentialSecret(cfg.CredentialSecret)))
+	token := normalizeProxmoxAPIToken(cfg.APIToken)
 	if token == "" {
 		_ = bridge.Write([]byte("Unable to open Proxmox console: Proxmox API token is required.\r\n"))
 		return errMissingToken
@@ -310,7 +338,11 @@ func streamProxmoxAPIConsole(
 		return err
 	}
 
-	proxyPath, wsPath, err := proxmoxConsolePaths(cfg.Console.ConsoleMode, cfg.Console.TargetKind, target)
+	proxyPath, wsPath, err := proxmoxConsolePaths(
+		cfg.Console.ConsoleMode,
+		normalizeProxmoxTargetKind(firstNonEmpty(cfg.Console.TargetKind, cfg.Target.TargetKind, target.TargetKind)),
+		target,
+	)
 	if err != nil {
 		_ = bridge.Write([]byte("Unsupported Proxmox console target: " + err.Error() + "\r\n"))
 		return err
@@ -324,8 +356,8 @@ func streamProxmoxAPIConsole(
 	}
 
 	port := strings.TrimSpace(proxy.Data.Port.String())
-	if port == "" || strings.TrimSpace(proxy.Data.Ticket) == "" {
-		return errors.New("Proxmox console proxy response did not include port and ticket")
+	if port == "" || proxy.Data.Ticket != hostProxmoxTicketSentinel {
+		return errors.New("Proxmox console proxy response did not include a host-bound ticket handle")
 	}
 
 	wsURL, err := proxmoxConsoleWebSocketURL(baseURL, wsPath, port, proxy.Data.Ticket)
@@ -337,7 +369,7 @@ func streamProxmoxAPIConsole(
 	ws, err := dial(ctx, sdk.WebSocketDialRequest{
 		URL:                wsURL,
 		Headers:            map[string]string{"Authorization": token},
-		InsecureSkipVerify: cfg.InsecureSkipVerify,
+		InsecureSkipVerify: false,
 	}, timeout)
 	if err != nil {
 		_ = bridge.Write([]byte("Unable to connect Proxmox console websocket: " + sanitizeError(err) + "\r\n"))
@@ -399,7 +431,7 @@ func requestProxmoxConsoleProxy(cfg consoleConfig, baseURL, token, path string) 
 		URL:                strings.TrimRight(baseURL, "/") + path,
 		Headers:            map[string]string{"Authorization": token, "Accept": "application/json"},
 		TimeoutMS:          normalizeConsoleTimeoutMS(cfg.TimeoutMS),
-		InsecureSkipVerify: cfg.InsecureSkipVerify,
+		InsecureSkipVerify: false,
 	})
 	if err != nil {
 		return out, err
@@ -437,6 +469,11 @@ func proxmoxConsolePaths(mode, targetKind string, target proxmoxConsoleTargetRef
 }
 
 func proxmoxConsoleWebSocketURL(baseURL, path, port, ticket string) (string, error) {
+	parsedPort, err := strconv.Atoi(port)
+	if err != nil || parsedPort <= 0 || parsedPort > 65535 || strconv.Itoa(parsedPort) != port ||
+		ticket != hostProxmoxTicketSentinel {
+		return "", errors.New("invalid host-bound Proxmox console ticket handle")
+	}
 	parsed, err := url.Parse(strings.TrimRight(baseURL, "/") + path)
 	if err != nil {
 		return "", err
@@ -444,8 +481,6 @@ func proxmoxConsoleWebSocketURL(baseURL, path, port, ticket string) (string, err
 	switch parsed.Scheme {
 	case "https":
 		parsed.Scheme = "wss"
-	case "http":
-		parsed.Scheme = "ws"
 	default:
 		return "", fmt.Errorf("unsupported Proxmox URL scheme %q", parsed.Scheme)
 	}
@@ -458,20 +493,68 @@ func proxmoxConsoleWebSocketURL(baseURL, path, port, ticket string) (string, err
 
 func resolveProxmoxConsoleTarget(cfg consoleConfig) (proxmoxConsoleTargetRef, error) {
 	ref := firstNonEmpty(cfg.Target.ProviderRef, cfg.Target.TargetRef)
-	if parsed, ok := parseProxmoxProviderRef(ref); ok {
-		return parsed, nil
+	target := proxmoxConsoleTargetRef{
+		Cluster:    strings.TrimSpace(cfg.Target.Cluster),
+		Node:       strings.TrimSpace(firstNonEmpty(cfg.Target.Node, cfg.Target.OwnerNode)),
+		TargetKind: normalizeProxmoxTargetKind(firstNonEmpty(cfg.Target.TargetKind, cfg.Console.TargetKind)),
+		VMID:       cfg.Target.VMID,
 	}
-
-	node := strings.TrimSpace(firstNonEmpty(cfg.Target.Hostname, cfg.Target.IP))
-	if node == "" && strings.TrimSpace(cfg.Target.BaseURL) != "" {
-		if parsedURL, err := url.Parse(cfg.Target.BaseURL); err == nil {
-			node = parsedURL.Hostname()
+	if cfg.Target.Node != "" && cfg.Target.OwnerNode != "" &&
+		strings.TrimSpace(cfg.Target.Node) != strings.TrimSpace(cfg.Target.OwnerNode) {
+		return proxmoxConsoleTargetRef{}, errors.New("conflicting Proxmox owner nodes")
+	}
+	if target.VMID < 0 {
+		return proxmoxConsoleTargetRef{}, errors.New("invalid vmid")
+	}
+	if parsed, ok := parseProxmoxProviderRef(ref); ok {
+		if err := mergeProxmoxConsoleTargetRef(&target, parsed); err != nil {
+			return proxmoxConsoleTargetRef{}, err
 		}
 	}
-	if node == "" {
+
+	if target.Node == "" && target.TargetKind == "pve_host" {
+		target.Node = strings.TrimSpace(firstNonEmpty(cfg.Target.Hostname, cfg.Target.IP))
+	}
+	if target.Node == "" && target.TargetKind == "pve_host" && strings.TrimSpace(cfg.Target.BaseURL) != "" {
+		if parsedURL, err := url.Parse(cfg.Target.BaseURL); err == nil {
+			target.Node = parsedURL.Hostname()
+		}
+	}
+	if target.Node == "" {
 		return proxmoxConsoleTargetRef{}, errors.New("node is required")
 	}
-	return proxmoxConsoleTargetRef{Node: node}, nil
+	return target, nil
+}
+
+func mergeProxmoxConsoleTargetRef(target *proxmoxConsoleTargetRef, parsed proxmoxConsoleTargetRef) error {
+	if target == nil {
+		return errors.New("target is required")
+	}
+	if parsed.Cluster != "" {
+		if target.Cluster != "" && target.Cluster != parsed.Cluster {
+			return errors.New("provider_ref cluster does not match target")
+		}
+		target.Cluster = parsed.Cluster
+	}
+	if parsed.Node != "" {
+		if target.Node != "" && target.Node != parsed.Node {
+			return errors.New("provider_ref node does not match target")
+		}
+		target.Node = parsed.Node
+	}
+	if parsed.TargetKind != "" {
+		if target.TargetKind != "" && target.TargetKind != parsed.TargetKind {
+			return errors.New("provider_ref kind does not match target")
+		}
+		target.TargetKind = parsed.TargetKind
+	}
+	if parsed.VMID > 0 {
+		if target.VMID > 0 && target.VMID != parsed.VMID {
+			return errors.New("provider_ref vmid does not match target")
+		}
+		target.VMID = parsed.VMID
+	}
+	return nil
 }
 
 func parseProxmoxProviderRef(ref string) (proxmoxConsoleTargetRef, bool) {
@@ -479,40 +562,100 @@ func parseProxmoxProviderRef(ref string) (proxmoxConsoleTargetRef, bool) {
 	if len(parts) < 3 || parts[0] != "proxmox" {
 		return proxmoxConsoleTargetRef{}, false
 	}
-	if parts[1] == "node" && parts[2] != "" {
-		return proxmoxConsoleTargetRef{Node: parts[2]}, true
+	if parts[1] == "node" && len(parts) == 3 && parts[2] != "" {
+		return proxmoxConsoleTargetRef{Node: parts[2], TargetKind: "pve_host"}, true
 	}
-	if parts[1] == "guest" && len(parts) >= 5 {
+	if parts[1] == "guest" && len(parts) == 5 {
 		vmid, err := strconv.Atoi(parts[4])
-		if err != nil {
+		if err != nil || vmid <= 0 {
 			return proxmoxConsoleTargetRef{}, false
 		}
-		return proxmoxConsoleTargetRef{Node: parts[2], VMID: vmid}, true
+		kind := normalizeProxmoxTargetKind(parts[3])
+		if kind != "qemu_guest" && kind != "lxc_guest" {
+			return proxmoxConsoleTargetRef{}, false
+		}
+		return proxmoxConsoleTargetRef{Node: parts[2], TargetKind: kind, VMID: vmid}, true
+	}
+	if parts[1] == "v3" && len(parts) == 7 && parts[2] != "" && parts[3] != "" {
+		cluster, clusterErr := url.PathUnescape(parts[4])
+		nativeID, nativeIDErr := url.PathUnescape(parts[6])
+		if clusterErr != nil || nativeIDErr != nil || cluster == "" || nativeID == "" {
+			return proxmoxConsoleTargetRef{}, false
+		}
+		switch parts[5] {
+		case "node":
+			return proxmoxConsoleTargetRef{Cluster: cluster, Node: nativeID, TargetKind: "pve_host"}, true
+		case "qemu", "lxc":
+			vmid, err := strconv.Atoi(nativeID)
+			if err != nil || vmid <= 0 {
+				return proxmoxConsoleTargetRef{}, false
+			}
+			return proxmoxConsoleTargetRef{
+				Cluster:    cluster,
+				TargetKind: normalizeProxmoxTargetKind(parts[5]),
+				VMID:       vmid,
+			}, true
+		default:
+			return proxmoxConsoleTargetRef{}, false
+		}
+	}
+	if parts[1] == "v2" && len(parts) == 5 && parts[2] != "" {
+		cluster, clusterErr := url.PathUnescape(parts[2])
+		nativeID, nativeIDErr := url.PathUnescape(parts[4])
+		if clusterErr != nil || nativeIDErr != nil || cluster == "" || nativeID == "" {
+			return proxmoxConsoleTargetRef{}, false
+		}
+		switch parts[3] {
+		case "node":
+			return proxmoxConsoleTargetRef{Cluster: cluster, Node: nativeID, TargetKind: "pve_host"}, true
+		case "vm", "qemu", "lxc":
+			vmid, err := strconv.Atoi(nativeID)
+			if err != nil || vmid <= 0 {
+				return proxmoxConsoleTargetRef{}, false
+			}
+			return proxmoxConsoleTargetRef{
+				Cluster:    cluster,
+				TargetKind: normalizeProxmoxTargetKind(parts[3]),
+				VMID:       vmid,
+			}, true
+		default:
+			return proxmoxConsoleTargetRef{}, false
+		}
+	}
+	if parts[1] == "cluster" && len(parts) == 5 && parts[2] != "" &&
+		parts[3] == "node" && parts[4] != "" {
+		return proxmoxConsoleTargetRef{Cluster: parts[2], Node: parts[4], TargetKind: "pve_host"}, true
+	}
+	if parts[1] == "cluster" && len(parts) == 7 && parts[2] != "" &&
+		parts[3] == "guest" && parts[4] != "" {
+		vmid, err := strconv.Atoi(parts[6])
+		if err != nil || vmid <= 0 {
+			return proxmoxConsoleTargetRef{}, false
+		}
+		kind := normalizeProxmoxTargetKind(parts[5])
+		if kind != "qemu_guest" && kind != "lxc_guest" {
+			return proxmoxConsoleTargetRef{}, false
+		}
+		return proxmoxConsoleTargetRef{Cluster: parts[2], Node: parts[4], TargetKind: kind, VMID: vmid}, true
 	}
 	return proxmoxConsoleTargetRef{}, false
 }
 
-func consoleBaseURL(target consoleTarget) string {
-	return normalizeBaseURL(firstNonEmpty(target.BaseURL, target.IP, target.Hostname))
-}
-
-func apiTokenFromCredentialSecret(raw json.RawMessage) string {
-	if len(raw) == 0 {
+func normalizeProxmoxTargetKind(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "qemu", "vm", "qemu_guest":
+		return "qemu_guest"
+	case "lxc", "container", "lxc_guest":
+		return "lxc_guest"
+	case "node", "host", "pve_host":
+		return "pve_host"
+	default:
 		return ""
 	}
-	var asString string
-	if err := json.Unmarshal(raw, &asString); err == nil {
-		return asString
-	}
-	var asMap map[string]any
-	if err := json.Unmarshal(raw, &asMap); err == nil {
-		return firstNonEmpty(
-			stringValue(asMap, "api_token"),
-			stringValue(asMap, "token"),
-			stringValue(asMap, "secret_payload"),
-		)
-	}
-	return strings.TrimSpace(string(raw))
+}
+
+func consoleBaseURL(target consoleTarget) string {
+	return normalizeBaseURL(firstNonEmpty(target.BaseURL, target.IP, target.Hostname))
 }
 
 func normalizeConsoleTimeoutMS(timeoutMS int) int {

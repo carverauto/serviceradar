@@ -101,10 +101,10 @@ remote path does). The declaration is kept as the source of truth, and `scripts/
 re-applies the `openssl-src` patch after `bazel run` (idempotent guard). BUILD-file
 annotations (filegroups, `build_script_env`, `RULES_RUST_OPENSSL_SRC_DIR`) *are* applied.
 
-`ironrdp-core`/`ironrdp-pdu` ARE carried into `packages`: `rust/rdp-adapter` references
-`@rust_crates//:ironrdp-*` (for its `ironrdp-backend` feature) and needs the top-level
-aliases; they are already in `//:Cargo.lock`, so this adds aliases without a repin.
-`libzetta` is dropped (referenced by no `Cargo.toml`/`Cargo.lock`/BUILD target).
+`libzetta`, `ironrdp-core`, and `ironrdp-pdu` are dropped from the root `packages`
+extras. The production RDP helper gets its exact-pinned connector/CredSSP graph from
+the independent `rdp_connector_crates` extension. Keeping a second IronRDP graph in the
+root vendor tree would be unused and could silently drift from the shipped helper.
 
 ### D6 — OpenSSL portability: rustls where practical, vendored where not
 
@@ -144,6 +144,20 @@ vendored path). Resolution:
   becomes a `rust_binary` on the vendored crates, with a `bmp-collector` alias for the
   docker/packaging consumers.
 
+### D7 — Committed vendor-input integrity index
+
+Removing the root `from_cargo` extension also removes its Cargo input hashes from
+`MODULE.bazel.lock`; treating that module lock as the root vendor freshness signal is
+therefore incorrect. `scripts/vendor.sh` writes a deterministic
+`third_party/crates/.serviceradar-vendor-inputs` index containing the SHA-256 of the
+root `Cargo.toml`, root `Cargo.lock`, and every workspace member manifest returned by
+locked, offline `cargo metadata`. The native add-on version guard checks changed Rust
+add-on manifests against this index. Independent crate-universe extensions, including
+`rdp_connector_crates`, remain protected by their own hashes in `MODULE.bazel.lock`.
+
+Rejected: exempting vendored Rust add-ons from metadata freshness checks. That would
+allow the source manifest and committed dependency tree to diverge at release time.
+
 ## Risks / Trade-offs
 
 - **openssl label rewrite (highest risk).** The `openssl-sys`/`openssl-src` annotations
@@ -167,10 +181,10 @@ vendored path). Resolution:
 ## Migration Plan
 
 1. Author the manifest-based `crates_vendor` rule in `third_party/BUILD.bazel` with the
-   three annotations and the three optional-crate `packages`.
+   three annotations and no vestigial optional-crate `packages`.
 2. `bazel run //third_party:crates_vendor -- --repin`; commit `third_party/crates/**`.
 3. Behind the still-present `@rust_crates`, build a small proof set from the vendored
-   universe — including one openssl consumer and `libzetta`/sysmon — to de-risk D5/openssl.
+   universe — including one OpenSSL consumer and sysmon — to de-risk D5/OpenSSL.
 4. Swap the load path in all 33 BUILD files (dependency order) to `//third_party/crates:defs.bzl`.
 5. `bazel build //rust/...` and `bazel test //rust/...` green with no `@rust_crates` references.
 6. Remove the `@rust_crates` `from_cargo` extension, its `use_repo`, and the three
@@ -185,5 +199,5 @@ Rollback: revert the atomic PR; `@rust_crates` returns and vendored sources are 
   (D4) — resolved to local unless size review says otherwise.
 - Whether `crates_vendor` needs an explicit `cargo_config` equivalent for
   `//:.cargo/config.toml`, or the workspace default suffices.
-- Whether to fold `rdp_connector_crates` into the same vendor pass or keep it separate
-  (currently: separate follow-up).
+- Whether to fold `rdp_connector_crates` into the same vendor pass or keep it separate —
+  resolved: keep the connector universe separate and exact-pinned.

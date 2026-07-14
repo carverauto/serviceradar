@@ -54,12 +54,13 @@ subset migrated incrementally.
     `source_dir()` and strip Configure's `-no-canonical-prefixes`. Because crates_vendor
     local mode does not apply annotation `patches` on disk, `scripts/vendor.sh` re-applies
     the patch after vendoring.
-- `packages`: keep `ironrdp-core`/`ironrdp-pdu` (referenced by `rust/rdp-adapter` via
-  `@rust_crates//:ironrdp-*`, already in the lock → no repin); drop `libzetta` (referenced
-  by no `Cargo.toml`/`Cargo.lock`/BUILD target).
+- Drop the vestigial `libzetta`, `ironrdp-core`, and `ironrdp-pdu` root `packages`
+  extras. The production RDP helper resolves its reviewed connector/CredSSP graph from
+  the independent `rdp_connector_crates` universe, so duplicating IronRDP in the root
+  vendor tree is both unused and a source of version drift.
 - Swap `@rust_crates//:` → `//third_party/crates:` across **33** BUILD files (43 refs):
   both the `defs.bzl` loads and the direct alias labels (`@rust_crates//:serde`,
-  `:ironrdp-core`, `:tempfile`, `:zeroize`, `:async-nats`, `:serde_json-1.0.150`). No dep
+  `:tempfile`, `:zeroize`, `:async-nats`, `:serde_json-1.0.150`). No dep
   lists change — the vendored `defs.bzl` exposes the same `all_crate_deps`/`crate_deps`/
   `aliases` macros.
 - **BREAKING (build graph):** land the load swaps and the extension removal together so
@@ -94,7 +95,10 @@ Also fixed (surfaced by the cutover):
   usage is also made portable (GNU/BSD/macOS).
 - `scripts/vendor.sh` clears `third_party/crates` before vendoring (crates_vendor's own
   recursive delete intermittently aborts with `ENOTEMPTY` on macOS, leaving a half-deleted
-  tree) and re-applies both source patches.
+  tree), re-applies both source patches, and records the exact root Cargo inputs in
+  `third_party/crates/.serviceradar-vendor-inputs`. Native add-on release gates compare
+  changed Rust package metadata with that index instead of looking for the removed root
+  `from_cargo` extension in `MODULE.bazel.lock`.
 
 ## Impact
 
@@ -104,8 +108,9 @@ Also fixed (surfaced by the cutover):
   - `third_party/BUILD.bazel` (the `crates_vendor` rule), `third_party/crates/**`
     (committed vendored sources + generated `defs.bzl`/`BUILD.bazel`).
   - 33 `rust/*/BUILD.bazel` files (plus 3 `third_party/rust_patches/*/BUILD.bazel`).
-  - `scripts/vendor.sh` (the repin/vendor entrypoint).
+  - `scripts/vendor.sh` and `scripts/check-native-addon-version-bumps.sh` (vendor input
+    integrity and native add-on release gates).
 - Platform: unaffected — vendored crates are source, compiled on demand; the
   `extra_target_triples` (gnu/musl) selects are unchanged.
 - Risk: `openssl-src` label/patch rewrite from `@rust_crates__openssl-src-*` to the
-  vendored repo, and repinning `libzetta` into the lockfile. See `design.md`.
+  vendored repo. See `design.md`.

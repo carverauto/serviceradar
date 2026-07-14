@@ -1,6 +1,6 @@
 id: proxmox-inventory
 name: Proxmox Inventory
-version: 0.1.4
+version: 0.1.5
 description: Enriches Proxmox PVE hosts and guests using the Proxmox VE REST API
 entrypoint: run_check
 runtime: wasi-preview1
@@ -12,8 +12,9 @@ capabilities:
   - emit_telemetry
   - http_request
 permissions:
-  allowed_domains:
-    - "*"
+  # Destinations are supplied only by the agent's exact host-authority
+  # binding. The untrusted module receives no static domain authority.
+  allowed_domains: []
   allowed_ports:
     - 8006
 resources:

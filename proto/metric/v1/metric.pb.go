@@ -817,7 +817,7 @@ const file_metric_v1_metric_proto_rawDesc = "" +
 	"\x16metric/v1/metric.proto\x12\x16serviceradar.metric.v1\"8\n" +
 	"\x0eStringMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value\"\x8f\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"\x96\x03\n" +
 	"\x0eMetricResource\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1d\n" +
 	"\n" +
@@ -833,7 +833,7 @@ const file_metric_v1_metric_proto_rawDesc = "" +
 	" \x01(\tR\tkvStoreId\x12F\n" +
 	"\n" +
 	"attributes\x18\x14 \x03(\v2&.serviceradar.metric.v1.StringMapEntryR\n" +
-	"attributes\"\xfa\x01\n" +
+	"attributesJ\x05\bd\x10\xc8\x01\"\xfa\x01\n" +
 	"\x0eIngestIdentity\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12!\n" +
 	"\fpayload_kind\x18\x02 \x01(\tR\vpayloadKind\x12\x1f\n" +
@@ -844,7 +844,7 @@ const file_metric_v1_metric_proto_rawDesc = "" +
 	"attestedBy\x12F\n" +
 	"\n" +
 	"attributes\x18\x14 \x03(\v2&.serviceradar.metric.v1.StringMapEntryR\n" +
-	"attributes\"\x94\x04\n" +
+	"attributes\"\x9b\x04\n" +
 	"\vMetricPoint\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\x01R\x05value\x12\x1b\n" +
 	"\traw_value\x18\x02 \x01(\tR\brawValue\x12M\n" +
@@ -858,7 +858,7 @@ const file_metric_v1_metric_proto_rawDesc = "" +
 	"\n" +
 	"attributes\x18\x14 \x03(\v2&.serviceradar.metric.v1.StringMapEntryR\n" +
 	"attributes\x12B\n" +
-	"\bmetadata\x18\x15 \x03(\v2&.serviceradar.metric.v1.StringMapEntryR\bmetadata\"\xb9\x04\n" +
+	"\bmetadata\x18\x15 \x03(\v2&.serviceradar.metric.v1.StringMapEntryR\bmetadataJ\x05\bd\x10\xc8\x01\"\xc0\x04\n" +
 	"\x06Metric\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1f\n" +
 	"\vmetric_type\x18\x02 \x01(\tR\n" +
@@ -874,7 +874,7 @@ const file_metric_v1_metric_proto_rawDesc = "" +
 	"\bmetadata\x18\x1f \x03(\v2&.serviceradar.metric.v1.StringMapEntryR\bmetadata\x12F\n" +
 	"\n" +
 	"thresholds\x18  \x03(\v2&.serviceradar.metric.v1.StringMapEntryR\n" +
-	"thresholds\"\x92\x03\n" +
+	"thresholdsJ\x05\bd\x10\xc8\x01\"\x99\x03\n" +
 	"\vMetricBatch\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\tR\rschemaVersion\x12B\n" +
 	"\bresource\x18\x02 \x01(\v2&.serviceradar.metric.v1.MetricResourceR\bresource\x12O\n" +
@@ -883,7 +883,7 @@ const file_metric_v1_metric_proto_rawDesc = "" +
 	"ingress_id\x18\x04 \x01(\tR\tingressId\x12=\n" +
 	"\x1bingress_timestamp_unix_nano\x18\x05 \x01(\x04R\x18ingressTimestampUnixNano\x12/\n" +
 	"\x14emitted_at_unix_nano\x18\x06 \x01(\x04R\x11emittedAtUnixNano\x128\n" +
-	"\ametrics\x18\x14 \x03(\v2\x1e.serviceradar.metric.v1.MetricR\ametrics*p\n" +
+	"\ametrics\x18\x14 \x03(\v2\x1e.serviceradar.metric.v1.MetricR\ametricsJ\x05\bd\x10\xc8\x01*p\n" +
 	"\n" +
 	"MetricKind\x12\x1b\n" +
 	"\x17METRIC_KIND_UNSPECIFIED\x10\x00\x12\x15\n" +

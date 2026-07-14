@@ -8,6 +8,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Plugins.PolicyAssignmentPlanner
   alias ServiceRadar.Plugins.SRQLInputResolver
 
@@ -27,7 +28,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
   @callback create_assignment(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback update_assignment(map(), map(), map()) :: {:ok, map()} | {:error, term()}
   @callback disable_assignment(map(), map()) :: {:ok, map()} | {:error, term()}
-  @callback find_enabled_assignment(String.t(), String.t(), map()) ::
+  @callback find_enabled_assignment(String.t(), String.t(), String.t(), map()) ::
               {:ok, map() | nil} | {:error, term()}
 
   @spec reconcile(map(), [map()], keyword()) :: {:ok, reconcile_result()} | {:error, [String.t()]}
@@ -36,11 +37,13 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     resolver = Keyword.get(opts, :resolver, SRQLInputResolver)
     planner = Keyword.get(opts, :planner, PolicyAssignmentPlanner)
     store = Keyword.get(opts, :store, __MODULE__.AshStore)
+    partition_resolver = Keyword.get(opts, :partition_resolver, &authenticated_partition/1)
 
     agent_scope = normalize_agent_scope(Keyword.get(opts, :agent_scope))
 
     with {:ok, resolved_inputs} <- resolver.resolve(input_defs, opts),
          {:ok, %{assignments: desired}} <- planner.plan(policy, resolved_inputs, opts),
+         {:ok, desired} <- bind_desired_partitions(desired, partition_resolver),
          {:ok, policy_id} <- policy_id(policy),
          {:ok, existing} <- store.list_policy_assignments(policy_id, actor),
          {:ok, stats} <- apply_plan(desired, existing, actor, store, agent_scope) do
@@ -58,6 +61,50 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     end
   end
 
+  defp bind_desired_partitions(desired, resolver)
+       when is_list(desired) and is_function(resolver, 1) do
+    desired
+    |> Enum.reduce_while({:ok, []}, fn spec, {:ok, acc} ->
+      case resolver.(spec.agent_uid) do
+        {:ok, partition_id} when is_binary(partition_id) ->
+          partition_id = String.trim(partition_id)
+
+          if partition_id == "" do
+            {:halt, {:error, :authenticated_agent_partition_unavailable}}
+          else
+            {:cont, {:ok, [Map.put(spec, :partition_id, partition_id) | acc]}}
+          end
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+
+        _other ->
+          {:halt, {:error, :authenticated_agent_partition_unavailable}}
+      end
+    end)
+    |> case do
+      {:ok, specs} -> {:ok, Enum.reverse(specs)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp bind_desired_partitions(_desired, _resolver),
+    do: {:error, :authenticated_agent_partition_unavailable}
+
+  defp authenticated_partition(agent_id) do
+    case AgentCommandBus.resolve_control_session_evidence(agent_id) do
+      {:ok, %{agent_id: ^agent_id, partition_id: partition_id}}
+      when is_binary(partition_id) and partition_id != "" ->
+        {:ok, String.trim(partition_id)}
+
+      {:ok, _evidence} ->
+        {:error, :authenticated_agent_partition_mismatch}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp policy_id(policy) when is_map(policy) do
     policy_id = Map.get(policy, :policy_id) || Map.get(policy, "policy_id")
 
@@ -69,12 +116,12 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
   end
 
   defp apply_plan(desired_specs, existing_rows, actor, store, agent_scope) do
-    desired_by_key = Map.new(desired_specs, &{&1.assignment_key, &1})
+    desired_by_key = Map.new(desired_specs, &{{&1.partition_id, &1.assignment_key}, &1})
 
     existing_by_key =
       existing_rows
       |> Enum.filter(&is_binary(&1.source_key))
-      |> Map.new(&{&1.source_key, &1})
+      |> Map.new(&{{&1.partition_id, &1.source_key}, &1})
 
     # In a per-agent reconcile (agent_scope set), retraction is restricted to
     # the reconciled agent(s): existing rows owned by OTHER agents must be left
@@ -164,7 +211,12 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
   # is the golden path: no orphaned enabled rows are left behind, and the next
   # reconcile is a clean matching no-op.
   defp adopt_existing_assignment(spec, stats, actor, store, create_reason) do
-    case store.find_enabled_assignment(spec.agent_uid, spec.plugin_package_id, actor) do
+    case store.find_enabled_assignment(
+           spec.partition_id,
+           spec.agent_uid,
+           spec.plugin_package_id,
+           actor
+         ) do
       {:ok, nil} ->
         {:halt, {:error, create_reason}}
 
@@ -204,7 +256,8 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
   end
 
   defp assignment_matches_spec?(existing, spec) do
-    existing.enabled == spec.enabled and
+    existing.partition_id == spec.partition_id and
+      existing.enabled == spec.enabled and
       existing.interval_seconds == spec.interval_seconds and
       existing.timeout_seconds == spec.timeout_seconds and
       existing.plugin_package_id == spec.plugin_package_id and
@@ -254,13 +307,14 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
 
     alias ServiceRadar.Plugins.PluginAssignment
     alias ServiceRadar.Plugins.PluginPackage
+    alias ServiceRadar.Repo
 
     require Ash.Query
 
     @impl true
     def list_policy_assignments(policy_id, actor) do
       PluginAssignment
-      |> Ash.Query.for_read(:by_policy, %{policy_id: policy_id}, actor: actor)
+      |> Ash.Query.for_read(:all_partitions_for_policy, %{policy_id: policy_id}, actor: actor)
       |> Ash.Query.filter(source == :policy)
       |> Ash.read(actor: actor)
     end
@@ -279,10 +333,26 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
         params: spec.params
       }
 
-      PluginAssignment
-      |> Ash.Changeset.for_create(:create, params)
-      |> Ash.create(actor: actor, authorize?: true)
-      |> disable_manual_duplicate(spec, actor)
+      fn ->
+        case PluginAssignment
+             |> Ash.Changeset.for_create(:create, params)
+             |> Ash.create(actor: actor, authorize?: true) do
+          {:ok, %{partition_id: partition_id} = assignment}
+          when partition_id == spec.partition_id ->
+            assignment
+
+          {:ok, _assignment} ->
+            Repo.rollback(:authenticated_agent_partition_changed)
+
+          {:error, reason} ->
+            Repo.rollback(reason)
+        end
+      end
+      |> Repo.transaction()
+      |> case do
+        {:ok, assignment} -> disable_manual_duplicate({:ok, assignment}, spec, actor)
+        {:error, reason} -> {:error, reason}
+      end
     end
 
     @impl true
@@ -312,10 +382,14 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     end
 
     @impl true
-    def find_enabled_assignment(agent_uid, plugin_package_id, actor) do
+    def find_enabled_assignment(partition_id, agent_uid, plugin_package_id, actor) do
       with {:ok, plugin_id} <- plugin_id_for_package(plugin_package_id, actor) do
         PluginAssignment
-        |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_uid}, actor: actor)
+        |> Ash.Query.for_read(
+          :by_edge_principal,
+          %{agent_uid: agent_uid, partition_id: partition_id},
+          actor: actor
+        )
         |> Ash.Query.filter(plugin_id == ^plugin_id and enabled == true)
         |> Ash.read(actor: actor)
         |> case do
@@ -350,7 +424,8 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
         PluginAssignment
         |> Ash.Query.for_read(:read)
         |> Ash.Query.filter(
-          source == :manual and enabled == true and agent_uid == ^spec.agent_uid and
+          source == :manual and enabled == true and partition_id == ^spec.partition_id and
+            agent_uid == ^spec.agent_uid and
             plugin_id == ^plugin_id
         )
         |> Ash.read(actor: actor)

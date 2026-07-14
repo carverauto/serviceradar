@@ -44,7 +44,7 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionControllerTest do
 
     conn = Plug.Conn.put_req_header(conn, "authorization", "Bearer #{token}")
 
-    %{conn: conn}
+    %{conn: conn, user: user}
   end
 
   describe "POST /api/proxmox/console-sessions" do
@@ -52,8 +52,6 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionControllerTest do
       conn =
         post(conn, ~p"/api/proxmox/console-sessions", %{
           "device_uid" => "pve-1",
-          "target_kind" => "pve_host",
-          "console_mode" => "ssh",
           "terminal" => %{"cols" => 120, "rows" => 40}
         })
 
@@ -70,7 +68,28 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionControllerTest do
       assert_receive {:open_proxmox_console_session, "pve-1", request, opts}
       assert request.cols == 120
       assert request.rows == 40
+      refute Map.has_key?(request, :target_kind)
+      refute Map.has_key?(request, :console_mode)
+      refute Map.has_key?(request, :credential_rule_id)
+      refute Map.has_key?(request, :metadata)
       assert match?(%Scope{}, opts[:scope])
+    end
+
+    test "rejects browser-supplied target, mode, credential rule, and metadata", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/proxmox/console-sessions", %{
+          "device_uid" => "pve-1",
+          "target_kind" => "qemu_guest",
+          "console_mode" => "proxmox_vncwebsocket",
+          "credential_rule_id" => Ecto.UUID.generate(),
+          "metadata" => %{"target" => %{"base_url" => "https://attacker.invalid"}}
+        })
+
+      body = json_response(conn, 400)
+
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "unsupported fields"
+      refute_receive {:open_proxmox_console_session, _device_uid, _request, _opts}
     end
 
     test "denies users without console permission", %{conn: _conn} do
@@ -84,6 +103,19 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionControllerTest do
 
       body = json_response(conn, 403)
       assert body["error"] == "forbidden"
+    end
+
+    test "denies users with console-open but without credential-use permission", %{
+      conn: conn,
+      user: user
+    } do
+      put_test_permissions(user, ["devices.console.open"])
+
+      conn = post(conn, ~p"/api/proxmox/console-sessions", %{"device_uid" => "pve-1"})
+
+      body = json_response(conn, 403)
+      assert body["error"] == "forbidden"
+      refute_receive {:open_proxmox_console_session, _device_uid, _request, _opts}
     end
 
     test "returns 422 when no scoped console credential rule matches", %{conn: conn} do
@@ -122,6 +154,21 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionControllerTest do
       assert opts[:reason] == "operator_requested"
       assert match?(%Scope{}, opts[:scope])
     end
+  end
+
+  describe "GET /v1/proxmox/console-sessions/:id/stream" do
+    test "denies websocket upgrade without credential-use permission", %{conn: conn, user: user} do
+      put_test_permissions(user, ["devices.console.open"])
+
+      conn = get(conn, ~p"/v1/proxmox/console-sessions/#{Ecto.UUID.generate()}/stream")
+
+      body = json_response(conn, 403)
+      assert body["error"] == "forbidden"
+    end
+  end
+
+  defp put_test_permissions(user, permissions) do
+    Process.put({:rbac_permissions, user.id}, MapSet.new(permissions))
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)

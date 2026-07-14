@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.NorthboundInterfaceRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
+  alias ServiceRadarWebNGWeb.DeviceLive.RemoteAccessData
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.VirtualizationData
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -886,6 +887,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:healthcheck_summary, nil)
     |> assign(:virtualization_summary, nil)
     |> assign(:has_virtualization_guests, false)
+    |> assign(:rdp_desktop_target, nil)
     |> assign(:sweep_results, nil)
     |> assign(:metric_sections, [])
     |> assign(:sysmon_presence, false)
@@ -944,6 +946,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     virtualization_summary = VirtualizationData.load_virtualization_summary(scope, uid)
 
+    rdp_desktop_target =
+      case RemoteAccessData.rdp_target_for_device(scope, uid) do
+        {:ok, target} -> target
+        {:error, _reason} -> nil
+      end
+
     {camera_sources, camera_inventory_error} =
       CameraData.load_sources(scope, uid, device_row, &DeviceActionRuntime.format_ash_error/1)
 
@@ -961,6 +969,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       DeviceSupplementalData.load(load_context, supplemental_load_opts())
 
     Map.merge(supplemental_assigns, %{
+      rdp_desktop_target: rdp_desktop_target,
       __requested_tab__: Map.get(context, :requested_tab, "details"),
       __device_row__: device_row,
       __srql_module__: srql_module,

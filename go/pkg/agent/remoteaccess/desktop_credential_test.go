@@ -163,6 +163,17 @@ func TestNormalizeDesktopCredentialGrantEnforcesMemoryUserCredential(t *testing.
 	if _, err := NormalizeDesktopCredentialGrant(grant, target); !errors.Is(err, ErrInvalidDesktopTarget) {
 		t.Fatalf("disallowed principal error = %v, want %v", err, ErrInvalidDesktopTarget)
 	}
+
+	grant.Username = "alice"
+	target.Credential.AllowedPrincipals = nil
+	if _, err := NormalizeDesktopCredentialGrant(grant, target); !errors.Is(err, ErrInvalidDesktopTarget) {
+		t.Fatalf("missing principal allowlist error = %v, want %v", err, ErrInvalidDesktopTarget)
+	}
+
+	target.Credential.AllowedPrincipals = []string{"Alice"}
+	if _, err := NormalizeDesktopCredentialGrant(grant, target); !errors.Is(err, ErrInvalidDesktopTarget) {
+		t.Fatalf("case-mismatched principal error = %v, want %v", err, ErrInvalidDesktopTarget)
+	}
 }
 
 func TestValidateDesktopOpenCredentialGrantRequiresGrantForSecretModes(t *testing.T) {

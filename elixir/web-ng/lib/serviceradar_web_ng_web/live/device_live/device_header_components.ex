@@ -21,7 +21,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents do
   attr(:proxmox_console_target, :boolean, default: false)
   attr(:proxmox_console_path, :string, default: nil)
   attr(:proxmox_console_action_label, :string, default: "Open console")
-  attr(:rdp_target_path, :string, default: nil)
+  attr(:rdp_launch_path, :string, default: nil)
+  attr(:rdp_enable_path, :string, default: nil)
 
   def device_show_header(assigns) do
     ~H"""
@@ -115,8 +116,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents do
           <.icon name="hero-window" class="size-4" /> Apps
         </.ui_button>
         <.ui_button
-          :if={@can_manage_rdp_targets and not @device_deleted}
-          href={@rdp_target_path}
+          :if={not is_nil(@rdp_launch_path) and not @device_deleted}
+          id="device-rdp-launch-action"
+          href={@rdp_launch_path}
+          variant="outline"
+          size="sm"
+        >
+          <.icon name="hero-computer-desktop" class="size-4" /> RDP
+        </.ui_button>
+        <.ui_button
+          :if={is_nil(@rdp_launch_path) and @can_manage_rdp_targets and not @device_deleted}
+          id="device-rdp-enable-action"
+          href={@rdp_enable_path}
           variant="outline"
           size="sm"
         >

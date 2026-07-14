@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   alias ServiceRadarWebNGWeb.Plugs.GatewayAuth
   alias ServiceRadarWebNGWeb.Plugs.LockoutCheck
   alias ServiceRadarWebNGWeb.Plugs.RateLimit
+  alias ServiceRadarWebNGWeb.Plugs.RateLimit.Bodies
   alias ServiceRadarWebNGWeb.Plugs.SecurityHeaders
   alias ServiceRadarWebNGWeb.Settings.ShellHook
 
@@ -155,6 +156,15 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(SecurityHeaders)
   end
 
+  # Deliberately excludes fetch_session, current-user/JWT authentication, and
+  # API-key authentication. The controller accepts only its one-time callback
+  # bearer and rebuilds current authority from immutable persisted identity.
+  pipeline :automation_callback do
+    plug(ServiceRadarWebNGWeb.Plugs.AutomationCallbackResponseHeaders)
+    plug(ServiceRadarWebNGWeb.Plugs.AutomationCallbackRequestGuard)
+    plug(SecurityHeaders)
+  end
+
   # Token-scope gate for the CLI dashboard-publish endpoints. Layered on top of
   # `:api_key_auth` so the bearer token is validated first, then this plug
   # rejects any request whose `scopes` claim does not include
@@ -179,7 +189,8 @@ defmodule ServiceRadarWebNGWeb.Router do
       bucket: :auth_local,
       subject: :ip,
       response_mode: :auto,
-      html_redirect_to: "/users/log-in"
+      html_redirect_to: "/users/log-in",
+      html_flash_template: "Too many login attempts. Please try again in {retry_after} seconds."
     )
 
     plug(LockoutCheck,
@@ -194,7 +205,8 @@ defmodule ServiceRadarWebNGWeb.Router do
       bucket: :auth_password_reset,
       subject: :ip,
       response_mode: :auto,
-      html_redirect_to: "/auth/password-reset"
+      html_redirect_to: "/auth/password-reset",
+      html_flash_template: "Too many password reset requests. Please try again in {retry_after} seconds."
     )
   end
 
@@ -221,7 +233,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       bucket: :cli_device_auth,
       subject: :ip,
       response_mode: :json,
-      json_body_builder: &ServiceRadarWebNGWeb.Plugs.RateLimit.Bodies.cli_device_auth/1
+      json_body_builder: &Bodies.cli_device_auth/1
     )
   end
 
@@ -262,6 +274,15 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(RateLimit, bucket: :api_default, subject: :ip)
   end
 
+  pipeline :rate_limit_automation_callback do
+    plug(RateLimit,
+      bucket: :automation_callback_grant,
+      subject: :ip,
+      response_mode: :json,
+      json_body_builder: &Bodies.automation_callback/1
+    )
+  end
+
   # CSP violation reports are sent by the browser as
   # `application/csp-report` (or `application/reports+json`). The standard
   # `:api` pipeline calls `:accepts ["json"]`, which would reject those
@@ -289,6 +310,16 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through([:api, :rate_limit_api_default])
 
     post("/action-callbacks/:job_id", NorthboundActionCallbackController, :create)
+  end
+
+  scope "/api/v1/automation", ServiceRadarWebNGWeb.Api do
+    pipe_through([:automation_callback, :rate_limit_automation_callback])
+
+    post(
+      "/callback-grants/:grant_id/actions/remote_access.ssh_ca.bundle.read",
+      AutomationCallbackGrantController,
+      :consume_ssh_ca_bundle
+    )
   end
 
   scope "/api/docs", ServiceRadarWebNGWeb.Api do
@@ -779,6 +810,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/devices/:uid", DeviceLive.Show, :show)
       live("/devices/:uid/proxmox-console", ProxmoxConsoleLive.Show, :show)
       live("/devices/:uid/remote-access/ssh", RemoteAccessLive.SSH, :show)
+      live("/devices/:uid/remote-access/rdp", RemoteAccessLive.RDP, :show)
       live("/remote-access/targets", RemoteAccessLive.Targets, :index)
       live("/remote-access/applications/:target_id", RemoteAccessLive.Application, :show)
       live("/remote-access/tcp-targets/:target_id", RemoteAccessLive.TCP, :show)
@@ -948,6 +980,11 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/ansible", Settings.AnsibleLive, :index)
 
       # Ansible runs (read-only browsing of playbook execution history)
+      live("/ansible/operations", AnsibleLive.OperationsIndex, :index)
+      live("/ansible/operations/:id", AnsibleLive.OperationsShow, :show)
+
+      # Legacy PlaybookRun history remains available during migration, but is
+      # intentionally separate from hardened AutomationOperation evidence.
       live("/ansible/runs", AnsibleLive.RunsIndex, :index)
       live("/ansible/runs/:id", AnsibleLive.RunsShow, :show)
 

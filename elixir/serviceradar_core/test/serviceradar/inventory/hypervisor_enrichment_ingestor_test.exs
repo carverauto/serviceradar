@@ -2,6 +2,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
+  alias ServiceRadar.Inventory.IntegrationIdentity
 
   @observed_at ~U[2026-05-09 12:00:00Z]
 
@@ -103,6 +104,96 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorTest do
       |> HypervisorEnrichmentIngestor.dedupe_records()
 
     assert [%{name: "new"}] = records.hosts
+  end
+
+  test "rejects partial or mismatched Proxmox v3 records before persistence" do
+    provider_ref =
+      "proxmox:v3:11111111-1111-4111-8111-111111111111:" <>
+        "22222222-2222-4222-8222-222222222222:lab:node:pve01"
+
+    records =
+      Map.put(HypervisorEnrichmentIngestor.empty_records(), :hosts, [
+        %{
+          provider: "proxmox",
+          provider_ref: provider_ref,
+          identity_version: 3,
+          identity_state: :authoritative,
+          integration_id: "11111111-1111-4111-8111-111111111111",
+          controller_id: "22222222-2222-4222-8222-222222222222",
+          native_cluster_id: "lab",
+          object_kind: "node",
+          native_object_id: "pve02",
+          provider_instance_ref:
+            "proxmox:v3:11111111-1111-4111-8111-111111111111:" <>
+              "22222222-2222-4222-8222-222222222222:lab"
+        }
+      ])
+
+    assert {:error, {:invalid_proxmox_v3_identity, ^provider_ref}} =
+             HypervisorEnrichmentIngestor.persist_records(records, actor: %{})
+  end
+
+  test "rejects new legacy Proxmox records before persistence" do
+    provider_ref = "proxmox:node:pve-legacy"
+
+    records =
+      Map.put(HypervisorEnrichmentIngestor.empty_records(), :hosts, [
+        %{provider: "proxmox", provider_ref: provider_ref, name: "pve-legacy"}
+      ])
+
+    assert {:error, {:proxmox_v3_identity_required, ^provider_ref}} =
+             HypervisorEnrichmentIngestor.persist_records(records, actor: %{})
+  end
+
+  test "rejects self-asserted Proxmox v3 scope from a generic persistence path" do
+    trusted_scope = %{
+      integration_id: "11111111-1111-4111-8111-111111111111",
+      controller_id: "22222222-2222-4222-8222-222222222222",
+      partition_id: "farm01"
+    }
+
+    {:ok, identity} =
+      IntegrationIdentity.proxmox_v3_fields(
+        trusted_scope.integration_id,
+        trusted_scope.controller_id,
+        "lab",
+        :node,
+        "pve01"
+      )
+
+    records =
+      Map.put(HypervisorEnrichmentIngestor.empty_records(), :hosts, [
+        Map.merge(identity, %{provider: "proxmox", name: "pve01"})
+      ])
+
+    assert {:error, :missing_trusted_proxmox_source_scope} =
+             HypervisorEnrichmentIngestor.persist_records(records, actor: %{})
+
+    assert {:error, :proxmox_source_scope_mismatch} =
+             HypervisorEnrichmentIngestor.persist_records(records,
+               actor: %{},
+               source_scope: %{
+                 integration_id: Ecto.UUID.generate(),
+                 controller_id: trusted_scope.controller_id,
+                 partition_id: trusted_scope.partition_id
+               }
+             )
+
+    records_with_global_child =
+      Map.put(records, :network_interfaces, [
+        %{
+          provider: "proxmox",
+          provider_ref: "proxmox:nic:pve01:vmbr0",
+          host_provider_ref: identity.provider_ref,
+          name: "vmbr0"
+        }
+      ])
+
+    assert {:error, :proxmox_source_scope_mismatch} =
+             HypervisorEnrichmentIngestor.persist_records(records_with_global_child,
+               actor: %{},
+               source_scope: trusted_scope
+             )
   end
 
   defp vsphere_envelope do

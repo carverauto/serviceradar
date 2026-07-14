@@ -6,7 +6,16 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimitTest do
   alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNGWeb.Plugs.RateLimit
 
-  @endpoint ServiceRadarWebNGWeb.Endpoint
+  @moduletag :db_free
+
+  setup_all do
+    case Process.whereis(RateLimiter) do
+      nil -> start_supervised!(RateLimiter)
+      _pid -> :ok
+    end
+
+    :ok
+  end
 
   setup do
     # Clear the limiter table between tests so they don't leak state.
@@ -129,6 +138,20 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimitTest do
       denied = RateLimit.call(build_conn(:remote_ip, {172, 16, 0, 1}), opts)
       assert denied.halted
       assert get_resp_header(denied, "x-ratelimit-limit") == ["5"]
+    end
+
+    test "standalone web release retains the login limit without dependency config" do
+      without_rate_limiter_config(fn ->
+        assert {5, 60} = RateLimiter.resolve_bucket(:auth_local)
+        assert_bucket_denies_sixth_request(:auth_local, {172, 16, 0, 11})
+      end)
+    end
+
+    test "standalone web release retains the password-reset limit without dependency config" do
+      without_rate_limiter_config(fn ->
+        assert {5, 300} = RateLimiter.resolve_bucket(:auth_password_reset)
+        assert_bucket_denies_sixth_request(:auth_password_reset, {172, 16, 0, 12})
+      end)
     end
   end
 
@@ -316,12 +339,37 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimitTest do
 
   ## Helpers
 
+  defp without_rate_limiter_config(callback) do
+    previous = Application.get_env(:serviceradar_core, RateLimiter)
+    Application.delete_env(:serviceradar_core, RateLimiter)
+
+    try do
+      callback.()
+    after
+      if is_nil(previous),
+        do: Application.delete_env(:serviceradar_core, RateLimiter),
+        else: Application.put_env(:serviceradar_core, RateLimiter, previous)
+    end
+  end
+
+  defp assert_bucket_denies_sixth_request(bucket, remote_ip) do
+    opts = RateLimit.init(bucket: bucket)
+
+    Enum.each(1..5, fn _ ->
+      refute RateLimit.call(build_conn(:remote_ip, remote_ip), opts).halted
+    end)
+
+    denied = RateLimit.call(build_conn(:remote_ip, remote_ip), opts)
+    assert denied.halted
+    assert get_resp_header(denied, "x-ratelimit-limit") == ["5"]
+  end
+
   defp build_conn(:remote_ip, remote_ip) do
     %{Plug.Test.conn(:post, "/test") | remote_ip: remote_ip}
   end
 
-  # Sets up the same `:phoenix_flash` private key Phoenix's `fetch_flash`
-  # plug would install, so `Phoenix.Controller.put_flash/3` works.
+  # Sets up the `:flash` assign Phoenix's `fetch_flash` plug installs,
+  # so `Phoenix.Controller.put_flash/3` works.
   defp build_conn_with_flash(remote_ip) do
     %{Plug.Test.conn(:post, "/test") | remote_ip: remote_ip}
     |> Phoenix.ConnTest.init_test_session(%{})

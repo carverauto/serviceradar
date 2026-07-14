@@ -58,6 +58,7 @@ defmodule ServiceRadar.Inventory do
     resource ServiceRadar.Inventory.VirtualizationCluster
     resource ServiceRadar.Inventory.VirtualizationHost
     resource ServiceRadar.Inventory.VirtualizationGuest
+    resource ServiceRadar.Inventory.VirtualizationIdentityAlias
     resource ServiceRadar.Inventory.VirtualizationDatastore
     resource ServiceRadar.Inventory.VirtualizationHostDisk
     resource ServiceRadar.Inventory.VirtualizationNetworkInterface

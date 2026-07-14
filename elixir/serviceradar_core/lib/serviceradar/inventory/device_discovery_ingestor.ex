@@ -32,6 +32,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   mint a new duplicate device per rotation.
   """
 
+  alias ServiceRadar.Automation.Ansible.AwxMembershipReconciler
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SyncIngestor
 
@@ -69,15 +70,23 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   def ingest(payload, status, opts) when is_map(payload) do
     actor = Keyword.fetch!(opts, :actor)
     device_sync = Keyword.get(opts, :device_sync, &sync_device_inventory/2)
+    membership_sync = Keyword.get(opts, :membership_sync, &sync_awx_memberships/2)
 
     updates =
       payload
       |> discovery_envelopes()
       |> Enum.flat_map(&device_updates(&1, payload, status))
 
-    case updates do
-      [] -> :ok
-      updates -> device_sync.(updates, %{actor: actor})
+    device_result =
+      case updates do
+        [] -> :ok
+        updates -> device_sync.(updates, %{actor: actor})
+      end
+
+    case device_result do
+      :ok -> membership_sync.(payload, %{actor: actor})
+      {:error, _reason} = error -> error
+      other -> {:error, {:invalid_device_sync_result, other}}
     end
   rescue
     e ->
@@ -89,6 +98,10 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
   defp sync_device_inventory(updates, context) when is_list(updates) do
     SyncIngestor.ingest_updates(updates, actor: context.actor)
+  end
+
+  defp sync_awx_memberships(payload, context) do
+    AwxMembershipReconciler.reconcile(payload, actor: context.actor)
   end
 
   defp discovery_envelopes(payload) do

@@ -526,7 +526,8 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
               "limit" => "tag:web",
               "job_tags" => "deploy, web",
               "survey_enabled" => true,
-              "ask_variables_on_launch" => true
+              "ask_variables_on_launch" => true,
+              "ask_credential_on_launch" => true
             },
             %{
               "id" => 43,
@@ -562,6 +563,7 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
       assert a1.metadata["project"] == 7
       assert a1.metadata["survey_enabled"] == true
       assert a1.metadata["ask_variables_on_launch"] == true
+      assert a1.metadata["ask_credential_on_launch"] == true
 
       assert a2.awx_job_template_id == 43
       assert a2.name == "Restart DB"
@@ -571,6 +573,7 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
       # here because that would lose AWX's intent.
       assert a2.hosts_pattern == ""
       assert a2.metadata["survey_enabled"] == false
+      assert a2.metadata["ask_credential_on_launch"] == false
     end
 
     test "ok=false logs and skips" do
@@ -961,6 +964,52 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
                FakeActions.state().calls,
                &match?({:upsert_task_result, %{status: :failed}}, &1)
              )
+    end
+
+    test "task-result payload keeps only numeric rc from module output" do
+      run = run_fixture(state: :running)
+
+      FakeActions.configure(
+        runs_by_job_id: %{7331 => {:ok, run}},
+        targets_by_host: %{"web01" => {:ok, %{id: "tgt-1"}}}
+      )
+
+      secret = "Bearer module-output-secret"
+
+      ev =
+        event("runner_on_ok", %{
+          "counter" => 6,
+          "event_data" => %{
+            "play_uuid" => "p-1",
+            "task_uuid" => "t-1",
+            "host" => "web01",
+            "res" => %{
+              "rc" => 7,
+              "msg" => secret,
+              "cmd" => secret,
+              "stdout" => secret,
+              "stdout_lines" => [secret],
+              "stderr" => secret,
+              "stderr_lines" => [secret],
+              "warnings" => [secret]
+            }
+          }
+        })
+
+      payload = %{
+        "jobs" => [%{"job_id" => 7331, "ok" => true, "events" => [ev], "max_counter" => 6}]
+      }
+
+      EventIngestor.handle_command_result(
+        %{command_type: "awx.fetch_events_for_jobs", result_payload: payload},
+        opts()
+      )
+
+      assert {:upsert_task_result, result} =
+               Enum.find(FakeActions.state().calls, &match?({:upsert_task_result, _}, &1))
+
+      assert result.result_payload == %{"rc" => 7}
+      refute inspect(result.result_payload) =~ secret
     end
 
     test "runner_on_unreachable maps to status :unreachable" do

@@ -162,10 +162,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit do
 
   defp maybe_put_flash(conn, key, message) do
     # Phoenix.Controller.put_flash/3 requires the flash to be fetched
-    # (it lives in conn.private[:phoenix_flash]). For pipelines that
+    # (Phoenix 1.8 stores it in conn.assigns.flash). For pipelines that
     # set up flash we put it; otherwise we no-op so the plug doesn't
     # crash on JSON-shape conns lacking flash.
-    if Map.has_key?(conn.private, :phoenix_flash) do
+    if Map.has_key?(conn.assigns, :flash) do
       Phoenix.Controller.put_flash(conn, key, message)
     else
       conn

@@ -291,12 +291,6 @@ def aliases(
 ###############################################################################
 
 _NORMAL_DEPENDENCIES = {
-    "": {
-        _COMMON_CONDITION: {
-            "ironrdp-core": Label("//third_party/crates/ironrdp-core-0.1.5:ironrdp_core"),
-            "ironrdp-pdu": Label("//third_party/crates/ironrdp-pdu-0.7.0:ironrdp_pdu"),
-        },
-    },
     "integration_tests/srql": {
     },
     "rust/addon-sdk": {
@@ -783,10 +777,6 @@ _NORMAL_DEPENDENCIES = {
 }
 
 _NORMAL_ALIASES = {
-    "": {
-        _COMMON_CONDITION: {
-        },
-    },
     "integration_tests/srql": {
     },
     "rust/addon-sdk": {
@@ -936,8 +926,6 @@ _NORMAL_ALIASES = {
 }
 
 _NORMAL_DEV_DEPENDENCIES = {
-    "": {
-    },
     "integration_tests/srql": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
@@ -1079,8 +1067,6 @@ _NORMAL_DEV_DEPENDENCIES = {
 }
 
 _NORMAL_DEV_ALIASES = {
-    "": {
-    },
     "integration_tests/srql": {
         _COMMON_CONDITION: {
         },
@@ -1190,8 +1176,6 @@ _NORMAL_DEV_ALIASES = {
 }
 
 _PROC_MACRO_DEPENDENCIES = {
-    "": {
-    },
     "integration_tests/srql": {
     },
     "rust/addon-sdk": {
@@ -1295,8 +1279,6 @@ _PROC_MACRO_DEPENDENCIES = {
 }
 
 _PROC_MACRO_ALIASES = {
-    "": {
-    },
     "integration_tests/srql": {
     },
     "rust/addon-sdk": {
@@ -1376,8 +1358,6 @@ _PROC_MACRO_ALIASES = {
 }
 
 _PROC_MACRO_DEV_DEPENDENCIES = {
-    "": {
-    },
     "integration_tests/srql": {
     },
     "rust/addon-sdk": {
@@ -1457,8 +1437,6 @@ _PROC_MACRO_DEV_DEPENDENCIES = {
 }
 
 _PROC_MACRO_DEV_ALIASES = {
-    "": {
-    },
     "integration_tests/srql": {
         _COMMON_CONDITION: {
         },
@@ -1568,8 +1546,6 @@ _PROC_MACRO_DEV_ALIASES = {
 }
 
 _BUILD_DEPENDENCIES = {
-    "": {
-    },
     "integration_tests/srql": {
     },
     "rust/addon-sdk": {
@@ -1683,8 +1659,6 @@ _BUILD_DEPENDENCIES = {
 }
 
 _BUILD_ALIASES = {
-    "": {
-    },
     "integration_tests/srql": {
     },
     "rust/addon-sdk": {
@@ -1784,8 +1758,6 @@ _BUILD_ALIASES = {
 }
 
 _BUILD_PROC_MACRO_DEPENDENCIES = {
-    "": {
-    },
     "integration_tests/srql": {
     },
     "rust/addon-sdk": {
@@ -1865,8 +1837,6 @@ _BUILD_PROC_MACRO_DEPENDENCIES = {
 }
 
 _BUILD_PROC_MACRO_ALIASES = {
-    "": {
-    },
     "integration_tests/srql": {
     },
     "rust/addon-sdk": {
