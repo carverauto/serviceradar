@@ -11,7 +11,7 @@ tag="$2"
 index_path="$3"
 asset_name="serviceradar-wasm-plugin-index.json"
 forgejo_url="${FORGEJO_URL:-https://code.carverauto.dev}"
-forgejo_token="${EXTERNAL_PLUGIN_FORGEJO_TOKEN:-}"
+forgejo_token="${EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN:-}"
 target_commitish="${EXTERNAL_PLUGIN_TARGET_COMMITISH:-${tag}}"
 
 if [[ ! "${repository}" =~ ^[a-z0-9_.-]+/[a-z0-9_.-]+$ ]]; then
@@ -31,7 +31,7 @@ if [[ ! -s "${index_path}" ]]; then
   exit 1
 fi
 if [[ -z "${forgejo_token}" ]]; then
-  echo "EXTERNAL_PLUGIN_FORGEJO_TOKEN is required" >&2
+  echo "EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN is required" >&2
   exit 1
 fi
 for command_name in curl jq cmp; do

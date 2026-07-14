@@ -36,13 +36,18 @@ signing material. After a release tag is merged into that repository's `main`,
 dispatch **Publish External HPNA Wasm Plugin** from ServiceRadar `staging` or
 `main` with the exact tag, such as `v0.1.0`.
 
-The ServiceRadar `release` environment must provide
-`EXTERNAL_PLUGIN_FORGEJO_TOKEN` as a Forgejo token restricted to the
-`carverauto/serviceradar-plugin-hpna` repository with `write:repository`. The
-unprivileged build job uses it only through the pinned checkout action. The
-protected signer uses it to publish the verified import index to the external
-Forgejo release. Do not configure this token, the upload-signing key, Harbor
-credentials, or OpenBao identity in the external repository.
+ServiceRadar must configure two Forgejo tokens restricted to
+`carverauto/serviceradar-plugin-hpna`:
+
+- Repository secret `EXTERNAL_PLUGIN_FORGEJO_READ_TOKEN` with
+  `read:repository`, used only by the pinned checkout action in the unprivileged
+  build job.
+- `release` environment secret `EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN` with
+  `write:repository`, used only by the protected signer to publish the verified
+  import index.
+
+Do not configure either token, the upload-signing key, Harbor credentials, or
+OpenBao identity in the external repository.
 
 The workflow proves the requested tag resolves to a commit reachable from the
 external repository's `main`, rebuilds the Wasm module twice, and passes only

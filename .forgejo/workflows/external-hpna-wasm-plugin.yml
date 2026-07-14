@@ -56,7 +56,7 @@ jobs:
           path: external-plugin
           fetch-depth: 0
           persist-credentials: false
-          token: ${{ secrets.EXTERNAL_PLUGIN_FORGEJO_TOKEN }}
+          token: ${{ secrets.EXTERNAL_PLUGIN_FORGEJO_READ_TOKEN }}
 
       - name: Verify external source provenance
         id: source
@@ -312,7 +312,7 @@ jobs:
       - name: Publish verified index to external Forgejo release
         env:
           PLUGIN_TAG: ${{ github.event.inputs.plugin_tag }}
-          EXTERNAL_PLUGIN_FORGEJO_TOKEN: ${{ secrets.EXTERNAL_PLUGIN_FORGEJO_TOKEN }}
+          EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN: ${{ secrets.EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN }}
           EXTERNAL_PLUGIN_TARGET_COMMITISH: ${{ needs.build.outputs.source_commit }}
           FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
         run: |

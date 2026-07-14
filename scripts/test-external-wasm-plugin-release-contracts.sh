@@ -47,7 +47,8 @@ required = [
     "validate-external-wasm-plugin-bundle.py",
     "generate-wasm-plugin-import-index.sh",
     "publish-external-wasm-plugin-release.sh",
-    "EXTERNAL_PLUGIN_FORGEJO_TOKEN: ${{ secrets.EXTERNAL_PLUGIN_FORGEJO_TOKEN }}",
+    "token: ${{ secrets.EXTERNAL_PLUGIN_FORGEJO_READ_TOKEN }}",
+    "EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN: ${{ secrets.EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN }}",
 ]
 for fragment in required:
     if fragment not in workflow:
@@ -55,8 +56,14 @@ for fragment in required:
 
 build_job = workflow[workflow.index("  build:"):workflow.index("  publish:")]
 publish_job = workflow[workflow.index("  publish:"):]
-if "PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY" in build_job or "COSIGN_KEY_REF" in build_job:
+if (
+    "PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY" in build_job
+    or "COSIGN_KEY_REF" in build_job
+    or "EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN" in build_job
+):
     raise SystemExit("unprivileged external build job receives signing material")
+if "EXTERNAL_PLUGIN_FORGEJO_READ_TOKEN" in publish_job:
+    raise SystemExit("protected publisher receives the checkout-only token")
 if "go test" in build_job or "make " in build_job or "/external-plugin/scripts/" in build_job:
     raise SystemExit("trusted build job executes code or scripts from the external repository")
 if publish_job.index("verify-wasm-plugin-publish.sh") > publish_job.index(

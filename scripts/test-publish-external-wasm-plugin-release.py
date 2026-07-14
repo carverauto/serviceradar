@@ -110,7 +110,7 @@ def run(script, index, server, expect_success):
     env.update(
         {
             "FORGEJO_URL": f"http://{host}:{port}",
-            "EXTERNAL_PLUGIN_FORGEJO_TOKEN": "test-token",
+            "EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN": "test-token",
             "EXTERNAL_PLUGIN_TARGET_COMMITISH": "a" * 40,
         }
     )
