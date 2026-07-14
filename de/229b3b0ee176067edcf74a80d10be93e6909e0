@@ -1,0 +1,23 @@
+rust/netprobe/BUILD.bazel
+  s_6f8eb423821667::t_85216f35a49ea7 114-115,118,120
+rust/otel-addon/BUILD.bazel
+  s_6f8eb423821667::t_9f3d56aa959770 22-24,27,32
+rust/powerdns/BUILD.bazel
+  s_6f8eb423821667::t_bf6493c3530a64 56-57,60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "de229b3b0ee176067edcf74a80d10be93e6909e0",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
