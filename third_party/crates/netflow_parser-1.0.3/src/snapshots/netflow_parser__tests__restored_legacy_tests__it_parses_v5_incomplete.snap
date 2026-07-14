@@ -1,0 +1,8 @@
+---
+source: src/tests.rs
+expression: "NetflowParser::default().parse_bytes(&packet)"
+---
+packets: []
+error:
+  Partial:
+    message: "V5 parse error: Parsing Error: Error { input: [0, 0, 1, 1, 1, 1], code: Eof }"

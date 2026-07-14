@@ -1,0 +1,1125 @@
+---
+source: src/tests.rs
+expression: "NetflowParser::default().parse_bytes(&packet).packets"
+---
+- IPFix:
+    header:
+      version: 10
+      length: 1460
+      export_time: 1412166671
+      sequence_number: 127681
+      observation_domain_id: 0
+    flowsets:
+      - header:
+          header_id: 2
+          length: 1444
+        body:
+          Templates:
+            - template_id: 256
+              field_count: 23
+              fields:
+                - field_type_number: 138
+                  field_length: 4
+                  field_type:
+                    IANA: ObservationPointId
+                - field_type_number: 144
+                  field_length: 4
+                  field_type:
+                    IANA: ExportingProcessId
+                - field_type_number: 148
+                  field_length: 8
+                  field_type:
+                    IANA: FlowId
+                - field_type_number: 129
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerTransactionId
+                - field_type_number: 133
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionId
+                - field_type_number: 60
+                  field_length: 1
+                  field_type:
+                    IANA: IpVersion
+                - field_type_number: 4
+                  field_length: 1
+                  field_type:
+                    IANA: ProtocolIdentifier
+                - field_type_number: 210
+                  field_length: 2
+                  field_type:
+                    IANA: PaddingOctets
+                - field_type_number: 8
+                  field_length: 4
+                  field_type:
+                    IANA: SourceIpv4address
+                - field_type_number: 12
+                  field_length: 4
+                  field_type:
+                    IANA: DestinationIpv4address
+                - field_type_number: 7
+                  field_length: 2
+                  field_type:
+                    IANA: SourceTransportPort
+                - field_type_number: 11
+                  field_length: 2
+                  field_type:
+                    IANA: DestinationTransportPort
+                - field_type_number: 2
+                  field_length: 8
+                  field_type:
+                    IANA: PacketDeltaCount
+                - field_type_number: 1
+                  field_length: 8
+                  field_type:
+                    IANA: OctetDeltaCount
+                - field_type_number: 6
+                  field_length: 1
+                  field_type:
+                    IANA: TcpControlBits
+                - field_type_number: 132
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerFlowFlags
+                - field_type_number: 154
+                  field_length: 8
+                  field_type:
+                    IANA: FlowStartMicroseconds
+                - field_type_number: 155
+                  field_length: 8
+                  field_type:
+                    IANA: FlowEndMicroseconds
+                - field_type_number: 10
+                  field_length: 4
+                  field_type:
+                    IANA: IngressInterface
+                - field_type_number: 14
+                  field_length: 4
+                  field_type:
+                    IANA: EgressInterface
+                - field_type_number: 151
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerAppNameAppId
+                - field_type_number: 192
+                  field_length: 16
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionChainID
+                - field_type_number: 193
+                  field_length: 1
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionChainHopCount
+            - template_id: 257
+              field_count: 24
+              fields:
+                - field_type_number: 138
+                  field_length: 4
+                  field_type:
+                    IANA: ObservationPointId
+                - field_type_number: 144
+                  field_length: 4
+                  field_type:
+                    IANA: ExportingProcessId
+                - field_type_number: 148
+                  field_length: 8
+                  field_type:
+                    IANA: FlowId
+                - field_type_number: 129
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerTransactionId
+                - field_type_number: 133
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionId
+                - field_type_number: 60
+                  field_length: 1
+                  field_type:
+                    IANA: IpVersion
+                - field_type_number: 4
+                  field_length: 1
+                  field_type:
+                    IANA: ProtocolIdentifier
+                - field_type_number: 210
+                  field_length: 2
+                  field_type:
+                    IANA: PaddingOctets
+                - field_type_number: 8
+                  field_length: 4
+                  field_type:
+                    IANA: SourceIpv4address
+                - field_type_number: 12
+                  field_length: 4
+                  field_type:
+                    IANA: DestinationIpv4address
+                - field_type_number: 7
+                  field_length: 2
+                  field_type:
+                    IANA: SourceTransportPort
+                - field_type_number: 11
+                  field_length: 2
+                  field_type:
+                    IANA: DestinationTransportPort
+                - field_type_number: 2
+                  field_length: 8
+                  field_type:
+                    IANA: PacketDeltaCount
+                - field_type_number: 1
+                  field_length: 8
+                  field_type:
+                    IANA: OctetDeltaCount
+                - field_type_number: 6
+                  field_length: 1
+                  field_type:
+                    IANA: TcpControlBits
+                - field_type_number: 132
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerFlowFlags
+                - field_type_number: 154
+                  field_length: 8
+                  field_type:
+                    IANA: FlowStartMicroseconds
+                - field_type_number: 155
+                  field_length: 8
+                  field_type:
+                    IANA: FlowEndMicroseconds
+                - field_type_number: 128
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerRoundTripTime
+                - field_type_number: 14
+                  field_length: 4
+                  field_type:
+                    IANA: EgressInterface
+                - field_type_number: 10
+                  field_length: 4
+                  field_type:
+                    IANA: IngressInterface
+                - field_type_number: 151
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerAppNameAppId
+                - field_type_number: 192
+                  field_length: 16
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionChainID
+                - field_type_number: 193
+                  field_length: 1
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionChainHopCount
+            - template_id: 258
+              field_count: 37
+              fields:
+                - field_type_number: 138
+                  field_length: 4
+                  field_type:
+                    IANA: ObservationPointId
+                - field_type_number: 144
+                  field_length: 4
+                  field_type:
+                    IANA: ExportingProcessId
+                - field_type_number: 148
+                  field_length: 8
+                  field_type:
+                    IANA: FlowId
+                - field_type_number: 129
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerTransactionId
+                - field_type_number: 133
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionId
+                - field_type_number: 60
+                  field_length: 1
+                  field_type:
+                    IANA: IpVersion
+                - field_type_number: 4
+                  field_length: 1
+                  field_type:
+                    IANA: ProtocolIdentifier
+                - field_type_number: 210
+                  field_length: 2
+                  field_type:
+                    IANA: PaddingOctets
+                - field_type_number: 8
+                  field_length: 4
+                  field_type:
+                    IANA: SourceIpv4address
+                - field_type_number: 12
+                  field_length: 4
+                  field_type:
+                    IANA: DestinationIpv4address
+                - field_type_number: 7
+                  field_length: 2
+                  field_type:
+                    IANA: SourceTransportPort
+                - field_type_number: 11
+                  field_length: 2
+                  field_type:
+                    IANA: DestinationTransportPort
+                - field_type_number: 2
+                  field_length: 8
+                  field_type:
+                    IANA: PacketDeltaCount
+                - field_type_number: 1
+                  field_length: 8
+                  field_type:
+                    IANA: OctetDeltaCount
+                - field_type_number: 6
+                  field_length: 1
+                  field_type:
+                    IANA: TcpControlBits
+                - field_type_number: 132
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerFlowFlags
+                - field_type_number: 154
+                  field_length: 8
+                  field_type:
+                    IANA: FlowStartMicroseconds
+                - field_type_number: 155
+                  field_length: 8
+                  field_type:
+                    IANA: FlowEndMicroseconds
+                - field_type_number: 10
+                  field_length: 4
+                  field_type:
+                    IANA: IngressInterface
+                - field_type_number: 14
+                  field_length: 4
+                  field_type:
+                    IANA: EgressInterface
+                - field_type_number: 151
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerAppNameAppId
+                - field_type_number: 171
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerAppUnitNameAppId
+                - field_type_number: 158
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpResForwFB
+                - field_type_number: 170
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpResForwLB
+                - field_type_number: 192
+                  field_length: 16
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionChainID
+                - field_type_number: 193
+                  field_length: 1
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionChainHopCount
+                - field_type_number: 130
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqUrl
+                - field_type_number: 131
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqCookie
+                - field_type_number: 140
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqReferer
+                - field_type_number: 141
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqMethod
+                - field_type_number: 142
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqHost
+                - field_type_number: 143
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqUserAgent
+                - field_type_number: 183
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpContentType
+                - field_type_number: 185
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqAuthorization
+                - field_type_number: 186
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqVia
+                - field_type_number: 190
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqXForwardedFor
+                - field_type_number: 205
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerAaaUsername
+            - template_id: 259
+              field_count: 23
+              fields:
+                - field_type_number: 138
+                  field_length: 4
+                  field_type:
+                    IANA: ObservationPointId
+                - field_type_number: 144
+                  field_length: 4
+                  field_type:
+                    IANA: ExportingProcessId
+                - field_type_number: 148
+                  field_length: 8
+                  field_type:
+                    IANA: FlowId
+                - field_type_number: 129
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerTransactionId
+                - field_type_number: 133
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionId
+                - field_type_number: 60
+                  field_length: 1
+                  field_type:
+                    IANA: IpVersion
+                - field_type_number: 4
+                  field_length: 1
+                  field_type:
+                    IANA: ProtocolIdentifier
+                - field_type_number: 210
+                  field_length: 2
+                  field_type:
+                    IANA: PaddingOctets
+                - field_type_number: 27
+                  field_length: 16
+                  field_type:
+                    IANA: SourceIpv6address
+                - field_type_number: 28
+                  field_length: 16
+                  field_type:
+                    IANA: DestinationIpv6address
+                - field_type_number: 7
+                  field_length: 2
+                  field_type:
+                    IANA: SourceTransportPort
+                - field_type_number: 11
+                  field_length: 2
+                  field_type:
+                    IANA: DestinationTransportPort
+                - field_type_number: 2
+                  field_length: 8
+                  field_type:
+                    IANA: PacketDeltaCount
+                - field_type_number: 1
+                  field_length: 8
+                  field_type:
+                    IANA: OctetDeltaCount
+                - field_type_number: 6
+                  field_length: 1
+                  field_type:
+                    IANA: TcpControlBits
+                - field_type_number: 132
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerFlowFlags
+                - field_type_number: 154
+                  field_length: 8
+                  field_type:
+                    IANA: FlowStartMicroseconds
+                - field_type_number: 155
+                  field_length: 8
+                  field_type:
+                    IANA: FlowEndMicroseconds
+                - field_type_number: 10
+                  field_length: 4
+                  field_type:
+                    IANA: IngressInterface
+                - field_type_number: 14
+                  field_length: 4
+                  field_type:
+                    IANA: EgressInterface
+                - field_type_number: 151
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerAppNameAppId
+                - field_type_number: 192
+                  field_length: 16
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionChainID
+                - field_type_number: 193
+                  field_length: 1
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionChainHopCount
+            - template_id: 260
+              field_count: 24
+              fields:
+                - field_type_number: 138
+                  field_length: 4
+                  field_type:
+                    IANA: ObservationPointId
+                - field_type_number: 144
+                  field_length: 4
+                  field_type:
+                    IANA: ExportingProcessId
+                - field_type_number: 148
+                  field_length: 8
+                  field_type:
+                    IANA: FlowId
+                - field_type_number: 129
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerTransactionId
+                - field_type_number: 133
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionId
+                - field_type_number: 60
+                  field_length: 1
+                  field_type:
+                    IANA: IpVersion
+                - field_type_number: 4
+                  field_length: 1
+                  field_type:
+                    IANA: ProtocolIdentifier
+                - field_type_number: 210
+                  field_length: 2
+                  field_type:
+                    IANA: PaddingOctets
+                - field_type_number: 27
+                  field_length: 16
+                  field_type:
+                    IANA: SourceIpv6address
+                - field_type_number: 28
+                  field_length: 16
+                  field_type:
+                    IANA: DestinationIpv6address
+                - field_type_number: 7
+                  field_length: 2
+                  field_type:
+                    IANA: SourceTransportPort
+                - field_type_number: 11
+                  field_length: 2
+                  field_type:
+                    IANA: DestinationTransportPort
+                - field_type_number: 2
+                  field_length: 8
+                  field_type:
+                    IANA: PacketDeltaCount
+                - field_type_number: 1
+                  field_length: 8
+                  field_type:
+                    IANA: OctetDeltaCount
+                - field_type_number: 6
+                  field_length: 1
+                  field_type:
+                    IANA: TcpControlBits
+                - field_type_number: 132
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerFlowFlags
+                - field_type_number: 154
+                  field_length: 8
+                  field_type:
+                    IANA: FlowStartMicroseconds
+                - field_type_number: 155
+                  field_length: 8
+                  field_type:
+                    IANA: FlowEndMicroseconds
+                - field_type_number: 128
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerRoundTripTime
+                - field_type_number: 14
+                  field_length: 4
+                  field_type:
+                    IANA: EgressInterface
+                - field_type_number: 10
+                  field_length: 4
+                  field_type:
+                    IANA: IngressInterface
+                - field_type_number: 151
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerAppNameAppId
+                - field_type_number: 192
+                  field_length: 16
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionChainID
+                - field_type_number: 193
+                  field_length: 1
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionChainHopCount
+            - template_id: 261
+              field_count: 37
+              fields:
+                - field_type_number: 138
+                  field_length: 4
+                  field_type:
+                    IANA: ObservationPointId
+                - field_type_number: 144
+                  field_length: 4
+                  field_type:
+                    IANA: ExportingProcessId
+                - field_type_number: 148
+                  field_length: 8
+                  field_type:
+                    IANA: FlowId
+                - field_type_number: 129
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerTransactionId
+                - field_type_number: 133
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionId
+                - field_type_number: 60
+                  field_length: 1
+                  field_type:
+                    IANA: IpVersion
+                - field_type_number: 4
+                  field_length: 1
+                  field_type:
+                    IANA: ProtocolIdentifier
+                - field_type_number: 210
+                  field_length: 2
+                  field_type:
+                    IANA: PaddingOctets
+                - field_type_number: 27
+                  field_length: 16
+                  field_type:
+                    IANA: SourceIpv6address
+                - field_type_number: 28
+                  field_length: 16
+                  field_type:
+                    IANA: DestinationIpv6address
+                - field_type_number: 7
+                  field_length: 2
+                  field_type:
+                    IANA: SourceTransportPort
+                - field_type_number: 11
+                  field_length: 2
+                  field_type:
+                    IANA: DestinationTransportPort
+                - field_type_number: 2
+                  field_length: 8
+                  field_type:
+                    IANA: PacketDeltaCount
+                - field_type_number: 1
+                  field_length: 8
+                  field_type:
+                    IANA: OctetDeltaCount
+                - field_type_number: 6
+                  field_length: 1
+                  field_type:
+                    IANA: TcpControlBits
+                - field_type_number: 132
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerFlowFlags
+                - field_type_number: 154
+                  field_length: 8
+                  field_type:
+                    IANA: FlowStartMicroseconds
+                - field_type_number: 155
+                  field_length: 8
+                  field_type:
+                    IANA: FlowEndMicroseconds
+                - field_type_number: 10
+                  field_length: 4
+                  field_type:
+                    IANA: IngressInterface
+                - field_type_number: 14
+                  field_length: 4
+                  field_type:
+                    IANA: EgressInterface
+                - field_type_number: 151
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerAppNameAppId
+                - field_type_number: 171
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerAppUnitNameAppId
+                - field_type_number: 158
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpResForwFB
+                - field_type_number: 170
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpResForwLB
+                - field_type_number: 192
+                  field_length: 16
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionChainID
+                - field_type_number: 193
+                  field_length: 1
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionChainHopCount
+                - field_type_number: 130
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqUrl
+                - field_type_number: 131
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqCookie
+                - field_type_number: 140
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqReferer
+                - field_type_number: 141
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqMethod
+                - field_type_number: 142
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqHost
+                - field_type_number: 143
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqUserAgent
+                - field_type_number: 183
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpContentType
+                - field_type_number: 185
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqAuthorization
+                - field_type_number: 186
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqVia
+                - field_type_number: 190
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqXForwardedFor
+                - field_type_number: 205
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerAaaUsername
+            - template_id: 262
+              field_count: 38
+              fields:
+                - field_type_number: 138
+                  field_length: 4
+                  field_type:
+                    IANA: ObservationPointId
+                - field_type_number: 144
+                  field_length: 4
+                  field_type:
+                    IANA: ExportingProcessId
+                - field_type_number: 148
+                  field_length: 8
+                  field_type:
+                    IANA: FlowId
+                - field_type_number: 129
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerTransactionId
+                - field_type_number: 133
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionId
+                - field_type_number: 60
+                  field_length: 1
+                  field_type:
+                    IANA: IpVersion
+                - field_type_number: 4
+                  field_length: 1
+                  field_type:
+                    IANA: ProtocolIdentifier
+                - field_type_number: 210
+                  field_length: 2
+                  field_type:
+                    IANA: PaddingOctets
+                - field_type_number: 8
+                  field_length: 4
+                  field_type:
+                    IANA: SourceIpv4address
+                - field_type_number: 12
+                  field_length: 4
+                  field_type:
+                    IANA: DestinationIpv4address
+                - field_type_number: 7
+                  field_length: 2
+                  field_type:
+                    IANA: SourceTransportPort
+                - field_type_number: 11
+                  field_length: 2
+                  field_type:
+                    IANA: DestinationTransportPort
+                - field_type_number: 2
+                  field_length: 8
+                  field_type:
+                    IANA: PacketDeltaCount
+                - field_type_number: 1
+                  field_length: 8
+                  field_type:
+                    IANA: OctetDeltaCount
+                - field_type_number: 6
+                  field_length: 1
+                  field_type:
+                    IANA: TcpControlBits
+                - field_type_number: 132
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerFlowFlags
+                - field_type_number: 154
+                  field_length: 8
+                  field_type:
+                    IANA: FlowStartMicroseconds
+                - field_type_number: 155
+                  field_length: 8
+                  field_type:
+                    IANA: FlowEndMicroseconds
+                - field_type_number: 10
+                  field_length: 4
+                  field_type:
+                    IANA: IngressInterface
+                - field_type_number: 14
+                  field_length: 4
+                  field_type:
+                    IANA: EgressInterface
+                - field_type_number: 144
+                  field_length: 2
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpRspStatus
+                - field_type_number: 145
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpRspLen
+                - field_type_number: 146
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerServerTTFB
+                - field_type_number: 147
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerServerTTLB
+                - field_type_number: 151
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerAppNameAppId
+                - field_type_number: 161
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerMainPageId
+                - field_type_number: 162
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerMainPageCoreId
+                - field_type_number: 153
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqRcvFB
+                - field_type_number: 156
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqForwFB
+                - field_type_number: 157
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpResRcvFB
+                - field_type_number: 159
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqRcvLB
+                - field_type_number: 160
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqForwLB
+                - field_type_number: 169
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpResRcvLB
+                - field_type_number: 182
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerClientRTT
+                - field_type_number: 183
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpContentType
+                - field_type_number: 187
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpResLocation
+                - field_type_number: 188
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpResSetCookie
+                - field_type_number: 189
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpResSetCookie2
+            - template_id: 263
+              field_count: 38
+              fields:
+                - field_type_number: 138
+                  field_length: 4
+                  field_type:
+                    IANA: ObservationPointId
+                - field_type_number: 144
+                  field_length: 4
+                  field_type:
+                    IANA: ExportingProcessId
+                - field_type_number: 148
+                  field_length: 8
+                  field_type:
+                    IANA: FlowId
+                - field_type_number: 129
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerTransactionId
+                - field_type_number: 133
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerConnectionId
+                - field_type_number: 60
+                  field_length: 1
+                  field_type:
+                    IANA: IpVersion
+                - field_type_number: 4
+                  field_length: 1
+                  field_type:
+                    IANA: ProtocolIdentifier
+                - field_type_number: 210
+                  field_length: 2
+                  field_type:
+                    IANA: PaddingOctets
+                - field_type_number: 27
+                  field_length: 16
+                  field_type:
+                    IANA: SourceIpv6address
+                - field_type_number: 28
+                  field_length: 16
+                  field_type:
+                    IANA: DestinationIpv6address
+                - field_type_number: 7
+                  field_length: 2
+                  field_type:
+                    IANA: SourceTransportPort
+                - field_type_number: 11
+                  field_length: 2
+                  field_type:
+                    IANA: DestinationTransportPort
+                - field_type_number: 2
+                  field_length: 8
+                  field_type:
+                    IANA: PacketDeltaCount
+                - field_type_number: 1
+                  field_length: 8
+                  field_type:
+                    IANA: OctetDeltaCount
+                - field_type_number: 6
+                  field_length: 1
+                  field_type:
+                    IANA: TcpControlBits
+                - field_type_number: 132
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerFlowFlags
+                - field_type_number: 154
+                  field_length: 8
+                  field_type:
+                    IANA: FlowStartMicroseconds
+                - field_type_number: 155
+                  field_length: 8
+                  field_type:
+                    IANA: FlowEndMicroseconds
+                - field_type_number: 10
+                  field_length: 4
+                  field_type:
+                    IANA: IngressInterface
+                - field_type_number: 14
+                  field_length: 4
+                  field_type:
+                    IANA: EgressInterface
+                - field_type_number: 144
+                  field_length: 2
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpRspStatus
+                - field_type_number: 145
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpRspLen
+                - field_type_number: 146
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerServerTTFB
+                - field_type_number: 147
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerServerTTLB
+                - field_type_number: 151
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerAppNameAppId
+                - field_type_number: 161
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerMainPageId
+                - field_type_number: 162
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerMainPageCoreId
+                - field_type_number: 153
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqRcvFB
+                - field_type_number: 156
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqForwFB
+                - field_type_number: 157
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpResRcvFB
+                - field_type_number: 159
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqRcvLB
+                - field_type_number: 160
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpReqForwLB
+                - field_type_number: 169
+                  field_length: 8
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpResRcvLB
+                - field_type_number: 182
+                  field_length: 4
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerClientRTT
+                - field_type_number: 183
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpContentType
+                - field_type_number: 187
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpResLocation
+                - field_type_number: 188
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpResSetCookie
+                - field_type_number: 189
+                  field_length: 65535
+                  enterprise_number: 5951
+                  field_type:
+                    Netscaler: NetscalerHttpResSetCookie2

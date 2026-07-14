@@ -1,0 +1,59 @@
+---
+source: tests/snapshot_tests.rs
+expression: result
+---
+datagrams:
+  - version: 5
+    agent_address:
+      IPv4: 10.0.0.160
+    sub_agent_id: 6343
+    sequence_number: 406
+    uptime: 8147428
+    samples:
+      - Counter:
+          sequence_number: 406
+          source_id_type: 3
+          source_id_index: 6343
+          records:
+            - HostDescr:
+                hostname: jvm-inmsf
+                uuid: 00000000-0000-0000-0000-000000000000
+                machine_type: Unknown
+                os_name:
+                  Unrecognized: 13
+                os_release: 1.6.0_18
+            - HostParent:
+                container_type: 2
+                container_index: 1
+            - VirtCpu:
+                state: Running
+                cpu_time: 180090
+                nr_virt_cpu: 2
+            - VirtMemory:
+                memory: 251006976
+                max_memory: 1654915072
+            - JmxRuntime:
+                vm_name: Java HotSpot(TM) 64-Bit Server VM
+                vm_vendor: Sun Microsystems Inc.
+                vm_version: 16.0-b13
+            - JvmStatistics:
+                heap_initial: 0
+                heap_used: 31810232
+                heap_committed: 155586560
+                heap_max: 1559494656
+                non_heap_initial: 24313856
+                non_heap_used: 67237344
+                non_heap_committed: 95420416
+                non_heap_max: 138412032
+                gc_count: 47
+                gc_time: 3904
+                classes_loaded: 7713
+                classes_total: 8289
+                classes_unloaded: 576
+                compilation_time: 71185
+                threads_live: 34
+                threads_daemon: 22
+                threads_started: 1353
+                fds_open: 77
+                fds_max: 1024
+error: ~

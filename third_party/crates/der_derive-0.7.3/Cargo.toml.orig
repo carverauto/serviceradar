@@ -1,0 +1,21 @@
+[package]
+name = "der_derive"
+version = "0.7.3"
+description = "Custom derive support for the `der` crate's `Choice` and `Sequence` traits"
+authors = ["RustCrypto Developers"]
+license = "Apache-2.0 OR MIT"
+documentation = "https://docs.rs/der"
+repository = "https://github.com/RustCrypto/formats/tree/master/der/derive"
+categories = ["cryptography", "data-structures", "encoding", "no-std", "parser-implementations"]
+keywords = ["asn1", "der", "crypto", "itu", "pkcs"]
+readme = "README.md"
+edition = "2021"
+rust-version = "1.65"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["extra-traits"] }

@@ -1,0 +1,17 @@
+ignore:
+  - "src/bin"
+  - "src/lib.rs"
+  - "src/error.rs"
+  - "src/models/err.rs"
+  - "src/parser/iters.rs"
+  - "src/parser/bgp/attributes/mod.rs" # test covered in individual attribute
+  - "src/parser/mrt/mrt_elem.rs"
+  - "src/parser/bmp/mod.rs"
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        # adjust accordingly based on how flaky your tests are
+        # this allows a 10% drop from the previous base commit coverage
+        threshold: 10%

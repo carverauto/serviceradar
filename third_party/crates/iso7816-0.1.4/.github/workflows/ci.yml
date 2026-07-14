@@ -1,0 +1,27 @@
+# Copyright (C) Nitrokey GmbH
+# SPDX-License-Identifier: CC0-1.0
+
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@master
+    - name: Install rust
+      run: rustup show active-toolchain || rustup toolchain install
+    - name: Check formatting
+      run: cargo fmt --check
+    - name: Check build
+      run: |
+        cargo build
+        cargo build --all-features
+    - name: Run tests
+      run: cargo t --all-features
+    - name: Check clippy warnings
+      run: cargo clippy --all-features -- -Dwarnings
+    - name: Check doc warnings
+      run: RUSTDOCFLAGS=-Dwarnings cargo doc --all-features

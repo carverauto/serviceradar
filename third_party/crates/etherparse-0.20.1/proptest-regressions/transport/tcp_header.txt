@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 31b0fb089633c48a18726ea1da4fe4e9163f6e2921fdc1499a9bba9f37feaf4d # shrinks to header = TcpHeader { source_port: 0, destination_port: 0, sequence_number: 0, acknowledgment_number: 0, data_offset: 6, ns: false, fin: false, syn: false, rst: false, psh: false, ack: false, urg: false, ece: false, cwr: false, window_size: 0, checksum: 11, urgent_pointer: 16871, options: [Err(UnknownId(152))] }
+cc d2a8fca62107cbf941adb1976c9dce7a75c0191dd8c36c55032136867b1ab282 # shrinks to header = TcpHeader { source_port: 0, destination_port: 0, sequence_number: 0, acknowledgment_number: 2, data_offset: 6, ns: false, fin: true, syn: true, rst: false, psh: true, ack: false, urg: true, ece: false, cwr: false, window_size: 36889, checksum: 6852, urgent_pointer: 48998, options: [Err(UnknownId(60))] }

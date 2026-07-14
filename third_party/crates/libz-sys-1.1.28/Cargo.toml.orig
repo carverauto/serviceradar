@@ -1,0 +1,99 @@
+[package]
+name = "libz-sys"
+version = "1.1.28"
+authors = [
+    "Alex Crichton <alex@alexcrichton.com>",
+    "Josh Triplett <josh@joshtriplett.org>",
+    "Sebastian Thiel <sebastian.thiel@icloud.com>",
+]
+links = "z"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/rust-lang/libz-sys"
+description = "Low-level bindings to the system libz library (also known as zlib)."
+categories = ["compression", "external-ffi-bindings"]
+keywords = ["zlib", "zlib-ng"]
+edition = "2018"
+
+include = [
+    "LICENSE*",
+    "/README.md",
+    "/README-zng.md",
+    "build.rs",
+    "zng/cc.rs",
+    "zng/cmake.rs",
+    "src/*.rs",
+    "src/*.c",
+    "src/zlib/*.[ch]",
+    "src/zlib/*.pc.in",
+    # zlib-ng
+    "src/zlib-ng/**.[ch]",
+    "src/zlib-ng/arch/arm/**.[ch]",
+    "src/zlib-ng/arch/generic/**.[ch]",
+    "src/zlib-ng/arch/power/**.[ch]",
+    "src/zlib-ng/arch/riscv/**.[ch]",
+    "src/zlib-ng/arch/s390/**.[ch]",
+    "src/zlib-ng/arch/x86/**.[ch]",
+    "src/zlib-ng/*.[ch].in",
+    "src/zlib-ng/*.pc.in",
+    "src/zlib-ng/zlib_name_mangling.h.empty",
+    # zlib-ng cmake
+    "src/zlib-ng/CMakeLists.txt",
+    "src/zlib-ng/zlib.pc.cmakein",
+    "src/zlib-ng/zlib-config.cmake.in",
+    "src/zlib-ng/zlib-ng-config.cmake.in",
+    "src/zlib-ng/cmake",
+]
+
+[workspace]
+members = ["maint", "systest"]
+
+[dependencies]
+# When this feature is disabled, zlib will be built in Z_SOLO mode which
+# removes dependency on any external libraries like libc at the cost of
+# eliminating some high-level functions like gz*, compress* and
+# uncompress, and requiring embedder to provide memory allocation
+# routines to deflate and inflate.
+libc = { version = "0.2.43", optional = true }
+
+[build-dependencies]
+pkg-config = "0.3.9"
+cc = "1.0.98"
+cmake = { version = "0.1.50", optional = true }
+vcpkg = "0.2.11"
+
+[features]
+default = ["libc", "stock-zlib"]
+# By default, libz-sys uses stock zlib. If you set default-features=false,
+# enable the zlib-ng feature, and don't enable the stock-zlib feature, libz-sys
+# will instead supply the high-performance zlib-ng, in zlib-compat mode. Any
+# application or library designed for zlib should work with zlib-ng in
+# zlib-compat mode, as long as it doesn't make assumptions about the exact size
+# or output of the deflated data (e.g. "compressing this data produces exactly
+# this many bytes"), and as long as you don't also dynamically pull in a copy
+# of stock zlib (which will produce conflicting symbols). If a single crate in
+# the dependency graph requests stock-zlib (or doesn't disable default
+# features), you'll get stock zlib.
+#
+# Library crates should use:
+# libz-sys = { version = "1.1.0", default-features = false, features = ["libc"] }
+# (Omit the libc feature if you don't require the corresponding functions.)
+#
+# This allows higher-level crates depending on your library to opt into zlib-ng
+# if desired.
+zlib-ng = ["libc", "cmake"]
+# Builds zlib-ng from source using cc instead of cmake with all target features
+# enabled, meaning compilation may not work depending on your target and host
+# toolchain (eg very old compilers won't have some flags)
+#
+# This feature is not maintained by the repo maintainers and can break at any time
+# or be completely removed in the future
+zlib-ng-no-cmake-experimental-community-maintained = ["libc"]
+stock-zlib = []
+# Deprecated: the assembly routines are outdated, and either reduce performance
+# or cause segfaults.
+asm = []
+# Enable this feature if you want to have a statically linked libz
+static = []
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(zng)'] }

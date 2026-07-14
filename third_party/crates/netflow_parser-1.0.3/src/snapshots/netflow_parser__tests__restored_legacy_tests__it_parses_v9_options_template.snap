@@ -1,0 +1,50 @@
+---
+source: src/tests.rs
+expression: "NetflowParser::default().parse_bytes(&packet).packets"
+---
+- V9:
+    header:
+      version: 9
+      count: 2
+      sys_up_time: 2313
+      unix_secs: 66051
+      sequence_number: 1
+      source_id: 1
+    flowsets:
+      - header:
+          flowset_id: 1
+          length: 22
+        body:
+          OptionsTemplate:
+            templates:
+              - template_id: 275
+                options_scope_length: 4
+                options_length: 8
+                scope_fields:
+                  - field_type_number: 2
+                    field_type: Interface
+                    field_length: 2
+                option_fields:
+                  - field_type_number: 34
+                    field_type: SamplingInterval
+                    field_length: 2
+                  - field_type_number: 36
+                    field_type: FlowActiveTimeout
+                    field_length: 1
+      - header:
+          flowset_id: 275
+          length: 9
+        body:
+          OptionsData:
+            fields:
+              - scope_fields:
+                  - Interface:
+                      - 0
+                      - 2
+                options_fields:
+                  - - SamplingInterval
+                    - DataNumber:
+                        U16: 100
+                  - - FlowActiveTimeout
+                    - DataNumber:
+                        U8: 1

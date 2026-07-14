@@ -1,0 +1,12 @@
+---
+source: src/tests.rs
+expression: "NetflowParser::default().parse_bytes(&packet).packets"
+---
+- IPFix:
+    header:
+      version: 10
+      length: 48
+      export_time: 16909060
+      sequence_number: 0
+      observation_domain_id: 16909060
+    flowsets: []

@@ -1,0 +1,29 @@
+[package]
+name = "tls_codec_derive"
+version = "0.4.2"
+authors = ["RustCrypto Developers"]
+license = "Apache-2.0 OR MIT"
+documentation = "https://docs.rs/tls_codec_derive/"
+description = "Derive macros for the tls_codec trait"
+readme = "../README.md"
+homepage = "https://github.com/RustCrypto/formats/tree/master/tls_codec/derive"
+repository = "https://github.com/RustCrypto/formats"
+edition = "2021"
+rust-version = "1.74"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["parsing"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+
+[dev-dependencies]
+tls_codec = { path = "../" }
+trybuild = "1"
+
+[features]
+default = ["std"]
+conditional_deserialization = ["syn/full"]
+std = []

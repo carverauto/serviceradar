@@ -1,0 +1,18 @@
+[package]
+authors = ["The Rust Project Developers"]
+description = "Numeric traits for generic mathematics"
+documentation = "https://docs.rs/num-traits"
+homepage = "https://github.com/rust-num/num-traits"
+keywords = ["mathematics", "numerics"]
+categories = [ "algorithms", "science" ]
+license = "MIT/Apache-2.0"
+repository = "https://github.com/rust-num/num-traits"
+name = "num-traits"
+version = "0.1.43"
+readme = "README.md"
+
+[lib]
+doctest = false # multiple rlib candidates for `num_traits` found
+
+[dependencies.num-traits]
+version = "0.2.0"

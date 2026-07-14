@@ -1,0 +1,12 @@
+---
+source: src/tests.rs
+expression: ipfix
+---
+- IPFix:
+    header:
+      version: 10
+      length: 48
+      export_time: 1654698425
+      sequence_number: 8
+      observation_domain_id: 1818918417
+    flowsets: []

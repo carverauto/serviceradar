@@ -1,0 +1,3 @@
+[default.extend-identifiers]
+# typ stands for type, but it's a reserved identifier
+typ = "typ"

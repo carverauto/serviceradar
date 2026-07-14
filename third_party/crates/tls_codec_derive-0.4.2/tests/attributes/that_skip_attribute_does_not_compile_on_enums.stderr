@@ -1,0 +1,23 @@
+error: Unrecognized variant attribute `skip`
+ --> tests/attributes/that_skip_attribute_does_not_compile_on_enums.rs:3:10
+  |
+3 | #[derive(TlsDeserialize, TlsSerialize, TlsSize)]
+  |          ^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `TlsDeserialize` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: Unrecognized variant attribute `skip`
+ --> tests/attributes/that_skip_attribute_does_not_compile_on_enums.rs:3:26
+  |
+3 | #[derive(TlsDeserialize, TlsSerialize, TlsSize)]
+  |                          ^^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `TlsSerialize` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: Unrecognized variant attribute `skip`
+ --> tests/attributes/that_skip_attribute_does_not_compile_on_enums.rs:3:40
+  |
+3 | #[derive(TlsDeserialize, TlsSerialize, TlsSize)]
+  |                                        ^^^^^^^
+  |
+  = note: this error originates in the derive macro `TlsSize` (in Nightly builds, run with -Z macro-backtrace for more info)

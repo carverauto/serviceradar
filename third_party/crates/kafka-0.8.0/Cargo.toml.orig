@@ -1,0 +1,41 @@
+[package]
+name = "kafka"
+version = "0.8.0"
+authors = ["Yousuf Fauzan", "Petr Novotnik <pnovotnik@googlemail.com>"]
+description = "Rust client for Apache Kafka"
+homepage = "https://github.com/spicavigo/kafka-rust"
+repository = "https://github.com/spicavigo/kafka-rust"
+documentation = "https://docs.rs/kafka/"
+readme = "README.md"
+keywords = ["kafka", "queue"]
+license = "MIT"
+
+
+[dependencies]
+byteorder = "0.5"
+crc = "1.3"
+log = "0.3"
+ref_slice = "1.0"
+fnv = "1.0"
+twox-hash = "1.1"
+error-chain = "0.10"
+
+flate2 = { version = "0.2", optional = true }
+snap = { version = "0.2", optional = true }
+openssl = { version = "0.10", optional = true }
+
+[dev-dependencies]
+getopts = "0.2"
+env_logger = "0.4"
+time = "0.1"
+rand = "0.3"
+lazy_static = "0.2"
+
+
+[features]
+default = ["snappy", "gzip", "security"]
+snappy = ["snap"]
+gzip = ["flate2"]
+security = ["openssl"]
+nightly = []
+integration_tests = []

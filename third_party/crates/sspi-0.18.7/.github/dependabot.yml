@@ -1,0 +1,38 @@
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directories:
+      - "/"
+      - "/fuzz/"
+    schedule:
+      interval: "weekly"
+    assignees:
+      - "CBenoit"
+    open-pull-requests-limit: 3
+    groups:
+      crypto:
+        patterns:
+          - "md-5"
+          - "md5"
+          - "md4"
+          - "sha1"
+          - "sha2"
+          - "sha3"
+          - "pkcs*"
+          - "x509-cert"
+          - "hmac"
+          - "der"
+          - "crypto-mac"
+          - "*tls*"
+          - "*rand*"
+          - "picky*"
+      windows:
+        patterns:
+          - "windows*"
+          - "winapi"
+      patch:
+        dependency-type: "production"
+        update-types:
+          - "patch"
+      dev:
+        dependency-type: "development"

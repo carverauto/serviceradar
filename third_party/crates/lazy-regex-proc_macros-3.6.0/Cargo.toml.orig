@@ -1,0 +1,18 @@
+[package]
+name = "lazy-regex-proc_macros"
+version = "3.6.0"
+authors = ["Canop <cano.petrole@gmail.com>"]
+description = "proc macros for the lazy_regex crate"
+license = "MIT"
+edition = "2021"
+repository = "https://github.com/Canop/lazy-regex/tree/main/src/proc_macros"
+
+[dependencies]
+syn = { version = "2.0", features = ["full"] }
+proc-macro2 = "1.0"
+quote = "1.0"
+regex = "1.12"
+
+[lib]
+proc-macro = true
+path = "mod.rs"

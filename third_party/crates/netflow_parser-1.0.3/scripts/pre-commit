@@ -1,0 +1,44 @@
+#!/bin/bash
+# Git pre-commit hook to check README sync
+# Install this hook by running: ./scripts/install-hooks.sh
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+echo "🔍 Pre-commit: Checking README sync..."
+
+# Check if README.md or src/lib.rs are being committed
+if git diff --cached --name-only | grep -qE "^(README.md|src/lib.rs)$"; then
+    echo "📝 Documentation files modified, running sync check..."
+
+    # Run the full README sync check script
+    if ! ./scripts/check-readme-sync.sh > /tmp/readme-sync.log 2>&1; then
+        echo -e "${RED}✗ README sync check failed!${NC}"
+        echo ""
+        echo "Output from check-readme-sync.sh:"
+        cat /tmp/readme-sync.log
+        echo ""
+        echo -e "${RED}Please fix the sync issues before committing.${NC}"
+        echo "  1. Edit doc comments in src/lib.rs"
+        echo "  2. Mirror changes to README.md"
+        echo "  3. Run: cargo test --doc"
+        echo "  4. Run: ./scripts/check-readme-sync.sh"
+        echo ""
+        echo "To bypass this check (not recommended):"
+        echo "  git commit --no-verify"
+        rm -f /tmp/readme-sync.log
+        exit 1
+    fi
+
+    echo -e "${GREEN}✓ README sync check passed${NC}"
+    rm -f /tmp/readme-sync.log
+else
+    echo "ℹ️  No documentation files modified, skipping sync check"
+fi
+
+echo -e "${GREEN}✓ Pre-commit checks passed${NC}"
+exit 0

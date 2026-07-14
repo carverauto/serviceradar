@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 1873fa00d9b4f0af87861f075c5ba29e74d7dac118637e4c1a33d41a3009a28f # shrinks to ref base_header = Ipv4Header { ihl: 7, differentiated_services_code_point: 0, explicit_congestion_notification: 0, payload_len: 0, identification: 0, dont_fragment: false, more_fragments: false, fragments_offset: 0, time_to_live: 0, protocol: 145, header_checksum: 0, source: [0, 0, 0, 0], destination: [0, 0, 0, 0], options: [0, 0, 0, 0, 0, 0, 0, 0] }
+cc 13666c027d7ea3b1272e605857d2a4f6532e92dd8509f6003e9b2124cdb0387e # shrinks to header = Ipv4Header { ihl: 5, differentiated_services_code_point: 0, explicit_congestion_notification: 0, payload_len: 0, identification: 0, dont_fragment: false, more_fragments: false, fragments_offset: 0, time_to_live: 0, protocol: 233, header_checksum: 0, source: [0, 0, 0, 0], destination: [0, 0, 0, 0], options: [] }
+cc f85bc62081cbee15e8029eb6aca54a2495c572e0652775898c1309c17cda3b95 # shrinks to base_header = Ipv4Header { ihl: 8, differentiated_services_code_point: 0, explicit_congestion_notification: 0, payload_len: 0, identification: 0, dont_fragment: false, more_fragments: false, fragments_offset: 0, time_to_live: 0, protocol: 127, header_checksum: 0, source: [0, 0, 0, 0], destination: [0, 0, 0, 0], options: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 49, 85] }, bad_dscp = 169, bad_ecn = 48, bad_frag_offset = 7337

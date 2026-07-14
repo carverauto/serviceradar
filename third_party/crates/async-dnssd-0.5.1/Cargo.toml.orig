@@ -1,0 +1,35 @@
+[package]
+name = "async-dnssd"
+build = "build.rs"
+# also bump version in src/lib.rs
+version = "0.5.1"
+authors = ["Stefan Bühler <stbuehler@web.de>"]
+description = "Asynchronous wrapper for DNS-SD C libraries"
+documentation = "https://stbuehler.github.io/rustdocs/async-dnssd/async_dnssd/"
+homepage = "https://github.com/stbuehler/rust-async-dnssd"
+repository = "https://github.com/stbuehler/rust-async-dnssd"
+readme = "README.md"
+keywords = ["dnssd", "dns-sd", "mdns", "network", "async"]
+license = "MIT"
+edition = "2021"
+
+[build-dependencies]
+pkg-config = "0.3.9"
+
+[dependencies]
+bitflags = "1.0.4"
+futures-channel = "0.3.1"
+futures-core = "0.3.1"
+futures-util = { version = "0.3.1", default-features = false, features = ["std"] }
+libc = "0.2.65"
+log = "0.4.8"
+pin-utils = "0.1.0"
+tokio = { version = "1.1", features = ["time", "rt", "net", "sync"] }
+
+[target.'cfg(windows)'.dependencies]
+futures-executor = "0.3.1"
+winapi = { version = "0.3.6", features = ["winsock2"] }
+
+[dev-dependencies]
+futures = "0.3.1"
+tokio = { version = "1.1", features = ["macros"] }

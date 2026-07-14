@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc d15330847f35a69e5da65860dd0c00af1e689f6bb3c5c59c5cc03e5f2f0a2158 # shrinks to input = SingleVlanHeader { priority_code_point: 0, drop_eligible_indicator: false, vlan_identifier: VlanId(0), ether_type: 0x0000 }

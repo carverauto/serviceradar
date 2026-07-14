@@ -1,0 +1,24 @@
+on: [push, pull_request]
+name: test
+jobs:
+  test:
+    name: ${{ matrix.toolchain }} (${{ matrix.profile.name }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install ${{ matrix.toolchain }}
+      - name: cargo test
+        run: cargo +${{ matrix.toolchain }} test --all-features ${{ matrix.profile.flag }}
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain:
+          - nightly
+          - beta
+          - stable
+          - 1.65.0
+        profile:
+          - name: debug
+          - name: release
+            flag: --release

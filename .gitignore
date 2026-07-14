@@ -16,8 +16,6 @@ coverage.txt
 # temporary context files for agents that do need git tracking.
 ctx/
 
-ctx/
-
 # Dependency directories managed manually
 
 .idea

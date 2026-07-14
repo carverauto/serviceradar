@@ -1,0 +1,35 @@
+[package]
+name = "group"
+version = "0.14.0-pre.0"
+authors = [
+    "Sean Bowe <ewillbefull@gmail.com>",
+    "Jack Grigg <jack@z.cash>",
+]
+edition = "2021"
+rust-version = "1.63"
+readme = "README.md"
+license = "MIT/Apache-2.0"
+
+description = "Elliptic curve group traits and utilities"
+documentation = "https://docs.rs/group/"
+homepage = "https://github.com/zkcrypto/group"
+repository = "https://github.com/zkcrypto/group"
+
+[dependencies]
+ff = { version = "=0.14.0-pre.0", default-features = false }
+rand = { version = "0.9", optional = true, default-features = false }
+rand_core = { version = "0.9", default-features = false }
+rand_xorshift = { version = "0.4", optional = true }
+subtle = { version = "2.2.1", default-features = false }
+
+# Crate for exposing the dynamic memory usage of the w-NAF structs.
+memuse = { version = "0.2", optional = true }
+
+[features]
+default = ["alloc"]
+alloc = []
+tests = ["alloc", "rand", "rand_xorshift"]
+wnaf-memuse = ["alloc", "memuse"]
+
+[badges]
+maintenance = { status = "actively-developed" }

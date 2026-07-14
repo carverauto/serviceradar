@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: cargo test
+        run: cargo test --verbose --all-targets -F tokio
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install rustfmt
+        run: rustup component add rustfmt
+      - name: cargo fmt
+        run: cargo fmt --check
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install clippy
+        run: rustup component add clippy
+      - name: cargo clippy
+        run: |
+          cargo clippy --all-targets -F tokio -- -W clippy::all -W clippy::pedantic \
+          -A clippy::used-underscore-binding \
+          -A clippy::doc_markdown \
+          -A clippy::needless_pass_by_value \
+          -A clippy::must_use_candidate \
+          -A clippy::return_self_not_must_use \
+          -A clippy::missing_errors_doc \
+          -A clippy::single_match \
+          -A clippy::uninlined_format_args \
+          -A clippy::no_effect_underscore_binding

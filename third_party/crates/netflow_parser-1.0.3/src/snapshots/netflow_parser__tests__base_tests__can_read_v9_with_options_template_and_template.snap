@@ -1,0 +1,68 @@
+---
+source: src/tests.rs
+expression: results
+---
+- V9:
+    header:
+      version: 9
+      count: 1
+      sys_up_time: 0
+      unix_secs: 0
+      sequence_number: 0
+      source_id: 1
+    flowsets:
+      - header:
+          flowset_id: 1
+          length: 20
+        body:
+          OptionsTemplate:
+            templates:
+              - template_id: 256
+                options_scope_length: 4
+                options_length: 4
+                scope_fields:
+                  - field_type_number: 1
+                    field_type: System
+                    field_length: 4
+                option_fields:
+                  - field_type_number: 41
+                    field_type: TotalPktsExp
+                    field_length: 2
+- V9:
+    header:
+      version: 9
+      count: 1
+      sys_up_time: 0
+      unix_secs: 0
+      sequence_number: 0
+      source_id: 1
+    flowsets:
+      - header:
+          flowset_id: 0
+          length: 12
+        body:
+          Template:
+            templates:
+              - template_id: 256
+                field_count: 1
+                fields:
+                  - field_type_number: 8
+                    field_type: Ipv4SrcAddr
+                    field_length: 4
+- V9:
+    header:
+      version: 9
+      count: 1
+      sys_up_time: 0
+      unix_secs: 0
+      sequence_number: 0
+      source_id: 1
+    flowsets:
+      - header:
+          flowset_id: 256
+          length: 8
+        body:
+          Data:
+            fields:
+              - - - Ipv4SrcAddr
+                  - Ip4Addr: 192.168.0.1

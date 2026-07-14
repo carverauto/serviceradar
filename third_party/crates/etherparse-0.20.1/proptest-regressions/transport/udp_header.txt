@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 33a7fb51312ea17d9481182a3c9ac5b79b768564ee007129565e05b1af374cda # shrinks to source_port = 0, destination_port = 0, dummy_checksum = 0, ipv4 = Ipv4Header { dscp: Ipv4Dscp(27), ecn: Ipv4Ecn(2), total_len: 2020, identification: 17171, dont_fragment: false, more_fragments: false, fragment_offset: IpFragOffset(5617), time_to_live: 43, protocol: 223, header_checksum: 55616, source: [199, 143, 81, 185], destination: [178, 183, 108, 161], options: [] }, payload = [50, 40, 103, 182, 130, 191, 69, 120, 36, 125, 61, 174, 10, 18, 139, 72, 223, 100, 31], bad_len = 2705066850224624139
+cc 292410f71c257b6ae77f9b3a4ee37003b2447999e104b371d42bffb4f9cb0edb # shrinks to source_port = 0, destination_port = 0, dummy_checksum = 0, ipv6 = Ipv6Header { traffic_class: 192, flow_label: Ipv6FlowLabel(272844), payload_length: 35736, next_header: 19 (DCN-MEAS - DCN Measurement Subsystems), hop_limit: 24, source: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], destination: [0, 0, 0, 0, 0, 1, 104, 215, 211, 202, 179, 244, 153, 59, 51, 20] }, payload = [241, 32, 93, 159, 140, 158, 174, 121, 38, 113, 42, 223, 24], bad_len = 17475589487341371523

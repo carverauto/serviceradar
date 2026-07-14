@@ -1,0 +1,25 @@
+---
+source: src/tests.rs
+expression: v9
+---
+- V9:
+    header:
+      version: 9
+      count: 1
+      sys_up_time: 0
+      unix_secs: 0
+      sequence_number: 0
+      source_id: 1
+    flowsets:
+      - header:
+          flowset_id: 0
+          length: 12
+        body:
+          Template:
+            templates:
+              - template_id: 256
+                field_count: 1
+                fields:
+                  - field_type_number: 8
+                    field_type: Ipv4SrcAddr
+                    field_length: 4

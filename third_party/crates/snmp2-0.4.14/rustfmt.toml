@@ -1,0 +1,37 @@
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+newline_style = "Auto"
+
+# Heuristics for single-line vs multi-line formatting
+use_small_heuristics = "Default"
+
+fn_call_width = 60
+attr_fn_like_width = 70
+struct_lit_width = 18
+struct_variant_width = 35
+array_width = 60
+chain_width = 60
+single_line_if_else_max_width = 50
+short_array_element_width_threshold = 10
+
+remove_nested_parens = true
+
+# Match arms
+match_arm_leading_pipes = "Never"
+
+# Function parameter layout
+fn_params_layout = "Tall"
+
+# Import handling (only these are stable)
+reorder_imports = true
+reorder_modules = true
+
+# Trailing commas
+match_block_trailing_comma = false
+
+# Derives
+merge_derives = true
+
+# ABI requirements
+force_explicit_abi = true
