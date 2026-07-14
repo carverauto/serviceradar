@@ -9,6 +9,7 @@ exports_files([
     "swiftlint_bazel.sh",
     "test-release-publish-contracts.sh",
     "test-verify-native-addon-publish-negative.sh",
+    "test-wasm-plugin-publish-context.sh",
     "validate-release-tag.sh",
     "verify-oci-publish.sh",
     "verify-native-addon-publish.sh",
@@ -38,6 +39,13 @@ sh_test(
     timeout = "short",
     srcs = ["test-verify-native-addon-publish-negative.sh"],
     data = ["verify-native-addon-publish.sh"],
+)
+
+sh_test(
+    name = "wasm_plugin_publish_context_test",
+    timeout = "short",
+    srcs = ["test-wasm-plugin-publish-context.sh"],
+    data = ["wasm-plugin-publish-context.sh"],
 )
 
 sh_test(

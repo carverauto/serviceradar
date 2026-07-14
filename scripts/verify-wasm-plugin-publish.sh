@@ -2,6 +2,7 @@
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cosign_common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/wasm-plugin-publish-context.sh"
 trap cosign_cleanup_temp_files EXIT
 
 ORAS_BIN="$(cosign_resolve_executable oras || true)"
@@ -21,9 +22,7 @@ if ! command -v cosign >/dev/null 2>&1; then
 fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BAZEL_BIN="${BAZEL_BIN:-bazel}"
-BAZEL_BIN_DIR="${BAZEL_BIN_DIR:-$("${BAZEL_BIN}" info bazel-bin 2>/dev/null)}"
-METADATA_DIR="${BAZEL_BIN_DIR}/build/wasm_plugins"
+wasm_plugin_publish_init "${REPO_ROOT}"
 REGISTRY_HOST="${OCI_REGISTRY:-registry.carverauto.dev}"
 OCI_PROJECT="${OCI_PROJECT:-serviceradar}"
 TMP_DIR="$(mktemp -d)"
@@ -40,21 +39,10 @@ else
   TAGS=("$@")
 fi
 
-"${BAZEL_BIN}" build //build/wasm_plugins:all_metadata //build/wasm_plugins:upload_signature_tool >/dev/null
-
-UPLOAD_SIGNATURE_TOOL="$("${BAZEL_BIN}" cquery --output=files //build/wasm_plugins:upload_signature_tool 2>/dev/null | head -n1)"
-if [[ -n "${UPLOAD_SIGNATURE_TOOL}" && ! -x "${UPLOAD_SIGNATURE_TOOL}" ]]; then
-  if [[ -x "${BAZEL_BIN_DIR}/${UPLOAD_SIGNATURE_TOOL}" ]]; then
-    UPLOAD_SIGNATURE_TOOL="${BAZEL_BIN_DIR}/${UPLOAD_SIGNATURE_TOOL}"
-  fi
-fi
-if [[ -z "${UPLOAD_SIGNATURE_TOOL}" || ! -x "${UPLOAD_SIGNATURE_TOOL}" ]]; then
-  UPLOAD_SIGNATURE_TOOL="$(find "${BAZEL_BIN_DIR}/build/wasm_plugins" -type f -name upload_signature_tool -perm -111 2>/dev/null | head -n1)"
-fi
-if [[ -z "${UPLOAD_SIGNATURE_TOOL}" || ! -x "${UPLOAD_SIGNATURE_TOOL}" ]]; then
-  echo "error: unable to resolve upload signature tool binary" >&2
-  exit 1
-fi
+wasm_plugin_publish_build_metadata \
+  //build/wasm_plugins:all_metadata \
+  //build/wasm_plugins:upload_signature_tool
+UPLOAD_SIGNATURE_TOOL="$(wasm_plugin_publish_resolve_upload_signature_tool)"
 
 shopt -s nullglob
 metadata_files=("${METADATA_DIR}"/*.metadata.json)
