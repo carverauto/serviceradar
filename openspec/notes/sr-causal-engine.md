@@ -136,8 +136,13 @@ provisioned (flow-collector, PowerDNS, falcosidekick, threat-intel feeds). "Ship
 ⚠️ The edge does **not** emit `Uncertain`. `rust/anomaly-core` emits `ReasonVerdict{anomalous: bool,
 score: f64}` + an OCSF `severity_id` (1–5) + episode lifecycle, and it covers **only host/device
 metric-series** (cpu/mem/disk/SNMP counters/interface rates/ICMP RTT). Therefore:
-- **L1 must CONSTRUCT** each `Observation.confidence: UncertainF64` centrally from the edge z-score/
-  severity **plus a calibration source** (§7). This is net-new engineering, not a pass-through.
+- **L1 must CONSTRUCT** each `Observation.confidence: ConfidenceSummary` (a deterministic
+  `(mean, variance)`, §4.2) centrally from the edge robust z-score (`ReasonVerdict.score`, `[0,∞)`) via a
+  **per-domain static calibration table** (§7): a monotone logistic anchored to reuse the deployed
+  **4.0/8.0** z-score severity cutpoints for continuous domains (numeric parity with the shipped anomaly
+  bands), and a direct high-mean/low-variance mapping for near-binary domains (IOC/CIDR match, BGP
+  new-origin, auth first-seen). Net-new engineering, not a pass-through; the table is config the
+  disposition-feedback change re-fits.
 - **6 of 8 Observation domains** that drive S1–S7 (DNS, Flow, Auth, Routing, ThreatIntel, Scan, plus
   Falco-Host) have **no edge producer today** — their per-domain confidence is derived **centrally**
   in L1 from raw OCSF/native rows (new central detectors), or scored directly by the causaloids. The
@@ -148,7 +153,7 @@ metric-series** (cpu/mem/disk/SNMP counters/interface rates/ICMP RTT). Therefore
 pub struct Observation {
     pub entity: EntityKey,          // canonical sr:-prefixed id (RuntimeGraph.canonical_runtime_id/1)
     pub domain: Domain,             // Dns | Flow | Auth | Host | Routing | Vuln | ThreatIntel | Scan
-    pub confidence: UncertainF64,   // DERIVED in L1 (constructed from edge score/severity + calibration)
+    pub confidence: ConfidenceSummary, // DERIVED in L1 (per-domain calibration of edge score); §4.2
     pub features: DomainFeatures,   // domain-specific payload (enum)
     pub ocsf_event_id: Uuid,        // provenance back to CNPG
     pub observed_at: Timestamp,
@@ -219,18 +224,31 @@ Its laws (commutativity, associativity, **absorption/idempotence**) are what mak
 order-invariant AND avoid **diamond double-counting** (the same upstream evidence reaching a node by
 two paths). Therefore:
 
-- **`SecVerdict::join` = the idempotent LUB** (`stage.max`, `confidence.max`, `severity.max`, evidence
-  union). It is a **lawful lattice op**, not arbitrary domain code.
+- **Confidence flows as a deterministic `ConfidenceSummary { mean, variance }`, NOT a live `Uncertain`.**
+  DC *does* ship `impl Verdict for Uncertain<f64>` with a lazy O(1) `join = max` node
+  (`uncertain_verdict.rs:45-74`), but its idempotence holds **only when both operands are the same
+  shared `Arc` leaf**; at a real reconvergence the two confidences are independently-computed leaves, so
+  `join = max` becomes `E[max(A,B)] > A` — **upward-biased, not idempotent** (and it deepens the lazy
+  graph the single SPRT must walk). So the verdict carries the summary instead.
+- **`SecVerdict::join` = the idempotent LUB** (`stage.max`; confidence **max-on-mean** — greater-`mean`
+  operand wins, tie → smaller `variance`; `severity.max`; evidence union). It is a lawful chain-lattice
+  op and a pure `f64` compare — **no sampling on the hot path**.
 - **The corroboration fusion (noisy-OR / inverse-variance) is NOT `join`.** It runs **inside a fusion
-  node** (the intra-node `bind`/State channel — exactly where DC puts `Aggregatable::Any = 1−∏(1−pᵢ)`).
-  This is the part that "cannot be abstract, needs domain knowledge" (§5). Keeping it out of `join`
-  preserves the lattice laws and prevents double-counting corroborated evidence on diamonds.
+  node** (the intra-node `bind`/State channel — where DC puts `Aggregatable::Any = 1−∏(1−pᵢ)`), and is
+  **closed-form on the `(mean, variance)` summaries**. The single `Uncertain::normal(mean, sigma)` is
+  materialized **once, at the CSM**, for the SPRT (§4.3). This fusion is the part that "cannot be
+  abstract, needs domain knowledge" (§5). Keeping it out of `join` preserves the lattice laws and
+  prevents double-counting corroborated evidence on diamonds.
 - ⚠️ *Correction to an earlier claim:* order-invariance is **not** the reason to keep noisy-OR out of
   `join` (noisy-OR is commutative+associative). The reasons are the **absorption/idempotence** lattice
   laws and diamond double-counting.
 
 ```rust
-pub type Confidence = UncertainF64;   // probabilistic, SPRT-testable at the CSM
+/// Deterministic confidence carried by the verdict (mean in [0,1]). NOT a live Uncertain:
+/// the full Uncertain::normal(mean, variance.sqrt()) is rebuilt only at the CSM for the SPRT.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ConfidenceSummary { pub mean: f64, pub variance: f64 }
+pub type Confidence = ConfidenceSummary;
 
 /// ATT&CK-tactic-ordered kill-chain progression (Ord => join uses stage.max).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -271,49 +289,57 @@ impl Verdict for SecVerdict {
                 Incident {
                     entity: e,
                     stage: sa.max(sb),                    // LUB, idempotent
-                    confidence: uncertain_max(ca, cb),    // LUB — NOT noisy-OR (that is §4.3, in-node)
-                    severity: va.max(vb),
+                    confidence: conf_lub(ca, cb),         // max-on-mean (tie→smaller variance); no sampling
+                    severity: va.max(vb),                 // NOT noisy-OR (that is §4.3, in the fusion node)
                     evidence: dedup(xa),
                 }
             }
         }
     }
-    fn meet(self, other: Self) -> Self { /* GLB: stage.min, confidence.min, severity.min */ }
-    fn complement(self) -> Self { /* lattice complement over the confidence field */ }
+    fn meet(self, other: Self) -> Self { /* GLB: stage.min, lower-mean, severity.min */ }
+    fn complement(self) -> Self { /* lattice complement over the mean */ }
+}
+// conf_lub: pick the operand with the greater mean (tie → smaller variance). A chain lattice on the
+// mean → unconditionally idempotent/commutative/associative/absorptive; a pure f64 compare.
+fn conf_lub(a: ConfidenceSummary, b: ConfidenceSummary) -> ConfidenceSummary {
+    if (a.mean, -a.variance) >= (b.mean, -b.variance) { a } else { b }
 }
 ```
 
 ### 4.3 Uncertainty & fusion (inside a node; the domain-knowledge part)
 
-⚠️ **Corrected.** `inverse_variance_fuse` is **new ServiceRadar code**, not a DC primitive (zero repo
-hits). The `sensor_processing` pattern collapses each `Uncertain<f64>` to scalars via
-`expected_value(N)`/`standard_deviation(N)` and returns a plain `f64`; to feed SPRT you must
-**reconstruct** an `Uncertain`. All fusion inputs must share the type `Uncertain<f64>`.
+⚠️ **Corrected.** Fusion is **closed-form on the deterministic `ConfidenceSummary { mean, variance }`**
+(no sampling); the single `Uncertain` is reconstructed **only at the CSM** for the SPRT. The
+`inverse_variance`/`noisy-OR` combiners are **new ServiceRadar code**, not DC primitives (zero repo
+hits) — DC's `sensor_processing` inverse-variance is a hand-rolled inline pattern that already collapses
+`Uncertain` → `(mean, std)`, so carrying the summary directly is the same idea without the round-trip.
 
 The independence assumption (open-question, now **committed as a V1 mitigation**): cross-domain does
 **not** imply conditional independence. DNS-DGA + resolved-IP-IOC + flow-to-that-IP are the **same
 session** (correlated); Host/Falco and recon-history are genuinely independent. So fuse in two steps:
 
 ```rust
-// STEP 1 — collapse each correlated cluster to ONE evidence unit at its representative (max) confidence.
+// Each Observation carries a deterministic ConfidenceSummary (constructed in L1, §2). No sampling here.
+
+// STEP 1 — collapse each correlated cluster to ONE unit at its representative (max-mean) confidence.
 //   clusters: session (DNS+IOC+flow-to-IP) | host_runtime (Falco) | recon | auth
-let per_cluster: Vec<Uncertain<f64>> = group_by_cluster(&evidence)
-    .map(|c| c.iter().map(|e| e.signal_conf).reduce(uncertain_max).unwrap());
+let per_cluster: Vec<ConfidenceSummary> = group_by_cluster(&evidence)
+    .map(|c| c.iter().map(|e| e.signal_conf).reduce(conf_lub).unwrap());
 
-// STEP 2 — combine INDEPENDENT clusters. Corroboration = noisy-OR (DC Aggregatable::Any), or
-//          inverse-variance weighting; either way this is a hand-rolled node-local helper.
-let mean = inverse_variance_mean(&per_cluster);   // collapses to f64
-let sigma = inverse_variance_sigma(&per_cluster);
-let fused: UncertainF64 = Uncertain::normal(mean, sigma);   // rebuilt so SPRT can test it
+// STEP 2 — combine INDEPENDENT clusters (noisy-OR on means / inverse-variance), still closed-form.
+let fused: ConfidenceSummary = combine_independent(&per_cluster);   // (mean, variance), no sampling
 
-let verdict: UncertainBool = fused.greater_than(0.9);
+// AT THE CSM ONLY — materialize ONE Uncertain and run the single bounded SPRT.
+let u = Uncertain::normal(fused.mean, fused.variance.sqrt());
 let param = UncertainParameter::new(/*threshold*/0.9, /*confidence*/0.95, /*epsilon*/0.05, /*max*/200);
+let fired = u.probability_exceeds(0.9, 0.95, 0.05, 200)?;   // sequential, early-exit
 ```
 
-⚠️ SPRT `max_samples` = **200** is ample for a small-arity fusion node (1000 was over-provisioned).
-`EffectLog` records each cluster's contribution — the fusion audit trail. Note DC's inverse-variance
-pattern is validated for redundant estimators of *one* quantity, so the cluster step is what keeps its
-cross-domain reuse statistically honest.
+⚠️ SPRT `max_samples` = **200** is ample for a small-arity fusion node (the 1000 default is
+over-provisioned; `probability_exceeds` is sequential with early-exit at a Wald boundary). Because the
+only `Uncertain` materialization is this per-incident SPRT, the reasoning loop clears the DC global
+sample cache whole at the **tick barrier** (§10 Q6). DC's inverse-variance pattern is validated for
+redundant estimators of *one* quantity, so the cluster step is what keeps its cross-domain reuse honest.
 
 ### 4.4 Kill-chain `CausaloidGraph`
 
@@ -474,7 +500,10 @@ idempotence to avoid diamond double-counting). DC ships a Lean relay-termination
 "hypergraph with bounded relay," not "DAG."
 
 **Conclusion:** no DC rework. One `SecVerdict` enum with a lawful lattice `join`; domain-knowledge
-fusion inside nodes; evaluate per incident hypothesis.
+fusion inside nodes; evaluate per incident hypothesis. The confidence field specifically is a
+deterministic `ConfidenceSummary` with a max-on-mean LUB — DC's live `Uncertain::join`
+(`uncertain_verdict.rs:45-74`) is idempotent only for shared `Arc` leaves, so it is **not** used on
+graph edges (§4.2); the single `Uncertain` is materialized only at the CSM SPRT.
 
 ---
 
@@ -583,9 +612,11 @@ only; new detection → `causaloids` only; new fusion/join → `model` only; new
 `mitigation` config only; in-process→networked → re-impl `ports`.
 
 **Notes:** each crate gets its own `BUILD.bazel` (`rust_library` + `all_crate_deps(...)`; bin adds
-`rust_binary`); a green `cargo build` does not prove the Bazel build. Edition: match the repo default
-(2021) unless a workspace-wide bump is chosen. Follow DC conventions (one type per module, no `unsafe`
-via workspace lint, static dispatch, no prelude).
+`rust_binary`) so **CI** can build it. ⚠️ **Local verification is Cargo-only for now** — the Bazel
+config is broken on non-x86 machines and is not worth fixing locally, so `cargo build` / `cargo clippy`
+/ `cargo fmt` / `cargo test` are the local gate and the **`BUILD.bazel` files are validated in CI (x86)**,
+not locally. Edition: match the repo default (2021) unless a workspace-wide bump is chosen. Follow DC
+conventions (one type per module, no `unsafe` via workspace lint, static dispatch, no prelude).
 
 ---
 
@@ -611,12 +642,15 @@ via workspace lint, static dispatch, no prelude).
 4. ~~noisy-OR independence~~ **RESOLVED (V1 mitigation committed):** cluster correlated same-session
    evidence before fusion; combine only across independent clusters (§4.3). `join` is LUB, not noisy-OR.
 5. ~~Tenancy~~ **RESOLVED:** one engine per deployment, one deployment per tenant; single Context per schema.
-6. **Perf budget (spec must set before it is testable):** tick interval; max active incident
-   hypotheses/tick (from Q2); per-node SPRT `max_samples` (~200); a **p99** per-tick latency budget;
-   and — the DC sample cache is a **process-global, never-cleared** memo (`global_cache.rs:111`) —
-   explicit `clear()` semantics per tick, or entity/Uncertain-ID reuse serves stale draws + grows
-   unbounded. Keep `expected_value`/`standard_deviation` (no early-exit, fixed 1000-sample cost) off
-   the hot path.
+6. **Perf budget (partially RESOLVED):** the DC sample-cache leak and hot-path sampling are resolved —
+   confidence flows as a `ConfidenceSummary` (§4.2) so only the per-incident CSM SPRT ever samples, and
+   the reasoning loop clears the whole DC global cache (`with_global_cache(|c| c.clear())`,
+   `global_cache.rs:87`) at the **tick barrier** (ids are fresh-per-construction with no per-node evict,
+   so a whole-cache clear is the only lever and is correct here). SPRT `max_samples` ~200;
+   `expected_value`/`standard_deviation` (fixed-N, no early-exit) never run on the reasoning path.
+   *Still to set:* tick interval, max active incident hypotheses/tick (from Q2), and a **p99** per-tick
+   latency budget. *Upstream ask:* a scoped/thread-local DC cache (DC already uses a thread-local under
+   `cfg(test)`) would drop the manual clear when reasoning parallelizes across incidents.
 
 ---
 
@@ -632,15 +666,31 @@ evaluate` `causaloid/causable.rs:84`.
 container `:35`; `MAX_RELAY_ROUNDS=1024` `mod.rs:24`.
 **Verdict lattice** — `deep_causality_algebra` `Verdict` trait requires `bottom/top/meet/join/complement`
 (`algebra/verdict.rs:20-31`); `join` is the LUB (bool `||`, f64 `max`); `Aggregatable`/`Any` (noisy-OR)
-is where corroboration lives (`utils/monadic_collection_utils.rs`).
+is where corroboration lives (`utils/monadic_collection_utils.rs`). ⚠️ `impl Verdict for Uncertain<f64>`
+(`uncertain_verdict.rs:45-74`) is a lazy O(1) `join = max` node but idempotent **only** for a shared
+`Arc` leaf (per-sample memo by `Arc::as_ptr`); independently-built leaves give `E[max]>A` → not
+idempotent. Hence the verdict confidence is a deterministic `(mean,variance)` summary, not a live
+`Uncertain` (§4.2). `Uncertain::normal(mean,std)` reconstruction is one leaf (`from_samples` already
+collapses to `Normal`, `uncertain_f64.rs:12-26`).
 **CSM** — `CausalAction::new(action: fn()->Result<(),ActionError>, ...)` **fn-pointer, no captures**
 `csm_types/csm_action/mod.rs:47,55`; `CausalState::new` `csm_state/mod.rs:60`; `CSM::new` `csm/mod.rs:65`;
 `CsmEvaluable` (impls for `bool`/`UncertainBool`/`UncertainF64`) `extensions/evaluable/mod.rs`.
 **Context** — `Contextoid`/`ContextoidType{Datoid/Spaceoid/Tempoid/Symboid/...}` `contextoid/*`.
 **Uncertainty** — `Uncertain::{normal,bernoulli,point}`; `greater_than`→`UncertainBool`;
-`probability_exceeds`; `expected_value`/`standard_deviation` (**no early-exit**,
-`uncertain_statistics.rs:22,38`); `UncertainParameter::new(threshold,confidence,epsilon,max_samples)`;
-process-global sample cache `global_cache.rs:111`.
+`probability_exceeds`/`to_bool` = **sequential SPRT with early-exit** (batches of 10, Wald boundaries,
+`sprt_eval.rs:22-94`; `implicit_conditional` default `0.95/0.05/1000`); `expected_value`/
+`standard_deviation` (**fixed-N, no early-exit**, `uncertain_statistics.rs:17-29,33-62`);
+`UncertainParameter::new(threshold,confidence,epsilon,max_samples)`. Sample cache is process-global +
+unbounded (`OnceLock<RwLock<HashMap>>`, key `(uncertain_id, sample_index, sampler)`), ids fresh per
+construction (`NEXT_UNCERTAIN_ID`), only lever = whole-cache `clear()` (`global_cache.rs:87`) via
+`with_global_cache` → clear at the tick barrier (§10 Q6).
+
+**Edge anomaly / calibration** — `rust/anomaly-core` emits `ReasonVerdict{score: f64 robust median/MAD
+z-score [0,∞), anomalous, breached, baseline_count, ...}` (`types.rs:86-101`), metric-series only; no
+probability/variance. Deployed score→severity cutpoints **4.0/8.0** → severity {2,3,4}
+(`anomaly-addon verdict.rs:461-473`; seasonal_disposition `severity_score {20,55,75}`,
+`verdict_emitter.ex:235-252`) — the calibration anchors L1 reuses (§2/§7). No score→probability mapping
+exists (`anomaly-disposition` `confidence` is an interval-coverage level, not a fit-probability).
 **Counterfactual/correction** — `AlternatableValue::alternate_value`; `CausalFlow::{alternate_value,
 branch_with,iterate_n,update_state}`; templates: `sensor_processing/model.rs:170-215` (inline
 inverse-variance, **not** a primitive), `cascade_failure/model.rs:113-154`,
