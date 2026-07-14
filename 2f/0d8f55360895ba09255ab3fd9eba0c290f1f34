@@ -1,0 +1,21 @@
+docker/images/cnpg_image.bzl
+  s_6f8eb423821667::t_b9c02833684e5a 75-80,169-174,266-271
+  s_6f8eb423821667::t_19a67133d8247e 102-104,107-110,193-195,198-201
+  s_6f8eb423821667::t_7edb8a19058b8f 105-106,196-197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "2f0d8f55360895ba09255ab3fd9eba0c290f1f34",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
