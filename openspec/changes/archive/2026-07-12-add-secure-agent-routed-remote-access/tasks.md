@@ -1,4 +1,6 @@
 ## 1. Design
+Archival reconciliation: design and scaffold tasks for future protocol areas do not assert those protocols are production-ready. SSH CA tasks below cover library/policy/disposable-smoke primitives, not release packaging or live target trust. File transfer, app/TCP, packaged SSH CA access, automatic host-key observation, production eBPF, provider-native Proxmox, QEMU, and RDP completion remain tracked by their separate active changes.
+
 - [x] 1.1 Inventory existing Proxmox console, camera relay, agent control stream, and credential broker paths that can be reused.
 - [x] 1.2 Define remote-access session/resource names, state machine, frame types, and terminal outcomes.
 - [x] 1.3 Inventory Teleport capability areas and classify each candidate package/path as importable Apache-2.0, blocked by AGPL/transitive risk, or requiring legal review.
@@ -15,11 +17,11 @@
 - [x] 2.3 Add gateway-to-agent session routing over the existing agent-initiated control stream.
 - [x] 2.4 Add an agent-side SSH protocol adapter with user-present credential support and no generic agent-local reusable SSH secrets.
 - [x] 2.5 Add user-present session credential support without persisting credentials.
-- [x] 2.6 Convert Proxmox console handling into a provider adapter that uses the generic remote-access path.
+- [x] 2.6 Add a Proxmox compatibility facade and provider-adapter entrypoint for the generic remote-access path; native provider transport readiness remains owned by the Proxmox console changes.
 - [x] 2.7 Add audit events and RBAC/approval checks for create, attach, input, resize, close, and failure transitions.
 - [x] 2.8 Add browser UI for SSO-certificate and user-present SSH modes, per-session SSH key upload/paste, optional policy-controlled client-only remembered keys, passphrase support, and browser-local key digest display without server-side key persistence.
 - [x] 2.9 Add session recording storage/retention plumbing behind policy gates.
-- [x] 2.10 Add clean-room Linux enhanced-recording collector for command/file/network events behind agent capability and policy gates.
+- [x] 2.10 Add the clean-room enhanced-recording interface, normalized event model, and non-BPF fallback boundary; production eBPF attachment remains owned by `add-remote-access-ebpf-recording`.
 - [x] 2.11 Add a ServiceRadar-owned SSH CA signing primitive for short-lived OpenSSH user certificates.
 - [x] 2.12 Add a core SSH certificate policy boundary that maps actor permission, target principal policy, requested principals, and TTL into a bounded signing request shape.
 - [x] 2.13 Add a core SSH certificate issuance orchestrator that combines policy with an injected signer and returns a session certificate envelope.
@@ -31,7 +33,7 @@
 - [x] 3.2 Add gateway/agent tests proving frames are accepted only from the session-owning agent and selected gateway route.
 - [x] 3.3 Add browser/channel tests proving tickets and credentials are not echoed to the client.
 - [x] 3.4 Add a demo SSH target test through an agent in a non-platform network path.
-- [x] 3.5 Add regression tests that Proxmox console still works through the generic path.
+- [x] 3.5 Add regression tests for the generic provider-console session metadata and compatibility routing contract; live PVE/LXC/QEMU transport proof remains owned by the Proxmox console changes.
 - [x] 3.6 Document why CEA-852/CN-IP support remains deferred until representative LonTalk/CN-IP test data is available, and require read-only/passive behavior before any active control support.
 - [x] 3.7 Add license-review tests or scripts that fail if a supposedly imported Teleport path includes AGPL-header source in its transitive Go package directories.
 - [x] 3.8 Add enhanced-recording tests for command/file/network event normalization, session correlation, dropped-event counters, and policy fallback behavior.
@@ -55,6 +57,6 @@
   - [x] 4.10.3 Add an operator replay UI backed by the replay API.
 - [x] 4.11 Add file-transfer parity planning for SFTP/SCP-style access with RBAC, recording, quota, and content-audit policy.
 - [x] 4.12 Add app/database/Kubernetes/desktop/RDP adapter proposals with per-protocol threat models before implementation.
-- [x] 4.13 Add enhanced-recording production gate: ServiceRadar-owned cilium/ebpf probes, kernel compatibility matrix, capability advertisement, and fail-closed tests for required BPF policies.
+- [x] 4.13 Split ServiceRadar-owned probes, attachment, kernel compatibility, truthful capability advertisement, fail-closed policy, and live proof into `add-remote-access-ebpf-recording` rather than claiming them in the generic foundation.
 - [x] 4.14 Keep Teleport source reuse notes current for each imported or copied area, including exact tag/commit, file paths, headers, and transitive license scan output.
 - [x] 4.15 Maintain an Authentik/OpenSSH smoke test path for SSO -> ServiceRadar SSH CA -> `TrustedUserCAKeys` target login with no shared bastion credential.

@@ -15,8 +15,8 @@ Remote-access policy SHALL support approval requirements for sensitive targets, 
 #### Scenario: Approval required for broad SSH credential
 - **GIVEN** a credential rule is marked as requiring approval
 - **WHEN** an operator requests a session using that credential rule
-- **THEN** the session SHALL remain pending until an authorized approver approves it
-- **AND** the session SHALL expire if not approved before its deadline.
+- **THEN** no session, attach ticket, or credential grant SHALL be issued until an authorized approver approves the separate access request
+- **AND** the access request SHALL expire if not approved before its deadline.
 
 ### Requirement: Remote access authorization is rechecked on attach
 The system SHALL recheck authorization when a browser attaches or reattaches to an existing remote-access session.

@@ -1,4 +1,6 @@
 ## Context
+This design records the broader program explored by the original change. For archival, only the generic remote-access substrate described in `proposal.md` and the reconciled delta specs is considered delivered. Protocol-specific file transfer, app/TCP, automatic host-key observation, packaged SSH CA access, production BPF, provider-native Proxmox, QEMU, and RDP behavior remains governed by separate active changes and their live-proof gates. SSH CA references below describe library/policy/smoke-test primitives, not a packaged or enabled release capability.
+
 The Proxmox console work is really a special case of a larger capability: a Teleport-like access plane inside ServiceRadar. The operator is in the browser, the target is often reachable only from an edge agent, and the platform must route a short-lived interactive session through the existing outbound agent control path. If this is designed cleanly, ServiceRadar can cover use cases currently handled by remote access products while staying integrated with inventory, RBAC, audit, discovery, host telemetry, and alert context.
 
 The target is functional parity class, not code cloning: SSH/shell access, protocol adapters, session recording, audit, approvals, short-lived credentials, app/database/Kubernetes/desktop-style access patterns over time, and enhanced command/disk/network tracing. Teleport has done substantial engineering in these areas, so ServiceRadar should import verified Apache-2.0 Teleport packages wherever that is legally and technically clean. Where Teleport implementation source is AGPL or has an AGPL transitive dependency path, ServiceRadar must implement equivalent behavior clean-room from requirements, public protocol/kernel interfaces, and tests.
@@ -110,13 +112,13 @@ Current hardening decisions:
 - Gateway broadcast of remote-access frames MUST be stamped from the authenticated control-stream state and MUST NOT broadcast from unregistered streams.
 
 Implemented foundation areas:
-- SSH and Proxmox-console routing over the selected agent control stream.
+- SSH routing plus provider-console compatibility plumbing over the selected agent control stream; no provider-native transport is claimed ready.
 - Credential custody boundaries for user-present, SSH-certificate, and scoped central grant modes.
 - Session-bound route validation across browser, gateway, and agent frame paths.
 - Host key lifecycle primitives and a first operator UI for trust, revoke, and rotation workflows.
 - Access-request records and approval/session binding primitives.
 - Policy-gated replay event storage/API/UI primitives.
-- Enhanced-recording capability boundaries and initial clean-room cilium/ebpf runtime gates.
+- Enhanced-recording interfaces and non-BPF fallback boundaries; production eBPF attachment and truthful capability proof remain in the separate active change.
 
 Explicit non-parity gaps remain:
 - File transfer implementation: SFTP/SCP-style access with explicit RBAC, recording, quota, and content-audit policy.
@@ -251,7 +253,7 @@ The golden path is not a monolithic "Teleport plugin." It is a native ServiceRad
 Wasm improves security posture when it reduces provider-specific code running with full agent privileges, gives the agent an explicit permission manifest, and lets us publish or roll plugin fixes independently. It does not improve security when a plugin is given broad reusable credentials, becomes the source of authorization truth, or requires host functions so powerful that the sandbox is only nominal. Long-running SSH/proxy implementations also carry practical Wasm costs: TinyGo/runtime compatibility, garbage-collection pressure, copied frame buffers, harder debugging, and host-function API stability.
 
 ## Reusable Implementation Inventory
-The current Proxmox console path already proves the key routing shape, but its names and frame type are provider-specific.
+The current Proxmox console path supplied compatibility plumbing for the key routing shape, but does not prove a working provider-native adapter and still uses provider-specific names and frame types.
 
 - `proto/monitoring.proto` defines `ConsoleFrame` on `ControlStreamRequest` and `ControlStreamResponse` with `open`, `ready`, `data`, `resize`, `close`, and `error` frames. This is the compatibility surface to preserve while introducing generic remote-access frame names.
 - `elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/control_stream_session.ex` registers an active agent control stream under `{:agent_control, agent_id, node()}`, sends gateway-to-agent console frames, and broadcasts returned frames by session ID.
@@ -432,7 +434,7 @@ Authentik validation path:
 Protocol adapters run on the selected agent.
 
 - `ssh`: PTY over SSH, rendered with xterm.
-- `proxmox-console`: provider adapter that may use Proxmox API/tickets, termproxy, VNC, or SSH depending on the target type and granted credential.
+- `proxmox-console`: planned provider adapter family; API tickets, termproxy, VNC, and compatibility SSH remain unavailable unless their separate changes establish exact credential, protocol, renderer, and live-proof readiness.
 - `vsphere-console`: future provider adapter for VM console APIs.
 - `rdp`: future graphical adapter with a renderer different from xterm, but the same session, RBAC, audit, and route.
 - `cea-852`: future OT/industrial adapter for Component Network over IP, commonly used to carry LonTalk/LON frames over UDP/TCP port 1628. This should remain deferred until real test gear or representative captures are available.
@@ -442,7 +444,7 @@ CEA-852 must be treated as a high-risk BMS/OT protocol, not as a generic shell. 
 The platform channel carries framed data/control messages: open, data, resize, heartbeat, close, error, and terminal outcome. Protocol details stay in the adapter.
 
 ## Proxmox Console vs Generic SSH
-Proxmox console support must not be modeled as generic SSH key custody. PVE node shells, LXC consoles, and VM noVNC/SPICE-style consoles are requested through the Proxmox API and returned as temporary tickets, ports, or proxy endpoints. The agent-side provider adapter should use the same scoped Proxmox API credential that inventory enrichment uses, request a short-lived console ticket, and proxy the resulting console stream through the generic remote-access tunnel. No SSH private key is required for that path.
+Proxmox console support must not be modeled as generic SSH key custody. A future PVE/LXC/QEMU provider adapter must require an explicit least-privilege `console_access` rule separate from read-only inventory enrichment, request one-session provider material only after authorization, and proxy the protocol through the generic tunnel without exposing provider secrets to the browser. Until the relevant protocol change proves that path, native console actions remain unavailable.
 
 Generic inventory device SSH is different. For early compatibility, the operator may provide a key, certificate, signing capability, or password per session from the browser or a local helper. The target enterprise path is ServiceRadar-issued short-lived SSH certificates backed by SSO/LDAP identity and RBAC. The selected agent MUST NOT use a reusable agent-local bastion key for generic SSH access.
 
