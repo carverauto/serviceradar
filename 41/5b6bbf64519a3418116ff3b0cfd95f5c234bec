@@ -1,0 +1,36 @@
+openspec/changes/add-causal-security-foundation/design.md
+  s_6f8eb423821667::t_6661322820ed4c 198-217
+  s_6f8eb423821667::t_b015fbfb4a612c 94-156
+  s_6f8eb423821667::t_717e62cc27ca55 159-167
+openspec/changes/add-causal-security-foundation/specs/causal-security-observations/spec.md
+  s_6f8eb423821667::t_2ca5c2588470ea 9-15
+  s_6f8eb423821667::t_dce67729fd2496 27-60
+openspec/changes/add-causal-security-foundation/proposal.md
+  s_6f8eb423821667::t_1ea96b232c6276 10-13
+openspec/changes/add-causal-security-foundation/specs/causal-security-reasoning/spec.md
+  s_6f8eb423821667::t_d60dc891373d76 31-32,35
+  s_6f8eb423821667::t_a1785ba263707d 10-22
+  s_6f8eb423821667::t_2348f844fc8c79 83-88
+  s_6f8eb423821667::t_8757b22a7901af 100-134
+openspec/changes/add-causal-security-foundation/tasks.md
+  s_6f8eb423821667::t_6dbbfd231e2da4 33-38,40-45,48-51
+  s_6f8eb423821667::t_e48b8bd8ecf94d 53,56-71
+  s_6f8eb423821667::t_82c9255f651c8f 87-100
+  s_6f8eb423821667::t_79a5dd43176f3d 76-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "415b6bbf64519a3418116ff3b0cfd95f5c234bec",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
