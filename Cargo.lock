@@ -1576,8 +1576,17 @@ dependencies = [
  "deep_causality_core",
  "deep_causality_data_structures",
  "deep_causality_haft",
- "deep_causality_uncertain",
+ "deep_causality_uncertain 0.3.16",
  "ultragraph",
+]
+
+[[package]]
+name = "deep_causality_algebra"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de1f314e4c7f35b7b5f1efddad90514f46e0b28b4880740c86164d12e9211f8d"
+dependencies = [
+ "deep_causality_num 0.4.1",
 ]
 
 [[package]]
@@ -1614,12 +1623,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce092b6d554b543466f17c6e116fb512cd71bef43318b3e4fe350e4b3ccb6ae7"
 
 [[package]]
+name = "deep_causality_num"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3dda52acfad1544f374160f04ef0b589df7b3fb8720aab4a95105e3d747160a"
+
+[[package]]
 name = "deep_causality_rand"
 version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45e21ce2a078b324563113a11a42d4189339443f49edb8f42586b9e1e0f83430"
 dependencies = [
- "deep_causality_num",
+ "deep_causality_num 0.3.3",
+]
+
+[[package]]
+name = "deep_causality_rand"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26c484de12bd95669bd34d83841f79b93daf3afd6e18ee7df726d8a432522993"
+dependencies = [
+ "deep_causality_algebra",
+ "deep_causality_num 0.4.1",
 ]
 
 [[package]]
@@ -1629,8 +1654,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a645bf0d482f10e9f66752e25b6e66e69f84e3de25f938755ed01885817c421"
 dependencies = [
  "deep_causality_ast",
- "deep_causality_num",
- "deep_causality_rand",
+ "deep_causality_num 0.3.3",
+ "deep_causality_rand 0.1.16",
+]
+
+[[package]]
+name = "deep_causality_uncertain"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5a17bd77e1df578421027ae6ab840013b599f88dc98279a6a157ef253d73884"
+dependencies = [
+ "deep_causality_algebra",
+ "deep_causality_ast",
+ "deep_causality_num 0.4.1",
+ "deep_causality_rand 0.2.1",
 ]
 
 [[package]]
@@ -6091,6 +6128,96 @@ dependencies = [
  "serde 1.0.228",
  "serde_json 1.0.150",
  "tokio",
+]
+
+[[package]]
+name = "serviceradar-causal-causaloids"
+version = "0.1.0"
+dependencies = [
+ "serviceradar-causal-context",
+ "serviceradar-causal-model",
+ "serviceradar-causal-ports",
+]
+
+[[package]]
+name = "serviceradar-causal-config"
+version = "0.1.0"
+dependencies = [
+ "serviceradar-causal-model",
+]
+
+[[package]]
+name = "serviceradar-causal-context"
+version = "0.1.0"
+dependencies = [
+ "serviceradar-causal-model",
+ "serviceradar-causal-ports",
+]
+
+[[package]]
+name = "serviceradar-causal-emit"
+version = "0.1.0"
+dependencies = [
+ "serviceradar-causal-model",
+ "serviceradar-causal-ports",
+]
+
+[[package]]
+name = "serviceradar-causal-engine"
+version = "0.1.0"
+dependencies = [
+ "serviceradar-causal-causaloids",
+ "serviceradar-causal-config",
+ "serviceradar-causal-context",
+ "serviceradar-causal-emit",
+ "serviceradar-causal-ingest",
+ "serviceradar-causal-mitigation",
+ "serviceradar-causal-model",
+ "serviceradar-causal-ports",
+ "serviceradar-causal-reasoning",
+ "uuid 1.23.1",
+]
+
+[[package]]
+name = "serviceradar-causal-ingest"
+version = "0.1.0"
+dependencies = [
+ "serviceradar-causal-config",
+ "serviceradar-causal-model",
+ "serviceradar-causal-ports",
+ "uuid 1.23.1",
+]
+
+[[package]]
+name = "serviceradar-causal-mitigation"
+version = "0.1.0"
+dependencies = [
+ "serviceradar-causal-model",
+ "serviceradar-causal-ports",
+]
+
+[[package]]
+name = "serviceradar-causal-model"
+version = "0.1.0"
+dependencies = [
+ "deep_causality_algebra",
+ "uuid 1.23.1",
+]
+
+[[package]]
+name = "serviceradar-causal-ports"
+version = "0.1.0"
+dependencies = [
+ "serviceradar-causal-model",
+]
+
+[[package]]
+name = "serviceradar-causal-reasoning"
+version = "0.1.0"
+dependencies = [
+ "deep_causality_uncertain 0.5.0",
+ "serviceradar-causal-model",
+ "serviceradar-causal-ports",
 ]
 
 [[package]]

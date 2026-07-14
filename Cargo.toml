@@ -28,6 +28,16 @@ members = [
     "rust/anomaly-core",
     "rust/anomaly-addon",
     "rust/anomaly-disposition",
+    "rust/causal-model",
+    "rust/causal-ports",
+    "rust/causal-config",
+    "rust/causal-context",
+    "rust/causal-ingest",
+    "rust/causal-causaloids",
+    "rust/causal-reasoning",
+    "rust/causal-mitigation",
+    "rust/causal-emit",
+    "rust/causal-engine",
 ]
 
 exclude = [

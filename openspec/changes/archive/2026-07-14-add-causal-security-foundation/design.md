@@ -169,10 +169,11 @@ Constraints inherited from the chassis and verified against the repo:
   every crate must compile green under `cargo` from day one (the local gate; Bazel
   is validated in CI only — see below); empty crates carry a `//! ` module doc
   stating the milestone that fills them.
-- **Bazel not locally verifiable** → the Bazel config is broken on non-x86 machines
-  and is deliberately not fixed. Mitigation: `cargo build`/`clippy`/`fmt`/`test`
-  are the local gate; ship the per-crate `BUILD.bazel` for CI (x86) to validate, and
-  do NOT block local work on a Bazel build.
+- **Whole-repo Bazel build is broken** (unrelated) → but **per-crate** targets build
+  and test fine locally: `bazel build //rust/causal-<crate>/...` + `bazel test` pass,
+  and the crate-universe auto-re-splices from `Cargo.lock` (no manual repin for the new
+  DC deps). Mitigation: use per-crate Bazel targets as the local Bazel gate alongside
+  Cargo; do not gate on the broken `//...` build.
 - **Enabling `STATE_CHANGE_EVENTS_ENABLED`** → turning on the feed adds NATS
   traffic. Mitigation: the publisher already exists and is gated; enabling it is a
   config flip plus a stream/consumer provision, coordinated with the chassis's
@@ -182,10 +183,10 @@ Constraints inherited from the chassis and verified against the repo:
 
 1. Add the ten flat `rust/causal-*` crates to root `Cargo.toml` `members` with
    `serviceradar-`-prefixed package names and per-crate `BUILD.bazel`
-   (`rust_library`; bin adds `rust_binary`) so CI can build them. Verify `cargo
-   build`/`clippy`/`fmt`/`test` green LOCALLY (Cargo is the local gate); the
-   `BUILD.bazel` files are validated in CI (x86) only — the Bazel config is broken
-   on non-x86 and is deliberately not fixed for local use.
+   (`rust_library`; bin adds `rust_binary`). Verify `cargo build`/`clippy`/`fmt`/
+   `test` green LOCALLY, AND per-crate `bazel build //rust/causal-<crate>/...` +
+   `bazel test` (both pass; the crate-universe auto-re-splices from `Cargo.lock`).
+   Only the whole-repo `//...` build is broken (unrelated) — do not gate on it.
 2. Implement `SecVerdict` + the lawful `Verdict` lattice in `causal-model` with
    lattice-law unit tests (idempotence, commutativity, associativity, absorption,
    bottom identity, top saturation).

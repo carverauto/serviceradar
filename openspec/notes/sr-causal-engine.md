@@ -612,11 +612,12 @@ only; new detection → `causaloids` only; new fusion/join → `model` only; new
 `mitigation` config only; in-process→networked → re-impl `ports`.
 
 **Notes:** each crate gets its own `BUILD.bazel` (`rust_library` + `all_crate_deps(...)`; bin adds
-`rust_binary`) so **CI** can build it. ⚠️ **Local verification is Cargo-only for now** — the Bazel
-config is broken on non-x86 machines and is not worth fixing locally, so `cargo build` / `cargo clippy`
-/ `cargo fmt` / `cargo test` are the local gate and the **`BUILD.bazel` files are validated in CI (x86)**,
-not locally. Edition: match the repo default (2021) unless a workspace-wide bump is chosen. Follow DC
-conventions (one type per module, no `unsafe` via workspace lint, static dispatch, no prelude).
+`rust_binary`). Both build systems are the local gate: `cargo build`/`clippy`/`fmt`/`test`, AND
+**per-crate Bazel** — `bazel build //rust/causal-<crate>/...` + `bazel test` pass, and the crate-universe
+auto-re-splices from `Cargo.lock` (no manual `update-rust-bazel-deps.sh` repin for the new DC deps).
+⚠️ Only the **whole-repo `//...`** build is broken (unrelated); don't gate on it. Edition 2024
+(the repo default for recent crates, e.g. `rust/anomaly-*`). Package names take the `serviceradar-`
+prefix; no `unsafe` (`#![forbid(unsafe_code)]` per crate).
 
 ---
 
