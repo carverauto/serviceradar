@@ -1,0 +1,19 @@
+openspec/changes/add-causal-security-detections/tasks.md
+  s_6f8eb423821667::t_41ef2accfc6a74 45,47-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "2c925a2e41200e292edb99e29adf3151a7deaf42",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
