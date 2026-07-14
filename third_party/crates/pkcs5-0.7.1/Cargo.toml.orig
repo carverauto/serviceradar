@@ -1,0 +1,42 @@
+[package]
+name = "pkcs5"
+version = "0.7.1"
+description = """
+Pure Rust implementation of Public-Key Cryptography Standards (PKCS) #5:
+Password-Based Cryptography Specification Version 2.1 (RFC 8018)
+"""
+authors = ["RustCrypto Developers"]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/RustCrypto/formats/tree/master/pkcs5"
+categories = ["cryptography", "data-structures", "encoding", "no-std"]
+keywords = ["crypto", "key", "pkcs", "password"]
+readme = "README.md"
+edition = "2021"
+rust-version = "1.65"
+
+[dependencies]
+der = { version = "0.7", features = ["oid"], path = "../der" }
+spki = { version = "0.7", path = "../spki" }
+
+# optional dependencies
+cbc = { version = "0.1.2", optional = true }
+aes = { version = "0.8.2", optional = true, default-features = false }
+des = { version = "0.8.1", optional = true, default-features = false }
+pbkdf2 = { version = "0.12.1", optional = true, default-features = false }
+scrypt = { version = "0.11", optional = true, default-features = false }
+sha1 = { version = "0.10.1", optional = true, default-features = false }
+sha2 = { version = "0.10.2", optional = true, default-features = false }
+
+[dev-dependencies]
+hex-literal = "0.3"
+
+[features]
+alloc = []
+3des = ["dep:des", "pbes2"]
+des-insecure = ["dep:des", "pbes2"]
+pbes2 = ["dep:aes", "dep:cbc", "dep:pbkdf2", "dep:scrypt", "dep:sha2"]
+sha1-insecure = ["dep:sha1", "pbes2"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

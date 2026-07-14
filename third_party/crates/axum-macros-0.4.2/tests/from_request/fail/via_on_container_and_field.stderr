@@ -1,0 +1,5 @@
+error: `#[from_request(via(...))]` on a field cannot be used together with `#[from_request(...)]` on the container
+ --> tests/from_request/fail/via_on_container_and_field.rs:5:33
+  |
+5 | struct Extractor(#[from_request(via(axum::Extension))] State);
+  |                                 ^^^

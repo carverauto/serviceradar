@@ -1,0 +1,30 @@
+[package]
+name = "pem-rfc7468"
+version = "1.0.0-rc.3"
+description = """
+PEM Encoding (RFC 7468) for PKIX, PKCS, and CMS Structures, implementing a
+strict subset of the original Privacy-Enhanced Mail encoding intended
+specifically for use with cryptographic keys, certificates, and other messages.
+Provides a no_std-friendly, constant-time implementation suitable for use with
+cryptographic private keys.
+"""
+authors = ["RustCrypto Developers"]
+license = "Apache-2.0 OR MIT"
+homepage = "https://github.com/RustCrypto/formats/tree/master/pem-rfc7468"
+repository = "https://github.com/RustCrypto/formats"
+categories = ["cryptography", "data-structures", "encoding", "no-std", "parser-implementations"]
+keywords = ["crypto", "key", "pem", "pkcs", "rsa"]
+readme = "README.md"
+edition = "2024"
+rust-version = "1.85"
+
+[dependencies]
+base64ct = { version = "1.4" }
+
+[features]
+alloc = ["base64ct/alloc"]
+std = ["alloc", "base64ct/std"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

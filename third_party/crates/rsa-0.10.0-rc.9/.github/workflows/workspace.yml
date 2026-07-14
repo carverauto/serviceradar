@@ -1,0 +1,58 @@
+name: Workspace
+
+on:
+  pull_request:
+    paths-ignore:
+      - README.md
+  push:
+    branches: master
+    paths-ignore:
+      - README.md
+
+# Cancels CI jobs when new commits are pushed to a PR branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: RustCrypto/actions/cargo-cache@master
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.85.0
+          components: clippy
+      - run: cargo clippy --all -- -D warnings
+
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: RustCrypto/actions/cargo-cache@master
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  doc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: RustCrypto/actions/cargo-cache@master
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          # We need Nightly for doc_auto_cfg
+          toolchain: nightly-2025-02-22
+      - uses: Swatinem/rust-cache@v2
+      - env:
+          RUSTDOCFLAGS: "-Dwarnings --cfg docsrs"
+        run: cargo doc --no-deps --features std,serde,hazmat,sha2
+
+  typos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: crate-ci/typos@v1.35.1

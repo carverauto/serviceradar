@@ -1,0 +1,15 @@
+---
+source: src/variable_versions/field_types/flow_end_reason.rs
+expression: reasons
+---
+- Unknown: 0
+- IdleTimeout
+- ActiveTimeout
+- EndOfFlow
+- ForcedEnd
+- LackOfResources
+- Unknown: 6
+- Unknown: 7
+- Unknown: 8
+- Unknown: 9
+- Unknown: 10

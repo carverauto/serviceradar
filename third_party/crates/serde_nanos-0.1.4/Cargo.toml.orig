@@ -1,0 +1,16 @@
+[package]
+authors = ["Casper Beyer <caspervonb@pm.me>"]
+name = "serde_nanos"
+version = "0.1.4"
+edition = "2018"
+description = "Wrapper to process duration and timestamps as nanoseconds"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/caspervonb/serde_nanos"
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, optional = true }
+serde = "1.0.0"
+
+[dev-dependencies]
+serde_derive = "1.0.0"
+serde_json = "1.0.0"

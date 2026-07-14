@@ -1,0 +1,36 @@
+[package]
+name = "pkcs1"
+version = "0.8.0-rc.4"
+description = """
+Pure Rust implementation of Public-Key Cryptography Standards (PKCS) #1:
+RSA Cryptography Specifications Version 2.2 (RFC 8017)
+"""
+authors = ["RustCrypto Developers"]
+license = "Apache-2.0 OR MIT"
+homepage = "https://github.com/RustCrypto/formats/tree/master/pkcs1"
+repository = "https://github.com/RustCrypto/formats"
+categories = ["cryptography", "data-structures", "encoding", "no-std", "parser-implementations"]
+keywords = ["crypto", "key", "pem", "pkcs", "rsa"]
+readme = "README.md"
+edition = "2024"
+rust-version = "1.85"
+
+[dependencies]
+der = { version = "0.8.0-rc.9", features = ["oid"] }
+spki = "0.8.0-rc.4"
+
+[dev-dependencies]
+const-oid = { version = "0.10", features = ["db"] }
+hex-literal = "1"
+tempfile = "3"
+
+[features]
+alloc = ["der/alloc", "zeroize"]
+std = ["der/std", "alloc"]
+
+pem = ["alloc", "der/pem"]
+zeroize = ["der/zeroize"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

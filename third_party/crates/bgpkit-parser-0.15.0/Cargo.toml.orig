@@ -1,0 +1,155 @@
+[package]
+name = "bgpkit-parser"
+version = "0.15.0"
+authors = ["Mingwei Zhang <mingwei@bgpkit.com>"]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/bgpkit/bgpkit-parser"
+documentation = "https://docs.rs/bgpkit-parser"
+description = "MRT/BGP/BMP data processing library"
+keywords = ["bgp", "bgpkit", "mrt"]
+categories = ["network-programming"]
+default-run = "bgpkit-parser"
+readme = "README.md"
+rust-version = "1.87.0"
+
+[[bin]]
+name = "bgpkit-parser"
+path = "src/bin/main.rs"
+required-features = ["cli"]
+
+[dependencies]
+
+##############
+# BGP models #
+##############
+ipnet = "2.10"
+itertools = "0.14"
+log = "0.4"
+num_enum = { version = "0.7", features = ["complex-expressions"] }
+bitflags = { version = "2.6", features = ["serde"] }
+
+####################
+# Core BGP structs #
+####################
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+#######################
+# Parser dependencies #
+#######################
+bytes = { version = "1.7", optional = true }
+hex = { version = "0.4.3", optional = true } # bmp/openbmp parsing
+oneio = { version = "0.20.0", default-features = false, features = ["http", "gz", "bz"], optional = true }
+regex = { version = "1", optional = true } # used in parser filter
+chrono = { version = "0.4.38", optional = true } # parser filter
+serde_json = { version = "1.0", optional = true } # RIS Live parsing
+
+####################
+# CLI dependencies #
+####################
+env_logger = { version = "0.11", optional = true }
+clap = { version = "4.5", features = ["derive"], optional = true }
+
+[features]
+default = ["parser", "rustls"]
+
+# parsing local files only, removing dependencies for handling remote files
+local = ["parser", "oneio"]
+
+parser = [
+    "bytes",
+    "chrono",
+    "regex",
+]
+cli = [
+    "clap",
+    "parser",
+    "env_logger",
+    "serde",
+    "serde_json"
+]
+rislive = [
+    "parser",
+    "serde",
+    "serde_json",
+    "hex",
+]
+serde = [
+    "dep:serde",
+    "ipnet/serde",
+]
+native-tls = [
+    "oneio/native-tls",
+]
+rustls = [
+    "oneio/rustls",
+]
+
+# optional compression algorithms support
+xz = [
+    "oneio/xz"
+]
+lz = [
+    "oneio/lz"
+]
+
+[[bench]]
+name = "internals"
+harness = false
+
+[[bench]]
+name = "bench_main"
+harness = false
+
+[dev-dependencies]
+regex = "1"
+anyhow = "1"
+bgpkit-broker = "0.10.1"
+env_logger = "0.11"
+kafka = "0.10.0"
+tungstenite = "0.28.0"
+tokio-tungstenite = "0.28"
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3.30"
+criterion = { version = "0.8", features = ["html_reports"] }
+rayon = "1.10"
+bzip2 = "0.6"
+flate2 = "1.1"
+md5 = "0.8.0"
+which = "8"
+serde_json = "1.0"
+hex = "0.4.3"
+tempfile = "3"
+ctrlc = "3.4"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+crossbeam-channel = "0.5"
+
+# This list only includes examples which require additional features to run. These are more in the examples directory.
+[[example]]
+name = "real_time_ris_live_websocket"
+required-features = ["rislive"]
+
+[[example]]
+name = "real_time_ris_live_websocket_async"
+required-features = ["rislive"]
+
+[[example]]
+name = "peer_index_table"
+required-features = ["serde"]
+
+[[example]]
+name = "deprecated_attributes"
+required-features = ["serde"]
+
+[[example]]
+name = "scan_mrt"
+required-features = ["cli"]
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.gz"
+pkg-fmt = "tgz"
+
+
+[lints.clippy]
+uninlined_format_args = "allow"

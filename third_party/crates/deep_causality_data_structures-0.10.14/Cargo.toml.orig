@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) "2025" . The DeepCausality Authors and Contributors. All Rights Reserved.
+
+[package]
+name = "deep_causality_data_structures"
+version = "0.10.14"
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+
+repository = "https://github.com/deepcausality/deep_causality.rs"
+authors = ["Marvin Hansen <marvin.hansen@gmail.com>", ]
+description = "Data structures for for deep_causality crate."
+documentation = "https://docs.rs/deep_causality"
+categories = ["data-structures", "science"]
+keywords = ["data-structures", "sliding-window", "grid-array"]
+# Exclude all bazel files as these conflict with Bazel workspace when vendored.
+exclude = ["*.bazel", "*/*.bazel",  "*.bazel.*", "BUILD", "BUILD.bazel", "MODULE.bazel", ".bazelignore",".bazelrc", "tests/**/*"]
+
+
+[[example]]
+name = "array_grid"
+path = "examples/array_grid/array_grid.rs"
+
+
+[[example]]
+name = "window_type_array_storage"
+path = "examples/window_type/array_storage.rs"
+
+
+[[example]]
+name = "window_type_vector_storage"
+path = "examples/window_type/vector_storage.rs"
+
+
+[dev-dependencies]
+criterion = {  version = "0.8" }
+deep_causality_rand = { path = "../deep_causality_rand"}
+
+
+[[bench]]
+name = "bench_data_structures"
+harness = false
+
+[lints]
+workspace = true

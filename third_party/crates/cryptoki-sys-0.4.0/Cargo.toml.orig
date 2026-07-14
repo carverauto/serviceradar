@@ -1,0 +1,22 @@
+[package]
+name = "cryptoki-sys"
+version = "0.4.0"
+authors = ["Contributors to the Parsec project"]
+edition = '2021'
+description = "FFI wrapper around the PKCS #11 API"
+readme = "README.md"
+keywords = ["pkcs11", "cryptoki", "hsm"]
+categories = ["api-bindings", "external-ffi-bindings", "cryptography", "hardware-support"]
+license = "Apache-2.0"
+repository = "https://github.com/parallaxsecond/rust-cryptoki"
+documentation = "https://docs.rs/crate/cryptoki-sys"
+rust-version = "1.66.0"
+
+[build-dependencies]
+bindgen = { version = "0.70.1", optional = true }
+
+[dependencies]
+libloading = "0.8.6"
+
+[features]
+generate-bindings = ["bindgen"]

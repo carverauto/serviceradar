@@ -1,0 +1,25 @@
+name: Mirror to GitLab and Codeberg
+
+on:
+  push:
+    branches: [ 'master' ]
+    tags:
+      - '*'
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    environment: mirroring
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Mirror to GitLab
+        run: |
+          git remote add gitlab https://oauth2:${{ secrets.GITLAB_TOKEN }}@gitlab.com/awxkee/yuv.git
+          git remote add codeberg https://awxkee:${{ secrets.CODEBERG_TOKEN }}@codeberg.org/awxkee/yuv.git
+          git push gitlab --all
+          git push gitlab --tags
+          git push codeberg --all
+          git push codeberg --tags

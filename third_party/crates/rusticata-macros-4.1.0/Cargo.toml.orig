@@ -1,0 +1,15 @@
+[package]
+name = "rusticata-macros"
+version = "4.1.0"
+description = "Helper macros for Rusticata"
+license = "MIT/Apache-2.0"
+keywords = ["parser","nom","serialize"]
+homepage = "https://github.com/rusticata/rusticata-macros"
+repository = "https://github.com/rusticata/rusticata-macros.git"
+authors = ["Pierre Chifflier <chifflier@wzdftpd.net>"]
+edition = "2018"
+categories = ["parsing"]
+readme = "README.md"
+
+[dependencies]
+nom = { version = "7.0", default-features = false, features = ["std"] }

@@ -1,0 +1,60 @@
+[package]
+name = "nkeys"
+version = "0.4.5"
+authors = ["wasmCloud Team"]
+edition = "2021"
+description = "Rust implementation of the NATS nkeys library"
+license = "Apache-2.0"
+homepage = "https://github.com/wasmcloud/nkeys"
+documentation = "https://docs.rs/nkeys"
+repository = "https://github.com/wasmcloud/nkeys"
+readme = "README.md"
+keywords = ["crypto", "nats", "ed25519", "cryptography"]
+categories = ["cryptography", "authentication"]
+
+[features]
+cli = [
+    "quicli",
+    "structopt",
+    "term-table",
+    "exitfailure",
+    "env_logger",
+    "serde_json",
+]
+
+xkeys = ["dep:crypto_box"]
+
+[package.metadata.docs.rs]
+all_features = true
+
+[[bin]]
+name = "nk"
+required-features = ["cli"]
+
+[dependencies]
+signatory = "0.27"
+ed25519 = { version = "2.2.3", default-features = false }
+ed25519-dalek = { version = "2.0.0", default-features = false, features = [
+    "digest",
+] }
+rand = "0.8"
+data-encoding = "2.3.0"
+log = "0.4.11"
+crypto_box = { version = "0.9.1", optional = true } # For xKeys support
+
+# CLI Dependencies
+quicli = { version = "0.4", optional = true }
+structopt = { version = "0.3.17", optional = true }
+term-table = { version = "1.3.0", optional = true }
+exitfailure = { version = "0.5.1", optional = true }
+env_logger = { version = "0.9", optional = true }
+serde_json = { version = "1.0", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# NOTE: We need this due to an underlying dependency being pulled in by
+# `ed25519-dalek`. Even if we exclude `rand`, that crate pulls it in. `rand` pulls in the low level
+# `getrandom` library, which explicitly doesn't support wasm32-unknown-unknown. This is a hack to
+# get around that by enabling the `custom` feature of getrandom (even though we don't actually use
+# the library). This makes `rand` compile in the dalek library even though we aren't actually using
+# the `rand` part of it.
+getrandom = { version = "0.2", default-features = false, features = ["custom"] }

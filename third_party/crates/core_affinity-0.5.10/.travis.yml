@@ -1,0 +1,193 @@
+language: rust
+rust: stable
+
+install:
+  - if [ -z "$NO_ADD" ]; then rustup target add "$TARGET"; fi
+
+script:
+  - cargo build --verbose --target "$TARGET"
+  - if [ "$RUN" == "1" ]; then cargo test --verbose --target "$TARGET"; fi
+
+matrix:
+  include:
+      # Linux
+    #   gnu
+    #     i686
+    #       stable
+    - env: TARGET=i686-unknown-linux-gnu RUN=1
+      rust: stable
+      addons:
+        apt:
+          packages:
+            - gcc-multilib
+    #       beta
+    - env: TARGET=i686-unknown-linux-gnu RUN=1
+      rust: beta
+      addons:
+        apt:
+          packages:
+            - gcc-multilib
+    #       nightly 
+    - env: TARGET=i686-unknown-linux-gnu RUN=1
+      rust: nightly
+      addons:
+        apt:
+          packages:
+            - gcc-multilib
+    #     x86_64
+    #       stable
+    - env: TARGET=x86_64-unknown-linux-gnu RUN=1 NO_ADD=1
+      rust: stable
+    #       beta
+    - env: TARGET=x86_64-unknown-linux-gnu RUN=1 NO_ADD=1
+      rust: beta
+    #       nightly
+    - env: TARGET=x86_64-unknown-linux-gnu RUN=1 NO_ADD=1
+      rust: nightly
+    #     arm
+    #       stable
+    - env: TARGET=arm-unknown-linux-gnueabihf
+      rust: stable
+    #       beta
+    - env: TARGET=arm-unknown-linux-gnueabihf
+      rust: beta
+    #       nightly
+    - env: TARGET=arm-unknown-linux-gnueabihf
+      rust: nightly
+    #     aarch64
+    #       stable
+    - env: TARGET=aarch64-unknown-linux-gnu
+      rust: stable
+    #       beta
+    - env: TARGET=aarch64-unknown-linux-gnu
+      rust: beta
+    #       nightly
+    - env: TARGET=aarch64-unknown-linux-gnu
+      rust: nightly
+    #     mips
+    #       stable
+    - env: TARGET=mips-unknown-linux-gnu
+      rust: stable
+    #       beta
+    - env: TARGET=mips-unknown-linux-gnu
+      rust: beta
+    #       nightly
+    - env: TARGET=mips-unknown-linux-gnu
+      rust: nightly
+    #   musl
+    #     i686
+    #       stable
+    - env: TARGET=i686-unknown-linux-musl RUN=1
+      rust: stable
+      addons:
+        apt:
+          packages:
+            - gcc-multilib
+    #       beta
+    - env: TARGET=i686-unknown-linux-musl RUN=1
+      rust: beta
+      addons:
+        apt:
+          packages:
+            - gcc-multilib
+    #       nightly 
+    - env: TARGET=i686-unknown-linux-musl RUN=1
+      rust: nightly
+      addons:
+        apt:
+          packages:
+            - gcc-multilib
+    #     x86_64
+    #       stable
+    - env: TARGET=x86_64-unknown-linux-musl RUN=1
+      rust: stable
+    #       beta
+    - env: TARGET=x86_64-unknown-linux-musl RUN=1
+      rust: beta
+    #       nightly
+    - env: TARGET=x86_64-unknown-linux-musl RUN=1
+      rust: nightly
+    #     aarch64
+    #       stable
+    # - env: TARGET=aarch64-unknown-linux-musl
+    #  rust: stable
+    #       beta
+    # - env: TARGET=aarch64-unknown-linux-musl
+    #  rust: beta
+    #       nightly
+    - env: TARGET=aarch64-unknown-linux-musl
+      rust: nightly
+    # Mac OS X
+    #   i686
+    #     stable
+    - os: osx
+      env: TARGET=i686-apple-darwin RUN=1
+      rust: stable
+    #     beta
+    - os: osx
+      env: TARGET=i686-apple-darwin RUN=1
+      rust: beta
+    #     nightly
+    - os: osx
+      env: TARGET=i686-apple-darwin RUN=1
+      rust: nightly
+    #   x86_64
+    #     stable
+    - os: osx
+      env: TARGET=x86_64-apple-darwin RUN=1 NO_ADD=1
+      rust: stable 
+    #     beta
+    - os: osx
+      env: TARGET=x86_64-apple-darwin RUN=1 NO_ADD=1
+      rust: beta 
+    #     nightly
+    - os: osx
+      env: TARGET=x86_64-apple-darwin RUN=1 NO_ADD=1
+      rust: nightly 
+    # Android
+    #   i686
+    #     stable
+    - env: TARGET=i686-linux-android
+      rust: stable
+    #     beta
+    - env: TARGET=i686-linux-android
+      rust: beta
+    #     nightly
+    - env: TARGET=i686-linux-android
+      rust: nightly
+    #   x86_64
+    #     stable
+    - env: TARGET=x86_64-linux-android
+      rust: stable
+    #     beta
+    - env: TARGET=x86_64-linux-android
+      rust: beta
+    #     nightly
+    - env: TARGET=x86_64-linux-android
+      rust: nightly
+    #   arm
+    #     stable
+    - env: TARGET=arm-linux-androideabi
+      rust: stable
+    #     beta
+    - env: TARGET=arm-linux-androideabi
+      rust: beta
+    #     nightly
+    - env: TARGET=arm-linux-androideabi
+      rust: nightly
+    #   aarch64
+    #     stable
+    - env: TARGET=aarch64-linux-android
+      rust: stable
+    #     beta
+    - env: TARGET=aarch64-linux-android
+      rust: beta
+    #     nightly
+    - env: TARGET=aarch64-linux-android
+      rust: nightly
+
+
+script:
+  - cargo build
+  - cargo test
+ 

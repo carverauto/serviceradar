@@ -32,6 +32,8 @@ pub mod spiffe;
 
 mod record;
 mod splitter;
+#[cfg(feature = "tls")]
+mod tls_utils;
 mod utils;
 
 #[cfg(test)]
@@ -50,7 +52,9 @@ extern crate kafka;
 #[cfg(feature = "file")]
 extern crate notify;
 #[cfg(feature = "tls")]
-extern crate openssl;
+extern crate rustls;
+#[cfg(feature = "tls")]
+extern crate rustls_pemfile;
 extern crate rand;
 #[cfg(feature = "redis-input")]
 extern crate redis;

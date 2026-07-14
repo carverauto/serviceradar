@@ -487,6 +487,8 @@ spec:
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "nats.pem" "nats-key.pem") | indent 12 }}
   volumeClaimTemplates:
   - metadata:
       name: nats-data

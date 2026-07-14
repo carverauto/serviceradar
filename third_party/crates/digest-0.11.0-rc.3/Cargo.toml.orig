@@ -1,0 +1,37 @@
+[package]
+name = "digest"
+version = "0.11.0-rc.3"
+authors = ["RustCrypto Developers"]
+edition = "2024"
+rust-version = "1.85"
+documentation = "https://docs.rs/digest"
+readme = "README.md"
+repository = "https://github.com/RustCrypto/traits"
+license = "MIT OR Apache-2.0"
+keywords = ["digest", "crypto", "hash"]
+categories = ["cryptography", "no-std"]
+description = "Traits for cryptographic hash functions and message authentication codes"
+
+[dependencies]
+crypto-common = { version = "0.2.0-rc.4", path = "../crypto-common" }
+
+# optional dependencies
+block-buffer = { version = "0.11.0-rc.5", optional = true }
+subtle = { version = "2.4", default-features = false, optional = true }
+blobby = { version = "0.4.0-pre.1", optional = true }
+const-oid = { version = "0.10", optional = true }
+zeroize = { version = "1.7", optional = true, default-features = false }
+
+[features]
+default = ["block-api"]
+block-api = ["block-buffer"] # Enable block API traits
+mac = ["subtle"] # Enable MAC traits
+rand_core = ["crypto-common/rand_core"] # Enable random key generation methods
+os_rng = ["crypto-common/rand_core", "rand_core"]
+oid = ["const-oid"]
+zeroize = ["dep:zeroize", "block-buffer?/zeroize"]
+alloc = []
+dev = ["blobby"]
+
+[package.metadata.docs.rs]
+all-features = true

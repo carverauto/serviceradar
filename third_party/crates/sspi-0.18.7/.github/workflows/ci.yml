@@ -1,0 +1,189 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+  workflow_dispatch:
+
+jobs:
+  formatting:
+    name: Check formatting
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check formatting
+        shell: pwsh
+        run: |
+          Write-Host "Check formatting"
+          cargo fmt --all -- --check
+          if ($LastExitCode -eq 1) {   
+            throw "Bad formatting, please run 'cargo +stable fmt --all'"
+          }
+
+  lints:
+    name: Lints [${{ matrix.os }}]
+    runs-on: ${{ matrix.runner }}
+    needs: formatting
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ win, osx, linux ]
+        include:
+          - os: win
+            runner: windows-2022
+            additional-args: --features tsssp
+          - os: osx
+            runner: macos-14
+          - os: linux
+            runner: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Compiling the ffi module is enough to lint the whole sspi workspace
+      - name: Check clippy
+        env:
+          AWS_LC_SYS_NO_ASM: true
+        run: cargo clippy --manifest-path ffi/Cargo.toml ${{ matrix.additional-args }} -- -D warnings -D clippy::print_stdout
+
+  tests:
+    name: Tests [${{ matrix.os }}] [${{ matrix.crate-name }}]
+    runs-on: ${{ matrix.runner }}
+    needs: formatting
+    env:
+      SSPI_RS_IS_RUNNING_TESTS: true
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ win, osx, linux ]
+        manifest:
+          - Cargo.toml
+          - ffi/Cargo.toml
+          - crates/dpapi/Cargo.toml
+          - crates/winscard/Cargo.toml
+          - crates/dpapi-pdu/Cargo.toml
+          - crates/ffi-types/Cargo.toml
+          - crates/dpapi-core/Cargo.toml
+          - crates/dpapi-transport/Cargo.toml
+          - crates/dpapi-native-transport/Cargo.toml
+
+        include:
+          # Map runner per OS
+          - os: win
+            runner: windows-2022
+          - os: osx
+            runner: macos-14
+          - os: linux
+            runner: ubuntu-latest
+
+          # Map crate name per manifest
+          - manifest: Cargo.toml
+            crate-name: sspi
+          - manifest: ffi/Cargo.toml
+            crate-name: sspi-ffi
+          - manifest: crates/dpapi/Cargo.toml
+            crate-name: dpapi
+          - manifest: crates/winscard/Cargo.toml
+            crate-name: winscard
+          - manifest: crates/dpapi-pdu/Cargo.toml
+            crate-name: dpapi-pdu
+          - manifest: crates/ffi-types/Cargo.toml
+            crate-name: ffi-types
+          - manifest: crates/dpapi-core/Cargo.toml
+            crate-name: dpapi-core
+          - manifest: crates/dpapi-transport/Cargo.toml
+            crate-name: dpapi-transport
+          - manifest: crates/dpapi-native-transport/Cargo.toml
+            crate-name: dpapi-native-transport
+
+          # Per-OS feature overrides for specific manifests
+          - os: win
+            manifest: Cargo.toml
+            additional-args: --features network_client,dns_resolver,scard,tsssp
+          - os: osx
+            manifest: Cargo.toml
+            additional-args: --features network_client,scard
+          - os: linux
+            manifest: Cargo.toml
+            additional-args: --features network_client,dns_resolver,scard
+
+          - os: win
+            manifest: ffi/Cargo.toml
+            additional-args: --features tsssp
+
+          - os: win
+            manifest: crates/dpapi/Cargo.toml
+            additional-args: --features tsssp
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test
+        env:
+          AWS_LC_SYS_NO_ASM: true
+        run: cargo test --manifest-path ${{ matrix.manifest }} ${{ matrix.additional-args }}
+
+  miri:
+    name: Miri FFI tests
+    runs-on: ubuntu-latest
+    needs: formatting
+    env:
+      SSPI_RS_IS_RUNNING_TESTS: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain and Miri
+        run: |
+          rustup toolchain install nightly --component miri
+          rustup override set nightly
+
+      - name: Test
+        run: cargo miri test --manifest-path ffi/Cargo.toml --no-default-features --features ring
+
+  wasm:
+    name: WASM target
+    runs-on: ubuntu-latest
+    needs: formatting
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare runner
+        run: sudo apt-get install wabt
+
+      - name: Check
+        shell: pwsh
+        run: ./tools/wasm-testcompile/check.ps1
+
+  build-native:
+    name: Build native
+    needs: formatting
+    uses: ./.github/workflows/build-native.yml
+
+  success:
+    name: Success
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    needs:
+      - formatting
+      - lints
+      - tests
+      - miri
+      - wasm
+      - build-native
+
+    steps:
+      - name: CI succeeded
+        id: succeeded
+        if: ${{ !contains(needs.*.result, 'failure') }}
+        run: exit 0
+
+      - name: CI failed
+        if: ${{ steps.succeeded.outcome == 'skipped' }}
+        run: exit 1

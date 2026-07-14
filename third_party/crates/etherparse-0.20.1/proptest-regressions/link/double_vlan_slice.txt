@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc fd2ee3e3872d2ded38124f5a6352bfd29738db63731eab08d738e1a32a036b86 # shrinks to vlan = DoubleVlanHeader { outer: SingleVlanHeader { pcp: VlanPcp(0), drop_eligible_indicator: false, vlan_id: VlanId(0), ether_type: 0x8100 (Customer VLAN Tag (C-TAG) as defined in IEEE Std 802.1Q) }, inner: SingleVlanHeader { pcp: VlanPcp(0), drop_eligible_indicator: false, vlan_id: VlanId(0), ether_type: 0x0000 } }, ether_type_non_vlan = 0x0000

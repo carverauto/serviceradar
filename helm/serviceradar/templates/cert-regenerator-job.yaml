@@ -1,6 +1,7 @@
 {{- $certs := default dict .Values.certs -}}
 {{- $regenerator := default dict (get $certs "regenerator") -}}
-{{- if (default false (get $regenerator "enabled")) }}
+{{- $hostedRuntime := eq "true" (include "serviceradar.hostedRuntimeEnabled" .) -}}
+{{- if and (default false (get $regenerator "enabled")) (not $hostedRuntime) }}
 {{- $certJobImage := include "serviceradar.cnpgImageName" (dict "Values" .Values "cnpg" .Values.cnpg) -}}
 apiVersion: v1
 kind: ServiceAccount
@@ -22,7 +23,12 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
-  verbs: ["get", "list", "create", "update", "patch"]
+  resourceNames:
+    - {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+  verbs: ["get", "patch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["create"]
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1

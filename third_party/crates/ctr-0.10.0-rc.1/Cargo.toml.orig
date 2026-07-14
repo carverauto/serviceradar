@@ -1,0 +1,32 @@
+[package]
+name = "ctr"
+version = "0.10.0-rc.1"
+description = "CTR block modes of operation"
+authors = ["RustCrypto Developers"]
+license = "MIT OR Apache-2.0"
+edition = "2024"
+rust-version = "1.85"
+readme = "README.md"
+documentation = "https://docs.rs/ctr"
+repository = "https://github.com/RustCrypto/block-modes"
+keywords = ["crypto", "block-mode", "stream-cipher", "ciphers"]
+categories = ["cryptography", "no-std"]
+
+[dependencies]
+cipher = { version = "0.5.0-rc.1", features = ["stream-wrapper"] }
+
+[dev-dependencies]
+aes = "0.9.0-rc.1"
+magma = "0.10.0-rc.1"
+kuznyechik = "0.9.0-rc.1"
+cipher = { version = "0.5.0-rc.1", features = ["dev"] }
+hex-literal = "1"
+
+[features]
+alloc = ["cipher/alloc"]
+block-padding = ["cipher/block-padding"]
+zeroize = ["cipher/zeroize"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

@@ -26,6 +26,7 @@ on:
       - 'scripts/run-helm.sh'
       - 'scripts/check-core-analytics-helm-defaults.sh'
       - 'scripts/check-tenant-chart-hook-order.sh'
+      - 'scripts/check-hosted-runtime-cert-boundary.sh'
   pull_request:
     branches: [ staging ]
     paths:
@@ -34,6 +35,7 @@ on:
       - 'scripts/run-helm.sh'
       - 'scripts/check-core-analytics-helm-defaults.sh'
       - 'scripts/check-tenant-chart-hook-order.sh'
+      - 'scripts/check-hosted-runtime-cert-boundary.sh'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
@@ -66,3 +68,6 @@ jobs:
 
       - name: Verify tenant bootstrap hook order
         run: HELM_BIN=./scripts/run-helm.sh ./scripts/check-tenant-chart-hook-order.sh
+
+      - name: Verify hosted runtime certificate boundary
+        run: HELM_BIN=./scripts/run-helm.sh ./scripts/check-hosted-runtime-cert-boundary.sh

@@ -1,0 +1,2462 @@
+---
+source: src/tests.rs
+expression: "NetflowParser::default().parse_bytes(&packet).packets"
+---
+- V9:
+    header:
+      version: 9
+      count: 38
+      sys_up_time: 3488214596
+      unix_secs: 1263497914
+      sequence_number: 21418958
+      source_id: 0
+    flowsets:
+      - header:
+          flowset_id: 0
+          length: 92
+        body:
+          Template:
+            templates:
+              - template_id: 256
+                field_count: 21
+                fields:
+                  - field_type_number: 21
+                    field_type: LastSwitched
+                    field_length: 4
+                  - field_type_number: 22
+                    field_type: FirstSwitched
+                    field_length: 4
+                  - field_type_number: 1
+                    field_type: InBytes
+                    field_length: 4
+                  - field_type_number: 2
+                    field_type: InPkts
+                    field_length: 4
+                  - field_type_number: 10
+                    field_type: InputSnmp
+                    field_length: 2
+                  - field_type_number: 14
+                    field_type: OutputSnmp
+                    field_length: 2
+                  - field_type_number: 8
+                    field_type: Ipv4SrcAddr
+                    field_length: 4
+                  - field_type_number: 12
+                    field_type: Ipv4DstAddr
+                    field_length: 4
+                  - field_type_number: 4
+                    field_type: Protocol
+                    field_length: 1
+                  - field_type_number: 5
+                    field_type: SrcTos
+                    field_length: 1
+                  - field_type_number: 7
+                    field_type: L4SrcPort
+                    field_length: 2
+                  - field_type_number: 11
+                    field_type: L4DstPort
+                    field_length: 2
+                  - field_type_number: 48
+                    field_type: FlowSamplerId
+                    field_length: 1
+                  - field_type_number: 51
+                    field_type:
+                      IanaAssigned: 51
+                    field_length: 1
+                  - field_type_number: 15
+                    field_type: Ipv4NextHop
+                    field_length: 4
+                  - field_type_number: 13
+                    field_type: DstMask
+                    field_length: 1
+                  - field_type_number: 9
+                    field_type: SrcMask
+                    field_length: 1
+                  - field_type_number: 6
+                    field_type: TcpFlags
+                    field_length: 1
+                  - field_type_number: 61
+                    field_type: Direction
+                    field_length: 1
+                  - field_type_number: 17
+                    field_type: DstAs
+                    field_length: 2
+                  - field_type_number: 16
+                    field_type: SrcAs
+                    field_length: 2
+      - header:
+          flowset_id: 0
+          length: 84
+        body:
+          Template:
+            templates:
+              - template_id: 258
+                field_count: 19
+                fields:
+                  - field_type_number: 21
+                    field_type: LastSwitched
+                    field_length: 4
+                  - field_type_number: 22
+                    field_type: FirstSwitched
+                    field_length: 4
+                  - field_type_number: 1
+                    field_type: InBytes
+                    field_length: 4
+                  - field_type_number: 2
+                    field_type: InPkts
+                    field_length: 4
+                  - field_type_number: 10
+                    field_type: InputSnmp
+                    field_length: 2
+                  - field_type_number: 14
+                    field_type: OutputSnmp
+                    field_length: 2
+                  - field_type_number: 8
+                    field_type: Ipv4SrcAddr
+                    field_length: 4
+                  - field_type_number: 12
+                    field_type: Ipv4DstAddr
+                    field_length: 4
+                  - field_type_number: 4
+                    field_type: Protocol
+                    field_length: 1
+                  - field_type_number: 5
+                    field_type: SrcTos
+                    field_length: 1
+                  - field_type_number: 7
+                    field_type: L4SrcPort
+                    field_length: 2
+                  - field_type_number: 11
+                    field_type: L4DstPort
+                    field_length: 2
+                  - field_type_number: 48
+                    field_type: FlowSamplerId
+                    field_length: 1
+                  - field_type_number: 51
+                    field_type:
+                      IanaAssigned: 51
+                    field_length: 1
+                  - field_type_number: 15
+                    field_type: Ipv4NextHop
+                    field_length: 4
+                  - field_type_number: 13
+                    field_type: DstMask
+                    field_length: 1
+                  - field_type_number: 9
+                    field_type: SrcMask
+                    field_length: 1
+                  - field_type_number: 6
+                    field_type: TcpFlags
+                    field_length: 1
+                  - field_type_number: 61
+                    field_type: Direction
+                    field_length: 1
+      - header:
+          flowset_id: 1
+          length: 44
+        body:
+          OptionsTemplate:
+            templates:
+              - template_id: 257
+                options_scope_length: 20
+                options_length: 12
+                scope_fields:
+                  - field_type_number: 1
+                    field_type: System
+                    field_length: 4
+                  - field_type_number: 2
+                    field_type: Interface
+                    field_length: 4
+                  - field_type_number: 3
+                    field_type: LineCard
+                    field_length: 4
+                  - field_type_number: 4
+                    field_type: NetflowCache
+                    field_length: 4
+                  - field_type_number: 5
+                    field_type: Template
+                    field_length: 4
+                option_fields:
+                  - field_type_number: 42
+                    field_type: TotalFlowsExp
+                    field_length: 4
+                  - field_type_number: 41
+                    field_type: TotalPktsExp
+                    field_length: 4
+                  - field_type_number: 34
+                    field_type: SamplingInterval
+                    field_length: 4
+      - header:
+          flowset_id: 256
+          length: 484
+        body:
+          Data:
+            fields:
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 22469
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.87
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.103
+                - - Protocol
+                  - ProtocolType: Tcp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 160
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 3768
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 4793
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 54
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.36
+                - - DstMask
+                  - DataNumber:
+                      U8: 28
+                - - SrcMask
+                  - DataNumber:
+                      U8: 5
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: false
+                      syn: true
+                      rst: true
+                      psh: false
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 192
+                - - SrcAs
+                  - DataNumber:
+                      U16: 23
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 11511
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.42
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.190
+                - - Protocol
+                  - ProtocolType: Udp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 192
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 52628
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 20901
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 242
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.9
+                - - DstMask
+                  - DataNumber:
+                      U8: 7
+                - - SrcMask
+                  - DataNumber:
+                      U8: 9
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: true
+                      syn: false
+                      rst: false
+                      psh: false
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 94
+                - - SrcAs
+                  - DataNumber:
+                      U16: 119
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 50221
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.98
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.10
+                - - Protocol
+                  - ProtocolType: Icmp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 0
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 28924
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 37242
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 183
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.85
+                - - DstMask
+                  - DataNumber:
+                      U8: 12
+                - - SrcMask
+                  - DataNumber:
+                      U8: 22
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: true
+                      syn: false
+                      rst: false
+                      psh: false
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 69
+                - - SrcAs
+                  - DataNumber:
+                      U16: 182
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 17000
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.29
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.217
+                - - Protocol
+                  - ProtocolType: Tcp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 16
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 54019
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 31892
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 135
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.54
+                - - DstMask
+                  - DataNumber:
+                      U8: 18
+                - - SrcMask
+                  - DataNumber:
+                      U8: 20
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: false
+                      syn: false
+                      rst: false
+                      psh: true
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 3
+                - - SrcAs
+                  - DataNumber:
+                      U16: 3
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 3836
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.9
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.62
+                - - Protocol
+                  - ProtocolType: Icmp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 160
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 24247
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 57095
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 35
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.40
+                - - DstMask
+                  - DataNumber:
+                      U8: 21
+                - - SrcMask
+                  - DataNumber:
+                      U8: 29
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: false
+                      syn: false
+                      rst: true
+                      psh: false
+                      ack: false
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 46
+                - - SrcAs
+                  - DataNumber:
+                      U16: 62
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 62314
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.46
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.149
+                - - Protocol
+                  - ProtocolType: Udp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 160
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 17989
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 51448
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 95
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.89
+                - - DstMask
+                  - DataNumber:
+                      U8: 4
+                - - SrcMask
+                  - DataNumber:
+                      U8: 12
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: true
+                      syn: true
+                      rst: false
+                      psh: true
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 193
+                - - SrcAs
+                  - DataNumber:
+                      U16: 20
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 14336
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.45
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.145
+                - - Protocol
+                  - ProtocolType: Udp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 160
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 31952
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 34224
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 139
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.62
+                - - DstMask
+                  - DataNumber:
+                      U8: 19
+                - - SrcMask
+                  - DataNumber:
+                      U8: 28
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: false
+                      syn: false
+                      rst: false
+                      psh: false
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 70
+                - - SrcAs
+                  - DataNumber:
+                      U16: 184
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 18757
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.27
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.196
+                - - Protocol
+                  - ProtocolType: Icmp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 160
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 30703
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 35045
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 154
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.69
+                - - DstMask
+                  - DataNumber:
+                      U8: 29
+                - - SrcMask
+                  - DataNumber:
+                      U8: 2
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: false
+                      syn: false
+                      rst: false
+                      psh: false
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 62
+                - - SrcAs
+                  - DataNumber:
+                      U16: 163
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 33913
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.58
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.183
+                - - Protocol
+                  - ProtocolType: Udp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 192
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 47159
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 51444
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 95
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.89
+                - - DstMask
+                  - DataNumber:
+                      U8: 4
+                - - SrcMask
+                  - DataNumber:
+                      U8: 12
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: true
+                      syn: true
+                      rst: false
+                      psh: true
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 194
+                - - SrcAs
+                  - DataNumber:
+                      U16: 6
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 7454
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.17
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.122
+                - - Protocol
+                  - ProtocolType: Tcp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 16
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 45231
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 54318
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 122
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.56
+                - - DstMask
+                  - DataNumber:
+                      U8: 17
+                - - SrcMask
+                  - DataNumber:
+                      U8: 21
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: true
+                      syn: false
+                      rst: false
+                      psh: false
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 76
+                - - SrcAs
+                  - DataNumber:
+                      U16: 127
+      - header:
+          flowset_id: 256
+          length: 484
+        body:
+          Data:
+            fields:
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 68548
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.17
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.126
+                - - Protocol
+                  - ProtocolType: Tcp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 16
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 35973
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 38493
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 184
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.79
+                - - DstMask
+                  - DataNumber:
+                      U8: 10
+                - - SrcMask
+                  - DataNumber:
+                      U8: 28
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: false
+                      syn: false
+                      rst: false
+                      psh: false
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 66
+                - - SrcAs
+                  - DataNumber:
+                      U16: 198
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 2470
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.4
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.25
+                - - Protocol
+                  - ProtocolType: Icmp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 192
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 36432
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 37072
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 178
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.84
+                - - DstMask
+                  - DataNumber:
+                      U8: 14
+                - - SrcMask
+                  - DataNumber:
+                      U8: 17
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: false
+                      syn: true
+                      rst: false
+                      psh: false
+                      ack: false
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 142
+                - - SrcAs
+                  - DataNumber:
+                      U16: 175
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 29252
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.64
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.229
+                - - Protocol
+                  - ProtocolType: Icmp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 192
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 33344
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 33832
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 143
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.57
+                - - DstMask
+                  - DataNumber:
+                      U8: 21
+                - - SrcMask
+                  - DataNumber:
+                      U8: 26
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: false
+                      syn: true
+                      rst: false
+                      psh: true
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 107
+                - - SrcAs
+                  - DataNumber:
+                      U16: 120
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 50925
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.100
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.2
+                - - Protocol
+                  - ProtocolType: Icmp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 0
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 2362
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 6644
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 42
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.50
+                - - DstMask
+                  - DataNumber:
+                      U8: 15
+                - - SrcMask
+                  - DataNumber:
+                      U8: 15
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: false
+                      syn: true
+                      rst: false
+                      psh: false
+                      ack: false
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 102
+                - - SrcAs
+                  - DataNumber:
+                      U16: 106
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 41046
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.61
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.175
+                - - Protocol
+                  - ProtocolType: Udp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 0
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 12773
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 21100
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 247
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.11
+                - - DstMask
+                  - DataNumber:
+                      U8: 5
+                - - SrcMask
+                  - DataNumber:
+                      U8: 15
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: false
+                      syn: true
+                      rst: false
+                      psh: false
+                      ack: false
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 103
+                - - SrcAs
+                  - DataNumber:
+                      U16: 110
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 44693
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.75
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.193
+                - - Protocol
+                  - ProtocolType: Icmp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 160
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 23774
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 58643
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 41
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.48
+                - - DstMask
+                  - DataNumber:
+                      U8: 17
+                - - SrcMask
+                  - DataNumber:
+                      U8: 17
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: true
+                      syn: true
+                      rst: false
+                      psh: true
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 172
+                - - SrcAs
+                  - DataNumber:
+                      U16: 85
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 54633
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.86
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.106
+                - - Protocol
+                  - ProtocolType: Udp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 160
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 17988
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 51476
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 95
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.88
+                - - DstMask
+                  - DataNumber:
+                      U8: 4
+                - - SrcMask
+                  - DataNumber:
+                      U8: 12
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: true
+                      syn: true
+                      rst: false
+                      psh: true
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 190
+                - - SrcAs
+                  - DataNumber:
+                      U16: 17
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 17657
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.31
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.208
+                - - Protocol
+                  - ProtocolType: Tcp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 16
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 47983
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 49960
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 79
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.82
+                - - DstMask
+                  - DataNumber:
+                      U8: 13
+                - - SrcMask
+                  - DataNumber:
+                      U8: 18
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: true
+                      syn: true
+                      rst: false
+                      psh: true
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 152
+                - - SrcAs
+                  - DataNumber:
+                      U16: 51
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 59060
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.30
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.222
+                - - Protocol
+                  - ProtocolType: Tcp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 16
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 60658
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 12666
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 83
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.96
+                - - DstMask
+                  - DataNumber:
+                      U8: 3
+                - - SrcMask
+                  - DataNumber:
+                      U8: 4
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: false
+                      syn: true
+                      rst: false
+                      psh: true
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 146
+                - - SrcAs
+                  - DataNumber:
+                      U16: 161
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 26110
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.98
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.11
+                - - Protocol
+                  - ProtocolType: Icmp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 0
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 26239
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 43420
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 253
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.3
+                - - DstMask
+                  - DataNumber:
+                      U8: 1
+                - - SrcMask
+                  - DataNumber:
+                      U8: 3
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: false
+                      syn: false
+                      rst: false
+                      psh: false
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 90
+                - - SrcAs
+                  - DataNumber:
+                      U16: 116
+      - header:
+          flowset_id: 256
+          length: 484
+        body:
+          Data:
+            fields:
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 56498
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.78
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.76
+                - - Protocol
+                  - ProtocolType: Udp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 192
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 44126
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 62559
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 27
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.18
+                - - DstMask
+                  - DataNumber:
+                      U8: 14
+                - - SrcMask
+                  - DataNumber:
+                      U8: 18
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: true
+                      syn: true
+                      rst: false
+                      psh: true
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 194
+                - - SrcAs
+                  - DataNumber:
+                      U16: 19
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 13191
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.49
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.132
+                - - Protocol
+                  - ProtocolType: Tcp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 16
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 48550
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 49043
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 67
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.77
+                - - DstMask
+                  - DataNumber:
+                      U8: 9
+                - - SrcMask
+                  - DataNumber:
+                      U8: 25
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: false
+                      syn: true
+                      rst: false
+                      psh: true
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 104
+                - - SrcAs
+                  - DataNumber:
+                      U16: 112
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 43491
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.70
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.214
+                - - Protocol
+                  - ProtocolType: Tcp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 16
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 37816
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 48033
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 199
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.29
+                - - DstMask
+                  - DataNumber:
+                      U8: 26
+                - - SrcMask
+                  - DataNumber:
+                      U8: 12
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: true
+                      syn: true
+                      rst: false
+                      psh: true
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 157
+                - - SrcAs
+                  - DataNumber:
+                      U16: 71
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 70685
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.22
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.88
+                - - Protocol
+                  - ProtocolType: Udp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 0
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 18684
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 55554
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 109
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.72
+                - - DstMask
+                  - DataNumber:
+                      U8: 26
+                - - SrcMask
+                  - DataNumber:
+                      U8: 12
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: true
+                      syn: true
+                      rst: false
+                      psh: true
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 161
+                - - SrcAs
+                  - DataNumber:
+                      U16: 69
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 73882
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.4
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.25
+                - - Protocol
+                  - ProtocolType: Icmp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 192
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 35379
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 39960
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 167
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.91
+                - - DstMask
+                  - DataNumber:
+                      U8: 6
+                - - SrcMask
+                  - DataNumber:
+                      U8: 9
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: true
+                      syn: false
+                      rst: false
+                      psh: false
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 78
+                - - SrcAs
+                  - DataNumber:
+                      U16: 136
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 73548
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.11
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.45
+                - - Protocol
+                  - ProtocolType: Tcp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 16
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 43210
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 64423
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 2
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.3
+                - - DstMask
+                  - DataNumber:
+                      U8: 1
+                - - SrcMask
+                  - DataNumber:
+                      U8: 3
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: false
+                      syn: false
+                      rst: false
+                      psh: false
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 82
+                - - SrcAs
+                  - DataNumber:
+                      U16: 147
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 61275
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.34
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.250
+                - - Protocol
+                  - ProtocolType: Icmp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 0
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 15333
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 19513
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 212
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.50
+                - - DstMask
+                  - DataNumber:
+                      U8: 16
+                - - SrcMask
+                  - DataNumber:
+                      U8: 16
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: false
+                      syn: true
+                      rst: false
+                      psh: false
+                      ack: false
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 130
+                - - SrcAs
+                  - DataNumber:
+                      U16: 185
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 18094
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.27
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.205
+                - - Protocol
+                  - ProtocolType: Tcp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 160
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 3850
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 4881
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 55
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.35
+                - - DstMask
+                  - DataNumber:
+                      U8: 28
+                - - SrcMask
+                  - DataNumber:
+                      U8: 7
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: false
+                      syn: true
+                      rst: true
+                      psh: false
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 167
+                - - SrcAs
+                  - DataNumber:
+                      U16: 99
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 38963
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.54
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.136
+                - - Protocol
+                  - ProtocolType: Tcp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 16
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 64029
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 1348
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 13
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.9
+                - - DstMask
+                  - DataNumber:
+                      U8: 7
+                - - SrcMask
+                  - DataNumber:
+                      U8: 9
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: true
+                      syn: false
+                      rst: false
+                      psh: false
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 95
+                - - SrcAs
+                  - DataNumber:
+                      U16: 108
+              - - - LastSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 376000000
+                - - FirstSwitched
+                  - Duration:
+                      secs: 3488219
+                      nanos: 284000000
+                - - InBytes
+                  - DataNumber:
+                      U32: 2003
+                - - InPkts
+                  - DataNumber:
+                      U32: 47659
+                - - InputSnmp
+                  - DataNumber:
+                      U16: 4
+                - - OutputSnmp
+                  - DataNumber:
+                      U16: 2
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 10.0.0.63
+                - - Ipv4DstAddr
+                  - Ip4Addr: 12.0.0.223
+                - - Protocol
+                  - ProtocolType: Icmp
+                - - SrcTos
+                  - DataNumber:
+                      U8: 192
+                - - L4SrcPort
+                  - DataNumber:
+                      U16: 42544
+                - - L4DstPort
+                  - DataNumber:
+                      U16: 59214
+                - - FlowSamplerId
+                  - DataNumber:
+                      U8: 0
+                - - IanaAssigned: 51
+                  - Vec:
+                      - 58
+                - - Ipv4NextHop
+                  - Ip4Addr: 10.0.0.32
+                - - DstMask
+                  - DataNumber:
+                      U8: 25
+                - - SrcMask
+                  - DataNumber:
+                      U8: 13
+                - - TcpFlags
+                  - TcpControlBits:
+                      fin: false
+                      syn: true
+                      rst: false
+                      psh: false
+                      ack: false
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Direction
+                  - DataNumber:
+                      U8: 0
+                - - DstAs
+                  - DataNumber:
+                      U16: 139
+                - - SrcAs
+                  - DataNumber:
+                      U16: 168
+      - header:
+          flowset_id: 257
+          length: 164
+        body:
+          OptionsData:
+            fields:
+              - scope_fields:
+                  - System:
+                      - 0
+                      - 0
+                      - 0
+                      - 100
+                  - Interface:
+                      - 0
+                      - 0
+                      - 0
+                      - 200
+                  - LineCard:
+                      - 0
+                      - 0
+                      - 1
+                      - 44
+                  - NetFlowCache:
+                      - 0
+                      - 0
+                      - 1
+                      - 144
+                  - Template:
+                      - 0
+                      - 0
+                      - 1
+                      - 244
+                options_fields:
+                  - - TotalFlowsExp
+                    - DataNumber:
+                        U32: 1013367971
+                  - - TotalPktsExp
+                    - DataNumber:
+                        U32: 33710346
+                  - - SamplingInterval
+                    - DataNumber:
+                        U32: 100
+              - scope_fields:
+                  - System:
+                      - 0
+                      - 0
+                      - 0
+                      - 100
+                  - Interface:
+                      - 0
+                      - 0
+                      - 0
+                      - 200
+                  - LineCard:
+                      - 0
+                      - 0
+                      - 1
+                      - 44
+                  - NetFlowCache:
+                      - 0
+                      - 0
+                      - 1
+                      - 144
+                  - Template:
+                      - 0
+                      - 0
+                      - 1
+                      - 244
+                options_fields:
+                  - - TotalFlowsExp
+                    - DataNumber:
+                        U32: 1013367971
+                  - - TotalPktsExp
+                    - DataNumber:
+                        U32: 33710346
+                  - - SamplingInterval
+                    - DataNumber:
+                        U32: 100
+              - scope_fields:
+                  - System:
+                      - 0
+                      - 0
+                      - 0
+                      - 100
+                  - Interface:
+                      - 0
+                      - 0
+                      - 0
+                      - 200
+                  - LineCard:
+                      - 0
+                      - 0
+                      - 1
+                      - 44
+                  - NetFlowCache:
+                      - 0
+                      - 0
+                      - 1
+                      - 144
+                  - Template:
+                      - 0
+                      - 0
+                      - 1
+                      - 244
+                options_fields:
+                  - - TotalFlowsExp
+                    - DataNumber:
+                        U32: 1013367971
+                  - - TotalPktsExp
+                    - DataNumber:
+                        U32: 33710346
+                  - - SamplingInterval
+                    - DataNumber:
+                        U32: 100
+              - scope_fields:
+                  - System:
+                      - 0
+                      - 0
+                      - 0
+                      - 100
+                  - Interface:
+                      - 0
+                      - 0
+                      - 0
+                      - 200
+                  - LineCard:
+                      - 0
+                      - 0
+                      - 1
+                      - 44
+                  - NetFlowCache:
+                      - 0
+                      - 0
+                      - 1
+                      - 144
+                  - Template:
+                      - 0
+                      - 0
+                      - 1
+                      - 244
+                options_fields:
+                  - - TotalFlowsExp
+                    - DataNumber:
+                        U32: 1013367971
+                  - - TotalPktsExp
+                    - DataNumber:
+                        U32: 33710346
+                  - - SamplingInterval
+                    - DataNumber:
+                        U32: 100
+              - scope_fields:
+                  - System:
+                      - 0
+                      - 0
+                      - 0
+                      - 100
+                  - Interface:
+                      - 0
+                      - 0
+                      - 0
+                      - 200
+                  - LineCard:
+                      - 0
+                      - 0
+                      - 1
+                      - 44
+                  - NetFlowCache:
+                      - 0
+                      - 0
+                      - 1
+                      - 144
+                  - Template:
+                      - 0
+                      - 0
+                      - 1
+                      - 244
+                options_fields:
+                  - - TotalFlowsExp
+                    - DataNumber:
+                        U32: 1013367971
+                  - - TotalPktsExp
+                    - DataNumber:
+                        U32: 33710346
+                  - - SamplingInterval
+                    - DataNumber:
+                        U32: 100

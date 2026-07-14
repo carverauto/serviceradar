@@ -1,0 +1,220 @@
+---
+source: src/tests.rs
+expression: "NetflowParser::default().parse_bytes(&all).packets"
+---
+- V9:
+    header:
+      version: 9
+      count: 2
+      sys_up_time: 2313
+      unix_secs: 66051
+      sequence_number: 1
+      source_id: 1
+    flowsets:
+      - header:
+          flowset_id: 0
+          length: 16
+        body:
+          Template:
+            templates:
+              - template_id: 258
+                field_count: 2
+                fields:
+                  - field_type_number: 1
+                    field_type: InBytes
+                    field_length: 4
+                  - field_type_number: 8
+                    field_type: Ipv4SrcAddr
+                    field_length: 4
+      - header:
+          flowset_id: 258
+          length: 12
+        body:
+          Data:
+            fields:
+              - - - InBytes
+                  - DataNumber:
+                      U32: 151126788
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 9.9.9.8
+- V5:
+    header:
+      version: 5
+      count: 1
+      sys_up_time: 50332672
+      unix_secs: 83887623
+      unix_nsecs: 134807553
+      flow_sequence: 33752069
+      engine_type: 6
+      engine_id: 7
+      sampling_interval: 2057
+    flowsets:
+      - src_addr: 0.1.2.3
+        dst_addr: 4.5.6.7
+        next_hop: 8.9.0.1
+        input: 515
+        output: 1029
+        d_pkts: 101124105
+        d_octets: 66051
+        first: 67438087
+        last: 134807553
+        src_port: 515
+        dst_port: 1029
+        pad1: 6
+        tcp_flags: 7
+        protocol_number: 8
+        protocol_type: Egp
+        tos: 9
+        src_as: 1
+        dst_as: 515
+        src_mask: 4
+        dst_mask: 5
+        pad2: 1543
+- V7:
+    header:
+      version: 7
+      count: 1
+      sys_up_time: 50332672
+      unix_secs: 83887623
+      unix_nsecs: 134807553
+      flow_sequence: 33752069
+      reserved: 101124105
+    flowsets:
+      - src_addr: 0.1.2.3
+        dst_addr: 4.5.6.7
+        next_hop: 8.9.0.1
+        input: 515
+        output: 1029
+        d_pkts: 101124105
+        d_octets: 66051
+        first: 67438087
+        last: 134807553
+        src_port: 515
+        dst_port: 1029
+        flags_fields_valid: 6
+        tcp_flags: 7
+        protocol_number: 8
+        protocol_type: Egp
+        tos: 9
+        src_as: 1
+        dst_as: 515
+        src_mask: 4
+        dst_mask: 5
+        flags_fields_invalid: 1543
+        router_src: 8.9.0.1
+- V9:
+    header:
+      version: 9
+      count: 2
+      sys_up_time: 2313
+      unix_secs: 66051
+      sequence_number: 1
+      source_id: 1
+    flowsets:
+      - header:
+          flowset_id: 0
+          length: 16
+        body:
+          Template:
+            templates:
+              - template_id: 258
+                field_count: 2
+                fields:
+                  - field_type_number: 1
+                    field_type: InBytes
+                    field_length: 4
+                  - field_type_number: 8
+                    field_type: Ipv4SrcAddr
+                    field_length: 4
+      - header:
+          flowset_id: 258
+          length: 12
+        body:
+          Data:
+            fields:
+              - - - InBytes
+                  - DataNumber:
+                      U32: 151126788
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 9.9.9.8
+- IPFix:
+    header:
+      version: 10
+      length: 64
+      export_time: 16909060
+      sequence_number: 0
+      observation_domain_id: 16909060
+    flowsets:
+      - header:
+          header_id: 2
+          length: 20
+        body:
+          Template:
+            template_id: 256
+            field_count: 3
+            fields:
+              - field_type_number: 8
+                field_length: 4
+                field_type:
+                  IANA: SourceIpv4address
+              - field_type_number: 12
+                field_length: 4
+                field_type:
+                  IANA: DestinationIpv4address
+              - field_type_number: 2
+                field_length: 4
+                field_type:
+                  IANA: PacketDeltaCount
+      - header:
+          header_id: 256
+          length: 28
+        body:
+          Data:
+            fields:
+              - - - IANA: SourceIpv4address
+                  - Ip4Addr: 1.2.3.4
+                - - IANA: DestinationIpv4address
+                  - Ip4Addr: 1.2.3.3
+                - - IANA: PacketDeltaCount
+                  - DataNumber:
+                      U32: 16909058
+              - - - IANA: SourceIpv4address
+                  - Ip4Addr: 0.2.0.2
+                - - IANA: DestinationIpv4address
+                  - Ip4Addr: 0.1.2.3
+                - - IANA: PacketDeltaCount
+                  - DataNumber:
+                      U32: 67438087
+- V5:
+    header:
+      version: 5
+      count: 1
+      sys_up_time: 50332672
+      unix_secs: 83887623
+      unix_nsecs: 134807553
+      flow_sequence: 33752069
+      engine_type: 6
+      engine_id: 7
+      sampling_interval: 2057
+    flowsets:
+      - src_addr: 0.1.2.3
+        dst_addr: 4.5.6.7
+        next_hop: 8.9.0.1
+        input: 515
+        output: 1029
+        d_pkts: 101124105
+        d_octets: 66051
+        first: 67438087
+        last: 134807553
+        src_port: 515
+        dst_port: 1029
+        pad1: 6
+        tcp_flags: 7
+        protocol_number: 8
+        protocol_type: Egp
+        tos: 9
+        src_as: 1
+        dst_as: 515
+        src_mask: 4
+        dst_mask: 5
+        pad2: 1543

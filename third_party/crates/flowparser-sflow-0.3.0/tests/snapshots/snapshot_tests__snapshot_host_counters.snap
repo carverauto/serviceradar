@@ -1,0 +1,87 @@
+---
+source: tests/snapshot_tests.rs
+expression: result
+---
+datagrams:
+  - version: 5
+    agent_address:
+      IPv4: 10.0.0.151
+    sub_agent_id: 100000
+    sequence_number: 91043
+    uptime: 1820847000
+    samples:
+      - Counter:
+          sequence_number: 91043
+          source_id_type: 2
+          source_id_index: 1
+          records:
+            - HostAdapters:
+                adapters:
+                  - if_index: 1
+                    mac_addresses:
+                      - "00:00:00:00:00:00"
+                  - if_index: 2
+                    mac_addresses:
+                      - "F2:29:01:70:58:25"
+                  - if_index: 3
+                    mac_addresses:
+                      - "62:F6:CF:F1:2D:34"
+                  - if_index: 6
+                    mac_addresses:
+                      - "0A:00:00:97:00:00"
+            - HostDiskIo:
+                disk_total: 14502475776
+                disk_free: 11649775616
+                part_max_used: 2706
+                reads: 159496
+                bytes_read: 2236486656
+                read_time: 5202132
+                writes: 5401158
+                bytes_written: 45031284736
+                write_time: 240782544
+            - HostMemory:
+                mem_total: 1073741824
+                mem_free: 91660288
+                mem_shared: 0
+                mem_buffers: 197472256
+                mem_cached: 557715456
+                swap_total: 2181029888
+                swap_free: 2180988928
+                page_in: 1099548
+                page_out: 21987932
+                swap_in: 0
+                swap_out: 11
+            - HostCpu:
+                load_one: 0.02
+                load_five: 0.04
+                load_fifteen: 0
+                proc_run: 0
+                proc_total: 86
+                cpu_num: 1
+                cpu_speed: 1297
+                uptime: 4218265
+                cpu_user: 3727080
+                cpu_nice: 7749000
+                cpu_system: 9937020
+                cpu_idle: 4118193640
+                cpu_wio: 7759240
+                cpu_intr: 0
+                cpu_sintr: 174210
+                interrupts: 1060365782
+                contexts: 392839834
+            - HostNetIo:
+                bytes_in: 84803217639
+                packets_in: 872809402
+                errs_in: 0
+                drops_in: 0
+                bytes_out: 87230362587
+                packets_out: 793051984
+                errs_out: 0
+                drops_out: 0
+            - HostDescr:
+                hostname: xenvm2.sf.inmon.com
+                uuid: e9d0e087-51c7-429e-9841-4439db35f3be
+                machine_type: X86_64
+                os_name: Linux
+                os_release: 2.6.18-194.el5xen
+error: ~

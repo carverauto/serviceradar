@@ -1,0 +1,61 @@
+on:
+  workflow_call:
+    inputs:
+      os:
+        required: true
+        type: string
+      toolchain:
+        required: true
+        type: string
+      msrv:
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      NPCAP_OEM_PASSWORD:
+        required: true
+      NPCAP_OEM_USERNAME:
+        required: true
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_VERBOSE: true
+  CARGO_TERM_COLOR: always
+  PCAP_CI_TEST_TARGETS: ${{ (github.event_name == 'pull_request') && '--lib' || '--all-targets' }}
+
+jobs:
+  build-and-test:
+    runs-on: ${{ inputs.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          Invoke-WebRequest -Uri "https://npcap.com/dist/npcap-sdk-1.13.zip" -OutFile "C:/npcap-sdk.zip"
+          Expand-Archive -LiteralPath C:/npcap-sdk.zip -DestinationPath C:/npcap-sdk
+          echo "LIB=C:/npcap-sdk/Lib/x64" >> $env:GITHUB_ENV
+      # Secrets are not passed to workflows that are triggered by a pull request from a fork.
+      # https://docs.github.com/actions/automating-your-workflow-with-github-actions/creating-and-using-encrypted-secrets
+      - if: github.event_name != 'pull_request'
+        run: |
+          $SecPassword = ConvertTo-SecureString "${{ secrets.NPCAP_OEM_PASSWORD }}" -AsPlainText -Force
+          $CredObject = New-Object System.Management.Automation.PSCredential ("${{ secrets.NPCAP_OEM_USERNAME }}", $SecPassword)
+          Invoke-WebRequest -Uri "https://npcap.com/oem/dist/npcap-1.71-oem.exe" -OutFile C:/npcap-oem.exe -Credential $CredObject
+          C:/npcap-oem.exe /S
+      - run: |
+          rustup update --no-self-update ${{ inputs.toolchain }}
+          rustup override set ${{ inputs.toolchain }}
+      - if: inputs.msrv
+        run: cp msrv.lock Cargo.lock
+      # Note that since secrets are not passed to workflows triggered by a pull request from a fork,
+      # it is not possible to run integration tests on pull requests.
+      - run: cargo build --all-targets
+      - run: cargo test  ${{ env.PCAP_CI_TEST_TARGETS }}
+      - run: cargo build --all-targets                   --release
+      - run: cargo test  ${{ env.PCAP_CI_TEST_TARGETS }} --release
+      - if: ${{ ! inputs.msrv }}
+        run: cargo build --all-targets                              --all-features
+      - if: ${{ ! inputs.msrv}}
+        run: cargo test  ${{ env.PCAP_CI_TEST_TARGETS }}            --all-features
+      - if: ${{ ! inputs.msrv }}
+        run: cargo build --all-targets                   --release --all-features
+      - if: ${{ ! inputs.msrv}}
+        run: cargo test  ${{ env.PCAP_CI_TEST_TARGETS }} --release --all-features

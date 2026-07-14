@@ -1,0 +1,99 @@
+---
+source: tests/snapshot_tests.rs
+expression: result
+---
+datagrams:
+  - version: 5
+    agent_address:
+      IPv4: 10.0.0.20
+    sub_agent_id: 100000
+    sequence_number: 1685012
+    uptime: 4217778000
+    samples:
+      - Counter:
+          sequence_number: 210889
+          source_id_type: 2
+          source_id_index: 1
+          records:
+            - VirtNode:
+                mhz: 1297
+                cpus: 2
+                memory: 8454856704
+                memory_free: 2647240704
+                num_domains: 8
+            - HostAdapters:
+                adapters:
+                  - if_index: 1
+                    mac_addresses:
+                      - "00:00:00:00:00:00"
+                  - if_index: 2
+                    mac_addresses:
+                      - "D8:D3:85:AF:9F:84"
+                  - if_index: 5
+                    mac_addresses:
+                      - "D8:D3:85:AF:9F:84"
+                  - if_index: 4
+                    mac_addresses:
+                      - "00:26:55:E2:FD:95"
+                  - if_index: 6
+                    mac_addresses:
+                      - "00:26:55:E2:FD:95"
+                  - if_index: 7
+                    mac_addresses:
+                      - "00:26:55:E2:FD:94"
+            - HostDiskIo:
+                disk_total: 4227530752
+                disk_free: 1681031168
+                part_max_used: 6023
+                reads: 1159394
+                bytes_read: 47848076800
+                read_time: 9850900
+                writes: 20177361
+                bytes_written: 170061508096
+                write_time: 283388530
+            - HostMemory:
+                mem_total: 782761984
+                mem_free: 23965696
+                mem_shared: 0
+                mem_buffers: 165830656
+                mem_cached: 251322368
+                swap_total: 536862720
+                swap_free: 536846336
+                page_in: 46788246
+                page_out: 132677020
+                swap_in: 0
+                swap_out: 4
+            - HostCpu:
+                load_one: 0.02
+                load_five: 0.03
+                load_fifteen: 0
+                proc_run: 0
+                proc_total: 250
+                cpu_num: 2
+                cpu_speed: 1297
+                uptime: 4218302
+                cpu_user: 48150970
+                cpu_nice: 5680
+                cpu_system: 26805880
+                cpu_idle: 4041833204
+                cpu_wio: 12515070
+                cpu_intr: 0
+                cpu_sintr: 652300
+                interrupts: 1079278797
+                contexts: 1630047371
+            - HostNetIo:
+                bytes_in: 129697211059
+                packets_in: 299466069
+                errs_in: 0
+                drops_in: 687
+                bytes_out: 206208552341
+                packets_out: 506314945
+                errs_out: 0
+                drops_out: 0
+            - HostDescr:
+                hostname: xenserver1
+                uuid: 1e3bd500-1dd2-11b2-8000-d8d385af9f84
+                machine_type: X86
+                os_name: Linux
+                os_release: 2.6.32.43-0.4.1.xs1.6.10.734.170
+error: ~

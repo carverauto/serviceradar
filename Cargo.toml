@@ -12,13 +12,13 @@ members = [
     "rust/netprobe",
     "rust/workload-identity",
     "rust/powerdns",
-    "rust/netprobe/ebpf",
     "rust/rperf-client",
     "third_party/rust_patches/reqsign-azure-storage-1.0.0",
     "third_party/rust_patches/reqsign-google-1.0.0",
     "third_party/rust_patches/rperf-0.1.25",
     "rust/flow-collector",
     "rust/srql",
+    "integration_tests/srql",
     "rust/correlation-engine",
     "rust/metric-proto",
     "rust/fieldsurvey-sidekick",
@@ -29,9 +29,21 @@ members = [
     "rust/anomaly-core",
     "rust/anomaly-addon",
     "rust/anomaly-disposition",
+    "rust/causal-model",
+    "rust/causal-ports",
+    "rust/causal-config",
+    "rust/causal-context",
+    "rust/causal-ingest",
+    "rust/causal-causaloids",
+    "rust/causal-reasoning",
+    "rust/causal-mitigation",
+    "rust/causal-emit",
+    "rust/causal-engine",
 ]
+
 exclude = [
     "elixir/serviceradar_core_elx/deps/ex_sctp/native/ex_sctp",
+    "rust/netprobe/ebpf",
 ]
 
 [workspace.dependencies]

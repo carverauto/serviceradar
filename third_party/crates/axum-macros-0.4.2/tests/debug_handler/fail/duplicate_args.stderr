@@ -1,0 +1,5 @@
+error: `state` specified more than once
+ --> tests/debug_handler/fail/duplicate_args.rs:3:29
+  |
+3 | #[debug_handler(state = (), state = ())]
+  |                             ^^^^^

@@ -31,7 +31,12 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
-  verbs: ["get", "list", "create", "update", "patch"]
+  resourceNames:
+    - {{ .Values.cnpg.clientCASecret | quote }}
+  verbs: ["get", "patch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["create"]
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -74,6 +79,8 @@ spec:
         app: serviceradar-cnpg-client-ca
         app.kubernetes.io/part-of: serviceradar
         app.kubernetes.io/component: cnpg-client-ca
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
     spec:
       serviceAccountName: serviceradar-cnpg-client-ca
       restartPolicy: Never
@@ -191,7 +198,7 @@ spec:
         volumeMounts:
         - name: tmp
           mountPath: /tmp
-        - name: cert-data
+        - name: cnpg-issuer-ca
           mountPath: /etc/serviceradar/certs
           readOnly: true
         - name: cnpg-ca
@@ -200,9 +207,11 @@ spec:
       volumes:
       - name: tmp
         emptyDir: {}
-      - name: cert-data
+      - name: cnpg-issuer-ca
         secret:
-          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          secretName: {{ include "serviceradar.cnpgIssuerSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "cnpg-ca.pem" "cnpg-ca-key.pem") | indent 12 }}
       - name: cnpg-ca
         secret:
           secretName: {{ printf "%s-ca" $cnpgClusterName | quote }}

@@ -1,0 +1,33 @@
+name: 'Mac OS'
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: "0 6 * * *"
+
+jobs:
+  macos-build-and-test-stable:
+    uses: './.github/workflows/01-build-and-test-unix.yml'
+    with:
+      os: 'macos-latest'
+      toolchain: 'stable'
+
+  macos-build-and-test-msrv:
+    uses: './.github/workflows/01-build-and-test-unix.yml'
+    with:
+      os: 'macos-latest'
+      toolchain: '1.64'
+      msrv: true
+
+  macos-coverage-stable:
+    uses: './.github/workflows/02-coverage.yml'
+    with:
+      os: 'macos-latest'
+
+  macos-lint-stable:
+    uses: './.github/workflows/03-lint.yml'
+    with:
+      os: 'macos-latest'

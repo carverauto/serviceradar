@@ -13,6 +13,8 @@ spec:
       labels:
         app: serviceradar-tools
         app.kubernetes.io/part-of: serviceradar
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
     spec:
       securityContext:
         runAsNonRoot: true
@@ -157,7 +159,9 @@ spec:
       volumes:
       - name: cert-data
         secret:
-          secretName: serviceradar-runtime-certs
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "tools.pem" "tools-key.pem") | indent 12 }}
       - name: tools-config
         configMap:
           name: serviceradar-tools-config

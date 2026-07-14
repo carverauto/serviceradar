@@ -29,6 +29,7 @@ exports_files([
     "VERSION",
     "Cargo.toml",
     "Cargo.lock",
+    ".cargo/config.toml",
     ".tool-versions",
     "elixir/.credo.base.exs",
     "elixir/.credo.ex_dna.exs",

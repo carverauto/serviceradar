@@ -1,0 +1,13 @@
+name: Commisery
+on:
+  pull_request:
+    types: [edited, opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  commit-message:
+    uses: enarx/.github/.github/workflows/commisery.yml@main

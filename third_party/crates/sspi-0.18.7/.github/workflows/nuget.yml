@@ -1,0 +1,186 @@
+name: Publish NuGet package
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Dry run'
+        required: true
+        type: boolean
+        default: true
+      version:
+        description: 'Package version'
+        default: "latest"
+        required: true
+  schedule:
+    - cron: '21 3 * * 1' # 3:21 AM UTC every Monday
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    outputs:
+      dry-run: ${{ steps.get-dry-run.outputs.dry-run }}
+      package-version: ${{ steps.info.outputs.package-version }}
+
+    steps:
+      - name: Get dry run
+        id: get-dry-run
+        shell: pwsh
+        run: |
+          Set-PSDebug -Trace 1
+
+          $IsDryRun = '${{ github.event.inputs.dry-run }}' -Eq 'true' -Or '${{ github.event_name }}' -Eq 'schedule'
+
+          if ($IsDryRun) {
+            echo "dry-run=true" >> $Env:GITHUB_OUTPUT
+          } else {
+            echo "dry-run=false" >> $Env:GITHUB_OUTPUT
+          }
+
+      - name: Package information
+        id: info
+        shell: pwsh
+        run: |
+          $PackageVersion = '${{ inputs.version }}'
+          if ([string]::IsNullOrEmpty($PackageVersion) -or $PackageVersion -eq 'latest') {
+            $PackageVersion = (Get-Date -Format "yyyy.MM.dd") + ".0"
+          }
+
+          if ($PackageVersion -NotMatch '^\d+\.\d+\.\d+\.\d+$') {
+            throw "invalid version format: $PackageVersion, expected: 1.2.3.4"
+          }
+
+          echo "package-version=$PackageVersion" >> $Env:GITHUB_OUTPUT
+          echo "::notice::Version: $PackageVersion"
+
+  build-native:
+    uses: ./.github/workflows/build-native.yml
+
+  build-managed:
+    name: Managed build
+    runs-on: windows-2022
+    needs: [ preflight, build-native ] 
+
+    steps:
+      - name: Check out ${{ github.repository }}
+        uses: actions/checkout@v4
+
+      - name: Prepare dependencies
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "dependencies/runtimes" | Out-Null
+
+      - name: Download native components
+        uses: actions/download-artifact@v4
+        with:
+          path: dependencies/runtimes
+
+      - name: Rename dependencies
+        shell: pwsh
+        run: |
+          Set-PSDebug -Trace 1
+
+          Set-Location "dependencies/runtimes"
+
+          $(Get-Item ".\sspi-*-release") | ForEach-Object { Rename-Item $_ $_.Name.Replace("-release", "") }
+          $(Get-Item ".\sspi-*") | ForEach-Object { Rename-Item $_ $_.Name.Replace("sspi-", "") }
+          Get-ChildItem * -Recurse
+
+      - name: Set package version
+        shell: pwsh
+        run: |
+          $PackageVersion = '${{ needs.preflight.outputs.package-version }}'
+          $csprojPath = "ffi\dotnet\Devolutions.Sspi\Devolutions.Sspi.csproj"
+          $csprojContent = Get-Content $csprojPath -Raw
+          $csprojContent = $csprojContent -Replace '(<Version>).*?(</Version>)', "<Version>$PackageVersion</Version>"
+          Set-Content -Path $csprojPath -Value $csprojContent -Encoding UTF8
+
+      - name: Build sspi (managed)
+        shell: pwsh
+        run: |
+          dotnet build .\ffi\dotnet\Devolutions.Sspi.sln -o package
+
+      - name: Upload managed components
+        uses: actions/upload-artifact@v4
+        with:
+          name: sspi-nupkg
+          path: package/*.nupkg
+
+  publish:
+    name: Publish NuGet package
+    runs-on: ubuntu-latest
+    environment: nuget-publish
+    if: needs.preflight.outputs.dry-run == 'false'
+    needs:
+      - preflight
+      - build-managed
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download NuGet package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sspi-nupkg
+          path: package
+
+      - name: NuGet login (OIDC)
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: ${{ secrets.NUGET_BOT_USERNAME }}
+
+      - name: Publish to nuget.org
+        shell: pwsh
+        run: |
+          Set-PSDebug -Trace 1
+
+          $Files = Get-ChildItem -Recurse package/*.nupkg
+
+          foreach ($File in $Files) {
+            $PushCmd = @(
+              'dotnet',
+              'nuget',
+              'push',
+              "$File",
+              '--api-key',
+              '${{ steps.nuget-login.outputs.NUGET_API_KEY }}',
+              '--source',
+              'https://api.nuget.org/v3/index.json',
+              '--skip-duplicate'
+            )
+
+            Write-Host "Publishing $($File.Name)..."
+            $PushCmd = $PushCmd -Join ' '
+            Invoke-Expression $PushCmd
+          }
+
+  notify:
+    name: Notify failure
+    runs-on: ubuntu-latest
+    if: ${{ always() && contains(needs.*.result, 'failure') && github.event_name == 'schedule' }}
+    needs:
+      - preflight
+      - build-native
+      - build-managed
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_ARCHITECTURE }}
+      SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+    steps:
+      - name: Send slack notification
+        id: slack
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*${{ github.repository }}* :fire::fire::fire::fire::fire: \n The scheduled build for *${{ github.repository }}* is <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|broken>"
+                  }
+                }
+              ]
+            }

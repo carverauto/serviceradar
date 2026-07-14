@@ -1,0 +1,146 @@
+[package]
+name = "oneio"
+version = "0.20.1"
+authors = ["Mingwei Zhang <mingwei@bgpkit.com>"]
+edition = "2021"
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/bgpkit/oneio"
+documentation = "https://docs.rs/oneio"
+description = """
+OneIO is a Rust library that provides unified simple IO interface for
+reading and writing to and from data files from different sources and compressions.
+"""
+default-run = "oneio"
+keywords = ["io", "util", "s3", "ftp"]
+
+[[bin]]
+name = "oneio"
+path = "src/bin/oneio.rs"
+required-features = ["cli"]
+
+[dependencies]
+
+# required dependency
+dotenvy = "0.15"
+thiserror = "2.0"
+
+# feature: remote
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "http2", "charset", "stream"], optional = true }
+suppaftp = { version = "7.0", optional = true }
+
+# feature: compressions
+# Turn off flate2 default-features so we can explicitly choose backend via features
+flate2 = { version = "1.1", optional = true, default-features = false }
+bzip2 = { version = "0.6.0", optional = true }
+lz4 = { version = "1.24", optional = true }
+xz2 = { version = "0.1", optional = true }
+zstd = { version = "0.13.2", optional = true }
+
+# feature: digest
+ring = { version = "0.17", optional = true }
+hex = { version = "0.4", optional = true }
+
+# feature: json
+serde = { version = "1.0", optional = true }
+serde_json = { version = "1.0", optional = true }
+
+# feature: s3
+rust-s3 = { version = "0.37", optional = true, default-features = false, features = [
+    "sync-rustls-tls",
+] }
+
+# feature: cli
+clap = { version = "4.4", features = ["derive"], optional = true }
+tracing = { version = "0.1", optional = true }
+
+# feature: async (Phase 3)
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "io-util", "fs"], optional = true }
+async-compression = { version = "0.4", features = ["tokio", "gzip", "bzip2", "zstd"], optional = true }
+futures = { version = "0.3", optional = true }
+
+rustls_sys = { package = "rustls", version = "0.23", optional = true }
+tokio-util = { version = "0.7", optional = true }
+
+
+[features]
+# Simple, flat feature structure
+default = ["gz", "bz", "https"]
+
+# Backward compatible `lib-core` feature, no longer default.
+lib-core = ["http", "ftp", "gz", "bz", "lz", "xz", "zstd", "json"]
+
+# Transport features (TLS handled automatically by libraries)
+http = ["reqwest"]
+https = ["http", "rustls"] # https needs http
+ftp = ["https", "suppaftp"] # ftp needs https
+s3 = ["rust-s3"]
+
+gz = ["gz-zlib-rs"]
+# internal feature to enable gzip support
+any_gz = []
+gz-miniz = ["any_gz", "flate2/miniz_oxide"]
+gz-zlib-rs = ["any_gz", "flate2/zlib-rs"]
+gz-zlib-ng = ["any_gz", "flate2/zlib-ng"]
+gz-zlib-cloudflare = ["any_gz", "flate2/cloudflare_zlib"]
+
+bz = ["bzip2"]
+lz = ["lz4"]
+xz = ["xz2"]
+zstd = ["dep:zstd"]
+
+# Other features
+json = ["serde", "serde_json"]
+digest = ["ring", "hex"]
+
+# CLI tool (includes common features)
+cli = ["clap", "tracing", "gz", "bz", "lz", "xz", "http", "s3", "digest"]
+
+# Advanced: TLS selection (only if explicitly needed)
+native-tls = [
+    "reqwest?/native-tls",
+    "suppaftp?/native-tls",
+    "rust-s3?/sync-native-tls",
+]
+rustls = [
+    "dep:rustls_sys",
+    "reqwest?/rustls-tls-native-roots",
+    "reqwest?/rustls-tls-webpki-roots",
+    "suppaftp?/rustls",
+    "rust-s3?/sync-rustls-tls"
+]
+
+# Future: Async support
+async = ["tokio", "tokio-util", "async-compression", "futures"]
+
+[dev-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+tar = "0.4"
+tokio = { version = "1.0", features = ["macros", "rt"] }
+indicatif = "0.18"
+criterion = { version = "0.5", default-features = false }
+
+# Benchmarks
+[[bench]]
+name = "gzip_decompress"
+harness = false
+required-features = ["any_gz"]
+
+# This list only includes examples which require additional features to run. These are more in the examples' directory.
+[[example]]
+name = "s3_operations"
+required-features = ["s3"]
+
+[[example]]
+name = "async_read"
+required-features = ["async"]
+
+[[example]]
+name = "test_crypto_provider"
+required-features = ["https"]
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.gz"
+pkg-fmt = "tgz"

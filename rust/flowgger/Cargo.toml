@@ -20,7 +20,7 @@ default = ["syslog", "tls", "gelf" ]
 redis-input = ["redis"]
 kafka-output = ["kafka"]
 nats-output = ["async-nats"]
-tls = ["openssl"]
+tls = ["dep:rustls", "dep:rustls-pemfile"]
 gelf = ["serde", "serde_json"]
 ltsv = []
 syslog = ["rfc5424", "rfc3164", "passthrough"]
@@ -39,11 +39,9 @@ glob = { version = "0.3", optional = true }
 kafka = { version = "0.8", features = ["snappy", "gzip", "security"], optional = true }
 async-nats  = { version = "0.48", optional = true }
 log = "0.4"
-env_logger = "0.11"
 anyhow = "1"
 pem = "3"
 notify = { version = "4.0", optional = true }
-openssl = { version = "~0.10", optional = true, features = ["vendored"] }
 rand = "0.8"
 redis = { version = "0.21", optional = true }
 serde = { version = "1", optional = true }
@@ -58,13 +56,11 @@ time = { version = ">=0.3.36, <0.3.47", features = ["parsing", "formatting"] }
 time-tz = "0.3"
 tokio       = { version = "1.45.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tonic = { workspace = true }
-prost = { workspace = true }
 tempfile = "3"
-kvutil = { path = "../../rust/kvutil" }
 tonic-health = { workspace = true }
 spiffe = { version = "0.16", default-features = false, features = ["x509-source"] }
-config-bootstrap = { path = "../../rust/config-bootstrap" }
-rustls = "0.23"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"], optional = true }
+rustls-pemfile = { version = "2", optional = true }
 
 [dev-dependencies]
 quickcheck = "1"

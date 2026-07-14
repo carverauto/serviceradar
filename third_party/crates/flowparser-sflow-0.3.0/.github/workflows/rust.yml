@@ -1,0 +1,89 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+    - name: Setup Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+        components: rustfmt, clippy
+    - name: Fmt Check
+      run: cargo fmt --check
+    - name: Clippy Check
+      run: cargo clippy --all
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose
+    - name: Run doc tests
+      run: cargo test --doc
+
+  benchmark:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+    - name: Setup Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+    - name: Run benchmarks
+      run: cargo bench --verbose
+
+  fuzzer:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+    - name: Setup Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: nightly
+    - name: Install cargo-fuzz
+      run: cargo install cargo-fuzz
+    - name: Run fuzzer
+      run: |
+        cd fuzz
+        if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+          FUZZ_TIME=300
+        else
+          FUZZ_TIME=60
+        fi
+        echo "Running fuzzer for ${FUZZ_TIME} seconds"
+        for target in $(cargo fuzz list); do
+          echo "Running fuzzer: $target"
+          cargo fuzz run $target -- -max_total_time=${FUZZ_TIME} || true
+        done
+
+  security:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+    - name: Setup Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+    - name: Install cargo-deny
+      run: cargo-deny --version || cargo install cargo-deny --locked
+    - name: Run cargo deny check
+      run: cargo deny check
+    - name: Install cargo-audit
+      continue-on-error: true
+      run: cargo-audit --version || cargo install cargo-audit --locked
+    - name: Run cargo-audit
+      continue-on-error: true
+      run: cargo audit || echo "::warning::cargo-audit skipped due to database error"

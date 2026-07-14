@@ -1,0 +1,64 @@
+[package]
+name = "crypto-primes"
+version = "0.7.0-pre.3"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+description = "Random prime number generation and primality checking library"
+repository = "https://github.com/entropyxyz/crypto-primes"
+readme = "README.md"
+categories = ["cryptography", "no-std"]
+rust-version = "1.85"
+
+[dependencies]
+crypto-bigint = { version = "0.7.0-pre.5", default-features = false, features = ["rand_core"] }
+libm = { version = "0.2.13", default-features = false, features = ["arch"] }
+rand_core = { version = "0.9.2", default-features = false }
+rayon = { version = "1", optional = true, default-features = false }
+
+# Optional dependencies used in tests and benchmarks
+openssl = { version = "0.10.39", optional = true, features = ["vendored"] }
+rug = { version = "1.26", optional = true, default-features = false, features = ["integer"] }
+glass_pumpkin = { version = "1", optional = true }
+
+[dev-dependencies]
+rand_core = { version = "0.9.2", default-features = false, features = ["os_rng"] }
+# need `crypto-bigint` with `alloc` to test `BoxedUint`
+crypto-bigint = { version = "0.7.0-pre.5", default-features = false, features = ["alloc"] }
+rand_chacha = "0.9"
+criterion = { version = "0.5", features = ["html_reports"] }
+num-modular = { version = "0.5", features = ["num-bigint"] }
+num-bigint = "0.4"
+num-integer = "0.1"
+proptest = "1"
+num-prime = "0.4.3"
+num_cpus = "1.16"
+float-cmp = "0.10"
+
+# Temporary old versions for `glass_pumpkin` tests. Remove when `glass_pumpking` switches to `rand_core=0.9`.
+rand_core_06 = { package = "rand_core", version = "0.6.4", default-features = false }
+rand_chacha_03 = { package = "rand_chacha", version = "0.3", default-features = false }
+
+[features]
+tests-openssl = ["openssl"]
+tests-gmp = ["rug/std"]
+tests-glass-pumpkin = ["glass_pumpkin"]
+tests-exhaustive = []
+tests-all = ["tests-openssl", "tests-gmp", "tests-exhaustive", "tests-glass-pumpkin"]
+multicore = ["rayon"]
+
+[package.metadata.docs.rs]
+all-features = true
+# Pass arguments to rustdocs as rendered by docs.rs:
+# - `--cfg docsrs` is used to conditionally enable the unstable feature `doc-cfg`
+# - `--html-in-header` is used to enable LaTeX rendering in docs
+#   (note that `rustdoc-args` overrides the global setting in `.cargo/config.toml` instead of extending it,
+#   so we need to repeat `--html-in-header` here)
+rustdoc-args = ["--cfg", "docsrs", "--html-in-header", "./resources/docs-header.html"]
+
+[[bench]]
+name = "bench"
+harness = false
+
+[[bench]]
+name = "cctv"
+harness = false

@@ -1,0 +1,227 @@
+on: [push, pull_request]
+
+name: Rust CI
+
+jobs:
+  # if this fails we don't try anything else on stable
+  #
+  # we use multiple jobs so no single check prevents others from being run;
+  # but use a cache to speedup steps after build
+  # (if initial build fails nothing else is checked)
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      # --- install build dependencies
+      - name: Update package list
+        run: sudo apt-get -qq update
+      - name: install libavahi-compat-libdnssd-dev
+        run: sudo apt-get install -y libavahi-compat-libdnssd-dev
+      # ---
+      - uses: actions/checkout@v2
+      - name: Cache stable
+        uses: actions/cache@v2
+        with:
+          key: build-stable-${{ github.run_id }}
+          path: |
+            /usr/share/rust/.cargo/
+            target/
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+      - name: Build with all features
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --all-features
+
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      # --- install build dependencies
+      - name: Update package list
+        run: sudo apt-get -qq update
+      - name: install libavahi-compat-libdnssd-dev
+        run: sudo apt-get install -y libavahi-compat-libdnssd-dev
+      # ---
+      - uses: actions/checkout@v2
+      - name: Cache stable
+        uses: actions/cache@v2
+        with:
+          key: build-stable-${{ github.run_id }}
+          path: |
+            /usr/share/rust/.cargo/
+            target/
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - name: Check
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --all-features
+
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      # --- install build dependencies
+      - name: Update package list
+        run: sudo apt-get -qq update
+      - name: install libavahi-compat-libdnssd-dev
+        run: sudo apt-get install -y libavahi-compat-libdnssd-dev
+      # ---
+      - uses: actions/checkout@v2
+      - name: Cache stable
+        uses: actions/cache@v2
+        with:
+          key: build-stable-${{ github.run_id }}
+          path: |
+            /usr/share/rust/.cargo/
+            target/
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --all-features
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    # don't run on release-0.4 branch
+    if: ${{ github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/release-0.4') }}
+    needs: build
+    steps:
+      # --- install build dependencies
+      - name: Update package list
+        run: sudo apt-get -qq update
+      - name: install libavahi-compat-libdnssd-dev
+        run: sudo apt-get install -y libavahi-compat-libdnssd-dev
+      # ---
+      - uses: actions/checkout@v2
+      - name: Cache stable
+        uses: actions/cache@v2
+        with:
+          key: build-stable-${{ github.run_id }}
+          path: |
+            /usr/share/rust/.cargo/
+            target/
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: clippy
+      - name: Clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: -- -D warnings
+
+  doc:
+    name: Rustdoc
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      # --- install build dependencies
+      - name: Update package list
+        run: sudo apt-get -qq update
+      - name: install libavahi-compat-libdnssd-dev
+        run: sudo apt-get install -y libavahi-compat-libdnssd-dev
+      # ---
+      - uses: actions/checkout@v2
+      - name: Cache stable
+        uses: actions/cache@v2
+        with:
+          key: build-stable-${{ github.run_id }}
+          path: |
+            /usr/share/rust/.cargo/
+            target/
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - name: Rustdoc
+        uses: actions-rs/cargo@v1
+        with:
+          command: doc
+          args: --all-features
+
+  # no cache for nightly, run all steps in same job - if one fails, the others won't be tried
+  build-nightly:
+    name: Build [nightly]
+    runs-on: ubuntu-latest
+    steps:
+      # --- install build dependencies
+      - name: Update package list
+        run: sudo apt-get -qq update
+      - name: install libavahi-compat-libdnssd-dev
+        run: sudo apt-get install -y libavahi-compat-libdnssd-dev
+      # ---
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+          components: rustfmt
+      # nightly fmt
+      - name: Rustfmt [nightly]
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+      # nightly build
+      - name: Build [nightly]
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+      # nightly build all features
+      - name: Build with all features [nightly]
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --all-features
+      # check
+      - name: Check [nightly]
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --all-features
+      # doc_cfg not stable yet
+      # https://doc.rust-lang.org/unstable-book/language-features/doc-cfg.html
+      # https://github.com/rust-lang/rust/issues/43781
+      - name: Rustdoc [nightly]
+        uses: actions-rs/cargo@v1
+        env:
+          # this should need nightly
+          RUSTDOCFLAGS: "--cfg doc_cfg"
+        with:
+          command: doc
+          args: --all-features
+      # deploy docs from nightly for doc_cfg feature
+      # (for stable we'd create a new job and use the cache)
+      - name: Deploy docs
+        uses: stbuehler/action-rs-deploy-doc@v1
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+        with:
+          target: git@github.com:stbuehler/rustdocs
+          target-folder: async-dnssd
+          ssh-private-key: ${{ secrets.RUSTDOCS_SSH_ED25519 }}

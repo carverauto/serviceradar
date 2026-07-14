@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 070600f4b9e9a406b4ee112524b52a66822ecae8c9ac74779c2018b4410f34c3 # shrinks to x = Uint(0x0100000000000000000000000000000000000000000000000000000000000000)
+cc 0e694a5ca0ec8093d16246b89356f72a440454eddeb5ec7197c98440124ce3f6 # shrinks to x = BoxedUint(0x00000000CBF9350842F498CE441FC2DC23C7BF47D3DE91C327B2157C5E4EED77)

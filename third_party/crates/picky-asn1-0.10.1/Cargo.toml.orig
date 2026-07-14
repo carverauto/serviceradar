@@ -1,0 +1,32 @@
+[package]
+name = "picky-asn1"
+version = "0.10.1"
+edition = "2021"
+rust-version = "1.61"
+authors = [
+    "Benoît CORTIER <bcortier@devolutions.net>",
+    "Alexandr Yusuk <aleksandr.yusuk@apriorit.com>",
+    "Brian Maher",
+]
+keywords = ["serde", "asn1", "serialize", "deserialize"]
+categories = ["encoding"]
+description = "Provide ASN.1 simple types"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Devolutions/picky-rs"
+readme = "README.md"
+
+[dependencies]
+serde = { version = "1", default-features = false, features = ["derive"] }
+oid = { version = "0.2", default-features = false, features = ["serde_support"] }
+serde_bytes = "0.11"
+chrono = { version = "0.4", default-features = false, optional = true }
+time = { version = "0.3", optional = true }
+zeroize = { version = "1.8", optional = true }
+
+[dev-dependencies]
+picky-asn1-der = { path = "../picky-asn1-der", version = "0.5" }
+
+[features]
+chrono_conversion = ["chrono"]
+time_conversion = ["time"]
+zeroize = ["dep:zeroize"]

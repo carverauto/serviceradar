@@ -1,0 +1,15 @@
+[package]
+name = "nuid"
+version = "0.5.0"
+authors = ["Ivan Porto Carrero <ivan@oflanders.co.nz>"]
+license = "Apache-2.0"
+repository = "https://github.com/casualjim/rs-nuid.git"
+readme = "README.md"
+keywords = ["nuid", "guid", "uuid"]
+description = "A highly performant unique identifier generator."
+categories = ["data-structures", "date-and-time", "value-formatting", "encoding", "parsing"]
+edition = "2021"
+rust-version = "1.63"
+
+[dependencies]
+rand = "0.8"

@@ -1,0 +1,73 @@
+workspace = { members = ["app"], exclude = ["fuzz", "coeffs", "wasm"]}
+
+[package]
+name = "yuv"
+version = "0.8.14"
+edition = "2021"
+description = "High performance utilities for YUV format handling and conversion."
+readme = "README.md"
+keywords = ["yuv", "ycbcr", "yuv2rgb", "rgb2yuv", "converter"]
+license = "BSD-3-Clause OR Apache-2.0"
+authors = ["Radzivon Bartoshyk"]
+documentation = "https://github.com/awxkee/yuvutils-rs"
+categories = ["multimedia::images", "multimedia::video"]
+homepage = "https://github.com/awxkee/yuvutils-rs"
+repository = "https://github.com/awxkee/yuvutils-rs"
+exclude = ["*.jpg", "assets/*", "*.png", "assets/bench.jpg", "assets/bench.png", "*.yuv2"]
+rust-version = "1.82.0"
+
+[dependencies]
+num-traits = "0.2.19"
+rayon = { version = "1.10", optional = true }
+fast_transpose = {  version = "0.2", optional = true }
+
+[dev-dependencies]
+rand = "0.10.0"
+
+[features]
+default = ["avx", "sse", "rdm"]
+# On x86 architectures runtime dispatch is used to detect if AVX, SSE is available
+# disable those features only for testing or reducing binary size, if you're sure that your hardware
+# do not support it or already shadowed by another feature.
+#
+# It is safe to enable any features because all features availability will be checked at runtime.
+#
+# Enables AVX2 support
+avx = []
+# Enables SSE4.1 support
+sse = []
+# RDM corresponds FEAT_RDM on ARM
+rdm = []
+# Turning on `f16` support, nightly compiler is required
+nightly_f16 = []
+# Enables AVX-512, support, nightly compiler is required
+nightly_avx512 = ["fast_transpose/nightly_avx512"]
+# Enables FEAT_I8MM on ARM
+nightly_i8mm = []
+# Enables `fast_mode` support on available paths
+fast_mode = []
+# Enables `professional_mode` support on available paths
+professional_mode = []
+# Enables `rayon` support, use with care, in common, YUV encoding/decoding is more usually expected to be used in single thread mode
+rayon = ["dep:rayon"]
+# Support for Big-Endian YUV
+big_endian = []
+# Enables Mirroring and Rotating methods
+geometry = ["dep:fast_transpose"]
+# Enables RemoteFX Conversion
+rdp = []
+# Enables YCgCo-Re/YCgCo-Ro support
+ycgco_r_type = []
+
+[package.metadata.docs.rs]
+# To build locally:
+# RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --all-features --no-deps --open
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[profile.dev.package]
+miniz_oxide.opt-level = 3
+png.opt-level = 3
+flate2.opt-level = 3
+image.opt-level = 3
+

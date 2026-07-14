@@ -1,0 +1,42 @@
+[package]
+name = "rapidhash"
+version = "4.4.1"
+edition = "2021"
+publish = true
+rust-version = "1.71.0"  # const split_at and read_unaligned are our limitations
+authors = ["Liam Gray <gmail@liamg.me>"]
+description = "An extremely fast, high quality, platform-independent hashing algorithm."
+repository = "https://github.com/hoxxep/rapidhash"
+documentation = "https://docs.rs/rapidhash"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["hash", "hasher", "no-std", "rapidhash"]
+categories = ["algorithms", "no-std"]
+exclude = ["Cargo.lock", "fuzz"]
+
+[lib]
+
+# Test docs using cargo-docs. Command:
+# RUSTDOCFLAGS="--cfg docsrs" cargo +nightly docs -- --all-feature
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["std"]
+std = []  # enable std library for RapidHashMap and RapidHashSet helpers
+rand = ["dep:rand", "std"]  # enable the rand library for initializing RandomState
+rng = ["dep:rand_core"]  # enable RapidRng, a rand Rng-compatible fast PRNG using rapidrng
+nightly = []  # enable nightly features, faster str hashing and likely/unlikely hints
+unsafe = []  # enable unsafe pointer arithmetic; this is used to check for bounds-check regressions
+
+[dependencies]
+rustversion = "1.0"
+rand = { version = "0.9", optional = true }
+rand_core = { version = "0.9", default-features = false, optional = true }
+
+[dev-dependencies]
+rapidhash-c = { path = "../rapidhash-c" }
+rand = "0.9.0"
+tempfile = "3.14.0" # testing rapidhash_file
+assert_cmd = "2.1.1"

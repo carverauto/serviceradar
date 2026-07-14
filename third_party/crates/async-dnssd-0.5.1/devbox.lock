@@ -1,0 +1,306 @@
+{
+  "lockfile_version": "1",
+  "packages": {
+    "avahi-compat@latest": {
+      "last_modified": "2024-08-31T10:12:23Z",
+      "resolved": "github:NixOS/nixpkgs/5629520edecb69630a3f4d17d3d33fc96c13f6fe#avahi-compat",
+      "source": "devbox-search",
+      "version": "0.8",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/d6f6h6y29rbhxm5vzjj59dhj1wfk1nvq-avahi-compat-0.8",
+              "default": true
+            },
+            {
+              "name": "man",
+              "path": "/nix/store/2yvllmixn8v8yg7inxyp9hgs9hyrv9v8-avahi-compat-0.8-man",
+              "default": true
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/i4lk3nlhx1q8l6s87qc9qr1j0x263axy-avahi-compat-0.8-dev"
+            }
+          ],
+          "store_path": "/nix/store/d6f6h6y29rbhxm5vzjj59dhj1wfk1nvq-avahi-compat-0.8"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/2gzskflsgpv7zj14zkcwp2fp5p2pgzli-avahi-compat-0.8",
+              "default": true
+            },
+            {
+              "name": "man",
+              "path": "/nix/store/ls593d7isl190wmncdxymmc6d32q8jmg-avahi-compat-0.8-man",
+              "default": true
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/zgqiyq501clbkv5z518xvrds0ayxs1mf-avahi-compat-0.8-dev"
+            }
+          ],
+          "store_path": "/nix/store/2gzskflsgpv7zj14zkcwp2fp5p2pgzli-avahi-compat-0.8"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/31n0rcpflb1nbjh99311igcya7abrpwl-avahi-compat-0.8",
+              "default": true
+            },
+            {
+              "name": "man",
+              "path": "/nix/store/g3kyw10v10l7ijmf20v45zscp830wcd7-avahi-compat-0.8-man",
+              "default": true
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/bfyyi6q8yybz636msq71hpv0n3nlnapg-avahi-compat-0.8-dev"
+            }
+          ],
+          "store_path": "/nix/store/31n0rcpflb1nbjh99311igcya7abrpwl-avahi-compat-0.8"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/7blx48awng1pa2lhikwlj39mbvdjd66p-avahi-compat-0.8",
+              "default": true
+            },
+            {
+              "name": "man",
+              "path": "/nix/store/7zm514lz0qgph8b305vd2pkd7axw4vbj-avahi-compat-0.8-man",
+              "default": true
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/shdx9vvxqshqila1v7d55f8xhsj12vjm-avahi-compat-0.8-dev"
+            }
+          ],
+          "store_path": "/nix/store/7blx48awng1pa2lhikwlj39mbvdjd66p-avahi-compat-0.8"
+        }
+      }
+    },
+    "cargo@latest": {
+      "last_modified": "2024-08-31T10:12:23Z",
+      "resolved": "github:NixOS/nixpkgs/5629520edecb69630a3f4d17d3d33fc96c13f6fe#cargo",
+      "source": "devbox-search",
+      "version": "1.80.1",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/0lbvfnmkjs3v53i0wyc1y3ll7y2b5ily-cargo-1.80.1",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/0lbvfnmkjs3v53i0wyc1y3ll7y2b5ily-cargo-1.80.1"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/ga83ccx89iqf179c2vkysrrpfq5r8aj0-cargo-1.80.1",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/ga83ccx89iqf179c2vkysrrpfq5r8aj0-cargo-1.80.1"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/8hnj7cvcarbk2vi2p7w1ndpw29a83gkz-cargo-1.80.1",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/8hnj7cvcarbk2vi2p7w1ndpw29a83gkz-cargo-1.80.1"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/8k428qrvnnfg91v6qcvkjm5dpgrgig49-cargo-1.80.1",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/8k428qrvnnfg91v6qcvkjm5dpgrgig49-cargo-1.80.1"
+        }
+      }
+    },
+    "pkg-config@latest": {
+      "last_modified": "2024-08-31T10:12:23Z",
+      "resolved": "github:NixOS/nixpkgs/5629520edecb69630a3f4d17d3d33fc96c13f6fe#pkg-config",
+      "source": "devbox-search",
+      "version": "0.29.2",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/25w8ajdlid00qr9kjxhqp8hszqnayzcj-pkg-config-wrapper-0.29.2",
+              "default": true
+            },
+            {
+              "name": "man",
+              "path": "/nix/store/m82qkw9dfih3507p5i0wmiqppwags0zk-pkg-config-wrapper-0.29.2-man",
+              "default": true
+            },
+            {
+              "name": "doc",
+              "path": "/nix/store/xl5bl4kfyldxdfa6dfnz2bjkzgxva6rr-pkg-config-wrapper-0.29.2-doc"
+            }
+          ],
+          "store_path": "/nix/store/25w8ajdlid00qr9kjxhqp8hszqnayzcj-pkg-config-wrapper-0.29.2"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/ybs3n2raczfy1lpadpcix45c0k3nkcfm-pkg-config-wrapper-0.29.2",
+              "default": true
+            },
+            {
+              "name": "man",
+              "path": "/nix/store/d552xpiq75g1phzvnxdjv1lqw7bk2ch1-pkg-config-wrapper-0.29.2-man",
+              "default": true
+            },
+            {
+              "name": "doc",
+              "path": "/nix/store/3wgsn4yp1piikp4rkzc0dd3d7cavq9ry-pkg-config-wrapper-0.29.2-doc"
+            }
+          ],
+          "store_path": "/nix/store/ybs3n2raczfy1lpadpcix45c0k3nkcfm-pkg-config-wrapper-0.29.2"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/pnlxdfzwriq4dwas7nb9hn6s11z2vyhr-pkg-config-wrapper-0.29.2",
+              "default": true
+            },
+            {
+              "name": "man",
+              "path": "/nix/store/nkk65szac15j46llx9jh1ik2y1mf3wlr-pkg-config-wrapper-0.29.2-man",
+              "default": true
+            },
+            {
+              "name": "doc",
+              "path": "/nix/store/61nfaxr5icrlpm2hpnihm07m47z30awl-pkg-config-wrapper-0.29.2-doc"
+            }
+          ],
+          "store_path": "/nix/store/pnlxdfzwriq4dwas7nb9hn6s11z2vyhr-pkg-config-wrapper-0.29.2"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/fcmc82gp5qc0s8qvcw4c0w46c67zd295-pkg-config-wrapper-0.29.2",
+              "default": true
+            },
+            {
+              "name": "man",
+              "path": "/nix/store/2f7v44q5a069kkpir79qr2krsclw532f-pkg-config-wrapper-0.29.2-man",
+              "default": true
+            },
+            {
+              "name": "doc",
+              "path": "/nix/store/y0c0fwsy6fa8640mj3xjn58d706m3fli-pkg-config-wrapper-0.29.2-doc"
+            }
+          ],
+          "store_path": "/nix/store/fcmc82gp5qc0s8qvcw4c0w46c67zd295-pkg-config-wrapper-0.29.2"
+        }
+      }
+    },
+    "rustc@latest": {
+      "last_modified": "2024-08-31T10:12:23Z",
+      "plugin_version": "0.0.1",
+      "resolved": "github:NixOS/nixpkgs/5629520edecb69630a3f4d17d3d33fc96c13f6fe#rustc",
+      "source": "devbox-search",
+      "version": "1.80.1",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/1ipxp1yjn45gckfvfrxxfp8pi25wk8gv-rustc-wrapper-1.80.1",
+              "default": true
+            },
+            {
+              "name": "man",
+              "path": "/nix/store/i3fnp9ygd42wwcs2jk5f4a0mb06shidn-rustc-wrapper-1.80.1-man",
+              "default": true
+            },
+            {
+              "name": "doc",
+              "path": "/nix/store/f32bagsnzj5jwz3xcx4bqh5rfa3nzr29-rustc-wrapper-1.80.1-doc"
+            }
+          ],
+          "store_path": "/nix/store/1ipxp1yjn45gckfvfrxxfp8pi25wk8gv-rustc-wrapper-1.80.1"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/504br3cjbil2z711zyi85k18brfmhnw6-rustc-wrapper-1.80.1",
+              "default": true
+            },
+            {
+              "name": "man",
+              "path": "/nix/store/pqzf33k0cp0avc4z21r48gnb9x1c3a9n-rustc-wrapper-1.80.1-man",
+              "default": true
+            },
+            {
+              "name": "doc",
+              "path": "/nix/store/b49js5sm7jys94k3qwf9vx0k7bjwibr3-rustc-wrapper-1.80.1-doc"
+            }
+          ],
+          "store_path": "/nix/store/504br3cjbil2z711zyi85k18brfmhnw6-rustc-wrapper-1.80.1"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/b8llgp6925kmmscv83zl2q01278z7p34-rustc-wrapper-1.80.1",
+              "default": true
+            },
+            {
+              "name": "man",
+              "path": "/nix/store/84ilb3m5j21jhnij1h6rkqd1ypkbhmi2-rustc-wrapper-1.80.1-man",
+              "default": true
+            },
+            {
+              "name": "doc",
+              "path": "/nix/store/0w1wf75bahlprc045bldvya5xm8v62lp-rustc-wrapper-1.80.1-doc"
+            }
+          ],
+          "store_path": "/nix/store/b8llgp6925kmmscv83zl2q01278z7p34-rustc-wrapper-1.80.1"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/g1rc6b7ab28h1sga2kvxfiwp6dqblgzg-rustc-wrapper-1.80.1",
+              "default": true
+            },
+            {
+              "name": "man",
+              "path": "/nix/store/0khfilv2xr1rd1hw726axkmnvrx9c8vi-rustc-wrapper-1.80.1-man",
+              "default": true
+            },
+            {
+              "name": "doc",
+              "path": "/nix/store/vj5sz8k01xi393pj8vpljcxams9z05w5-rustc-wrapper-1.80.1-doc"
+            }
+          ],
+          "store_path": "/nix/store/g1rc6b7ab28h1sga2kvxfiwp6dqblgzg-rustc-wrapper-1.80.1"
+        }
+      }
+    }
+  }
+}

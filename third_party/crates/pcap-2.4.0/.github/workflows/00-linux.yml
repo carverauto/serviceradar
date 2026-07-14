@@ -1,0 +1,33 @@
+name: 'Linux'
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: "0 6 * * *"
+
+jobs:
+  linux-build-and-test-stable:
+    uses: './.github/workflows/01-build-and-test-unix.yml'
+    with:
+      os: 'ubuntu-latest'
+      toolchain: 'stable'
+
+  linux-build-and-test-msrv:
+    uses: './.github/workflows/01-build-and-test-unix.yml'
+    with:
+      os: 'ubuntu-latest'
+      toolchain: '1.64'
+      msrv: true
+
+  linux-coverage-stable:
+    uses: './.github/workflows/02-coverage.yml'
+    with:
+      os: 'ubuntu-latest'
+
+  linux-lint-stable:
+    uses: './.github/workflows/03-lint.yml'
+    with:
+      os: 'ubuntu-latest'

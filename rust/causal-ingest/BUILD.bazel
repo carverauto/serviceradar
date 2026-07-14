@@ -1,0 +1,43 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+load("//third_party/crates:defs.bzl", "all_crate_deps")
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "target/**",
+            "bazel-*",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+rust_library(
+    name = "serviceradar_causal_ingest",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "serviceradar_causal_ingest",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    deps = all_crate_deps(normal = True) + [
+        "//rust/causal-model:serviceradar_causal_model",
+        "//rust/causal-ports:serviceradar_causal_ports",
+        "//rust/causal-config:serviceradar_causal_config",
+    ],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    visibility = ["//visibility:public"],
+)
+
+rust_test(
+    name = "serviceradar_causal_ingest_test",
+    crate = ":serviceradar_causal_ingest",
+    deps = all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ) + [
+        "//rust/causal-model:serviceradar_causal_model",
+        "//rust/causal-ports:serviceradar_causal_ports",
+        "//rust/causal-config:serviceradar_causal_config",
+    ],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)

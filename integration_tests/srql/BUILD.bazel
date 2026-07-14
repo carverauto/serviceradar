@@ -1,0 +1,62 @@
+load("@rules_rust//rust:defs.bzl", "rust_test")
+load("//third_party/crates:defs.bzl", "all_crate_deps")
+
+# SRQL integration tests.
+#
+# These wire heavy, cross-cutting dependencies — notably the CNPG Postgres OCI image
+# (AGE + TimescaleDB) used as test `data` to run real queries. That wiring lives HERE,
+# in the dedicated root-level integration_tests/ subtree, and nowhere else: keeping it
+# out of //rust/... means `bazel build //rust/...` no longer drags in a whole Postgres
+# image build.
+#
+# The image layers are Linux-only (they compile PG extensions by executing Linux ELF
+# binaries from an extracted Debian rootfs), so these targets are automatically skipped
+# as incompatible on non-Linux hosts (see docker/images/cnpg_image.bzl).
+#
+# `all_crate_deps(package_name = "integration_tests/srql")` resolves this crate's own
+# dev-dependencies from //integration_tests/srql/Cargo.toml.
+
+SRQL_IT_DATA = [
+    "tests/fixtures/schema.sql",
+    "tests/fixtures/seed.sql",
+    "//docker/images:cnpg_image_amd64_tar",
+]
+
+SRQL_IT_DEPS = ["//rust/srql:srql_lib"] + all_crate_deps(
+    normal = True,
+    normal_dev = True,
+)
+
+SRQL_IT_PROC_MACROS = all_crate_deps(proc_macro = True, proc_macro_dev = True)
+
+rust_test(
+    name = "srql_api_test",
+    srcs = [
+        "tests/api.rs",
+        "tests/support/harness.rs",
+        "tests/support/mod.rs",
+    ],
+    crate_name = "srql_api_tests",
+    crate_root = "tests/api.rs",
+    data = SRQL_IT_DATA,
+    edition = "2021",
+    proc_macro_deps = SRQL_IT_PROC_MACROS,
+    tags = ["local"],
+    deps = SRQL_IT_DEPS,
+)
+
+rust_test(
+    name = "srql_comprehensive_test",
+    srcs = [
+        "tests/comprehensive_queries.rs",
+        "tests/support/harness.rs",
+        "tests/support/mod.rs",
+    ],
+    crate_name = "srql_comprehensive_tests",
+    crate_root = "tests/comprehensive_queries.rs",
+    data = SRQL_IT_DATA,
+    edition = "2021",
+    proc_macro_deps = SRQL_IT_PROC_MACROS,
+    tags = ["local"],
+    deps = SRQL_IT_DEPS,
+)

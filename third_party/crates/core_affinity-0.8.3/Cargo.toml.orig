@@ -1,0 +1,21 @@
+[package]
+name = "core_affinity"
+version = "0.8.3"
+authors = ["Philip Woods <elzairthesorcerer@gmail.com>"]
+description = "Manages CPU affinities"
+readme = "README.md"
+license = "MIT/Apache-2.0"
+documentation = "https://docs.rs/core_affinity/"
+homepage = "https://github.com/Elzair/core_affinity_rs"
+repository = "https://github.com/Elzair/core_affinity_rs"
+keywords = ["affinity", "thread-affinity", "cpu", "core"]
+categories = ["os"]
+
+[dependencies]
+num_cpus = "^1.14.0"
+
+[target.'cfg(any(target_os = "android", target_os = "linux", target_os = "macos", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
+libc = "^0.2.30"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { version = "^0.3.9", features = ["processthreadsapi", "winbase"] }

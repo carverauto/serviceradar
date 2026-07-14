@@ -1,0 +1,16 @@
+---
+source: src/tests.rs
+expression: parser.parse_bytes(&packet).packets
+---
+- IPFix:
+    header:
+      version: 10
+      length: 26
+      export_time: 1
+      sequence_number: 1
+      observation_domain_id: 0
+    flowsets:
+      - header:
+          header_id: 258
+          length: 10
+        body: Empty
