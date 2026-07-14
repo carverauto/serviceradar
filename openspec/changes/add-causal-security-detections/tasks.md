@@ -42,9 +42,19 @@
 - [ ] 6.2 Author at least one `stateful_alert_rule` with `group_by ["device.uid"]` targeting causal-prediction events so verdicts re-enter `StatefulAlertEngine.evaluate_events/1` as `device.uid`-grouped alerts (OCSF `class_uid` 1008).
 - [ ] 6.3 Map normalized verdicts deterministically to the God-View 4 buckets (`root_cause | affected | healthy | unknown`) without altering the snapshot contract; handle endpoint-cluster summary nodes.
 
-## 7. Validation
+## 7. L1 state-feed ingest — carried over from `add-causal-security-foundation`
 
-- [ ] 7.1 Unit-test the kill-chain graph: recon fires before exfil; reconvergent `join` is order-invariant (LUB).
-- [ ] 7.2 Integration-test one prediction end-to-end: a published `signals.analytics.predictions.*` verdict becomes a `device.uid`-grouped alert with no new inbound plumbing.
-- [ ] 7.3 Test bounded-IOC policy: an IOC match is computed in-DB (GIST containment), not by materializing all indicators in memory; Context stays under the memory ceiling.
-- [ ] 7.4 Run `openspec validate add-causal-security-detections --strict` and fix any errors.
+Deferred in the foundation milestone (runtime/infra; not locally verifiable) and landed here, where live
+Observations are first needed. Fulfills the archived `causal-security-observations` "State-Change Feed
+Consumption" requirement.
+
+- [ ] 7.1 Enable `STATE_CHANGE_EVENTS_ENABLED` for the app-level `signals.state.<table>` publisher (`event_writer/state_change_publisher.ex`) and provision the `signals.state.>` JetStream stream/consumer. Ops/config change on the running system — NOT pgoutput CDC.
+- [ ] 7.2 Implement the live `signals.state.<table>` NATS-backed `ObservationSource` in `rust/causal-ingest` (behind the `nats` feature), surfacing each transition as an `Observation` keyed to the entity's canonical `sr:`-prefixed id and reusing the Phase-0 `build_observation` calibration path. Replaces the `InMemorySource` seam for live use.
+- [ ] 7.3 Integration-test an `ocsf_devices` transition on `signals.state.ocsf_devices` mapping to an `Observation` and feeding Context hydration (§1).
+
+## 8. Validation
+
+- [ ] 8.1 Unit-test the kill-chain graph: recon fires before exfil; reconvergent `join` is order-invariant (LUB).
+- [ ] 8.2 Integration-test one prediction end-to-end: a published `signals.analytics.predictions.*` verdict becomes a `device.uid`-grouped alert with no new inbound plumbing.
+- [ ] 8.3 Test bounded-IOC policy: an IOC match is computed in-DB (GIST containment), not by materializing all indicators in memory; Context stays under the memory ceiling.
+- [ ] 8.4 Run `openspec validate add-causal-security-detections --strict` and fix any errors.
