@@ -6,6 +6,7 @@ exports_files([
     "check-addon-binary-size.sh",
     "check-gazelle-drift.sh",
     "check-native-addon-version-bumps.sh",
+    "check-rust-vendor-tracked.py",
     "swiftlint_bazel.sh",
     "test-native-addon-version-bumps.sh",
     "test-release-publish-contracts.sh",

@@ -63,6 +63,9 @@ jobs:
           git fetch --no-tags --depth=1 origin "${base_ref}"
           scripts/check-native-addon-version-bumps.sh FETCH_HEAD HEAD
 
+      - name: Verify committed Rust vendor snapshot
+        run: python3 scripts/check-rust-vendor-tracked.py
+
       - name: Install build dependencies
         run: ./scripts/ci/ensure-forgejo-tools.sh service-build
 

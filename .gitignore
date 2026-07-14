@@ -279,3 +279,10 @@ tmp/fieldsurvey-local/
 
 # Local review documents (not for upstream)
 pr-host-net-viz-*.md
+
+# Cargo's committed vendor snapshot must remain byte-complete even when an
+# upstream crate contains paths such as debug/, target/, *.pem, or *.dll that
+# match repository-wide development-output ignores above. The snapshot is
+# validated against each crate's .cargo-checksum.json before CI builds it.
+!third_party/crates/
+!third_party/crates/**
