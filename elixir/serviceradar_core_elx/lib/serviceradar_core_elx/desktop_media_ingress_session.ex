@@ -99,7 +99,7 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressSession do
   @impl true
   def terminate(_reason, state) do
     _ = cancel_timer(state.idle_timer)
-    _ = prune_media_session(state.media_manager, state.session.desktop_session_id)
+    _ = close_media_session(state.media_manager, state.session.desktop_session_id)
     :ok
   end
 
@@ -152,9 +152,9 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressSession do
   defp cancel_timer(nil), do: :ok
   defp cancel_timer(timer_ref), do: Process.cancel_timer(timer_ref)
 
-  defp prune_media_session(media_manager, desktop_session_id) do
-    if function_exported?(media_manager, :prune_session, 1) do
-      media_manager.prune_session(desktop_session_id)
+  defp close_media_session(media_manager, desktop_session_id) do
+    if function_exported?(media_manager, :close_session, 1) do
+      media_manager.close_session(desktop_session_id)
     else
       :ok
     end

@@ -67,14 +67,20 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecovery do
   end
 
   defp recover_attempt(attempt, now, opts) do
-    if DateTime.before?(now, attempt.deadline_at) do
-      case fetch_command(attempt.command_id, opts) do
-        {:ok, nil} -> recover_without_command(attempt, opts)
-        {:ok, %AgentCommand{} = command} -> recover_with_command(attempt, command, now, opts)
-        {:error, reason} -> {:error, {:callback_command_fetch_failed, reason}}
-      end
-    else
-      expire_attempt(attempt, now, opts)
+    # Read the durable command before applying the deadline. A terminal result
+    # may contain the only trustworthy selector for an externally created AWX
+    # object; expiring first would discard it and strand that object forever.
+    case fetch_command(attempt.command_id, opts) do
+      {:ok, nil} ->
+        if DateTime.before?(now, attempt.deadline_at),
+          do: recover_without_command(attempt, opts),
+          else: expire_attempt(attempt, now, opts)
+
+      {:ok, %AgentCommand{} = command} ->
+        recover_with_command(attempt, command, now, opts)
+
+      {:error, reason} ->
+        {:error, {:callback_command_fetch_failed, reason}}
     end
   end
 
@@ -88,17 +94,28 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecovery do
     do: {:error, {:persisted_callback_command_missing, attempt.state}}
 
   defp recover_with_command(attempt, command, now, opts) do
-    with :ok <- exact_command(attempt, command),
-         :ok <- reauthorize_inflight_continuation(attempt, command, opts) do
+    with :ok <- exact_command(attempt, command) do
       cond do
         command.status in @terminal_command_states ->
-          process_terminal(command, opts)
+          process_terminal(
+            command,
+            opts,
+            cleanup_only?:
+              attempt.cleanup_only == true or not DateTime.before?(now, attempt.deadline_at)
+          )
+
+        not DateTime.before?(now, attempt.deadline_at) ->
+          expire_attempt(attempt, now, opts)
 
         command.status in @active_command_states and command_expired?(command, now) ->
-          coordinator(opts).reconcile_transport_ambiguity(attempt, coordinator_opts(opts))
+          with :ok <- reauthorize_inflight_continuation(attempt, command, opts) do
+            coordinator(opts).reconcile_transport_ambiguity(attempt, coordinator_opts(opts))
+          end
 
         command.status in @active_command_states ->
-          {:ok, :awaiting_terminal_result}
+          with :ok <- reauthorize_inflight_continuation(attempt, command, opts) do
+            {:ok, :awaiting_terminal_result}
+          end
 
         true ->
           {:error, :callback_command_status_invalid}
@@ -125,12 +142,17 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecovery do
 
   defp reauthorize_inflight_continuation(_attempt, _command, _opts), do: :ok
 
-  defp process_terminal(command, opts) do
+  defp process_terminal(command, opts, process_opts) do
+    coordinator_opts =
+      opts
+      |> coordinator_opts()
+      |> Keyword.put(:cleanup_only, Keyword.get(process_opts, :cleanup_only?, false))
+
     coordinator(opts).process_persisted(
       command.id,
       command.agent_id,
       command.command_type,
-      coordinator_opts(opts)
+      coordinator_opts
     )
   end
 
@@ -290,7 +312,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecovery do
   defp exact_command(attempt, command) do
     if to_string(command.id) == to_string(attempt.command_id) and
          command.command_type == attempt.command_type and
-         command.agent_id == attempt.dispatch_agent_id,
+         command.agent_id == attempt.dispatch_agent_id and
+         command.partition_id == attempt.dispatch_partition_id,
        do: :ok,
        else: {:error, :callback_command_recovery_correlation_mismatch}
   end
@@ -318,6 +341,10 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecovery do
         :delete_activated,
         :execution_lifecycle_actions,
         :secure_lifecycle_actions,
+        :controller_provenance,
+        :controller_provenance_opts,
+        :controller_credential_provenance,
+        :controller_credential_lookup,
         :now
       ])
 

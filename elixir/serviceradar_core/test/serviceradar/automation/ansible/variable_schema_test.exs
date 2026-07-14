@@ -379,6 +379,37 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchemaTest do
                })
     end
 
+    test "uses canonical token boundaries for sensitive input names" do
+      for name <- [
+            "apiKey",
+            "APIKey",
+            "APIKEY",
+            "MYAPITOKEN",
+            "privateKey",
+            "bearerToken",
+            "password1",
+            "credentialValue"
+          ] do
+        refute VariableSchema.reviewed_input_name?(name)
+
+        assert {:error, {:sensitive_binding_input_forbidden, ^name}} =
+                 VariableSchema.from_binding(%{
+                   input_schema: %{name => %{"type" => "text"}},
+                   input_classifications: %{name => "internal"}
+                 })
+      end
+
+      for name <- [
+            "environment",
+            "qemuGuestAgentState",
+            "apiary_zone",
+            "key_rotation_days",
+            "tokenizer_mode"
+          ] do
+        assert VariableSchema.reviewed_input_name?(name)
+      end
+    end
+
     test "rejects Ansible transport and magic-variable names" do
       for name <- [
             "ansible_host",

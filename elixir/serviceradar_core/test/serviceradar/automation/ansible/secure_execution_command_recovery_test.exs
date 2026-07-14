@@ -2,6 +2,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Automation.Ansible.AutomationSecureExecutionCommandAttempt, as: Attempt
+  alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandContract, as: Contract
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher, as: Dispatcher
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandRecovery, as: Recovery
@@ -184,6 +185,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
       id: attempt.command_id,
       command_type: attempt.command_type,
       agent_id: attempt.dispatch_agent_id,
+      partition_id: attempt.dispatch_partition_id,
       status: status,
       expires_at: expires_at
     )
@@ -202,6 +204,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
       execution_id: Ash.UUID.generate(),
       controller_id: Ash.UUID.generate(),
       dispatch_agent_id: "edge-agent-1",
+      dispatch_partition_id: "farm01",
       stage: stage,
       purpose: purpose,
       attempt: 1,
@@ -223,6 +226,9 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
     execution_id = "018f3f56-1111-7222-8333-123456789abd"
     controller_id = "018f3f56-1111-7222-8333-123456789abe"
     current = now()
+
+    controller = controller(controller_id, "edge-agent-1")
+    {:ok, controller_snapshot} = ControllerSecuritySnapshot.capture(controller)
 
     operation = %{
       id: operation_id,
@@ -246,7 +252,11 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
       check_mode: false,
       host_limit: "farm01-node01",
       dispatch_id: "018f3f56-1111-7222-8333-123456789abf",
-      snapshot_digest: String.duplicate("b", 64)
+      snapshot_digest: String.duplicate("b", 64),
+      metadata: %{
+        "dispatch_partition_id" => "farm01",
+        "controller_security_snapshot" => controller_snapshot
+      }
     }
 
     {:ok, request} = Contract.launch_request(operation, execution)
@@ -257,7 +267,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
           operation_id: operation_id,
           execution_id: execution_id,
           controller_id: controller_id,
-          dispatch_agent_id: "edge-agent-1"
+          dispatch_agent_id: "edge-agent-1",
+          dispatch_partition_id: "farm01"
         },
         execution,
         request,
@@ -276,7 +287,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
     resources = %{
       operation: operation,
       execution: execution,
-      controller: %{id: controller_id, agent_id: "edge-agent-1"},
+      controller: controller,
       targets: []
     }
 
@@ -284,6 +295,9 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
   end
 
   defp continuation_resources(attempt, operation_state, execution_state) do
+    controller = controller(attempt.controller_id, attempt.dispatch_agent_id)
+    {:ok, controller_snapshot} = ControllerSecuritySnapshot.capture(controller)
+
     %{
       operation: %{
         id: attempt.operation_id,
@@ -295,10 +309,31 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
         id: attempt.execution_id,
         operation_id: attempt.operation_id,
         controller_id: attempt.controller_id,
-        state: execution_state
+        state: execution_state,
+        metadata: %{
+          "dispatch_partition_id" => attempt.dispatch_partition_id,
+          "controller_security_snapshot" => controller_snapshot
+        }
       },
-      controller: %{id: attempt.controller_id, agent_id: attempt.dispatch_agent_id},
+      controller: controller,
       targets: [%{id: Ash.UUID.generate()}]
+    }
+  end
+
+  defp controller(id, agent_id) do
+    secret_id = Ash.UUID.generate()
+
+    %{
+      id: id,
+      name: "farm01-awx",
+      base_url: "https://awx.example.test:8443",
+      agent_id: agent_id,
+      enabled: true,
+      credential_secret_id: secret_id,
+      sync_credential_secret_id: secret_id,
+      execution_credential_secret_id: secret_id,
+      callback_credential_secret_id: nil,
+      metadata: %{}
     }
   end
 

@@ -155,7 +155,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecovery do
   defp exact_command(attempt, command) do
     if to_string(command.id) == to_string(attempt.command_id) and
          command.command_type == attempt.command_type and
-         command.agent_id == attempt.dispatch_agent_id,
+         command.agent_id == attempt.dispatch_agent_id and
+         command.partition_id == attempt.dispatch_partition_id,
        do: :ok,
        else: {:error, :secure_execution_recovery_correlation_mismatch}
   end

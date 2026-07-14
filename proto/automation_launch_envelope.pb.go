@@ -41,10 +41,13 @@ const (
 // launch coordinates from the sealed record; caller-supplied target or AWX
 // coordinates are deliberately absent.
 type AutomationLaunchEnvelopeResolveRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	EnvelopeRef   string                 `protobuf:"bytes,2,opt,name=envelope_ref,json=envelopeRef,proto3" json:"envelope_ref,omitempty"`
-	CommandId     string                 `protobuf:"bytes,3,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	AgentId     string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	EnvelopeRef string                 `protobuf:"bytes,2,opt,name=envelope_ref,json=envelopeRef,proto3" json:"envelope_ref,omitempty"`
+	CommandId   string                 `protobuf:"bytes,3,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	// Gateway overwrites this field from the mTLS certificate before core sees
+	// the request. Agent-supplied values are never authoritative.
+	PartitionId   string `protobuf:"bytes,4,opt,name=partition_id,json=partitionId,proto3" json:"partition_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -96,6 +99,13 @@ func (x *AutomationLaunchEnvelopeResolveRequest) GetEnvelopeRef() string {
 func (x *AutomationLaunchEnvelopeResolveRequest) GetCommandId() string {
 	if x != nil {
 		return x.CommandId
+	}
+	return ""
+}
+
+func (x *AutomationLaunchEnvelopeResolveRequest) GetPartitionId() string {
+	if x != nil {
+		return x.PartitionId
 	}
 	return ""
 }
@@ -329,12 +339,13 @@ var File_automation_launch_envelope_proto protoreflect.FileDescriptor
 const file_automation_launch_envelope_proto_rawDesc = "" +
 	"\n" +
 	" automation_launch_envelope.proto\x12\n" +
-	"monitoring\"\x85\x01\n" +
+	"monitoring\"\xa8\x01\n" +
 	"&AutomationLaunchEnvelopeResolveRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12!\n" +
 	"\fenvelope_ref\x18\x02 \x01(\tR\venvelopeRef\x12\x1d\n" +
 	"\n" +
-	"command_id\x18\x03 \x01(\tR\tcommandId\"\x83\b\n" +
+	"command_id\x18\x03 \x01(\tR\tcommandId\x12!\n" +
+	"\fpartition_id\x18\x04 \x01(\tR\vpartitionId\"\x83\b\n" +
 	"'AutomationLaunchEnvelopeResolveResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x16\n" +

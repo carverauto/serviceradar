@@ -127,21 +127,24 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
           acc
         end
 
-      target
-      |> list_value("nodes")
-      |> Enum.reduce(acc, fn node, acc ->
-        add_node_records(
-          acc,
-          target,
-          node,
-          cluster_ref,
-          cluster_scope,
-          source_scope,
-          version,
-          observed_at
-        )
-      end)
-      |> add_guest_records(target, cluster_scope, source_scope, observed_at)
+      records =
+        target
+        |> list_value("nodes")
+        |> Enum.reduce(acc, fn node, acc ->
+          add_node_records(
+            acc,
+            target,
+            node,
+            cluster_ref,
+            cluster_scope,
+            source_scope,
+            version,
+            observed_at
+          )
+        end)
+        |> add_guest_records(target, cluster_scope, source_scope, observed_at)
+
+      bind_records_to_source_partition(records, source_scope)
     end)
   end
 
@@ -340,7 +343,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
           provider_ref,
           host_ref,
           provider_instance_ref,
-          target_partition(target),
+          target_partition(target, source_scope),
           observed_at
         )
       end
@@ -624,13 +627,22 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
         "source_controller_id"
       ])
 
+    partition_id = scope_value(scope, [:partition_id, "partition_id", :partition, "partition"])
+
     with {:ok, integration_id} <- cast_uuid(integration_id),
-         {:ok, controller_id} <- cast_uuid(controller_id) do
-      %{integration_id: integration_id, controller_id: controller_id}
+         {:ok, controller_id} <- cast_uuid(controller_id),
+         true <- is_binary(partition_id),
+         partition_id = String.trim(partition_id),
+         true <- partition_id != "" do
+      %{
+        integration_id: integration_id,
+        controller_id: controller_id,
+        partition_id: partition_id
+      }
     else
       _ ->
         raise ArgumentError,
-              "trusted Proxmox source scope requires integration_id and controller_id UUIDs"
+              "trusted Proxmox source scope requires integration_id/controller_id UUIDs and partition_id"
     end
   end
 
@@ -749,9 +761,12 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
       string_value(meta, "hostname") || host_from_url(string_value(target, "base_url"))
 
     if is_map(identity) do
-      if same_host_or_node?(target_hostname, node_name) do
-        serviceradar_device_uid(target_device_id)
-      end
+      # A v3 identity is minted from the authenticated assignment's source
+      # scope. The result body is not authoritative for an existing
+      # ServiceRadar device UID, even when its hostname happens to match.
+      # Persistence resolves this node through the server-owned integration
+      # identifier after validating the source scope.
+      nil
     else
       if same_host_or_node?(target_hostname, node_name) do
         target_device_id || "proxmox:pve:#{node_name}"
@@ -761,12 +776,26 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
     end
   end
 
-  defp target_partition(target) do
+  defp target_partition(_target, %{partition_id: partition_id}), do: partition_id
+
+  defp target_partition(target, _source_scope) do
     target
     |> map_value("metadata")
     |> string_value("partition")
     |> Kernel.||("default")
   end
+
+  defp bind_records_to_source_partition(records, %{partition_id: partition_id}) do
+    Map.new(records, fn {key, values} ->
+      {key,
+       Enum.map(values, fn record ->
+         metadata = Map.get(record, :metadata) || %{}
+         Map.put(record, :metadata, Map.put(metadata, "partition", partition_id))
+       end)}
+    end)
+  end
+
+  defp bind_records_to_source_partition(records, _source_scope), do: records
 
   defp proxmox_guest_device_uid(_guest, identity_or_instance_ref)
        when is_map(identity_or_instance_ref) or is_binary(identity_or_instance_ref), do: nil
@@ -780,9 +809,6 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
         "proxmox:#{proxmox_guest_type(string_value(guest, "type"))}:#{integer_value(guest, "vmid")}"
     end
   end
-
-  defp serviceradar_device_uid("sr:" <> _rest = uid), do: uid
-  defp serviceradar_device_uid(_uid), do: nil
 
   defp proxmox_guest_type("qemu"), do: "vm"
   defp proxmox_guest_type("lxc"), do: "container"

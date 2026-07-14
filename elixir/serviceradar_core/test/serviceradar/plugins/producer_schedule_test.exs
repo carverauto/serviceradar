@@ -2,6 +2,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Credentials.CredentialRedactor
+  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.Plugin
@@ -9,6 +10,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.ProducerSchedule
   alias ServiceRadar.Plugins.ProducerScheduleDispatcher
+  alias ServiceRadar.ProcessRegistry
 
   require Ash.Query
 
@@ -302,7 +304,11 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
     assert payload_a["metadata"]["producer_kind"] == "wasm_plugin"
     assert payload_b["schema"] == payload_a["schema"]
     assert opts_a[:source] == :automation
+    assert is_binary(opts_a[:required_partition])
+    assert opts_a[:required_partition] != ""
     assert opts_a[:context].schedule_id == "advisory.refresh"
+    assert is_binary(opts_b[:required_partition])
+    assert opts_b[:required_partition] != ""
     assert opts_b[:context].schedule_id == "advisory.refresh"
   end
 
@@ -620,20 +626,56 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
   end
 
   defp create_assignment(actor, package, agent_uid) do
-    PluginAssignment
-    |> Ash.Changeset.for_create(
-      :create,
-      %{
-        agent_uid: agent_uid,
-        plugin_package_id: package.id,
-        source: :manual,
-        enabled: true,
-        interval_seconds: 3_600,
-        timeout_seconds: 600,
-        params: %{}
-      },
-      actor: actor
-    )
-    |> Ash.create()
+    register_control_session!(agent_uid, "default")
+
+    try do
+      PluginAssignment
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          agent_uid: agent_uid,
+          plugin_package_id: package.id,
+          source: :manual,
+          enabled: true,
+          interval_seconds: 3_600,
+          timeout_seconds: 600,
+          params: %{}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+    after
+      :ok =
+        ProcessRegistry.unregister({:agent_control, "default", agent_uid, node()})
+    end
+  end
+
+  defp register_control_session!(agent_uid, partition_id) do
+    assert {:ok, _pid} =
+             ProcessRegistry.register(
+               {:agent_control, partition_id, agent_uid, node()},
+               %{
+                 agent_id: agent_uid,
+                 partition_id: partition_id,
+                 gateway_node: node(),
+                 capabilities: ["wasm"]
+               }
+             )
+
+    assert_control_partition(agent_uid, partition_id, 40)
+  end
+
+  defp assert_control_partition(_agent_uid, _partition_id, 0),
+    do: flunk("test control-session partition did not converge")
+
+  defp assert_control_partition(agent_uid, partition_id, attempts) do
+    case AgentCommandBus.resolve_control_session_evidence(partition_id, agent_uid, nil) do
+      {:ok, %{agent_id: ^agent_uid, partition_id: ^partition_id}} ->
+        :ok
+
+      _other ->
+        Process.sleep(10)
+        assert_control_partition(agent_uid, partition_id, attempts - 1)
+    end
   end
 end

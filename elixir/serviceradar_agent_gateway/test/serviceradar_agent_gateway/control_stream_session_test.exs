@@ -45,7 +45,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
 
     assert_receive {:config_sync, :record_config_ack, [^agent_id, %{config_version: "config-v1"}]}
 
-    assert_registry_evidence(agent_id, pid, fn metadata ->
+    assert_registry_evidence("partition-a", agent_id, pid, fn metadata ->
       metadata.config_version == "config-v1" and
         metadata.capabilities == Enum.sort(hello.capabilities) and
         metadata.applied_plugin_assignments == [
@@ -73,7 +73,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
       identity_context(agent_id, "partition-a")
     )
 
-    assert_registry_evidence(agent_id, pid, fn metadata ->
+    assert_registry_evidence("partition-a", agent_id, pid, fn metadata ->
       metadata.config_version == "config-v2" and
         metadata.applied_plugin_assignments == [
           %{
@@ -84,6 +84,55 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
           }
         ]
     end)
+  end
+
+  test "same agent and gateway register independently in two partitions while duplicate principal fails closed" do
+    ensure_process_registry!()
+
+    agent_id = "agent-shared-#{System.unique_integer([:positive])}"
+    farm_pid = start_supervised!({ControlStreamSession, stream: nil}, id: :farm_control_session)
+    tonka_pid = start_supervised!({ControlStreamSession, stream: nil}, id: :tonka_control_session)
+
+    duplicate_pid =
+      start_supervised!({ControlStreamSession, stream: nil}, id: :duplicate_control_session)
+
+    assert :ok =
+             ControlStreamSession.register(
+               farm_pid,
+               agent_id,
+               "farm01",
+               [],
+               identity_context(agent_id, "farm01")
+             )
+
+    assert :ok =
+             ControlStreamSession.register(
+               tonka_pid,
+               agent_id,
+               "tonka01",
+               [],
+               identity_context(agent_id, "tonka01")
+             )
+
+    assert [{^farm_pid, %{partition_id: "farm01"}}] =
+             ProcessRegistry.lookup_agent_control("farm01", agent_id)
+
+    assert [{^tonka_pid, %{partition_id: "tonka01"}}] =
+             ProcessRegistry.lookup_agent_control("tonka01", agent_id)
+
+    assert {:error, {:control_session_already_registered, ^farm_pid}} =
+             ControlStreamSession.register(
+               duplicate_pid,
+               agent_id,
+               "farm01",
+               [],
+               identity_context(agent_id, "farm01")
+             )
+
+    refute Enum.any?(ProcessRegistry.lookup_agent_control("farm01", agent_id), fn
+             {^duplicate_pid, _metadata} -> true
+             _entry -> false
+           end)
   end
 
   test "malformed or duplicate assignment proofs fail closed as an empty evidence set" do
@@ -150,11 +199,11 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
     pid = start_supervised!({ControlStreamSession, stream: nil})
     assert :ok = ControlStreamSession.register(pid, agent_id, "partition-a", hello.capabilities, identity, hello)
 
-    assert_registry_evidence(agent_id, pid, fn metadata ->
+    assert_registry_evidence("partition-a", agent_id, pid, fn metadata ->
       metadata.config_version == "config-v1" and metadata.pending_config_version == nil
     end)
 
-    old_metadata = registry_metadata(agent_id, pid)
+    old_metadata = registry_metadata("partition-a", agent_id, pid)
 
     old_evidence = %{
       control_session_pid: pid,
@@ -175,7 +224,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
 
     assert_receive {:config_push_sync_attempt, [^agent_id, %{config_version: "config-v2"}], false}
 
-    assert_registry_evidence(agent_id, pid, fn metadata ->
+    assert_registry_evidence("partition-a", agent_id, pid, fn metadata ->
       metadata.config_version == "config-v1" and
         metadata.pending_config_version == "config-v2"
     end)
@@ -205,20 +254,20 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
 
     # The agent ACK alone is insufficient while the pushed-version write is
     # still unavailable on core.
-    assert_registry_evidence(agent_id, pid, fn metadata ->
+    assert_registry_evidence("partition-a", agent_id, pid, fn metadata ->
       metadata.config_version == "config-v2" and
         metadata.pending_config_version == "config-v2"
     end)
 
     Agent.update(sync_gate, &%{&1 | allow_push?: true})
 
-    assert_registry_evidence(agent_id, pid, fn metadata ->
+    assert_registry_evidence("partition-a", agent_id, pid, fn metadata ->
       metadata.config_version == "config-v2" and metadata.pending_config_version == nil
     end)
 
     assert Agent.get(sync_gate, & &1.push_attempts) >= 2
 
-    current_metadata = registry_metadata(agent_id, pid)
+    current_metadata = registry_metadata("partition-a", agent_id, pid)
 
     current_evidence = %{
       control_session_pid: pid,
@@ -926,26 +975,26 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
     }
   end
 
-  defp assert_registry_evidence(agent_id, pid, predicate, attempts \\ 40)
+  defp assert_registry_evidence(partition_id, agent_id, pid, predicate, attempts \\ 40)
 
-  defp assert_registry_evidence(_agent_id, _pid, _predicate, 0) do
+  defp assert_registry_evidence(_partition_id, _agent_id, _pid, _predicate, 0) do
     flunk("timed out waiting for control-session registry evidence")
   end
 
-  defp assert_registry_evidence(agent_id, pid, predicate, attempts) do
-    metadata = registry_metadata(agent_id, pid)
+  defp assert_registry_evidence(partition_id, agent_id, pid, predicate, attempts) do
+    metadata = registry_metadata(partition_id, agent_id, pid)
 
     if metadata && predicate.(metadata) do
       :ok
     else
       Process.sleep(25)
-      assert_registry_evidence(agent_id, pid, predicate, attempts - 1)
+      assert_registry_evidence(partition_id, agent_id, pid, predicate, attempts - 1)
     end
   end
 
-  defp registry_metadata(agent_id, pid) do
-    agent_id
-    |> ProcessRegistry.lookup_agent_control()
+  defp registry_metadata(partition_id, agent_id, pid) do
+    partition_id
+    |> ProcessRegistry.lookup_agent_control(agent_id)
     |> Enum.find_value(fn
       {^pid, metadata} -> metadata
       _entry -> nil

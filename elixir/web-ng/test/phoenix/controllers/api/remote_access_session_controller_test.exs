@@ -286,6 +286,13 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
             "rdp.kdc_proxy_url" => "tcp://kdc.browser.example.com:88",
             "rdp.kerberos_hostname" => "browser.example.com",
             "target_tls" => %{"mode" => "skip_verify"},
+            "screen_policy" => %{
+              "max_width" => 99_999,
+              "max_height" => 99_999,
+              "frame_rate" => 999,
+              "bitrate_bps" => 999_999_999
+            },
+            "nested" => %{"screen" => %{"max_width" => 99_999}},
             "password" => "must-not-forward"
           }
         })
@@ -314,7 +321,17 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert request.metadata["target_display_name"] == "Finance Desktop"
       assert request.metadata["target_tls"] == %{"mode" => "verify_ca"}
       assert request.metadata["nla"] == %{"required" => true}
-      assert request.metadata["screen_policy"] == %{"max_width" => 1920, "max_height" => 1080}
+
+      assert request.metadata["screen_policy"] == %{
+               "max_width" => 1920,
+               "max_height" => 1080,
+               "frame_rate" => 30,
+               "bitrate_bps" => 8_000_000,
+               "idle_seconds" => 900,
+               "ttl_seconds" => 3600
+             }
+
+      refute get_in(request.metadata, ["nested", "screen"])
       assert request.metadata["redirection_policy"] == %{"clipboard" => "disabled", "drive" => "disabled"}
       assert request.metadata["environment"] == "prod"
       assert request.metadata["rdp.kdc_proxy_url"] == "tcp://kdc.policy.example.com:88"
@@ -325,6 +342,51 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       refute Map.has_key?(request.metadata, "secret")
       assert request.recording_policy == %{"mode" => "metadata_only"}
       assert match?(%Scope{}, opts[:scope])
+    end
+
+    test "materializes bounded screen defaults when target policy is empty", %{
+      conn: conn,
+      user: user
+    } do
+      session_id = Ecto.UUID.generate()
+      put_test_permissions(user, ["devices.remote_access.rdp.open"])
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, true)
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_targets, [desktop_target()])
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_session_manager_open_result,
+        {:ok, %{session: rdp_session(session_id), ticket: "srra_rdp_default_ticket"}}
+      )
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "windows-1",
+          "protocol" => "rdp",
+          "desktop_target_id" => "desktop-target-1",
+          "metadata" => %{
+            "screen_policy" => %{
+              "max_width" => 99_999,
+              "max_height" => 99_999,
+              "frame_rate" => 999,
+              "bitrate_bps" => 999_999_999,
+              "idle_seconds" => 999_999,
+              "ttl_seconds" => 999_999
+            }
+          }
+        })
+
+      assert json_response(conn, 201)["data"]["id"] == session_id
+      assert_receive {:open_remote_access_session, "windows-1", request, _opts}
+
+      assert request.metadata["screen_policy"] == %{
+               "max_width" => 1920,
+               "max_height" => 1080,
+               "frame_rate" => 30,
+               "bitrate_bps" => 8_000_000,
+               "idle_seconds" => 900,
+               "ttl_seconds" => 3600
+             }
     end
 
     test "returns not found for RDP create when desktop access is disabled", %{conn: conn, user: user} do

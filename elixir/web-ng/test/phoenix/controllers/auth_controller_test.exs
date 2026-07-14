@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.AuthControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  import Swoosh.TestAssertions
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.Users
@@ -33,11 +35,12 @@ defmodule ServiceRadarWebNGWeb.AuthControllerTest do
     conn =
       conn
       |> Map.put(:remote_ip, {127, 0, 0, 1})
+      |> put_req_header("accept", "text/html")
       |> post(~p"/auth/sign-in", %{
         "user" => %{"email" => "nobody@example.com", "password" => "bad-password"}
       })
 
-    assert redirected_to(conn) == ~p"/users/log-in"
+    assert redirected_to(conn, 303) == ~p"/users/log-in"
 
     assert Phoenix.Flash.get(conn.assigns.flash, :error) =~
              "Too many login attempts. Please try again"
@@ -49,11 +52,12 @@ defmodule ServiceRadarWebNGWeb.AuthControllerTest do
     conn =
       conn
       |> Map.put(:remote_ip, {127, 0, 0, 1})
+      |> put_req_header("accept", "text/html")
       |> post(~p"/auth/password-reset", %{
         "user" => %{"email" => "nobody@example.com"}
       })
 
-    assert redirected_to(conn) == ~p"/users/log-in"
+    assert redirected_to(conn, 303) == ~p"/auth/password-reset"
 
     assert Phoenix.Flash.get(conn.assigns.flash, :error) =~
              "Too many password reset requests. Please try again"
@@ -157,6 +161,83 @@ defmodule ServiceRadarWebNGWeb.AuthControllerTest do
       assert redirected_to(conn) == ~p"/dashboard"
       assert get_session(conn, "user_token")
     end
+
+    test "does not issue a reset credential for an SSO-provisioned identity", %{conn: conn} do
+      set_auth_mode(:active_sso)
+
+      {:ok, user} =
+        User.provision_sso_user(
+          %{
+            email: "reset-sso-only@example.com",
+            display_name: "Reset SSO Only",
+            external_id: "oidc|reset-sso-only",
+            provider: :oidc
+          },
+          actor: AshTestHelpers.system_actor()
+        )
+
+      conn = request_password_reset(conn, user.email)
+
+      assert redirected_to(conn) == ~p"/users/log-in"
+      assert Phoenix.Flash.get(conn.assigns.flash, :info) =~ "If your email is in our system"
+      refute_email_sent()
+    end
+
+    test "local-password recovery records the current password authentication before login", %{
+      conn: conn
+    } do
+      set_auth_mode(:active_sso)
+      user = AshTestHelpers.user_fixture()
+
+      conn = request_password_reset(conn, user.email)
+      assert redirected_to(conn) == ~p"/users/log-in"
+      assert_receive {:email, email}
+      token = reset_token(email.text_body)
+
+      conn =
+        conn
+        |> recycle()
+        |> put(~p"/auth/password-reset/#{token}", %{
+          "user" => %{
+            "password" => "new_local_password_123!",
+            "password_confirmation" => "new_local_password_123!"
+          }
+        })
+
+      assert redirected_to(conn) == ~p"/dashboard"
+      assert get_session(conn, "user_token")
+
+      assert {:ok, persisted} =
+               Ash.get(User, user.id, actor: SystemActor.system(:password_reset_test))
+
+      assert persisted.last_auth_method == :password
+    end
+
+    test "consumption rechecks local recovery policy after a reset token was issued", %{conn: conn} do
+      set_auth_mode(:active_sso)
+      user = AshTestHelpers.user_fixture()
+
+      conn = request_password_reset(conn, user.email)
+      assert_receive {:email, email}
+      token = reset_token(email.text_body)
+      assert {:ok, _user} = set_local_login(user, false)
+
+      conn =
+        conn
+        |> recycle()
+        |> put(~p"/auth/password-reset/#{token}", %{
+          "user" => %{
+            "password" => "policy_race_password_123!",
+            "password_confirmation" => "policy_race_password_123!"
+          }
+        })
+
+      assert redirected_to(conn) == ~p"/users/log-in"
+      assert is_nil(get_session(conn, "user_token"))
+
+      assert {:error, _reason} =
+               User.authenticate(user.email, "policy_race_password_123!", actor: AshTestHelpers.system_actor())
+    end
   end
 
   defp post_login(conn, email, password) do
@@ -165,6 +246,19 @@ defmodule ServiceRadarWebNGWeb.AuthControllerTest do
     |> post(~p"/auth/sign-in", %{
       "user" => %{"email" => to_string(email), "password" => password}
     })
+  end
+
+  defp request_password_reset(conn, email) do
+    conn
+    |> Map.put(:remote_ip, {127, 0, 0, 1})
+    |> post(~p"/auth/password-reset", %{
+      "user" => %{"email" => to_string(email)}
+    })
+  end
+
+  defp reset_token(body) do
+    assert [_, token] = Regex.run(~r{/auth/password-reset/([^\s]+)}, body)
+    token
   end
 
   defp set_auth_mode(mode) do

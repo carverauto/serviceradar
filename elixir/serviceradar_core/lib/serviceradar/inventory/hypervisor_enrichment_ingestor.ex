@@ -299,6 +299,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
     with :ok <- validate_source_scoped_identities(records),
          :ok <- validate_trusted_proxmox_source_binding(records, opts),
+         records = discard_untrusted_proxmox_device_uids(records),
          records = resolve_existing_device_uids(records, actor),
          records = normalize_host_management_ips(records),
          {:ok, records} <- ensure_inventory_devices(records, actor),
@@ -326,6 +327,22 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
          {:ok, _} <- upsert_group(VirtualizationStorageSystem, storage_systems, actor) do
       VirtualizationIdentityAliases.reconcile(records)
     end
+  end
+
+  # Proxmox v3 object identity is authoritative only because its integration
+  # and controller scope was derived from the authenticated assignment. A
+  # plugin result can suggest network observations, but it may never select an
+  # existing ServiceRadar device by UID. Clear every result-owned UID before
+  # lookup; the subsequent identity maps restore only server-owned bindings.
+  defp discard_untrusted_proxmox_device_uids(records) do
+    Map.new(records, fn {key, values} ->
+      {key,
+       Enum.map(values, fn record ->
+         if proxmox_record?(record) and Map.has_key?(record, :device_uid),
+           do: Map.put(record, :device_uid, nil),
+           else: record
+       end)}
+    end)
   end
 
   defp validate_source_scoped_identities(records) do
@@ -365,7 +382,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     if proxmox_records == [] do
       :ok
     else
-      with {:ok, integration_id, controller_id} <- trusted_source_scope(opts),
+      with {:ok, integration_id, controller_id, partition_id} <- trusted_source_scope(opts),
            primary_records when primary_records != [] <- proxmox_primary_records(records),
            true <-
              Enum.all?(primary_records, fn record ->
@@ -379,7 +396,10 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
              |> Enum.uniq(),
            true <- provider_instances != [],
            true <-
-             Enum.all?(proxmox_records, &record_bound_to_instances?(&1, provider_instances)) do
+             Enum.all?(proxmox_records, fn record ->
+               record_bound_to_instances?(record, provider_instances) and
+                 metadata_partition(record) == partition_id
+             end) do
         :ok
       else
         {:error, _reason} = error -> error
@@ -414,8 +434,11 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     case Keyword.get(opts, :source_scope) do
       scope when is_map(scope) ->
         with {:ok, integration_id} <- canonical_uuid(scope_value(scope, :integration_id)),
-             {:ok, controller_id} <- canonical_uuid(scope_value(scope, :controller_id)) do
-          {:ok, integration_id, controller_id}
+             {:ok, controller_id} <- canonical_uuid(scope_value(scope, :controller_id)),
+             partition_id when is_binary(partition_id) <- scope_value(scope, :partition_id),
+             partition_id = String.trim(partition_id),
+             true <- partition_id != "" do
+          {:ok, integration_id, controller_id, partition_id}
         else
           _ -> {:error, :invalid_trusted_proxmox_source_scope}
         end

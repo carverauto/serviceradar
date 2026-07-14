@@ -93,6 +93,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AwxCleanup do
          :ok <- required_job_identity(mode, job_id),
          :ok <- controller_binding_matches(controller_id, job_id, binding),
          {:ok, dispatch_agent_id} <- nonempty(value(grant, :dispatch_agent_id)),
+         {:ok, dispatch_partition_id} <- nonempty(value(grant, :dispatch_partition_id)),
          {:ok, inventory_id} <- positive_integer(value(scope, :inventory_id)),
          {:ok, job_template_id} <- positive_integer(value(scope, :job_template_id)),
          {:ok, credential_type_id} <-
@@ -116,6 +117,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AwxCleanup do
          execution_id: execution_id,
          controller_id: controller_id,
          dispatch_agent_id: dispatch_agent_id,
+         dispatch_partition_id: dispatch_partition_id,
          inventory_id: inventory_id,
          job_template_id: job_template_id,
          credential_type_id: credential_type_id,
@@ -247,7 +249,11 @@ defmodule ServiceRadar.Automation.CallbackGrants.AwxCleanup do
     correlation = correlation_context(plan, :job_cancel)
 
     with true <- is_function(cancel_job, 3),
-         {:ok, command} <- cancel_job.(controller, plan.job_id, context: correlation),
+         {:ok, command} <-
+           cancel_job.(controller, plan.job_id,
+             context: correlation,
+             required_partition: plan.dispatch_partition_id
+           ),
          {:ok, _command_id} <- uuid(value(command, :id)) do
       :cancel_requested
     else
@@ -283,7 +289,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.AwxCleanup do
              controller,
              plan.credential_id,
              cleanup_binding,
-             context: correlation
+             context: correlation,
+             required_partition: plan.dispatch_partition_id
            ),
          {:ok, _command_id} <- uuid(value(command, :id)) do
       :delete_requested
@@ -299,6 +306,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AwxCleanup do
       "execution_id" => plan.execution_id,
       "controller_id" => plan.controller_id,
       "dispatch_agent_id" => plan.dispatch_agent_id,
+      "dispatch_partition_id" => plan.dispatch_partition_id,
       "awx_job_id" => plan.job_id,
       "credential_id" => plan.credential_id,
       "cleanup_kind" => Atom.to_string(kind),

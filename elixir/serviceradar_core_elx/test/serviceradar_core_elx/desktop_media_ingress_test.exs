@@ -5,13 +5,33 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressTest do
   alias ServiceRadarCoreElx.DesktopMediaIngressSupervisor
   alias ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager
 
+  defmodule OfferProviderStub do
+    @moduledoc false
+
+    def add_webrtc_viewer(_session_id, _viewer_session_id, _signaling, _opts), do: :ok
+
+    def remove_webrtc_viewer(session_id, viewer_session_id, _opts) do
+      send(
+        Application.fetch_env!(:serviceradar_core_elx, :desktop_media_ingress_test_pid),
+        {:offer_provider_remove_viewer, session_id, viewer_session_id}
+      )
+
+      :ok
+    end
+  end
+
   setup do
+    previous_test_pid =
+      Application.get_env(:serviceradar_core_elx, :desktop_media_ingress_test_pid)
+
+    Application.put_env(:serviceradar_core_elx, :desktop_media_ingress_test_pid, self())
     clear_ingress_sessions()
     reset_media_manager()
 
     on_exit(fn ->
       clear_ingress_sessions()
       reset_media_manager()
+      restore_env(:desktop_media_ingress_test_pid, previous_test_pid)
     end)
 
     :ok
@@ -48,9 +68,18 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressTest do
            } = MediaSessionManager.fetch_session("desktop-ingress-1")
   end
 
-  test "idle ingress sessions stop and prune viewer-free media accounting" do
+  test "gateway owner loss stops idle ingress and closes orphaned viewers" do
     desktop_session_id = "desktop-ingress-idle-1"
     session = session(desktop_session_id)
+
+    assert :ok =
+             MediaSessionManager.add_webrtc_viewer(
+               desktop_session_id,
+               "viewer-owner-loss-1",
+               %{pid: self()},
+               offer_provider: OfferProviderStub,
+               transport: "webrtc_desktop_media"
+             )
 
     assert {:ok, %Desktopmedia.DesktopMediaAck{}} =
              DesktopMediaIngress.forward_frame(frame(desktop_session_id, sequence: 1), session, idle_timeout_ms: 10)
@@ -59,6 +88,7 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressTest do
     monitor_ref = Process.monitor(ingress_pid)
 
     assert_receive {:DOWN, ^monitor_ref, :process, ^ingress_pid, :normal}, 250
+    assert_receive {:offer_provider_remove_viewer, ^desktop_session_id, "viewer-owner-loss-1"}
     assert DynamicSupervisor.count_children(DesktopMediaIngressSupervisor).active == 0
     assert MediaSessionManager.fetch_session(desktop_session_id) == nil
   end
@@ -175,4 +205,7 @@ defmodule ServiceRadarCoreElx.DesktopMediaIngressTest do
   defp reset_media_manager do
     if Process.whereis(MediaSessionManager), do: MediaSessionManager.reset()
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core_elx, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_core_elx, key, value)
 end

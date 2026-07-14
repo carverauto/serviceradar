@@ -225,7 +225,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp load_plugin_assignments_for_agent(agent_uid, scope) do
     PluginAssignment
-    |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_uid})
+    # This administrative history view intentionally shows every enrollment
+    # of a reused UID. Security-sensitive config delivery uses the
+    # partition-scoped :by_edge_principal action in AgentConfigGenerator.
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(agent_uid == ^agent_uid)
     |> Ash.Query.load(:plugin_package)
     |> Ash.Query.sort(inserted_at: :desc)
     |> Ash.read(scope: scope)

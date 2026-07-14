@@ -128,7 +128,8 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
 
     source_scope = %{
       integration_id: Ecto.UUID.generate(),
-      controller_id: Ecto.UUID.generate()
+      controller_id: Ecto.UUID.generate(),
+      partition_id: "farm01"
     }
 
     {:ok, host_identity} =
@@ -528,7 +529,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
              ).rows
   end
 
-  test "materializes hypervisor host management IP from host network interfaces", %{
+  test "binds Proxmox result to server-owned integration identity and ignores supplied UID", %{
     actor: actor
   } do
     suffix = System.unique_integer([:positive])
@@ -547,6 +548,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
 
     host_ref = host_identity.provider_ref
     host_uid = "sr:existing-hv-network-ip-#{suffix}"
+    unrelated_uid = "sr:unrelated-hv-network-ip-#{suffix}"
     host_ip = "10.55.#{rem(suffix, 200)}.11"
 
     {:ok, link_local_nic_ref} =
@@ -580,16 +582,48 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
       )
       |> Ash.create()
 
+    {:ok, _unrelated_device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: unrelated_uid,
+          type: "Server",
+          type_id: 1,
+          name: "unrelated-network-ip-#{suffix}",
+          hostname: "unrelated-network-ip-#{suffix}",
+          discovery_sources: ["mapper"],
+          is_managed: false
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, _identifier} =
+      DeviceIdentifier
+      |> Ash.Changeset.for_create(
+        :register,
+        %{
+          device_id: host_uid,
+          identifier_type: :integration_id,
+          identifier_value: host_ref,
+          partition: "default",
+          source: "serviceradar"
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
     payload = %{
       "details" => %{
         "schema" => "serviceradar.hypervisor_enrichment.v1",
         "provider" => provider,
         "hosts" => [
           Map.merge(host_identity, %{
-            "device_uid" => host_uid,
+            "device_uid" => unrelated_uid,
             "name" => native_node_id,
             "status" => "online",
-            "metadata" => %{}
+            "metadata" => %{"partition" => "default"}
           })
         ],
         "network_interfaces" => [
@@ -598,7 +632,8 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
             "host_provider_ref" => host_ref,
             "name" => "eno1",
             "address" => "169.254.10.1",
-            "source" => "host_config"
+            "source" => "host_config",
+            "metadata" => %{"partition" => "default"}
           },
           %{
             "provider_ref" => management_nic_ref,
@@ -606,7 +641,8 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
             "name" => "vmbr0",
             "address" => host_ip,
             "cidr" => "#{host_ip}/24",
-            "source" => "host_config"
+            "source" => "host_config",
+            "metadata" => %{"partition" => "default"}
           }
         ]
       }
@@ -617,7 +653,8 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
                actor: actor,
                source_scope: %{
                  integration_id: host_identity.integration_id,
-                 controller_id: host_identity.controller_id
+                 controller_id: host_identity.controller_id,
+                 partition_id: "default"
                }
              )
 
@@ -629,6 +666,12 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
                WHERE uid = $1
                """,
                [host_uid]
+             ).rows
+
+    assert [[^unrelated_uid, nil]] =
+             Repo.query!(
+               "SELECT uid, ip FROM platform.ocsf_devices WHERE uid = $1",
+               [unrelated_uid]
              ).rows
 
     assert [[true, "hypervisor_enrichment", "pve-api"]] =

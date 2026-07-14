@@ -17,6 +17,12 @@ defmodule ServiceRadar.Credentials.CredentialUsePolicyTest do
     assert :ok = CredentialUsePolicy.authorize(policy(roles: ["operator"]), @actor)
   end
 
+  test "a persisted user struct is valid current credential-use authority" do
+    actor = %ServiceRadar.Identity.User{id: @actor.id, role: :operator, status: :active}
+
+    assert :ok = CredentialUsePolicy.authorize(policy(roles: ["operator"]), actor)
+  end
+
   test "a principal selector may match the actor id or authenticated IdP subject" do
     assert :ok =
              CredentialUsePolicy.authorize(

@@ -3,6 +3,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
 
   alias ServiceRadar.Automation.Ansible.AutomationSecureExecutionCommandAttempt, as: Attempt
   alias ServiceRadar.Automation.Ansible.AwxClient
+  alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandContract, as: Contract
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher, as: Dispatcher
   alias ServiceRadar.Edge.AgentCommand
@@ -230,19 +231,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
   defp launch_attempt(operation_state, execution_state) do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
     operation = operation(operation_state)
-    execution = execution(execution_state)
-
-    controller = %{
-      id: @controller_id,
-      name: "farm01-awx",
-      base_url: "https://awx.example.test:8443",
-      agent_id: "edge-agent-1",
-      credential_secret_id: Ash.UUID.generate(),
-      sync_credential_secret_id: Ash.UUID.generate(),
-      execution_credential_secret_id: @execution_secret,
-      callback_credential_secret_id: nil,
-      metadata: %{}
-    }
+    controller = controller()
+    execution = execution(execution_state, controller)
 
     {:ok, request} = Contract.launch_request(operation, execution)
 
@@ -252,7 +242,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
           operation_id: @operation_id,
           execution_id: @execution_id,
           controller_id: @controller_id,
-          dispatch_agent_id: "edge-agent-1"
+          dispatch_agent_id: "edge-agent-1",
+          dispatch_partition_id: "farm01"
         },
         execution,
         request,
@@ -274,19 +265,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
   defp continuation_attempt(stage, purpose, operation_state, execution_state) do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
     operation = operation(operation_state)
-    execution = execution(execution_state)
-
-    controller = %{
-      id: @controller_id,
-      name: "farm01-awx",
-      base_url: "https://awx.example.test:8443",
-      agent_id: "edge-agent-1",
-      credential_secret_id: Ash.UUID.generate(),
-      sync_credential_secret_id: Ash.UUID.generate(),
-      execution_credential_secret_id: @execution_secret,
-      callback_credential_secret_id: nil,
-      metadata: %{}
-    }
+    controller = controller()
+    execution = execution(execution_state, controller)
 
     targets = [%{id: Ash.UUID.generate(), awx_host_id: 77}]
 
@@ -306,7 +286,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
           operation_id: @operation_id,
           execution_id: @execution_id,
           controller_id: @controller_id,
-          dispatch_agent_id: "edge-agent-1"
+          dispatch_agent_id: "edge-agent-1",
+          dispatch_partition_id: "farm01"
         },
         execution,
         request,
@@ -339,7 +320,24 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
     }
   end
 
-  defp execution(state) do
+  defp controller do
+    %{
+      id: @controller_id,
+      name: "farm01-awx",
+      base_url: "https://awx.example.test:8443",
+      agent_id: "edge-agent-1",
+      enabled: true,
+      credential_secret_id: Ash.UUID.generate(),
+      sync_credential_secret_id: Ash.UUID.generate(),
+      execution_credential_secret_id: @execution_secret,
+      callback_credential_secret_id: nil,
+      metadata: %{}
+    }
+  end
+
+  defp execution(state, controller) do
+    {:ok, controller_snapshot} = ControllerSecuritySnapshot.capture(controller)
+
     %{
       id: @execution_id,
       operation_id: @operation_id,
@@ -354,7 +352,11 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
       check_mode: false,
       host_limit: "farm01-node01",
       dispatch_id: "018f3f56-1111-7222-8333-123456789abf",
-      snapshot_digest: String.duplicate("b", 64)
+      snapshot_digest: String.duplicate("b", 64),
+      metadata: %{
+        "dispatch_partition_id" => "farm01",
+        "controller_security_snapshot" => controller_snapshot
+      }
     }
   end
 
@@ -412,6 +414,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
       id: attempt.command_id,
       command_type: attempt.command_type,
       agent_id: attempt.dispatch_agent_id,
+      partition_id: attempt.dispatch_partition_id,
       context: context,
       payload: payload
     })

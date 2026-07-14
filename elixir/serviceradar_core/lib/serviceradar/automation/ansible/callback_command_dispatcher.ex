@@ -16,6 +16,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
   alias ServiceRadar.Automation.Ansible.AwxClient
   alias ServiceRadar.Automation.Ansible.CallbackCommandContract
   alias ServiceRadar.Automation.Ansible.Controller
+  alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Automation.Ansible.SecureExecutionLifecycle
   alias ServiceRadar.Automation.CallbackGrants.AshStore, as: GrantStore
@@ -35,6 +36,9 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
 
     with :ok <- before_deadline(attempt, now),
          {:ok, resources} <- load_resources(attempt, opts),
+         :ok <- validate_resource_principal(attempt, resources),
+         :ok <- verify_controller_boundary(attempt, resources),
+         :ok <- validate_cleanup_only_stage(attempt),
          {:ok, request} <- rebuild_request(attempt, resources),
          true <-
            CallbackCommandContract.request_matches?(attempt, request) ||
@@ -74,6 +78,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
         now = now(opts)
 
         with {:ok, resources} <- load_resources(attempt, opts),
+             :ok <- validate_resource_principal(attempt, resources),
+             :ok <- verify_controller_boundary(attempt, resources),
              :ok <- authorize_callback(mode, resources, opts) do
           :ok
         else
@@ -130,6 +136,63 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
     end
   end
 
+  # Resource loaders are injectable for tests, but no loader is an authority
+  # boundary. The durable attempt, controller, and callback grant must all bind
+  # the exact edge principal tuple before any authorization or dispatch occurs.
+  defp validate_resource_principal(attempt, resources) when is_map(resources) do
+    controller_agent_id = resources |> value(:controller) |> value(:agent_id)
+    grant = value(resources, :grant)
+
+    if same_nonempty_identifier?(controller_agent_id, attempt.dispatch_agent_id) and
+         same_nonempty_identifier?(value(grant, :dispatch_agent_id), attempt.dispatch_agent_id) and
+         same_nonempty_identifier?(
+           value(grant, :dispatch_partition_id),
+           attempt.dispatch_partition_id
+         ) do
+      :ok
+    else
+      {:error, :callback_command_resource_principal_mismatch}
+    end
+  end
+
+  defp validate_resource_principal(_attempt, _resources),
+    do: {:error, :callback_command_resource_principal_mismatch}
+
+  defp verify_controller_boundary(attempt, resources) do
+    metadata = value(resources.execution, :metadata) || %{}
+
+    with partition when is_binary(partition) and partition != "" <-
+           value(metadata, :dispatch_partition_id),
+         true <- partition == attempt.dispatch_partition_id,
+         :ok <-
+           ControllerSecuritySnapshot.verify(
+             resources.controller,
+             value(metadata, :controller_security_snapshot)
+           ) do
+      :ok
+    else
+      false -> {:error, :callback_dispatch_partition_drift}
+      {:error, _reason} = error -> error
+      _ -> {:error, :callback_dispatch_partition_required}
+    end
+  end
+
+  defp validate_cleanup_only_stage(%Attempt{cleanup_only: false}), do: :ok
+
+  defp validate_cleanup_only_stage(%Attempt{cleanup_only: true, stage: stage})
+       when stage in [
+              :fetch_credential,
+              :fetch_job,
+              :list_recent_jobs,
+              :fetch_host_summaries,
+              :cancel_job,
+              :delete_credential
+            ],
+       do: :ok
+
+  defp validate_cleanup_only_stage(%Attempt{cleanup_only: true}),
+    do: {:error, :callback_cleanup_only_side_effect_forbidden}
+
   defp rebuild_request(%Attempt{stage: :create_credential}, resources) do
     CallbackCommandContract.create_credential_request(
       resources.execution,
@@ -166,6 +229,9 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
   defp rebuild_request(%Attempt{stage: :list_recent_jobs} = attempt, resources),
     do: CallbackCommandContract.recent_jobs_request(resources.execution, attempt.reconcile_after)
 
+  defp rebuild_request(%Attempt{stage: :cancel_job} = attempt, _resources),
+    do: CallbackCommandContract.cancel_job_request(attempt.expected_job_id)
+
   defp rebuild_request(_attempt, _resources),
     do: {:error, :callback_command_stage_not_dispatchable}
 
@@ -176,6 +242,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
     end
   end
 
+  defp authority_mode(%Attempt{stage: :create_credential}), do: :credential_creation
   defp authority_mode(%Attempt{stage: :launch_job}), do: :launch
 
   defp authority_mode(%Attempt{stage: :fetch_job, purpose: purpose})
@@ -209,9 +276,17 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
   defp authorize_callback_with_lifecycle(mode, grant, opts) do
     with {:ok, lifecycle_opts} <- callback_lifecycle_opts(opts) do
       case mode do
-        :launch -> Lifecycle.authorize_launch_dispatch(value(grant, :id), lifecycle_opts)
-        :pending_job -> Lifecycle.reauthorize_pending_job(value(grant, :id), lifecycle_opts)
-        :watchdog -> Lifecycle.reauthorize_watchdog(value(grant, :id), lifecycle_opts)
+        :credential_creation ->
+          Lifecycle.reauthorize_credential_creation(value(grant, :id), lifecycle_opts)
+
+        :launch ->
+          Lifecycle.authorize_launch_dispatch(value(grant, :id), lifecycle_opts)
+
+        :pending_job ->
+          Lifecycle.reauthorize_pending_job(value(grant, :id), lifecycle_opts)
+
+        :watchdog ->
+          Lifecycle.reauthorize_watchdog(value(grant, :id), lifecycle_opts)
       end
     end
   end
@@ -250,8 +325,11 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
   defp record_authority_denial(attempt, resources, reason, now, opts) when is_map(resources) do
     lifecycle_result =
       case attempt.stage do
-        :launch_job -> mark_prelaunch_denied(resources, reason, now, opts)
-        _known_child -> mark_active_contraction(resources, reason, opts)
+        stage when stage in [:create_credential, :launch_job] ->
+          mark_prelaunch_denied(resources, reason, now, opts)
+
+        _known_child ->
+          mark_active_contraction(resources, reason, opts)
       end
 
     marker = Keyword.get(opts, :authority_denial_marker, &mark_authority_denied_persisted/4)
@@ -375,6 +453,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
        ) do
     AwxClient.create_callback_credential(controller, request.binding,
       command_id: attempt.command_id,
+      required_partition: attempt.dispatch_partition_id,
       callback_command_attempt: true,
       source: :automation,
       context: context,
@@ -385,6 +464,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
   defp dispatch_awx(%Attempt{stage: :launch_job} = attempt, controller, request, context, opts) do
     AwxClient.launch_job(controller, request.template_id, request.launch_opts,
       command_id: attempt.command_id,
+      required_partition: attempt.dispatch_partition_id,
       callback_command_attempt: true,
       source: :automation,
       context: context,
@@ -401,6 +481,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
        ) do
     AwxClient.fetch_callback_credential(controller, request,
       command_id: attempt.command_id,
+      required_partition: attempt.dispatch_partition_id,
       callback_command_attempt: true,
       source: :automation,
       context: context,
@@ -411,6 +492,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
   defp dispatch_awx(%Attempt{stage: :fetch_job} = attempt, controller, request, context, opts) do
     AwxClient.fetch_job(controller, request.job_id,
       command_id: attempt.command_id,
+      required_partition: attempt.dispatch_partition_id,
       callback_command_attempt: true,
       source: :automation,
       context: context,
@@ -427,6 +509,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
        ) do
     AwxClient.fetch_job_host_summaries(controller, request.job_id, request.max_hosts,
       command_id: attempt.command_id,
+      required_partition: attempt.dispatch_partition_id,
       callback_command_attempt: true,
       source: :automation,
       context: context,
@@ -443,6 +526,18 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
        ) do
     AwxClient.list_recent_jobs(controller, request,
       command_id: attempt.command_id,
+      required_partition: attempt.dispatch_partition_id,
+      callback_command_attempt: true,
+      source: :automation,
+      context: context,
+      command_bus: Keyword.get(opts, :command_bus, AgentCommandBus)
+    )
+  end
+
+  defp dispatch_awx(%Attempt{stage: :cancel_job} = attempt, controller, request, context, opts) do
+    AwxClient.cancel_job(controller, request.job_id,
+      command_id: attempt.command_id,
+      required_partition: attempt.dispatch_partition_id,
       callback_command_attempt: true,
       source: :automation,
       context: context,
@@ -568,6 +663,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
     same_identifier?(command.id, attempt.command_id) and
       command.command_type == attempt.command_type and
       command.agent_id == attempt.dispatch_agent_id and
+      command.partition_id == attempt.dispatch_partition_id and
+      value(resources.grant, :dispatch_partition_id) == attempt.dispatch_partition_id and
       CallbackCommandContract.context_matches?(
         attempt,
         resources.execution,
@@ -605,6 +702,12 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
     do: opts |> Keyword.get(:now, DateTime.utc_now()) |> DateTime.truncate(:microsecond)
 
   defp same_identifier?(left, right), do: to_string(left) == to_string(right)
+
+  defp same_nonempty_identifier?(left, right) when is_binary(left) and is_binary(right),
+    do: left != "" and right != "" and left == right
+
+  defp same_nonempty_identifier?(_left, _right), do: false
+
   defp value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))
   defp value(_map, _key), do: nil
 end

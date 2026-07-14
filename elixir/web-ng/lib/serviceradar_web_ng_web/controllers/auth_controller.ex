@@ -183,6 +183,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
   defp maybe_send_password_reset(email, actor) do
     with {:ok, user} <- User.get_by_email(email, actor: actor),
+         :ok <- enforce_password_recovery(user),
          {:ok, token, _claims} <-
            Guardian.create_access_token(user, token_type: "reset", ttl: {1, :hour}) do
       reset_url = AuthURL.password_reset_url(token)
@@ -194,6 +195,18 @@ defmodule ServiceRadarWebNGWeb.AuthController do
     end
 
     :ok
+  end
+
+  defp enforce_password_recovery(user) do
+    settings =
+      case ConfigCache.get_settings() do
+        {:ok, settings} -> settings
+        {:error, _reason} -> nil
+      end
+
+    if LoginPolicy.password_recovery_allowed?(user, settings),
+      do: :ok,
+      else: {:error, :password_recovery_denied}
   end
 
   # Resolves AuthSettings (fail closed on error) and applies the server-side
@@ -304,6 +317,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
     with :ok <- validate_reset_password_confirmation(password, password_confirmation),
          {:ok, user, _claims} <- Guardian.verify_token(token, token_type: "reset"),
+         :ok <- enforce_password_recovery(user),
          {:ok, user} <-
            user
            |> Ash.Changeset.for_update(
@@ -311,7 +325,12 @@ defmodule ServiceRadarWebNGWeb.AuthController do
              %{password: password},
              actor: actor
            )
-           |> Ash.update() do
+           |> Ash.update(),
+         {:ok, user} <-
+           record_successful_auth(conn, user, :password,
+             hook_method: "password_reset",
+             break_glass?: false
+           ) do
       conn
       |> put_flash(:info, "Password reset successfully.")
       |> UserAuth.log_in_user(user)

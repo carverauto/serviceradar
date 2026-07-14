@@ -26,6 +26,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   require Logger
 
   @cleanup_command_types ["awx.delete_callback_credential", "awx.cancel_job"]
+  @result_coordination_supervisor ServiceRadar.AgentCommands.ResultCoordinationTaskSupervisor
+  @result_coordination_shutdown_ms 65_000
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -47,6 +49,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
            :secure_execution_result_coordinator,
            SecureExecutionCommandResultCoordinator
          ),
+       result_coordination_dispatcher:
+         Keyword.get(opts, :result_coordination_dispatcher, &dispatch_result_coordination/1),
        result_persister: Keyword.get(opts, :result_persister, &persist_result/2),
        persisted_result_broadcaster:
          Keyword.get(opts, :persisted_result_broadcaster, &PubSub.broadcast_persisted_result/1),
@@ -109,19 +113,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
         Map.get(state, :cleanup_reconciler, CleanupReconciler)
       )
 
-      safe_coordinate_callback_result(
-        safe_data,
-        Map.get(state, :callback_result_coordinator, CallbackCommandResultCoordinator)
-      )
-
-      safe_coordinate_secure_execution_result(
-        safe_data,
-        Map.get(
-          state,
-          :secure_execution_result_coordinator,
-          SecureExecutionCommandResultCoordinator
-        )
-      )
+      safe_dispatch_result_coordination(safe_data, state)
 
       Enum.each(Map.get(state, :result_consumers, []), &safe_call_result_consumer(&1, safe_data))
     end
@@ -144,6 +136,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
         command_id: map_get_any(data, [:command_id, "command_id"], nil),
         command_type: command_type,
         agent_id: map_get_any(data, [:agent_id, "agent_id"], nil),
+        partition_id: map_get_any(data, [:partition_id, "partition_id"], nil),
         success: success?
       }
       |> Map.put(:payload, safe_cleanup_payload(command_type, payload))
@@ -299,6 +292,62 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
       :ok
   end
 
+  defp safe_dispatch_result_coordination(data, state) do
+    callback_coordinator =
+      Map.get(state, :callback_result_coordinator, CallbackCommandResultCoordinator)
+
+    secure_coordinator =
+      Map.get(
+        state,
+        :secure_execution_result_coordinator,
+        SecureExecutionCommandResultCoordinator
+      )
+
+    work = fn ->
+      safe_coordinate_callback_result(data, callback_coordinator)
+      safe_coordinate_secure_execution_result(data, secure_coordinator)
+    end
+
+    dispatcher =
+      Map.get(state, :result_coordination_dispatcher, &dispatch_result_coordination/1)
+
+    case dispatcher.(work) do
+      :ok -> :ok
+      {:ok, _pid} -> :ok
+      {:error, reason} -> log_coordination_admission_failure(data, reason)
+      other -> log_coordination_admission_failure(data, other)
+    end
+  rescue
+    exception ->
+      log_coordination_admission_failure(data, {:exception, exception.__struct__})
+  catch
+    kind, _reason ->
+      log_coordination_admission_failure(data, {:throw, kind})
+  end
+
+  defp dispatch_result_coordination(work) when is_function(work, 0) do
+    Task.Supervisor.start_child(@result_coordination_supervisor, work,
+      shutdown: @result_coordination_shutdown_ms
+    )
+  end
+
+  defp log_coordination_admission_failure(data, reason) do
+    Logger.warning("AgentCommandStatusHandler: result coordination deferred to durable recovery",
+      command_id: map_get_any(data, [:command_id, "command_id"], nil),
+      command_type: map_get_any(data, [:command_type, "command_type"], nil),
+      reason: safe_coordination_admission_reason(reason)
+    )
+
+    :ok
+  end
+
+  defp safe_coordination_admission_reason(:max_children), do: :max_children
+  defp safe_coordination_admission_reason(:noproc), do: :supervisor_unavailable
+  defp safe_coordination_admission_reason({:noproc, _reason}), do: :supervisor_unavailable
+  defp safe_coordination_admission_reason({:exception, module}) when is_atom(module), do: module
+  defp safe_coordination_admission_reason({:throw, kind}) when is_atom(kind), do: kind
+  defp safe_coordination_admission_reason(_reason), do: :coordination_admission_failed
+
   defp safe_call_result_consumer(consumer, data) when is_function(consumer, 1) do
     consumer.(data)
     :ok
@@ -372,9 +421,11 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   defp persist_ack(%{command_id: command_id} = data, _actor) do
     command_id_text = normalize_command_id(command_id)
     authenticated_agent_id = map_get_any(data, [:agent_id, "agent_id"], nil)
+    authenticated_partition_id = map_get_any(data, [:partition_id, "partition_id"], nil)
     reported_command_type = map_get_any(data, [:command_type, "command_type"], nil)
 
     if command_id_text && is_binary(authenticated_agent_id) && authenticated_agent_id != "" &&
+         is_binary(authenticated_partition_id) && authenticated_partition_id != "" &&
          is_binary(reported_command_type) && reported_command_type != "" do
       control_query_exact(
         """
@@ -387,10 +438,17 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
         WHERE command_id = $1::text::uuid
           AND agent_id = $3
           AND command_type = $4
+          AND partition_id = $5
           AND status IN ('queued', 'sent', 'acknowledged')
         RETURNING command_id
         """,
-        [command_id_text, Map.get(data, :message), authenticated_agent_id, reported_command_type],
+        [
+          command_id_text,
+          Map.get(data, :message),
+          authenticated_agent_id,
+          reported_command_type,
+          authenticated_partition_id
+        ],
         "acknowledge command",
         command_id_text
       )
@@ -402,9 +460,11 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   defp persist_progress(%{command_id: command_id} = data, _actor) do
     command_id_text = normalize_command_id(command_id)
     authenticated_agent_id = map_get_any(data, [:agent_id, "agent_id"], nil)
+    authenticated_partition_id = map_get_any(data, [:partition_id, "partition_id"], nil)
     reported_command_type = map_get_any(data, [:command_type, "command_type"], nil)
 
     if command_id_text && is_binary(authenticated_agent_id) && authenticated_agent_id != "" &&
+         is_binary(authenticated_partition_id) && authenticated_partition_id != "" &&
          is_binary(reported_command_type) && reported_command_type != "" do
       control_query_exact(
         """
@@ -427,6 +487,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
         WHERE command_id = $1::text::uuid
           AND agent_id = $5
           AND command_type = $6
+          AND partition_id = $7
           AND status IN ('queued', 'sent', 'acknowledged', 'running')
         RETURNING command_id
         """,
@@ -436,7 +497,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
           Map.get(data, :progress_percent),
           json_param(Map.get(data, :payload)),
           authenticated_agent_id,
-          reported_command_type
+          reported_command_type,
+          authenticated_partition_id
         ],
         "persist command progress",
         command_id_text
@@ -450,10 +512,12 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
     command_id = map_get_any(data, [:command_id, "command_id"], nil)
     command_id_text = normalize_command_id(command_id)
     authenticated_agent_id = map_get_any(data, [:agent_id, "agent_id"], nil)
+    authenticated_partition_id = map_get_any(data, [:partition_id, "partition_id"], nil)
     reported_command_type = map_get_any(data, [:command_type, "command_type"], nil)
 
     if not is_nil(command_id_text) and is_binary(authenticated_agent_id) and
          authenticated_agent_id != "" and
+         is_binary(authenticated_partition_id) and authenticated_partition_id != "" and
          is_binary(reported_command_type) and reported_command_type != "" do
       success? = map_get_any(data, [:success, "success"], false) == true
       status = if(success?, do: "completed", else: "failed")
@@ -481,6 +545,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
         WHERE command_id = $1::text::uuid
           AND agent_id = $6
           AND command_type = $7
+          AND partition_id = $8
           AND (
             status NOT IN ('completed', 'failed', 'expired', 'canceled', 'offline')
             OR (
@@ -499,7 +564,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
           result_payload,
           failure_reason,
           authenticated_agent_id,
-          reported_command_type
+          reported_command_type,
+          authenticated_partition_id
         ],
         "persist command result",
         command_id_text

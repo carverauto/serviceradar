@@ -67,6 +67,15 @@ defmodule ServiceRadar.Automation.Ansible.AutomationCallbackCommandAttempt do
         check: "next_attempt_at IS NULL OR next_attempt_at <= deadline_at",
         message: "must not exceed the callback deadline"
 
+      check_constraint :candidate_job_ids,
+                       "automation_callback_command_attempts_candidate_jobs_check",
+                       check: """
+                       cardinality(candidate_job_ids) <= 5000
+                       AND 0 < ALL(candidate_job_ids)
+                       AND array_position(candidate_job_ids, NULL) IS NULL
+                       """,
+                       message: "must contain at most 5000 positive AWX job IDs"
+
       check_constraint :reconcile_after, "automation_callback_command_attempts_reconcile_check",
         check:
           "(stage = 'list_recent_jobs' AND reconcile_after IS NOT NULL) OR (stage <> 'list_recent_jobs' AND reconcile_after IS NULL)",
@@ -177,6 +186,8 @@ defmodule ServiceRadar.Automation.Ansible.AutomationCallbackCommandAttempt do
         :execution_id,
         :controller_id,
         :dispatch_agent_id,
+        :dispatch_partition_id,
+        :cleanup_only,
         :stage,
         :purpose,
         :attempt,
@@ -187,6 +198,7 @@ defmodule ServiceRadar.Automation.Ansible.AutomationCallbackCommandAttempt do
         :context_digest,
         :reconcile_after,
         :terminal_job_snapshot,
+        :candidate_job_ids,
         :expected_credential_id,
         :expected_job_id,
         :deadline_at,
@@ -346,6 +358,8 @@ defmodule ServiceRadar.Automation.Ansible.AutomationCallbackCommandAttempt do
     attribute :execution_id, :uuid, allow_nil?: false, public?: true
     attribute :controller_id, :uuid, allow_nil?: false, public?: true
     attribute :dispatch_agent_id, :string, allow_nil?: false, public?: true
+    attribute :dispatch_partition_id, :string, allow_nil?: false, public?: true
+    attribute :cleanup_only, :boolean, allow_nil?: false, default: false, public?: true
 
     attribute :stage, :atom do
       allow_nil? false
@@ -415,6 +429,12 @@ defmodule ServiceRadar.Automation.Ansible.AutomationCallbackCommandAttempt do
 
     attribute :reconcile_after, :utc_datetime_usec, allow_nil?: true, public?: true
     attribute :terminal_job_snapshot, :map, allow_nil?: true, public?: true
+
+    attribute :candidate_job_ids, {:array, :integer},
+      allow_nil?: false,
+      default: [],
+      public?: true,
+      constraints: [items: [min: 1], max_length: 5_000]
 
     attribute :state, :atom do
       allow_nil? false

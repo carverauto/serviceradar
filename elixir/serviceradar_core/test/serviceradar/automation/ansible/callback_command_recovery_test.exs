@@ -3,6 +3,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecoveryTest do
 
   alias ServiceRadar.Automation.Ansible.AutomationCallbackCommandAttempt, as: Attempt
   alias ServiceRadar.Automation.Ansible.CallbackCommandRecovery
+  alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Edge.AgentCommand
 
   @now ~U[2026-07-13 12:00:00.000000Z]
@@ -93,6 +94,27 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecoveryTest do
 
     assert_receive {:process_persisted, command_id, "agent-farm01", "awx.fetch_job", _opts}
     assert command_id == attempt.command_id
+  end
+
+  test "a terminal command from the same agent in another partition is not replayed" do
+    attempt = attempt(:fetch_job, "awx.fetch_job", :dispatched)
+
+    command =
+      attempt
+      |> command(status: :completed, expires_at: DateTime.add(@now, 30, :second))
+      |> Map.put(:partition_id, "tonka01")
+
+    assert %{attempts: 1, cleanup_intents: 0} =
+             CallbackCommandRecovery.recover_once(
+               now: @now,
+               attempt_lister: fn _now -> {:ok, [attempt]} end,
+               activation_cleanup_lister: fn -> {:ok, []} end,
+               command_fetcher: fn _ -> {:ok, command} end,
+               coordinator: FakeCoordinator
+             )
+
+    refute_receive {:process_persisted, _, _, _, _}
+    refute_receive {:reconcile_transport, _, _}
   end
 
   test "a crash after activation is recovered by the durable cleanup intent" do
@@ -196,8 +218,14 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecoveryTest do
                  send(test_pid, {:deadline_marked, failed_attempt.id, attrs})
                  {:ok, failed_attempt}
                end,
-               command_fetcher: fn _ -> flunk("elapsed attempts do not inspect transport") end
+               command_fetcher: fn command_id ->
+                 send(test_pid, {:deadline_command_checked, command_id})
+                 {:ok, nil}
+               end
              )
+
+    assert_receive {:deadline_command_checked, command_id}
+    assert command_id == attempt.command_id
 
     assert_receive {:grant_revoked, grant_id, :callback_command_deadline_elapsed}
     assert grant_id == attempt.grant_id
@@ -207,6 +235,34 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecoveryTest do
 
     assert_receive {:deadline_marked, ^attempt_id, attrs}
     assert attrs.last_error_code == "callback_command_deadline_elapsed"
+  end
+
+  test "terminal evidence is processed cleanup-only even when the attempt deadline elapsed" do
+    attempt =
+      :launch_job
+      |> attempt("awx.launch_job", :dispatched)
+      |> Map.put(:deadline_at, DateTime.add(@now, -1, :second))
+
+    command = command(attempt, status: :completed, expires_at: DateTime.add(@now, -1, :second))
+
+    assert %{attempts: 1, cleanup_intents: 0} =
+             CallbackCommandRecovery.recover_once(
+               now: @now,
+               attempt_lister: fn _now -> {:ok, [attempt]} end,
+               activation_cleanup_lister: fn -> {:ok, []} end,
+               command_fetcher: fn _ -> {:ok, command} end,
+               coordinator: FakeCoordinator,
+               lifecycle: FakeLifecycle,
+               lifecycle_opts: [],
+               deadline_marker: fn _, _ ->
+                 flunk("terminal evidence must be consumed before generic deadline expiry")
+               end
+             )
+
+    assert_receive {:process_persisted, command_id, "agent-farm01", "awx.launch_job", opts}
+    assert command_id == attempt.command_id
+    assert opts[:cleanup_only] == true
+    refute_receive {:grant_revoked, _, :callback_command_deadline_elapsed}
   end
 
   test "recovery reauthorizes an in-flight pending scope command before waiting" do
@@ -222,11 +278,35 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecoveryTest do
         expires_at: DateTime.add(@now, 30, :second)
       )
 
+    controller = %{
+      id: attempt.controller_id,
+      name: "farm01-awx",
+      base_url: "https://awx.example.test:8443",
+      agent_id: attempt.dispatch_agent_id,
+      enabled: true,
+      sync_credential_secret_id: Ash.UUID.generate(),
+      execution_credential_secret_id: Ash.UUID.generate(),
+      callback_credential_secret_id: Ash.UUID.generate(),
+      metadata: %{}
+    }
+
+    {:ok, controller_snapshot} = ControllerSecuritySnapshot.capture(controller)
+
     resources = %{
       operation: %{id: attempt.operation_id, mutating: true},
-      execution: %{id: attempt.execution_id},
-      controller: %{id: attempt.controller_id, agent_id: attempt.dispatch_agent_id},
-      grant: %{id: attempt.grant_id},
+      execution: %{
+        id: attempt.execution_id,
+        metadata: %{
+          "dispatch_partition_id" => attempt.dispatch_partition_id,
+          "controller_security_snapshot" => controller_snapshot
+        }
+      },
+      controller: controller,
+      grant: %{
+        id: attempt.grant_id,
+        dispatch_agent_id: attempt.dispatch_agent_id,
+        dispatch_partition_id: attempt.dispatch_partition_id
+      },
       targets: [%{id: Ash.UUID.generate()}]
     }
 
@@ -271,9 +351,13 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecoveryTest do
     %Attempt{
       id: Ash.UUID.generate(),
       grant_id: Ash.UUID.generate(),
+      operation_id: Ash.UUID.generate(),
+      execution_id: Ash.UUID.generate(),
+      controller_id: Ash.UUID.generate(),
       command_id: Ash.UUID.generate(),
       command_type: command_type,
       dispatch_agent_id: "agent-farm01",
+      dispatch_partition_id: "farm01",
       stage: stage,
       state: state,
       deadline_at: DateTime.add(@now, 60, :second)
@@ -287,7 +371,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecoveryTest do
         [
           id: attempt.command_id,
           command_type: attempt.command_type,
-          agent_id: attempt.dispatch_agent_id
+          agent_id: attempt.dispatch_agent_id,
+          partition_id: attempt.dispatch_partition_id
         ],
         overrides
       )

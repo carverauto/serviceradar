@@ -29,6 +29,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
                             :execution_id,
                             :controller_id,
                             :dispatch_agent_id,
+                            :dispatch_partition_id,
                             :awx_job_id,
                             :credential_id,
                             :result_status
@@ -132,6 +133,36 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
   end
 
   @impl true
+  def transition_terminal_with_cleanup_binding(
+        grant_id,
+        :revoked,
+        reason,
+        cleanup_binding,
+        audit,
+        now,
+        _context
+      )
+      when is_binary(grant_id) and is_binary(reason) and is_map(cleanup_binding) do
+    transaction(fn ->
+      with {:ok, grant} <- lock_grant(grant_id),
+           {:ok, bound} <- bind_cleanup_identity_locked(grant, cleanup_binding) do
+        transition_terminal_locked(bound, :revoked, reason, audit, now)
+      end
+    end)
+  end
+
+  def transition_terminal_with_cleanup_binding(
+        _grant_id,
+        _state,
+        _reason,
+        _cleanup_binding,
+        _audit,
+        _now,
+        _context
+      ),
+      do: {:error, :invalid_cleanup_binding_transition}
+
+  @impl true
   def record_cleanup(grant_id, attrs, audit, _context)
       when is_binary(grant_id) and is_map(attrs) and is_map(audit) do
     fn ->
@@ -217,6 +248,11 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
          {:ok, desired_state} <- desired_state(value(response, :state)),
          {:ok, principal_type} <- principal_type(value(grant, :principal_type)),
          :ok <- required_string(value(grant, :dispatch_agent_id), :dispatch_agent_required),
+         :ok <-
+           required_string(
+             value(grant, :dispatch_partition_id),
+             :dispatch_partition_required
+           ),
          :ok <- required_string(value(grant, :launch_envelope_ref), :launch_envelope_required) do
       snapshot = %{
         "schema" => "serviceradar.automation_callback_grant_snapshot/v1",
@@ -268,6 +304,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
         budget_limit: value(grant, :budget_total),
         idempotency_policy: :one_logical_read_per_child_policy,
         dispatch_agent_id: value(grant, :dispatch_agent_id),
+        dispatch_partition_id: value(grant, :dispatch_partition_id),
         launch_envelope_ref: value(grant, :launch_envelope_ref),
         issued_at: value(grant, :issued_at),
         expires_at: value(grant, :expires_at)
@@ -318,6 +355,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
       job_binding: job_binding,
       ephemeral_credential_id: grant.awx_ephemeral_credential_id,
       dispatch_agent_id: grant.dispatch_agent_id,
+      dispatch_partition_id: grant.dispatch_partition_id,
       launch_envelope_ref: grant.launch_envelope_ref,
       verifier_digest: grant.token_verifier,
       verifier_key_id: grant.token_pepper_version,
@@ -572,6 +610,74 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
       {:ok, to_lifecycle(updated)}
     end
   end
+
+  defp bind_cleanup_identity_locked(%Grant{state: :pending} = grant, binding) do
+    credential_id = value(binding, :credential_id)
+    job_id = value(binding, :job_id)
+
+    with true <- positive_optional_id?(credential_id),
+         true <- positive_optional_id?(job_id),
+         true <- is_integer(credential_id) or is_integer(job_id),
+         {:ok, grant} <- bind_cleanup_credential(grant, credential_id),
+         {:ok, grant} <- bind_cleanup_job(grant, job_id) do
+      {:ok, grant}
+    else
+      false -> {:error, :invalid_verified_cleanup_binding}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  # The selector binding and revocation are committed in one transaction. If a
+  # worker crashes after that commit but before it completes its callback
+  # attempt, recovery must be able to repeat the contraction without restoring
+  # authority or selecting a different object.
+  defp bind_cleanup_identity_locked(%Grant{state: :revoked} = grant, binding) do
+    credential_id = value(binding, :credential_id)
+    job_id = value(binding, :job_id)
+
+    with true <- positive_optional_id?(credential_id),
+         true <- positive_optional_id?(job_id),
+         true <- is_integer(credential_id) or is_integer(job_id),
+         :ok <- exact_optional_cleanup_id(grant.awx_ephemeral_credential_id, credential_id),
+         :ok <- exact_optional_cleanup_id(grant.awx_job_id, job_id) do
+      {:ok, grant}
+    else
+      false -> {:error, :invalid_verified_cleanup_binding}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp bind_cleanup_identity_locked(%Grant{state: state}, _binding),
+    do: {:error, {:grant_not_pending, state}}
+
+  defp exact_optional_cleanup_id(_persisted, nil), do: :ok
+  defp exact_optional_cleanup_id(value, value), do: :ok
+  defp exact_optional_cleanup_id(_persisted, _requested), do: {:error, :cleanup_binding_conflict}
+
+  defp bind_cleanup_credential(grant, nil), do: {:ok, grant}
+
+  defp bind_cleanup_credential(%Grant{awx_ephemeral_credential_id: nil} = grant, credential_id),
+    do: record_ephemeral_credential(grant, credential_id)
+
+  defp bind_cleanup_credential(
+         %Grant{awx_ephemeral_credential_id: credential_id} = grant,
+         credential_id
+       ),
+       do: {:ok, grant}
+
+  defp bind_cleanup_credential(_grant, _credential_id),
+    do: {:error, :callback_credential_conflict}
+
+  defp bind_cleanup_job(grant, nil), do: {:ok, grant}
+
+  defp bind_cleanup_job(%Grant{awx_job_id: nil} = grant, job_id),
+    do: Grant.bind_job_pending(grant, %{awx_job_id: job_id}, actor: @actor)
+
+  defp bind_cleanup_job(%Grant{awx_job_id: job_id} = grant, job_id), do: {:ok, grant}
+  defp bind_cleanup_job(_grant, _job_id), do: {:error, :callback_job_conflict}
+
+  defp positive_optional_id?(nil), do: true
+  defp positive_optional_id?(value), do: is_integer(value) and value > 0
 
   defp lock_grant(grant_id) do
     Grant
@@ -835,6 +941,9 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
          true <-
            grant.dispatch_agent_id == attrs.dispatch_agent_id ||
              {:error, :cleanup_agent_mismatch},
+         true <-
+           grant.dispatch_partition_id == attrs.dispatch_partition_id ||
+             {:error, :cleanup_partition_mismatch},
          true <- grant.awx_job_id == attrs.awx_job_id || {:error, :cleanup_job_mismatch},
          true <-
            grant.awx_ephemeral_credential_id == attrs.credential_id ||

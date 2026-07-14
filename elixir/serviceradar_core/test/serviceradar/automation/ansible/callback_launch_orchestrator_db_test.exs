@@ -394,6 +394,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
         store: Keyword.get(opts, :store, ServiceRadar.Automation.LaunchEnvelopes.AshStore)
       ],
       dispatch_agent_id: "agent-gateway-demo",
+      dispatch_partition_id: "farm01",
       grant_attrs: %{
         id: ids.grant,
         tenant_id: "platform",
@@ -425,7 +426,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
         },
         awx_scope_snapshot: scope,
         response_snapshot: response,
-        dispatch_agent_id: "agent-gateway-demo"
+        dispatch_agent_id: "agent-gateway-demo",
+        dispatch_partition_id: "farm01"
       }
     }
 
@@ -559,7 +561,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
                  command_id: fixture.ids.command,
                  command_type: "awx.create_callback_credential",
                  agent_id: "agent-gateway-demo",
-                 partition_id: "default",
+                 partition_id: "farm01",
                  payload: %{"launch_envelope_ref" => fixture.callback.allocation.reference},
                  context: %{"test" => "callback_launch_orchestrator_db"},
                  ttl_seconds: 300,
@@ -575,6 +577,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
       fixture.callback.allocation.reference,
       %{
         agent_id: "agent-gateway-demo",
+        partition_id: "farm01",
         command_id: fixture.ids.command
       },
       Keyword.merge(

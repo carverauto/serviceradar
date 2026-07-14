@@ -182,7 +182,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
            "inventory_id" => 7,
            "created_by_id" => 11,
            "created_after" => "2026-07-12T20:00:00Z",
-           "page_size" => 25
+           "page_size" => 25,
+           "max_candidates" => 5_000
          }, ["GET"], ["=/api/v2/jobs/"]},
         {"awx.cancel_job", %{"job_id" => 7331}, ["POST"], ["=/api/v2/jobs/7331/cancel/"]},
         {"awx.fetch_events_for_jobs",
@@ -204,6 +205,20 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
            "credential_type_id" => 91,
            "organization_id" => 2,
            "credential_name" => "sr-callback-test"
+         }, ["GET"], ["=/api/v2/credentials/"]},
+        {"awx.verify_callback_credential",
+         %{
+           "credential_id" => 401,
+           "credential_type_id" => 91,
+           "organization_id" => 2,
+           "credential_name" => "sr-callback-test"
+         }, ["GET"], ["=/api/v2/credentials/401/"]},
+        {"awx.list_callback_credentials",
+         %{
+           "credential_type_id" => 91,
+           "organization_id" => 2,
+           "credential_name" => "sr-callback-test",
+           "max_credentials" => 5_000
          }, ["GET"], ["=/api/v2/credentials/"]},
         {"awx.delete_callback_credential",
          %{
@@ -249,12 +264,27 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
            "inventory_id" => 7,
            "created_by_id" => 11,
            "created_after" => "not-rfc3339",
-           "page_size" => 25
+           "page_size" => 25,
+           "max_candidates" => 5_000
          }},
         {"awx.cancel_job", %{"job_id" => 0}},
         {"awx.fetch_events_for_jobs", %{"pairs" => []}},
         {"awx.fetch_events_for_jobs", %{"pairs" => [%{"job_id" => 1, "since_id" => -1}]}},
-        {"awx.fetch_callback_credential", %{"credential_type_id" => 91, "organization_id" => 2}}
+        {"awx.fetch_callback_credential", %{"credential_type_id" => 91, "organization_id" => 2}},
+        {"awx.verify_callback_credential",
+         %{
+           "credential_id" => 0,
+           "credential_type_id" => 91,
+           "organization_id" => 2,
+           "credential_name" => "sr-callback-test"
+         }},
+        {"awx.list_callback_credentials",
+         %{
+           "credential_type_id" => 91,
+           "organization_id" => 2,
+           "credential_name" => "sr-callback-test",
+           "max_credentials" => 5_001
+         }}
       ]
 
       for {verb, args} <- malformed do
@@ -326,6 +356,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       for verb <- [
             "awx.create_callback_credential",
             "awx.fetch_callback_credential",
+            "awx.verify_callback_credential",
+            "awx.list_callback_credentials",
             "awx.delete_callback_credential"
           ] do
         assert {:ok, :callback} = AwxClient.credential_purpose_for_verb(verb)
@@ -697,6 +729,24 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
                body |> then(&:crypto.hash(:sha256, &1)) |> Base.encode16(case: :lower)
     end
 
+    test "allows public certificate material while private key material remains forbidden" do
+      public_ca = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestOnlyPublicCA serviceradar-user-ca"
+
+      assert {:ok, _} =
+               AwxClient.launch_job(
+                 controller(),
+                 42,
+                 %{extra_vars: %{"certificate" => public_ca}},
+                 dispatch_opts()
+               )
+
+      assert_receive {:dispatch, "agent-a", "awx.launch_job", payload, _opts}
+
+      assert payload["authorized_request_body_b64"]
+             |> Base.decode64!()
+             |> Jason.decode!() == %{"extra_vars" => %{"certificate" => public_ca}}
+    end
+
     test "rejects secret-like and transport-retargeting extra vars before grant issuance" do
       for extra_vars <- [
             %{"password" => "must-not-dispatch"},
@@ -704,7 +754,6 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
             %{"ansible_user" => "must-not-dispatch"},
             %{"inventory_hostname" => "must-not-dispatch"},
             %{"config" => %{"password" => "nested-secret"}},
-            %{"certificate" => "secret-certificate-material"},
             %{"endpoint" => "PVEAPIToken=operator@pve!automation=secret"},
             %{"serviceradar_dispatch_id" => "PVEAPIToken=operator@pve!automation=secret"},
             %{
@@ -930,6 +979,73 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
     end
   end
 
+  describe "callback credential provenance reads" do
+    test "verify_callback_credential/3 carries one exact ID and immutable scope" do
+      request = %{
+        credential_id: 401,
+        credential_type_id: 91,
+        organization_id: 2,
+        credential_name: "sr-callback-test"
+      }
+
+      assert {:ok, _} =
+               AwxClient.verify_callback_credential(controller(), request, dispatch_opts())
+
+      assert_receive {:dispatch, "agent-a", "awx.verify_callback_credential", payload, _opts}
+
+      assert payload["args"] == %{
+               "credential_id" => 401,
+               "credential_type_id" => 91,
+               "organization_id" => 2,
+               "credential_name" => "sr-callback-test"
+             }
+
+      assert payload["credential_broker"]["allow"]["paths"] == [
+               "=/api/v2/credentials/401/"
+             ]
+    end
+
+    test "list_callback_credentials/3 carries a complete bounded selector" do
+      request = %{
+        credential_type_id: 91,
+        organization_id: 2,
+        credential_name: "sr-callback-test",
+        max_credentials: 5_000
+      }
+
+      assert {:ok, _} =
+               AwxClient.list_callback_credentials(controller(), request, dispatch_opts())
+
+      assert_receive {:dispatch, "agent-a", "awx.list_callback_credentials", payload, _opts}
+
+      assert payload["args"] == %{
+               "credential_type_id" => 91,
+               "organization_id" => 2,
+               "credential_name" => "sr-callback-test",
+               "max_credentials" => 5_000
+             }
+
+      assert payload["credential_broker"]["allow"]["paths"] == ["=/api/v2/credentials/"]
+    end
+
+    test "callback provenance bounds fail before grant issuance" do
+      assert_raise ArgumentError, fn ->
+        AwxClient.list_callback_credentials(
+          controller(),
+          %{
+            credential_type_id: 91,
+            organization_id: 2,
+            credential_name: "sr-callback-test",
+            max_credentials: 5_001
+          },
+          dispatch_opts()
+        )
+      end
+
+      refute_received {:dispatch, _, "awx.list_callback_credentials", _, _}
+    end
+  end
+
   describe "fetch_job/3" do
     test "carries job_id" do
       assert {:ok, _} = AwxClient.fetch_job(controller(), 7331, dispatch_opts())
@@ -961,7 +1077,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
         inventory_id: 7,
         created_by_id: 11,
         created_after: "2026-07-12T20:00:00Z",
-        page_size: 25
+        page_size: 25,
+        max_candidates: 5_000
       }
 
       assert {:ok, _} = AwxClient.list_recent_jobs(controller(), filters, dispatch_opts())
@@ -972,7 +1089,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
                "inventory_id" => 7,
                "created_by_id" => 11,
                "created_after" => "2026-07-12T20:00:00Z",
-               "page_size" => 25
+               "page_size" => 25,
+               "max_candidates" => 5_000
              }
     end
 
@@ -993,7 +1111,23 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
             inventory_id: 7,
             created_by_id: 11,
             created_after: "2026-07-12T20:00:00Z",
-            page_size: 101
+            page_size: 101,
+            max_candidates: 5_000
+          },
+          dispatch_opts()
+        )
+      end
+
+      assert_raise ArgumentError, fn ->
+        AwxClient.list_recent_jobs(
+          controller(),
+          %{
+            template_id: 42,
+            inventory_id: 7,
+            created_by_id: 11,
+            created_after: "2026-07-12T20:00:00Z",
+            page_size: 50,
+            max_candidates: 4_999
           },
           dispatch_opts()
         )

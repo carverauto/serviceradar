@@ -4,6 +4,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
   alias ServiceRadar.Automation.Ansible.AutomationCallbackCommandAttempt, as: Attempt
   alias ServiceRadar.Automation.Ansible.CallbackCommandContract
   alias ServiceRadar.Automation.Ansible.CallbackCommandDispatcher
+  alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Automation.CallbackGrants.Audit
   alias ServiceRadar.Automation.CallbackGrants.Authority
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
@@ -587,6 +588,32 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
     assert grant(context.store).state == :pending
   end
 
+  test "credential creation reauthorizes the current principal before external creation",
+       context do
+    {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
+
+    assert {:ok, %{state: :pending, credential_creation_authorized: true}} =
+             Lifecycle.reauthorize_credential_creation(@grant_id, context.opts)
+
+    assert_receive {:authorized, :bind_credential}
+    assert grant(context.store).state == :pending
+    assert is_nil(grant(context.store).ephemeral_credential_id)
+  end
+
+  test "credential creation revokes when current permission contracted", context do
+    {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
+
+    update_authority(context.authorizer, fn authority ->
+      %{authority | permissions: ["ansible.runs.launch"]}
+    end)
+
+    assert {:error, :current_permission_denied} =
+             Lifecycle.reauthorize_credential_creation(@grant_id, context.opts)
+
+    assert grant(context.store).state == :revoked
+    assert_receive {:cleanup, :revoked, _grant}
+  end
+
   test "launch dispatch denies and revokes permission contraction", context do
     {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
     assert {:ok, _bound} = Lifecycle.bind_credential(@grant_id, 31, context.opts)
@@ -689,10 +716,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
       resources = %{
         operation: %{id: attempt.operation_id, mutating: true},
         execution: watchdog_execution(context.attrs),
-        controller: %{
-          id: attempt.controller_id,
-          agent_id: attempt.dispatch_agent_id
-        },
+        controller: watchdog_controller(context.attrs),
         grant: grant(context.store),
         targets: [%{id: "target-1"}]
       }
@@ -1200,7 +1224,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
       operation_id: attrs.parent_run_id,
       execution_id: attrs.execution_id,
       controller_id: attrs.awx_scope_snapshot.controller_id,
-      dispatch_agent_id: attrs.dispatch_agent_id
+      dispatch_agent_id: attrs.dispatch_agent_id,
+      dispatch_partition_id: attrs.dispatch_partition_id
     }
 
     {:ok, poll_request} = CallbackCommandContract.fetch_job_request(9_001)
@@ -1235,12 +1260,33 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
   end
 
   defp watchdog_execution(attrs) do
+    {:ok, controller_snapshot} =
+      attrs |> watchdog_controller() |> ControllerSecuritySnapshot.capture()
+
     %{
       id: attrs.execution_id,
       operation_id: attrs.parent_run_id,
       controller_id: attrs.awx_scope_snapshot.controller_id,
       dispatch_id: "018f3f56-1111-7222-8333-123456789ac1",
-      snapshot_digest: attrs.awx_scope_snapshot.snapshot_digest
+      snapshot_digest: attrs.awx_scope_snapshot.snapshot_digest,
+      metadata: %{
+        "dispatch_partition_id" => attrs.dispatch_partition_id,
+        "controller_security_snapshot" => controller_snapshot
+      }
+    }
+  end
+
+  defp watchdog_controller(attrs) do
+    %{
+      id: attrs.awx_scope_snapshot.controller_id,
+      name: "callback-awx",
+      base_url: "https://awx.example.test:8443",
+      agent_id: attrs.dispatch_agent_id,
+      enabled: true,
+      sync_credential_secret_id: "callback-sync-secret",
+      execution_credential_secret_id: "callback-execution-secret",
+      callback_credential_secret_id: "callback-management-secret",
+      metadata: %{}
     }
   end
 
@@ -1383,6 +1429,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
         targets: [response_target]
       },
       dispatch_agent_id: "agent-gateway-demo",
+      dispatch_partition_id: "farm01",
       launch_envelope_ref: "vault-envelope:callback-grant-1"
     }
   end

@@ -173,6 +173,8 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
     with {:ok, user_info} <- OIDCClient.extract_user_info(claims),
          {:ok, user} <- find_or_create_user(user_info, claims),
          {:ok, user} <- SSOProvisioning.record_successful_authentication(user, :oidc, actor) do
+      session_claims = Map.put(claims, "service_radar_auth_method", "oidc")
+
       # Trigger auth hooks
       Hooks.on_user_authenticated(user, claims)
 
@@ -180,7 +182,7 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
 
       conn
       |> put_flash(:info, "Signed in successfully via SSO.")
-      |> UserAuth.log_in_user(user, %{"identity_claims" => claims})
+      |> UserAuth.log_in_user(user, %{"identity_claims" => session_claims})
     else
       {:error, :unsafe_account_linking} ->
         Logger.warning("OIDC authentication rejected implicit email-based account linking")

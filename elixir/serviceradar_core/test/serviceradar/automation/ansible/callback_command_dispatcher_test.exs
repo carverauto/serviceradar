@@ -5,6 +5,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
   alias ServiceRadar.Automation.Ansible.AwxClient
   alias ServiceRadar.Automation.Ansible.CallbackCommandContract
   alias ServiceRadar.Automation.Ansible.CallbackCommandDispatcher
+  alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Plugins.SecretRefs
 
@@ -13,18 +14,23 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
   @execution_secret "018f3f56-2222-7222-8333-123456789abe"
 
   test "a fast terminal result may take the processing lease before dispatch returns" do
+    controller = controller(Ash.UUID.generate(), "agent-farm01")
+    {:ok, controller_snapshot} = ControllerSecuritySnapshot.capture(controller)
+
     execution = %{
       id: Ash.UUID.generate(),
       dispatch_id: Ash.UUID.generate(),
-      snapshot_digest: String.duplicate("a", 64)
+      snapshot_digest: String.duplicate("a", 64),
+      metadata: security_metadata(controller_snapshot)
     }
 
     base = %{
       grant_id: Ash.UUID.generate(),
       operation_id: Ash.UUID.generate(),
       execution_id: execution.id,
-      controller_id: Ash.UUID.generate(),
-      dispatch_agent_id: "agent-farm01"
+      controller_id: controller.id,
+      dispatch_agent_id: "agent-farm01",
+      dispatch_partition_id: "farm01"
     }
 
     {:ok, request} = CallbackCommandContract.fetch_job_request(42)
@@ -50,8 +56,11 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
                   %{
                     operation: %{},
                     execution: execution,
-                    controller: %{id: base.controller_id},
-                    grant: %{}
+                    controller: controller,
+                    grant: %{
+                      dispatch_agent_id: base.dispatch_agent_id,
+                      dispatch_partition_id: base.dispatch_partition_id
+                    }
                   }}
                end,
                claim: fn ^attempt, lease_token, lease_expires_at, now ->
@@ -106,6 +115,21 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
                command_fetcher: fn _ -> {:ok, command} end,
                mark_dispatched: fn claimed, _token, _now ->
                  {:ok, %{claimed | state: :dispatched}}
+               end
+             )
+  end
+
+  test "dispatch rejects a grant from the same agent in another partition before claiming" do
+    {attempt, resources, _request} = fetch_job_attempt()
+    resources = put_in(resources, [:grant, :dispatch_partition_id], "tonka01")
+
+    assert {:error, :callback_command_resource_principal_mismatch} =
+             CallbackCommandDispatcher.dispatch(attempt,
+               now: @now,
+               resource_loader: fn ^attempt -> {:ok, resources} end,
+               claim: fn _, _, _, _ -> flunk("cross-partition resources must not be claimed") end,
+               awx_dispatcher: fn _, _, _, _, _ ->
+                 flunk("cross-partition resources must not reach AWX")
                end
              )
   end
@@ -200,6 +224,41 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
     assert attempt_id == attempt.id
   end
 
+  test "credential creation reauthorizes current user before claim or AWX dispatch" do
+    {attempt, resources} = create_credential_attempt()
+    test_pid = self()
+
+    assert {:error, :current_permission_denied} =
+             CallbackCommandDispatcher.dispatch(attempt,
+               now: @now,
+               resource_loader: fn ^attempt -> {:ok, resources} end,
+               callback_authorizer: fn mode, grant, _opts ->
+                 assert mode == :credential_creation
+                 assert grant.id == attempt.grant_id
+                 {:error, :current_permission_denied}
+               end,
+               claim: fn _, _, _, _ ->
+                 flunk("denied credential creation must not acquire a dispatch lease")
+               end,
+               awx_dispatcher: fn _, _, _, _, _ ->
+                 flunk("denied credential creation must not reach AWX")
+               end,
+               prelaunch_denial_handler: fn denied_resources ->
+                 send(test_pid, {:credential_prelaunch_denied, denied_resources.operation.id})
+                 :ok
+               end,
+               authority_denial_marker: fn denied_attempt, reason, now, _opts ->
+                 send(test_pid, {:credential_denial_marked, denied_attempt.id, reason, now})
+                 {:ok, denied_attempt}
+               end
+             )
+
+    assert_receive {:credential_prelaunch_denied, operation_id}
+    assert operation_id == attempt.operation_id
+    assert_receive {:credential_denial_marked, attempt_id, :current_permission_denied, @now}
+    assert attempt_id == attempt.id
+  end
+
   test "active watchdog contraction enters the cancellation-unproven failure path" do
     {attempt, resources, _request} = fetch_job_attempt(:terminal_poll)
     resources = Map.put(resources, :targets, [%{id: Ash.UUID.generate()}])
@@ -291,7 +350,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
       operation_id: attempt.operation_id,
       execution_id: attempt.execution_id,
       controller_id: attempt.controller_id,
-      dispatch_agent_id: attempt.dispatch_agent_id
+      dispatch_agent_id: attempt.dispatch_agent_id,
+      dispatch_partition_id: attempt.dispatch_partition_id
     }
 
     common = [
@@ -355,20 +415,13 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
       operation_id: execution.operation_id,
       execution_id: execution.id,
       controller_id: @controller_id,
-      dispatch_agent_id: "edge-agent-1"
+      dispatch_agent_id: "edge-agent-1",
+      dispatch_partition_id: "farm01"
     }
 
-    controller = %{
-      id: @controller_id,
-      name: "farm01-awx",
-      base_url: "https://awx.example.test:8443",
-      agent_id: "edge-agent-1",
-      credential_secret_id: Ash.UUID.generate(),
-      sync_credential_secret_id: Ash.UUID.generate(),
-      execution_credential_secret_id: @execution_secret,
-      callback_credential_secret_id: Ash.UUID.generate(),
-      metadata: %{}
-    }
+    controller = controller(@controller_id, "edge-agent-1")
+    {:ok, controller_snapshot} = ControllerSecuritySnapshot.capture(controller)
+    execution = Map.put(execution, :metadata, security_metadata(controller_snapshot))
 
     {:ok, request} = CallbackCommandContract.fetch_job_request(42)
 
@@ -392,13 +445,19 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
       },
       execution: execution,
       controller: controller,
-      grant: %{}
+      grant: %{
+        dispatch_agent_id: base.dispatch_agent_id,
+        dispatch_partition_id: base.dispatch_partition_id
+      }
     }
 
     {attempt, resources, request}
   end
 
   defp launch_attempt do
+    controller = controller(@controller_id, "edge-agent-1")
+    {:ok, controller_snapshot} = ControllerSecuritySnapshot.capture(controller)
+
     execution = %{
       id: "018f3f56-1111-7222-8333-123456789abd",
       operation_id: "018f3f56-1111-7222-8333-123456789abc",
@@ -410,7 +469,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
       host_limit: "linux-01",
       execution_environment_id: 4,
       check_mode: false,
-      credential_snapshot: %{"credential_ids" => [5]}
+      credential_snapshot: %{"credential_ids" => [5]},
+      metadata: security_metadata(controller_snapshot)
     }
 
     operation = %{
@@ -425,7 +485,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
       operation_id: operation.id,
       execution_id: execution.id,
       controller_id: @controller_id,
-      dispatch_agent_id: "edge-agent-1"
+      dispatch_agent_id: "edge-agent-1",
+      dispatch_partition_id: "farm01"
     }
 
     {:ok, request} = CallbackCommandContract.launch_request(operation, execution, 91)
@@ -445,8 +506,77 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
     resources = %{
       operation: operation,
       execution: execution,
-      controller: %{id: @controller_id, agent_id: base.dispatch_agent_id},
-      grant: %{id: base.grant_id},
+      controller: controller,
+      grant: %{
+        id: base.grant_id,
+        dispatch_agent_id: base.dispatch_agent_id,
+        dispatch_partition_id: base.dispatch_partition_id
+      },
+      targets: [%{id: Ash.UUID.generate()}]
+    }
+
+    {attempt, resources}
+  end
+
+  defp create_credential_attempt do
+    controller = controller(@controller_id, "edge-agent-1")
+    {:ok, controller_snapshot} = ControllerSecuritySnapshot.capture(controller)
+
+    execution = %{
+      id: "018f3f56-1111-7222-8333-123456789abd",
+      operation_id: "018f3f56-1111-7222-8333-123456789abc",
+      controller_id: @controller_id,
+      dispatch_id: "018f3f56-1111-7222-8333-123456789abf",
+      snapshot_digest: String.duplicate("a", 64),
+      metadata: security_metadata(controller_snapshot)
+    }
+
+    scope = %{
+      inventory_id: 34,
+      job_template_id: 42,
+      callback_credential_type_id: 17,
+      callback_credential_organization_id: 3,
+      callback_credential_injector_digest: String.duplicate("c", 64)
+    }
+
+    grant_id = "018f3f56-1111-7222-8333-123456789ac0"
+    envelope_ref = "018f3f56-1111-7222-8333-123456789ac1"
+
+    {:ok, request} =
+      CallbackCommandContract.create_credential_request(execution, scope, envelope_ref)
+
+    {:ok, attrs} =
+      CallbackCommandContract.build_attempt(
+        %{
+          grant_id: grant_id,
+          operation_id: execution.operation_id,
+          execution_id: execution.id,
+          controller_id: @controller_id,
+          dispatch_agent_id: controller.agent_id,
+          dispatch_partition_id: "farm01"
+        },
+        execution,
+        request,
+        stage: :create_credential,
+        purpose: :credential_provisioning,
+        command_type: "awx.create_callback_credential",
+        deadline_at: DateTime.add(@now, 60, :second),
+        next_attempt_at: @now
+      )
+
+    attempt = struct!(Attempt, Map.merge(attrs, %{id: Ash.UUID.generate(), state: :planned}))
+
+    resources = %{
+      operation: %{id: execution.operation_id, mutating: true},
+      execution: execution,
+      controller: controller,
+      grant: %{
+        id: grant_id,
+        launch_envelope_ref: envelope_ref,
+        awx_scope_snapshot: scope,
+        dispatch_agent_id: controller.agent_id,
+        dispatch_partition_id: "farm01"
+      },
       targets: [%{id: Ash.UUID.generate()}]
     }
 
@@ -458,7 +588,11 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
 
     resources =
       resources
-      |> Map.put(:grant, %{id: attempt.grant_id})
+      |> Map.put(:grant, %{
+        id: attempt.grant_id,
+        dispatch_agent_id: attempt.dispatch_agent_id,
+        dispatch_partition_id: attempt.dispatch_partition_id
+      })
       |> Map.put(:targets, [%{id: Ash.UUID.generate()}])
 
     {attempt, resources}
@@ -474,7 +608,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
       operation_id: fetch_attempt.operation_id,
       execution_id: fetch_attempt.execution_id,
       controller_id: fetch_attempt.controller_id,
-      dispatch_agent_id: fetch_attempt.dispatch_agent_id
+      dispatch_agent_id: fetch_attempt.dispatch_agent_id,
+      dispatch_partition_id: fetch_attempt.dispatch_partition_id
     }
 
     {:ok, attrs} =
@@ -491,7 +626,12 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
 
     {attempt,
      resources
-     |> Map.put(:grant, %{id: attempt.grant_id, awx_scope_snapshot: %{targets: targets}})
+     |> Map.put(:grant, %{
+       id: attempt.grant_id,
+       dispatch_agent_id: attempt.dispatch_agent_id,
+       dispatch_partition_id: attempt.dispatch_partition_id,
+       awx_scope_snapshot: %{targets: targets}
+     })
      |> Map.put(:targets, targets)}
   end
 
@@ -529,6 +669,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
       id: attempt.command_id,
       command_type: attempt.command_type,
       agent_id: attempt.dispatch_agent_id,
+      partition_id: attempt.dispatch_partition_id,
       context: context,
       payload: %{
         "schema" => "serviceradar.awx_command.v1",
@@ -546,4 +687,26 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
   defp claim(claimed, _token, _expires, _now), do: {:ok, %{claimed | state: :dispatching}}
 
   defp authorize_callback(_mode, _grant, _opts), do: :ok
+
+  defp controller(id, agent_id) do
+    %{
+      id: id,
+      name: "farm01-awx",
+      base_url: "https://awx.example.test:8443",
+      agent_id: agent_id,
+      enabled: true,
+      credential_secret_id: Ash.UUID.generate(),
+      sync_credential_secret_id: Ash.UUID.generate(),
+      execution_credential_secret_id: @execution_secret,
+      callback_credential_secret_id: Ash.UUID.generate(),
+      metadata: %{}
+    }
+  end
+
+  defp security_metadata(controller_snapshot) do
+    %{
+      "dispatch_partition_id" => "farm01",
+      "controller_security_snapshot" => controller_snapshot
+    }
+  end
 end

@@ -18,6 +18,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Automation.Ansible.HardenedLaunchPlan
   alias ServiceRadar.Automation.Ansible.SecureChildLauncher.AshAdapter
   alias ServiceRadar.Automation.Ansible.Targeting
@@ -89,6 +90,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
          {:ok, scope} <- validate_membership_scope(memberships, normalized, playbook),
          {:ok, controller} <- adapter.load_controller(scope.controller_id),
          :ok <- validate_controller(controller, scope.controller_id),
+         {:ok, controller_security_snapshot} <- ControllerSecuritySnapshot.capture(controller),
          {:ok, binding} <-
            adapter.load_binding(scope.controller_id, normalized.job_template_id),
          {:ok, launch_binding, callback_contract} <-
@@ -119,6 +121,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
              mode: normalized.mode,
              mutating: normalized.mode == :run,
              controller_id: scope.controller_id,
+             controller_security_snapshot: controller_security_snapshot,
              job_template_id: normalized.job_template_id,
              actor_snapshot: actor_snapshot,
              memberships: memberships,

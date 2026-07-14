@@ -95,12 +95,20 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
                               ~w(credential_type_id organization_id credential_name injector_sha256)
                             )
   @callback_fetch_arg_keys MapSet.new(~w(credential_type_id organization_id credential_name))
+  @callback_verify_arg_keys MapSet.new(
+                              ~w(credential_id credential_type_id organization_id credential_name)
+                            )
+  @callback_list_arg_keys MapSet.new(
+                            ~w(credential_type_id organization_id credential_name max_credentials)
+                          )
   @callback_delete_arg_keys MapSet.new(
                               ~w(credential_id credential_type_id organization_id credential_name)
                             )
   @recent_job_arg_keys MapSet.new(
-                         ~w(template_id inventory_id created_by_id created_after page_size)
+                         ~w(template_id inventory_id created_by_id created_after page_size max_candidates)
                        )
+  @max_recent_job_candidates 5_000
+  @max_callback_credentials 5_000
   @event_pair_keys MapSet.new(~w(job_id since_id))
   @max_event_batch_size 10
   @reserved_dispatch_vars ~w(serviceradar_dispatch_id serviceradar_snapshot_digest)
@@ -127,6 +135,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   @callback_verbs MapSet.new([
                     "awx.create_callback_credential",
                     "awx.fetch_callback_credential",
+                    "awx.verify_callback_credential",
+                    "awx.list_callback_credentials",
                     "awx.delete_callback_credential"
                   ])
 
@@ -339,6 +349,35 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
     dispatch_verb(controller, "awx.fetch_callback_credential", args, opts)
   end
 
+  @doc "Verifies one controller-observed callback credential by exact ID and immutable scope."
+  @spec verify_callback_credential(Controller.t(), map(), keyword()) ::
+          {:ok, struct()} | {:error, term()}
+  def verify_callback_credential(controller, request, opts \\ []) when is_map(request) do
+    args = %{
+      "credential_id" => fetch_positive_int!(request, :credential_id),
+      "credential_type_id" => fetch_positive_int!(request, :credential_type_id),
+      "organization_id" => fetch_positive_int!(request, :organization_id),
+      "credential_name" => fetch_nonempty_string!(request, :credential_name)
+    }
+
+    dispatch_verb(controller, "awx.verify_callback_credential", args, opts)
+  end
+
+  @doc "Lists the complete bounded set in one exact deterministic callback credential scope."
+  @spec list_callback_credentials(Controller.t(), map(), keyword()) ::
+          {:ok, struct()} | {:error, term()}
+  def list_callback_credentials(controller, request, opts \\ []) when is_map(request) do
+    args = %{
+      "credential_type_id" => fetch_positive_int!(request, :credential_type_id),
+      "organization_id" => fetch_positive_int!(request, :organization_id),
+      "credential_name" => fetch_nonempty_string!(request, :credential_name),
+      "max_credentials" =>
+        fetch_bounded_positive_int!(request, :max_credentials, @max_callback_credentials)
+    }
+
+    dispatch_verb(controller, "awx.list_callback_credentials", args, opts)
+  end
+
   @spec fetch_job(Controller.t(), integer(), keyword()) :: {:ok, struct()} | {:error, term()}
   def fetch_job(controller, job_id, opts \\ []) when is_integer(job_id) do
     dispatch_verb(controller, "awx.fetch_job", %{"job_id" => job_id}, opts)
@@ -378,7 +417,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
       "inventory_id" => fetch_positive_int!(filters, :inventory_id),
       "created_by_id" => fetch_positive_int!(filters, :created_by_id),
       "created_after" => fetch_nonempty_string!(filters, :created_after),
-      "page_size" => bounded_page_size(filters)
+      "page_size" => bounded_page_size(filters),
+      "max_candidates" => durable_recent_job_bound(filters)
     }
 
     dispatch_verb(controller, "awx.list_recent_jobs", args, opts)
@@ -708,6 +748,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
               "awx.fetch_template",
               "awx.inventory_sync",
               "awx.fetch_callback_credential",
+              "awx.verify_callback_credential",
+              "awx.list_callback_credentials",
               "awx.fetch_job",
               "awx.fetch_job_host_summaries",
               "awx.list_recent_jobs",
@@ -808,7 +850,11 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
            Map.get(args, "created_after"),
          {:ok, _datetime, _offset} <- DateTime.from_iso8601(created_after),
          page_size when is_integer(page_size) and page_size in 1..100 <-
-           Map.get(args, "page_size") do
+           Map.get(args, "page_size"),
+         max_candidates
+         when is_integer(max_candidates) and
+                max_candidates in 1..@max_recent_job_candidates <-
+           Map.get(args, "max_candidates") do
       ["=/api/v2/jobs/"]
     else
       _ -> []
@@ -854,6 +900,33 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
          {:ok, _credential_type_id} <- positive_arg(args, "credential_type_id"),
          {:ok, _organization_id} <- positive_arg(args, "organization_id"),
          true <- bounded_nonempty_string?(Map.get(args, "credential_name"), 128) do
+      ["=/api/v2/credentials/"]
+    else
+      _ -> []
+    end
+  end
+
+  defp allowed_paths_for("awx.verify_callback_credential", args) do
+    with true <- exact_arg_keys?(args, @callback_verify_arg_keys),
+         {:ok, credential_id} <- positive_arg(args, "credential_id"),
+         {:ok, _credential_type_id} <- positive_arg(args, "credential_type_id"),
+         {:ok, _organization_id} <- positive_arg(args, "organization_id"),
+         true <- bounded_nonempty_string?(Map.get(args, "credential_name"), 128) do
+      ["=/api/v2/credentials/#{credential_id}/"]
+    else
+      _ -> []
+    end
+  end
+
+  defp allowed_paths_for("awx.list_callback_credentials", args) do
+    with true <- exact_arg_keys?(args, @callback_list_arg_keys),
+         {:ok, _credential_type_id} <- positive_arg(args, "credential_type_id"),
+         {:ok, _organization_id} <- positive_arg(args, "organization_id"),
+         true <- bounded_nonempty_string?(Map.get(args, "credential_name"), 128),
+         max_credentials
+         when is_integer(max_credentials) and
+                max_credentials in 1..@max_callback_credentials <-
+           Map.get(args, "max_credentials") do
       ["=/api/v2/credentials/"]
     else
       _ -> []
@@ -1242,6 +1315,17 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
     end
   end
 
+  defp fetch_bounded_positive_int!(map, key, maximum) do
+    case fetch_int!(map, key) do
+      value when value > 0 and value <= maximum ->
+        value
+
+      value ->
+        raise ArgumentError,
+              "expected #{inspect(key)} in 1..#{maximum}, got #{inspect(value)}"
+    end
+  end
+
   defp fetch_nonempty_string!(map, key) do
     case Map.get(map, key) || Map.get(map, to_string(key)) do
       value when is_binary(value) ->
@@ -1260,6 +1344,18 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
     case Map.get(map, :page_size) || Map.get(map, "page_size") || 50 do
       value when is_integer(value) and value in 1..100 -> value
       value -> raise ArgumentError, "expected page_size in 1..100, got #{inspect(value)}"
+    end
+  end
+
+  defp durable_recent_job_bound(map) do
+    case Map.get(map, :max_candidates) ||
+           Map.get(map, "max_candidates") || @max_recent_job_candidates do
+      @max_recent_job_candidates ->
+        @max_recent_job_candidates
+
+      value ->
+        raise ArgumentError,
+              "expected max_candidates to equal the durable #{@max_recent_job_candidates} bound, got #{inspect(value)}"
     end
   end
 

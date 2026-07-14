@@ -147,6 +147,9 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
     assert callback.grant_attrs.policy_snapshot["phase"] == nil
     assert callback.grant_attrs.response_snapshot["phase"] == "preflight"
     assert callback.callback_origin == "https://demo.example.com"
+    assert callback.dispatch_agent_id == "agent-farm01"
+    assert callback.dispatch_partition_id == "farm01"
+    assert callback.grant_attrs.dispatch_partition_id == "farm01"
 
     assert_receive {:mark_dispatching, _persisted}
 
@@ -184,6 +187,17 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
     Application.delete_env(:serviceradar_core, :automation_callback_origin)
 
     assert {:error, :automation_callback_origin_unavailable} = launch()
+    refute_receive {:persist_callback_plan, _, _}
+  end
+
+  test "fails closed when control-session evidence does not match the controller agent" do
+    resolver = fn _agent_id ->
+      {:ok, %{agent_id: "agent-tonka01", partition_id: "tonka01"}}
+    end
+
+    assert {:error, :authenticated_edge_principal_mismatch} =
+             launch(edge_principal_resolver: resolver)
+
     refute_receive {:persist_callback_plan, _, _}
   end
 
@@ -270,6 +284,9 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
       Keyword.merge(
         [
           actions: FakeActions,
+          edge_principal_resolver: fn agent_id ->
+            {:ok, %{agent_id: agent_id, partition_id: "farm01"}}
+          end,
           response_policy_provider: PolicyProvider,
           lifecycle_opts: [],
           envelope_opts: [encryption_key: @envelope_key],

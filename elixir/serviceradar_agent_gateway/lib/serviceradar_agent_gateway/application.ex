@@ -140,7 +140,8 @@ defmodule ServiceRadarAgentGateway.Application do
           ServiceRadarAgentGateway.AgentCertificateRevocation,
           ServiceRadarAgentGateway.StatusBuffer,
           ServiceRadarAgentGateway.CameraMediaSessionTracker,
-          ServiceRadarAgentGateway.DesktopMediaSessionTracker
+          ServiceRadarAgentGateway.DesktopMediaSessionTracker,
+          ServiceRadarAgentGateway.DesktopMediaCloseReconciler
 
           # NOTE: Legacy polling modules (AgentClient, TaskExecutor) have been deleted.
           # In the new push-only architecture, agents push status to the gateway.

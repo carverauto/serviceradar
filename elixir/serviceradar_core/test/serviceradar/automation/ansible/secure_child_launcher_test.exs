@@ -136,7 +136,20 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
   end
 
   defp controller(overrides \\ %{}) do
-    Map.merge(%{id: @controller_id, enabled: true, name: "farm01-awx"}, overrides)
+    Map.merge(
+      %{
+        id: @controller_id,
+        enabled: true,
+        name: "farm01-awx",
+        base_url: "https://awx.example.test:443",
+        agent_id: "edge-agent-1",
+        sync_credential_secret_id: "018f3f56-1111-7222-8333-123456789ac1",
+        execution_credential_secret_id: "018f3f56-1111-7222-8333-123456789ac2",
+        callback_credential_secret_id: nil,
+        metadata: %{}
+      },
+      overrides
+    )
   end
 
   defp reviewed_binding(overrides \\ %{}) do

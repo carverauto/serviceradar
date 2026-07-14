@@ -17,6 +17,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   alias ServiceRadar.Edge.RemoteAccessTargetPolicy
   alias ServiceRadar.Edge.RemoteAccessTcpTarget
   alias ServiceRadar.Events.AuditWriter
+  alias ServiceRadar.Identity.CurrentUserAuthority
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Plugins.ValueUtils
   alias ServiceRadar.Repo
@@ -134,7 +135,13 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
            normalize_expected_session_id(Keyword.get(opts, :session_id)),
          {:ok, expected_owner_id} <- expected_scope_owner_id(opts),
          {:ok, attached} <-
-           consume_attach_ticket(ticket_hash, expected_session_id, expected_owner_id, system_opts) do
+           consume_attach_ticket(
+             ticket_hash,
+             expected_session_id,
+             expected_owner_id,
+             system_opts,
+             opts
+           ) do
       write_audit(:remote_access_session_attach, attached, opts,
         terminal_outcome: nil,
         close_reason: nil,
@@ -156,7 +163,13 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
     end
   end
 
-  defp consume_attach_ticket(ticket_hash, expected_session_id, expected_owner_id, system_opts) do
+  defp consume_attach_ticket(
+         ticket_hash,
+         expected_session_id,
+         expected_owner_id,
+         system_opts,
+         opts
+       ) do
     case Repo.transaction(fn ->
            case lock_attach_session(
                   ticket_hash,
@@ -165,11 +178,17 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
                   system_opts
                 ) do
              {:ok, session} ->
-               attach_opts = Keyword.put(system_opts, :return_notifications?, true)
+               case authorize_current_attach(session, opts) do
+                 :ok ->
+                   attach_opts = Keyword.put(system_opts, :return_notifications?, true)
 
-               case RemoteAccessSession.attach(session, %{}, attach_opts) do
-                 {:ok, attached, notifications} -> {attached, notifications}
-                 {:error, error} -> Repo.rollback(error)
+                   case RemoteAccessSession.attach(session, %{}, attach_opts) do
+                     {:ok, attached, notifications} -> {attached, notifications}
+                     {:error, error} -> Repo.rollback(error)
+                   end
+
+                 {:error, error} ->
+                   Repo.rollback(error)
                end
 
              {:error, error} ->
@@ -184,6 +203,34 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
         {:error, error}
     end
   end
+
+  defp authorize_current_attach(session, opts) do
+    case Keyword.fetch(opts, :scope) do
+      {:ok, scope} ->
+        authority_module =
+          Keyword.get(opts, :current_authority_module, CurrentUserAuthority)
+
+        case authority_module.authorize(scope, attach_permission(session)) do
+          {:ok, _authority} -> :ok
+          _ -> {:error, :current_authority_denied}
+        end
+
+      :error ->
+        authorize_trusted_internal_attach(opts)
+    end
+  end
+
+  defp authorize_trusted_internal_attach(opts) do
+    case {Keyword.get(opts, :trusted_internal_attach?, false), Keyword.get(opts, :actor)} do
+      {true, %{role: :system}} -> :ok
+      _ -> {:error, :current_authority_denied}
+    end
+  end
+
+  defp attach_permission(%{protocol: protocol}) when protocol in [:rdp, "rdp"],
+    do: "devices.remote_access.rdp.open"
+
+  defp attach_permission(_session), do: "devices.remote_access.ssh.open"
 
   defp lock_attach_session(ticket_hash, expected_session_id, expected_owner_id, system_opts) do
     query =

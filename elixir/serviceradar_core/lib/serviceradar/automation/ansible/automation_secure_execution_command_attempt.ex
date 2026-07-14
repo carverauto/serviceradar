@@ -63,7 +63,7 @@ defmodule ServiceRadar.Automation.Ansible.AutomationSecureExecutionCommandAttemp
         attempt BETWEEN 1 AND 1000
         AND dispatch_agent_id <> ''
         AND (expected_job_id IS NULL OR expected_job_id > 0)
-        AND cardinality(candidate_job_ids) <= 50
+        AND cardinality(candidate_job_ids) <= 5000
         AND 0 < ALL(candidate_job_ids)
         AND array_position(candidate_job_ids, NULL) IS NULL
         AND state IN ('planned', 'dispatching', 'dispatched', 'processing', 'waiting', 'succeeded', 'failed', 'ambiguous')
@@ -164,6 +164,7 @@ defmodule ServiceRadar.Automation.Ansible.AutomationSecureExecutionCommandAttemp
         :execution_id,
         :controller_id,
         :dispatch_agent_id,
+        :dispatch_partition_id,
         :stage,
         :purpose,
         :attempt,
@@ -333,6 +334,7 @@ defmodule ServiceRadar.Automation.Ansible.AutomationSecureExecutionCommandAttemp
     attribute :execution_id, :uuid, allow_nil?: false, public?: true
     attribute :controller_id, :uuid, allow_nil?: false, public?: true
     attribute :dispatch_agent_id, :string, allow_nil?: false, public?: true
+    attribute :dispatch_partition_id, :string, allow_nil?: true, public?: true
 
     attribute :stage, :atom do
       allow_nil? false

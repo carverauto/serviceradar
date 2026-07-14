@@ -14,11 +14,12 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   alias ServiceRadar.Credentials.CredentialUsePolicy
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialRulePreview
+  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.ProxmoxConsoleSession
   alias ServiceRadar.Edge.RemoteConsoleTarget
   alias ServiceRadar.Edge.RemoteConsoleTargetResolver
   alias ServiceRadar.Events.AuditWriter
-  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.CurrentUserAuthority
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.ProxmoxSourceScopeResolver
   alias ServiceRadar.Plugins.PluginAssignment
@@ -52,10 +53,10 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   @spec request_open(String.t(), create_request(), keyword()) ::
           {:ok, %{session: ProxmoxConsoleSession.t(), ticket: String.t()}} | {:error, term()}
   def request_open(device_uid, request \\ %{}, opts \\ []) when is_binary(device_uid) do
-    ash_opts = ash_opts(opts)
     system_opts = [actor: SystemActor.system(:proxmox_console_sessions)]
 
-    with :ok <- authorize_console_use(opts),
+    with {:ok, opts} <- authorize_console_use(opts),
+         ash_opts = ash_opts(opts),
          {:ok, requested_by} <- requesting_actor_id(opts),
          {:ok, %Device{} = device} <- Device.get_by_uid(device_uid, false, ash_opts),
          {:ok, target} <- resolve_target(device, request, system_opts),
@@ -63,6 +64,8 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
          {:ok, target} <- apply_rule_console_mode(target, rule),
          {:ok, agent_id} <- resolve_agent_id(target, rule),
          {:ok, assignment} <- resolve_active_assignment(rule, agent_id, opts),
+         {:ok, partition_id} <- assignment_partition_id(assignment),
+         :ok <- authenticate_edge_principal(partition_id, agent_id, opts),
          {:ok, ticket, ticket_hash} <- new_ticket(),
          attrs =
            session_attrs(
@@ -103,7 +106,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   def attach_with_ticket(ticket, opts \\ []) when is_binary(ticket) do
     system_opts = [actor: SystemActor.system(:proxmox_console_ticket)]
 
-    with :ok <- authorize_console_use(opts),
+    with {:ok, opts} <- authorize_console_use(opts),
          {:ok, ticket_hash} <- hash_ticket(ticket),
          {:ok, %ProxmoxConsoleSession{} = session} <-
            ProxmoxConsoleSession.get_by_ticket_hash(ticket_hash, system_opts),
@@ -480,6 +483,8 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
          {:ok, agent_id} <- resolve_agent_id(target, rule),
          :ok <- ensure_route_binding(session, target, agent_id),
          {:ok, assignment} <- resolve_active_assignment(rule, agent_id, opts),
+         {:ok, partition_id} <- assignment_partition_id(assignment),
+         :ok <- authenticate_edge_principal(partition_id, agent_id, opts),
          :ok <- ensure_rule_binding(session, rule, assignment) do
       :ok
     else
@@ -558,7 +563,9 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
       end
 
     with {:ok, assignment} <- result,
-         {:ok, _source_scope} <- validate_active_assignment(assignment, rule, agent_id) do
+         {:ok, partition_id} <- assignment_partition_id(assignment),
+         {:ok, _source_scope} <-
+           validate_active_assignment(assignment, rule, agent_id, partition_id) do
       {:ok, assignment}
     else
       {:error, :ambiguous_console_assignment} = error -> error
@@ -567,7 +574,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
     end
   end
 
-  defp validate_active_assignment(assignment, rule, agent_id) do
+  defp validate_active_assignment(assignment, rule, agent_id, partition_id) do
     actor = SystemActor.system(:proxmox_console_assignment_validation)
     rule_id = value_string(rule, [:id, "id"])
 
@@ -576,6 +583,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
       ProxmoxSourceScopeResolver.resolve_assignment(assignment,
         actor: actor,
         agent_id: agent_id,
+        partition_id: partition_id,
         assignment_id: value_string(assignment, [:id, "id"]),
         plugin_id: @console_plugin_id,
         rule_loader: fn expected_rule_id, _actor ->
@@ -642,11 +650,14 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
     actor = SystemActor.system(:proxmox_console_assignment)
     policy_id = console_policy_id(rule)
 
+    # This query only enumerates assignment candidates for the exact rule and
+    # agent. It cannot authorize a route: exactly one server-bound partition is
+    # required, and the subsequent control lookup uses that partition key.
     PluginAssignment
-    |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id}, actor: actor)
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
     |> Ash.Query.filter(
-      enabled == true and plugin_id == @console_plugin_id and source == :policy and
-        policy_id == ^policy_id
+      agent_uid == ^agent_id and enabled == true and plugin_id == @console_plugin_id and
+        source == :policy and policy_id == ^policy_id
     )
     |> Ash.read(actor: actor)
     |> case do
@@ -833,6 +844,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
       "assignment_policy_fingerprint" => assignment |> assignment_policy_fingerprint() |> elem(1),
       "assignment_policy_id" => value_string(assignment, [:policy_id, "policy_id"]),
       "assignment_agent_id" => value_string(assignment, [:agent_uid, "agent_uid"]),
+      "assignment_partition_id" => value_string(assignment, [:partition_id, "partition_id"]),
       "assignment_plugin_id" => value_string(assignment, [:plugin_id, "plugin_id"]),
       "assignment_plugin_package_id" =>
         value_string(assignment, [:plugin_package_id, "plugin_package_id"]),
@@ -938,25 +950,30 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   end
 
   defp authorize_console_use(opts) do
-    scope = Keyword.get(opts, :scope)
-    actor = audit_actor(opts)
+    subject = Keyword.get(opts, :scope) || Keyword.get(opts, :actor)
+    authority_module = Keyword.get(opts, :current_authority_module, CurrentUserAuthority)
 
-    cond do
-      match?(%{user: user} when not is_nil(user), scope) and
-          match?(%MapSet{}, Map.get(scope, :permissions)) ->
-        permissions = Map.fetch!(scope, :permissions)
+    case authority_module.authorize(subject, @console_permissions) do
+      {:ok, %{user: current_user, permissions: current_permissions}} ->
+        {:ok, refresh_authority_opts(opts, current_user, current_permissions)}
 
-        if Enum.all?(@console_permissions, &MapSet.member?(permissions, &1)),
-          do: :ok,
-          else: {:error, :forbidden}
-
-      not is_nil(actor) ->
-        if Enum.all?(@console_permissions, &RBAC.has_permission?(actor, &1)),
-          do: :ok,
-          else: {:error, :forbidden}
-
-      true ->
+      _ ->
         {:error, :forbidden}
+    end
+  end
+
+  defp refresh_authority_opts(opts, current_user, current_permissions) do
+    case Keyword.fetch(opts, :scope) do
+      {:ok, scope} when is_map(scope) ->
+        refreshed_scope =
+          scope
+          |> Map.put(:user, current_user)
+          |> Map.put(:permissions, current_permissions)
+
+        Keyword.put(opts, :scope, refreshed_scope)
+
+      _ ->
+        Keyword.put(opts, :actor, current_user)
     end
   end
 
@@ -1015,6 +1032,59 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   end
 
   defp partition_value(_device), do: nil
+
+  defp assignment_partition_id(assignment) do
+    case value_string(assignment, [:partition_id, "partition_id"]) do
+      partition_id when is_binary(partition_id) and partition_id != "" -> {:ok, partition_id}
+      _partition_id -> {:error, :console_assignment_partition_binding_missing}
+    end
+  end
+
+  defp authenticate_edge_principal(partition_id, agent_id, opts) do
+    configured_resolver =
+      Application.get_env(
+        :serviceradar_core,
+        :proxmox_console_edge_principal_resolver,
+        fn expected_partition_id, expected_agent_id ->
+          AgentCommandBus.resolve_control_session_evidence(
+            expected_partition_id,
+            expected_agent_id,
+            nil
+          )
+        end
+      )
+
+    resolver =
+      Keyword.get(opts, :edge_principal_resolver, configured_resolver)
+
+    result =
+      cond do
+        is_function(resolver, 2) ->
+          resolver.(partition_id, agent_id)
+
+        is_atom(resolver) and function_exported?(resolver, :resolve, 2) ->
+          resolver.resolve(partition_id, agent_id)
+
+        true ->
+          {:error, :console_edge_principal_unavailable}
+      end
+
+    case result do
+      {:ok, evidence} when is_map(evidence) ->
+        evidence_agent_id =
+          value_string(evidence, [:agent_id, "agent_id"])
+
+        evidence_partition_id =
+          value_string(evidence, [:partition_id, "partition_id"])
+
+        if evidence_agent_id == agent_id and evidence_partition_id == partition_id,
+          do: :ok,
+          else: {:error, :console_edge_principal_mismatch}
+
+      _ ->
+        {:error, :console_edge_principal_unavailable}
+    end
+  end
 
   defp device_metadata_string(%{metadata: metadata}, keys) when is_map(metadata),
     do: value_string(metadata, keys)

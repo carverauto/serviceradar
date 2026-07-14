@@ -17,6 +17,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
   @awx_command_schema "serviceradar.awx_command.v1"
   @callback_binding_schema "serviceradar.awx_callback_credential_binding.v1"
   @terminal_job_statuses ~w(successful failed error canceled)
+  @max_recent_candidates 5_000
 
   @type attempt_source :: map() | struct()
 
@@ -35,6 +36,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
       execution_id: value(base, :execution_id),
       controller_id: value(base, :controller_id),
       dispatch_agent_id: value(base, :dispatch_agent_id),
+      dispatch_partition_id: value(base, :dispatch_partition_id),
+      cleanup_only: Keyword.get(opts, :cleanup_only, false),
       stage: stage,
       purpose: purpose,
       attempt: attempt,
@@ -45,17 +48,20 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
       expected_job_id: Keyword.get(opts, :expected_job_id),
       reconcile_after: Keyword.get(opts, :reconcile_after),
       terminal_job_snapshot: Keyword.get(opts, :terminal_job_snapshot),
+      candidate_job_ids: Keyword.get(opts, :candidate_job_ids, []),
       deadline_at: Keyword.fetch!(opts, :deadline_at),
       next_attempt_at: Keyword.get(opts, :next_attempt_at)
     }
 
     with {:ok, command_id} <- uuid(command_id),
+         :ok <- validate_dispatch_principal(attrs),
          :ok <-
            validate_terminal_evidence(
              purpose,
              attrs.terminal_job_snapshot,
              attrs.expected_job_id
            ),
+         :ok <- validate_candidate_jobs(stage, attrs.expected_job_id, attrs.candidate_job_ids),
          context = context(attrs, execution),
          {:ok, request_digest} <- CanonicalJSON.digest(request),
          {:ok, context_digest} <- CanonicalJSON.digest(context) do
@@ -70,6 +76,13 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
   def build_attempt(_base, _execution, _request, _opts),
     do: {:error, :invalid_callback_command_attempt}
 
+  defp validate_dispatch_principal(attrs) do
+    if nonempty?(attrs.dispatch_agent_id) and nonempty?(attrs.dispatch_partition_id) and
+         is_boolean(attrs.cleanup_only),
+       do: :ok,
+       else: {:error, :invalid_callback_dispatch_principal}
+  end
+
   @spec context(attempt_source(), map() | struct()) :: map()
   def context(attempt, execution) do
     %{
@@ -81,6 +94,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
       "callback_grant_id" => value(attempt, :grant_id),
       "controller_id" => value(attempt, :controller_id),
       "dispatch_agent_id" => value(attempt, :dispatch_agent_id),
+      "dispatch_partition_id" => value(attempt, :dispatch_partition_id),
+      "cleanup_only" => value(attempt, :cleanup_only) == true,
       "dispatch_id" => value(execution, :dispatch_id),
       "snapshot_digest" => value(execution, :snapshot_digest),
       "verb" => value(attempt, :command_type)
@@ -184,6 +199,12 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
   def host_summaries_request(_job_id, _target_count),
     do: {:error, :invalid_callback_host_summary_request}
 
+  @spec cancel_job_request(pos_integer()) :: {:ok, map()} | {:error, term()}
+  def cancel_job_request(job_id) when is_integer(job_id) and job_id > 0,
+    do: {:ok, %{job_id: job_id}}
+
+  def cancel_job_request(_job_id), do: {:error, :invalid_callback_cancel_job_request}
+
   @spec recent_jobs_request(map() | struct(), DateTime.t()) :: {:ok, map()} | {:error, term()}
   def recent_jobs_request(execution, %DateTime{} = reconcile_after) when is_map(execution) do
     created_by_id = execution |> value(:metadata) |> value(:awx_created_by_id)
@@ -196,7 +217,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
          inventory_id: value(execution, :inventory_id),
          created_by_id: created_by_id,
          created_after: DateTime.to_iso8601(reconcile_after),
-         page_size: 50
+         page_size: 50,
+         max_candidates: @max_recent_candidates
        }}
     else
       {:error, :invalid_callback_recent_jobs_request}
@@ -236,6 +258,21 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
     do: {:error, :invalid_callback_terminal_job_evidence}
 
   defp terminal_job_id(job), do: value(job, :job_id) || value(job, :id) || value(job, :job)
+
+  defp validate_candidate_jobs(:cancel_job, expected_job_id, candidate_job_ids)
+       when is_integer(expected_job_id) and expected_job_id > 0 and is_list(candidate_job_ids) and
+              length(candidate_job_ids) <= 5_000 do
+    if Enum.all?(candidate_job_ids, &positive_integer?/1) and
+         Enum.uniq(candidate_job_ids) == candidate_job_ids and
+         expected_job_id not in candidate_job_ids,
+       do: :ok,
+       else: {:error, :invalid_callback_candidate_job_ids}
+  end
+
+  defp validate_candidate_jobs(_stage, _expected_job_id, []), do: :ok
+
+  defp validate_candidate_jobs(_stage, _expected_job_id, _candidate_job_ids),
+    do: {:error, :invalid_callback_candidate_job_ids}
 
   @spec context_matches?(attempt_source(), map() | struct(), map()) :: boolean()
   def context_matches?(attempt, execution, actual) when is_map(actual) do
@@ -342,6 +379,9 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
 
       :list_recent_jobs ->
         stringify_deep(request)
+
+      :cancel_job ->
+        %{"job_id" => value(request, :job_id)}
 
       _ ->
         nil

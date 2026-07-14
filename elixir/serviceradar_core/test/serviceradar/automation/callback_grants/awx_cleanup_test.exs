@@ -36,6 +36,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AwxCleanupTest do
              "execution_id" => @execution_id,
              "controller_id" => @controller_id,
              "dispatch_agent_id" => "agent-gateway-demo",
+             "dispatch_partition_id" => "farm01",
              "awx_job_id" => 9_001,
              "credential_id" => 401,
              "cleanup_kind" => "job_cancel",
@@ -43,6 +44,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.AwxCleanupTest do
            }
 
     assert_receive {:delete, ^controller, 401, binding, delete_opts}
+    assert cancel_opts[:required_partition] == "farm01"
+    assert delete_opts[:required_partition] == "farm01"
 
     assert binding == %{
              child_execution_id: @execution_id,
@@ -221,6 +224,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AwxCleanupTest do
         job_binding: %{controller_id: @controller_id, job_id: 9_001},
         ephemeral_credential_id: 401,
         dispatch_agent_id: "agent-gateway-demo",
+        dispatch_partition_id: "farm01",
         credential_cleanup_state: :deleting,
         credential_cleanup_attempted_at: nil,
         orphan_risk_state: :cancel_requested,

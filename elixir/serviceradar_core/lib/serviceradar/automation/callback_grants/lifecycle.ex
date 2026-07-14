@@ -102,6 +102,29 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
   def bind_credential(_grant_id, _credential_id, _opts),
     do: {:error, :invalid_callback_credential}
 
+  @doc "Reauthorizes a pending grant immediately before creating its AWX credential."
+  @spec reauthorize_credential_creation(binary(), opts()) ::
+          {:ok, map()} | {:error, term()}
+  def reauthorize_credential_creation(grant_id, opts)
+      when is_binary(grant_id) and is_list(opts) do
+    now = now(opts)
+
+    with {:ok, grant} <- store(opts).fetch(grant_id, store_context(opts)),
+         :ok <- not_expired(grant, now),
+         :ok <- credential_creation_ready(grant),
+         {:ok, contract} <- ActionContract.fetch(value(grant, :action)),
+         {:ok, current} <- current_authority(:bind_credential, grant, opts),
+         :ok <- Authority.validate_issue(grant, current, contract) do
+      {:ok, public_result(grant, %{credential_creation_authorized: true})}
+    else
+      {:error, :grant_expired} -> expire_and_deny(grant_id, opts)
+      {:error, reason} -> handle_valid_denial(grant_id, reason, opts)
+    end
+  end
+
+  def reauthorize_credential_creation(_grant_id, _opts),
+    do: {:error, :invalid_callback_credential_creation}
+
   @doc "Reauthorizes a pending, credential-bound grant immediately before AWX launch."
   @spec authorize_launch_dispatch(binary(), opts()) :: {:ok, map()} | {:error, term()}
   def authorize_launch_dispatch(grant_id, opts) when is_binary(grant_id) and is_list(opts) do
@@ -333,6 +356,41 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
   @spec revoke(binary(), binary() | atom(), opts()) :: {:ok, map()} | {:error, term()}
   def revoke(grant_id, reason, opts), do: terminate(grant_id, :revoked, reason, :revoked, opts)
 
+  @doc "Atomically records directly verified AWX cleanup selectors while revoking authority."
+  @spec revoke_verified_cleanup(binary(), map(), binary() | atom(), opts()) ::
+          {:ok, map()} | {:error, term()}
+  def revoke_verified_cleanup(grant_id, cleanup_binding, reason, opts)
+      when is_binary(grant_id) and is_map(cleanup_binding) and is_list(opts) do
+    now = now(opts)
+    reason = safe_reason(reason)
+    adapter = store(opts)
+
+    with true <-
+           function_exported?(adapter, :transition_terminal_with_cleanup_binding, 7) ||
+             {:error, :verified_cleanup_binding_unavailable},
+         {:ok, grant} <- adapter.fetch(grant_id, store_context(opts)),
+         {:ok, audit} <- Audit.attrs(:revoked, grant, %{reason: reason}),
+         {:ok, terminal_grant} <-
+           adapter.transition_terminal_with_cleanup_binding(
+             grant_id,
+             :revoked,
+             reason,
+             cleanup_binding,
+             audit,
+             now,
+             store_context(opts)
+           ),
+         :ok <- run_cleanup(terminal_grant, :revoked, opts) do
+      {:ok, public_result(terminal_grant)}
+    else
+      false -> {:error, :verified_cleanup_binding_unavailable}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def revoke_verified_cleanup(_grant_id, _cleanup_binding, _reason, _opts),
+    do: {:error, :invalid_verified_cleanup_binding}
+
   @doc "Expires a grant before attempting external cancellation/credential cleanup."
   @spec expire(binary(), opts()) :: {:ok, map()} | {:error, term()}
   def expire(grant_id, opts), do: terminate(grant_id, :expired, :ttl_elapsed, :expired, opts)
@@ -436,6 +494,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
          job_binding: nil,
          ephemeral_credential_id: nil,
          dispatch_agent_id: value(attrs, :dispatch_agent_id),
+         dispatch_partition_id: value(attrs, :dispatch_partition_id),
          launch_envelope_ref: value(attrs, :launch_envelope_ref)
        }}
     else
@@ -971,6 +1030,25 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
         {:error, :callback_credential_not_bound}
 
       value(grant, :credential_cleanup_state) != :pending ->
+        {:error, :callback_credential_unavailable}
+
+      value(grant, :binding_verified) == true or not is_nil(value(grant, :job_binding)) ->
+        {:error, :job_binding_conflict}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp credential_creation_ready(grant) do
+    cond do
+      value(grant, :state) != :pending ->
+        {:error, {:grant_not_active, value(grant, :state)}}
+
+      not is_nil(value(grant, :ephemeral_credential_id)) ->
+        {:error, :callback_credential_already_bound}
+
+      value(grant, :credential_cleanup_state) not in [nil, :pending] ->
         {:error, :callback_credential_unavailable}
 
       value(grant, :binding_verified) == true or not is_nil(value(grant, :job_binding)) ->

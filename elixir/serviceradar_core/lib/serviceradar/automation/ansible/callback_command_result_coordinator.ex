@@ -16,6 +16,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   alias ServiceRadar.Automation.Ansible.CallbackCommandContract
   alias ServiceRadar.Automation.Ansible.CallbackCommandDispatcher
   alias ServiceRadar.Automation.Ansible.Controller
+  alias ServiceRadar.Automation.Ansible.ControllerProvenance
+  alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Automation.Ansible.ExecutionLifecycle
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Automation.Ansible.SecureExecutionLifecycle
@@ -31,13 +33,15 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   @actor SystemActor.system(:automation_callback_command_result_coordinator)
   @processing_lease_seconds 30
   @poll_seconds 1
+  @max_recent_candidates 5_000
   @command_types [
     "awx.create_callback_credential",
     "awx.fetch_callback_credential",
     "awx.launch_job",
     "awx.fetch_job",
     "awx.list_recent_jobs",
-    "awx.fetch_job_host_summaries"
+    "awx.fetch_job_host_summaries",
+    "awx.cancel_job"
   ]
   @active_job_statuses ~w(new pending waiting running)
   @terminal_job_statuses ~w(successful failed error canceled)
@@ -50,11 +54,20 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
     command_id = value(data, :command_id)
     command_type = value(data, :command_type)
     authenticated_agent_id = value(data, :agent_id)
+    authenticated_partition_id = value(data, :partition_id)
 
     if command_type in @command_types do
       with {:ok, command_id} <- uuid(command_id),
-           true <- nonempty?(authenticated_agent_id) || {:error, :authenticated_agent_required} do
-        process_persisted(command_id, authenticated_agent_id, command_type, opts)
+           true <- nonempty?(authenticated_agent_id) || {:error, :authenticated_agent_required},
+           true <-
+             nonempty?(authenticated_partition_id) ||
+               {:error, :authenticated_partition_required} do
+        process_persisted(
+          command_id,
+          authenticated_agent_id,
+          command_type,
+          Keyword.put(opts, :authenticated_partition_id, authenticated_partition_id)
+        )
       else
         false -> {:error, :authenticated_agent_required}
         {:error, _reason} = error -> error
@@ -98,7 +111,13 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
 
     with {:ok, bundle} <- load_bundle(command_id, opts),
          :ok <-
-           exact_authenticated_provenance(bundle, authenticated_agent_id, reported_command_type),
+           exact_authenticated_provenance(
+             bundle,
+             authenticated_agent_id,
+             reported_command_type,
+             opts
+           ),
+         :ok <- verify_controller_boundary(bundle),
          :ok <- terminal_command(bundle.command) do
       process_terminal_bundle(bundle, now, opts)
     else
@@ -140,6 +159,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
 
     with {:ok, bundle} <- load_bundle(attempt.command_id, opts),
          true <- same_id?(bundle.attempt.id, attempt.id) || {:error, :callback_attempt_changed},
+         :ok <- verify_controller_boundary(bundle),
          {:ok, claimed, token} <- claim_processing(bundle.attempt, now, opts) do
       bundle = %{bundle | attempt: claimed}
       reconcile_claimed_transport(bundle, token, now, opts)
@@ -188,7 +208,9 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
     end
   end
 
-  defp exact_authenticated_provenance(bundle, authenticated_agent_id, reported_type) do
+  defp exact_authenticated_provenance(bundle, authenticated_agent_id, reported_type, opts) do
+    authenticated_partition_id = Keyword.get(opts, :authenticated_partition_id)
+
     cond do
       bundle.command.agent_id != authenticated_agent_id ->
         {:error, :callback_result_authenticated_agent_mismatch}
@@ -196,11 +218,45 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
       bundle.attempt.dispatch_agent_id != authenticated_agent_id ->
         {:error, :callback_result_attempt_agent_mismatch}
 
+      bundle.command.partition_id != bundle.attempt.dispatch_partition_id ->
+        {:error, :callback_result_authenticated_partition_mismatch}
+
+      nonempty?(authenticated_partition_id) and
+          authenticated_partition_id != bundle.attempt.dispatch_partition_id ->
+        {:error, :callback_result_authenticated_partition_mismatch}
+
+      value(bundle.grant, :dispatch_agent_id) != bundle.attempt.dispatch_agent_id ->
+        {:error, :callback_result_grant_agent_mismatch}
+
+      value(bundle.grant, :dispatch_partition_id) != bundle.attempt.dispatch_partition_id ->
+        {:error, :callback_result_grant_partition_mismatch}
+
       bundle.command.command_type != reported_type ->
         {:error, :callback_result_reported_type_mismatch}
 
       true ->
         :ok
+    end
+  end
+
+  defp verify_controller_boundary(bundle) do
+    metadata = value(bundle.execution, :metadata) || %{}
+
+    with partition when is_binary(partition) and partition != "" <-
+           value(metadata, :dispatch_partition_id),
+         true <- partition == bundle.attempt.dispatch_partition_id,
+         true <- partition == value(bundle.command, :partition_id),
+         true <- partition == value(bundle.grant, :dispatch_partition_id),
+         :ok <-
+           ControllerSecuritySnapshot.verify(
+             bundle.controller,
+             value(metadata, :controller_security_snapshot)
+           ) do
+      :ok
+    else
+      false -> {:error, :callback_controller_security_boundary_drift}
+      {:error, _reason} = error -> error
+      _ -> {:error, :callback_dispatch_partition_required}
     end
   end
 
@@ -347,6 +403,9 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
         bundle.attempt.reconcile_after
       )
 
+  defp rebuild_request(%{attempt: %Attempt{stage: :cancel_job}} = bundle),
+    do: CallbackCommandContract.cancel_job_request(bundle.attempt.expected_job_id)
+
   defp rebuild_request(_bundle), do: {:error, :callback_command_stage_not_processable}
 
   defp exact_persisted_contract(bundle, request) do
@@ -354,6 +413,9 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
       same_id?(bundle.command.id, bundle.attempt.command_id),
       bundle.command.command_type == bundle.attempt.command_type,
       bundle.command.agent_id == bundle.attempt.dispatch_agent_id,
+      bundle.command.partition_id == bundle.attempt.dispatch_partition_id,
+      value(bundle.grant, :dispatch_agent_id) == bundle.attempt.dispatch_agent_id,
+      value(bundle.grant, :dispatch_partition_id) == bundle.attempt.dispatch_partition_id,
       same_id?(bundle.execution.id, bundle.attempt.execution_id),
       same_id?(bundle.operation.id, bundle.attempt.operation_id),
       same_id?(bundle.controller.id, bundle.attempt.controller_id),
@@ -377,13 +439,184 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   end
 
   defp process_claimed(bundle, request, lease_token, result_digest, now, opts) do
-    if successful_command?(bundle.command) do
-      case process_success(bundle, request, lease_token, result_digest, now, opts) do
-        {:ok, _next, _outcome} = success -> success
-        {:error, reason} -> fail_closed(bundle, lease_token, result_digest, reason, now, opts)
+    cleanup_only = bundle.attempt.cleanup_only == true or Keyword.get(opts, :cleanup_only, false)
+
+    cond do
+      cleanup_only ->
+        case process_cleanup_only_success(
+               bundle,
+               request,
+               lease_token,
+               result_digest,
+               now,
+               opts,
+               true
+             ) do
+          {:ok, _next, _outcome} = success -> success
+          {:error, reason} -> fail_closed(bundle, lease_token, result_digest, reason, now, opts)
+        end
+
+      successful_command?(bundle.command) ->
+        case process_success(bundle, request, lease_token, result_digest, now, opts) do
+          {:ok, _next, _outcome} = success -> success
+          {:error, reason} -> fail_closed(bundle, lease_token, result_digest, reason, now, opts)
+        end
+
+      true ->
+        process_command_failure(bundle, lease_token, result_digest, now, opts)
+    end
+  end
+
+  defp process_cleanup_only_success(
+         %{attempt: %Attempt{stage: stage}} = bundle,
+         _request,
+         token,
+         digest,
+         now,
+         opts,
+         true
+       )
+       when stage in [:create_credential, :fetch_credential] do
+    expected = credential_provenance_request(bundle)
+
+    with :ok <- validate_agent_credential_cleanup_result(bundle),
+         {:ok, verified} <- verified_credentials(bundle, expected, opts) do
+      case verified do
+        %{complete?: true, credentials: [credential]} ->
+          contain_verified_cleanup(
+            bundle,
+            %{credential_id: credential["id"]},
+            token,
+            digest,
+            :credential_cleanup_contained,
+            now,
+            opts
+          )
+
+        %{complete?: true, credentials: []} ->
+          schedule_cleanup_credential_lookup(bundle, token, digest, now, opts)
+
+        %{complete?: false} ->
+          {:error, :callback_credential_cleanup_lookup_incomplete}
+
+        %{credentials: credentials} when length(credentials) > 1 ->
+          {:error, :callback_credential_cleanup_ambiguous}
       end
-    else
-      process_command_failure(bundle, lease_token, result_digest, now, opts)
+    end
+  end
+
+  defp process_cleanup_only_success(
+         %{attempt: %Attempt{stage: :launch_job}} = bundle,
+         _request,
+         token,
+         digest,
+         now,
+         opts,
+         true
+       ) do
+    case directly_verified_launch_candidate(bundle, opts) do
+      {:ok, candidate} ->
+        contain_verified_cleanup(
+          bundle,
+          %{
+            credential_id: bundle.attempt.expected_credential_id,
+            job_id: candidate.job_id
+          },
+          token,
+          digest,
+          :launch_cleanup_contained,
+          now,
+          opts
+        )
+
+      {:error, _reason} ->
+        reconcile_cleanup_launch_candidates(bundle, token, digest, now, opts)
+    end
+  end
+
+  defp process_cleanup_only_success(
+         %{attempt: %Attempt{stage: :list_recent_jobs}} = bundle,
+         request,
+         token,
+         digest,
+         now,
+         opts,
+         true
+       ) do
+    with {:ok, verified} <- verified_recent_jobs(bundle, request, opts),
+         {:ok, candidates} <- verified_reconciled_job_candidates(bundle, verified.jobs) do
+      contain_cleanup_candidates(bundle, candidates, verified.complete?, token, digest, now, opts)
+    end
+  end
+
+  defp process_cleanup_only_success(
+         %{attempt: %Attempt{stage: :fetch_job, purpose: :accepted_job_proof}} = bundle,
+         _request,
+         token,
+         digest,
+         now,
+         opts,
+         true
+       ) do
+    with {:ok, job} <- verified_job(bundle, bundle.attempt.expected_job_id, opts),
+         {:ok, snapshot} <-
+           ExecutionLifecycle.accepted_job_snapshot(
+             bundle.execution,
+             bundle.controller.id,
+             job,
+             expected_ephemeral_credential_id: bundle.attempt.expected_credential_id
+           ) do
+      contain_verified_cleanup(
+        bundle,
+        %{
+          credential_id: bundle.attempt.expected_credential_id,
+          job_id: snapshot["awx_job_id"]
+        },
+        token,
+        digest,
+        :accepted_job_cleanup_contained,
+        now,
+        opts
+      )
+    end
+  end
+
+  defp process_cleanup_only_success(
+         %{attempt: %Attempt{stage: :cancel_job}} = bundle,
+         _request,
+         token,
+         digest,
+         now,
+         opts,
+         true
+       ) do
+    case verified_job(bundle, bundle.attempt.expected_job_id, opts) do
+      {:ok, job} ->
+        case SecureExecutionLifecycle.job_state(job) do
+          {:ok, :active} -> retry_unconfirmed_cancel(bundle, token, digest, now, opts)
+          {:ok, _terminal} -> advance_verified_cancel_queue(bundle, token, digest, now, opts)
+          {:error, _reason} -> retry_unconfirmed_cancel(bundle, token, digest, now, opts)
+        end
+
+      {:error, _reason} ->
+        retry_unconfirmed_cancel(bundle, token, digest, now, opts)
+    end
+  end
+
+  defp process_cleanup_only_success(bundle, request, token, digest, now, opts, true) do
+    case bundle.attempt.stage do
+      :delete_credential ->
+        process_success(
+          bundle,
+          request,
+          token,
+          digest,
+          now,
+          Keyword.put(opts, :cleanup_only, true)
+        )
+
+      _stage ->
+        {:error, :callback_deadline_cleanup_only}
     end
   end
 
@@ -418,29 +651,21 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
          now,
          opts
        ) do
+    expected = credential_provenance_request(bundle)
+
     with {:ok, credential_id} <- exact_create_result(bundle),
-         {:ok, _bound} <-
-           lifecycle(opts).bind_credential(
-             bundle.attempt.grant_id,
-             credential_id,
-             lifecycle_opts!(opts)
-           ),
-         {:ok, request} <-
-           CallbackCommandContract.launch_request(
-             bundle.operation,
-             bundle.execution,
-             credential_id
-           ),
-         {:ok, next_attrs} <-
-           next_attempt_attrs(bundle, request, now,
-             stage: :launch_job,
-             purpose: :accepted_job_proof,
-             command_type: "awx.launch_job",
-             expected_credential_id: credential_id
-           ),
-         {:ok, next} <-
-           complete_with_next(bundle.attempt, token, digest, :credential_bound, next_attrs, now) do
-      {:ok, next, :credential_bound}
+         {:ok, credential} <- verified_credential(bundle, credential_id, expected, opts) do
+      bind_verified_credential(
+        bundle,
+        credential["id"],
+        token,
+        digest,
+        :credential_directly_verified,
+        now,
+        opts
+      )
+    else
+      {:error, _reason} -> reconcile_untrusted_credential_result(bundle, token, digest, now)
     end
   end
 
@@ -453,21 +678,25 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
          opts
        ) do
     with {:ok, job_id} <- exact_launch_result(bundle),
-         {:ok, binding} <- Lifecycle.pending_job_binding(bundle.grant, job_id),
-         {:ok, _bound} <-
-           lifecycle(opts).bind_job(bundle.attempt.grant_id, binding, lifecycle_opts!(opts)),
-         {:ok, request} <- CallbackCommandContract.fetch_job_request(job_id),
-         {:ok, next_attrs} <-
-           next_attempt_attrs(bundle, request, now,
-             stage: :fetch_job,
-             purpose: :accepted_job_proof,
-             command_type: "awx.fetch_job",
-             expected_credential_id: bundle.attempt.expected_credential_id,
-             expected_job_id: job_id
+         {:ok, job} <- verified_job(bundle, job_id, opts),
+         {:ok, snapshot} <-
+           ExecutionLifecycle.accepted_job_snapshot(
+             bundle.execution,
+             bundle.controller.id,
+             job,
+             expected_ephemeral_credential_id: bundle.attempt.expected_credential_id
            ),
-         {:ok, next} <-
-           complete_with_next(bundle.attempt, token, digest, :job_bound_pending, next_attrs, now) do
-      {:ok, next, :job_bound_pending}
+         {:ok, state} <- SecureExecutionLifecycle.job_state(job) do
+      reconcile_verified_candidate(
+        bundle,
+        %{job: job, job_id: job_id, snapshot: snapshot, state: state},
+        token,
+        digest,
+        now,
+        opts
+      )
+    else
+      {:error, _reason} -> reconcile_untrusted_launch_result(bundle, token, digest, now)
     end
   end
 
@@ -479,40 +708,30 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
          now,
          opts
        ) do
-    with {:ok, result} <- exact_credential_lookup_result(bundle) do
-      if result.found? do
-        with {:ok, _bound} <-
-               lifecycle(opts).bind_credential(
-                 bundle.attempt.grant_id,
-                 result.credential_id,
-                 lifecycle_opts!(opts)
-               ),
-             {:ok, request} <-
-               CallbackCommandContract.launch_request(
-                 bundle.operation,
-                 bundle.execution,
-                 result.credential_id
-               ),
-             {:ok, next_attrs} <-
-               next_attempt_attrs(bundle, request, now,
-                 stage: :launch_job,
-                 purpose: :accepted_job_proof,
-                 command_type: "awx.launch_job",
-                 expected_credential_id: result.credential_id
-               ),
-             {:ok, next} <-
-               complete_with_next(
-                 bundle.attempt,
-                 token,
-                 digest,
-                 :credential_reconciled,
-                 next_attrs,
-                 now
-               ) do
-          {:ok, next, :credential_reconciled}
-        end
-      else
-        schedule_credential_lookup_poll(bundle, token, digest, now)
+    expected = credential_provenance_request(bundle)
+
+    with {:ok, _agent_result} <- exact_credential_lookup_result(bundle),
+         {:ok, verified} <- verified_credentials(bundle, expected, opts) do
+      case verified do
+        %{complete?: true, credentials: [credential]} ->
+          bind_verified_credential(
+            bundle,
+            credential["id"],
+            token,
+            digest,
+            :credential_reconciled,
+            now,
+            opts
+          )
+
+        %{complete?: true, credentials: []} ->
+          schedule_credential_lookup_poll(bundle, token, digest, now)
+
+        %{complete?: false} ->
+          {:error, :callback_credential_lookup_incomplete}
+
+        %{credentials: credentials} when length(credentials) > 1 ->
+          {:error, :callback_credential_lookup_ambiguous}
       end
     end
   end
@@ -525,16 +744,22 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
          now,
          opts
        ) do
-    with {:ok, job} <- exact_fetch_job_result(bundle),
+    with {:ok, job} <- verified_fetch_job(bundle, opts),
          :ok <- active_job(job),
          {:ok, accepted} <-
            ExecutionLifecycle.accepted_job_snapshot(bundle.execution, bundle.controller.id, job,
              expected_ephemeral_credential_id: bundle.attempt.expected_credential_id
            ),
          {:ok, execution} <-
-           ExecutionLifecycle.bind_accepted_job(bundle.execution, bundle.controller.id, job,
-             expected_ephemeral_credential_id: bundle.attempt.expected_credential_id,
-             targets: bundle.targets
+           ExecutionLifecycle.bind_accepted_job(
+             bundle.execution,
+             bundle.controller.id,
+             job,
+             execution_lifecycle_opts(opts,
+               expected_ephemeral_credential_id: bundle.attempt.expected_credential_id,
+               targets: bundle.targets,
+               mutating?: bundle.operation.mutating
+             )
            ),
          {:ok, grant} <- GrantStore.fetch(bundle.attempt.grant_id, nil),
          {:ok, binding} <- Lifecycle.job_binding_from_accepted(grant, accepted),
@@ -575,7 +800,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
          now,
          opts
        ) do
-    with {:ok, job} <- exact_fetch_job_result(bundle) do
+    with {:ok, job} <- verified_fetch_job(bundle, opts) do
       case normalized_job_status(job) do
         status when status in @active_job_statuses ->
           with {:ok, request} <-
@@ -629,22 +854,26 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
          now,
          opts
        ) do
-    with {:ok, summaries} <- exact_summary_result(bundle) do
-      case ExecutionLifecycle.classify_host_scope(
-             bundle.execution,
-             bundle.targets,
-             bundle.controller.id,
-             bundle.attempt.expected_job_id,
-             summaries
-           ) do
-        {:ok, :exact} ->
-          activate_exact_scope(bundle, summaries, token, digest, now, opts)
+    if bundle.attempt.cleanup_only == true or Keyword.get(opts, :cleanup_only, false) do
+      {:error, :callback_deadline_cleanup_only}
+    else
+      with {:ok, summaries} <- exact_summary_result(bundle) do
+        case ExecutionLifecycle.classify_host_scope(
+               bundle.execution,
+               bundle.targets,
+               bundle.controller.id,
+               bundle.attempt.expected_job_id,
+               summaries
+             ) do
+          {:ok, :exact} ->
+            activate_exact_scope(bundle, summaries, token, digest, now, opts)
 
-        {:retry, :host_scope_incomplete} ->
-          schedule_scope_poll(bundle, token, digest, now)
+          {:retry, :host_scope_incomplete} ->
+            schedule_scope_poll(bundle, token, digest, now)
 
-        {:error, reason} ->
-          {:error, reason}
+          {:error, reason} ->
+            {:error, reason}
+        end
       end
     end
   end
@@ -655,9 +884,9 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
          token,
          digest,
          now,
-         _opts
+         opts
        ) do
-    with {:ok, job} <- exact_fetch_job_result(bundle),
+    with {:ok, job} <- verified_fetch_job(bundle, opts),
          :ok <-
            SecureExecutionLifecycle.validate_bound_job(
              bundle.execution,
@@ -715,40 +944,54 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
          now,
          opts
        ) do
-    with {:ok, result} <- exact_recent_jobs_result(bundle, request),
-         {:ok, candidate} <- exact_reconciled_job_candidate(bundle, result) do
-      case candidate do
-        nil ->
+    with {:ok, _agent_result} <- exact_recent_jobs_result(bundle, request),
+         {:ok, verified} <- verified_recent_jobs(bundle, request, opts),
+         {:ok, candidates} <- verified_reconciled_job_candidates(bundle, verified.jobs) do
+      cond do
+        verified.complete? and candidates == [] ->
           schedule_recent_jobs_poll(bundle, request, token, digest, now)
 
-        %{job_id: job_id} ->
-          with {:ok, binding} <- Lifecycle.pending_job_binding(bundle.grant, job_id),
-               {:ok, _bound} <-
-                 lifecycle(opts).bind_job(
-                   bundle.attempt.grant_id,
-                   binding,
-                   lifecycle_opts!(opts)
-                 ),
-               {:ok, fetch_request} <- CallbackCommandContract.fetch_job_request(job_id),
-               {:ok, next_attrs} <-
-                 next_attempt_attrs(bundle, fetch_request, now,
-                   stage: :fetch_job,
-                   purpose: :accepted_job_proof,
-                   command_type: "awx.fetch_job",
-                   expected_credential_id: value(bundle.grant, :ephemeral_credential_id),
-                   expected_job_id: job_id
-                 ),
-               {:ok, next} <-
-                 complete_with_next(
-                   bundle.attempt,
-                   token,
-                   digest,
-                   :launch_reconciled,
-                   next_attrs,
-                   now
-                 ) do
-            {:ok, next, :launch_reconciled}
+        verified.complete? and length(candidates) == 1 ->
+          reconcile_verified_candidate(bundle, hd(candidates), token, digest, now, opts)
+
+        not verified.complete? and candidates == [] ->
+          schedule_recent_jobs_poll(bundle, request, token, digest, now)
+
+        true ->
+          reason =
+            if verified.complete?,
+              do: :callback_launch_reconciliation_ambiguous,
+              else: :callback_recent_jobs_incomplete
+
+          contain_verified_candidates(bundle, candidates, token, digest, reason, now, opts)
+      end
+    end
+  end
+
+  defp process_success(
+         %{attempt: %Attempt{stage: :cancel_job}} = bundle,
+         _request,
+         token,
+         digest,
+         now,
+         opts
+       ) do
+    with :ok <- exact_cancel_result(bundle) do
+      case verified_job(bundle, bundle.attempt.expected_job_id, opts) do
+        {:ok, job} ->
+          case SecureExecutionLifecycle.job_state(job) do
+            {:ok, :active} ->
+              retry_unconfirmed_cancel(bundle, token, digest, now, opts)
+
+            {:ok, _terminal} ->
+              advance_verified_cancel_queue(bundle, token, digest, now, opts)
+
+            {:error, _reason} ->
+              retry_unconfirmed_cancel(bundle, token, digest, now, opts)
           end
+
+        {:error, _reason} ->
+          retry_unconfirmed_cancel(bundle, token, digest, now, opts)
       end
     end
   end
@@ -1060,7 +1303,13 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   end
 
   defp reconciliation_attempt_attrs(%{attempt: %Attempt{stage: stage}} = bundle, now)
-       when stage in [:fetch_credential, :fetch_job, :list_recent_jobs, :fetch_host_summaries] do
+       when stage in [
+              :fetch_credential,
+              :fetch_job,
+              :list_recent_jobs,
+              :fetch_host_summaries,
+              :cancel_job
+            ] do
     next_at = DateTime.add(now, @poll_seconds, :second)
 
     with :ok <- before_deadline(bundle.attempt, next_at),
@@ -1074,6 +1323,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
              expected_job_id: bundle.attempt.expected_job_id,
              reconcile_after: bundle.attempt.reconcile_after,
              terminal_job_snapshot: bundle.attempt.terminal_job_snapshot,
+             candidate_job_ids: bundle.attempt.candidate_job_ids,
              next_attempt_at: next_at
            ) do
       {:ok, attrs, :read_only_transport_retry}
@@ -1136,7 +1386,10 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
     with :ok <-
            exact_keys(
              payload,
-             ~w(verb ok template_id inventory_id created_by_id created_after page_size count truncated jobs)
+             ~w(
+               verb ok template_id inventory_id created_by_id created_after page_size
+               max_candidates count complete jobs
+             )
            ),
          true <- payload["verb"] == bundle.attempt.command_type,
          true <- payload["ok"] == true,
@@ -1145,44 +1398,782 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
          true <- payload["created_by_id"] == value(request, :created_by_id),
          true <- payload["created_after"] == value(request, :created_after),
          true <- payload["page_size"] == value(request, :page_size),
-         count when is_integer(count) and count >= 0 <- payload["count"],
-         truncated when is_boolean(truncated) <- payload["truncated"],
-         jobs when is_list(jobs) <- payload["jobs"],
-         true <-
-           (truncated and count >= length(jobs)) or
-             (not truncated and count == length(jobs)),
-         true <- length(jobs) <= value(request, :page_size) do
-      {:ok, %{jobs: jobs, count: count, truncated?: truncated}}
+         true <- payload["max_candidates"] == @max_recent_candidates,
+         count when is_integer(count) and count in 0..@max_recent_candidates <- payload["count"],
+         true <- payload["complete"] == true,
+         jobs when is_list(jobs) and length(jobs) == count <- payload["jobs"] do
+      {:ok, %{jobs: jobs, count: count, complete?: true}}
     else
       _ -> {:error, :callback_recent_jobs_result_mismatch}
     end
   end
 
-  defp exact_reconciled_job_candidate(_bundle, %{truncated?: true}),
-    do: {:error, :callback_recent_jobs_truncated}
+  defp exact_cancel_result(bundle) do
+    payload = stringify(bundle.command.result_payload)
 
-  defp exact_reconciled_job_candidate(bundle, %{jobs: jobs}) do
+    with :ok <- exact_keys(payload, ~w(verb ok job_id status)),
+         true <- payload["verb"] == bundle.attempt.command_type,
+         true <- payload["ok"] == true,
+         true <- payload["job_id"] == bundle.attempt.expected_job_id,
+         status when is_integer(status) and status in 200..299 <- payload["status"] do
+      :ok
+    else
+      _ -> {:error, :callback_cancel_result_mismatch}
+    end
+  end
+
+  defp verified_recent_jobs(bundle, request, opts) do
+    verifier = Keyword.get(opts, :controller_provenance, ControllerProvenance)
+    verifier_opts = controller_provenance_opts(bundle, opts)
+
+    result =
+      cond do
+        is_function(verifier, 3) ->
+          verifier.(bundle.controller, request, verifier_opts)
+
+        is_atom(verifier) ->
+          verifier.list_recent_jobs(bundle.controller, request, verifier_opts)
+
+        true ->
+          {:error, :controller_provenance_unavailable}
+      end
+
+    case result do
+      {:ok, %{jobs: jobs, complete?: complete?}}
+      when is_list(jobs) and is_boolean(complete?) ->
+        {:ok, %{jobs: jobs, complete?: complete?}}
+
+      {:error, _reason} = error ->
+        error
+
+      _ ->
+        {:error, :controller_provenance_unavailable}
+    end
+  end
+
+  defp credential_provenance_request(bundle) do
+    %{
+      credential_name: "sr-callback-#{bundle.execution.id}",
+      credential_type_id: value(bundle.grant.awx_scope_snapshot, :callback_credential_type_id),
+      organization_id:
+        value(bundle.grant.awx_scope_snapshot, :callback_credential_organization_id)
+    }
+  end
+
+  defp verified_credential(bundle, credential_id, expected, opts) do
+    verifier =
+      Keyword.get(opts, :controller_credential_provenance, ControllerProvenance)
+
+    verifier_opts = controller_provenance_opts(bundle, opts)
+
+    result =
+      cond do
+        is_function(verifier, 4) ->
+          verifier.(bundle.controller, credential_id, expected, verifier_opts)
+
+        is_atom(verifier) ->
+          verifier.verify_callback_credential(
+            bundle.controller,
+            credential_id,
+            expected,
+            verifier_opts
+          )
+
+        true ->
+          {:error, :controller_credential_provenance_unavailable}
+      end
+
+    case result do
+      {:ok, %{"id" => ^credential_id} = credential} -> {:ok, credential}
+      {:ok, _credential} -> {:error, :controller_credential_id_mismatch}
+      {:error, _reason} = error -> error
+      _ -> {:error, :controller_credential_provenance_unavailable}
+    end
+  end
+
+  defp verified_credentials(bundle, expected, opts) do
+    verifier = Keyword.get(opts, :controller_credential_lookup, ControllerProvenance)
+    verifier_opts = controller_provenance_opts(bundle, opts)
+
+    result =
+      cond do
+        is_function(verifier, 3) ->
+          verifier.(bundle.controller, expected, verifier_opts)
+
+        is_atom(verifier) ->
+          verifier.find_callback_credentials(bundle.controller, expected, verifier_opts)
+
+        true ->
+          {:error, :controller_credential_provenance_unavailable}
+      end
+
+    case result do
+      {:ok, %{credentials: credentials, complete?: complete?}}
+      when is_list(credentials) and is_boolean(complete?) ->
+        {:ok, %{credentials: credentials, complete?: complete?}}
+
+      {:error, _reason} = error ->
+        error
+
+      _ ->
+        {:error, :controller_credential_provenance_unavailable}
+    end
+  end
+
+  defp bind_verified_credential(bundle, credential_id, token, digest, outcome, now, opts) do
+    with {:ok, _bound} <-
+           lifecycle(opts).bind_credential(
+             bundle.attempt.grant_id,
+             credential_id,
+             lifecycle_opts!(opts)
+           ),
+         {:ok, request} <-
+           CallbackCommandContract.launch_request(
+             bundle.operation,
+             bundle.execution,
+             credential_id
+           ),
+         {:ok, next_attrs} <-
+           next_attempt_attrs(bundle, request, now,
+             stage: :launch_job,
+             purpose: :accepted_job_proof,
+             command_type: "awx.launch_job",
+             expected_credential_id: credential_id
+           ),
+         {:ok, next} <-
+           complete_with_next(bundle.attempt, token, digest, outcome, next_attrs, now) do
+      {:ok, next, outcome}
+    end
+  end
+
+  defp reconcile_untrusted_credential_result(bundle, token, digest, now) do
+    with {:ok, next_attrs, _outcome} <- reconciliation_attempt_attrs(bundle, now),
+         {:ok, next} <-
+           ambiguous_with_next(
+             bundle.attempt,
+             token,
+             digest,
+             :credential_result_untrusted,
+             next_attrs,
+             now
+           ) do
+      {:ok, next, :credential_result_untrusted}
+    end
+  end
+
+  defp reconcile_untrusted_launch_result(bundle, token, digest, now) do
+    with {:ok, next_attrs, _outcome} <- reconciliation_attempt_attrs(bundle, now),
+         {:ok, next} <-
+           ambiguous_with_next(
+             bundle.attempt,
+             token,
+             digest,
+             :launch_result_untrusted,
+             next_attrs,
+             now
+           ) do
+      {:ok, next, :launch_result_untrusted}
+    end
+  end
+
+  defp verified_fetch_job(bundle, opts) do
+    with {:ok, _agent_job} <- exact_fetch_job_result(bundle) do
+      verified_job(bundle, bundle.attempt.expected_job_id, opts)
+    end
+  end
+
+  defp verified_job(bundle, job_id, opts) do
+    verifier = Keyword.get(opts, :controller_provenance, ControllerProvenance)
+    verifier_opts = controller_provenance_opts(bundle, opts)
+
+    result =
+      cond do
+        is_function(verifier, 3) ->
+          verifier.(bundle.controller, job_id, verifier_opts)
+
+        is_atom(verifier) ->
+          verifier.verify_job(bundle.controller, job_id, verifier_opts)
+
+        true ->
+          {:error, :controller_provenance_unavailable}
+      end
+
+    case result do
+      {:ok, job} when is_map(job) -> {:ok, job}
+      {:error, _reason} = error -> error
+      _ -> {:error, :controller_provenance_unavailable}
+    end
+  end
+
+  # An agent result is only a wake-up signal in cleanup-only mode. In
+  # particular, a credential ID returned by the assigned agent must never
+  # select the object that core deletes. The exact selector comes exclusively
+  # from `verified_credentials/3` over the independent controller path.
+  defp validate_agent_credential_cleanup_result(%{
+         attempt: %Attempt{stage: stage},
+         command: %AgentCommand{}
+       })
+       when stage in [:create_credential, :fetch_credential], do: :ok
+
+  defp validate_agent_credential_cleanup_result(_bundle),
+    do: {:error, :callback_credential_cleanup_stage_mismatch}
+
+  defp directly_verified_launch_candidate(bundle, opts) do
+    with {:ok, job_id} <- exact_launch_result(bundle),
+         {:ok, job} <- verified_job(bundle, job_id, opts),
+         {:ok, snapshot} <-
+           ExecutionLifecycle.accepted_job_snapshot(
+             bundle.execution,
+             bundle.controller.id,
+             job,
+             expected_ephemeral_credential_id: bundle.attempt.expected_credential_id
+           ),
+         {:ok, state} <- SecureExecutionLifecycle.job_state(job) do
+      {:ok, %{job: job, job_id: job_id, snapshot: snapshot, state: state}}
+    end
+  end
+
+  defp reconcile_cleanup_launch_candidates(bundle, token, digest, now, opts) do
+    reconcile_after =
+      bundle.attempt.reconcile_after || bundle.attempt.dispatched_at || bundle.attempt.inserted_at ||
+        DateTime.add(now, -60, :second)
+
+    with {:ok, request} <-
+           CallbackCommandContract.recent_jobs_request(bundle.execution, reconcile_after) do
+      case verified_recent_jobs(bundle, request, opts) do
+        {:ok, verified} ->
+          with {:ok, candidates} <-
+                 verified_reconciled_job_candidates(bundle, verified.jobs) do
+            contain_cleanup_candidates(
+              bundle,
+              candidates,
+              verified.complete?,
+              token,
+              digest,
+              now,
+              opts
+            )
+          end
+
+        {:error, _reason} ->
+          schedule_cleanup_recent_jobs(
+            bundle,
+            request,
+            reconcile_after,
+            token,
+            digest,
+            now,
+            opts
+          )
+      end
+    end
+  end
+
+  defp schedule_cleanup_credential_lookup(bundle, token, digest, now, opts) do
+    with {:ok, request} <-
+           CallbackCommandContract.credential_lookup_request(
+             bundle.execution,
+             bundle.grant.awx_scope_snapshot
+           ),
+         {:ok, next_attrs} <-
+           cleanup_attempt_attrs(
+             bundle,
+             request,
+             now,
+             [
+               stage: :fetch_credential,
+               purpose: :credential_reconciliation,
+               command_type: "awx.fetch_callback_credential"
+             ],
+             opts
+           ),
+         {:ok, next} <-
+           complete_with_next(
+             bundle.attempt,
+             token,
+             digest,
+             :credential_cleanup_lookup_scheduled,
+             next_attrs,
+             now,
+             opts
+           ) do
+      {:ok, next, :credential_cleanup_lookup_scheduled}
+    end
+  end
+
+  defp schedule_cleanup_recent_jobs(bundle, request, reconcile_after, token, digest, now, opts) do
+    with {:ok, next_attrs} <-
+           cleanup_attempt_attrs(
+             bundle,
+             request,
+             now,
+             [
+               stage: :list_recent_jobs,
+               purpose: :launch_reconciliation,
+               command_type: "awx.list_recent_jobs",
+               expected_credential_id: cleanup_credential_id(bundle),
+               reconcile_after: reconcile_after
+             ],
+             opts
+           ),
+         {:ok, next} <-
+           complete_with_next(
+             bundle.attempt,
+             token,
+             digest,
+             :launch_cleanup_lookup_scheduled,
+             next_attrs,
+             now,
+             opts
+           ) do
+      {:ok, next, :launch_cleanup_lookup_scheduled}
+    end
+  end
+
+  defp contain_cleanup_candidates(bundle, [], true, token, digest, now, opts) do
+    case cleanup_credential_id(bundle) do
+      credential_id when is_integer(credential_id) and credential_id > 0 ->
+        contain_verified_cleanup(
+          bundle,
+          %{credential_id: credential_id},
+          token,
+          digest,
+          :launch_cleanup_no_job_found,
+          now,
+          opts
+        )
+
+      _missing ->
+        {:error, :callback_cleanup_credential_identity_missing}
+    end
+  end
+
+  defp contain_cleanup_candidates(bundle, [], false, token, digest, now, opts) do
+    reconcile_after =
+      bundle.attempt.reconcile_after || bundle.attempt.dispatched_at || bundle.attempt.inserted_at ||
+        DateTime.add(now, -60, :second)
+
+    with {:ok, request} <-
+           CallbackCommandContract.recent_jobs_request(bundle.execution, reconcile_after) do
+      schedule_cleanup_recent_jobs(
+        bundle,
+        request,
+        reconcile_after,
+        token,
+        digest,
+        now,
+        opts
+      )
+    end
+  end
+
+  defp contain_cleanup_candidates(bundle, candidates, _complete?, token, digest, now, opts)
+       when is_list(candidates) do
+    active =
+      candidates
+      |> Enum.filter(&(&1.state == :active))
+      |> Enum.sort_by(& &1.job_id)
+
+    primary = List.first(active) || List.first(candidates)
+
+    remaining_active_ids =
+      active
+      |> Enum.reject(&(&1.job_id == primary.job_id))
+      |> Enum.map(& &1.job_id)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    binding = %{
+      credential_id: cleanup_credential_id(bundle),
+      job_id: primary.job_id
+    }
+
+    with {:ok, _grant} <- revoke_verified_cleanup(bundle, binding, opts),
+         {:ok, next_attrs} <-
+           cleanup_candidate_cancel_attrs(bundle, remaining_active_ids, now, opts),
+         {:ok, next} <-
+           complete_cleanup_with_optional_next(
+             bundle,
+             token,
+             digest,
+             :verified_launch_cleanup_contained,
+             next_attrs,
+             now,
+             opts
+           ) do
+      {:ok, next, :verified_launch_cleanup_contained}
+    end
+  end
+
+  defp contain_verified_cleanup(bundle, binding, token, digest, outcome, now, opts) do
+    with {:ok, _grant} <- revoke_verified_cleanup(bundle, binding, opts),
+         {:ok, _attempt} <-
+           complete_without_next(bundle.attempt, token, digest, outcome, now, opts) do
+      {:ok, nil, outcome}
+    end
+  end
+
+  defp revoke_verified_cleanup(bundle, binding, opts) do
+    lifecycle = lifecycle(opts)
+
+    if is_atom(lifecycle) and Code.ensure_loaded?(lifecycle) and
+         function_exported?(lifecycle, :revoke_verified_cleanup, 4) do
+      lifecycle.revoke_verified_cleanup(
+        bundle.attempt.grant_id,
+        binding,
+        :callback_deadline_cleanup_only,
+        lifecycle_opts!(opts)
+      )
+    else
+      {:error, :verified_cleanup_binding_unavailable}
+    end
+  end
+
+  defp cleanup_candidate_cancel_attrs(_bundle, [], _now, _opts), do: {:ok, nil}
+
+  defp cleanup_candidate_cancel_attrs(bundle, [job_id | remaining], now, opts) do
+    with {:ok, request} <- CallbackCommandContract.cancel_job_request(job_id) do
+      cleanup_attempt_attrs(
+        bundle,
+        request,
+        now,
+        [
+          stage: :cancel_job,
+          purpose: :terminal_cleanup,
+          command_type: "awx.cancel_job",
+          expected_credential_id: cleanup_credential_id(bundle),
+          expected_job_id: job_id,
+          candidate_job_ids: remaining
+        ],
+        opts
+      )
+    end
+  end
+
+  defp complete_cleanup_with_optional_next(bundle, token, digest, outcome, nil, now, opts) do
+    with {:ok, _attempt} <-
+           complete_without_next(bundle.attempt, token, digest, outcome, now, opts) do
+      {:ok, nil}
+    end
+  end
+
+  defp complete_cleanup_with_optional_next(bundle, token, digest, outcome, next_attrs, now, opts) do
+    complete_with_next(bundle.attempt, token, digest, outcome, next_attrs, now, opts)
+  end
+
+  # Cleanup-only attempts deliberately receive a fresh, short cleanup deadline.
+  # Building them cannot consult the elapsed launch/create deadline, otherwise
+  # recovery would lose the only path that can discover and remove an orphan.
+  defp cleanup_attempt_attrs(bundle, request, now, attempt_opts, opts) do
+    deadline_at = Keyword.get(attempt_opts, :deadline_at, DateTime.add(now, 60, :second))
+    next_attempt_at = Keyword.get(attempt_opts, :next_attempt_at, now)
+
+    number_opts =
+      Keyword.put(attempt_opts, :attempt_store, callback_attempt_store(opts))
+
+    CallbackCommandContract.build_attempt(
+      %{
+        grant_id: bundle.attempt.grant_id,
+        operation_id: bundle.attempt.operation_id,
+        execution_id: bundle.attempt.execution_id,
+        controller_id: bundle.attempt.controller_id,
+        dispatch_agent_id: bundle.attempt.dispatch_agent_id,
+        dispatch_partition_id: bundle.attempt.dispatch_partition_id
+      },
+      bundle.execution,
+      request,
+      stage: Keyword.fetch!(attempt_opts, :stage),
+      purpose: Keyword.fetch!(attempt_opts, :purpose),
+      command_type: Keyword.fetch!(attempt_opts, :command_type),
+      attempt: next_attempt_number(bundle.attempt, number_opts),
+      expected_credential_id: Keyword.get(attempt_opts, :expected_credential_id),
+      expected_job_id: Keyword.get(attempt_opts, :expected_job_id),
+      reconcile_after: Keyword.get(attempt_opts, :reconcile_after),
+      terminal_job_snapshot: Keyword.get(attempt_opts, :terminal_job_snapshot),
+      candidate_job_ids: Keyword.get(attempt_opts, :candidate_job_ids, []),
+      cleanup_only: true,
+      deadline_at: deadline_at,
+      next_attempt_at: next_attempt_at
+    )
+  end
+
+  defp cleanup_credential_id(bundle) do
+    bundle.attempt.expected_credential_id || value(bundle.grant, :ephemeral_credential_id)
+  end
+
+  defp advance_verified_cancel_queue(bundle, token, digest, now, opts) do
+    case bundle.attempt.candidate_job_ids do
+      [next_job_id | remaining] ->
+        with {:ok, request} <- CallbackCommandContract.cancel_job_request(next_job_id),
+             {:ok, next_attrs} <-
+               next_attempt_attrs(bundle, request, now,
+                 stage: :cancel_job,
+                 purpose: :terminal_cleanup,
+                 command_type: "awx.cancel_job",
+                 expected_credential_id: bundle.attempt.expected_credential_id,
+                 expected_job_id: next_job_id,
+                 candidate_job_ids: remaining,
+                 deadline_at: DateTime.add(now, 60, :second),
+                 attempt_store: callback_attempt_store(opts)
+               ),
+             {:ok, next} <-
+               complete_with_next(
+                 bundle.attempt,
+                 token,
+                 digest,
+                 :candidate_canceled,
+                 next_attrs,
+                 now,
+                 opts
+               ) do
+          {:ok, next, :candidate_canceled}
+        end
+
+      [] ->
+        with {:ok, _attempt} <-
+               complete_without_next(
+                 bundle.attempt,
+                 token,
+                 digest,
+                 :cleanup_complete,
+                 now,
+                 opts
+               ) do
+          {:ok, nil, :cleanup_complete}
+        end
+    end
+  end
+
+  defp retry_unconfirmed_cancel(bundle, token, digest, now, opts) do
+    next_at = DateTime.add(now, @poll_seconds, :second)
+
+    with :ok <- before_deadline(bundle.attempt, next_at),
+         {:ok, request} <-
+           CallbackCommandContract.cancel_job_request(bundle.attempt.expected_job_id),
+         {:ok, next_attrs} <-
+           next_attempt_attrs(bundle, request, now,
+             stage: :cancel_job,
+             purpose: :terminal_cleanup,
+             command_type: "awx.cancel_job",
+             expected_credential_id: bundle.attempt.expected_credential_id,
+             expected_job_id: bundle.attempt.expected_job_id,
+             candidate_job_ids: bundle.attempt.candidate_job_ids,
+             deadline_at: bundle.attempt.deadline_at,
+             next_attempt_at: next_at,
+             attempt_store: callback_attempt_store(opts)
+           ),
+         {:ok, next} <-
+           complete_with_next(
+             bundle.attempt,
+             token,
+             digest,
+             :cancel_not_independently_confirmed,
+             next_attrs,
+             now,
+             opts
+           ) do
+      {:ok, next, :cancel_not_independently_confirmed}
+    end
+  end
+
+  defp verified_reconciled_job_candidates(bundle, jobs) do
     candidates =
-      Enum.reduce(jobs, [], fn job, acc ->
-        with :ok <- active_job(job),
-             {:ok, snapshot} <-
+      jobs
+      |> Enum.reduce([], fn job, acc ->
+        with {:ok, snapshot} <-
                ExecutionLifecycle.accepted_job_snapshot(
                  bundle.execution,
                  bundle.controller.id,
                  job,
                  expected_ephemeral_credential_id: value(bundle.grant, :ephemeral_credential_id)
-               ) do
-          [%{job: job, job_id: snapshot["awx_job_id"]} | acc]
+               ),
+             {:ok, state} <- SecureExecutionLifecycle.job_state(job) do
+          [%{job: job, job_id: snapshot["awx_job_id"], snapshot: snapshot, state: state} | acc]
         else
           _ -> acc
         end
       end)
+      |> Enum.sort_by(& &1.job_id)
 
-    case candidates do
-      [] -> {:ok, nil}
-      [candidate] -> {:ok, candidate}
-      _ -> {:error, :callback_launch_reconciliation_ambiguous}
+    ids = Enum.map(candidates, & &1.job_id)
+
+    if Enum.uniq(ids) == ids,
+      do: {:ok, candidates},
+      else: {:error, :controller_recent_jobs_duplicate_identity}
+  end
+
+  defp reconcile_verified_candidate(
+         bundle,
+         %{state: :active} = candidate,
+         token,
+         digest,
+         now,
+         opts
+       ) do
+    with {:ok, execution} <-
+           ExecutionLifecycle.bind_accepted_job(
+             bundle.execution,
+             bundle.controller.id,
+             candidate.job,
+             execution_lifecycle_opts(opts,
+               targets: bundle.targets,
+               mutating?: bundle.operation.mutating,
+               expected_ephemeral_credential_id: value(bundle.grant, :ephemeral_credential_id)
+             )
+           ),
+         {:ok, binding} <- Lifecycle.job_binding_from_accepted(bundle.grant, candidate.snapshot),
+         {:ok, _bound} <-
+           lifecycle(opts).bind_job(bundle.attempt.grant_id, binding, lifecycle_opts!(opts)),
+         bundle = %{bundle | execution: execution},
+         {:ok, request} <-
+           CallbackCommandContract.host_summaries_request(
+             candidate.job_id,
+             length(bundle.targets)
+           ),
+         {:ok, next_attrs} <-
+           next_attempt_attrs(bundle, request, now,
+             stage: :fetch_host_summaries,
+             purpose: :host_scope_proof,
+             command_type: "awx.fetch_job_host_summaries",
+             expected_credential_id: value(bundle.grant, :ephemeral_credential_id),
+             expected_job_id: candidate.job_id
+           ),
+         {:ok, next} <-
+           complete_with_next(
+             bundle.attempt,
+             token,
+             digest,
+             :launch_reconciled,
+             next_attrs,
+             now
+           ) do
+      {:ok, next, :launch_reconciled}
     end
+  end
+
+  defp reconcile_verified_candidate(bundle, candidate, token, digest, now, opts) do
+    with {:ok, execution} <-
+           ExecutionLifecycle.bind_accepted_job(
+             bundle.execution,
+             bundle.controller.id,
+             candidate.job,
+             execution_lifecycle_opts(opts,
+               targets: bundle.targets,
+               mutating?: bundle.operation.mutating,
+               expected_ephemeral_credential_id: value(bundle.grant, :ephemeral_credential_id)
+             )
+           ),
+         {:ok, binding} <- Lifecycle.job_binding_from_accepted(bundle.grant, candidate.snapshot),
+         {:ok, _bound} <-
+           lifecycle(opts).bind_job(bundle.attempt.grant_id, binding, lifecycle_opts!(opts)),
+         {:ok, _grant} <-
+           lifecycle(opts).job_terminal(
+             bundle.attempt.grant_id,
+             normalized_job_status(candidate.job),
+             lifecycle_opts!(opts)
+           ),
+         {:ok, _failed} <-
+           SecureExecutionLifecycle.fail_closed(
+             bundle.operation,
+             execution,
+             bundle.targets,
+             :failed,
+             :callback_reconciled_job_already_terminal,
+             Keyword.put(secure_lifecycle_opts(opts), :cancel_required, false)
+           ),
+         {:ok, _attempt} <-
+           complete_without_next(
+             bundle.attempt,
+             token,
+             digest,
+             :launch_reconciled_terminal,
+             now
+           ) do
+      {:ok, nil, :launch_reconciled_terminal}
+    end
+  end
+
+  defp contain_verified_candidates(bundle, candidates, token, digest, reason, now, opts) do
+    active_job_ids =
+      candidates
+      |> Enum.filter(&(&1.state == :active))
+      |> Enum.map(& &1.job_id)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    with {:ok, next_attrs} <- candidate_cancel_attrs(bundle, active_job_ids, now, opts),
+         {:ok, next} <-
+           callback_transaction(opts, fn ->
+             with {:ok, _attempt} <-
+                    callback_attempt_store(opts).mark_ambiguous(
+                      bundle.attempt,
+                      %{
+                        lease_token: token,
+                        processed_at: now,
+                        outcome_code: "verified_launch_candidates_contained",
+                        last_error_code: error_code(reason),
+                        result_digest: digest
+                      },
+                      actor: @actor
+                    ),
+                  {:ok, next} <- create_optional_callback_attempt(next_attrs, opts) do
+               next
+             else
+               {:error, failure} -> callback_rollback(opts, failure)
+             end
+           end),
+         revoke_result =
+           lifecycle(opts).revoke(bundle.attempt.grant_id, reason, lifecycle_opts!(opts)),
+         true <-
+           callback_authority_removed?(revoke_result) || {:error, :callback_revocation_failed},
+         {:ok, _failed} <-
+           SecureExecutionLifecycle.fail_closed(
+             bundle.operation,
+             bundle.execution,
+             bundle.targets,
+             :dispatch_ambiguous,
+             {reason, Enum.map(candidates, & &1.job_id)},
+             Keyword.put(secure_lifecycle_opts(opts), :cancel_required, active_job_ids != [])
+           ) do
+      {:ok, next, :verified_launch_candidates_contained}
+    else
+      false -> {:error, :callback_revocation_failed}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp candidate_cancel_attrs(_bundle, [], _now, _opts), do: {:ok, nil}
+
+  defp candidate_cancel_attrs(bundle, [job_id | remaining], now, opts) do
+    with {:ok, request} <- CallbackCommandContract.cancel_job_request(job_id) do
+      next_attempt_attrs(bundle, request, now,
+        stage: :cancel_job,
+        purpose: :terminal_cleanup,
+        command_type: "awx.cancel_job",
+        expected_credential_id: value(bundle.grant, :ephemeral_credential_id),
+        expected_job_id: job_id,
+        candidate_job_ids: remaining,
+        deadline_at: DateTime.add(now, 60, :second),
+        attempt_store: callback_attempt_store(opts)
+      )
+    end
+  end
+
+  defp create_optional_callback_attempt(nil, _opts), do: {:ok, nil}
+
+  defp create_optional_callback_attempt(attrs, opts),
+    do: callback_attempt_store(opts).create_planned(attrs, actor: @actor)
+
+  defp controller_provenance_opts(bundle, opts) do
+    metadata = value(bundle.execution, :metadata) || %{}
+
+    opts
+    |> Keyword.get(:controller_provenance_opts, [])
+    |> Keyword.put(
+      :expected_controller_snapshot,
+      value(metadata, :controller_security_snapshot)
+    )
+    |> Keyword.put(:expected_partition_id, bundle.attempt.dispatch_partition_id)
   end
 
   defp optional_found_credential_id(%{"found" => true, "credential_id" => id})
@@ -1264,7 +2255,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
           operation_id: bundle.attempt.operation_id,
           execution_id: bundle.attempt.execution_id,
           controller_id: bundle.attempt.controller_id,
-          dispatch_agent_id: bundle.attempt.dispatch_agent_id
+          dispatch_agent_id: bundle.attempt.dispatch_agent_id,
+          dispatch_partition_id: bundle.attempt.dispatch_partition_id
         },
         bundle.execution,
         request,
@@ -1274,8 +2266,11 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
         attempt: next_attempt_number(bundle.attempt, opts),
         expected_credential_id: Keyword.get(opts, :expected_credential_id),
         expected_job_id: Keyword.get(opts, :expected_job_id),
+        reconcile_after: Keyword.get(opts, :reconcile_after),
         terminal_job_snapshot: Keyword.get(opts, :terminal_job_snapshot),
-        deadline_at: bundle.attempt.deadline_at,
+        candidate_job_ids: Keyword.get(opts, :candidate_job_ids, []),
+        cleanup_only: Keyword.get(opts, :cleanup_only, bundle.attempt.cleanup_only == true),
+        deadline_at: Keyword.get(opts, :deadline_at, bundle.attempt.deadline_at),
         next_attempt_at: next_at
       )
     end
@@ -1285,7 +2280,9 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
     stage = Keyword.fetch!(opts, :stage)
     purpose = Keyword.fetch!(opts, :purpose)
 
-    case Attempt.list_for_grant(attempt.grant_id, actor: @actor) do
+    store = Keyword.get(opts, :attempt_store, Attempt)
+
+    case store.list_for_grant(attempt.grant_id, actor: @actor) do
       {:ok, attempts} ->
         attempts
         |> Enum.filter(&(&1.stage == stage and &1.purpose == purpose))
@@ -1299,9 +2296,13 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   end
 
   defp complete_with_next(attempt, token, result_digest, outcome, next_attrs, now) do
-    Repo.transaction(fn ->
+    complete_with_next(attempt, token, result_digest, outcome, next_attrs, now, [])
+  end
+
+  defp complete_with_next(attempt, token, result_digest, outcome, next_attrs, now, opts) do
+    callback_transaction(opts, fn ->
       with {:ok, _completed} <-
-             Attempt.mark_succeeded(
+             callback_attempt_store(opts).mark_succeeded(
                attempt,
                %{
                  lease_token: token,
@@ -1311,16 +2312,20 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
                },
                actor: @actor
              ),
-           {:ok, next} <- Attempt.create_planned(next_attrs, actor: @actor) do
+           {:ok, next} <- callback_attempt_store(opts).create_planned(next_attrs, actor: @actor) do
         next
       else
-        {:error, reason} -> Repo.rollback(reason)
+        {:error, reason} -> callback_rollback(opts, reason)
       end
     end)
   end
 
   defp complete_without_next(attempt, token, result_digest, outcome, now) do
-    Attempt.mark_succeeded(
+    complete_without_next(attempt, token, result_digest, outcome, now, [])
+  end
+
+  defp complete_without_next(attempt, token, result_digest, outcome, now, opts) do
+    callback_attempt_store(opts).mark_succeeded(
       attempt,
       %{
         lease_token: token,
@@ -1445,6 +2450,22 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   end
 
   defp lifecycle(opts), do: Keyword.get(opts, :lifecycle, Lifecycle)
+
+  defp callback_attempt_store(opts), do: Keyword.get(opts, :attempt_store, Attempt)
+
+  defp callback_transaction(opts, fun) do
+    case Keyword.get(opts, :transaction) do
+      callback when is_function(callback, 1) -> callback.(fun)
+      _callback -> Repo.transaction(fun)
+    end
+  end
+
+  defp callback_rollback(opts, reason) do
+    case Keyword.get(opts, :rollback) do
+      callback when is_function(callback, 1) -> callback.(reason)
+      _callback -> Repo.rollback(reason)
+    end
+  end
 
   defp execution_lifecycle_opts(opts, base) do
     case Keyword.get(opts, :execution_lifecycle_actions) do

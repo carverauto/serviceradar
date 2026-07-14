@@ -56,7 +56,17 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchema do
   end
 
   @binding_input_name ~r/\A[A-Za-z_][A-Za-z0-9_]{0,127}\z/
-  @sensitive_input_name ~r/(?:\A|_)(?:api_key|authorization|bearer|credential|passwd|password|private_key|secret|token)(?:_|\z)/
+  @sensitive_input_tokens MapSet.new(~w(
+                            authorization bearer credential credentials passwd password secret token
+                          ))
+  @sensitive_input_token_pairs MapSet.new(~w(
+                                 access_key access_token api_key api_token bearer_token
+                                 client_secret credential_value private_key
+                               ))
+  @sensitive_input_compounds MapSet.new(~w(
+                              accesskey accesstoken apikey apitoken bearertoken
+                              clientsecret credentialvalue privatekey
+                            ))
   @binding_definition_keys MapSet.new([
                              "type",
                              "required",
@@ -188,13 +198,38 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchema do
     normalized = String.downcase(name)
 
     Regex.match?(@binding_input_name, name) and
-      not Regex.match?(@sensitive_input_name, normalized) and
+      not sensitive_input_name?(name) and
       not String.starts_with?(normalized, "ansible_") and
       not MapSet.member?(@reserved_binding_inputs, normalized) and
       not MapSet.member?(@ansible_magic_inputs, normalized)
   end
 
   def reviewed_input_name?(_name), do: false
+
+  # Keep this identifier tokenization in parity with the AWX catalog plugin.
+  # Underscores, camel-case/acronym transitions, and letter/digit transitions
+  # are boundaries so spelling changes cannot turn a secret survey input into a
+  # reviewed non-secret binding input.
+  defp sensitive_input_name?(name) do
+    compact = name |> String.downcase() |> String.replace("_", "")
+
+    tokens =
+      name
+      |> String.replace(~r/([A-Z]+)([A-Z][a-z])/, "\\1_\\2")
+      |> String.replace(~r/([a-z0-9])([A-Z])/, "\\1_\\2")
+      |> String.replace(~r/([A-Za-z])([0-9])/, "\\1_\\2")
+      |> String.replace(~r/([0-9])([A-Za-z])/, "\\1_\\2")
+      |> String.downcase()
+      |> String.split("_", trim: true)
+
+    Enum.any?(@sensitive_input_compounds, &String.contains?(compact, &1)) or
+      Enum.any?(tokens, &MapSet.member?(@sensitive_input_tokens, &1)) or
+      tokens
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.any?(fn [left, right] ->
+        MapSet.member?(@sensitive_input_token_pairs, "#{left}_#{right}")
+      end)
+  end
 
   @doc false
   @spec from_git_sources([map()], map()) :: [Var.t()]

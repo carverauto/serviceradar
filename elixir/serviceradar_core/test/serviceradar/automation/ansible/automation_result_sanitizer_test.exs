@@ -5,6 +5,7 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizerTest do
 
   @command_id "019f4a9c-cf95-77e5-9dd5-cb84c710fb8e"
   @agent_id "edge-agent-1"
+  @partition_id "farm01"
   @dispatch_id "019f4a9c-de99-7f85-bc2e-3f193f6cda2c"
   @snapshot_digest String.duplicate("a", 64)
   @scm_revision String.duplicate("b", 40)
@@ -21,6 +22,7 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizerTest do
       command_id: @command_id,
       command_type: "awx.future_controller_verb",
       agent_id: @agent_id,
+      partition_id: @partition_id,
       success: true,
       message: secret,
       failure_reason: secret,
@@ -81,6 +83,7 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizerTest do
         command_id: @command_id,
         command_type: "awx.launch_job",
         agent_id: @agent_id,
+        partition_id: @partition_id,
         success: false,
         message: secret,
         failure_reason: {:http_error, secret},
@@ -91,6 +94,7 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizerTest do
              command_id: @command_id,
              command_type: "awx.launch_job",
              agent_id: @agent_id,
+             partition_id: @partition_id,
              success: false,
              message: "automation command failed",
              failure_reason: "automation_command_failed",
@@ -106,6 +110,7 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizerTest do
         command_id: @command_id,
         command_type: "awx.fetch_job",
         agent_id: @agent_id,
+        partition_id: @partition_id,
         success: true,
         message: "secret",
         payload: %{"raw_result_base64" => "c2VjcmV0"}
@@ -175,8 +180,9 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizerTest do
       "created_by_id" => 3,
       "created_after" => "2026-07-13T06:00:00Z",
       "page_size" => 50,
+      "max_candidates" => 5_000,
       "count" => 1,
-      "truncated" => false,
+      "complete" => true,
       "jobs" => [Map.put(valid_job(), "artifacts", %{"token" => "secret"})]
     }
 
@@ -186,6 +192,50 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizerTest do
     assert length(safe.payload["jobs"]) == 1
     refute Map.has_key?(hd(safe.payload["jobs"]), "artifacts")
     refute inspect(safe) =~ "secret"
+  end
+
+  test "callback provenance reads retain only exact secret-free credential scope" do
+    name = "sr-callback-018f3f56-1111-7222-8333-123456789abc"
+
+    credential = %{
+      "id" => 401,
+      "name" => name,
+      "credential_type_id" => 91,
+      "organization_id" => 2
+    }
+
+    verify =
+      AutomationResultSanitizer.sanitize(
+        result("awx.verify_callback_credential", %{
+          "verb" => "awx.verify_callback_credential",
+          "ok" => true,
+          "credential_id" => 401,
+          "credential" => credential
+        })
+      )
+
+    assert verify.success == true
+    assert verify.command_type == "awx.verify_callback_credential"
+    assert verify.payload["credential"] == credential
+
+    listed =
+      AutomationResultSanitizer.sanitize(
+        result("awx.list_callback_credentials", %{
+          "verb" => "awx.list_callback_credentials",
+          "ok" => true,
+          "credential_type_id" => 91,
+          "organization_id" => 2,
+          "credential_name" => name,
+          "max_credentials" => 5_000,
+          "count" => 1,
+          "complete" => true,
+          "credentials" => [credential]
+        })
+      )
+
+    assert listed.success == true
+    assert listed.command_type == "awx.list_callback_credentials"
+    assert listed.payload["credentials"] == [credential]
   end
 
   test "host summaries retain only exact identifiers, literal names, and counters" do
@@ -371,6 +421,7 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizerTest do
       command_id: @command_id,
       command_type: command_type,
       agent_id: @agent_id,
+      partition_id: @partition_id,
       success: true,
       message: "agent-controlled message",
       payload: payload

@@ -85,7 +85,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestorProxmoxScopeTest do
   test "live plugin-result routing injects the resolved trusted source scope" do
     scope = %{
       integration_id: "11111111-1111-4111-8111-111111111111",
-      controller_id: "22222222-2222-4222-8222-222222222222"
+      controller_id: "22222222-2222-4222-8222-222222222222",
+      partition_id: "farm01"
     }
 
     Application.put_env(:serviceradar_core, :proxmox_scope_test_result, {:ok, scope})
@@ -100,6 +101,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorProxmoxScopeTest do
     assert [cluster] = records.clusters
     assert cluster.integration_id == scope.integration_id
     assert cluster.controller_id == scope.controller_id
+    assert cluster.metadata["partition"] == scope.partition_id
     assert cluster.identity_version == 3
     assert String.starts_with?(cluster.provider_ref, "proxmox:v3:")
   end
@@ -124,7 +126,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestorProxmoxScopeTest do
   test "Proxmox results bypass generic discovery before global device ids can reconcile" do
     scope = %{
       integration_id: "11111111-1111-4111-8111-111111111111",
-      controller_id: "22222222-2222-4222-8222-222222222222"
+      controller_id: "22222222-2222-4222-8222-222222222222",
+      partition_id: "farm01"
     }
 
     Application.put_env(:serviceradar_core, :proxmox_scope_test_result, {:ok, scope})

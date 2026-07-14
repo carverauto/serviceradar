@@ -32,6 +32,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
        %{
          test_pid: opts[:test_pid],
          agent_id: opts[:agent_id],
+         partition_id: opts[:partition_id],
          ack_before_reply?: Keyword.get(opts, :ack_before_reply?, false),
          auto_result?: Keyword.get(opts, :auto_result?, false),
          marker: Keyword.get(opts, :marker)
@@ -77,6 +78,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
            command_id: command.command_id,
            command_type: command.command_type,
            agent_id: state.agent_id,
+           partition_id: state.partition_id,
            message: "ack"
          }}
       )
@@ -94,6 +96,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
           command_id: command.command_id,
           command_type: command.command_type,
           agent_id: state.agent_id,
+          partition_id: state.partition_id,
           response_subject: Map.get(context, :response_subject),
           success: true,
           message: "done",
@@ -245,6 +248,56 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
                  assignment_policy_fingerprint: ^fingerprint
                }
              ] = evidence.applied_plugin_assignments
+    end
+
+    test "same agent and gateway coexist across partitions and exact dispatch selects the requested principal",
+         %{agent_id: agent_id} do
+      {farm_pid, _metadata} =
+        start_control_session(
+          agent_id,
+          self(),
+          %{partition_id: "farm01", gateway_node: "gateway@shared"},
+          registry_key: {:agent_control, agent_id, :shared_gateway},
+          marker: :farm
+        )
+
+      {tonka_pid, _metadata} =
+        start_control_session(
+          agent_id,
+          self(),
+          %{partition_id: "tonka01", gateway_node: "gateway@shared"},
+          registry_key: {:agent_control, agent_id, :shared_gateway},
+          marker: :tonka
+        )
+
+      assert {:ok, %{control_session_pid: ^farm_pid, partition_id: "farm01"}} =
+               AgentCommandBus.resolve_control_session_evidence(
+                 "farm01",
+                 agent_id,
+                 "gateway@shared"
+               )
+
+      assert {:ok, %{control_session_pid: ^tonka_pid, partition_id: "tonka01"}} =
+               AgentCommandBus.resolve_control_session_evidence(
+                 "tonka01",
+                 agent_id,
+                 "gateway@shared"
+               )
+
+      assert {:error, {:agent_partition_ambiguous, ^agent_id}} =
+               AgentCommandBus.resolve_control_session_evidence(agent_id)
+
+      assert {:ok, _command_id} =
+               AgentCommandBus.dispatch(
+                 agent_id,
+                 "test.partition_bound",
+                 %{"partition_id" => "farm01"},
+                 required_partition: "tonka01",
+                 required_gateway_node: "gateway@shared"
+               )
+
+      assert_receive {:send_command, :tonka, %Monitoring.CommandRequest{}, _context}, 1_000
+      refute_received {:send_command, :farm, _, _}
     end
 
     test "an evidence-bound console dispatch never repins to a replacement session", %{
@@ -467,6 +520,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
         command_id: command.command_id,
         command_type: command.command_type,
         agent_id: agent_id,
+        partition_id: "default",
         success: true,
         message: "done",
         payload: %{
@@ -599,6 +653,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
            command_id: command_id,
            command_type: "test.run",
            agent_id: agent_id,
+           partition_id: "default",
            message: "ack"
          }}
       )
@@ -613,6 +668,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
            command_id: command_id,
            command_type: "test.run",
            agent_id: agent_id,
+           partition_id: "default",
            message: "running",
            progress_percent: 42
          }}
@@ -628,6 +684,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
            command_id: command_id,
            command_type: "test.run",
            agent_id: agent_id,
+           partition_id: "default",
            success: true,
            message: "done",
            payload: %{"ok" => true}
@@ -664,6 +721,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
                     command_id: command_id,
                     command_type: "test.run",
                     agent_id: agent_id,
+                    partition_id: "default",
                     message: "running",
                     progress_percent: 50,
                     payload: progress_payload
@@ -680,6 +738,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
                     command_id: command_id,
                     command_type: "test.run",
                     agent_id: agent_id,
+                    partition_id: "default",
                     success: true,
                     message: "done",
                     payload: result_payload
@@ -715,7 +774,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
         start_control_session(
           agent_id,
           self(),
-          %{partition_id: "default", capabilities: ["mtr"]},
+          %{partition_id: "farm01", capabilities: ["mtr"]},
           ack_before_reply?: true
         )
 
@@ -725,6 +784,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
                )
 
       command = wait_for_status(command_id, :acknowledged, actor)
+      assert command.partition_id == "farm01"
       assert command.message == "ack"
     end
 
@@ -862,6 +922,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
            command_id: command_id,
            command_type: "mtr.bulk_run",
            agent_id: agent_id,
+           partition_id: "default",
            message: "running",
            progress_percent: 50,
            payload: %{
@@ -915,6 +976,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
            command_id: command_id,
            command_type: "mtr.bulk_run",
            agent_id: agent_id,
+           partition_id: "default",
            success: true,
            message: "bulk mtr job completed",
            payload: %{
@@ -1022,14 +1084,21 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
     end
 
     test "returns an error when the control session exits during push", %{agent_id: agent_id} do
-      name = ProcessRegistry.via({:agent_control, agent_id}, %{partition_id: "default"})
+      metadata = %{agent_id: agent_id, partition_id: "default"}
+
+      name =
+        ProcessRegistry.via(
+          {:agent_control, "default", agent_id, node()},
+          metadata
+        )
+
       {:ok, pid} = CrashingControlSession.start(name: name)
 
       on_exit(fn ->
         if Process.alive?(pid), do: Process.exit(pid, :kill)
       end)
 
-      assert wait_for_control_session(agent_id, pid)
+      assert wait_for_control_session("default", agent_id, pid)
       assert {:error, {:control_session_exit, _reason}} = AgentCommandBus.push_config(agent_id)
       refute Process.alive?(pid)
     end
@@ -1244,12 +1313,21 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       |> Map.put_new(:agent_id, agent_id)
       |> Map.put_new(:pending_config_version, nil)
 
-    registry_key = Keyword.get(opts, :registry_key, {:agent_control, agent_id})
+    registry_key =
+      opts
+      |> Keyword.get(:registry_key)
+      |> canonical_test_control_key(metadata.partition_id, agent_id)
+
     name = ProcessRegistry.via(registry_key, metadata)
 
     {:ok, pid} =
       TestControlSession.start_link(
-        [name: name, test_pid: test_pid, agent_id: agent_id] ++
+        [
+          name: name,
+          test_pid: test_pid,
+          agent_id: agent_id,
+          partition_id: metadata.partition_id
+        ] ++
           Keyword.take(opts, [:ack_before_reply?, :auto_result?, :marker])
       )
 
@@ -1259,24 +1337,39 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       end
     end)
 
-    assert wait_for_control_session(agent_id, pid)
+    assert wait_for_control_session(metadata.partition_id, agent_id, pid)
 
     {pid, metadata}
   end
 
-  defp wait_for_control_session(agent_id, pid, attempts \\ 40)
+  defp canonical_test_control_key(nil, partition_id, agent_id),
+    do: {:agent_control, partition_id, agent_id, node()}
 
-  defp wait_for_control_session(_agent_id, _pid, 0), do: false
+  defp canonical_test_control_key(
+         {:agent_control, agent_id, registry_node},
+         partition_id,
+         agent_id
+       ),
+       do: {:agent_control, partition_id, agent_id, registry_node}
 
-  defp wait_for_control_session(agent_id, pid, attempts) do
-    if Enum.any?(AgentCommandBus.lookup_control_session_entries(agent_id), fn
+  defp canonical_test_control_key({:agent_control, agent_id}, partition_id, agent_id),
+    do: {:agent_control, partition_id, agent_id, node()}
+
+  defp canonical_test_control_key(key, _partition_id, _agent_id), do: key
+
+  defp wait_for_control_session(partition_id, agent_id, pid, attempts \\ 40)
+
+  defp wait_for_control_session(_partition_id, _agent_id, _pid, 0), do: false
+
+  defp wait_for_control_session(partition_id, agent_id, pid, attempts) do
+    if Enum.any?(AgentCommandBus.lookup_control_session_entries(partition_id, agent_id), fn
          {^pid, _metadata} -> true
          _entry -> false
        end) do
       true
     else
       Process.sleep(25)
-      wait_for_control_session(agent_id, pid, attempts - 1)
+      wait_for_control_session(partition_id, agent_id, pid, attempts - 1)
     end
   end
 

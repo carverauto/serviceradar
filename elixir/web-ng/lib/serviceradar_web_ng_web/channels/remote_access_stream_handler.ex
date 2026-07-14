@@ -76,7 +76,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
        sessions_module: Keyword.get(options, :sessions_module, RemoteAccessSessions),
        credential_grant_resolver: Keyword.get(options, :credential_grant_resolver, RemoteAccessCentralCredentialGrants),
        desktop_webrtc_module: Keyword.get(options, :desktop_webrtc_module, RemoteDesktopWebRTC),
-       authorization_module: Keyword.get(options, :authorization_module, ServiceRadar.Identity.RBAC),
+       authorization_module: Keyword.get(options, :authorization_module, ServiceRadarWebNG.RBAC),
        reauth_interval_ms: Keyword.get(options, :reauth_interval_ms, @default_reauth_interval_ms),
        broker: nil,
        session: nil,
@@ -94,12 +94,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
     with {:ok, %{"type" => "attach"} = message} <- decode_json(data),
          {:ok, ticket} <- required_string(message, "ticket"),
          :ok <- ensure_session_id(message, state.session_id),
-         {:ok, %RemoteAccessSession{} = session} <-
-           state.sessions_module.attach_with_ticket(ticket,
-             session_id: state.session_id,
-             scope: state.scope
-           ),
-         :ok <- ensure_session_owner(session, state.scope),
+         {:ok, %RemoteAccessSession{} = session, state} <- attach_with_current_authority(ticket, state),
          {:ok, broker} <- start_broker(session, message, state) do
       state =
         state
@@ -129,6 +124,9 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
         {:stop, :normal, 1008,
          [{:text, encode(%{type: "error", message: "The supplied SSH credential was rejected by policy."})}], state}
 
+      {:error, :permission_revoked, denied_state} ->
+        stop_for_permission_revoked(denied_state)
+
       {:error, reason} ->
         Logger.warning("Remote access websocket attach rejected",
           session_id: state.session_id,
@@ -141,8 +139,8 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   end
 
   def handle_in({data, [opcode: :text]}, state) do
-    case ensure_authorized(state) do
-      :ok ->
+    case ensure_current_authority(state) do
+      {:ok, state} ->
         case decode_json(data) do
           {:ok, %{"type" => "data", "data" => encoded}} when is_binary(encoded) ->
             with {:ok, payload} <- decode_base64(encoded),
@@ -213,8 +211,8 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   end
 
   def handle_in({_data, [opcode: :binary]}, state) do
-    case ensure_authorized(state) do
-      :ok ->
+    case ensure_current_authority(state) do
+      {:ok, state} ->
         log_unknown_stream_message("binary", state, :browser_binary)
         {:ok, state}
 
@@ -225,34 +223,46 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
 
   @impl true
   def handle_info({:remote_access_ready, session_id}, state) do
-    {:push, {:text, encode(%{type: "adapter_ready", session_id: session_id})}, state}
+    with_current_authority(state, fn state ->
+      {:push, {:text, encode(%{type: "adapter_ready", session_id: session_id})}, state}
+    end)
   end
 
   def handle_info({:remote_access_data, payload}, state) when is_binary(payload) do
-    {:push, {:text, encode(%{type: "data", data: Base.encode64(payload)})}, reset_idle_timer(state)}
+    with_current_authority(state, fn state ->
+      {:push, {:text, encode(%{type: "data", data: Base.encode64(payload)})}, reset_idle_timer(state)}
+    end)
   end
 
   def handle_info({:remote_access_file_transfer_frame, frame}, state) when is_map(frame) do
-    {:push, {:text, encode(file_transfer_message(frame, state))}, reset_idle_timer(state)}
+    with_current_authority(state, fn state ->
+      {:push, {:text, encode(file_transfer_message(frame, state))}, reset_idle_timer(state)}
+    end)
   end
 
   def handle_info({:remote_access_application_frame, frame}, state) when is_map(frame) do
-    {:push, {:text, encode(application_message(frame, state))}, reset_idle_timer(state)}
+    with_current_authority(state, fn state ->
+      {:push, {:text, encode(application_message(frame, state))}, reset_idle_timer(state)}
+    end)
   end
 
   def handle_info({:remote_access_tcp_frame, frame}, state) when is_map(frame) do
-    {:push, {:text, encode(tcp_message(frame, state))}, reset_idle_timer(state)}
+    with_current_authority(state, fn state ->
+      {:push, {:text, encode(tcp_message(frame, state))}, reset_idle_timer(state)}
+    end)
   end
 
   def handle_info({:remote_access_closed, reason}, state) do
-    _ =
-      state.sessions_module.close_session(state.session.id,
-        reason: format_close_reason(reason),
-        scope: state.scope
-      )
+    with_current_authority(state, fn state ->
+      _ =
+        state.sessions_module.close_session(state.session.id,
+          reason: format_close_reason(reason),
+          scope: state.scope
+        )
 
-    {:stop, :normal, 1000, [{:text, encode(%{type: "close", reason: format_close_reason(reason)})}],
-     %{state | closing_action: :closed}}
+      {:stop, :normal, 1000, [{:text, encode(%{type: "close", reason: format_close_reason(reason)})}],
+       %{state | closing_action: :closed}}
+    end)
   end
 
   def handle_info(:idle_timeout, state) do
@@ -272,8 +282,8 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   end
 
   def handle_info(:reauthorize, state) do
-    case ensure_authorized(state) do
-      :ok -> {:ok, schedule_reauth_timer(state)}
+    case ensure_current_authority(state) do
+      {:ok, state} -> {:ok, schedule_reauth_timer(state)}
       {:error, :permission_revoked} -> stop_for_permission_revoked(state)
     end
   end
@@ -333,6 +343,27 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
         ] ++ credential_opts
 
       state.broker_module.start_link(session, self(), opts)
+    end
+  end
+
+  defp attach_with_current_authority(ticket, state) do
+    with {:ok, %RemoteAccessSession{} = session} <-
+           state.sessions_module.attach_with_ticket(ticket,
+             session_id: state.session_id,
+             scope: state.scope
+           ),
+         :ok <- ensure_session_owner(session, state.scope),
+         {:ok, authorized_state} <- ensure_current_authority(%{state | session: session}) do
+      {:ok, session, authorized_state}
+    else
+      {:error, :permission_revoked} ->
+        {:error, :permission_revoked, state}
+
+      {:error, :current_authority_denied} ->
+        {:error, :permission_revoked, state}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -955,17 +986,21 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
      %{state | closing_action: :failed}}
   end
 
-  defp ensure_authorized(%{session: nil}), do: :ok
+  defp ensure_current_authority(%{session: nil} = state), do: {:ok, state}
 
-  defp ensure_authorized(state) do
-    user = scope_actor(state.scope)
+  defp ensure_current_authority(state) do
     permission = permission_for_session(state.session)
-    _ = clear_authorization_process_cache(state.authorization_module)
 
-    if state.authorization_module.has_permission?(user, permission) do
-      :ok
-    else
-      {:error, :permission_revoked}
+    case state.authorization_module.authorize_current(state.scope, [permission]) do
+      {:ok, refreshed_scope} -> {:ok, %{state | scope: refreshed_scope}}
+      _ -> {:error, :permission_revoked}
+    end
+  end
+
+  defp with_current_authority(state, authorized_callback) do
+    case ensure_current_authority(state) do
+      {:ok, state} -> authorized_callback.(state)
+      {:error, :permission_revoked} -> stop_for_permission_revoked(state)
     end
   end
 
@@ -974,10 +1009,6 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
       "rdp" -> "devices.remote_access.rdp.open"
       _protocol -> "devices.remote_access.ssh.open"
     end
-  end
-
-  defp clear_authorization_process_cache(module) do
-    if function_exported?(module, :clear_process_cache, 0), do: module.clear_process_cache()
   end
 
   defp stop_for_permission_revoked(state) do

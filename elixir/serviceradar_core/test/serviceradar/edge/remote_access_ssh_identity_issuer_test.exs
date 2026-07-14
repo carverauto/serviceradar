@@ -1,13 +1,23 @@
 defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy
   alias ServiceRadar.Edge.RemoteAccessSSHCertificates
   alias ServiceRadar.Edge.RemoteAccessSSHIdentityIssuer
+  alias ServiceRadar.Security.RateLimiter
 
   @permission RemoteAccessSSHCertificatePolicy.permission()
   @principal "srp_v1_6d8b1e49fbe24ad487ce2c5c"
   @other_principal "srp_v1_91c5f16df8aa4d90a6db2ed7"
+
+  setup_all do
+    if Process.whereis(RateLimiter) do
+      :ok
+    else
+      start_supervised!(RateLimiter)
+      :ok
+    end
+  end
 
   defmodule SignerStub do
     @moduledoc false
@@ -62,7 +72,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
                signer: SignerStub,
                audit_writer: {AuditWriterStub, test_pid: self()},
                test_pid: self(),
-               idp_claims: %{"groups" => ["linux-admins", "unrelated"]}
+               idp_claims: %{
+                 "groups" => ["linux-admins", "unrelated"],
+                 "service_radar_auth_method" => "oidc"
+               }
              )
 
     assert_receive {:sign_user_certificate, sign_request}
@@ -106,7 +119,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
                signer: SignerStub,
                audit_writer: {AuditWriterStub, test_pid: self()},
                test_pid: self(),
-               idp_claims: %{"groups" => ["auditors"]}
+               idp_claims: %{
+                 "groups" => ["auditors"],
+                 "service_radar_auth_method" => "oidc"
+               }
              )
 
     refute_received {:sign_user_certificate, _request}
@@ -136,7 +152,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
                signer: SignerStub,
                audit_writer: {AuditWriterStub, test_pid: self()},
                test_pid: self(),
-               idp_claims: %{}
+               idp_claims: %{"service_radar_auth_method" => "password"}
              )
 
     assert_receive {:audit, audit}
@@ -168,7 +184,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
                signer: SignerStub,
                audit_writer: {AuditWriterStub, test_pid: self()},
                test_pid: self(),
-               idp_claims: %{}
+               idp_claims: %{"service_radar_auth_method" => "oidc"}
              )
 
     assert_receive {:sign_user_certificate, sign_request}
@@ -180,7 +196,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
   end
 
   test "requires SSO-backed identity by default" do
-    actor = %{oidc_actor() | last_auth_method: :password, external_id: nil}
+    actor = oidc_actor()
 
     assert {:error, :sso_identity_required} =
              RemoteAccessSSHIdentityIssuer.issue(
@@ -202,6 +218,30 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuerTest do
     refute_received {:sign_user_certificate, _request}
     assert_receive {:audit, audit}
     assert audit[:action] == :remote_access_ssh_certificate_issue
+  end
+
+  test "does not trust a historical actor login method as current session assurance" do
+    actor = oidc_actor()
+
+    assert {:error, :sso_identity_required} =
+             RemoteAccessSSHIdentityIssuer.issue(
+               actor,
+               %{
+                 session_id: "session-stale-auth",
+                 agent_id: "agent-1",
+                 username: "mfreeman",
+                 public_key: "ssh-ed25519 AAAATEST",
+                 target: %{device_uid: "device-1"},
+                 accounts: [%{name: "mfreeman", principals: [@principal]}]
+               },
+               signer: SignerStub,
+               audit_writer: {AuditWriterStub, test_pid: self()},
+               test_pid: self(),
+               idp_claims: %{}
+             )
+
+    refute_received {:sign_user_certificate, _request}
+    assert_receive {:audit, _audit}
   end
 
   test "rejects malformed authoritative claims" do

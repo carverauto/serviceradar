@@ -28,3 +28,17 @@ tests:
         documentSelector:
           path: metadata.name
           value: serviceradar-secret-generator
+  - it: suppresses Kubernetes Secret response bodies on create and patch
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)--output /dev/null\s+\\\s+-X POST .*?/secrets'
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-secret-generator
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)--output /dev/null\s+\\\s+-X PATCH .*?/secrets/\$\{SECRET_NAME\}'
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-secret-generator

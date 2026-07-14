@@ -28,6 +28,8 @@
 - [x] 1.4.23 Add `ironrdp-session` to the isolated connector probe workspace so active-stage dependencies are reviewed without perturbing the root Rust workspace.
 - [x] 1.4.24 Add an isolated active-stage construction probe proving a ServiceRadar-derived connector plan can initialize IronRDP session state without importing upstream UI/client stacks.
 - [x] 1.4.25 Add an isolated active-stage input encoding probe proving a ServiceRadar-shaped keyboard event can become an upstream RDP response frame without importing UI/client stacks.
+- [x] 1.4.26 Refresh the isolated connector universe to exact-pinned IronRDP blocking/connector 0.10.0, core 0.2.1, graphics/PDU 0.9.0, and session 0.11.0; adapt the probe to the maintained APIs and remove yanked `spin 0.9.8` plus the stale `paste` advisory from the locked graph.
+- [ ] 1.4.27 Remove the forced `sspi/scard -> winscard -> iso7816 -> heapless -> spin` build subtree when a maintained upstream IronRDP release feature-gates smart-card support; do not add a ServiceRadar-maintained fork, archived dependency vendor, version override, or audit ignore. Security follow-up: `harden-remote-access-security` task 6.G.7.
 
 ## 2. Policy, RBAC, And API
 - [x] 2.1 Add desktop target RBAC and approval checks that bind actor, target, route, policy snapshot, credential mode, and redirection policy to one session.

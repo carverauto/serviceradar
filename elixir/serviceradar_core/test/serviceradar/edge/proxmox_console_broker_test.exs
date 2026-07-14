@@ -9,13 +9,17 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBrokerTest do
   defmodule CommandBusStub do
     @moduledoc false
 
-    def resolve_control_session_evidence(agent_id, preferred_gateway_node) do
-      send(owner(), {:resolve_control_session_evidence, agent_id, preferred_gateway_node})
+    def resolve_control_session_evidence(partition_id, agent_id, preferred_gateway_node) do
+      send(
+        owner(),
+        {:resolve_control_session_evidence, partition_id, agent_id, preferred_gateway_node}
+      )
 
       {:ok,
        %{
          control_session_pid: owner(),
          agent_id: agent_id,
+         partition_id: partition_id,
          gateway_node: preferred_gateway_node || "gateway@test",
          capabilities: ProxmoxConsoleCompatibility.required_capabilities(),
          config_version: "config-policy-7",
@@ -74,7 +78,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBrokerTest do
         rows: 43
       )
 
-    assert_receive {:resolve_control_session_evidence, "agent-1", "gateway@one"}
+    assert_receive {:resolve_control_session_evidence, "farm01", "agent-1", "gateway@one"}
     assert_receive {:subscribe, "session-1"}
 
     assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = open, opts}
@@ -139,7 +143,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBrokerTest do
 
     Process.flag(:trap_exit, previous_trap_exit)
 
-    refute_receive {:resolve_control_session_evidence, _, _}
+    refute_receive {:resolve_control_session_evidence, _, _, _}
     refute_receive {:send_console_frame, _, _, _}
   end
 
@@ -241,6 +245,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBrokerTest do
       credential_rule_id: "rule-1",
       metadata: %{
         "plugin_assignment_id" => "assignment-1",
+        "assignment_partition_id" => "farm01",
         "plugin_assignment_version" => 7,
         "plugin_assignment_policy_fingerprint" => fingerprint,
         "credential_rule" => %{
@@ -273,16 +278,17 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBrokerTest do
     Module.create(
       module,
       quote do
-        def resolve_control_session_evidence(agent_id, preferred_gateway_node) do
+        def resolve_control_session_evidence(partition_id, agent_id, preferred_gateway_node) do
           send(
             Process.whereis(:proxmox_console_broker_test_owner),
-            {:resolve_control_session_evidence, agent_id, preferred_gateway_node}
+            {:resolve_control_session_evidence, partition_id, agent_id, preferred_gateway_node}
           )
 
           {:ok,
            unquote(Macro.escape(evidence))
            |> Map.put(:control_session_pid, Process.whereis(:proxmox_console_broker_test_owner))
            |> Map.put(:agent_id, agent_id)
+           |> Map.put(:partition_id, partition_id)
            |> Map.put_new(:pending_config_version, nil)}
         end
 

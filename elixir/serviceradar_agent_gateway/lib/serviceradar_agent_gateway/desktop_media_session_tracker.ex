@@ -56,6 +56,18 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
     GenServer.call(__MODULE__, {:close_session_owned, desktop_session_id, media_session_id, agent_id, attrs})
   end
 
+  def pending_core_cleanups do
+    GenServer.call(__MODULE__, :pending_core_cleanups)
+  end
+
+  def complete_pending_core_cleanup(desktop_session_id, media_session_id, agent_id, attrs)
+      when is_binary(agent_id) and is_map(attrs) do
+    GenServer.call(
+      __MODULE__,
+      {:complete_pending_core_cleanup, desktop_session_id, media_session_id, agent_id, attrs}
+    )
+  end
+
   def sweep_expired_sessions do
     GenServer.call(__MODULE__, :sweep_expired_sessions)
   end
@@ -130,6 +142,15 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
     {:reply, {:ok, removed}, updated}
   end
 
+  def handle_call(:pending_core_cleanups, _from, state) do
+    pending =
+      state.sessions
+      |> Map.values()
+      |> Enum.filter(&Map.get(&1, :pending_core_cleanup, false))
+
+    {:reply, pending, state}
+  end
+
   def handle_call({:record_frame_owned, desktop_session_id, media_session_id, agent_id, attrs}, _from, state) do
     case fetch_and_verify_active_owned_session(state, desktop_session_id, media_session_id, agent_id, attrs) do
       {:ok, session} ->
@@ -201,6 +222,11 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
           session
           |> Map.put(:status, "closing")
           |> Map.put(:updated_at_unix, now_unix())
+          |> Map.put(
+            :pending_core_cleanup,
+            Map.get(session, :pending_core_cleanup, false) or
+              Map.get(attrs, :pending_core_cleanup, false)
+          )
           |> put_optional_reason(:close_reason, Map.get(attrs, :reason) || Map.get(attrs, :close_reason))
 
         log_session(:info, "Gateway desktop media closing", updated)
@@ -218,6 +244,21 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
         log_session(:info, "Gateway desktop media closed", session)
         emit_session_event(:closed, session)
         {:reply, :ok, update_in(state, [:sessions], &Map.delete(&1, desktop_session_id))}
+
+      error ->
+        {:reply, error, state}
+    end
+  end
+
+  def handle_call({:complete_pending_core_cleanup, desktop_session_id, media_session_id, agent_id, attrs}, _from, state) do
+    case fetch_and_verify_owned_session(state, desktop_session_id, media_session_id, agent_id, attrs) do
+      {:ok, %{pending_core_cleanup: true} = session} ->
+        log_session(:info, "Gateway desktop media pending core cleanup reconciled", session)
+        emit_session_event(:closed, session, %{reconciled: true})
+        {:reply, :ok, update_in(state, [:sessions], &Map.delete(&1, desktop_session_id))}
+
+      {:ok, _session} ->
+        {:reply, {:error, :cleanup_not_pending}, state}
 
       error ->
         {:reply, error, state}
@@ -254,6 +295,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
       paused: false,
       quality_level: normalize_quality(Map.get(attrs, :quality_level)),
       close_reason: nil,
+      pending_core_cleanup: false,
       last_sequence: 0,
       last_accepted_sequence: 0,
       sent_bytes: 0,
@@ -505,6 +547,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
     Map.put(state, :sessions, Map.new(active))
   end
 
+  defp stale_session?(%{pending_core_cleanup: true}, _now), do: false
   defp stale_session?(session, now), do: session_expired?(session, now) or owner_pid_dead?(session)
 
   defp owner_pid_dead?(%{owner_pid: owner_pid}) when is_pid(owner_pid), do: not Process.alive?(owner_pid)

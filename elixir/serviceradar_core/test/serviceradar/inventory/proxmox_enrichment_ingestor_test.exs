@@ -6,11 +6,13 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
   @observed_at ~U[2026-05-06 16:45:00Z]
   @farm_scope %{
     integration_id: "11111111-1111-4111-8111-111111111111",
-    controller_id: "22222222-2222-4222-8222-222222222222"
+    controller_id: "22222222-2222-4222-8222-222222222222",
+    partition_id: "farm01"
   }
   @tonka_scope %{
     integration_id: "33333333-3333-4333-8333-333333333333",
-    controller_id: "44444444-4444-4444-8444-444444444444"
+    controller_id: "44444444-4444-4444-8444-444444444444",
+    partition_id: "tonka01"
   }
 
   test "mints v3 refs only from a trusted source scope" do
@@ -37,6 +39,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
     assert cluster.identity_version == 3
     assert cluster.integration_id == @farm_scope.integration_id
     assert cluster.controller_id == @farm_scope.controller_id
+    assert cluster.metadata["partition"] == @farm_scope.partition_id
     assert cluster.legacy_provider_refs == ["proxmox:cluster:lab"]
 
     host_a = find_record!(records.hosts, "#{instance_ref}:node:pve-a")
@@ -45,7 +48,9 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
     assert host_a.native_object_id == "pve-a"
     assert host_a.metadata["integration_id"] == host_a.provider_ref
     assert host_a.legacy_provider_refs == ["proxmox:node:pve-a"]
-    assert host_a.device_uid == "sr:device:pve-a"
+    # metadata.device_id is result-owned. Even with a matching hostname it
+    # cannot choose an existing device for an authoritative v3 record.
+    assert is_nil(host_a.device_uid)
 
     host_b = find_record!(records.hosts, "#{instance_ref}:node:pve-b")
     assert is_nil(host_b.device_uid)
@@ -125,6 +130,8 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
 
     assert hd(farm.guests).native_object_id == hd(tonka.guests).native_object_id
     assert hd(farm.guests).host_provider_ref != hd(tonka.guests).host_provider_ref
+    assert hd(farm.guests).metadata["partition"] == "farm01"
+    assert hd(tonka.guests).metadata["partition"] == "tonka01"
   end
 
   test "advertises support for typed Proxmox enrichment details" do

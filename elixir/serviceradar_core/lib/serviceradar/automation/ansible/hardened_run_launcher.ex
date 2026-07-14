@@ -11,6 +11,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher do
   alias ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator
   alias ServiceRadar.Automation.Ansible.HardenedRunLauncher.AshActions
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
+  alias ServiceRadar.Edge.AgentCommandBus
 
   @spec launch(map(), struct(), keyword()) :: {:ok, map()} | {:error, term()}
   def launch(plan, controller, opts \\ [])
@@ -28,7 +29,9 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher do
   defp launch_without_callback(plan, controller, opts) do
     actions = Keyword.get(opts, :actions, AshActions)
 
-    with {:ok, persisted} <- actions.persist_plan(plan, controller),
+    with {:ok, edge_principal} <- authenticated_edge_principal(controller, opts),
+         plan = bind_dispatch_partition(plan, edge_principal.partition_id),
+         {:ok, persisted} <- actions.persist_plan(plan, controller),
          :ok <- actions.mark_dispatching(persisted) do
       case actions.dispatch(persisted.attempt) do
         {:ok, outcome} ->
@@ -51,6 +54,40 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher do
   end
 
   defp callback_enabled?(plan), do: List.wrap(get_in(plan, [:operation, :callback_actions])) != []
+
+  defp authenticated_edge_principal(controller, opts) do
+    resolver =
+      Keyword.get(
+        opts,
+        :edge_principal_resolver,
+        &AgentCommandBus.resolve_control_session_evidence/1
+      )
+
+    with true <- is_function(resolver, 1),
+         {:ok, evidence} when is_map(evidence) <- resolver.(value(controller, :agent_id)),
+         agent_id when is_binary(agent_id) <- value(evidence, :agent_id),
+         true <- agent_id == value(controller, :agent_id),
+         partition_id when is_binary(partition_id) <- value(evidence, :partition_id),
+         partition_id = String.trim(partition_id),
+         true <- partition_id != "" do
+      {:ok, %{agent_id: agent_id, partition_id: partition_id}}
+    else
+      _ -> {:error, :authenticated_edge_principal_unavailable}
+    end
+  end
+
+  defp bind_dispatch_partition(plan, partition_id) do
+    plan
+    |> update_in([:operation, :metadata], fn metadata ->
+      Map.put(metadata || %{}, "dispatch_partition_id", partition_id)
+    end)
+    |> update_in([:execution, :metadata], fn metadata ->
+      Map.put(metadata || %{}, "dispatch_partition_id", partition_id)
+    end)
+  end
+
+  defp value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))
+  defp value(_map, _key), do: nil
 end
 
 defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher.Actions do
@@ -156,8 +193,10 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher.AshActions do
 
   defp create_launch_attempt(operation, execution, controller) do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    partition_id = get_in(execution.metadata || %{}, ["dispatch_partition_id"])
 
-    with agent_id when is_binary(agent_id) and agent_id != "" <- Map.get(controller, :agent_id),
+    with {:ok, agent_id} <- required_dispatch_value(Map.get(controller, :agent_id), :agent),
+         {:ok, partition_id} <- required_dispatch_value(partition_id, :partition),
          {:ok, request} <- Contract.launch_request(operation, execution),
          {:ok, attrs} <-
            Contract.build_attempt(
@@ -165,7 +204,8 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher.AshActions do
                operation_id: operation.id,
                execution_id: execution.id,
                controller_id: execution.controller_id,
-               dispatch_agent_id: agent_id
+               dispatch_agent_id: agent_id,
+               dispatch_partition_id: partition_id
              },
              execution,
              request,
@@ -177,9 +217,15 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher.AshActions do
          {:ok, attempt} <- Attempt.create_planned(attrs, actor: @actor) do
       {:ok, attempt}
     else
-      nil -> {:error, :controller_agent_id_missing}
-      "" -> {:error, :controller_agent_id_missing}
       {:error, reason} -> {:error, {:secure_execution_attempt_create_failed, reason}}
     end
   end
+
+  defp required_dispatch_value(value, _kind) when is_binary(value) and byte_size(value) > 0,
+    do: {:ok, value}
+
+  defp required_dispatch_value(_value, :agent), do: {:error, :controller_agent_id_missing}
+
+  defp required_dispatch_value(_value, :partition),
+    do: {:error, :controller_dispatch_partition_missing}
 end

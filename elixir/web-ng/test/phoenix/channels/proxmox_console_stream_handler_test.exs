@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler
 
+  @moduletag :db_free
+
   @console_permissions ["devices.console.open", "devices.console.credentials.use"]
 
   defmodule SessionsStub do
@@ -128,6 +130,26 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
           send(state.session.metadata["test_pid"], {:broker_close, caller, reason})
           :ok
       end
+    end
+  end
+
+  defmodule AuthorizationStub do
+    @moduledoc false
+
+    def authorize_current(%Scope{user: %{id: id}} = scope, required_permissions) do
+      current_permissions = Process.get({__MODULE__, id}, MapSet.new())
+
+      if Enum.all?(required_permissions, &MapSet.member?(current_permissions, &1)) do
+        {:ok, %{scope | permissions: current_permissions}}
+      else
+        {:error, :permission_revoked}
+      end
+    end
+
+    def authorize_current(_scope, _required_permissions), do: {:error, :permission_revoked}
+
+    def set_permissions(user_id, permissions) do
+      Process.put({__MODULE__, user_id}, MapSet.new(permissions))
     end
   end
 
@@ -301,6 +323,68 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
     ProxmoxConsoleStreamHandler.terminate(:normal, after_data)
   end
 
+  test "current permission contraction blocks browser input and broker output" do
+    {:ok, state} = init_state("session-revoked")
+
+    {:push, _response, attached} =
+      ProxmoxConsoleStreamHandler.handle_in({attach_payload("session-revoked"), [opcode: :text]}, state)
+
+    AuthorizationStub.set_permissions("console-user", [])
+
+    assert {:stop, :normal, 1008, [{:text, input_response}], input_closed} =
+             ProxmoxConsoleStreamHandler.handle_in(
+               {Jason.encode!(%{type: "data", data: Base.encode64("whoami\r")}), [opcode: :text]},
+               attached
+             )
+
+    assert %{"type" => "error", "message" => "Proxmox console permission was revoked."} =
+             Jason.decode!(input_response)
+
+    refute_receive {:broker_input, _caller, _data}
+    assert_receive {:request_close, "session-revoked", input_opts}
+    assert input_opts[:reason] == "permission_revoked"
+    ProxmoxConsoleStreamHandler.terminate(:normal, input_closed)
+
+    {:ok, output_state} = init_state("session-revoked-output")
+
+    {:push, _response, output_attached} =
+      ProxmoxConsoleStreamHandler.handle_in(
+        {attach_payload("session-revoked-output"), [opcode: :text]},
+        output_state
+      )
+
+    AuthorizationStub.set_permissions("console-user", [])
+
+    assert {:stop, :normal, 1008, [{:text, output_response}], output_closed} =
+             ProxmoxConsoleStreamHandler.handle_info(
+               {:proxmox_console_data, "secret console output"},
+               output_attached
+             )
+
+    refute output_response =~ Base.encode64("secret console output")
+    assert_receive {:request_close, "session-revoked-output", _opts}
+    ProxmoxConsoleStreamHandler.terminate(:normal, output_closed)
+  end
+
+  test "periodic current-authority check closes an idle console after revocation" do
+    {:ok, state} = init_state("session-periodic-revoked")
+
+    {:push, _response, attached} =
+      ProxmoxConsoleStreamHandler.handle_in(
+        {attach_payload("session-periodic-revoked"), [opcode: :text]},
+        state
+      )
+
+    assert is_reference(attached.reauth_timer)
+    AuthorizationStub.set_permissions("console-user", [])
+
+    assert {:stop, :normal, 1008, [{:text, _response}], closed} =
+             ProxmoxConsoleStreamHandler.handle_info(:reauthorize, attached)
+
+    assert_receive {:request_close, "session-periodic-revoked", _opts}
+    ProxmoxConsoleStreamHandler.terminate(:normal, closed)
+  end
+
   test "generic SSH and Proxmox guest targets attach through the same broker path" do
     targets = [
       {"generic-ssh-session",
@@ -414,6 +498,8 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
   end
 
   defp init_state(session_id, session_overrides \\ %{}, permissions \\ @console_permissions) do
+    AuthorizationStub.set_permissions("console-user", permissions)
+
     scope =
       Scope.for_user(
         %{id: "console-user", email: "console-user@example.test", role: :viewer},
@@ -425,7 +511,8 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
       session_id: session_id,
       scope: scope,
       sessions_module: SessionsStub,
-      broker_module: BrokerStub
+      broker_module: BrokerStub,
+      authorization_module: AuthorizationStub
     )
   end
 

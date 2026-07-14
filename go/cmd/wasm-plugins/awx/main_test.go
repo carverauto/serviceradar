@@ -669,6 +669,166 @@ func callbackCredentialFetchConfig() Config {
 	}
 }
 
+func TestRunVerifyCallbackCredentialUsesDirectIDAndReturnsSecretFreeScope(t *testing.T) {
+	credential := []byte(`{
+		"id":401,
+		"name":"sr-callback-018f3f56-1111-7222-8333-123456789abc",
+		"credential_type":91,
+		"organization":2,
+		"inputs":{"callback_grant":"must-not-cross"},
+		"related":{"activity_stream":"must-not-cross"}
+	}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/credentials/401/": {Status: http.StatusOK, Body: credential},
+	}}
+	swapHTTP(t, fake)
+
+	res := dispatch(callbackCredentialVerifyConfig())
+	if res.Status != sdk.StatusOK || len(fake.requests) != 1 {
+		t.Fatalf("expected one direct verification GET: status=%s requests=%#v", res.Status, fake.requests)
+	}
+	if fake.requests[0].Method != http.MethodGet ||
+		fake.requests[0].URL != "https://awx.example.com/api/v2/credentials/401/" {
+		t.Fatalf("unexpected verification request: %s %s", fake.requests[0].Method, fake.requests[0].URL)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(res.Details), &payload); err != nil {
+		t.Fatalf("decode details: %v", err)
+	}
+	assertExactMapKeys(t, payload, "verb", "ok", "credential_id", "credential")
+	projected := payload["credential"].(map[string]any)
+	assertExactMapKeys(t, projected, "id", "name", "credential_type_id", "organization_id")
+	if projected["id"] != float64(401) || projected["credential_type_id"] != float64(91) ||
+		projected["organization_id"] != float64(2) {
+		t.Fatalf("unexpected credential projection: %#v", projected)
+	}
+	if strings.Contains(res.Details, "must-not-cross") || strings.Contains(res.Details, "inputs") {
+		t.Fatalf("verification leaked raw credential material: %s", res.Details)
+	}
+}
+
+func TestRunVerifyCallbackCredentialRejectsScopeMismatch(t *testing.T) {
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/credentials/401/": {
+			Status: http.StatusOK,
+			Body:   []byte(`{"id":401,"name":"sr-callback-other","credential_type":91,"organization":2}`),
+		},
+	}}
+	swapHTTP(t, fake)
+
+	res := dispatch(callbackCredentialVerifyConfig())
+	if res.Status != sdk.StatusCritical || len(fake.requests) != 1 {
+		t.Fatalf("scope mismatch must fail closed: status=%s requests=%#v", res.Status, fake.requests)
+	}
+}
+
+func callbackCredentialVerifyConfig() Config {
+	cfg := callbackCredentialFetchConfig()
+	cfg.Verb = "awx.verify_callback_credential"
+	cfg.Args["credential_id"] = float64(401)
+	return cfg
+}
+
+func TestRunListCallbackCredentialsPaginatesEveryExactMatch(t *testing.T) {
+	page1 := []byte(`{
+		"count":2,
+		"next":"/api/v2/credentials/?page=2",
+		"results":[{
+			"id":401,
+			"name":"sr-callback-018f3f56-1111-7222-8333-123456789abc",
+			"credential_type":91,
+			"organization":2,
+			"inputs":{"callback_grant":"must-not-cross"}
+		}]
+	}`)
+	page2 := []byte(`{
+		"count":2,
+		"next":null,
+		"results":[{
+			"id":402,
+			"name":"sr-callback-018f3f56-1111-7222-8333-123456789abc",
+			"credential_type":91,
+			"organization":2
+		}]
+	}`)
+	fake := &scriptedHTTPClient{responses: []*sdk.HTTPResponse{
+		{Status: http.StatusOK, Body: page1},
+		{Status: http.StatusOK, Body: page2},
+	}}
+	swapHTTP(t, fake)
+
+	res := dispatch(callbackCredentialListConfig())
+	if res.Status != sdk.StatusOK || len(fake.requests) != 2 {
+		t.Fatalf("expected complete callback lookup: status=%s requests=%#v", res.Status, fake.requests)
+	}
+	firstURL, err := url.Parse(fake.requests[0].URL)
+	if err != nil {
+		t.Fatalf("parse lookup URL: %v", err)
+	}
+	if firstURL.Path != "/api/v2/credentials/" || firstURL.Query().Get("credential_type") != "91" ||
+		firstURL.Query().Get("organization") != "2" || firstURL.Query().Get("order_by") != "id" ||
+		firstURL.Query().Get("page_size") != "200" {
+		t.Fatalf("unexpected exact lookup URL: %s", fake.requests[0].URL)
+	}
+
+	var payload struct {
+		Verb             string           `json:"verb"`
+		OK               bool             `json:"ok"`
+		CredentialTypeID int              `json:"credential_type_id"`
+		OrganizationID   int              `json:"organization_id"`
+		CredentialName   string           `json:"credential_name"`
+		MaxCredentials   int              `json:"max_credentials"`
+		Count            int              `json:"count"`
+		Complete         bool             `json:"complete"`
+		Credentials      []map[string]any `json:"credentials"`
+	}
+	if err := json.Unmarshal([]byte(res.Details), &payload); err != nil {
+		t.Fatalf("decode details: %v", err)
+	}
+	var exactPayload map[string]any
+	if err := json.Unmarshal([]byte(res.Details), &exactPayload); err != nil {
+		t.Fatalf("decode exact payload: %v", err)
+	}
+	assertExactMapKeys(t, exactPayload,
+		"verb", "ok", "credential_type_id", "organization_id", "credential_name",
+		"max_credentials", "count", "complete", "credentials")
+	if payload.Verb != "awx.list_callback_credentials" || !payload.OK || !payload.Complete ||
+		payload.CredentialTypeID != 91 || payload.OrganizationID != 2 ||
+		payload.MaxCredentials != 5000 || payload.Count != 2 || len(payload.Credentials) != 2 {
+		t.Fatalf("unexpected list payload: %#v", payload)
+	}
+	for index, credential := range payload.Credentials {
+		assertExactMapKeys(t, credential, "id", "name", "credential_type_id", "organization_id")
+		if credential["id"] != float64(401+index) {
+			t.Fatalf("credentials were not complete and ordered: %#v", payload.Credentials)
+		}
+	}
+	if strings.Contains(res.Details, "must-not-cross") || strings.Contains(res.Details, "inputs") {
+		t.Fatalf("list leaked raw credential material: %s", res.Details)
+	}
+}
+
+func TestRunListCallbackCredentialsRejectsCountAboveBound(t *testing.T) {
+	fake := &scriptedHTTPClient{responses: []*sdk.HTTPResponse{{
+		Status: http.StatusOK,
+		Body:   []byte(`{"count":5001,"next":"/api/v2/credentials/?page=2","results":[]}`),
+	}}}
+	swapHTTP(t, fake)
+
+	res := dispatch(callbackCredentialListConfig())
+	if res.Status != sdk.StatusCritical || len(fake.requests) != 1 {
+		t.Fatalf("oversized lookup must fail closed: status=%s requests=%#v", res.Status, fake.requests)
+	}
+}
+
+func callbackCredentialListConfig() Config {
+	cfg := callbackCredentialFetchConfig()
+	cfg.Verb = "awx.list_callback_credentials"
+	cfg.Args["max_credentials"] = float64(5000)
+	return cfg
+}
+
 func TestRunCreateCallbackCredentialRejectsUnreviewedInputsBeforeHTTP(t *testing.T) {
 	fake := &fakeHTTPClient{}
 	swapHTTP(t, fake)
@@ -1106,11 +1266,12 @@ func TestRunListRecentJobsUsesBoundedAWXFiltersAndReturnsMarkersForCaller(t *tes
 		APIToken: "tok",
 		Verb:     "awx.list_recent_jobs",
 		Args: map[string]any{
-			"template_id":   42.0,
-			"inventory_id":  7.0,
-			"created_by_id": 17.0,
-			"created_after": createdAfter,
-			"page_size":     25.0,
+			"template_id":    42.0,
+			"inventory_id":   7.0,
+			"created_by_id":  17.0,
+			"created_after":  createdAfter,
+			"page_size":      25.0,
+			"max_candidates": 5000.0,
 		},
 	})
 	if res.Status != sdk.StatusOK {
@@ -1120,14 +1281,22 @@ func TestRunListRecentJobsUsesBoundedAWXFiltersAndReturnsMarkersForCaller(t *tes
 		t.Fatalf("unexpected recent-job request: %+v", fake.requests)
 	}
 	var payload struct {
-		Count     int               `json:"count"`
-		Truncated bool              `json:"truncated"`
-		Jobs      []json.RawMessage `json:"jobs"`
+		Count         int               `json:"count"`
+		Complete      bool              `json:"complete"`
+		MaxCandidates int               `json:"max_candidates"`
+		Jobs          []json.RawMessage `json:"jobs"`
 	}
 	if err := json.Unmarshal([]byte(res.Details), &payload); err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
-	if payload.Count != 2 || payload.Truncated || len(payload.Jobs) != 2 {
+	var exactPayload map[string]any
+	if err := json.Unmarshal([]byte(res.Details), &exactPayload); err != nil {
+		t.Fatalf("decode exact payload: %v", err)
+	}
+	assertExactMapKeys(t, exactPayload,
+		"verb", "ok", "template_id", "inventory_id", "created_by_id", "created_after",
+		"page_size", "max_candidates", "count", "complete", "jobs")
+	if payload.Count != 2 || !payload.Complete || payload.MaxCandidates != 5000 || len(payload.Jobs) != 2 {
 		t.Fatalf("unexpected payload: %+v", payload)
 	}
 	if !strings.Contains(string(payload.Jobs[1]), "dispatch-018f") {
@@ -1135,14 +1304,20 @@ func TestRunListRecentJobsUsesBoundedAWXFiltersAndReturnsMarkersForCaller(t *tes
 	}
 }
 
-func TestRunListRecentJobsMarksTruncatedCandidateSet(t *testing.T) {
-	body := []byte(`{
-		"count": 101,
-		"next": "/api/v2/jobs/?page=2",
+func TestRunListRecentJobsPaginatesToACompleteCandidateSet(t *testing.T) {
+	page1 := []byte(`{
+		"count": 2,
+		"next": "/api/v2/jobs/?page=2&page_size=1",
+		"results": [{"id":7332,"created":"2026-07-12T16:02:00Z","job_template":42,"inventory":7,"launched_by":{"id":17,"type":"user"},"extra_vars":"{}"}]
+	}`)
+	page2 := []byte(`{
+		"count": 2,
+		"next": null,
 		"results": [{"id":7331,"created":"2026-07-12T16:01:00Z","job_template":42,"inventory":7,"launched_by":{"id":17,"type":"user"},"extra_vars":"{}"}]
 	}`)
-	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
-		"page_size=1": {Status: http.StatusOK, Body: body},
+	fake := &scriptedHTTPClient{responses: []*sdk.HTTPResponse{
+		{Status: http.StatusOK, Body: page1},
+		{Status: http.StatusOK, Body: page2},
 	}}
 	swapHTTP(t, fake)
 	res := dispatch(Config{
@@ -1150,33 +1325,62 @@ func TestRunListRecentJobsMarksTruncatedCandidateSet(t *testing.T) {
 		APIToken: "tok",
 		Verb:     "awx.list_recent_jobs",
 		Args: map[string]any{
-			"template_id":   42,
-			"inventory_id":  7,
-			"created_by_id": 17,
-			"created_after": "2026-07-12T16:00:00Z",
-			"page_size":     1,
+			"template_id":    42,
+			"inventory_id":   7,
+			"created_by_id":  17,
+			"created_after":  "2026-07-12T16:00:00Z",
+			"page_size":      1,
+			"max_candidates": 5000,
 		},
 	})
 	if res.Status != sdk.StatusOK {
 		t.Fatalf("got %s: %s", res.Status, res.Summary)
 	}
 	var payload struct {
-		Truncated bool `json:"truncated"`
+		Count    int               `json:"count"`
+		Complete bool              `json:"complete"`
+		Jobs     []json.RawMessage `json:"jobs"`
 	}
 	_ = json.Unmarshal([]byte(res.Details), &payload)
-	if !payload.Truncated {
-		t.Errorf("incomplete candidate set must be marked truncated")
+	if !payload.Complete || payload.Count != 2 || len(payload.Jobs) != 2 || len(fake.requests) != 2 {
+		t.Errorf("candidate set was not completely paginated: payload=%+v requests=%d", payload, len(fake.requests))
+	}
+}
+
+func TestRunListRecentJobsRejectsCountAboveDurableBound(t *testing.T) {
+	fake := &scriptedHTTPClient{responses: []*sdk.HTTPResponse{{
+		Status: http.StatusOK,
+		Body:   []byte(`{"count":5001,"next":"/api/v2/jobs/?page=2","results":[]}`),
+	}}}
+	swapHTTP(t, fake)
+
+	res := dispatch(Config{
+		BaseURL: "https://awx.example.com", APIToken: "tok",
+		Verb: "awx.list_recent_jobs",
+		Args: map[string]any{
+			"template_id":    42,
+			"inventory_id":   7,
+			"created_by_id":  17,
+			"created_after":  "2026-07-12T16:00:00Z",
+			"page_size":      50,
+			"max_candidates": 5000,
+		},
+	})
+	if res.Status != sdk.StatusCritical || len(fake.requests) != 1 {
+		t.Fatalf("oversized candidate set must fail closed: status=%s requests=%#v", res.Status, fake.requests)
 	}
 }
 
 func TestRunListRecentJobsRequiresExactScope(t *testing.T) {
 	base := map[string]any{
-		"template_id":   42,
-		"inventory_id":  7,
-		"created_by_id": 17,
-		"created_after": "2026-07-12T16:00:00Z",
+		"template_id":    42,
+		"inventory_id":   7,
+		"created_by_id":  17,
+		"created_after":  "2026-07-12T16:00:00Z",
+		"page_size":      50,
+		"max_candidates": 5000,
 	}
-	for _, key := range []string{"template_id", "inventory_id", "created_by_id", "created_after"} {
+	for _, key := range []string{"template_id", "inventory_id", "created_by_id", "created_after", "page_size", "max_candidates"} {
 		t.Run(key, func(t *testing.T) {
 			args := make(map[string]any, len(base))
 			for k, v := range base {
@@ -1217,10 +1421,12 @@ func TestRunListRecentJobsRejectsControllerResponseOutsideExactScope(t *testing.
 		BaseURL: "https://awx.example.com", APIToken: "tok",
 		Verb: "awx.list_recent_jobs",
 		Args: map[string]any{
-			"template_id":   42,
-			"inventory_id":  7,
-			"created_by_id": 17,
-			"created_after": "2026-07-12T16:00:00Z",
+			"template_id":    42,
+			"inventory_id":   7,
+			"created_by_id":  17,
+			"created_after":  "2026-07-12T16:00:00Z",
+			"page_size":      50,
+			"max_candidates": 5000,
 		},
 	})
 	if res.Status != sdk.StatusCritical {
@@ -2668,6 +2874,14 @@ func TestProjectAWXSurveyRejectsSensitiveReservedPasswordAndOversizedSpecs(t *te
 	}{
 		{name: "password name", variable: "password", kind: "text"},
 		{name: "api token name", variable: "api_token", kind: "text"},
+		{name: "camel api key name", variable: "apiKey", kind: "text"},
+		{name: "acronym api key name", variable: "APIKey", kind: "text"},
+		{name: "uppercase api key name", variable: "APIKEY", kind: "text"},
+		{name: "uppercase api token suffix", variable: "MYAPITOKEN", kind: "text"},
+		{name: "camel private key name", variable: "privateKey", kind: "text"},
+		{name: "camel bearer token name", variable: "bearerToken", kind: "text"},
+		{name: "numeric password suffix", variable: "password1", kind: "text"},
+		{name: "camel credential value", variable: "credentialValue", kind: "text"},
 		{name: "ansible reserved", variable: "ansible_password", kind: "text"},
 		{name: "dispatch reserved", variable: "serviceradar_dispatch_id", kind: "text"},
 		{name: "magic variable", variable: "inventory_hostname", kind: "text"},
@@ -2689,6 +2903,15 @@ func TestProjectAWXSurveyRejectsSensitiveReservedPasswordAndOversizedSpecs(t *te
 	body, _ := json.Marshal(map[string]any{"spec": fields})
 	if _, ok := projectAWXSurvey(body); ok {
 		t.Fatalf("survey with more than %d fields was accepted", maxAWXSurveyFields)
+	}
+
+	for _, variable := range []string{
+		"environment", "qemuGuestAgentState", "apiary_zone", "key_rotation_days", "tokenizer_mode",
+	} {
+		body, _ := json.Marshal(map[string]any{"spec": []any{field(variable, "text")}})
+		if _, ok := projectAWXSurvey(body); !ok {
+			t.Fatalf("legitimate survey field %q was rejected", variable)
+		}
 	}
 }
 

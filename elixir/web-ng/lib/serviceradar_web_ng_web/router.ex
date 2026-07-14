@@ -189,7 +189,8 @@ defmodule ServiceRadarWebNGWeb.Router do
       bucket: :auth_local,
       subject: :ip,
       response_mode: :auto,
-      html_redirect_to: "/users/log-in"
+      html_redirect_to: "/users/log-in",
+      html_flash_template: "Too many login attempts. Please try again in {retry_after} seconds."
     )
 
     plug(LockoutCheck,
@@ -204,7 +205,8 @@ defmodule ServiceRadarWebNGWeb.Router do
       bucket: :auth_password_reset,
       subject: :ip,
       response_mode: :auto,
-      html_redirect_to: "/auth/password-reset"
+      html_redirect_to: "/auth/password-reset",
+      html_flash_template: "Too many password reset requests. Please try again in {retry_after} seconds."
     )
   end
 

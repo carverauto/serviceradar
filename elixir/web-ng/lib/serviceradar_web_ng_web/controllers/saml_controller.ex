@@ -660,9 +660,21 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
       # Determine redirect destination
       return_to = relay_state || ~p"/dashboard"
 
+      identity_claims =
+        user_info.attributes
+        |> Map.merge(%{
+          "email" => user_info.email,
+          "name" => user_info.name,
+          "sub" => user_info.external_id
+        })
+        |> Map.put("service_radar_auth_method", "saml")
+
       conn
       |> put_flash(:info, "Signed in successfully via SAML.")
-      |> UserAuth.log_in_user(user, %{"return_to" => return_to})
+      |> UserAuth.log_in_user(user, %{
+        "return_to" => return_to,
+        "identity_claims" => identity_claims
+      })
     else
       {:error, :unsafe_account_linking} ->
         Logger.warning("SAML authentication rejected implicit email-based account linking")

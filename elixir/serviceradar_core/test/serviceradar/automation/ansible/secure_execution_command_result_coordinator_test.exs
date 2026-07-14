@@ -3,6 +3,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
 
   alias ServiceRadar.Automation.Ansible.AutomationSecureExecutionCommandAttempt, as: Attempt
   alias ServiceRadar.Automation.Ansible.AwxClient
+  alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandContract, as: Contract
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinator, as: Coordinator
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
@@ -154,6 +155,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
         execution_id: execution_id,
         controller_id: controller_id,
         dispatch_agent_id: "edge-agent-1",
+        dispatch_partition_id: "farm01",
         stage: :fetch_job,
         purpose: :terminal_poll,
         attempt: 1,
@@ -168,11 +170,30 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
         deadline_at: DateTime.add(DateTime.utc_now(), 60, :second)
       )
 
+    sync_secret = Ash.UUID.generate()
+    execution_secret = Ash.UUID.generate()
+
+    controller = %{
+      id: controller_id,
+      name: "farm01-awx",
+      base_url: "https://awx.example.test:8443",
+      agent_id: "edge-agent-1",
+      enabled: true,
+      credential_secret_id: sync_secret,
+      sync_credential_secret_id: sync_secret,
+      execution_credential_secret_id: execution_secret,
+      callback_credential_secret_id: nil,
+      metadata: %{}
+    }
+
+    {:ok, controller_snapshot} = ControllerSecuritySnapshot.capture(controller)
+
     command =
       struct!(AgentCommand,
         id: command_id,
         command_type: "awx.fetch_job",
         agent_id: "edge-agent-1",
+        partition_id: "farm01",
         status: :completed,
         payload: %{},
         context: %{},
@@ -187,34 +208,27 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
         id: execution_id,
         operation_id: operation_id,
         controller_id: controller_id,
-        state: :running
+        state: :running,
+        metadata: %{
+          "dispatch_partition_id" => "farm01",
+          "controller_security_snapshot" => controller_snapshot
+        }
       },
       targets: [%{id: Ash.UUID.generate()}],
-      controller: %{id: controller_id}
+      controller: controller
     }
   end
 
   defp exact_bundle do
     bundle = bundle([])
-    execution_secret = Ash.UUID.generate()
-    sync_secret = Ash.UUID.generate()
+    execution_secret = bundle.controller.execution_credential_secret_id
 
     execution =
       bundle.execution
       |> Map.put(:dispatch_id, Ash.UUID.generate())
       |> Map.put(:snapshot_digest, String.duplicate("d", 64))
 
-    controller = %{
-      id: bundle.controller.id,
-      name: "farm01-awx",
-      base_url: "https://awx.example.test:8443",
-      agent_id: bundle.command.agent_id,
-      credential_secret_id: sync_secret,
-      sync_credential_secret_id: sync_secret,
-      execution_credential_secret_id: execution_secret,
-      callback_credential_secret_id: nil,
-      metadata: %{}
-    }
+    controller = bundle.controller
 
     request = %{job_id: bundle.attempt.expected_job_id}
     {:ok, request_digest} = CanonicalJSON.digest(request)

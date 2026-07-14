@@ -57,12 +57,25 @@ defmodule ServiceRadar.Automation.CallbackGrants.Store do
               context()
             ) :: {:ok, map()} | {:error, term()}
 
+  @callback transition_terminal_with_cleanup_binding(
+              binary(),
+              :revoked,
+              binary(),
+              map(),
+              map(),
+              DateTime.t(),
+              context()
+            ) :: {:ok, map()} | {:error, term()}
+
   @callback record_cleanup(binary(), map(), map(), context()) :: :ok | {:error, term()}
   @callback reconcile_cleanup_result(binary(), map(), context()) ::
               :ok | {:error, term()}
   @callback record_audit(map(), context()) :: :ok | {:error, term()}
 
-  @optional_callbacks record_cleanup: 4, reconcile_cleanup_result: 3, record_audit: 2
+  @optional_callbacks transition_terminal_with_cleanup_binding: 7,
+                      record_cleanup: 4,
+                      reconcile_cleanup_result: 3,
+                      record_audit: 2
 end
 
 defmodule ServiceRadar.Automation.CallbackGrants.Authorizer do

@@ -350,14 +350,18 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     end)
   end
 
-  defp session_to_candidate({key, _pid, metadata}) do
-    agent_id = agent_id_from_key(key)
+  defp session_to_candidate(
+         {{:agent_control, partition_id, agent_id, _gateway_node}, _pid, metadata}
+       )
+       when is_binary(partition_id) and is_binary(agent_id) do
     metadata = metadata || %{}
+    metadata_agent_id = metadata_value(metadata, "agent_id")
+    metadata_partition_id = normalize_partition(metadata_value(metadata, "partition_id"))
 
-    if is_binary(agent_id) and agent_id != "" do
+    if metadata_agent_id == agent_id and metadata_partition_id == partition_id do
       %{
         agent_id: agent_id,
-        partition_id: normalize_partition(metadata_value(metadata, "partition_id")),
+        partition_id: partition_id,
         gateway_id: metadata_value(metadata, "gateway_id"),
         status: metadata_value(metadata, "status") || "connected",
         capabilities: List.wrap(metadata_value(metadata, "capabilities")),
@@ -372,10 +376,6 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   end
 
   defp session_to_candidate(_), do: nil
-
-  defp agent_id_from_key({:agent_control, agent_id}) when is_binary(agent_id), do: agent_id
-  defp agent_id_from_key({:agent_control, agent_id, _node}) when is_binary(agent_id), do: agent_id
-  defp agent_id_from_key(_), do: nil
 
   defp normalize_target_ctx(ctx) when is_map(ctx) do
     target = read_ctx_value(ctx, :target)

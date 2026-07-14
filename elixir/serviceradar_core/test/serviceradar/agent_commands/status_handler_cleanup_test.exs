@@ -1,5 +1,5 @@
 defmodule ServiceRadar.AgentCommands.StatusHandlerCleanupTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 
@@ -133,6 +133,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerCleanupTest do
       command_id: "018f3f56-1111-7222-8333-123456789abc",
       command_type: "awx.fetch_job",
       agent_id: "agent-farm01",
+      partition_id: "farm01",
       success: false,
       message: secret,
       failure_reason: {:http_error, secret},
@@ -147,6 +148,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerCleanupTest do
              command_id: data.command_id,
              command_type: data.command_type,
              agent_id: data.agent_id,
+             partition_id: data.partition_id,
              success: false,
              message: "automation command failed",
              failure_reason: "automation_command_failed",
@@ -161,6 +163,62 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerCleanupTest do
     refute inspect(safe) =~ secret
   end
 
+  test "nested provenance results persist while coordination waits off the ingress mailbox" do
+    test_pid = self()
+    task_supervisor = start_supervised!({Task.Supervisor, []})
+    coordination_waiter = start_supervised!({Agent, fn -> nil end})
+
+    result_coordination_dispatcher = fn work ->
+      Task.Supervisor.start_child(task_supervisor, work, shutdown: 5_000)
+    end
+
+    result_persister = fn data, _actor ->
+      send(test_pid, {:persisted, data.command_id})
+
+      if data.command_id == "nested-command" do
+        coordination_pid = Agent.get(coordination_waiter, & &1)
+        send(coordination_pid, {:persisted, data.command_id})
+      end
+
+      :ok
+    end
+
+    callback_result_coordinator = fn
+      %{command_id: "initial-command"} ->
+        coordination_pid = self()
+        Agent.update(coordination_waiter, fn _current -> coordination_pid end)
+        send(StatusHandler, {:command_result, nested_result()})
+
+        receive do
+          {:persisted, "nested-command"} -> send(test_pid, :coordination_completed)
+        after
+          1_000 -> send(test_pid, :coordination_timed_out)
+        end
+
+      _other ->
+        :ok
+    end
+
+    start_supervised!(
+      {StatusHandler,
+       result_persister: result_persister,
+       persisted_result_broadcaster: fn _data -> :ok end,
+       cleanup_reconciler: fn _data -> :ok end,
+       callback_result_coordinator: callback_result_coordinator,
+       secure_execution_result_coordinator: fn _data -> :ok end,
+       result_coordination_dispatcher: result_coordination_dispatcher,
+       result_consumers: []}
+    )
+
+    send(StatusHandler, {:command_result, initial_result()})
+
+    assert_receive {:persisted, "initial-command"}
+    assert_receive :coordination_completed, 2_000
+    refute_received :coordination_timed_out
+
+    assert eventually(fn -> Task.Supervisor.children(task_supervisor) == [] end)
+  end
+
   defp gated_state(test_pid, persister) do
     %{
       actor: :test_actor,
@@ -171,8 +229,36 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerCleanupTest do
       secure_execution_result_coordinator: fn data ->
         send(test_pid, {:secure_coordinate, data})
       end,
+      result_coordination_dispatcher: fn work ->
+        work.()
+        :ok
+      end,
       result_consumers: [fn data -> send(test_pid, {:consume, data}) end]
     }
+  end
+
+  defp initial_result do
+    valid_result()
+    |> Map.put(:command_id, "initial-command")
+    |> Map.put(:partition_id, "farm01")
+  end
+
+  defp nested_result do
+    valid_result()
+    |> Map.put(:command_id, "nested-command")
+    |> Map.put(:partition_id, "farm01")
+  end
+
+  defp eventually(fun, attempts \\ 100)
+  defp eventually(fun, 0), do: fun.()
+
+  defp eventually(fun, attempts) do
+    if fun.() do
+      true
+    else
+      Process.sleep(10)
+      eventually(fun, attempts - 1)
+    end
   end
 
   defp valid_result do

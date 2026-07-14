@@ -17,6 +17,9 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
     previous_frame_forwarder_result =
       Application.get_env(:serviceradar_agent_gateway, :desktop_media_frame_forwarder_result)
 
+    previous_frame_forwarder_close_result =
+      Application.get_env(:serviceradar_agent_gateway, :desktop_media_frame_forwarder_close_result)
+
     previous_test_pid =
       Application.get_env(:serviceradar_agent_gateway, :desktop_media_server_test_pid)
 
@@ -62,6 +65,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
       restore_env(:desktop_media_identity_resolver, previous_identity_resolver)
       restore_env(:desktop_media_frame_forwarder, previous_frame_forwarder)
       restore_env(:desktop_media_frame_forwarder_result, previous_frame_forwarder_result)
+      restore_env(:desktop_media_frame_forwarder_close_result, previous_frame_forwarder_close_result)
       restore_env(:desktop_media_server_test_pid, previous_test_pid)
       restore_env(:desktop_media_session_tracker_module, previous_tracker)
     end)
@@ -134,6 +138,107 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
     assert close_response.closed == true
     assert_receive {:close_desktop_media_ingress, "desktop-server-1"}
     assert DesktopMediaSessionTracker.fetch_session("desktop-server-1") == nil
+  end
+
+  test "close fails closed and retains route binding until core cleanup acknowledges" do
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :desktop_media_frame_forwarder,
+      DesktopMediaFrameForwarderStub
+    )
+
+    for {suffix, failure} <- [
+          {"error", {:error, :core_unavailable}},
+          {"raise", {:raise, "core unavailable"}},
+          {"exit", {:exit, :core_unavailable}}
+        ] do
+      desktop_session_id = "desktop-close-fail-#{suffix}"
+      media_session_id = "media-close-fail-#{suffix}"
+      stream = test_stream()
+      open_response = open_desktop_session!(desktop_session_id, media_session_id, stream)
+
+      Application.put_env(
+        :serviceradar_agent_gateway,
+        :desktop_media_frame_forwarder_close_result,
+        failure
+      )
+
+      error =
+        assert_raise GRPC.RPCError, fn ->
+          DesktopMediaServer.close_desktop_media_session(
+            %Desktopmedia.CloseDesktopMediaSessionRequest{
+              desktop_session_id: desktop_session_id,
+              media_session_id: media_session_id,
+              media_ingest_id: open_response.media_ingest_id,
+              agent_id: "agent-1",
+              reason: "browser closed"
+            },
+            stream
+          )
+        end
+
+      assert error.status == GRPC.Status.unavailable()
+      assert error.message =~ "temporarily unavailable"
+
+      assert {:ok, retained} =
+               DesktopMediaSessionTracker.fetch_session(desktop_session_id, "agent-1")
+
+      assert retained.status == "closing"
+      assert retained.pending_core_cleanup == true
+      expire_desktop_session!(desktop_session_id)
+      assert {:ok, 0} = DesktopMediaSessionTracker.sweep_expired_sessions()
+      assert {:ok, _retained} = DesktopMediaSessionTracker.fetch_session(desktop_session_id, "agent-1")
+
+      Application.put_env(
+        :serviceradar_agent_gateway,
+        :desktop_media_frame_forwarder_close_result,
+        :ok
+      )
+
+      retry_response =
+        DesktopMediaServer.close_desktop_media_session(
+          %Desktopmedia.CloseDesktopMediaSessionRequest{
+            desktop_session_id: desktop_session_id,
+            media_session_id: media_session_id,
+            media_ingest_id: open_response.media_ingest_id,
+            agent_id: "agent-1",
+            reason: "browser closed"
+          },
+          stream
+        )
+
+      assert retry_response.closed == true
+      assert DesktopMediaSessionTracker.fetch_session(desktop_session_id) == nil
+    end
+  end
+
+  test "close fails closed when the core cleanup forwarder is not configured" do
+    stream = test_stream()
+
+    open_response =
+      open_desktop_session!("desktop-close-no-forwarder", "media-close-no-forwarder", stream)
+
+    error =
+      assert_raise GRPC.RPCError, fn ->
+        DesktopMediaServer.close_desktop_media_session(
+          %Desktopmedia.CloseDesktopMediaSessionRequest{
+            desktop_session_id: "desktop-close-no-forwarder",
+            media_session_id: "media-close-no-forwarder",
+            media_ingest_id: open_response.media_ingest_id,
+            agent_id: "agent-1",
+            reason: "browser closed"
+          },
+          stream
+        )
+      end
+
+    assert error.status == GRPC.Status.unavailable()
+
+    assert {:ok, retained} =
+             DesktopMediaSessionTracker.fetch_session("desktop-close-no-forwarder", "agent-1")
+
+    assert retained.status == "closing"
+    assert retained.pending_core_cleanup == true
   end
 
   test "rejects desktop media open when certificate identity does not match requested agent" do

@@ -22,10 +22,15 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   ## Usage
 
       # Generate full config for an agent
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_id)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_id, authenticated_partition_id)
 
       # Check if config has changed (returns :not_modified or {:ok, config})
-      result = AgentConfigGenerator.get_config_if_changed(agent_id, current_version)
+      result =
+        AgentConfigGenerator.get_config_if_changed(
+          agent_id,
+          authenticated_partition_id,
+          current_version
+        )
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -33,7 +38,6 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
-  alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Edge.AgentArtifacts
   alias ServiceRadar.Edge.RemoteConsoleTargetResolver
@@ -155,10 +159,15 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     - `{:error, reason}` - If config generation fails
   """
   @spec generate_config(String.t()) :: {:ok, agent_config()} | {:error, term()}
-  def generate_config(agent_id) do
-    {config, audits} = generate_collecting_audits(agent_id)
-    commit_deferred_audits(audits)
-    {:ok, config}
+  def generate_config(_agent_id), do: {:error, :authenticated_partition_required}
+
+  @spec generate_config(String.t(), String.t()) :: {:ok, agent_config()} | {:error, term()}
+  def generate_config(agent_id, partition_id) do
+    with {:ok, partition_id} <- authenticated_partition(partition_id) do
+      {config, audits} = generate_collecting_audits(agent_id, partition_id)
+      commit_deferred_audits(audits)
+      {:ok, config}
+    end
   rescue
     error ->
       Logger.error("Failed to generate config for agent #{agent_id}: #{inspect(error)}")
@@ -190,7 +199,20 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   @spec get_config_if_changed(String.t(), String.t()) ::
           :not_modified | {:ok, agent_config()} | {:error, term()}
   def get_config_if_changed(agent_id, current_version) do
-    {config, deferred_audits} = generate_collecting_audits(agent_id)
+    _ = {agent_id, current_version}
+    {:error, :authenticated_partition_required}
+  end
+
+  @spec get_config_if_changed(String.t(), String.t(), String.t()) ::
+          :not_modified | {:ok, agent_config()} | {:error, term()}
+  def get_config_if_changed(agent_id, partition_id, current_version) do
+    with {:ok, partition_id} <- authenticated_partition(partition_id) do
+      do_get_config_if_changed(agent_id, partition_id, current_version)
+    end
+  end
+
+  defp do_get_config_if_changed(agent_id, partition_id, current_version) do
+    {config, deferred_audits} = generate_collecting_audits(agent_id, partition_id)
 
     if config.config_version == current_version do
       # Nothing delivered this poll — drop the audits collected while resolving
@@ -279,24 +301,30 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   @doc """
   Generates and converts the current agent config directly into a proto response.
   """
-  @spec generate_proto_response(String.t()) :: Monitoring.AgentConfigResponse.t()
-  def generate_proto_response(agent_id) when is_binary(agent_id) do
-    {config, audits} = generate_collecting_audits(agent_id)
-    commit_deferred_audits(audits)
-    to_proto_response(config)
+  @spec generate_proto_response(String.t()) :: {:error, :authenticated_partition_required}
+  def generate_proto_response(_agent_id), do: {:error, :authenticated_partition_required}
+
+  @spec generate_proto_response(String.t(), String.t()) ::
+          Monitoring.AgentConfigResponse.t() | {:error, term()}
+  def generate_proto_response(agent_id, partition_id) when is_binary(agent_id) do
+    with {:ok, partition_id} <- authenticated_partition(partition_id) do
+      {config, audits} = generate_collecting_audits(agent_id, partition_id)
+      commit_deferred_audits(audits)
+      to_proto_response(config)
+    end
   end
 
-  defp generate_config!(agent_id) do
+  defp generate_config!(agent_id, partition_id) do
     checks = load_agent_checks!(agent_id)
     sync_payload = load_sync_payload!(agent_id)
-    sweep_config = load_sweep_config(agent_id)
-    mapper_config = load_mapper_config(agent_id)
-    sysmon_config = load_sysmon_config(agent_id)
-    snmp_config = load_snmp_config(agent_id)
-    visibility_config = load_visibility_config(agent_id)
-    bumblebee_config = load_bumblebee_config(agent_id)
-    endpoint_inventory_config = load_endpoint_inventory_config(agent_id)
-    plugin_assignments = load_plugin_assignments(agent_id)
+    sweep_config = load_sweep_config(partition_id, agent_id)
+    mapper_config = load_mapper_config(partition_id, agent_id)
+    sysmon_config = load_sysmon_config(partition_id, agent_id)
+    snmp_config = load_snmp_config(partition_id, agent_id)
+    visibility_config = load_visibility_config(partition_id, agent_id)
+    bumblebee_config = load_bumblebee_config(partition_id, agent_id)
+    endpoint_inventory_config = load_endpoint_inventory_config(partition_id, agent_id)
+    plugin_assignments = load_plugin_assignments(agent_id, partition_id)
     plugin_engine_limits = load_plugin_engine_limits(agent_id)
     addon_assignments = load_addon_assignments(agent_id)
 
@@ -339,12 +367,16 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     checks
   end
 
-  defp load_plugin_assignments(agent_id) do
+  defp load_plugin_assignments(agent_id, partition_id) do
     actor = SystemActor.system(:agent_config_generator)
 
     assignments =
       PluginAssignment
-      |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id}, actor: actor)
+      |> Ash.Query.for_read(
+        :by_edge_principal,
+        %{agent_uid: agent_id, partition_id: partition_id},
+        actor: actor
+      )
       |> Ash.Query.filter(enabled == true)
       |> Ash.Query.sort(updated_at: :desc, inserted_at: :desc)
       |> Ash.Query.load(:plugin_package)
@@ -1070,6 +1102,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       ProxmoxSourceScopeResolver.resolve_assignment(assignment,
         actor: SystemActor.system(:proxmox_assignment_source_scope),
         agent_id: assignment.agent_uid,
+        partition_id: assignment.partition_id,
         assignment_id: assignment.id,
         plugin_id: package.plugin_id
       )
@@ -1489,11 +1522,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # Generates a config with a deferred-audit collector active, returning the
   # config plus the audits collected during generation (chronological order).
   # The collector is always restored, even on error.
-  defp generate_collecting_audits(agent_id) do
+  defp generate_collecting_audits(agent_id, partition_id) do
     previous = Process.put(@audit_collector_key, [])
 
     try do
-      config = generate_config!(agent_id)
+      config = generate_config!(agent_id, partition_id)
       {config, Enum.reverse(Process.get(@audit_collector_key, []))}
     after
       case previous do
@@ -1502,6 +1535,15 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       end
     end
   end
+
+  defp authenticated_partition(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> {:error, :authenticated_partition_required}
+      partition_id -> {:ok, partition_id}
+    end
+  end
+
+  defp authenticated_partition(_value), do: {:error, :authenticated_partition_required}
 
   defp commit_deferred_audits(audits), do: Enum.each(audits, &SecretBroker.write_audit/1)
 
@@ -2739,10 +2781,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   # Load sweep configuration from the AgentConfig system
   # This uses the ConfigServer which compiles sweep configs from SweepGroup/SweepProfile resources
-  defp load_sweep_config(agent_id) do
-    # Resolve partition from agent registry, fall back to "default"
-    partition = get_agent_partition(agent_id)
-
+  defp load_sweep_config(partition, agent_id) do
     Logger.debug(
       "AgentConfigGenerator: loading sweep config for agent_id=#{inspect(agent_id)}, partition=#{inspect(partition)}"
     )
@@ -2774,8 +2813,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   # Load mapper discovery configuration from the AgentConfig system
-  defp load_mapper_config(agent_id) do
-    partition = get_agent_partition(agent_id)
+  defp load_mapper_config(partition, agent_id) do
     actor = SystemActor.system(:mapper_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 
@@ -2806,51 +2844,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
-  # Resolve the partition for an agent from the registry
-  # Falls back to "default" if agent is not registered or has no partition
-  defp get_agent_partition(agent_id) do
-    case AgentRegistry.lookup(agent_id) do
-      [] ->
-        Logger.debug(
-          "AgentConfigGenerator: agent #{agent_id} not found in registry, using partition=default"
-        )
-
-        "default"
-
-      entries ->
-        {_pid, metadata} = select_agent_registry_entry(entries)
-        partition = metadata[:partition_id] || "default"
-
-        Logger.debug(
-          "AgentConfigGenerator: resolved partition=#{partition} for agent #{agent_id}"
-        )
-
-        partition
-    end
-  end
-
-  defp select_agent_registry_entry([entry]), do: entry
-
-  defp select_agent_registry_entry(entries) do
-    Enum.max_by(entries, fn {_pid, metadata} ->
-      {
-        metadata[:status] == :connected,
-        metadata[:capabilities] != [],
-        metadata_time_score(metadata[:last_heartbeat]),
-        metadata_time_score(metadata[:connected_at]),
-        metadata_time_score(metadata[:registered_at])
-      }
-    end)
-  end
-
-  defp metadata_time_score(%DateTime{} = timestamp), do: DateTime.to_unix(timestamp, :microsecond)
-  defp metadata_time_score(_timestamp), do: 0
-
   # Load sysmon configuration from the AgentConfig system
   # This uses the ConfigServer which compiles sysmon configs from SysmonProfile resources
-  defp load_sysmon_config(agent_id) do
-    # Resolve partition from agent registry, fall back to "default"
-    partition = get_agent_partition(agent_id)
+  defp load_sysmon_config(partition, agent_id) do
     actor = SystemActor.system(:sysmon_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 
@@ -2874,8 +2870,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   # Load SNMP configuration from the AgentConfig system
   # This uses the ConfigServer which compiles snmp configs from SNMPProfile resources
-  defp load_snmp_config(agent_id) do
-    partition = get_agent_partition(agent_id)
+  defp load_snmp_config(partition, agent_id) do
     actor = SystemActor.system(:snmp_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 
@@ -2898,8 +2893,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   # Load visibility configuration from the AgentConfig system.
-  defp load_visibility_config(agent_id) do
-    partition = get_agent_partition(agent_id)
+  defp load_visibility_config(partition, agent_id) do
     actor = SystemActor.system(:visibility_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 
@@ -2924,8 +2918,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
-  defp load_bumblebee_config(agent_id) do
-    partition = get_agent_partition(agent_id)
+  defp load_bumblebee_config(partition, agent_id) do
     actor = SystemActor.system(:bumblebee_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 
@@ -3019,8 +3012,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp disabled_feature_config, do: %{"enabled" => false}
 
-  defp load_endpoint_inventory_config(agent_id) do
-    partition = get_agent_partition(agent_id)
+  defp load_endpoint_inventory_config(partition, agent_id) do
     actor = SystemActor.system(:endpoint_inventory_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 

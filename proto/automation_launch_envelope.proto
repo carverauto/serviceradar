@@ -28,6 +28,9 @@ message AutomationLaunchEnvelopeResolveRequest {
   string agent_id = 1;
   string envelope_ref = 2;
   string command_id = 3;
+  // Gateway overwrites this field from the mTLS certificate before core sees
+  // the request. Agent-supplied values are never authoritative.
+  string partition_id = 4;
 }
 
 // AutomationLaunchEnvelopeResolveResponse returns the callback bearer and its

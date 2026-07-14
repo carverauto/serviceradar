@@ -8,6 +8,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
   after this function has returned a complete plan.
   """
 
+  alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Automation.Ansible.Targeting
   alias ServiceRadar.Automation.Ansible.VariableSchema
 
@@ -34,11 +35,13 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
     variable_schema = value(intent, :variable_schema) || []
     requested_inputs = value(intent, :inputs) || %{}
     controller_id = value(intent, :controller_id)
+    controller_security_snapshot = value(intent, :controller_security_snapshot)
     job_template_id = positive_integer(value(intent, :job_template_id))
     callback_gate_available? = value(intent, :callback_gate_available) == true
 
     with :ok <- validate_mode(mode),
          :ok <- validate_actor(actor),
+         :ok <- validate_controller_snapshot(controller_security_snapshot, controller_id),
          {:ok, membership_targets} <- validate_memberships(memberships, held_device_uids),
          :ok <- validate_target_ceiling(actor, membership_targets),
          {:ok, group_names} <- inventory_group_names(binding),
@@ -83,6 +86,10 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
          dispatch_id
        ) do
     mutating? = value(intent, :mutating) != false and mode == :run
+    controller_security_snapshot = value(intent, :controller_security_snapshot)
+
+    {:ok, controller_security_digest} =
+      ControllerSecuritySnapshot.digest(controller_security_snapshot)
 
     snapshot = %{
       "schema" => "serviceradar.ansible_launch_snapshot.v1",
@@ -123,7 +130,8 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
         end),
       "target_digest" => child.target_digest,
       "callback_actions" => callback_actions,
-      "mutating" => mutating?
+      "mutating" => mutating?,
+      "controller_security" => controller_security_snapshot
     }
 
     snapshot_digest = Targeting.snapshot_digest(snapshot)
@@ -148,7 +156,11 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
         target_digest: child.target_digest,
         callback_actions: callback_actions,
         run_budget: value(actor, :run_budget) || %{},
-        metadata: %{"snapshot_digest" => snapshot_digest}
+        metadata: %{
+          "snapshot_digest" => snapshot_digest,
+          "controller_security_snapshot" => controller_security_snapshot,
+          "controller_security_digest" => controller_security_digest
+        }
       }
 
       execution = %{
@@ -171,7 +183,9 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
         snapshot_digest: snapshot_digest,
         metadata: %{
           "awx_created_by_id" => binding.awx_created_by_id,
-          "target_digest" => child.target_digest
+          "target_digest" => child.target_digest,
+          "controller_security_snapshot" => controller_security_snapshot,
+          "controller_security_digest" => controller_security_digest
         }
       }
 
@@ -207,6 +221,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
         "dispatch_id" => dispatch_id,
         "snapshot_digest" => snapshot_digest,
         "target_digest" => child.target_digest,
+        "controller_security_digest" => controller_security_digest,
         "verb" => "awx.launch_job"
       }
 
@@ -230,6 +245,16 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
 
   defp validate_mode(mode) when mode in [:run, :check], do: :ok
   defp validate_mode(_), do: {:error, :invalid_launch_mode}
+
+  defp validate_controller_snapshot(snapshot, controller_id) when is_map(snapshot) do
+    if value(snapshot, :schema) == "serviceradar.awx_controller_security_snapshot.v1" and
+         value(snapshot, :controller_id) == controller_id,
+       do: :ok,
+       else: {:error, :controller_security_snapshot_mismatch}
+  end
+
+  defp validate_controller_snapshot(_snapshot, _controller_id),
+    do: {:error, :controller_security_snapshot_required}
 
   defp validate_actor(actor) do
     principal_type = value(actor, :principal_type)

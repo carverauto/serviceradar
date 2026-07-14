@@ -117,9 +117,25 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     refute inspect(create_audit) =~ "PRIVATE KEY"
     refute inspect(create_audit) =~ "not-persisted"
 
+    assert {:error, :current_authority_denied} =
+             RemoteAccessSessions.attach_with_ticket(ticket,
+               session_id: session.id,
+               audit_writer: AuditSink
+             )
+
+    assert {:error, :current_authority_denied} =
+             RemoteAccessSessions.attach_with_ticket(ticket,
+               session_id: session.id,
+               actor: %{id: Ecto.UUID.generate(), role: :viewer},
+               trusted_internal_attach?: true,
+               audit_writer: AuditSink
+             )
+
     assert {:ok, %RemoteAccessSession{status: :attached}} =
              RemoteAccessSessions.attach_with_ticket(ticket,
                session_id: session.id,
+               actor: @system_actor,
+               trusted_internal_attach?: true,
                audit_writer: AuditSink
              )
 
@@ -162,6 +178,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
 
           RemoteAccessSessions.attach_with_ticket(ticket,
             session_id: session.id,
+            actor: @system_actor,
+            trusted_internal_attach?: true,
             audit_writer: AuditSink
           )
         end)

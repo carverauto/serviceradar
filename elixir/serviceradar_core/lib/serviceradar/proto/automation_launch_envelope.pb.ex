@@ -9,6 +9,7 @@ defmodule Monitoring.AutomationLaunchEnvelopeResolveRequest do
   field :agent_id, 1, type: :string, json_name: "agentId"
   field :envelope_ref, 2, type: :string, json_name: "envelopeRef"
   field :command_id, 3, type: :string, json_name: "commandId"
+  field :partition_id, 4, type: :string, json_name: "partitionId"
 end
 
 defmodule Monitoring.AutomationLaunchEnvelopeResolveResponse do

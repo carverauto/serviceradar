@@ -28,13 +28,36 @@ defmodule ServiceRadar.Automation.LaunchEnvelopesTest do
     store = start_supervised!({Agent, fn -> memory_state() end})
     assert {:ok, prepared} = prepare(store)
 
-    wrong_agent = %{agent_id: "agent-other", command_id: prepared.command_id}
+    wrong_agent = %{
+      agent_id: "agent-other",
+      partition_id: "farm01",
+      command_id: prepared.command_id
+    }
+
     assert {:error, :launch_envelope_denied} = resolve(prepared, wrong_agent, store)
 
-    wrong_command = %{agent_id: "agent-farm01", command_id: Ecto.UUID.generate()}
+    wrong_command = %{
+      agent_id: "agent-farm01",
+      partition_id: "farm01",
+      command_id: Ecto.UUID.generate()
+    }
+
     assert {:error, :launch_envelope_denied} = resolve(prepared, wrong_command, store)
 
-    exact = %{agent_id: "agent-farm01", command_id: prepared.command_id}
+    wrong_partition = %{
+      agent_id: "agent-farm01",
+      partition_id: "tonka01",
+      command_id: prepared.command_id
+    }
+
+    assert {:error, :launch_envelope_denied} = resolve(prepared, wrong_partition, store)
+
+    exact = %{
+      agent_id: "agent-farm01",
+      partition_id: "farm01",
+      command_id: prepared.command_id
+    }
+
     assert {:ok, material} = resolve(prepared, exact, store)
     assert material.bearer == @bearer
     assert material.idempotency_key == @idempotency_key
@@ -60,7 +83,12 @@ defmodule ServiceRadar.Automation.LaunchEnvelopesTest do
   test "concurrent exact resolution releases the bearer once" do
     store = start_supervised!({Agent, fn -> memory_state() end})
     assert {:ok, prepared} = prepare(store)
-    exact = %{agent_id: "agent-farm01", command_id: prepared.command_id}
+
+    exact = %{
+      agent_id: "agent-farm01",
+      partition_id: "farm01",
+      command_id: prepared.command_id
+    }
 
     results =
       1..8
@@ -86,7 +114,11 @@ defmodule ServiceRadar.Automation.LaunchEnvelopesTest do
       put_in(state, [:records, verifier], tampered)
     end)
 
-    exact = %{agent_id: "agent-farm01", command_id: prepared.command_id}
+    exact = %{
+      agent_id: "agent-farm01",
+      partition_id: "farm01",
+      command_id: prepared.command_id
+    }
 
     assert {:error, :launch_envelope_decrypt_failed} = resolve(prepared, exact, store)
     assert [%{state: :sealed}] = AutomationLaunchEnvelopeMemoryStore.records(store)
@@ -103,7 +135,12 @@ defmodule ServiceRadar.Automation.LaunchEnvelopesTest do
   test "a wrong active key cannot consume an envelope before rotation settles" do
     store = start_supervised!({Agent, fn -> memory_state() end})
     assert {:ok, prepared} = prepare(store)
-    exact = %{agent_id: "agent-farm01", command_id: prepared.command_id}
+
+    exact = %{
+      agent_id: "agent-farm01",
+      partition_id: "farm01",
+      command_id: prepared.command_id
+    }
 
     assert {:error, :launch_envelope_denied} =
              LaunchEnvelopes.resolve(prepared.envelope_ref, exact,
@@ -205,6 +242,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopesTest do
       inventory_id: 17,
       job_template_id: 23,
       dispatch_agent_id: "agent-farm01",
+      dispatch_partition_id: "farm01",
       callback_allowed_origin: "https://demo.example.com",
       manifest_sha256: String.duplicate("a", 64),
       scm_revision: String.duplicate("b", 40),

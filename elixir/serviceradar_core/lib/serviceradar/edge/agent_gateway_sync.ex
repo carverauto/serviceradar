@@ -35,8 +35,17 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   @spec get_config_if_changed(String.t(), String.t()) ::
           :not_modified | {:ok, map()} | {:error, term()}
-  def get_config_if_changed(agent_id, config_version) do
-    ServiceRadar.Edge.AgentConfigGenerator.get_config_if_changed(agent_id, config_version)
+  def get_config_if_changed(_agent_id, _config_version),
+    do: {:error, :authenticated_partition_required}
+
+  @spec get_config_if_changed(String.t(), String.t(), String.t()) ::
+          :not_modified | {:ok, map()} | {:error, term()}
+  def get_config_if_changed(agent_id, partition_id, config_version) do
+    ServiceRadar.Edge.AgentConfigGenerator.get_config_if_changed(
+      agent_id,
+      partition_id,
+      config_version
+    )
   end
 
   @spec component_type_for_component_id(String.t()) :: {:ok, atom()} | {:error, term()}
@@ -223,11 +232,17 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     reference = string_value(map_value(request, :envelope_ref))
     command_id = string_value(map_value(request, :command_id))
     agent_id = string_value(map_value(request, :agent_id))
+    partition_id = string_value(map_value(request, :partition_id))
 
     with :ok <- present_required(reference, :envelope_ref),
          :ok <- present_required(command_id, :command_id),
-         :ok <- present_required(agent_id, :agent_id) do
-      LaunchEnvelopes.resolve(reference, %{agent_id: agent_id, command_id: command_id})
+         :ok <- present_required(agent_id, :agent_id),
+         :ok <- present_required(partition_id, :partition_id) do
+      LaunchEnvelopes.resolve(reference, %{
+        agent_id: agent_id,
+        partition_id: partition_id,
+        command_id: command_id
+      })
     end
   end
 

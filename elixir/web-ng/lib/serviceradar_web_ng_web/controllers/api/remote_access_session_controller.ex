@@ -61,6 +61,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     route_id
     secret
     secret_payload
+    screen
+    screen_policy
+    desktop_screen_policy
     ssh
     ssh_accounts
     ssh_allowed_principals
@@ -81,6 +84,22 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     url
   )
   @client_controlled_metadata_suffixes ~w(_credential _password _secret _ticket _token)
+  @default_rdp_screen_policy %{
+    "max_width" => 1920,
+    "max_height" => 1080,
+    "frame_rate" => 30,
+    "bitrate_bps" => 8_000_000,
+    "idle_seconds" => 900,
+    "ttl_seconds" => 3600
+  }
+  @rdp_screen_policy_maxima %{
+    "max_width" => 7680,
+    "max_height" => 4320,
+    "frame_rate" => 60,
+    "bitrate_bps" => 100_000_000,
+    "idle_seconds" => 3600,
+    "ttl_seconds" => 14_400
+  }
   @desktop_policy_metadata_fields [
     {"target_tls", ~w(target_tls tls_policy tls)},
     {"nla", ~w(nla nla_policy)},
@@ -509,10 +528,28 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     |> put_optional("target_display_name", Map.get(target, "label"))
     |> put_optional("target_tls", Map.get(desktop_policy, "target_tls"))
     |> put_optional("nla", Map.get(desktop_policy, "nla"))
-    |> put_optional("screen_policy", Map.get(desktop_policy, "screen_policy"))
+    |> Map.put(
+      "screen_policy",
+      effective_rdp_screen_policy(Map.get(desktop_policy, "screen_policy", %{}))
+    )
     |> put_optional("redirection_policy", Map.get(desktop_policy, "redirection_policy"))
     |> put_optional("approval_policy", Map.get(desktop_policy, "approval_policy"))
   end
+
+  defp effective_rdp_screen_policy(policy) when is_map(policy) do
+    Enum.reduce(@default_rdp_screen_policy, %{}, fn {key, default}, bounded ->
+      value = metadata_value(policy, key)
+      maximum = Map.fetch!(@rdp_screen_policy_maxima, key)
+
+      Map.put(bounded, key, bounded_positive_integer(value, default, maximum))
+    end)
+  end
+
+  defp effective_rdp_screen_policy(_policy), do: @default_rdp_screen_policy
+
+  defp bounded_positive_integer(value, _default, maximum) when is_integer(value) and value > 0, do: min(value, maximum)
+
+  defp bounded_positive_integer(_value, default, _maximum), do: default
 
   defp require_exact_rdp_device(device_uid, device_uid), do: :ok
 

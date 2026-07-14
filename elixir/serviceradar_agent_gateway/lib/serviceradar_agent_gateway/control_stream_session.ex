@@ -101,27 +101,34 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   @impl true
   def handle_call({:register, agent_id, partition_id, capabilities, identity_context, control_hello}, _from, state) do
-    state =
-      state
-      |> Map.put(:agent_id, agent_id)
-      |> Map.put(:partition_id, partition_id)
-      |> Map.put(
-        :registered_identity,
-        normalize_identity_context(identity_context, agent_id, partition_id)
-      )
-      |> Map.put(:capabilities, normalize_capabilities(capabilities))
-      |> update_control_evidence(control_hello)
+    with {:ok, {agent_id, partition_id}} <- canonical_control_principal(agent_id, partition_id),
+         :ok <- validate_registration_identity(identity_context, agent_id, partition_id) do
+      state =
+        state
+        |> Map.put(:agent_id, agent_id)
+        |> Map.put(:partition_id, partition_id)
+        |> Map.put(
+          :registered_identity,
+          normalize_identity_context(identity_context, agent_id, partition_id)
+        )
+        |> Map.put(:capabilities, normalize_capabilities(capabilities))
+        |> update_control_evidence(control_hello)
 
-    metadata = control_registration_metadata(state)
+      metadata = control_registration_metadata(state)
+      key = control_registry_key(partition_id, agent_id)
 
-    key = {:agent_control, agent_id, node()}
+      case register_session(key, metadata) do
+        :ok ->
+          state = %{state | registry_key: key}
+          state = forward_reported_config_version(state, control_hello)
+          {:reply, :ok, state}
 
-    :ok = register_session(key, metadata)
-
-    state = %{state | registry_key: key}
-    state = forward_reported_config_version(state, control_hello)
-
-    {:reply, :ok, state}
+        {:error, reason} ->
+          {:reply, {:error, reason}, state}
+      end
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
   end
 
   def handle_call({:send_command, command, context}, _from, state) do
@@ -253,7 +260,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   defp register_session(key, metadata) do
-    unregister_legacy_session_key(key)
+    unregister_legacy_session_keys(key)
 
     case ProcessRegistry.register(key, metadata) do
       {:ok, _pid} ->
@@ -261,17 +268,15 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
       {:error, {:already_registered, pid}} when pid == self() ->
         case ProcessRegistry.update_value(key, fn _current -> metadata end) do
-          :error -> :ok
+          :error -> {:error, :control_session_registration_lost}
           {_new, _old} -> :ok
         end
 
-      {:error, {:already_registered, _pid}} ->
-        ProcessRegistry.unregister(key)
+      {:error, {:already_registered, pid}} ->
+        {:error, {:control_session_already_registered, pid}}
 
-        case ProcessRegistry.register(key, metadata) do
-          {:ok, _pid} -> :ok
-          {:error, {:already_registered, _pid}} -> :ok
-        end
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -291,7 +296,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   defp refresh_available_control_registration(state) do
-    key = state.registry_key || {:agent_control, state.agent_id, node()}
+    key = state.registry_key || control_registry_key(state.partition_id, state.agent_id)
 
     metadata = control_registration_metadata(state)
 
@@ -578,11 +583,41 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   defp map_identity_value(_identity_context, _key), do: nil
 
-  defp unregister_legacy_session_key({:agent_control, agent_id, _node}) do
+  defp unregister_legacy_session_keys({:agent_control, _partition_id, agent_id, _node}) do
+    # Horde.Registry.unregister/2 only removes keys owned by the calling
+    # process. These calls therefore clean up this session's rolling-upgrade
+    # aliases without being able to evict another authenticated principal.
+    ProcessRegistry.unregister({:agent_control, agent_id, node()})
     ProcessRegistry.unregister({:agent_control, agent_id})
   end
 
-  defp unregister_legacy_session_key(_key), do: :ok
+  defp unregister_legacy_session_keys(_key), do: :ok
+
+  defp control_registry_key(partition_id, agent_id), do: {:agent_control, partition_id, agent_id, node()}
+
+  defp canonical_control_principal(agent_id, partition_id) do
+    with agent_id when is_binary(agent_id) <- trimmed_string(agent_id),
+         partition_id when is_binary(partition_id) <- trimmed_string(partition_id) do
+      {:ok, {agent_id, partition_id}}
+    else
+      _ -> {:error, :invalid_control_principal}
+    end
+  end
+
+  defp validate_registration_identity(nil, _agent_id, _partition_id), do: :ok
+
+  defp validate_registration_identity(identity_context, agent_id, partition_id) when is_map(identity_context) do
+    identity = normalize_identity_context(identity_context, nil, nil)
+
+    cond do
+      identity.component_id != agent_id -> {:error, :component_id_mismatch}
+      identity.partition_id != partition_id -> {:error, :partition_id_mismatch}
+      true -> :ok
+    end
+  end
+
+  defp validate_registration_identity(_identity_context, _agent_id, _partition_id),
+    do: {:error, :invalid_identity_context}
 
   @spec send_stream_reply(GRPC.Server.Stream.t(), struct()) ::
           {:ok, GRPC.Server.Stream.t()} | {:error, term()}

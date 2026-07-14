@@ -16,6 +16,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
     as: Attempt
 
   alias ServiceRadar.Automation.Ansible.Controller
+  alias ServiceRadar.Automation.Ansible.ControllerProvenance
+  alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Automation.Ansible.ExecutionLifecycle
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandContract, as: Contract
@@ -32,6 +34,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
   @launch_reconcile_seconds 30
   @default_execution_seconds 86_400
   @max_execution_seconds 604_800
+  @max_recent_candidates 5_000
   @command_types [
     "awx.launch_job",
     "awx.fetch_job",
@@ -97,6 +100,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
          :ok <-
            exact_authenticated_provenance(bundle, authenticated_agent_id, reported_command_type),
          :ok <- ensure_non_callback(bundle.operation),
+         :ok <- verify_controller_boundary(bundle),
          :ok <- terminal_command(bundle.command) do
       process_terminal_bundle(bundle, now, opts)
     end
@@ -133,6 +137,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
          true <-
            same_id?(bundle.attempt.id, attempt.id) || {:error, :secure_execution_attempt_changed},
          :ok <- ensure_non_callback(bundle.operation),
+         :ok <- verify_controller_boundary(bundle),
          {:ok, claimed, token} <- claim_processing(bundle.attempt, now, opts) do
       bundle
       |> Map.put(:attempt, claimed)
@@ -156,6 +161,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
     with true <- not DateTime.before?(now, attempt.deadline_at) || {:error, :deadline_not_elapsed},
          {:ok, bundle} <- load_resources_for_attempt(attempt, opts),
          :ok <- ensure_non_callback(bundle.operation),
+         :ok <- verify_controller_boundary(bundle),
          {:ok, claimed, token} <- claim_processing(attempt, now, opts) do
       bundle = Map.put(bundle, :attempt, claimed)
 
@@ -175,8 +181,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
           mark_cancel_failed(bundle, token, nil, :cancel_deadline_elapsed, now, opts)
 
         _stage ->
-          cancel_job_ids =
-            if is_integer(attempt.expected_job_id), do: [attempt.expected_job_id], else: []
+          cancel_job_ids = proven_cancel_job_ids(bundle, attempt.expected_job_id)
 
           fail_known_execution(
             bundle,
@@ -287,6 +292,9 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
       bundle.attempt.dispatch_agent_id != authenticated_agent_id ->
         {:error, :secure_execution_attempt_agent_mismatch}
 
+      bundle.command.partition_id != bundle.attempt.dispatch_partition_id ->
+        {:error, :secure_execution_authenticated_partition_mismatch}
+
       bundle.command.command_type != reported_type ->
         {:error, :secure_execution_reported_type_mismatch}
 
@@ -297,6 +305,28 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
 
   defp ensure_non_callback(%{callback_actions: []}), do: :ok
   defp ensure_non_callback(_operation), do: {:error, :callback_execution_isolated}
+
+  defp verify_controller_boundary(bundle) do
+    metadata = value(bundle.execution, :metadata) || %{}
+    expected_partition_id = value(metadata, :dispatch_partition_id)
+    command = Map.get(bundle, :command)
+    command_partition_id = value(command || %{}, :partition_id)
+
+    with partition when is_binary(partition) and partition != "" <- expected_partition_id,
+         true <- partition == bundle.attempt.dispatch_partition_id,
+         true <- is_nil(command) or partition == command_partition_id,
+         :ok <-
+           ControllerSecuritySnapshot.verify(
+             bundle.controller,
+             value(metadata, :controller_security_snapshot)
+           ) do
+      :ok
+    else
+      false -> {:error, :secure_execution_dispatch_partition_drift}
+      {:error, _reason} = error -> error
+      _ -> {:error, :secure_execution_dispatch_partition_required}
+    end
+  end
 
   defp terminal_command(%AgentCommand{status: status}) when status in @terminal_command_states,
     do: :ok
@@ -411,27 +441,31 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
          opts
        ) do
     with {:ok, job_id} <- exact_launch_result(bundle),
-         {:ok, request} <- Contract.fetch_job_request(job_id),
-         {:ok, attrs} <-
-           next_attempt_attrs(bundle, request, now,
-             stage: :fetch_job,
-             purpose: :accepted_job_proof,
-             command_type: "awx.fetch_job",
-             expected_job_id: job_id,
-             deadline_at: execution_deadline(bundle, now)
-           ),
-         {:ok, next} <-
-           complete_with_next(
-             bundle.attempt,
+         {:ok, job} <- verified_job(bundle, job_id, opts),
+         {:ok, outcome} <-
+           bind_verified_job_and_schedule_scope(
+             bundle,
+             job,
              token,
              digest,
-             :launch_acknowledged,
-             attrs,
+             :launch_directly_verified,
              now,
              opts
            ) do
-      dispatch_after_commit(next, opts)
-      {:ok, :launch_acknowledged}
+      {:ok, outcome}
+    else
+      {:error, reason} ->
+        # The agent-returned number is only a candidate selector. Never bind or
+        # cancel it when the independent controller path cannot prove that the
+        # exact immutable launch contract created it.
+        fail_known_execution(
+          bundle,
+          token,
+          digest,
+          reason,
+          now,
+          Keyword.put(opts, :cancel_job_ids, [])
+        )
     end
   end
 
@@ -443,32 +477,19 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
          now,
          opts
        ) do
-    with {:ok, job} <- exact_fetch_job_result(bundle),
-         {:ok, request} <-
-           Contract.host_summaries_request(bundle.attempt.expected_job_id, length(bundle.targets)),
-         {:ok, attrs} <-
-           next_attempt_attrs(bundle, request, now,
-             stage: :fetch_host_summaries,
-             purpose: :host_scope_proof,
-             command_type: "awx.fetch_job_host_summaries",
-             expected_job_id: bundle.attempt.expected_job_id,
-             deadline_at: execution_deadline(bundle, now)
-           ),
-         {:ok, execution} <-
-           bind_accepted_job(bundle, job, opts),
-         bundle = %{bundle | execution: execution},
-         {:ok, next} <-
-           complete_with_next(
-             bundle.attempt,
+    with {:ok, _agent_job} <- exact_fetch_job_result(bundle),
+         {:ok, job} <- verified_job(bundle, bundle.attempt.expected_job_id, opts),
+         {:ok, outcome} <-
+           bind_verified_job_and_schedule_scope(
+             bundle,
+             job,
              token,
              digest,
              :accepted_job_verified,
-             attrs,
              now,
              opts
            ) do
-      dispatch_after_commit(next, opts)
-      {:ok, :accepted_job_verified}
+      {:ok, outcome}
     else
       {:error, reason} ->
         fail_known_execution(
@@ -477,7 +498,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
           digest,
           reason,
           now,
-          Keyword.put(opts, :cancel_job_ids, [bundle.attempt.expected_job_id])
+          Keyword.put(opts, :cancel_job_ids, [])
         )
     end
   end
@@ -490,7 +511,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
          now,
          opts
        ) do
-    with {:ok, job} <- exact_fetch_job_result(bundle),
+    with {:ok, job} <- verified_fetch_job(bundle, opts),
          :ok <-
            SecureExecutionLifecycle.validate_bound_job(
              bundle.execution,
@@ -586,7 +607,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
          now,
          opts
        ) do
-    with {:ok, job} <- exact_fetch_job_result(bundle),
+    with {:ok, job} <- verified_fetch_job(bundle, opts),
          :ok <-
            SecureExecutionLifecycle.validate_bound_job(
              bundle.execution,
@@ -654,24 +675,30 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
          now,
          opts
        ) do
-    with {:ok, result} <- exact_recent_jobs_result(bundle, request),
-         {:ok, candidates} <- reconciled_candidates(bundle, result.jobs) do
+    with {:ok, _agent_result} <- exact_recent_jobs_result(bundle, request),
+         {:ok, verified} <- verified_recent_jobs(bundle, request, opts),
+         {:ok, candidates} <- reconciled_candidates(bundle, verified.jobs) do
       cond do
-        result.truncated? ->
-          dispatch_ambiguous(bundle, token, digest, :recent_jobs_truncated, candidates, now, opts)
-
-        length(candidates) == 1 ->
-          reconcile_unique_candidate(bundle, hd(candidates), token, digest, now, opts)
-
-        candidates == [] ->
+        verified.complete? and candidates == [] ->
           schedule_recent_jobs_poll(bundle, request, token, digest, now, opts)
 
+        verified.complete? and length(candidates) == 1 ->
+          reconcile_unique_candidate(bundle, hd(candidates), token, digest, now, opts)
+
+        not verified.complete? and candidates == [] ->
+          dispatch_ambiguous(bundle, token, digest, :recent_jobs_incomplete, [], now, opts)
+
         true ->
+          reason =
+            if verified.complete?,
+              do: :multiple_launch_candidates,
+              else: :recent_jobs_incomplete
+
           dispatch_ambiguous(
             bundle,
             token,
             digest,
-            :multiple_launch_candidates,
+            reason,
             candidates,
             now,
             opts
@@ -690,52 +717,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
          now,
          opts
        ) do
-    case exact_cancel_result(bundle) do
-      :ok ->
-        case bundle.attempt.candidate_job_ids do
-          [next_job_id | remaining] ->
-            with {:ok, request} <- Contract.cancel_job_request(next_job_id),
-                 {:ok, attrs} <-
-                   next_attempt_attrs(bundle, request, now,
-                     stage: :cancel_job,
-                     purpose: :terminal_cleanup,
-                     command_type: "awx.cancel_job",
-                     expected_job_id: next_job_id,
-                     candidate_job_ids: remaining,
-                     deadline_at: DateTime.add(now, 60, :second)
-                   ),
-                 {:ok, next} <-
-                   complete_with_next(
-                     bundle.attempt,
-                     token,
-                     digest,
-                     :candidate_canceled,
-                     attrs,
-                     now,
-                     opts
-                   ) do
-              dispatch_after_commit(next, opts)
-              {:ok, :candidate_canceled}
-            end
-
-          [] ->
-            with {:ok, _attempt} <-
-                   attempt_store(opts).mark_succeeded(
-                     bundle.attempt,
-                     %{
-                       lease_token: token,
-                       processed_at: now,
-                       outcome_code: "cleanup_complete",
-                       result_digest: digest
-                     },
-                     actor: @actor
-                   ) do
-              {:ok, :cleanup_complete}
-            end
-        end
-
-      {:error, reason} ->
-        mark_cancel_failed(bundle, token, digest, reason, now, opts)
+    with :ok <- exact_cancel_result(bundle) do
+      reconcile_cancel_observation(bundle, token, digest, now, opts)
     end
   end
 
@@ -768,7 +751,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
          now,
          opts
        ),
-       do: mark_cancel_failed(bundle, token, digest, :cancel_command_failed, now, opts)
+       do: reconcile_cancel_observation(bundle, token, digest, now, opts)
 
   defp process_command_failure(bundle, _request, token, digest, now, opts) do
     case read_only_retry_attrs(bundle, now, opts) do
@@ -1044,24 +1027,214 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
   end
 
   defp reconcile_unique_candidate(bundle, candidate, token, digest, now, opts) do
-    with {:ok, request} <- Contract.fetch_job_request(candidate.job_id),
+    bind_verified_job_and_schedule_scope(
+      bundle,
+      candidate.job,
+      token,
+      digest,
+      :launch_reconciled,
+      now,
+      opts
+    )
+  end
+
+  defp bind_verified_job_and_schedule_scope(bundle, job, token, digest, outcome, now, opts) do
+    job_id = value(job, :id) || value(job, :job)
+
+    with true <- is_integer(job_id) and job_id > 0,
+         {:ok, request} <- Contract.host_summaries_request(job_id, length(bundle.targets)),
          {:ok, attrs} <-
            next_attempt_attrs(bundle, request, now,
-             stage: :fetch_job,
-             purpose: :accepted_job_proof,
-             command_type: "awx.fetch_job",
-             expected_job_id: candidate.job_id,
-             deadline_at: execution_deadline(bundle, now)
+             stage: :fetch_host_summaries,
+             purpose: :host_scope_proof,
+             command_type: "awx.fetch_job_host_summaries",
+             expected_job_id: job_id,
+             deadline_at: execution_deadline(bundle, now),
+             attempt_store: attempt_store(opts)
            ),
          {:ok, next} <-
-           complete_with_next(bundle.attempt, token, digest, :launch_reconciled, attrs, now, opts) do
+           transaction(opts, fn ->
+             with {:ok, _execution} <- bind_accepted_job(bundle, job, opts),
+                  {:ok, _completed} <-
+                    attempt_store(opts).mark_succeeded(
+                      bundle.attempt,
+                      %{
+                        lease_token: token,
+                        processed_at: now,
+                        outcome_code: Atom.to_string(outcome),
+                        result_digest: digest
+                      },
+                      actor: @actor
+                    ),
+                  {:ok, next} <- attempt_store(opts).create_planned(attrs, actor: @actor) do
+               next
+             else
+               {:error, reason} -> rollback(opts, reason)
+             end
+           end) do
       dispatch_after_commit(next, opts)
-      {:ok, :launch_reconciled}
+      {:ok, outcome}
+    else
+      false -> {:error, :invalid_verified_controller_job}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp verified_fetch_job(bundle, opts) do
+    with {:ok, _agent_job} <- exact_fetch_job_result(bundle) do
+      verified_job(bundle, bundle.attempt.expected_job_id, opts)
+    end
+  end
+
+  defp verified_job(bundle, job_id, opts) do
+    verifier = Keyword.get(opts, :controller_provenance, ControllerProvenance)
+    verifier_opts = controller_provenance_opts(bundle, opts)
+
+    result =
+      cond do
+        is_function(verifier, 3) ->
+          verifier.(bundle.controller, job_id, verifier_opts)
+
+        is_atom(verifier) ->
+          verifier.verify_job(bundle.controller, job_id, verifier_opts)
+
+        true ->
+          {:error, :controller_provenance_unavailable}
+      end
+
+    case result do
+      {:ok, job} when is_map(job) -> {:ok, job}
+      {:error, _reason} = error -> error
+      _ -> {:error, :controller_provenance_unavailable}
+    end
+  end
+
+  defp verified_recent_jobs(bundle, request, opts) do
+    verifier = Keyword.get(opts, :controller_provenance, ControllerProvenance)
+    verifier_opts = controller_provenance_opts(bundle, opts)
+
+    result =
+      cond do
+        is_function(verifier, 3) ->
+          verifier.(bundle.controller, request, verifier_opts)
+
+        is_atom(verifier) ->
+          verifier.list_recent_jobs(bundle.controller, request, verifier_opts)
+
+        true ->
+          {:error, :controller_provenance_unavailable}
+      end
+
+    case result do
+      {:ok, %{jobs: jobs, complete?: complete?}}
+      when is_list(jobs) and is_boolean(complete?) ->
+        {:ok, %{jobs: jobs, complete?: complete?}}
+
+      {:error, _reason} = error ->
+        error
+
+      _ ->
+        {:error, :controller_provenance_unavailable}
+    end
+  end
+
+  defp reconcile_cancel_observation(bundle, token, digest, now, opts) do
+    case verified_job(bundle, bundle.attempt.expected_job_id, opts) do
+      {:ok, job} ->
+        case SecureExecutionLifecycle.job_state(job) do
+          {:ok, :active} -> retry_unconfirmed_cancel(bundle, token, digest, now, opts)
+          {:ok, _terminal} -> advance_verified_cancel_queue(bundle, token, digest, now, opts)
+          {:error, _reason} -> retry_unconfirmed_cancel(bundle, token, digest, now, opts)
+        end
+
+      {:error, _reason} ->
+        retry_unconfirmed_cancel(bundle, token, digest, now, opts)
+    end
+  end
+
+  defp advance_verified_cancel_queue(bundle, token, digest, now, opts) do
+    case bundle.attempt.candidate_job_ids do
+      [next_job_id | remaining] ->
+        with {:ok, request} <- Contract.cancel_job_request(next_job_id),
+             {:ok, attrs} <-
+               next_attempt_attrs(bundle, request, now,
+                 stage: :cancel_job,
+                 purpose: :terminal_cleanup,
+                 command_type: "awx.cancel_job",
+                 expected_job_id: next_job_id,
+                 candidate_job_ids: remaining,
+                 deadline_at: DateTime.add(now, 60, :second),
+                 attempt_store: attempt_store(opts)
+               ),
+             {:ok, next} <-
+               complete_with_next(
+                 bundle.attempt,
+                 token,
+                 digest,
+                 :candidate_canceled,
+                 attrs,
+                 now,
+                 opts
+               ) do
+          dispatch_after_commit(next, opts)
+          {:ok, :candidate_canceled}
+        end
+
+      [] ->
+        with {:ok, _attempt} <-
+               attempt_store(opts).mark_succeeded(
+                 bundle.attempt,
+                 %{
+                   lease_token: token,
+                   processed_at: now,
+                   outcome_code: "cleanup_complete",
+                   result_digest: digest
+                 },
+                 actor: @actor
+               ) do
+          {:ok, :cleanup_complete}
+        end
+    end
+  end
+
+  defp retry_unconfirmed_cancel(bundle, token, digest, now, opts) do
+    next_at = DateTime.add(now, 1, :second)
+
+    with :ok <- before_deadline(bundle.attempt, next_at),
+         {:ok, request} <- Contract.cancel_job_request(bundle.attempt.expected_job_id),
+         {:ok, attrs} <-
+           next_attempt_attrs(bundle, request, now,
+             stage: :cancel_job,
+             purpose: :terminal_cleanup,
+             command_type: "awx.cancel_job",
+             expected_job_id: bundle.attempt.expected_job_id,
+             candidate_job_ids: bundle.attempt.candidate_job_ids,
+             next_attempt_at: next_at,
+             deadline_at: bundle.attempt.deadline_at,
+             attempt_store: attempt_store(opts)
+           ),
+         {:ok, next} <-
+           complete_with_next(
+             bundle.attempt,
+             token,
+             digest,
+             :cancel_not_independently_confirmed,
+             attrs,
+             now,
+             opts
+           ) do
+      dispatch_after_commit(next, opts)
+      {:ok, :cancel_not_independently_confirmed}
     end
   end
 
   defp dispatch_ambiguous(bundle, token, digest, reason, candidates, now, opts) do
-    job_ids = candidates |> Enum.map(& &1.job_id) |> Enum.uniq() |> Enum.sort()
+    job_ids =
+      candidates
+      |> Enum.filter(&(&1.state == :active))
+      |> Enum.map(& &1.job_id)
+      |> Enum.uniq()
+      |> Enum.sort()
 
     fail_known_execution(
       bundle,
@@ -1081,7 +1254,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
     attempt_state = Keyword.get(opts, :attempt_terminal_state, :failed)
     job_ids = opts |> Keyword.get(:cancel_job_ids, []) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
-    with {:ok, next_attrs} <- optional_cancel_attrs(bundle, job_ids, now),
+    with {:ok, next_attrs} <- optional_cancel_attrs(bundle, job_ids, now, opts),
          {:ok, next} <-
            transaction(opts, fn ->
              with {:ok, _lifecycle} <-
@@ -1130,9 +1303,9 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
     )
   end
 
-  defp optional_cancel_attrs(_bundle, [], _now), do: {:ok, nil}
+  defp optional_cancel_attrs(_bundle, [], _now, _opts), do: {:ok, nil}
 
-  defp optional_cancel_attrs(bundle, [job_id | remaining], now) do
+  defp optional_cancel_attrs(bundle, [job_id | remaining], now, opts) do
     with {:ok, request} <- Contract.cancel_job_request(job_id) do
       next_attempt_attrs(bundle, request, now,
         stage: :cancel_job,
@@ -1140,7 +1313,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
         command_type: "awx.cancel_job",
         expected_job_id: job_id,
         candidate_job_ids: remaining,
-        deadline_at: DateTime.add(now, 60, :second)
+        deadline_at: DateTime.add(now, 60, :second),
+        attempt_store: attempt_store(opts)
       )
     end
   end
@@ -1184,6 +1358,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
       same_id?(bundle.command.id, bundle.attempt.command_id),
       bundle.command.command_type == bundle.attempt.command_type,
       bundle.command.agent_id == bundle.attempt.dispatch_agent_id,
+      bundle.command.partition_id == bundle.attempt.dispatch_partition_id,
       same_id?(bundle.execution.id, bundle.attempt.execution_id),
       same_id?(bundle.operation.id, bundle.attempt.operation_id),
       same_id?(bundle.controller.id, bundle.attempt.controller_id),
@@ -1256,7 +1431,10 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
     with :ok <-
            exact_keys(
              payload,
-             ~w(verb ok template_id inventory_id created_by_id created_after page_size count truncated jobs)
+             ~w(
+               verb ok template_id inventory_id created_by_id created_after page_size
+               max_candidates count complete jobs
+             )
            ),
          true <- payload["verb"] == bundle.attempt.command_type,
          true <- payload["ok"] == true,
@@ -1265,12 +1443,11 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
          true <- payload["created_by_id"] == request.created_by_id,
          true <- payload["created_after"] == request.created_after,
          true <- payload["page_size"] == request.page_size,
-         count when is_integer(count) and count >= 0 <- payload["count"],
-         truncated when is_boolean(truncated) <- payload["truncated"],
-         jobs when is_list(jobs) <- payload["jobs"],
-         true <- length(jobs) <= request.page_size,
-         true <- (truncated and count >= length(jobs)) or count == length(jobs) do
-      {:ok, %{jobs: jobs, truncated?: truncated}}
+         true <- payload["max_candidates"] == @max_recent_candidates,
+         count when is_integer(count) and count in 0..@max_recent_candidates <- payload["count"],
+         true <- payload["complete"] == true,
+         jobs when is_list(jobs) and length(jobs) == count <- payload["jobs"] do
+      {:ok, %{jobs: jobs, complete?: true}}
     else
       _ -> {:error, :secure_execution_recent_jobs_result_mismatch}
     end
@@ -1294,9 +1471,16 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
     candidates =
       jobs
       |> Enum.reduce([], fn job, acc ->
-        case ExecutionLifecycle.accepted_job_snapshot(bundle.execution, bundle.controller.id, job) do
-          {:ok, snapshot} -> [%{job_id: snapshot["awx_job_id"], job: job} | acc]
-          {:error, _reason} -> acc
+        with {:ok, snapshot} <-
+               ExecutionLifecycle.accepted_job_snapshot(
+                 bundle.execution,
+                 bundle.controller.id,
+                 job
+               ),
+             {:ok, state} <- SecureExecutionLifecycle.job_state(job) do
+          [%{job_id: snapshot["awx_job_id"], job: job, state: state} | acc]
+        else
+          _ -> acc
         end
       end)
       |> Enum.uniq_by(& &1.job_id)
@@ -1340,7 +1524,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
         operation_id: bundle.attempt.operation_id,
         execution_id: bundle.attempt.execution_id,
         controller_id: bundle.attempt.controller_id,
-        dispatch_agent_id: bundle.attempt.dispatch_agent_id
+        dispatch_agent_id: bundle.attempt.dispatch_agent_id,
+        dispatch_partition_id: bundle.attempt.dispatch_partition_id
       },
       bundle.execution,
       request,
@@ -1584,6 +1769,28 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
       nil -> base
       actions -> Keyword.put(base, :actions, actions)
     end
+  end
+
+  defp controller_provenance_opts(bundle, opts) do
+    metadata = value(bundle.execution, :metadata) || %{}
+
+    opts
+    |> Keyword.get(:controller_provenance_opts, [])
+    |> Keyword.put(
+      :expected_controller_snapshot,
+      value(metadata, :controller_security_snapshot)
+    )
+    |> Keyword.put(:expected_partition_id, bundle.attempt.dispatch_partition_id)
+  end
+
+  defp proven_cancel_job_ids(bundle, expected_job_id) do
+    bound_job_id = value(bundle.execution, :awx_job_id)
+    snapshot_job_id = bundle.execution |> value(:accepted_job_snapshot) |> value(:awx_job_id)
+
+    if is_integer(expected_job_id) and expected_job_id > 0 and
+         bound_job_id == expected_job_id and snapshot_job_id == expected_job_id,
+       do: [expected_job_id],
+       else: []
   end
 
   defp now(opts),

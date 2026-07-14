@@ -84,7 +84,11 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.AshStore do
          {:ok, resolved} <-
            LaunchEnvelope.mark_resolved(
              envelope,
-             %{resolved_at: now, resolved_by_agent_id: context.dispatch_agent_id},
+             %{
+               resolved_at: now,
+               resolved_by_agent_id: context.dispatch_agent_id,
+               resolved_by_partition_id: context.dispatch_partition_id
+             },
              actor: @actor
            ),
          {:ok, _audit} <- record_resolution_audit(grant, now) do
@@ -207,6 +211,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.AshStore do
          true <- command.status in [:queued, :sent, :acknowledged, :running],
          true <- secure_equal?(to_string(command.id), context.command_id),
          true <- secure_equal?(command.agent_id, context.dispatch_agent_id),
+         true <- secure_equal?(command.partition_id, context.dispatch_partition_id),
          %DateTime{} = expires_at <- command.expires_at,
          true <- DateTime.after?(expires_at, now),
          {:ok, command_reference} <- CommandPayload.parse(command.payload || %{}),

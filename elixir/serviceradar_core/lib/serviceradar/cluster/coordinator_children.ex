@@ -26,6 +26,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         cluster_health_child(),
         state_monitor_child(),
         status_handler_child(),
+        command_result_coordination_supervisor_child(),
         command_status_handler_child(),
         results_router_child(),
         health_check_runner_supervisor_child(),
@@ -101,6 +102,13 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp command_status_handler_child do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       ServiceRadar.AgentCommands.StatusHandler
+    end
+  end
+
+  defp command_result_coordination_supervisor_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      {Task.Supervisor,
+       name: ServiceRadar.AgentCommands.ResultCoordinationTaskSupervisor, max_children: 32}
     end
   end
 

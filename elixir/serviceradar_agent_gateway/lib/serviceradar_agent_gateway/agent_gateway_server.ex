@@ -126,7 +126,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     identity = extract_identity_from_stream(stream)
     {identity, _component_type} = resolve_component_type!(identity, agent_id)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
-    partition_id = resolve_partition(identity, request.partition)
+    partition_id = resolve_partition(identity)
     capabilities = normalize_capabilities(request.capabilities || [])
     source_ip = get_peer_ip(stream)
 
@@ -173,12 +173,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     identity = extract_identity_from_stream(stream)
     {identity, component_type} = resolve_component_type!(identity, agent_id)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+    partition_id = resolve_partition(identity)
 
     Logger.info("Config request received: component_type=#{component_type}, agent_id=#{agent_id}")
 
     # Generate config from database using the config generator
     AgentGatewaySync
-    |> core_call(:get_config_if_changed, [agent_id, config_version], 15_000)
+    |> core_call(:get_config_if_changed, [agent_id, partition_id, config_version], 15_000)
     |> handle_config_response(agent_id, config_version)
   end
 
@@ -263,6 +264,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     agent_id = identity |> Map.fetch!(:component_id) |> required_agent_id()
     {identity, _component_type} = resolve_component_type!(identity, agent_id)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+    partition_id = resolve_partition(identity)
 
     enforce_component_identity!(
       identity,
@@ -272,6 +274,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     request_map = %{
       agent_id: agent_id,
+      partition_id: partition_id,
       envelope_ref: request.envelope_ref,
       command_id: request.command_id
     }
@@ -351,12 +354,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     identity = extract_identity_from_stream(stream)
     {identity, component_type} = resolve_component_type!(identity, agent_id)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+    partition_id = resolve_partition(identity)
 
     Logger.info("Stream config request received: component_type=#{component_type}, agent_id=#{agent_id}")
 
     response =
       AgentGatewaySync
-      |> core_call(:get_config_if_changed, [agent_id, config_version], 15_000)
+      |> core_call(:get_config_if_changed, [agent_id, partition_id, config_version], 15_000)
       |> handle_config_response(agent_id, config_version)
 
     chunks = config_response_chunks(agent_id, response)
@@ -404,7 +408,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     # Extract identity from mTLS certificate (secure source of truth)
     identity = extract_identity_from_stream(stream)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
-    partition = resolve_partition(identity, request.partition)
+    partition = resolve_partition(identity)
 
     refresh_agent_heartbeat(identity, agent_id, partition, request, stream)
 
@@ -849,7 +853,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     |> Enum.uniq()
   end
 
-  defp resolve_partition(identity, _request_partition) do
+  defp resolve_partition(identity) do
     partition_id = Map.fetch!(identity, :partition_id)
     normalize_partition(partition_id)
   end
@@ -1404,7 +1408,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     Logger.debug("Received chunk #{chunk_index + 1}/#{total_chunks} from agent #{agent_id}")
 
-    partition = resolve_partition(identity, chunk.partition)
+    partition = resolve_partition(identity)
     ensure_stream_registration(state.registered?, identity, agent_id, partition, chunk, stream)
 
     metadata =
@@ -1743,7 +1747,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     {identity, _component_type} = resolve_component_type!(identity, agent_id)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
 
-    partition_id = resolve_partition(identity, hello.partition)
+    partition_id = resolve_partition(identity)
     capabilities = normalize_capabilities(hello.capabilities || [])
     source_ip = get_peer_ip(stream)
 

@@ -197,10 +197,23 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
     preferred_gateway_node =
       preferred_gateway_node || metadata_string(metadata_map(session), "gateway_node")
 
-    case command_bus.resolve_control_session_evidence(session.agent_id, preferred_gateway_node) do
-      {:ok, evidence} when is_map(evidence) -> {:ok, evidence}
-      {:error, reason} -> {:error, reason}
-      _other -> {:error, :console_control_evidence_unavailable}
+    with {:ok, partition_id} <- assignment_partition_id(session) do
+      case command_bus.resolve_control_session_evidence(
+             partition_id,
+             session.agent_id,
+             preferred_gateway_node
+           ) do
+        {:ok, evidence} when is_map(evidence) -> {:ok, evidence}
+        {:error, reason} -> {:error, reason}
+        _other -> {:error, :console_control_evidence_unavailable}
+      end
+    end
+  end
+
+  defp assignment_partition_id(session) do
+    case metadata_string(metadata_map(session), "assignment_partition_id") do
+      partition_id when is_binary(partition_id) and partition_id != "" -> {:ok, partition_id}
+      _partition_id -> {:error, :console_assignment_partition_binding_missing}
     end
   end
 

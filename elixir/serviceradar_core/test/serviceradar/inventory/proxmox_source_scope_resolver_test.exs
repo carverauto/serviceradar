@@ -8,6 +8,7 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolverTest do
   @integration_id "33333333-3333-4333-8333-333333333333"
   @controller_id "44444444-4444-4444-8444-444444444444"
   @agent_id "edge-farm01"
+  @partition_id "farm01"
 
   test "resolves immutable scope through the authenticated policy assignment" do
     assert {:ok, scope} = resolve()
@@ -15,6 +16,7 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolverTest do
     assert scope == %{
              integration_id: @integration_id,
              controller_id: @controller_id,
+             partition_id: @partition_id,
              assignment_id: @assignment_id,
              credential_rule_id: @rule_id
            }
@@ -25,6 +27,7 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolverTest do
              ProxmoxSourceScopeResolver.resolve_assignment(assignment_fixture(),
                actor: %{},
                agent_id: @agent_id,
+               partition_id: @partition_id,
                rule_loader: fn @rule_id, _actor -> {:ok, rule_fixture()} end
              )
 
@@ -45,6 +48,7 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolverTest do
              ProxmoxSourceScopeResolver.resolve_assignment(assignment_fixture(),
                actor: %{},
                agent_id: @agent_id,
+               partition_id: @partition_id,
                rule_loader: loader
              )
 
@@ -52,6 +56,7 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolverTest do
              ProxmoxSourceScopeResolver.resolve_assignment(console_assignment_fixture(),
                actor: %{},
                agent_id: @agent_id,
+               partition_id: @partition_id,
                rule_loader: loader
              )
 
@@ -76,6 +81,7 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolverTest do
                ProxmoxSourceScopeResolver.resolve_assignment(console_assignment_fixture(),
                  actor: %{},
                  agent_id: @agent_id,
+                 partition_id: @partition_id,
                  rule_loader: fn @rule_id, _actor -> {:ok, rule} end
                )
     end
@@ -94,6 +100,7 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolverTest do
                ProxmoxSourceScopeResolver.resolve_assignment(console_assignment_fixture(),
                  actor: %{},
                  agent_id: @agent_id,
+                 partition_id: @partition_id,
                  rule_loader: fn @rule_id, _actor -> {:ok, rule} end
                )
     end
@@ -134,6 +141,7 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolverTest do
       {%{enabled: false}, :plugin_assignment_disabled},
       {%{source: :manual}, :plugin_assignment_not_policy_managed},
       {%{agent_uid: "edge-tonka01"}, :plugin_assignment_agent_mismatch},
+      {%{partition_id: "tonka01"}, :plugin_assignment_partition_mismatch},
       {%{plugin_id: "proxmox-console"}, :plugin_assignment_plugin_mismatch}
     ]
 
@@ -141,6 +149,17 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolverTest do
       assignment = Map.merge(assignment_fixture(), change)
       assert {:error, ^expected} = resolve(assignment: assignment)
     end
+  end
+
+  test "does not accept a result-owned partition as a substitute for transport evidence" do
+    assert {:error, :missing_authenticated_partition_id} =
+             resolve(
+               payload: Map.put(payload_fixture(), "partition_id", @partition_id),
+               status: Map.delete(status_fixture(), "partition")
+             )
+
+    assert {:error, :plugin_assignment_partition_mismatch} =
+             resolve(status: Map.put(status_fixture(), "partition", "tonka01"))
   end
 
   test "rejects a wrong or unapproved package and drifted assignment policy params" do
@@ -268,6 +287,7 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolverTest do
   defp status_fixture do
     %{
       "agent_id" => @agent_id,
+      "partition" => @partition_id,
       "plugin_id" => "proxmox-inventory",
       "delivery_capabilities" => [
         "plugin-host-authority:v1",
@@ -285,6 +305,7 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolverTest do
       enabled: true,
       source: :policy,
       agent_uid: @agent_id,
+      partition_id: @partition_id,
       plugin_id: "proxmox-inventory",
       policy_id: policy_id,
       params: %{"policy_id" => policy_id},

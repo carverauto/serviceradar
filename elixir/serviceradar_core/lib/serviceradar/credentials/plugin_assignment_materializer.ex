@@ -17,7 +17,6 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   """
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.CredentialProviderProfile
   alias ServiceRadar.Credentials.CredentialRedactor
@@ -25,6 +24,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Credentials.ProviderProfiles.ProxmoxProfile
   alias ServiceRadar.Credentials.RuleAccessors
+  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.PolicyAssignmentReconciler
@@ -628,13 +628,22 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   end
 
   defp agent_partition(agent_id, agent) do
-    registry_partition(agent_id) || metadata_value(agent, "partition_id")
+    # A persisted Agent row can represent a later re-enrollment of the same UID
+    # and is not proof for this operation. Only live registry metadata stamped
+    # by the authenticated control session may select a partition-scoped rule.
+    _ = agent
+    registry_partition(agent_id)
   end
 
   defp registry_partition(agent_id) do
-    agent_id
-    |> AgentRegistry.lookup()
-    |> Enum.find_value(fn {_pid, metadata} -> metadata_value(metadata, "partition_id") end)
+    case AgentCommandBus.resolve_control_session_evidence(agent_id) do
+      {:ok, %{agent_id: ^agent_id, partition_id: partition_id}}
+      when is_binary(partition_id) and partition_id != "" ->
+        partition_id
+
+      _missing_or_ambiguous ->
+        nil
+    end
   end
 
   defp policy_id_for_rule(rule_id, @inventory_purpose), do: "network-credential-rule:#{rule_id}"
@@ -673,21 +682,6 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   defp metadata_int(rule, key, default) do
     RuleAccessors.metadata_int(rule, key, default)
   end
-
-  defp metadata_value(nil, _key), do: nil
-
-  defp metadata_value(map, key) when is_map(map) do
-    map
-    |> ValueUtils.raw_value([key, metadata_atom_key(key)])
-    |> case do
-      nil -> nil
-      value when is_binary(value) -> String.trim(value)
-      value -> to_string(value)
-    end
-  end
-
-  defp metadata_atom_key("gateway_id"), do: :gateway_id
-  defp metadata_atom_key("partition_id"), do: :partition_id
 
   defp value_string(map, keys), do: RuleAccessors.value_string(map, keys)
 

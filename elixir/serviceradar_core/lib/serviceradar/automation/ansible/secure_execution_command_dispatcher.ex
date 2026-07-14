@@ -17,6 +17,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
 
   alias ServiceRadar.Automation.Ansible.AwxClient
   alias ServiceRadar.Automation.Ansible.Controller
+  alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Automation.Ansible.SecureExecutionAuthorityContraction
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandContract, as: Contract
@@ -36,6 +37,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
     with :ok <- before_deadline(attempt, now),
          {:ok, resources} <- load_resources(attempt, opts),
          :ok <- ensure_non_callback(resources.operation),
+         :ok <- verify_controller_boundary(attempt, resources),
          :ok <- ensure_lifecycle_state(attempt, resources.operation, resources.execution),
          {:ok, request} <- rebuild_request(attempt, resources),
          true <-
@@ -85,6 +87,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
 
       with {:ok, resources} <- load_resources(attempt, opts),
            :ok <- ensure_non_callback(resources.operation),
+           :ok <- verify_controller_boundary(attempt, resources),
            :ok <- ensure_lifecycle_state(attempt, resources.operation, resources.execution),
            :ok <- authorize_current_attempt(attempt, resources, now, opts) do
         :ok
@@ -140,6 +143,25 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
 
   defp ensure_non_callback(%{callback_actions: []}), do: :ok
   defp ensure_non_callback(_operation), do: {:error, :callback_execution_isolated}
+
+  defp verify_controller_boundary(attempt, resources) do
+    metadata = value(resources.execution, :metadata) || %{}
+
+    with partition when is_binary(partition) and partition != "" <-
+           value(metadata, :dispatch_partition_id),
+         true <- partition == attempt.dispatch_partition_id,
+         :ok <-
+           ControllerSecuritySnapshot.verify(
+             resources.controller,
+             value(metadata, :controller_security_snapshot)
+           ) do
+      :ok
+    else
+      false -> {:error, :secure_execution_dispatch_partition_drift}
+      {:error, _reason} = error -> error
+      _ -> {:error, :secure_execution_dispatch_partition_required}
+    end
+  end
 
   defp ensure_lifecycle_state(
          %Attempt{stage: :launch_job, purpose: :accepted_job_proof},
@@ -378,6 +400,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
     AwxClient.launch_job(controller, request.template_id, request.launch_opts,
       command_id: attempt.command_id,
       secure_execution_attempt: true,
+      required_partition: attempt.dispatch_partition_id,
       source: :automation,
       context: context,
       command_bus: Keyword.get(opts, :command_bus, AgentCommandBus)
@@ -388,6 +411,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
     AwxClient.fetch_job(controller, request.job_id,
       command_id: attempt.command_id,
       secure_execution_attempt: true,
+      required_partition: attempt.dispatch_partition_id,
       source: :automation,
       context: context,
       command_bus: Keyword.get(opts, :command_bus, AgentCommandBus)
@@ -404,6 +428,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
     AwxClient.fetch_job_host_summaries(controller, request.job_id, request.max_hosts,
       command_id: attempt.command_id,
       secure_execution_attempt: true,
+      required_partition: attempt.dispatch_partition_id,
       source: :automation,
       context: context,
       command_bus: Keyword.get(opts, :command_bus, AgentCommandBus)
@@ -420,6 +445,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
     AwxClient.list_recent_jobs(controller, request,
       command_id: attempt.command_id,
       secure_execution_attempt: true,
+      required_partition: attempt.dispatch_partition_id,
       source: :automation,
       context: context,
       command_bus: Keyword.get(opts, :command_bus, AgentCommandBus)
@@ -430,6 +456,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
     AwxClient.cancel_job(controller, request.job_id,
       command_id: attempt.command_id,
       secure_execution_attempt: true,
+      required_partition: attempt.dispatch_partition_id,
       source: :automation,
       context: context,
       command_bus: Keyword.get(opts, :command_bus, AgentCommandBus)
@@ -545,6 +572,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
     same_id?(command.id, attempt.command_id) and
       command.command_type == attempt.command_type and
       command.agent_id == attempt.dispatch_agent_id and
+      command.partition_id == attempt.dispatch_partition_id and
       Contract.context_matches?(attempt, execution, command.context || %{}) and
       command.context == context and
       Contract.persisted_payload_matches?(
@@ -579,4 +607,6 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
   defp same_id?(left, right), do: to_string(left) == to_string(right)
 
   defp error_code(reason), do: SafeFailureEvidence.code(reason)
+  defp value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))
+  defp value(_map, _key), do: nil
 end

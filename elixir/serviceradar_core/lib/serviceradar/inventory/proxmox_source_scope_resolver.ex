@@ -30,12 +30,14 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolver do
 
     with {:ok, assignment_id} <- trusted_assignment_id(payload, status),
          {:ok, agent_id} <- authenticated_agent_id(status),
+         {:ok, partition_id} <- authenticated_partition_id(status),
          :ok <- validate_delivery_capabilities(status),
          :ok <- validate_reported_plugin(payload, status),
          {:ok, assignment} <- assignment_loader.(assignment_id, actor) do
       resolve_assignment(assignment,
         actor: actor,
         agent_id: agent_id,
+        partition_id: partition_id,
         assignment_id: assignment_id,
         plugin_id: @plugin_id,
         rule_loader: rule_loader
@@ -57,13 +59,21 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolver do
   def resolve_assignment(assignment, opts) when is_map(assignment) and is_list(opts) do
     actor = Keyword.fetch!(opts, :actor)
     agent_id = Keyword.fetch!(opts, :agent_id)
+    partition_id = Keyword.fetch!(opts, :partition_id)
     assignment_id = Keyword.get(opts, :assignment_id, field(assignment, :id))
     expected_plugin_id = Keyword.get(opts, :plugin_id, field(assignment, :plugin_id))
     rule_loader = Keyword.get(opts, :rule_loader, &load_rule/2)
 
     with {:ok, assignment_id} <- canonical_uuid(assignment_id),
          {:ok, contract} <- assignment_contract(expected_plugin_id, field(assignment, :policy_id)),
-         :ok <- validate_assignment(assignment, assignment_id, agent_id, contract.plugin_id),
+         :ok <-
+           validate_assignment(
+             assignment,
+             assignment_id,
+             agent_id,
+             partition_id,
+             contract.plugin_id
+           ),
          rule_id = contract.rule_id,
          {:ok, rule} <- rule_loader.(rule_id, actor),
          :ok <- validate_rule(rule, rule_id, contract.purpose),
@@ -73,6 +83,7 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolver do
        %{
          integration_id: integration_id,
          controller_id: controller_id,
+         partition_id: partition_id,
          assignment_id: assignment_id,
          credential_rule_id: rule_id
        }}
@@ -103,6 +114,16 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolver do
     case field(status, :agent_id) do
       agent_id when is_binary(agent_id) and agent_id != "" -> {:ok, String.trim(agent_id)}
       _ -> {:error, :missing_authenticated_agent_id}
+    end
+  end
+
+  defp authenticated_partition_id(status) do
+    case field(status, :partition) || field(status, :partition_id) do
+      partition_id when is_binary(partition_id) and partition_id != "" ->
+        {:ok, String.trim(partition_id)}
+
+      _ ->
+        {:error, :missing_authenticated_partition_id}
     end
   end
 
@@ -139,7 +160,7 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolver do
     end
   end
 
-  defp validate_assignment(assignment, assignment_id, agent_id, expected_plugin_id)
+  defp validate_assignment(assignment, assignment_id, agent_id, partition_id, expected_plugin_id)
        when is_map(assignment) do
     package = field(assignment, :plugin_package)
 
@@ -155,6 +176,9 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolver do
 
       field(assignment, :agent_uid) != agent_id ->
         {:error, :plugin_assignment_agent_mismatch}
+
+      field(assignment, :partition_id) != partition_id ->
+        {:error, :plugin_assignment_partition_mismatch}
 
       field(assignment, :plugin_id) != expected_plugin_id ->
         {:error, :plugin_assignment_plugin_mismatch}
@@ -176,8 +200,14 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolver do
     end
   end
 
-  defp validate_assignment(_assignment, _assignment_id, _agent_id, _expected_plugin_id),
-    do: {:error, :plugin_assignment_not_found}
+  defp validate_assignment(
+         _assignment,
+         _assignment_id,
+         _agent_id,
+         _partition_id,
+         _expected_plugin_id
+       ),
+       do: {:error, :plugin_assignment_not_found}
 
   defp assignment_policy_mismatch?(assignment) do
     policy_id = field(assignment, :policy_id)

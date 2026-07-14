@@ -7,10 +7,38 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamControllerTest do
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Api.RemoteAccessStreamController
+  alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler
 
   @endpoint ServiceRadarWebNGWeb.Endpoint
   @moduletag :db_free
+
+  setup_all do
+    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
+    {:ok, _apps} = Application.ensure_all_started(:plug)
+    {:ok, _apps} = Application.ensure_all_started(:telemetry)
+
+    previous_loader = Application.get_env(:serviceradar_web_ng, :auth_settings_loader)
+    Application.put_env(:serviceradar_web_ng, :auth_settings_loader, fn -> {:error, :not_configured} end)
+
+    case Process.whereis(ServiceRadar.PubSub) do
+      nil -> start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
+      _pid -> :ok
+    end
+
+    case Process.whereis(ConfigCache) do
+      nil -> start_supervised!(ConfigCache)
+      _pid -> :ok
+    end
+
+    case Process.whereis(ServiceRadarWebNGWeb.Endpoint) do
+      nil -> start_supervised!(ServiceRadarWebNGWeb.Endpoint)
+      _pid -> :ok
+    end
+
+    on_exit(fn -> restore_env(:auth_settings_loader, previous_loader) end)
+    :ok
+  end
 
   defmodule WebSockAdapterStub do
     @moduledoc false
@@ -27,6 +55,35 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamControllerTest do
     end
   end
 
+  defmodule AuthorizationStub do
+    @moduledoc false
+
+    def authorize_current(%Scope{user: %{id: id}} = scope, required_permissions) do
+      permissions = Process.get({__MODULE__, id}, scope.permissions || MapSet.new())
+
+      if Enum.all?(required_permissions, &MapSet.member?(permissions, &1)) do
+        {:ok, %{scope | permissions: permissions}}
+      else
+        {:error, :permission_revoked}
+      end
+    end
+
+    def authorize_current(_scope, _permissions), do: {:error, :permission_revoked}
+
+    def authorize_current_any(scope, permissions) do
+      Enum.reduce_while(permissions, {:error, :permission_revoked}, fn permission, _acc ->
+        case authorize_current(scope, [permission]) do
+          {:ok, refreshed_scope} -> {:halt, {:ok, refreshed_scope}}
+          _ -> {:cont, {:error, :permission_revoked}}
+        end
+      end)
+    end
+
+    def set_permissions(user_id, permissions) do
+      Process.put({__MODULE__, user_id}, MapSet.new(permissions))
+    end
+  end
+
   setup do
     previous_enabled = Application.get_env(:serviceradar_web_ng, :remote_access_ssh_enabled)
 
@@ -38,10 +95,14 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamControllerTest do
     previous_timeout = Application.get_env(:serviceradar_web_ng, :remote_access_browser_stream_timeout_ms)
     previous_test_pid = Application.get_env(:serviceradar_web_ng, :remote_access_stream_test_pid)
 
+    previous_authorization_module =
+      Application.get_env(:serviceradar_web_ng, :current_user_authorization_module)
+
     Application.put_env(:serviceradar_web_ng, :remote_access_ssh_enabled, true)
     Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, true)
     Application.put_env(:serviceradar_web_ng, :remote_access_websock_adapter, WebSockAdapterStub)
     Application.put_env(:serviceradar_web_ng, :remote_access_stream_test_pid, self())
+    Application.put_env(:serviceradar_web_ng, :current_user_authorization_module, AuthorizationStub)
 
     on_exit(fn ->
       restore_env(:remote_access_ssh_enabled, previous_enabled)
@@ -50,10 +111,12 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamControllerTest do
       restore_env(:remote_access_websock_adapter, previous_adapter)
       restore_env(:remote_access_browser_stream_timeout_ms, previous_timeout)
       restore_env(:remote_access_stream_test_pid, previous_test_pid)
+      restore_env(:current_user_authorization_module, previous_authorization_module)
     end)
 
     scope =
-      Scope.for_user(%{id: "user-1", email: "user@example.com"},
+      Scope.for_user(
+        %{id: "user-1", email: "user@example.com", role: :viewer, role_profile_id: nil},
         permissions: MapSet.new(["devices.remote_access.ssh.open"])
       )
 
@@ -233,31 +296,51 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamControllerTest do
     refute_receive {:websock_upgrade, _handler, _handler_opts, _adapter_opts}
   end
 
-  test "router rejects cross-origin browser websocket upgrades", %{conn: conn} do
+  test "rejects a stale scope when current permissions were revoked before upgrade", %{conn: conn} do
+    session_id = Ecto.UUID.generate()
+    AuthorizationStub.set_permissions("user-1", [])
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :remote_access_session_fetcher,
+      fn requested_id, _opts ->
+        send(self(), {:unexpected_session_fetch, requested_id})
+        {:ok, remote_access_session(requested_id, [])}
+      end
+    )
+
+    conn = RemoteAccessStreamController.connect(conn, %{"id" => session_id})
+
+    assert json_response(conn, 403)["error"] == "forbidden"
+    refute_receive {:unexpected_session_fetch, _requested_id}
+    refute_receive {:websock_upgrade, _handler, _handler_opts, _adapter_opts}
+  end
+
+  test "router rejects cross-origin browser websocket upgrades" do
     session_id = Ecto.UUID.generate()
 
     conn =
-      conn
+      build_conn()
       |> Plug.Conn.put_req_header("connection", "Upgrade")
       |> Plug.Conn.put_req_header("upgrade", "websocket")
       |> Plug.Conn.put_req_header("origin", "http://evil.example")
-      |> get(~p"/v1/remote-access/sessions/#{session_id}/stream")
+      |> get("/v1/remote-access/sessions/#{session_id}/stream")
 
     assert conn.status == 403
     refute_receive {:websock_upgrade, _handler, _handler_opts, _adapter_opts}
   end
 
-  test "router allows same-origin browser websocket upgrades through to auth", %{conn: conn} do
+  test "router allows same-origin browser websocket upgrades through to auth" do
     session_id = Ecto.UUID.generate()
 
     conn =
-      conn
+      build_conn()
       |> Plug.Conn.put_req_header("connection", "Upgrade")
       |> Plug.Conn.put_req_header("upgrade", "websocket")
       |> Plug.Conn.put_req_header("origin", "http://www.example.com")
-      |> get(~p"/v1/remote-access/sessions/#{session_id}/stream")
+      |> get("/v1/remote-access/sessions/#{session_id}/stream")
 
-    assert redirected_to(conn) == ~p"/users/log-in"
+    assert redirected_to(conn) == "/users/log-in"
     refute_receive {:websock_upgrade, _handler, _handler_opts, _adapter_opts}
   end
 

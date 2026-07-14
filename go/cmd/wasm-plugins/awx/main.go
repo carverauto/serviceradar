@@ -143,6 +143,10 @@ func dispatch(cfg Config) *sdk.Result {
 		result = runCreateCallbackCredential(cfg)
 	case "awx.fetch_callback_credential":
 		result = runFetchCallbackCredential(cfg)
+	case "awx.verify_callback_credential":
+		result = runVerifyCallbackCredential(cfg)
+	case "awx.list_callback_credentials":
+		result = runListCallbackCredentials(cfg)
 	case "awx.delete_callback_credential":
 		result = runDeleteCallbackCredential(cfg)
 	case "awx.fetch_job":
@@ -205,6 +209,29 @@ var allowedFetchCallbackCredentialArgs = map[string]struct{}{
 	"credential_type_id": {},
 	"organization_id":    {},
 	"credential_name":    {},
+}
+
+var allowedVerifyCallbackCredentialArgs = map[string]struct{}{
+	"credential_id":      {},
+	"credential_type_id": {},
+	"organization_id":    {},
+	"credential_name":    {},
+}
+
+var allowedListCallbackCredentialArgs = map[string]struct{}{
+	"credential_type_id": {},
+	"organization_id":    {},
+	"credential_name":    {},
+	"max_credentials":    {},
+}
+
+var allowedListRecentJobArgs = map[string]struct{}{
+	"template_id":    {},
+	"inventory_id":   {},
+	"created_by_id":  {},
+	"created_after":  {},
+	"page_size":      {},
+	"max_candidates": {},
 }
 
 var allowedDeleteCallbackCredentialArgs = map[string]struct{}{
@@ -348,6 +375,154 @@ func runFetchCallbackCredential(cfg Config) *sdk.Result {
 	return sdk.Ok("reconciled ephemeral callback credential").
 		WithDetails(string(out)).
 		WithLabel("verb", "awx.fetch_callback_credential")
+}
+
+const maxCallbackCredentialLookupResults = 5_000
+
+// runVerifyCallbackCredential proves one server-selected credential ID against
+// the exact deterministic callback scope. Unlike the reconciliation list verb,
+// this path never treats absence as success and never accepts co-reported
+// selector fields in place of a direct controller GET by ID.
+func runVerifyCallbackCredential(cfg Config) *sdk.Result {
+	if err := validateExactArgs(cfg.Args, allowedVerifyCallbackCredentialArgs); err != nil {
+		return errorResult("awx.verify_callback_credential", err)
+	}
+
+	credentialID, ok := positiveArgID(cfg.Args, "credential_id")
+	if !ok {
+		return errorResult("awx.verify_callback_credential", fmt.Errorf("args.credential_id is required"))
+	}
+	credentialTypeID, ok := positiveArgID(cfg.Args, "credential_type_id")
+	if !ok {
+		return errorResult("awx.verify_callback_credential", fmt.Errorf("args.credential_type_id is required"))
+	}
+	organizationID, ok := positiveArgID(cfg.Args, "organization_id")
+	if !ok {
+		return errorResult("awx.verify_callback_credential", fmt.Errorf("args.organization_id is required"))
+	}
+	credentialName, ok := boundedCallbackCredentialName(cfg.Args)
+	if !ok {
+		return errorResult("awx.verify_callback_credential", fmt.Errorf("args.credential_name is invalid"))
+	}
+
+	resp, err := getJSON(cfg, fmt.Sprintf("/api/v2/credentials/%d/", credentialID))
+	if err != nil {
+		return errorResult("awx.verify_callback_credential", err)
+	}
+	credential, err := decodeAndVerifyCallbackCredential(
+		resp.Body,
+		credentialID,
+		credentialName,
+		credentialTypeID,
+		organizationID,
+	)
+	if err != nil {
+		return errorResult("awx.verify_callback_credential", err)
+	}
+
+	payload := map[string]any{
+		"verb":          "awx.verify_callback_credential",
+		"ok":            true,
+		"credential_id": credentialID,
+		"credential":    callbackCredentialProjection(credential),
+	}
+	out, _ := json.Marshal(payload)
+	return sdk.Ok(fmt.Sprintf("verified callback credential %d", credentialID)).
+		WithDetails(string(out)).
+		WithLabel("verb", "awx.verify_callback_credential")
+}
+
+// runListCallbackCredentials returns the complete, bounded set matching the
+// exact deterministic callback scope. Ambiguity is data for trusted cleanup,
+// not a reason to discard controller-observed IDs; an incomplete or drifting
+// page set still fails closed.
+func runListCallbackCredentials(cfg Config) *sdk.Result {
+	if err := validateExactArgs(cfg.Args, allowedListCallbackCredentialArgs); err != nil {
+		return errorResult("awx.list_callback_credentials", err)
+	}
+
+	credentialTypeID, ok := positiveArgID(cfg.Args, "credential_type_id")
+	if !ok {
+		return errorResult("awx.list_callback_credentials", fmt.Errorf("args.credential_type_id is required"))
+	}
+	organizationID, ok := positiveArgID(cfg.Args, "organization_id")
+	if !ok {
+		return errorResult("awx.list_callback_credentials", fmt.Errorf("args.organization_id is required"))
+	}
+	credentialName, ok := boundedCallbackCredentialName(cfg.Args)
+	if !ok {
+		return errorResult("awx.list_callback_credentials", fmt.Errorf("args.credential_name is invalid"))
+	}
+	maxCredentials, ok := argInt(cfg.Args, "max_credentials")
+	if !ok || maxCredentials <= 0 || maxCredentials > maxCallbackCredentialLookupResults {
+		return errorResult(
+			"awx.list_callback_credentials",
+			fmt.Errorf("args.max_credentials must be an integer between 1 and %d", maxCallbackCredentialLookupResults),
+		)
+	}
+
+	query := url.Values{}
+	query.Set("name", credentialName)
+	query.Set("credential_type", strconv.Itoa(credentialTypeID))
+	query.Set("organization", strconv.Itoa(organizationID))
+	query.Set("order_by", "id")
+	query.Set("page_size", strconv.Itoa(awxPageSize))
+	rawCredentials, total, err := listAWXPathBounded(
+		cfg,
+		"/api/v2/credentials/?"+query.Encode(),
+		maxCredentials,
+	)
+	if err != nil {
+		return errorResult("awx.list_callback_credentials", err)
+	}
+
+	credentials := make([]map[string]any, 0, len(rawCredentials))
+	previousID := 0
+	for _, rawCredential := range rawCredentials {
+		credential, err := decodeAndVerifyCallbackCredential(
+			rawCredential,
+			0,
+			credentialName,
+			credentialTypeID,
+			organizationID,
+		)
+		if err != nil {
+			return errorResult("awx.list_callback_credentials", err)
+		}
+		if credential.ID <= previousID {
+			return errorResult(
+				"awx.list_callback_credentials",
+				fmt.Errorf("AWX callback credential pagination is not strictly ordered"),
+			)
+		}
+		previousID = credential.ID
+		credentials = append(credentials, callbackCredentialProjection(credential))
+	}
+
+	payload := map[string]any{
+		"verb":               "awx.list_callback_credentials",
+		"ok":                 true,
+		"credential_type_id": credentialTypeID,
+		"organization_id":    organizationID,
+		"credential_name":    credentialName,
+		"max_credentials":    maxCredentials,
+		"count":              total,
+		"complete":           true,
+		"credentials":        credentials,
+	}
+	out, _ := json.Marshal(payload)
+	return sdk.Ok(fmt.Sprintf("listed %d callback credentials", total)).
+		WithDetails(string(out)).
+		WithLabel("verb", "awx.list_callback_credentials")
+}
+
+func callbackCredentialProjection(credential awxCallbackCredentialSummary) map[string]any {
+	return map[string]any{
+		"id":                 credential.ID,
+		"name":               credential.Name,
+		"credential_type_id": credential.CredentialType,
+		"organization_id":    credential.Organization,
+	}
 }
 
 type awxCallbackCredentialTypeField struct {
@@ -1248,45 +1423,56 @@ func runCurrentUser(cfg Config) *sdk.Result {
 		WithLabel("verb", "awx.current_user")
 }
 
-const maxRecentJobsPageSize = 100
+const (
+	maxRecentJobsPageSize  = 100
+	maxRecentJobCandidates = 5_000
+)
 
 // runListRecentJobs handles `awx.list_recent_jobs`.
 //
 // Required args: template_id, inventory_id, created_by_id (positive ints) and
-// created_after (RFC3339 timestamp). Optional page_size is 1..100 (default 50).
+// created_after (RFC3339 timestamp), page_size (1..100), and max_candidates
+// (1..5000). AwxClient selects the durable 5000-candidate ceiling.
 // The plugin intentionally does not filter by dispatch marker: AWX 24.6.1
-// marks extra_vars non-searchable. It returns one bounded, newest-first page;
-// the trusted control plane compares exact retained markers and accepted-job
-// fields. `truncated=true` is a fail-closed ambiguity signal, not permission to
-// select a candidate from an incomplete set.
+// marks extra_vars non-searchable. It walks the complete bounded, newest-first
+// result set and fails on count drift, invalid pagination, duplicate IDs, or a
+// controller-reported count above the durable ceiling. The trusted control
+// plane still compares exact retained markers and accepted-job fields.
 func runListRecentJobs(cfg Config) *sdk.Result {
-	templateID, templateOK := argInt(cfg.Args, "template_id")
-	inventoryID, inventoryOK := argInt(cfg.Args, "inventory_id")
-	createdByID, createdByOK := argInt(cfg.Args, "created_by_id")
+	if err := validateExactArgs(cfg.Args, allowedListRecentJobArgs); err != nil {
+		return errorResult("awx.list_recent_jobs", err)
+	}
+
+	templateID, templateOK := positiveArgID(cfg.Args, "template_id")
+	inventoryID, inventoryOK := positiveArgID(cfg.Args, "inventory_id")
+	createdByID, createdByOK := positiveArgID(cfg.Args, "created_by_id")
 	createdAfter, createdAfterOK := argString(cfg.Args, "created_after")
-	if !templateOK || templateID <= 0 {
+	if !templateOK {
 		return errorResult("awx.list_recent_jobs", fmt.Errorf("args.template_id is required"))
 	}
-	if !inventoryOK || inventoryID <= 0 {
+	if !inventoryOK {
 		return errorResult("awx.list_recent_jobs", fmt.Errorf("args.inventory_id is required"))
 	}
-	if !createdByOK || createdByID <= 0 {
+	if !createdByOK {
 		return errorResult("awx.list_recent_jobs", fmt.Errorf("args.created_by_id is required"))
 	}
 	createdAt, err := time.Parse(time.RFC3339, createdAfter)
 	if !createdAfterOK || err != nil {
 		return errorResult("awx.list_recent_jobs", fmt.Errorf("args.created_after must be RFC3339"))
 	}
-	pageSize := 50
-	if _, present := cfg.Args["page_size"]; present {
-		var ok bool
-		pageSize, ok = argInt(cfg.Args, "page_size")
-		if !ok || pageSize <= 0 || pageSize > maxRecentJobsPageSize {
-			return errorResult(
-				"awx.list_recent_jobs",
-				fmt.Errorf("args.page_size must be an integer between 1 and %d", maxRecentJobsPageSize),
-			)
-		}
+	pageSize, ok := argInt(cfg.Args, "page_size")
+	if !ok || pageSize <= 0 || pageSize > maxRecentJobsPageSize {
+		return errorResult(
+			"awx.list_recent_jobs",
+			fmt.Errorf("args.page_size must be an integer between 1 and %d", maxRecentJobsPageSize),
+		)
+	}
+	maxCandidates, ok := argInt(cfg.Args, "max_candidates")
+	if !ok || maxCandidates <= 0 || maxCandidates > maxRecentJobCandidates {
+		return errorResult(
+			"awx.list_recent_jobs",
+			fmt.Errorf("args.max_candidates must be an integer between 1 and %d", maxRecentJobCandidates),
+		)
 	}
 
 	query := url.Values{}
@@ -1298,47 +1484,116 @@ func runListRecentJobs(cfg Config) *sdk.Result {
 	query.Set("page_size", strconv.Itoa(pageSize))
 	path := "/api/v2/jobs/?" + query.Encode()
 
-	resp, err := getJSON(cfg, path)
+	jobs, total, err := listRecentJobsBounded(
+		cfg,
+		path,
+		pageSize,
+		maxCandidates,
+		templateID,
+		inventoryID,
+		createdByID,
+		createdAt,
+	)
 	if err != nil {
 		return errorResult("awx.list_recent_jobs", err)
 	}
-	var page awxPage
-	if err := json.Unmarshal(resp.Body, &page); err != nil {
-		return errorResult("awx.list_recent_jobs", fmt.Errorf("decode recent jobs: %w", err))
-	}
-	if len(page.Results) > pageSize {
-		return errorResult("awx.list_recent_jobs", fmt.Errorf("AWX returned more jobs than the requested bound"))
-	}
-	if page.Count < len(page.Results) {
-		return errorResult("awx.list_recent_jobs", fmt.Errorf("AWX recent-job count is inconsistent"))
-	}
-	jobs := make([]map[string]any, 0, len(page.Results))
-	for _, rawJob := range page.Results {
-		job, err := sanitizeJobForReconciliation(rawJob)
-		if err != nil {
-			return errorResult("awx.list_recent_jobs", fmt.Errorf("decode recent job: %w", err))
-		}
-		if err := validateRecentJobScope(job, templateID, inventoryID, createdByID, createdAt); err != nil {
-			return errorResult("awx.list_recent_jobs", err)
-		}
-		jobs = append(jobs, job)
-	}
 	payload := map[string]any{
-		"verb":          "awx.list_recent_jobs",
-		"ok":            true,
-		"template_id":   templateID,
-		"inventory_id":  inventoryID,
-		"created_by_id": createdByID,
-		"created_after": createdAt.UTC().Format(time.RFC3339Nano),
-		"page_size":     pageSize,
-		"count":         page.Count,
-		"truncated":     page.Next != "" || page.Count > len(page.Results),
-		"jobs":          jobs,
+		"verb":           "awx.list_recent_jobs",
+		"ok":             true,
+		"template_id":    templateID,
+		"inventory_id":   inventoryID,
+		"created_by_id":  createdByID,
+		"created_after":  createdAt.UTC().Format(time.RFC3339Nano),
+		"page_size":      pageSize,
+		"max_candidates": maxCandidates,
+		"count":          total,
+		"complete":       true,
+		"jobs":           jobs,
 	}
 	out, _ := json.Marshal(payload)
-	return sdk.Ok(fmt.Sprintf("listed %d recent jobs", len(page.Results))).
+	return sdk.Ok(fmt.Sprintf("listed %d recent jobs", total)).
 		WithDetails(string(out)).
 		WithLabel("verb", "awx.list_recent_jobs")
+}
+
+func listRecentJobsBounded(
+	cfg Config,
+	path string,
+	pageSize int,
+	maxCandidates int,
+	templateID int,
+	inventoryID int,
+	createdByID int,
+	createdAfter time.Time,
+) ([]map[string]any, int, error) {
+	jobs := make([]map[string]any, 0)
+	seenIDs := make(map[int]struct{})
+	expectedCount := -1
+	next := path
+	pagesWalked := 0
+
+	for next != "" {
+		pagesWalked++
+		if pagesWalked > maxCandidates {
+			return nil, 0, fmt.Errorf("AWX recent-job pagination exceeded its request bound")
+		}
+
+		resp, err := getJSON(cfg, next)
+		if err != nil {
+			return nil, 0, err
+		}
+		var page awxPage
+		if err := json.Unmarshal(resp.Body, &page); err != nil {
+			return nil, 0, fmt.Errorf("decode recent jobs: %w", err)
+		}
+		if page.Count < 0 || page.Count > maxCandidates {
+			return nil, 0, fmt.Errorf("AWX recent-job count exceeds the durable candidate bound")
+		}
+		if expectedCount == -1 {
+			expectedCount = page.Count
+		} else if page.Count != expectedCount {
+			return nil, 0, fmt.Errorf("AWX recent-job count changed during pagination")
+		}
+		if len(page.Results) > pageSize || len(jobs)+len(page.Results) > expectedCount {
+			return nil, 0, fmt.Errorf("AWX recent-job pagination is inconsistent")
+		}
+		if len(page.Results) == 0 && page.Next != "" {
+			return nil, 0, fmt.Errorf("AWX recent-job pagination returned an empty non-terminal page")
+		}
+
+		for _, rawJob := range page.Results {
+			job, err := sanitizeJobForReconciliation(rawJob)
+			if err != nil {
+				return nil, 0, fmt.Errorf("decode recent job: %w", err)
+			}
+			if err := validateRecentJobScope(
+				job,
+				templateID,
+				inventoryID,
+				createdByID,
+				createdAfter,
+			); err != nil {
+				return nil, 0, err
+			}
+			jobID, _ := argInt(job, "id")
+			if _, duplicate := seenIDs[jobID]; duplicate {
+				return nil, 0, fmt.Errorf("AWX recent-job pagination returned a duplicate job ID")
+			}
+			seenIDs[jobID] = struct{}{}
+			jobs = append(jobs, job)
+		}
+
+		rawNext := page.Next
+		next = relativizeAWXPath(rawNext)
+		if rawNext != "" && next == "" {
+			return nil, 0, fmt.Errorf("AWX recent-job pagination returned an invalid next link")
+		}
+	}
+
+	if expectedCount < 0 || len(jobs) != expectedCount {
+		return nil, 0, fmt.Errorf("AWX recent-job pagination returned an incomplete candidate set")
+	}
+	return jobs, expectedCount, nil
 }
 
 func validateRecentJobScope(job map[string]any, templateID, inventoryID, createdByID int, createdAfter time.Time) error {
@@ -2117,12 +2372,20 @@ func listAWXPathBounded(cfg Config, path string, maxResults int) ([]json.RawMess
 		}
 		if pagesWalked == 0 {
 			total = pageBody.Count
-			if total > maxResults {
+			if total < 0 || total > maxResults {
 				return nil, total, fmt.Errorf("AWX result count %d exceeds bound %d", total, maxResults)
 			}
+		} else if pageBody.Count != total {
+			return nil, total, fmt.Errorf("AWX result count changed during pagination")
+		}
+		if len(pageBody.Results) > awxPageSize {
+			return nil, total, fmt.Errorf("AWX page exceeds the requested page size")
 		}
 		if len(all)+len(pageBody.Results) > maxResults {
 			return nil, total, fmt.Errorf("AWX results exceed bound %d", maxResults)
+		}
+		if len(pageBody.Results) == 0 && pageBody.Next != "" {
+			return nil, total, fmt.Errorf("AWX returned an empty non-terminal page")
 		}
 		all = append(all, pageBody.Results...)
 		pagesWalked++
@@ -2130,7 +2393,11 @@ func listAWXPathBounded(cfg Config, path string, maxResults int) ([]json.RawMess
 		// AWX returns `next` either as null or as a path like
 		// "/api/v2/inventories/?page=2". We always strip the host so
 		// the same host:port the operator configured is reused.
-		next = relativizeAWXPath(pageBody.Next)
+		rawNext := pageBody.Next
+		next = relativizeAWXPath(rawNext)
+		if rawNext != "" && next == "" {
+			return nil, total, fmt.Errorf("AWX returned an invalid pagination link")
+		}
 	}
 	if len(all) != total {
 		return nil, total, fmt.Errorf("AWX pagination returned %d of %d results", len(all), total)
@@ -2487,9 +2754,24 @@ var reservedAWXSurveyVariables = map[string]struct{}{
 	"omit": {}, "play_hosts": {}, "playbook_dir": {}, "role_name": {}, "role_path": {},
 }
 
-var sensitiveAWXSurveyVariableParts = [...]string{
-	"api_key", "authorization", "bearer", "credential", "passwd", "password",
-	"private_key", "secret", "token",
+var sensitiveAWXSurveyVariableTokens = map[string]struct{}{
+	"authorization": {}, "bearer": {}, "credential": {}, "credentials": {},
+	"passwd": {}, "password": {}, "secret": {}, "token": {},
+}
+
+var sensitiveAWXSurveyVariableTokenPairs = map[string]struct{}{
+	"access_key": {}, "access_token": {}, "api_key": {}, "api_token": {},
+	"bearer_token": {}, "client_secret": {}, "credential_value": {},
+	"private_key": {},
+}
+
+// Compact compounds cover all-uppercase or otherwise unsegmentable spellings
+// such as APIKEY. Token-level matching remains the primary classifier so safe
+// names containing an unrelated word such as "tokenizer" stay allowed.
+var sensitiveAWXSurveyVariableCompounds = map[string]struct{}{
+	"accesskey": {}, "accesstoken": {}, "apikey": {}, "apitoken": {},
+	"bearertoken": {}, "clientsecret": {}, "credentialvalue": {},
+	"privatekey": {},
 }
 
 func projectAWXSurvey(raw []byte) (map[string]any, bool) {
@@ -2594,13 +2876,68 @@ func reviewedAWXSurveyVariable(value string) bool {
 	if _, reserved := reservedAWXSurveyVariables[normalized]; reserved {
 		return false
 	}
-	padded := "_" + normalized + "_"
-	for _, sensitive := range sensitiveAWXSurveyVariableParts {
-		if strings.Contains(padded, "_"+sensitive+"_") {
+	compact := strings.ReplaceAll(normalized, "_", "")
+	for compound := range sensitiveAWXSurveyVariableCompounds {
+		if strings.Contains(compact, compound) {
 			return false
 		}
 	}
+	tokens := awxSurveyVariableTokens(value)
+	for index, token := range tokens {
+		if _, sensitive := sensitiveAWXSurveyVariableTokens[token]; sensitive {
+			return false
+		}
+		if index+1 < len(tokens) {
+			if _, sensitive := sensitiveAWXSurveyVariableTokenPairs[token+"_"+tokens[index+1]]; sensitive {
+				return false
+			}
+		}
+	}
 	return true
+}
+
+// awxSurveyVariableTokens canonicalizes the ASCII identifier grammar above in
+// the same way as the core binding validator: underscores, camel-case/acronym
+// transitions, and letter/digit transitions are all token boundaries. Keeping
+// this token contract identical at catalog import and launch review prevents a
+// controller from spelling a secret field differently at the two boundaries.
+func awxSurveyVariableTokens(value string) []string {
+	tokens := make([]string, 0, 4)
+	start := 0
+	flush := func(end int) {
+		if start < end {
+			tokens = append(tokens, strings.ToLower(value[start:end]))
+		}
+	}
+
+	for index := 0; index < len(value); index++ {
+		current := value[index]
+		if current == '_' {
+			flush(index)
+			start = index + 1
+			continue
+		}
+		if index == start {
+			continue
+		}
+
+		previous := value[index-1]
+		currentUpper := current >= 'A' && current <= 'Z'
+		previousUpper := previous >= 'A' && previous <= 'Z'
+		previousLower := previous >= 'a' && previous <= 'z'
+		currentDigit := current >= '0' && current <= '9'
+		previousDigit := previous >= '0' && previous <= '9'
+		nextLower := index+1 < len(value) && value[index+1] >= 'a' && value[index+1] <= 'z'
+
+		boundary := currentUpper && (previousLower || previousDigit || (previousUpper && nextLower))
+		boundary = boundary || currentDigit != previousDigit
+		if boundary {
+			flush(index)
+			start = index
+		}
+	}
+	flush(len(value))
+	return tokens
 }
 
 func projectAWXSurveyChoices(raw json.RawMessage, fieldType string) (any, bool, bool) {

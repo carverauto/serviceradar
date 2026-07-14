@@ -15,6 +15,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
   alias ServiceRadar.Automation.CallbackGrants.Runtime
   alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
   alias ServiceRadar.Automation.LaunchEnvelopes
+  alias ServiceRadar.Edge.AgentCommandBus
 
   @audience "serviceradar.awx.callback/v1"
   @principal_types [:human, :service_principal, "human", "service_principal"]
@@ -36,6 +37,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
          envelope_opts = envelope_opts(opts),
          {:ok, allocation} <- envelopes.allocate(envelope_opts),
          {:ok, grant_id} <- grant_id(opts),
+         {:ok, edge_principal} <- authenticated_edge_principal(controller, opts),
          {:ok, callback} <-
            callback_context(
              plan,
@@ -47,7 +49,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
              lifecycle_opts,
              envelope_opts,
              allocation,
-             grant_id
+             grant_id,
+             edge_principal
            ),
          callback_plan = callback_plan(plan, callback),
          {:ok, persisted} <- actions.persist_callback_plan(callback_plan, callback) do
@@ -241,7 +244,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
          lifecycle_opts,
          envelope_opts,
          allocation,
-         grant_id
+         grant_id,
+         edge_principal
        ) do
     expires_at = DateTime.add(allocation.issued_at, launch_contract.ttl_seconds, :second)
     actor = value(plan.snapshot, :actor) || %{}
@@ -269,7 +273,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
          organization_id: value(plan.snapshot["binding"], :callback_credential_organization_id),
          credential_slot: value(plan.snapshot["binding"], :callback_credential_slot),
          injector_sha256: value(plan.snapshot["binding"], :callback_credential_injector_digest),
-         dispatch_agent_id: value(controller, :agent_id),
+         dispatch_agent_id: edge_principal.agent_id,
+         dispatch_partition_id: edge_principal.partition_id,
          grant_attrs: %{
            id: grant_id,
            tenant_id: value(plan.operation, :tenant_id),
@@ -299,7 +304,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
            },
            awx_scope_snapshot: scope,
            response_snapshot: response_snapshot,
-           dispatch_agent_id: value(controller, :agent_id)
+           dispatch_agent_id: edge_principal.agent_id,
+           dispatch_partition_id: edge_principal.partition_id
          }
        }}
     end
@@ -376,6 +382,36 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
     if is_binary(value(controller, :agent_id)) and value(controller, :agent_id) != "",
       do: :ok,
       else: {:error, :controller_agent_id_missing}
+  end
+
+  defp authenticated_edge_principal(controller, opts) do
+    resolver =
+      Keyword.get(
+        opts,
+        :edge_principal_resolver,
+        &AgentCommandBus.resolve_control_session_evidence/1
+      )
+
+    result =
+      if is_function(resolver, 1),
+        do: resolver.(value(controller, :agent_id)),
+        else: {:error, :authenticated_edge_principal_unavailable}
+
+    case result do
+      {:ok, evidence} when is_map(evidence) ->
+        agent_id = value(evidence, :agent_id)
+        partition_id = value(evidence, :partition_id)
+
+        if agent_id == value(controller, :agent_id) and is_binary(partition_id) and
+             String.trim(partition_id) != "" do
+          {:ok, %{agent_id: agent_id, partition_id: String.trim(partition_id)}}
+        else
+          {:error, :authenticated_edge_principal_mismatch}
+        end
+
+      _ ->
+        {:error, :authenticated_edge_principal_unavailable}
+    end
   end
 
   defp value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))
@@ -488,6 +524,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator.AshActions 
         inventory_id: plan.execution.inventory_id,
         job_template_id: plan.execution.job_template_id,
         dispatch_agent_id: callback.dispatch_agent_id,
+        dispatch_partition_id: callback.dispatch_partition_id,
         callback_allowed_origin: callback_origin,
         manifest_sha256: value(response, :manifest_sha256),
         scm_revision: value(scope, :scm_revision),
@@ -542,7 +579,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator.AshActions 
       operation_id: operation.id,
       execution_id: execution.id,
       controller_id: execution.controller_id,
-      dispatch_agent_id: callback.dispatch_agent_id
+      dispatch_agent_id: callback.dispatch_agent_id,
+      dispatch_partition_id: callback.dispatch_partition_id
     }
 
     with {:ok, request} <-

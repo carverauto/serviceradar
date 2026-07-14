@@ -188,10 +188,9 @@ defmodule ServiceRadar.Credentials.CredentialUsePolicy do
   end
 
   defp alternate_key_value(map, key) when is_binary(key) do
-    Enum.find_value(map, fn
-      {map_key, value} when is_atom(map_key) -> if Atom.to_string(map_key) == key, do: value
-      _entry -> nil
-    end)
+    Map.get(map, String.to_existing_atom(key))
+  rescue
+    ArgumentError -> nil
   end
 
   defp alternate_key_value(map, key) when is_atom(key), do: Map.get(map, Atom.to_string(key))

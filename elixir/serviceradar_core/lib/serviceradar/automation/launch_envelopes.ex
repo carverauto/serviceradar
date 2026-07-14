@@ -131,6 +131,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes do
          inventory_id: resolved.context.inventory_id,
          job_template_id: resolved.context.job_template_id,
          dispatch_agent_id: resolved.context.dispatch_agent_id,
+         dispatch_partition_id: resolved.context.dispatch_partition_id,
          command_id: resolved.context.command_id,
          callback_credential_type_id: resolved.context.callback_credential_type_id,
          callback_credential_organization_id:
@@ -224,6 +225,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes do
       inventory_id: context.inventory_id,
       job_template_id: context.job_template_id,
       dispatch_agent_id: context.dispatch_agent_id,
+      dispatch_partition_id: context.dispatch_partition_id,
       callback_url: context.callback_url,
       callback_allowed_origin: context.callback_allowed_origin,
       manifest_sha256: context.manifest_sha256,

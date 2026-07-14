@@ -121,6 +121,11 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.CipherTest do
            )
 
     refute Context.grant_matches?(context, Map.put(grant, "dispatch_agent_id", "agent-other"))
+
+    refute Context.grant_matches?(
+             context,
+             Map.put(grant, "dispatch_partition_id", "tonka01")
+           )
   end
 
   defp context! do
@@ -143,6 +148,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.CipherTest do
       inventory_id: 17,
       job_template_id: 23,
       dispatch_agent_id: "agent-farm01",
+      dispatch_partition_id: "farm01",
       callback_allowed_origin: "https://demo.example.com",
       manifest_sha256: String.duplicate("a", 64),
       scm_revision: String.duplicate("b", 40),
@@ -167,6 +173,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.CipherTest do
       inventory_id: context.inventory_id + 1,
       job_template_id: context.job_template_id + 1,
       dispatch_agent_id: "agent-tonka01",
+      dispatch_partition_id: "tonka01",
       callback_url: String.replace(context.callback_url, "demo", "other"),
       callback_allowed_origin: "https://other.example.com",
       manifest_sha256: String.duplicate("e", 64),
@@ -209,6 +216,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.CipherTest do
       "inventory_id" => context.inventory_id,
       "job_template_id" => context.job_template_id,
       "dispatch_agent_id" => context.dispatch_agent_id,
+      "dispatch_partition_id" => context.dispatch_partition_id,
       "expires_at" => context.expires_at,
       "action" => "remote_access.ssh_ca.bundle.read",
       "scm_revision" => context.scm_revision,

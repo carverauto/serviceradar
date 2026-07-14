@@ -24,6 +24,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconciler do
                   "execution_id",
                   "controller_id",
                   "dispatch_agent_id",
+                  "dispatch_partition_id",
                   "awx_job_id",
                   "credential_id",
                   "cleanup_kind",
@@ -57,10 +58,16 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconciler do
            true <-
              value(data, :agent_id) == value(command, :agent_id) ||
                {:error, :cleanup_result_agent_mismatch},
+           true <-
+             value(data, :partition_id) == value(command, :partition_id) ||
+               {:error, :cleanup_result_partition_mismatch},
            {:ok, context} <- cleanup_context(value(command, :context), command_type),
            true <-
              value(command, :agent_id) == context["dispatch_agent_id"] ||
                {:error, :cleanup_command_agent_mismatch},
+           true <-
+             value(command, :partition_id) == context["dispatch_partition_id"] ||
+               {:error, :cleanup_command_partition_mismatch},
            {:ok, result_status} <- result_status(command_type, data, context),
            attrs = reconciliation_attrs(command_id, context, result_status),
            :ok <- reconcile(context["grant_id"], attrs, opts) do
@@ -113,6 +120,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconciler do
          {:ok, execution_id} <- uuid(context["execution_id"]),
          {:ok, controller_id} <- uuid(context["controller_id"]),
          {:ok, dispatch_agent_id} <- nonempty(context["dispatch_agent_id"]),
+         {:ok, dispatch_partition_id} <- nonempty(context["dispatch_partition_id"]),
          {:ok, job_id} <- optional_positive_integer(context["awx_job_id"]),
          {:ok, credential_id} <- optional_positive_integer(context["credential_id"]),
          :ok <- exact_kind(command_type, context["cleanup_kind"], job_id, credential_id),
@@ -123,6 +131,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconciler do
        |> Map.put("execution_id", execution_id)
        |> Map.put("controller_id", controller_id)
        |> Map.put("dispatch_agent_id", dispatch_agent_id)
+       |> Map.put("dispatch_partition_id", dispatch_partition_id)
        |> Map.put("awx_job_id", job_id)
        |> Map.put("credential_id", credential_id)}
     else
@@ -197,6 +206,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconciler do
       execution_id: context["execution_id"],
       controller_id: context["controller_id"],
       dispatch_agent_id: context["dispatch_agent_id"],
+      dispatch_partition_id: context["dispatch_partition_id"],
       awx_job_id: context["awx_job_id"],
       credential_id: context["credential_id"],
       result_status: result_status

@@ -18,13 +18,13 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamController do
   def connect(conn, %{"id" => session_id}) do
     scope = conn.assigns[:current_scope]
 
-    with :ok <- require_any_stream_permission(scope),
+    with {:ok, scope} <- require_any_stream_permission(scope),
          {:ok, normalized_id} <- normalize_uuid(session_id, "id"),
          {:ok, %RemoteAccessSession{} = session} <-
            remote_access_session_fetcher().(normalized_id, scope: scope),
          :ok <- require_session_owner(scope, session),
          :ok <- require_protocol_enabled(session),
-         :ok <- require_session_permission(scope, session) do
+         {:ok, scope} <- require_session_permission(scope, session) do
       adapter = websock_adapter()
 
       conn =
@@ -52,7 +52,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamController do
         |> put_status(:not_found)
         |> json(%{error: "remote_access_session_not_found", message: "remote access session was not found"})
 
-      {:error, :forbidden} ->
+      {:error, reason} when reason in [:forbidden, :permission_revoked] ->
         conn
         |> put_status(:forbidden)
         |> json(%{error: "forbidden", message: "Remote access permission is required"})
@@ -97,16 +97,15 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamController do
   end
 
   defp require_any_stream_permission(scope) do
-    if RBAC.can_any?(scope, [@remote_access_permission, @remote_access_rdp_permission]) do
-      :ok
-    else
-      {:error, :forbidden}
-    end
+    authorization_module().authorize_current_any(scope, [
+      @remote_access_permission,
+      @remote_access_rdp_permission
+    ])
   end
 
   defp require_session_permission(scope, %RemoteAccessSession{} = session) do
     with {:ok, permission} <- permission_for_session(session) do
-      if RBAC.can?(scope, permission), do: :ok, else: {:error, :forbidden}
+      authorization_module().authorize_current(scope, [permission])
     end
   end
 
@@ -198,5 +197,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamController do
 
   defp websock_adapter do
     Application.get_env(:serviceradar_web_ng, :remote_access_websock_adapter, WebSockAdapter)
+  end
+
+  defp authorization_module do
+    Application.get_env(:serviceradar_web_ng, :current_user_authorization_module, RBAC)
   end
 end

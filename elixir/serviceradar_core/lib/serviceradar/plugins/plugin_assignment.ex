@@ -10,6 +10,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Plugins.Changes.ApplyConfigDefaults
+  alias ServiceRadar.Plugins.Changes.BindAssignmentPartition
   alias ServiceRadar.Plugins.Changes.SetAssignmentPluginId
   alias ServiceRadar.Plugins.Validations.AssignmentParams
   alias ServiceRadar.Plugins.Validations.NoDuplicateEnabledAssignment
@@ -46,24 +47,41 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
 
     read :by_agent do
       argument :agent_uid, :string, allow_nil?: false
-      filter expr(agent_uid == ^arg(:agent_uid))
+      argument :partition_id, :string, allow_nil?: false
+
+      filter expr(agent_uid == ^arg(:agent_uid) and partition_id == ^arg(:partition_id))
     end
 
-    read :by_policy do
+    read :by_edge_principal do
+      argument :agent_uid, :string, allow_nil?: false
+      argument :partition_id, :string, allow_nil?: false
+      filter expr(agent_uid == ^arg(:agent_uid) and partition_id == ^arg(:partition_id))
+    end
+
+    # Fleet reconciliation intentionally enumerates every partition. The action
+    # name makes that broad scope explicit; it must never be used as a single
+    # assignment lookup.
+    read :all_partitions_for_policy do
       argument :policy_id, :string, allow_nil?: false
       filter expr(source == :policy and policy_id == ^arg(:policy_id))
     end
 
-    read :by_source_key do
+    read :by_partition_source_key do
+      argument :partition_id, :string, allow_nil?: false
       argument :source, :atom, allow_nil?: false
       argument :source_key, :string, allow_nil?: false
       get? true
-      filter expr(source == ^arg(:source) and source_key == ^arg(:source_key))
+
+      filter expr(
+               partition_id == ^arg(:partition_id) and source == ^arg(:source) and
+                 source_key == ^arg(:source_key)
+             )
     end
 
     create :create do
       accept @create_fields
 
+      change BindAssignmentPartition
       change SetAssignmentPluginId
       change ApplyConfigDefaults
       validate PackageApproved
@@ -95,6 +113,12 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     attribute :agent_uid, :string do
       allow_nil? false
       public? true
+    end
+
+    attribute :partition_id, :string do
+      allow_nil? false
+      public? true
+      description "Immutable mTLS-derived partition paired with agent_uid"
     end
 
     attribute :plugin_id, :string do
@@ -177,6 +201,6 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
   end
 
   identities do
-    identity :unique_source_key, [:source, :source_key]
+    identity :unique_source_key, [:partition_id, :source, :source_key]
   end
 end

@@ -34,6 +34,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
       command_id: command.id,
       command_type: command.command_type,
       agent_id: command.agent_id,
+      partition_id: command.partition_id,
       success: true,
       message: "first terminal message",
       payload: %{"ok" => true, "value" => 7}
@@ -65,6 +66,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
 
     mismatches = [
       %{exact | agent_id: "agent-tonka01"},
+      %{exact | partition_id: "tonka01"},
+      Map.delete(exact, :partition_id),
       %{exact | command_type: "test.wrong_type"},
       %{exact | command_id: Ash.UUID.generate()},
       %{exact | payload: %{"ok" => true, "value" => 8}}
@@ -105,6 +108,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
       command_id: command.id,
       command_type: command.command_type,
       agent_id: command.agent_id,
+      partition_id: command.partition_id,
       success: false,
       message: secret,
       failure_reason: {:http_error, secret},
@@ -153,6 +157,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
       command_id: command.id,
       command_type: "mtr.run",
       agent_id: command.agent_id,
+      partition_id: command.partition_id,
       message: secret,
       progress_percent: 25,
       payload: %{"details" => secret}
@@ -175,6 +180,16 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
     assert running.message == "automation command in progress"
     assert running.progress_payload == %{}
     refute inspect(running) =~ secret
+
+    for wrong_partition <- ["tonka01", nil] do
+      rejected =
+        if wrong_partition,
+          do: %{protected | partition_id: wrong_partition},
+          else: Map.delete(protected, :partition_id)
+
+      assert {:noreply, ^state} = StatusHandler.handle_info({:command_ack, rejected}, state)
+      assert {:noreply, ^state} = StatusHandler.handle_info({:command_progress, rejected}, state)
+    end
   end
 
   defp state(test_pid) do
@@ -185,6 +200,10 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
       callback_result_coordinator: fn data -> send(test_pid, {:callback_coordinate, data}) end,
       secure_execution_result_coordinator: fn data ->
         send(test_pid, {:secure_coordinate, data})
+      end,
+      result_coordination_dispatcher: fn work ->
+        work.()
+        :ok
       end,
       result_consumers: [fn data -> send(test_pid, {:consume, data}) end]
     }

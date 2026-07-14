@@ -29,6 +29,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreTest do
     assert attrs.idempotency_key_verifier == grant.idempotency_verifier_digest
     assert attrs.idempotency_pepper_version == grant.idempotency_verifier_key_id
     assert attrs.dispatch_agent_id == "agent-gateway-demo"
+    assert attrs.dispatch_partition_id == "farm01"
     assert attrs.launch_envelope_ref == "vault-envelope:callback-grant-1"
     assert attrs.policy_snapshot == grant.policy_snapshot
     assert attrs.target_snapshot["scope_digest"] == grant.scope_digest
@@ -103,6 +104,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreTest do
         budget_limit: 1,
         budget_used: 0,
         dispatch_agent_id: attrs.dispatch_agent_id,
+        dispatch_partition_id: attrs.dispatch_partition_id,
         launch_envelope_ref: attrs.launch_envelope_ref,
         awx_ephemeral_credential_id: credential_id,
         credential_cleanup_state: :pending,
@@ -297,6 +299,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreTest do
       job_binding: nil,
       ephemeral_credential_id: nil,
       dispatch_agent_id: "agent-gateway-demo",
+      dispatch_partition_id: "farm01",
       launch_envelope_ref: "vault-envelope:callback-grant-1",
       verifier_digest: <<7::256>>,
       verifier_key_id: "callback-v1",

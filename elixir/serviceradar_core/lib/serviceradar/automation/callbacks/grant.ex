@@ -118,6 +118,7 @@ defmodule ServiceRadar.Automation.Callbacks.Grant do
         :budget_limit,
         :idempotency_policy,
         :dispatch_agent_id,
+        :dispatch_partition_id,
         :launch_envelope_ref,
         :issued_at,
         :expires_at
@@ -329,6 +330,7 @@ defmodule ServiceRadar.Automation.Callbacks.Grant do
     end
 
     attribute :dispatch_agent_id, :string, allow_nil?: false, public?: true
+    attribute :dispatch_partition_id, :string, allow_nil?: false, public?: true
 
     attribute :launch_envelope_ref, :string do
       allow_nil? false

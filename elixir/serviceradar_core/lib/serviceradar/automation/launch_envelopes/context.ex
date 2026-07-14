@@ -14,6 +14,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.Context do
   @max_ttl_seconds 600
   @max_tenant_bytes 128
   @max_agent_bytes 255
+  @max_partition_bytes 128
   @max_callback_url_bytes 2_048
   @max_callback_origin_bytes 512
   @callback_action "remote_access.ssh_ca.bundle.read"
@@ -32,6 +33,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.Context do
     :inventory_id,
     :job_template_id,
     :dispatch_agent_id,
+    :dispatch_partition_id,
     :callback_url,
     :callback_allowed_origin,
     :manifest_sha256,
@@ -56,6 +58,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.Context do
           inventory_id: pos_integer(),
           job_template_id: pos_integer(),
           dispatch_agent_id: binary(),
+          dispatch_partition_id: binary(),
           callback_url: binary(),
           callback_allowed_origin: binary(),
           manifest_sha256: binary(),
@@ -85,6 +88,8 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.Context do
          {:ok, job_template_id} <- positive_integer(value(attrs, :job_template_id)),
          {:ok, dispatch_agent_id} <-
            bounded_string(value(attrs, :dispatch_agent_id), @max_agent_bytes),
+         {:ok, dispatch_partition_id} <-
+           bounded_string(value(attrs, :dispatch_partition_id), @max_partition_bytes),
          {:ok, callback_allowed_origin} <-
            callback_origin(value(attrs, :callback_allowed_origin)),
          {:ok, callback_url} <-
@@ -120,6 +125,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.Context do
          inventory_id: inventory_id,
          job_template_id: job_template_id,
          dispatch_agent_id: dispatch_agent_id,
+         dispatch_partition_id: dispatch_partition_id,
          callback_url: callback_url,
          callback_allowed_origin: callback_allowed_origin,
          manifest_sha256: manifest_sha256,
@@ -150,6 +156,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.Context do
         inventory_id: value(record, :inventory_id),
         job_template_id: value(record, :job_template_id),
         dispatch_agent_id: value(record, :dispatch_agent_id),
+        dispatch_partition_id: value(record, :dispatch_partition_id),
         callback_url: value(record, :callback_url),
         callback_allowed_origin: value(record, :callback_allowed_origin),
         manifest_sha256: value(record, :manifest_sha256),
@@ -181,6 +188,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.Context do
       "inventory_id" => context.inventory_id,
       "job_template_id" => context.job_template_id,
       "dispatch_agent_id" => context.dispatch_agent_id,
+      "dispatch_partition_id" => context.dispatch_partition_id,
       "callback_url" => context.callback_url,
       "callback_allowed_origin" => context.callback_allowed_origin,
       "manifest_sha256" => context.manifest_sha256,
@@ -202,9 +210,12 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.Context do
   @spec request_matches?(t(), map()) :: boolean()
   def request_matches?(%__MODULE__{} = context, request) when is_map(request) do
     with {:ok, command_id} <- canonical_uuid(value(request, :command_id)),
-         {:ok, agent_id} <- bounded_string(value(request, :agent_id), @max_agent_bytes) do
+         {:ok, agent_id} <- bounded_string(value(request, :agent_id), @max_agent_bytes),
+         {:ok, partition_id} <-
+           bounded_string(value(request, :partition_id), @max_partition_bytes) do
       secure_equal?(context.command_id, command_id) and
-        secure_equal?(context.dispatch_agent_id, agent_id)
+        secure_equal?(context.dispatch_agent_id, agent_id) and
+        secure_equal?(context.dispatch_partition_id, partition_id)
     else
       _ -> false
     end
@@ -226,6 +237,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.Context do
       value(grant, :inventory_id) == context.inventory_id and
       value(grant, :job_template_id) == context.job_template_id and
       same_string?(value(grant, :dispatch_agent_id), context.dispatch_agent_id) and
+      same_string?(value(grant, :dispatch_partition_id), context.dispatch_partition_id) and
       datetime_equal?(value(grant, :expires_at), context.expires_at) and
       same_string?(value(grant, :action), @callback_action) and
       same_string?(value(grant, :scm_revision), context.scm_revision) and

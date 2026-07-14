@@ -76,6 +76,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlanTest do
         mode: :run,
         mutating: true,
         controller_id: @controller_id,
+        controller_security_snapshot: controller_security_snapshot(),
         job_template_id: 42,
         actor_snapshot: actor(),
         memberships: [membership()],
@@ -87,6 +88,23 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlanTest do
       },
       overrides
     )
+  end
+
+  defp controller_security_snapshot do
+    %{
+      "schema" => "serviceradar.awx_controller_security_snapshot.v1",
+      "controller_id" => @controller_id,
+      "name" => "farm01-awx",
+      "base_url" => "https://awx.example.test:443",
+      "agent_id" => "edge-agent-1",
+      "enabled" => true,
+      "insecure_skip_verify" => false,
+      "credential_refs" => %{
+        "sync" => "018f3f56-1111-7222-8333-123456789ac1",
+        "execution" => "018f3f56-1111-7222-8333-123456789ac2",
+        "callback" => nil
+      }
+    }
   end
 
   test "builds a complete secret-free local plan before dispatch" do

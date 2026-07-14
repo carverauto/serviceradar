@@ -36,6 +36,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
          source_key: "#{policy_id}:#{agent_id}",
          policy_id: policy_id,
          agent_uid: agent_id,
+         partition_id: "farm01",
          plugin_id: "proxmox-console",
          plugin_package_id: package_id,
          plugin_package: %{
@@ -56,6 +57,13 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
     end
   end
 
+  defmodule EdgePrincipalResolver do
+    @moduledoc false
+
+    def resolve(partition_id, agent_id),
+      do: {:ok, %{agent_id: agent_id, partition_id: partition_id}}
+  end
+
   @system_actor SystemActor.system(:proxmox_console_sessions_test)
   @console_actor %{
     id: "018f3f56-1111-7666-8777-123456789abc",
@@ -70,6 +78,27 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
   }
 
   setup do
+    previous_resolver =
+      Application.get_env(:serviceradar_core, :proxmox_console_edge_principal_resolver)
+
+    Application.put_env(
+      :serviceradar_core,
+      :proxmox_console_edge_principal_resolver,
+      EdgePrincipalResolver
+    )
+
+    on_exit(fn ->
+      if previous_resolver do
+        Application.put_env(
+          :serviceradar_core,
+          :proxmox_console_edge_principal_resolver,
+          previous_resolver
+        )
+      else
+        Application.delete_env(:serviceradar_core, :proxmox_console_edge_principal_resolver)
+      end
+    end)
+
     insert_console_actor!()
     :ok
   end
@@ -561,6 +590,20 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
 
   defp insert_console_actor! do
     now = DateTime.utc_now()
+    profile_id = "018f3f56-2222-7666-8777-123456789abc"
+
+    Repo.insert_all("role_profiles", [
+      %{
+        id: Ecto.UUID.dump!(profile_id),
+        system_name: nil,
+        name: "Proxmox Console Test Operator",
+        description: "Persistence-backed authority for console boundary tests",
+        permissions: MapSet.to_list(@console_actor.permissions),
+        system: false,
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
 
     Repo.insert_all("ng_users", [
       %{
@@ -568,6 +611,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
         email: @console_actor.email,
         display_name: "Console Operator",
         role: "admin",
+        role_profile_id: Ecto.UUID.dump!(profile_id),
         inserted_at: now,
         updated_at: now
       }

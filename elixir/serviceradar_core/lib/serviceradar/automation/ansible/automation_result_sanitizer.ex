@@ -20,7 +20,8 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizer do
   @scm_revision ~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/
   @callback_name ~r/\Asr-callback-[0-9a-f-]{36}\z/
   @max_id 2_147_483_647
-  @max_recent_jobs 100
+  @max_recent_jobs 5_000
+  @max_callback_credentials 5_000
   @max_host_summaries 10_000
   @max_projected_payload_bytes 3 * 1024 * 1024
   @summary_counter_keys ~w(changed dark failures ok processed skipped ignored rescued)
@@ -87,7 +88,8 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizer do
     base = %{
       command_id: safe_uuid(value(data, :command_id)),
       command_type: safe_command_type,
-      agent_id: safe_identifier(value(data, :agent_id))
+      agent_id: safe_identifier(value(data, :agent_id)),
+      partition_id: safe_identifier(value(data, :partition_id))
     }
 
     if value(data, :success) == true do
@@ -190,6 +192,62 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizer do
     end
   end
 
+  defp sanitize_success_payload("awx.verify_callback_credential", payload) do
+    with {:ok, credential_id} <- positive_integer(value(payload, :credential_id)),
+         {:ok, credential} <- callback_credential(value(payload, :credential)),
+         true <- credential["id"] == credential_id do
+      exact_payload(payload, ~w(verb ok credential_id credential), %{
+        "verb" => "awx.verify_callback_credential",
+        "ok" => true,
+        "credential_id" => credential_id,
+        "credential" => credential
+      })
+    else
+      _ -> :error
+    end
+  end
+
+  defp sanitize_success_payload("awx.list_callback_credentials", payload) do
+    with {:ok, credential_type_id} <- positive_integer(value(payload, :credential_type_id)),
+         {:ok, organization_id} <- positive_integer(value(payload, :organization_id)),
+         {:ok, credential_name} <- callback_name(value(payload, :credential_name)),
+         {:ok, max_credentials} <-
+           bounded_integer(value(payload, :max_credentials), 1, @max_callback_credentials),
+         true <- max_credentials == @max_callback_credentials,
+         {:ok, count} <- bounded_integer(value(payload, :count), 0, max_credentials),
+         {:ok, true} <- boolean(value(payload, :complete)),
+         {:ok, credentials} <-
+           callback_credentials(value(payload, :credentials), max_credentials),
+         true <- count == length(credentials),
+         true <-
+           Enum.all?(credentials, fn credential ->
+             credential["credential_type_id"] == credential_type_id and
+               credential["organization_id"] == organization_id and
+               credential["name"] == credential_name
+           end) do
+      exact_payload(
+        payload,
+        ~w(
+          verb ok credential_type_id organization_id credential_name max_credentials
+          count complete credentials
+        ),
+        %{
+          "verb" => "awx.list_callback_credentials",
+          "ok" => true,
+          "credential_type_id" => credential_type_id,
+          "organization_id" => organization_id,
+          "credential_name" => credential_name,
+          "max_credentials" => max_credentials,
+          "count" => count,
+          "complete" => true,
+          "credentials" => credentials
+        }
+      )
+    else
+      _ -> :error
+    end
+  end
+
   defp sanitize_success_payload("awx.launch_job", payload) do
     with {:ok, template_id} <- positive_integer(value(payload, :template_id)),
          {:ok, job} <- job(value(payload, :job)) do
@@ -223,14 +281,20 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizer do
          {:ok, inventory_id} <- positive_integer(value(payload, :inventory_id)),
          {:ok, created_by_id} <- positive_integer(value(payload, :created_by_id)),
          {:ok, created_after} <- timestamp(value(payload, :created_after)),
-         {:ok, page_size} <- bounded_integer(value(payload, :page_size), 1, @max_recent_jobs),
-         {:ok, count} <- bounded_integer(value(payload, :count), 0, @max_id),
-         {:ok, truncated?} <- boolean(value(payload, :truncated)),
-         {:ok, jobs} <- job_list(value(payload, :jobs), @max_recent_jobs),
-         true <- count >= length(jobs) do
+         {:ok, page_size} <- bounded_integer(value(payload, :page_size), 1, 100),
+         {:ok, max_candidates} <-
+           bounded_integer(value(payload, :max_candidates), 1, @max_recent_jobs),
+         true <- max_candidates == @max_recent_jobs,
+         {:ok, count} <- bounded_integer(value(payload, :count), 0, max_candidates),
+         {:ok, true} <- boolean(value(payload, :complete)),
+         {:ok, jobs} <- job_list(value(payload, :jobs), max_candidates),
+         true <- count == length(jobs) do
       exact_payload(
         payload,
-        ~w(verb ok template_id inventory_id created_by_id created_after page_size count truncated jobs),
+        ~w(
+          verb ok template_id inventory_id created_by_id created_after page_size
+          max_candidates count complete jobs
+        ),
         %{
           "verb" => "awx.list_recent_jobs",
           "ok" => true,
@@ -239,8 +303,9 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizer do
           "created_by_id" => created_by_id,
           "created_after" => created_after,
           "page_size" => page_size,
+          "max_candidates" => max_candidates,
           "count" => count,
-          "truncated" => truncated?,
+          "complete" => true,
           "jobs" => jobs
         }
       )
@@ -347,6 +412,41 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizer do
   end
 
   defp job_list(_jobs, _max), do: :error
+
+  defp callback_credentials(credentials, max)
+       when is_list(credentials) and length(credentials) <= max do
+    case reduce_list(credentials, &callback_credential/1) do
+      {:ok, safe} ->
+        ids = Enum.map(safe, & &1["id"])
+
+        if ids == Enum.sort(ids) and ids == Enum.uniq(ids),
+          do: {:ok, safe},
+          else: :error
+
+      :error ->
+        :error
+    end
+  end
+
+  defp callback_credentials(_credentials, _max), do: :error
+
+  defp callback_credential(payload) when is_map(payload) do
+    with {:ok, id} <- positive_integer(value(payload, :id)),
+         {:ok, name} <- callback_name(value(payload, :name)),
+         {:ok, credential_type_id} <- positive_integer(value(payload, :credential_type_id)),
+         {:ok, organization_id} <- positive_integer(value(payload, :organization_id)) do
+      exact_projection(payload, ~w(id name credential_type_id organization_id), %{
+        "id" => id,
+        "name" => name,
+        "credential_type_id" => credential_type_id,
+        "organization_id" => organization_id
+      })
+    else
+      _ -> :error
+    end
+  end
+
+  defp callback_credential(_payload), do: :error
 
   defp summary_list(summaries)
        when is_list(summaries) and length(summaries) <= @max_host_summaries do
@@ -499,6 +599,8 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizer do
     end
   end
 
+  defp safe_identifier(nil), do: nil
+
   defp safe_identifier(value) when is_atom(value),
     do: value |> Atom.to_string() |> safe_identifier()
 
@@ -514,18 +616,9 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizer do
   defp safe_timestamp(%DateTime{} = value), do: value
   defp safe_timestamp(_value), do: nil
 
-  defp sensitive_text?(value) when is_binary(value) do
-    normalized = String.downcase(value)
-
-    Enum.any?(["bearer", "token", "secret", "password", "authorization"], fn marker ->
-      String.contains?(normalized, marker)
-    end)
-  end
-
   defp safe_awx_command_type(command_type) when is_binary(command_type) do
     if byte_size(command_type) <= 132 and
-         Regex.match?(~r/\Aawx\.[a-z][a-z0-9_.-]*\z/, command_type) and
-         not sensitive_text?(command_type),
+         Regex.match?(~r/\Aawx\.[a-z][a-z0-9_.-]*\z/, command_type),
        do: command_type,
        else: "awx.invalid"
   end
@@ -567,6 +660,18 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizer do
   end
 
   defp exact_payload(_raw, _expected_keys, _safe), do: :error
+
+  defp exact_projection(raw, expected_keys, safe) when is_map(raw) do
+    with {:ok, keys} <- normalized_keys(raw),
+         true <- length(keys) == MapSet.size(MapSet.new(keys)),
+         true <- MapSet.new(keys) == MapSet.new(expected_keys) do
+      {:ok, safe}
+    else
+      _ -> :error
+    end
+  end
+
+  defp exact_projection(_raw, _expected_keys, _safe), do: :error
 
   defp reduce_list(values, function) do
     values

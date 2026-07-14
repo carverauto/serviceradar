@@ -15,6 +15,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
 
   @context_schema "serviceradar.automation_execution_command/v1"
   @awx_command_schema "serviceradar.awx_command.v1"
+  @max_recent_candidates 5_000
   @type attempt_source :: map() | struct()
 
   @spec context_schema() :: String.t()
@@ -34,6 +35,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
       execution_id: value(base, :execution_id),
       controller_id: value(base, :controller_id),
       dispatch_agent_id: value(base, :dispatch_agent_id),
+      dispatch_partition_id: value(base, :dispatch_partition_id),
       stage: stage,
       purpose: purpose,
       attempt: Keyword.get(opts, :attempt, 1),
@@ -74,6 +76,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
       "execution_id" => value(attempt, :execution_id),
       "controller_id" => value(attempt, :controller_id),
       "dispatch_agent_id" => value(attempt, :dispatch_agent_id),
+      "dispatch_partition_id" => value(attempt, :dispatch_partition_id),
       "dispatch_id" => value(execution, :dispatch_id),
       "snapshot_digest" => value(execution, :snapshot_digest),
       "verb" => value(attempt, :command_type)
@@ -149,7 +152,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
          inventory_id: value(execution, :inventory_id),
          created_by_id: created_by_id,
          created_after: rfc3339_nano(reconcile_after),
-         page_size: 50
+         page_size: 50,
+         max_candidates: @max_recent_candidates
        }}
     else
       {:error, :invalid_secure_execution_recent_jobs_request}
@@ -234,6 +238,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
       uuid?(attrs.execution_id),
       uuid?(attrs.controller_id),
       nonempty?(attrs.dispatch_agent_id),
+      nonempty?(attrs.dispatch_partition_id),
       attrs.stage in [
         :launch_job,
         :fetch_job,
@@ -266,7 +271,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
   defp valid_terminal_evidence?(_purpose, evidence), do: is_nil(evidence)
 
   defp valid_candidate_job_ids?(ids) when is_list(ids),
-    do: Enum.all?(ids, &positive_integer?/1) and Enum.uniq(ids) == ids and length(ids) <= 50
+    do: Enum.all?(ids, &positive_integer?/1) and Enum.uniq(ids) == ids and length(ids) <= 5000
 
   defp valid_candidate_job_ids?(_ids), do: false
 

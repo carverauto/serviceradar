@@ -5,10 +5,22 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
 
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessSSHCertificates
+  alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler
 
   @principal "srp_v1_6d8b1e49fbe24ad487ce2c5c"
   @moduletag :db_free
+
+  setup_all do
+    {:ok, _apps} = Application.ensure_all_started(:telemetry)
+
+    case Process.whereis(RateLimiter) do
+      nil -> start_supervised!(RateLimiter)
+      _pid -> :ok
+    end
+
+    :ok
+  end
 
   defmodule SessionsStub do
     @moduledoc false
@@ -206,19 +218,21 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
   defmodule AuthorizationStub do
     @moduledoc false
 
-    def has_permission?(%{id: id}, permission) do
-      id
-      |> permissions()
-      |> MapSet.member?(permission)
+    def authorize_current(%{user: %{id: id}} = scope, required_permissions) do
+      current_permissions = permissions(id)
+
+      if Enum.all?(required_permissions, &MapSet.member?(current_permissions, &1)) do
+        {:ok, Map.put(scope, :permissions, current_permissions)}
+      else
+        {:error, :permission_revoked}
+      end
     end
 
-    def has_permission?(_user, _permission), do: false
+    def authorize_current(_scope, _required_permissions), do: {:error, :permission_revoked}
 
     def set_permissions(user_id, permissions) do
       Process.put({__MODULE__, user_id}, MapSet.new(permissions))
     end
-
-    def clear_process_cache, do: :ok
 
     defp permissions(user_id), do: Process.get({__MODULE__, user_id}, MapSet.new())
   end
@@ -513,7 +527,10 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     {:ok, state} =
       init_state("session-cert",
         credential_custody_mode: :ssh_certificate,
-        identity_claims: %{"groups" => ["linux-admins"]},
+        identity_claims: %{
+          "groups" => ["linux-admins"],
+          "service_radar_auth_method" => "oidc"
+        },
         session_metadata: %{
           "ssh_accounts" => [
             %{"name" => "mfreeman", "principals" => [@principal]}
@@ -1000,6 +1017,28 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     RemoteAccessStreamHandler.terminate(:normal, closed_state)
   end
 
+  test "broker output is not released after current permission revocation" do
+    AuthorizationStub.set_permissions("user-1", ["devices.remote_access.ssh.open"])
+    {:ok, state} = init_state("session-revoked-output", authorization_module: AuthorizationStub)
+
+    {:push, _response, attached} =
+      RemoteAccessStreamHandler.handle_in({attach_payload("session-revoked-output"), [opcode: :text]}, state)
+
+    AuthorizationStub.set_permissions("user-1", [])
+
+    assert {:stop, :normal, 1008, [{:text, response}], closed_state} =
+             RemoteAccessStreamHandler.handle_info({:remote_access_data, "secret output"}, attached)
+
+    assert %{"type" => "error", "message" => "Remote access permission was revoked."} =
+             Jason.decode!(response)
+
+    refute response =~ Base.encode64("secret output")
+    assert_receive {:request_close, "session-revoked-output", opts}
+    assert opts[:reason] == "permission_revoked"
+
+    RemoteAccessStreamHandler.terminate(:normal, closed_state)
+  end
+
   test "oversized resize frames fail the session without reaching the broker" do
     {:ok, state} = init_state("session-resize-too-large")
 
@@ -1432,13 +1471,25 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
   end
 
   defp init_state(session_id, opts \\ []) do
+    protocol = Keyword.get(opts, :protocol, :ssh)
+    authorization_module = Keyword.get(opts, :authorization_module, AuthorizationStub)
+
+    if !Keyword.has_key?(opts, :authorization_module) do
+      permission =
+        if protocol == :rdp,
+          do: "devices.remote_access.rdp.open",
+          else: "devices.remote_access.ssh.open"
+
+      AuthorizationStub.set_permissions("user-1", [permission])
+    end
+
     RemoteAccessStreamHandler.init(
       session_id: session_id,
       scope: %{
         test_pid: self(),
         credential_custody_mode: Keyword.get(opts, :credential_custody_mode, :none),
         credential_rule_id: Keyword.get(opts, :credential_rule_id),
-        protocol: Keyword.get(opts, :protocol, :ssh),
+        protocol: protocol,
         adapter: Keyword.get(opts, :adapter, :ssh),
         device_uid: Keyword.get(opts, :device_uid, "linux-1"),
         target_host: Keyword.get(opts, :target_host, "10.0.0.10"),
@@ -1459,7 +1510,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
       broker_module: BrokerStub,
       credential_grant_resolver: CentralCredentialGrantResolverStub,
       desktop_webrtc_module: DesktopWebRTCStub,
-      authorization_module: Keyword.get(opts, :authorization_module, ServiceRadar.Identity.RBAC),
+      authorization_module: authorization_module,
       reauth_interval_ms: Keyword.get(opts, :reauth_interval_ms, 30_000)
     )
   end

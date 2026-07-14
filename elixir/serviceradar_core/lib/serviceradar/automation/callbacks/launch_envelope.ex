@@ -61,6 +61,7 @@ defmodule ServiceRadar.Automation.Callbacks.LaunchEnvelope do
         :inventory_id,
         :job_template_id,
         :dispatch_agent_id,
+        :dispatch_partition_id,
         :callback_url,
         :callback_allowed_origin,
         :manifest_sha256,
@@ -83,7 +84,7 @@ defmodule ServiceRadar.Automation.Callbacks.LaunchEnvelope do
 
     update :mark_resolved do
       require_atomic? true
-      accept [:resolved_at, :resolved_by_agent_id]
+      accept [:resolved_at, :resolved_by_agent_id, :resolved_by_partition_id]
       filter expr(state == :sealed)
       change set_attribute(:state, :resolved)
     end
@@ -131,6 +132,7 @@ defmodule ServiceRadar.Automation.Callbacks.LaunchEnvelope do
     end
 
     attribute :dispatch_agent_id, :string, allow_nil?: false, public?: false
+    attribute :dispatch_partition_id, :string, allow_nil?: false, public?: false
     attribute :callback_url, :string, allow_nil?: false, public?: false
     attribute :callback_allowed_origin, :string, allow_nil?: false, public?: false
     attribute :manifest_sha256, :string, allow_nil?: false, public?: false
@@ -184,6 +186,7 @@ defmodule ServiceRadar.Automation.Callbacks.LaunchEnvelope do
     attribute :expires_at, :utc_datetime_usec, allow_nil?: false, public?: false
     attribute :resolved_at, :utc_datetime_usec, allow_nil?: true, public?: false
     attribute :resolved_by_agent_id, :string, allow_nil?: true, public?: false
+    attribute :resolved_by_partition_id, :string, allow_nil?: true, public?: false
     attribute :expired_at, :utc_datetime_usec, allow_nil?: true, public?: false
 
     create_timestamp :inserted_at
