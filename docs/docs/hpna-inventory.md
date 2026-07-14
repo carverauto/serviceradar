@@ -28,6 +28,28 @@ CNPG.
    collection identity, and freshness without deleting a canonical device that
    disappears from HPNA.
 
+## Protected Publication
+
+The external `serviceradar-plugin-hpna` repository runs build, test,
+reproducibility, vulnerability, and SBOM checks without receiving ServiceRadar
+signing material. After a release tag is merged into that repository's `main`,
+dispatch **Publish External HPNA Wasm Plugin** from ServiceRadar `staging` or
+`main` with the exact tag, such as `v0.1.0`.
+
+The ServiceRadar `release` environment must provide
+`EXTERNAL_PLUGIN_FORGEJO_TOKEN` as a Forgejo token restricted to the
+`carverauto/serviceradar-plugin-hpna` repository with `write:repository`. The
+unprivileged build job uses it only through the pinned checkout action. The
+protected signer uses it to publish the verified import index to the external
+Forgejo release. Do not configure this token, the upload-signing key, Harbor
+credentials, or OpenBao identity in the external repository.
+
+The workflow proves the requested tag resolves to a commit reachable from the
+external repository's `main`, rebuilds the Wasm module twice, and passes only
+bundle data into `serviceradar-signing`. The protected job independently checks
+the bundle path, digest, entry set, size limits, manifest identity, JSON schema,
+and Wasm header before publishing, signing, verifying, and releasing it.
+
 ## Configuration
 
 In **Settings > Plugins**, load
