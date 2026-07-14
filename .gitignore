@@ -13,6 +13,8 @@
 *.out
 coverage.txt
 
+ctx/
+
 # Dependency directories managed manually
 
 .idea
