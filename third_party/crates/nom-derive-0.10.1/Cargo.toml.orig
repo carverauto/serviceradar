@@ -1,0 +1,38 @@
+[package]
+name = "nom-derive"
+description = "Custom derive nom parsers from struct"
+version = "0.10.1"
+license = "MIT/Apache-2.0"
+keywords = ["parser","nom"]
+categories = ["parsing"]
+authors = ["Pierre Chifflier <chifflier@wzdftpd.net>"]
+homepage = "https://github.com/rust-bakery/nom-derive"
+repository = "https://github.com/rust-bakery/nom-derive.git"
+readme = "README.md"
+edition = "2018"
+
+include = [
+  "LICENSE-*",
+  "CHANGELOG.md",
+  "UPGRADING.md",
+  "README.md",
+  ".gitignore",
+  ".travis.yml",
+  "Cargo.toml",
+  "nom-derive-impl/Cargo.toml",
+  "nom-derive-impl/*.rs",
+  "src/*.rs",
+  "src/meta/*.rs",
+]
+
+[workspace]
+members = ["nom-derive-impl"]
+
+[dependencies]
+nom = { version = "7.0", default-features = false, features = ["std"] }
+nom-derive-impl = { version="=0.10.1", path="./nom-derive-impl" }
+rustversion = "1.0"
+
+[dev-dependencies]
+pretty_assertions = "0.7"
+trybuild = "1.0"

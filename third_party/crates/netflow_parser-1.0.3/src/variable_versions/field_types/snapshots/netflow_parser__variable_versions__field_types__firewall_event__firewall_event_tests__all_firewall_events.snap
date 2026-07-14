@@ -1,0 +1,13 @@
+---
+source: src/variable_versions/field_types/firewall_event.rs
+expression: events
+---
+- Ignore
+- FlowCreated
+- FlowDeleted
+- FlowDenied
+- FlowAlert
+- FlowUpdate
+- Unknown: 6
+- Unknown: 7
+- Unknown: 8

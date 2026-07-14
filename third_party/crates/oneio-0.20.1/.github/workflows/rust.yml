@@ -1,0 +1,141 @@
+name: Rust
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check with default features
+        run: cargo check
+
+      - name: Check with all features
+        run: cargo check --all-features
+
+      - name: Check with no features
+        run: cargo check --no-default-features
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clippy with all features
+        run: cargo clippy --all-features -- -D warnings
+
+      - name: Clippy with no features
+        run: cargo clippy --no-default-features -- -D warnings
+
+      - name: Clippy with default features
+        run: cargo clippy -- -D warnings
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [check, clippy]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with no features
+        run: cargo build --no-default-features
+
+      - name: Build with default features
+        run: cargo build
+
+      - name: Build with all features
+        run: cargo build --all-features
+
+      - name: Build with native-tls (verify no rustls)
+        run: |
+          cargo build --no-default-features --features http,gz,bz,native-tls
+          # Check if rustls is actually used in the dependency tree
+          rustls_count=$(
+            cargo tree --no-default-features --features http,gz,bz,native-tls 2>/dev/null \
+              | grep -c "rustls v" \
+              || echo "0"
+          )
+          if [ "$rustls_count" -gt 0 ]; then
+            echo "ERROR: rustls crate found $rustls_count times in dependencies when using native-tls"
+            cargo tree --no-default-features --features http,gz,bz,native-tls 2>/dev/null | grep "rustls v"
+            exit 1
+          fi
+          echo "✓ No rustls crate dependency found with native-tls"
+
+      - name: Build with rustls (verify no native-tls)
+        run: |
+          cargo build --no-default-features --features http,gz,bz,rustls
+          # Check if native-tls is actually used in the dependency tree
+          natls_count=$(
+            cargo tree --no-default-features --features http,gz,bz,rustls 2>/dev/null \
+              | grep -c "native-tls v" \
+              || echo "0"
+          )
+          if [ "$natls_count" -gt 0 ]; then
+            echo "ERROR: native-tls crate found $natls_count times in dependencies when using rustls"
+            cargo tree --no-default-features --features http,gz,bz,rustls 2>/dev/null | grep "native-tls v"
+            exit 1
+          fi
+          echo "✓ No native-tls crate dependency found with rustls"
+
+      - name: Build with compression features individually
+        run: |
+          cargo build --no-default-features --features gz
+          cargo build --no-default-features --features bz
+          cargo build --no-default-features --features lz
+          cargo build --no-default-features --features zstd
+          # xz requires system library, skip on CI
+
+      - name: Build with protocol features
+        run: |
+          cargo build --no-default-features --features http,rustls
+          cargo build --no-default-features --features ftp,http,rustls
+          cargo build --no-default-features --features s3,http,rustls
+
+      - name: Build CLI feature
+        run: cargo build --no-default-features --features cli,http,gz,bz,rustls
+
+      - name: Build async feature
+        run: cargo build --no-default-features --features async,http,gz,rustls
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test with default features
+        run: cargo test
+
+      - name: Test with all features
+        run: cargo test --all-features
+
+      - name: Test with no features
+        run: cargo test --no-default-features
+
+      - name: Test documentation
+        run: cargo test --doc --all-features

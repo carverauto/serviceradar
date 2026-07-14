@@ -1,0 +1,112 @@
+[package]
+name = "pcap"
+version = "2.4.0"
+authors = ["Sean Bowe <ewillbefull@gmail.com>", "Wojciech Kozlowski <wk@wojciechkozlowski.eu>", "Hideki Sekine"]
+edition = "2021"
+rust-version = "1.64"
+description = "A packet capture API around pcap/wpcap"
+keywords = ["pcap", "packet", "sniffing"]
+readme = "README.md"
+homepage = "https://github.com/rust-pcap/pcap"
+repository = "https://github.com/rust-pcap/pcap"
+documentation = "https://docs.rs/pcap"
+license = "MIT OR Apache-2.0"
+build = "build.rs"
+
+[dependencies]
+bitflags = "1.3"
+libc = "0.2"
+errno = "0.2"
+tokio = { version = "1.0", features = ["net", "rt", "macros", "rt-multi-thread"], optional = true }
+futures = { version = "0.3", optional = true }
+gat-std = { version = "0.1.1", optional = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.36.1", features = ["Win32_Foundation", "Win32_Networking_WinSock"] }
+
+[dev-dependencies]
+etherparse = "0.13.0"
+once_cell = "1.14.0"
+mockall = "0.11.4"
+tempfile = "3.10"
+
+[target.'cfg(target_os = "windows")'.dev-dependencies]
+eui48 = { version = "1.1", default-features = false }
+windows-sys = { version = "0.36.1", features = ["Win32_System_Threading"] }
+
+[target.'cfg(not(target_os = "windows"))'.dev-dependencies]
+tun-tap = "0.1.3"
+
+[build-dependencies]
+libloading = "0.8"
+regex = "1"
+pkg-config = "0.3"
+
+[features]
+# This feature enables access to the function Capture::stream.
+# This is disabled by default, because it depends on a tokio
+capture-stream = ["tokio", "futures", "windows-sys/Win32_System_Threading"]
+lending-iter = ["gat-std"]
+
+[lib]
+name = "pcap"
+
+[[example]]
+name = "easylisten"
+path = "examples/easylisten.rs"
+
+[[example]]
+name = "getdevices"
+path = "examples/getdevices.rs"
+
+[[example]]
+name = "getstatistics"
+path = "examples/getstatistics.rs"
+
+[[example]]
+name = "iterprint"
+path = "examples/iterprint.rs"
+
+[[example]]
+name = "lendingiterprint"
+path = "examples/lendingiterprint.rs"
+required-features = ["lending-iter"]
+
+[[example]]
+name = "listenlocalhost"
+path = "examples/listenlocalhost.rs"
+
+[[example]]
+name = "nfbpfcompile"
+path = "examples/nfbpfcompile.rs"
+
+[[example]]
+name = "savefile"
+path = "examples/savefile.rs"
+
+[[example]]
+name = "sendqueue"
+path = "examples/sendqueue.rs"
+
+[[example]]
+name = "stdin"
+path = "examples/stdin.rs"
+
+[[example]]
+name = "streamecho"
+path = "examples/streamecho.rs"
+required-features = ["capture-stream"]
+
+[[example]]
+name = "streamlisten"
+path = "examples/streamlisten.rs"
+required-features = ["capture-stream"]
+
+[[example]]
+name = "streamlisten_mt"
+path = "examples/streamlisten_mt.rs"
+required-features = ["capture-stream"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]

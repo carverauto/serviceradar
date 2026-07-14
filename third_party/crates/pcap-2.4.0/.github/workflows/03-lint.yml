@@ -1,0 +1,40 @@
+on:
+  workflow_call:
+    inputs:
+      os:
+        required: true
+        type: string
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_VERBOSE: true
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    runs-on: ${{ inputs.os }}
+    env:
+      PCAP_CI_CLIPPY_FLAGS: '-D warnings'
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          rustup update --no-self-update stable
+          rustup override set stable
+          rustup component add clippy rustfmt
+      - run: cargo clippy --all-targets                          -- ${{ env.PCAP_CI_CLIPPY_FLAGS }}
+      - run: cargo clippy --all-targets --release                -- ${{ env.PCAP_CI_CLIPPY_FLAGS }}
+      - run: cargo clippy --all-targets           --all-features -- ${{ env.PCAP_CI_CLIPPY_FLAGS }}
+      - run: cargo clippy --all-targets --release --all-features -- ${{ env.PCAP_CI_CLIPPY_FLAGS }}
+      - run: cargo doc --no-deps --release
+        env:
+          DOCS_RS: true
+      - run: cargo doc --no-deps --release --all-features
+        env:
+          DOCS_RS: true
+      - uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          feature-group: "all-features"
+        env:
+          # Cargo semver uses rust docs. We set DOCS_RS to make sure the same docs are built.
+          DOCS_RS: true
+      - run: cargo fmt -- --check

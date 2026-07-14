@@ -1,0 +1,11 @@
+[package]
+name = "fuchsia-zircon"
+version = "0.3.3"
+license = "BSD-3-Clause"
+authors = ["Raph Levien <raph@google.com>"]
+description = "Rust bindings for the Zircon kernel"
+repository = "https://fuchsia.googlesource.com/garnet/"
+
+[dependencies]
+bitflags = "1.0.0"
+fuchsia-zircon-sys = { path = "fuchsia-zircon-sys", version = "0.3.3" }

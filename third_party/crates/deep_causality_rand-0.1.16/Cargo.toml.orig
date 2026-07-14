@@ -1,0 +1,108 @@
+[package]
+name = "deep_causality_rand"
+version = "0.1.16"
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+repository = "https://github.com/deepcausality/deep_causality.rs"
+authors = ["Marvin Hansen <marvin.hansen@gmail.com>"]
+description = "Random number utils for for deep_causality crate."
+documentation = "https://docs.rs/deep_causality"
+categories = ["development-tools"]
+keywords = ["random-numbers"]
+# Exclude all bazel files as these conflict with Bazel workspace when vendored.
+exclude = [
+    "*.bazel",
+    "*/*.bazel",
+    "*.bazel.*",
+    "BUILD",
+    "BUILD.bazel",
+    "MODULE.bazel",
+    ".bazelignore",
+    ".bazelrc",
+    "tests/**/*",
+]
+
+
+[dependencies.deep_causality_num]
+path = "../deep_causality_num"
+version = "0.3.2"
+
+[lints.rust]
+# Exempt from the workspace `unsafe_code = "forbid"` policy.
+# The `aead-random` CSPRNG (chacha_rng) deliberately mixes the CPU cycle counter
+# (RDTSC on x86_64, cntvct_el0 on aarch64) into its seed as backdoor resistance
+# against a compromised OS/hardware RNG — it contributes ~20 of the ~70-80 bits
+# that survive a fully-backdoored hardware RNG (see the `aead-random` feature docs
+# below). Reading the cycle counter has no safe stable API, so this `unsafe` is intentional.
+unsafe_code = "allow"
+
+
+[features]
+# Enables a secure, fast, non-NIST software CSPRNG based on the chacha20poly1305 algorith.
+# The chacha20poly1305 was audited by NCC Group with no significant findings.
+# Strongly prefer this CSPRNG implementation over os-random
+# due to multiple known and potentially still unknown backdors in NIST cryptography
+# standards and even hardware implementations of NIST Standards.
+#
+# Authenticated Encryption with Associated Data (AEAD) Algorithms
+# https://docs.rs/aead/latest/aead/index.html
+# ChaCha20Poly1305
+# https://github.com/RustCrypto/AEADs/tree/master/chacha20poly1305
+#
+# Hybrid Entropy
+# Hardware Source: 32 bytes from getrandom (OS CSPRNG
+# Software Source: A 64-bit entropy pool derived from:
+# * SystemTime (absolute epoch time, nanosecond precision)
+# * Instant (monotonic uptime, nanosecond precision)
+# * ThreadId (hashed using RandomState)
+# * Stack Address (ASLR memory layout)
+#
+# Mixing Function:
+# * The hardware seed is split into four 64-bit chunks.
+# * The software entropy is XORed into each chunk, rotated by a prime multiple for each chunk to avoid pattern repetition.
+#
+# Security Guarantees
+#
+# Hardware Trust: If the hardware RNG is honest, the seed is 256-bit secure. This is the current gold standard for top-secret communication
+# Backdoor Resistance: If the hardware RNG is backdoored (predictable), the seed is XORed
+# with high-resolution timing and memory layout data (Unknown ^ Known = Unknown),
+# breaking the adversary's ability to predict the CSPRNG state because an estiamted ~65 - 70 bits residulate entropy remain.
+#
+# Source of non-hardware entropy:
+# * System Time (Nanosecond precision): ~10 bits
+# * ASLR (Stack + Heap Address): ~40 bits
+# * RDTSC (CPU Cycle Counter): ~20 bits
+# ## Total Estimate: ~70 - 80 bits
+#
+# Even in case of a fully compromised Hardware RNG, a  ~70 - 80 bits seed remains computationally infeasible
+# to crack for a very long time as this would require multiple super computers for a single seed.
+#
+# Motivation:
+# NSA backdor in NIST AES hardware acceleration: https://www.youtube.com/watch?v=LvCXBO0Vx7Q
+# NSA backdor in NIST AES key generation: https://www.youtube.com/watch?v=mdsoWCry23Y
+# NSA backdor in NIST Dual_ec_drbg: https://www.youtube.com/watch?v=xanhbvtc5bY
+# NSA backdor in NIST DES cypher: https://www.youtube.com/watch?v=jwKCLmzRE6o
+aead-random = ["chacha20poly1305", "zeroize", "getrandom"]
+
+# Enables random number generator from the host OS.
+# Enabling os-random adds an indirect depdency on getrandom and libc.
+# Disabled by default. Use aead-random instead to protect against hardware RNG attacks.
+os-random = ["getrandom"]
+
+
+[dependencies.getrandom]
+version = "0.4"
+optional = true
+
+[dependencies.chacha20poly1305]
+version = "0.10"
+optional = true
+
+[dependencies.zeroize]
+version = "1.8"
+features = ["derive"]
+optional = true
+
+[package.metadata.docs.rs]
+all-features = true

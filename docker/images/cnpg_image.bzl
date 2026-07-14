@@ -72,6 +72,12 @@ tar -C "$${ROOT_DIR}" -cf "$${OUT_TAR}" .
             "//docker/images:pg_config_wrapper.sh",
         ],
         outs = ["timescaledb_extension_layer.tar"],
+        # Linux-only: this layer compiles the PG extension by executing Linux
+        # ELF binaries (bash/make/cat) out of an extracted Debian rootfs, which
+        # cannot run on macOS. Marking it incompatible makes Bazel SKIP it (and
+        # its dependents, e.g. //rust/srql DB integration tests) on non-Linux
+        # hosts instead of failing the build.
+        target_compatible_with = ["@platforms//os:linux"],
         tools = [
             "//docker/images:extract_rootfs.py",
             "//docker/images:overlay_deb_packages.py",
@@ -93,8 +99,15 @@ python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
   "$(location @debian_gcc_15_base_amd64_deb//file)" \
   "$(location @debian_libgcc_s1_amd64_deb//file)" \
   "$(location @debian_libc6_amd64_deb//file)"
-sed -i 's|^CLANG = .*|CLANG = clang|' "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global"
-sed -i 's|^with_llvm\t= .*|with_llvm\t= no|' "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global"
+# Portable in-place edit (GNU/BSD/macOS): no `sed -i` (its suffix handling differs
+# across seds), and POSIX `[[:space:]]` instead of the GNU-only `\t`.
+sed \
+  -e 's|^CLANG = .*|CLANG = clang|' \
+  -e 's|^with_llvm[[:space:]]*=.*|with_llvm = no|' \
+  "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global" \
+  > "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global.new"
+mv "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global.new" \
+   "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global"
 
 SRC_TREE="$$(pwd)/$(execpath //database/timescaledb:source_tree)"
 echo "Copying TimescaleDB sources from $${SRC_TREE}"
@@ -153,6 +166,12 @@ tar -C "$${INSTALL_PREFIX}" -cf "$${OUT_TAR}" .
             "//docker/images:pg_config_wrapper.sh",
         ],
         outs = ["age_extension_layer.tar"],
+        # Linux-only: this layer compiles the PG extension by executing Linux
+        # ELF binaries (bash/make/cat) out of an extracted Debian rootfs, which
+        # cannot run on macOS. Marking it incompatible makes Bazel SKIP it (and
+        # its dependents, e.g. //rust/srql DB integration tests) on non-Linux
+        # hosts instead of failing the build.
+        target_compatible_with = ["@platforms//os:linux"],
         tools = [
             "//docker/images:extract_rootfs.py",
             "//docker/images:overlay_deb_packages.py",
@@ -171,8 +190,15 @@ python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
   "$(location @debian_gcc_15_base_amd64_deb//file)" \
   "$(location @debian_libgcc_s1_amd64_deb//file)" \
   "$(location @debian_libc6_amd64_deb//file)"
-sed -i 's|^CLANG = .*|CLANG = clang|' "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global"
-sed -i 's|^with_llvm\t= .*|with_llvm\t= no|' "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global"
+# Portable in-place edit (GNU/BSD/macOS): no `sed -i` (its suffix handling differs
+# across seds), and POSIX `[[:space:]]` instead of the GNU-only `\t`.
+sed \
+  -e 's|^CLANG = .*|CLANG = clang|' \
+  -e 's|^with_llvm[[:space:]]*=.*|with_llvm = no|' \
+  "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global" \
+  > "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global.new"
+mv "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global.new" \
+   "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global"
 
 AGE_TREE="$$(pwd)/$(execpath //database/age:source_tree)"
 if [[ -d "$${OUT_DIR}/age" ]]; then
@@ -237,6 +263,12 @@ tar -C "$${INSTALL_PREFIX}" -cf "$${OUT_TAR}" .
             "@debian_libbrotli1_amd64_deb//file",
         ],
         outs = ["postgis_extension_layer.tar"],
+        # Linux-only: this layer compiles the PG extension by executing Linux
+        # ELF binaries (bash/make/cat) out of an extracted Debian rootfs, which
+        # cannot run on macOS. Marking it incompatible makes Bazel SKIP it (and
+        # its dependents, e.g. //rust/srql DB integration tests) on non-Linux
+        # hosts instead of failing the build.
+        target_compatible_with = ["@platforms//os:linux"],
         tools = [
             "//docker/images:overlay_deb_packages.py",
         ],

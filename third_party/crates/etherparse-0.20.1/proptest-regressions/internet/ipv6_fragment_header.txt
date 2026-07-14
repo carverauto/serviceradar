@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 69bfd2a19e0bfc33810009e0e3aa8266194847913d0bab87102f5864cf620d56 # shrinks to input = Ipv6FragmentHeader { next_header: 0 (HOPOPT - IPv6 Hop-by-Hop Option), fragment_offset: 0, more_fragments: false, identification: 0 }

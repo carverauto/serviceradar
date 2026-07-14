@@ -1,0 +1,70 @@
+---
+source: src/tests.rs
+expression: "NetflowParser::default().parse_bytes(&packet).packets"
+---
+- IPFix:
+    header:
+      version: 10
+      length: 64
+      export_time: 0
+      sequence_number: 1
+      observation_domain_id: 2
+    flowsets:
+      - header:
+          header_id: 3
+          length: 28
+        body:
+          OptionsTemplate:
+            template_id: 260
+            field_count: 3
+            scope_field_count: 1
+            fields:
+              - field_type_number: 123
+                field_length: 4
+                enterprise_number: 2
+                field_type:
+                  Enterprise:
+                    enterprise_number: 2
+                    field_number: 123
+              - field_type_number: 41
+                field_length: 2
+                field_type:
+                  IANA: ExportedMessageTotalCount
+              - field_type_number: 42
+                field_length: 2
+                field_type:
+                  IANA: ExportedFlowRecordTotalCount
+      - header:
+          header_id: 260
+          length: 20
+        body:
+          OptionsData:
+            fields:
+              - - - Enterprise:
+                      enterprise_number: 2
+                      field_number: 123
+                  - Vec:
+                      - 0
+                      - 0
+                      - 0
+                      - 1
+                - - IANA: ExportedMessageTotalCount
+                  - DataNumber:
+                      U16: 276
+                - - IANA: ExportedFlowRecordTotalCount
+                  - DataNumber:
+                      U16: 5140
+              - - - Enterprise:
+                      enterprise_number: 2
+                      field_number: 123
+                  - Vec:
+                      - 0
+                      - 0
+                      - 0
+                      - 2
+                - - IANA: ExportedMessageTotalCount
+                  - DataNumber:
+                      U16: 5140
+                - - IANA: ExportedFlowRecordTotalCount
+                  - DataNumber:
+                      U16: 7710

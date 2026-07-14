@@ -1,0 +1,19 @@
+[package]
+name = "downcast-rs"
+edition = "2021"
+version = "2.0.2"
+rust-version = "1.56"
+repository = "https://github.com/marcianx/downcast-rs"
+categories = ["rust-patterns"]
+description = """
+Trait object downcasting support using only safe Rust. It supports type
+parameters, associated types, and type constraints.
+"""
+readme = "README.md"
+keywords = ["downcast", "any", "trait", "associated", "no_std"]
+license = "MIT OR Apache-2.0"
+
+[features]
+default = ["std", "sync"]
+std = []
+sync = []

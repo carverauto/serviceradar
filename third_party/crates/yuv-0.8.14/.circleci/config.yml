@@ -1,0 +1,40 @@
+version: 2.1
+
+jobs:
+  build:
+    docker:
+      - image: cimg/rust:1.82.0
+    steps:
+      - checkout
+      - run:
+          name: CPU Info
+          command: "cat /proc/cpuinfo"
+      - restore_cache:
+          key: cargo-{{ checksum "Cargo.lock" }}
+      - run: cargo install cargo-fuzz
+      - run:
+          name: Run Tests No Features
+          command: "cargo test --no-default-features"
+      - run:
+          name: Run Tests Featured AVX-512
+          command: "cargo test --no-default-features --features nightly_avx512"
+#      - run:
+#          no_output_timeout: 20m
+#          command: cargo fuzz run rgb_to_yuv --no-default-features --features nightly_avx512 -- -max_total_time=15
+#      - run: cargo fuzz run rgb_to_nv --no-default-features --features nightly_avx512 -- -max_total_time=15
+#      - run: cargo fuzz run rgb_to_y --no-default-features --features nightly_avx512 -- -max_total_time=15
+#      - run: cargo fuzz run rgb16_to_yuv16 --no-default-features --features nightly_avx512 -- -max_total_time=15
+#      - run: cargo fuzz run rgb16_to_nv16 --no-default-features --features nightly_avx512 -- -max_total_time=15
+#      - run: cargo fuzz run yuv_to_rgb --no-default-features --features nightly_avx512 -- -max_total_time=15
+#      - run: cargo fuzz run yuv_nv_to_rgb --no-default-features --features nightly_avx512 -- -max_total_time=15
+#      - run: cargo fuzz run y_to_rgb --no-default-features --features nightly_avx512 -- -max_total_time=15
+#      - run: cargo fuzz run yuv16_to_rgb16 --no-default-features --features nightly_avx512 -- -max_total_time=15
+#      - run: cargo fuzz run y16_to_rgb16 --no-default-features --features nightly_avx512 -- -max_total_time=15
+#      - run: cargo fuzz run yuv_to_yuyu2 --no-default-features --features nightly_avx512 -- -max_total_time=15
+#      - run: cargo fuzz run yuv_nv16_to_rgb16 --no-default-features --features nightly_avx512 -- -max_total_time=15
+#      - run: cargo fuzz run shuffle --no-default-features --features nightly_avx512 -- -max_total_time=15
+#      - run: cargo fuzz run rgb_to_f16 --no-default-features --features nightly_avx512 -- -max_total_time=15
+      - save_cache:
+          key: cargo-{{ checksum "Cargo.lock" }}
+          paths:
+            - ~/.cargo

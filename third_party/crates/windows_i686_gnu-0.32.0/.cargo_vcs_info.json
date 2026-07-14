@@ -1,0 +1,6 @@
+{
+  "git": {
+    "sha1": "a100332cb8434bc85f1e190a64cad6cc6771c1cd"
+  },
+  "path_in_vcs": "crates/targets/i686_gnu"
+}

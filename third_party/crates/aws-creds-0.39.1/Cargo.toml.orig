@@ -1,0 +1,40 @@
+[package]
+name = "aws-creds"
+version = "0.39.1"
+authors = ["Drazen Urch"]
+description = "Rust library for working with Amazon IAM credential,s, supports `s3` crate"
+repository = "https://github.com/durch/rust-s3"
+readme = "README.md"
+keywords = ["AWS", "S3", "Wasabi", "Minio", "R2"]
+license = "MIT"
+documentation = "https://docs.rs/aws-creds/latest/awscreds/"
+edition = "2021"
+
+[lib]
+name = "awscreds"
+path = "src/lib.rs"
+
+[dependencies]
+thiserror = "2"
+home = "0.5"
+rust-ini = "0.21"
+attohttpc = { version = "0.30", default-features = false, features = [
+    "json",
+], optional = true }
+url = "2"
+quick-xml = { version = "0.38", features = ["serialize"] }
+serde = { version = "1", features = ["derive"] }
+time = { version = "^0.3.6", features = ["serde", "serde-well-known"] }
+log = "0.4"
+
+[features]
+default = ["native-tls"]
+http-credentials = ["attohttpc"]
+native-tls = ["http-credentials", "attohttpc/tls"]
+native-tls-vendored = ["http-credentials", "attohttpc/tls-vendored"]
+rustls-tls = ["http-credentials", "attohttpc/tls-rustls"]
+
+[dev-dependencies]
+env_logger = "0.11"
+serde_json = "1"
+tempfile = "3"

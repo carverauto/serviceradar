@@ -1,0 +1,27 @@
+[package]
+name = "md5"
+version = "0.8.0"
+edition = "2021"
+license = "Apache-2.0/MIT"
+authors = [
+    "Ivan Ukhov <ivan.ukhov@gmail.com>",
+    "Kamal Ahmad <shibe@openmailbox.org>",
+    "Konstantin Stepanov <milezv@gmail.com>",
+    "Lukas Kalbertodt <lukas.kalbertodt@gmail.com>",
+    "Nathan Musoke <nathan.musoke@gmail.com>",
+    "Scott Mabin <scott@mabez.dev>",
+    "Tony Arcieri <bascule@gmail.com>",
+    "Wim de With <register@dewith.io>",
+    "Yosef Dinerstein <yosefdi@gmail.com>",
+]
+description = "The package provides the MD5 hash function."
+documentation = "https://docs.rs/md5"
+homepage = "https://github.com/stainless-steel/md5"
+repository = "https://github.com/stainless-steel/md5"
+readme = "README.md"
+categories = ["algorithms", "cryptography"]
+keywords = ["checksum", "digest", "hash", "md5"]
+
+[features]
+default = ["std"]
+std = []

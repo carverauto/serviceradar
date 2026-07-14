@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.12.0/.schema/devbox.schema.json",
+  "packages": {
+    "avahi-compat": {
+      "version": "latest",
+      "outputs": ["dev"]
+    },
+    "cargo":      "latest",
+    "pkg-config": "latest",
+    "rustc":      "latest"
+  },
+  "shell": {
+    "scripts": {
+      "test": [
+        "cargo test"
+      ]
+    }
+  }
+}

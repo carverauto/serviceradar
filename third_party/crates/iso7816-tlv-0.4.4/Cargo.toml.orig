@@ -1,0 +1,25 @@
+[package]
+name = "iso7816-tlv"
+version = "0.4.4"
+authors = ["Julien Kowalski <julien.kowalski@ercom.fr>"]
+edition = "2018"
+license = "ISC"
+repository = "https://github.com/jkowalsk/iso7816-tlv"
+description = "tools and utilities for handling TLV data as defined in ISO/IEC 7816-4"
+keywords = ["smartcard", "iso7816", "tlv", "no_std"]
+categories = ["data-structures", "no-std"]
+readme = "Readme.md"
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+
+
+[dependencies]
+untrusted = "0.9"
+
+[dev-dependencies]
+static-alloc = "0.2.1"
+rand_core = "0.6"
+rand_xorshift = "0.3"
+hex-literal="0.3"

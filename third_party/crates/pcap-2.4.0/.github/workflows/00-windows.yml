@@ -1,0 +1,42 @@
+name: 'Windows'
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: "0 6 * * *"
+
+jobs:
+  windows-build-and-test-stable:
+    uses: './.github/workflows/01-build-and-test-windows.yml'
+    with:
+      os: 'windows-latest'
+      toolchain: 'stable'
+    secrets:
+      NPCAP_OEM_PASSWORD: ${{ secrets.NPCAP_OEM_PASSWORD }}
+      NPCAP_OEM_USERNAME: ${{ secrets.NPCAP_OEM_USERNAME }}
+
+  windows-build-and-test-msrv:
+    uses: './.github/workflows/01-build-and-test-windows.yml'
+    with:
+      os: 'windows-latest'
+      toolchain: '1.64'
+      msrv: true
+    secrets:
+      NPCAP_OEM_PASSWORD: ${{ secrets.NPCAP_OEM_PASSWORD }}
+      NPCAP_OEM_USERNAME: ${{ secrets.NPCAP_OEM_USERNAME }}
+
+  windows-coverage-stable:
+    uses: './.github/workflows/02-coverage.yml'
+    with:
+      os: 'windows-latest'
+    secrets:
+      NPCAP_OEM_PASSWORD: ${{ secrets.NPCAP_OEM_PASSWORD }}
+      NPCAP_OEM_USERNAME: ${{ secrets.NPCAP_OEM_USERNAME }}
+
+  windows-lint-stable:
+    uses: './.github/workflows/03-lint.yml'
+    with:
+      os: 'windows-latest'

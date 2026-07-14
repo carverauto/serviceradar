@@ -1,0 +1,14 @@
+[package]
+name = "serviceradar-causal-config"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+description = "Causal security engine — per-domain score->ConfidenceSummary calibration (reuses the deployed 4.0/8.0 z-score cutpoints) plus engine config defaults. Config the disposition-feedback milestone re-fits. Phase 0 (OpenSpec: add-causal-security-foundation)."
+license = "Apache-2.0"
+
+[lib]
+name = "serviceradar_causal_config"
+path = "src/lib.rs"
+
+[dependencies]
+serviceradar-causal-model = { path = "../causal-model" }

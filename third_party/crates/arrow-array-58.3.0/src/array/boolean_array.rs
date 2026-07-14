@@ -1,0 +1,1633 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+use crate::array::print_long_array;
+use crate::builder::BooleanBuilder;
+use crate::iterator::BooleanIter;
+use crate::{Array, ArrayAccessor, ArrayRef, Scalar};
+use arrow_buffer::bit_chunk_iterator::UnalignedBitChunk;
+use arrow_buffer::{BooleanBuffer, Buffer, MutableBuffer, NullBuffer, bit_util};
+use arrow_data::{ArrayData, ArrayDataBuilder};
+use arrow_schema::DataType;
+use std::any::Any;
+use std::sync::Arc;
+
+/// An array of [boolean values](https://arrow.apache.org/docs/format/Columnar.html#fixed-size-primitive-layout)
+///
+/// # Example: From a Vec
+///
+/// ```
+/// # use arrow_array::{Array, BooleanArray};
+/// let arr: BooleanArray = vec![true, true, false].into();
+/// ```
+///
+/// # Example: From an optional Vec
+///
+/// ```
+/// # use arrow_array::{Array, BooleanArray};
+/// let arr: BooleanArray = vec![Some(true), None, Some(false)].into();
+/// ```
+///
+/// # Example: From an iterator
+///
+/// ```
+/// # use arrow_array::{Array, BooleanArray};
+/// let arr: BooleanArray = (0..5).map(|x| (x % 2 == 0).then(|| x % 3 == 0)).collect();
+/// let values: Vec<_> = arr.iter().collect();
+/// assert_eq!(&values, &[Some(true), None, Some(false), None, Some(false)])
+/// ```
+///
+/// # Example: Using Builder
+///
+/// ```
+/// # use arrow_array::Array;
+/// # use arrow_array::builder::BooleanBuilder;
+/// let mut builder = BooleanBuilder::new();
+/// builder.append_value(true);
+/// builder.append_null();
+/// builder.append_value(false);
+/// let array = builder.finish();
+/// let values: Vec<_> = array.iter().collect();
+/// assert_eq!(&values, &[Some(true), None, Some(false)])
+/// ```
+///
+#[derive(Clone)]
+pub struct BooleanArray {
+    values: BooleanBuffer,
+    nulls: Option<NullBuffer>,
+}
+
+impl std::fmt::Debug for BooleanArray {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "BooleanArray\n[\n")?;
+        print_long_array(self, f, |array, index, f| {
+            std::fmt::Debug::fmt(&array.value(index), f)
+        })?;
+        write!(f, "]")
+    }
+}
+
+impl BooleanArray {
+    /// Create a new [`BooleanArray`] from the provided values and nulls
+    ///
+    /// # Panics
+    ///
+    /// Panics if `values.len() != nulls.len()`
+    pub fn new(values: BooleanBuffer, nulls: Option<NullBuffer>) -> Self {
+        if let Some(n) = nulls.as_ref() {
+            assert_eq!(values.len(), n.len());
+        }
+        Self { values, nulls }
+    }
+
+    /// Create a new [`BooleanArray`] with length `len` consisting only of nulls
+    pub fn new_null(len: usize) -> Self {
+        Self {
+            values: BooleanBuffer::new_unset(len),
+            nulls: Some(NullBuffer::new_null(len)),
+        }
+    }
+
+    /// Create a new [`Scalar`] from `value`
+    pub fn new_scalar(value: bool) -> Scalar<Self> {
+        let values = match value {
+            true => BooleanBuffer::new_set(1),
+            false => BooleanBuffer::new_unset(1),
+        };
+        Scalar::new(Self::new(values, None))
+    }
+
+    /// Create a new [`BooleanArray`] from a [`Buffer`] specified by `offset` and `len`, the `offset` and `len` in bits
+    /// Logically convert each bit in [`Buffer`] to boolean and use it to build [`BooleanArray`].
+    /// using this method will make the following points self-evident:
+    /// * there is no `null` in the constructed [`BooleanArray`];
+    /// * without considering `buffer.into()`, this method is efficient because there is no need to perform pack and unpack operations on boolean;
+    pub fn new_from_packed(buffer: impl Into<Buffer>, offset: usize, len: usize) -> Self {
+        BooleanBuffer::new(buffer.into(), offset, len).into()
+    }
+
+    /// Create a new [`BooleanArray`] from `&[u8]`
+    /// This method uses `new_from_packed` and constructs a [`Buffer`] using `value`, and offset is set to 0 and len is set to `value.len() * 8`
+    /// using this method will make the following points self-evident:
+    /// * there is no `null` in the constructed [`BooleanArray`];
+    /// * the length of the constructed [`BooleanArray`] is always a multiple of 8;
+    pub fn new_from_u8(value: &[u8]) -> Self {
+        BooleanBuffer::new(Buffer::from(value), 0, value.len() * 8).into()
+    }
+
+    /// Returns the length of this array.
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    /// Returns whether this array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
+    /// Returns a zero-copy slice of this array with the indicated offset and length.
+    pub fn slice(&self, offset: usize, length: usize) -> Self {
+        Self {
+            values: self.values.slice(offset, length),
+            nulls: self.nulls.as_ref().map(|n| n.slice(offset, length)),
+        }
+    }
+
+    /// Returns a new boolean array builder
+    pub fn builder(capacity: usize) -> BooleanBuilder {
+        BooleanBuilder::with_capacity(capacity)
+    }
+
+    /// Returns the underlying [`BooleanBuffer`] holding all the values of this array
+    pub fn values(&self) -> &BooleanBuffer {
+        &self.values
+    }
+
+    /// Block size for chunked fold operations in [`Self::has_true`] and [`Self::has_false`].
+    /// Using `chunks_exact` with this size lets the compiler fully unroll the inner
+    /// fold (no inner branch/loop), enabling short-circuit exits every N chunks.
+    const CHUNK_FOLD_BLOCK_SIZE: usize = 16;
+
+    /// Returns an [`UnalignedBitChunk`] over this array's values.
+    fn unaligned_bit_chunks(&self) -> UnalignedBitChunk<'_> {
+        UnalignedBitChunk::new(self.values().values(), self.values().offset(), self.len())
+    }
+
+    /// Returns the number of non null, true values within this array.
+    /// If you only need to check if there is at least one true value, consider using `has_true()` which can short-circuit and be more efficient.
+    pub fn true_count(&self) -> usize {
+        match self.nulls() {
+            Some(nulls) => {
+                let null_chunks = nulls.inner().bit_chunks().iter_padded();
+                let value_chunks = self.values().bit_chunks().iter_padded();
+                null_chunks
+                    .zip(value_chunks)
+                    .map(|(a, b)| (a & b).count_ones() as usize)
+                    .sum()
+            }
+            None => self.values().count_set_bits(),
+        }
+    }
+
+    /// Returns the number of non null, false values within this array.
+    /// If you only need to check if there is at least one false value, consider using `has_false()` which can short-circuit and be more efficient.
+    pub fn false_count(&self) -> usize {
+        self.len() - self.null_count() - self.true_count()
+    }
+
+    /// Returns whether there is at least one non-null `true` value in this array.
+    ///
+    /// This is more efficient than `true_count() > 0` because it can short-circuit
+    /// as soon as a `true` value is found, without counting all set bits.
+    ///
+    /// Null values are not counted as `true`. Returns `false` for empty arrays.
+    pub fn has_true(&self) -> bool {
+        match self.nulls() {
+            Some(nulls) => {
+                let null_chunks = nulls.inner().bit_chunks().iter_padded();
+                let value_chunks = self.values().bit_chunks().iter_padded();
+                null_chunks.zip(value_chunks).any(|(n, v)| (n & v) != 0)
+            }
+            None => {
+                let bit_chunks = self.unaligned_bit_chunks();
+                let chunks = bit_chunks.chunks();
+                let mut exact = chunks.chunks_exact(Self::CHUNK_FOLD_BLOCK_SIZE);
+                let found = bit_chunks.prefix().unwrap_or(0) != 0
+                    || exact.any(|block| block.iter().fold(0u64, |acc, &c| acc | c) != 0);
+                found
+                    || exact.remainder().iter().any(|&c| c != 0)
+                    || bit_chunks.suffix().unwrap_or(0) != 0
+            }
+        }
+    }
+
+    /// Returns whether there is at least one non-null `false` value in this array.
+    ///
+    /// This is more efficient than `false_count() > 0` because it can short-circuit
+    /// as soon as a `false` value is found, without counting all set bits.
+    ///
+    /// Null values are not counted as `false`. Returns `false` for empty arrays.
+    pub fn has_false(&self) -> bool {
+        match self.nulls() {
+            Some(nulls) => {
+                let null_chunks = nulls.inner().bit_chunks().iter_padded();
+                let value_chunks = self.values().bit_chunks().iter_padded();
+                null_chunks.zip(value_chunks).any(|(n, v)| (n & !v) != 0)
+            }
+            None => {
+                let bit_chunks = self.unaligned_bit_chunks();
+                // UnalignedBitChunk zeros padding bits; fill them with 1s so
+                // they don't appear as false values.
+                let lead_mask = !((1u64 << bit_chunks.lead_padding()) - 1);
+                let trail_mask = if bit_chunks.trailing_padding() == 0 {
+                    u64::MAX
+                } else {
+                    (1u64 << (64 - bit_chunks.trailing_padding())) - 1
+                };
+                let (prefix_fill, suffix_fill) = match (bit_chunks.prefix(), bit_chunks.suffix()) {
+                    (Some(_), Some(_)) => (!lead_mask, !trail_mask),
+                    (Some(_), None) => (!lead_mask | !trail_mask, 0),
+                    (None, Some(_)) => (0, !trail_mask),
+                    (None, None) => (0, 0),
+                };
+                let chunks = bit_chunks.chunks();
+                let mut exact = chunks.chunks_exact(Self::CHUNK_FOLD_BLOCK_SIZE);
+                let found = bit_chunks
+                    .prefix()
+                    .is_some_and(|v| (v | prefix_fill) != u64::MAX)
+                    || exact
+                        .any(|block| block.iter().fold(u64::MAX, |acc, &c| acc & c) != u64::MAX);
+                found
+                    || exact.remainder().iter().any(|&c| c != u64::MAX)
+                    || bit_chunks
+                        .suffix()
+                        .is_some_and(|v| (v | suffix_fill) != u64::MAX)
+            }
+        }
+    }
+
+    /// Returns the boolean value at index `i`.
+    ///
+    /// Note: This method does not check for nulls and the value is arbitrary
+    /// if [`is_null`](Self::is_null) returns true for the index.
+    ///
+    /// # Safety
+    /// This doesn't check bounds, the caller must ensure that index < self.len()
+    pub unsafe fn value_unchecked(&self, i: usize) -> bool {
+        unsafe { self.values.value_unchecked(i) }
+    }
+
+    /// Returns the boolean value at index `i`.
+    ///
+    /// Note: This method does not check for nulls and the value is arbitrary
+    /// if [`is_null`](Self::is_null) returns true for the index.
+    ///
+    /// # Panics
+    /// Panics if index `i` is out of bounds
+    pub fn value(&self, i: usize) -> bool {
+        assert!(
+            i < self.len(),
+            "Trying to access an element at index {} from a BooleanArray of length {}",
+            i,
+            self.len()
+        );
+        // Safety:
+        // `i < self.len()
+        unsafe { self.value_unchecked(i) }
+    }
+
+    /// Returns an iterator that returns the values of `array.value(i)` for an iterator with each element `i`
+    pub fn take_iter<'a>(
+        &'a self,
+        indexes: impl Iterator<Item = Option<usize>> + 'a,
+    ) -> impl Iterator<Item = Option<bool>> + 'a {
+        indexes.map(|opt_index| opt_index.map(|index| self.value(index)))
+    }
+
+    /// Returns an iterator that returns the values of `array.value(i)` for an iterator with each element `i`
+    /// # Safety
+    ///
+    /// caller must ensure that the offsets in the iterator are less than the array len()
+    pub unsafe fn take_iter_unchecked<'a>(
+        &'a self,
+        indexes: impl Iterator<Item = Option<usize>> + 'a,
+    ) -> impl Iterator<Item = Option<bool>> + 'a {
+        indexes.map(|opt_index| opt_index.map(|index| unsafe { self.value_unchecked(index) }))
+    }
+
+    /// Create a [`BooleanArray`] by evaluating the operation for
+    /// each element of the provided array
+    ///
+    /// ```
+    /// # use arrow_array::{BooleanArray, Int32Array};
+    ///
+    /// let array = Int32Array::from(vec![1, 2, 3, 4, 5]);
+    /// let r = BooleanArray::from_unary(&array, |x| x > 2);
+    /// assert_eq!(&r, &BooleanArray::from(vec![false, false, true, true, true]));
+    /// ```
+    pub fn from_unary<T: ArrayAccessor, F>(left: T, mut op: F) -> Self
+    where
+        F: FnMut(T::Item) -> bool,
+    {
+        let nulls = left.logical_nulls();
+        let values = BooleanBuffer::collect_bool(left.len(), |i| unsafe {
+            // SAFETY: i in range 0..len
+            op(left.value_unchecked(i))
+        });
+        Self::new(values, nulls)
+    }
+
+    /// Create a [`BooleanArray`] by evaluating the binary operation for
+    /// each element of the provided arrays
+    ///
+    /// ```
+    /// # use arrow_array::{BooleanArray, Int32Array};
+    ///
+    /// let a = Int32Array::from(vec![1, 2, 3, 4, 5]);
+    /// let b = Int32Array::from(vec![1, 2, 0, 2, 5]);
+    /// let r = BooleanArray::from_binary(&a, &b, |a, b| a == b);
+    /// assert_eq!(&r, &BooleanArray::from(vec![true, true, false, false, true]));
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function panics if left and right are not the same length
+    ///
+    pub fn from_binary<T: ArrayAccessor, S: ArrayAccessor, F>(left: T, right: S, mut op: F) -> Self
+    where
+        F: FnMut(T::Item, S::Item) -> bool,
+    {
+        assert_eq!(left.len(), right.len());
+
+        let nulls = NullBuffer::union(
+            left.logical_nulls().as_ref(),
+            right.logical_nulls().as_ref(),
+        );
+        let values = BooleanBuffer::collect_bool(left.len(), |i| unsafe {
+            // SAFETY: i in range 0..len
+            op(left.value_unchecked(i), right.value_unchecked(i))
+        });
+        Self::new(values, nulls)
+    }
+
+    /// Apply a bitwise operation to this array's values using u64 operations,
+    /// returning a new [`BooleanArray`].
+    ///
+    /// The null buffer is preserved unchanged.
+    ///
+    /// See [`BooleanBuffer::from_bitwise_unary_op`] for details on the operation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use arrow_array::BooleanArray;
+    /// let array = BooleanArray::from(vec![true, false, true]);
+    /// let result = array.bitwise_unary(|x| !x);
+    /// assert_eq!(result, BooleanArray::from(vec![false, true, false]));
+    /// ```
+    pub fn bitwise_unary<F>(&self, op: F) -> BooleanArray
+    where
+        F: FnMut(u64) -> u64,
+    {
+        let values = BooleanBuffer::from_bitwise_unary_op(
+            self.values.values(),
+            self.values.offset(),
+            self.values.len(),
+            op,
+        );
+        BooleanArray::new(values, self.nulls.clone())
+    }
+
+    /// Try to apply a bitwise operation to this array's values in place using
+    /// u64 operations.
+    ///
+    /// If the underlying buffer is uniquely owned, the operation is applied
+    /// in place and `Ok` is returned. If the buffer is shared, `Err(self)` is
+    /// returned so the caller can fall back to [`bitwise_unary`](Self::bitwise_unary).
+    ///
+    /// The null buffer is preserved unchanged.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use arrow_array::BooleanArray;
+    /// let array = BooleanArray::from(vec![true, false, true]);
+    /// let result = array.bitwise_unary_mut(|x| !x).unwrap();
+    /// assert_eq!(result, BooleanArray::from(vec![false, true, false]));
+    /// ```
+    pub fn bitwise_unary_mut<F>(self, op: F) -> Result<BooleanArray, BooleanArray>
+    where
+        F: FnMut(u64) -> u64,
+    {
+        self.try_bitwise_unary_in_place(op)
+            .map_err(|(array, _op)| array)
+    }
+
+    /// Apply a bitwise operation to this array's values in place if the buffer
+    /// is uniquely owned, or clone and apply if shared.
+    ///
+    /// This is a convenience wrapper around [`bitwise_unary_mut`](Self::bitwise_unary_mut)
+    /// that falls back to [`bitwise_unary`](Self::bitwise_unary) when the buffer is shared.
+    ///
+    /// The null buffer is preserved unchanged.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use arrow_array::BooleanArray;
+    /// let array = BooleanArray::from(vec![true, false, true]);
+    /// let result = array.bitwise_unary_mut_or_clone(|x| !x);
+    /// assert_eq!(result, BooleanArray::from(vec![false, true, false]));
+    /// ```
+    pub fn bitwise_unary_mut_or_clone<F>(self, op: F) -> BooleanArray
+    where
+        F: FnMut(u64) -> u64,
+    {
+        match self.try_bitwise_unary_in_place(op) {
+            Ok(array) => array,
+            Err((array, op)) => array.bitwise_unary(op),
+        }
+    }
+
+    /// Try to apply a unary op in place. Returns `op` back on failure so
+    /// callers can fall back to an allocating path without requiring `F: Clone`.
+    fn try_bitwise_unary_in_place<F>(self, op: F) -> Result<BooleanArray, (BooleanArray, F)>
+    where
+        F: FnMut(u64) -> u64,
+    {
+        let (values, nulls) = self.into_parts();
+        let offset = values.offset();
+        let len = values.len();
+        let buffer = values.into_inner();
+        match buffer.into_mutable() {
+            Ok(mut buf) => {
+                bit_util::apply_bitwise_unary_op(buf.as_slice_mut(), offset, len, op);
+                let values = BooleanBuffer::new(buf.into(), offset, len);
+                Ok(BooleanArray::new(values, nulls))
+            }
+            Err(buffer) => {
+                let values = BooleanBuffer::new(buffer, offset, len);
+                Err((BooleanArray::new(values, nulls), op))
+            }
+        }
+    }
+
+    /// Apply a bitwise binary operation to this array and `rhs` using u64
+    /// operations, returning a new [`BooleanArray`].
+    ///
+    /// Null buffers are unioned: the result is null where either input is null.
+    ///
+    /// See [`BooleanBuffer::from_bitwise_binary_op`] for details on the operation.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self` and `rhs` have different lengths.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use arrow_array::BooleanArray;
+    /// let a = BooleanArray::from(vec![true, false, true, true]);
+    /// let b = BooleanArray::from(vec![true, true, false, true]);
+    /// let result = a.bitwise_bin_op(&b, |a, b| a & b);
+    /// assert_eq!(result, BooleanArray::from(vec![true, false, false, true]));
+    /// ```
+    pub fn bitwise_bin_op<F>(&self, rhs: &BooleanArray, op: F) -> BooleanArray
+    where
+        F: FnMut(u64, u64) -> u64,
+    {
+        assert_eq!(self.len(), rhs.len());
+        let nulls = NullBuffer::union(self.nulls(), rhs.nulls());
+        let values = BooleanBuffer::from_bitwise_binary_op(
+            self.values.values(),
+            self.values.offset(),
+            rhs.values.values(),
+            rhs.values.offset(),
+            self.values.len(),
+            op,
+        );
+        BooleanArray::new(values, nulls)
+    }
+
+    /// Try to apply a bitwise binary operation to this array and `rhs` in
+    /// place using u64 operations.
+    ///
+    /// If this array's underlying buffer is uniquely owned, the operation is
+    /// applied in place and `Ok` is returned. If the buffer is shared,
+    /// `Err(self)` is returned so the caller can fall back to
+    /// [`bitwise_bin_op`](Self::bitwise_bin_op).
+    ///
+    /// Null buffers are unioned: the result is null where either input is null.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self` and `rhs` have different lengths.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use arrow_array::BooleanArray;
+    /// let a = BooleanArray::from(vec![true, false, true, true]);
+    /// let b = BooleanArray::from(vec![true, true, false, true]);
+    /// let result = a.bitwise_bin_op_mut(&b, |a, b| a & b).unwrap();
+    /// assert_eq!(result, BooleanArray::from(vec![true, false, false, true]));
+    /// ```
+    pub fn bitwise_bin_op_mut<F>(
+        self,
+        rhs: &BooleanArray,
+        op: F,
+    ) -> Result<BooleanArray, BooleanArray>
+    where
+        F: FnMut(u64, u64) -> u64,
+    {
+        self.try_bitwise_bin_op_in_place(rhs, op)
+            .map_err(|(array, _op)| array)
+    }
+
+    /// Apply a bitwise binary operation to this array and `rhs` in place if the
+    /// buffer is uniquely owned, or clone and apply if shared.
+    ///
+    /// This is a convenience wrapper around [`bitwise_bin_op_mut`](Self::bitwise_bin_op_mut)
+    /// that falls back to [`bitwise_bin_op`](Self::bitwise_bin_op) when the buffer is shared.
+    ///
+    /// Null buffers are unioned: the result is null where either input is null.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self` and `rhs` have different lengths.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use arrow_array::BooleanArray;
+    /// let a = BooleanArray::from(vec![true, false, true, true]);
+    /// let b = BooleanArray::from(vec![true, true, false, true]);
+    /// let result = a.bitwise_bin_op_mut_or_clone(&b, |a, b| a & b);
+    /// assert_eq!(result, BooleanArray::from(vec![true, false, false, true]));
+    /// ```
+    pub fn bitwise_bin_op_mut_or_clone<F>(self, rhs: &BooleanArray, op: F) -> BooleanArray
+    where
+        F: FnMut(u64, u64) -> u64,
+    {
+        match self.try_bitwise_bin_op_in_place(rhs, op) {
+            Ok(array) => array,
+            Err((array, op)) => array.bitwise_bin_op(rhs, op),
+        }
+    }
+
+    /// Try to apply a binary op in place. Returns `op` back on failure so
+    /// callers can fall back to an allocating path without requiring `F: Clone`.
+    fn try_bitwise_bin_op_in_place<F>(
+        self,
+        rhs: &BooleanArray,
+        op: F,
+    ) -> Result<BooleanArray, (BooleanArray, F)>
+    where
+        F: FnMut(u64, u64) -> u64,
+    {
+        assert_eq!(self.len(), rhs.len());
+        let (values, nulls) = self.into_parts();
+        let offset = values.offset();
+        let len = values.len();
+        let buffer = values.into_inner();
+        match buffer.into_mutable() {
+            Ok(mut buf) => {
+                bit_util::apply_bitwise_binary_op(
+                    buf.as_slice_mut(),
+                    offset,
+                    rhs.values.inner(),
+                    rhs.values.offset(),
+                    len,
+                    op,
+                );
+                // Defer null union to the success path so the Err path returns
+                // self's original nulls, avoiding a redundant union in callers
+                // that fall back to bitwise_bin_op.
+                let nulls = NullBuffer::union(nulls.as_ref(), rhs.nulls());
+                let values = BooleanBuffer::new(buf.into(), offset, len);
+                Ok(BooleanArray::new(values, nulls))
+            }
+            Err(buffer) => {
+                let values = BooleanBuffer::new(buffer, offset, len);
+                Err((BooleanArray::new(values, nulls), op))
+            }
+        }
+    }
+
+    /// Deconstruct this array into its constituent parts
+    pub fn into_parts(self) -> (BooleanBuffer, Option<NullBuffer>) {
+        (self.values, self.nulls)
+    }
+}
+
+/// SAFETY: Correctly implements the contract of Arrow Arrays
+unsafe impl Array for BooleanArray {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn to_data(&self) -> ArrayData {
+        self.clone().into()
+    }
+
+    fn into_data(self) -> ArrayData {
+        self.into()
+    }
+
+    fn data_type(&self) -> &DataType {
+        &DataType::Boolean
+    }
+
+    fn slice(&self, offset: usize, length: usize) -> ArrayRef {
+        Arc::new(self.slice(offset, length))
+    }
+
+    fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
+    fn shrink_to_fit(&mut self) {
+        self.values.shrink_to_fit();
+        if let Some(nulls) = &mut self.nulls {
+            nulls.shrink_to_fit();
+        }
+    }
+
+    fn offset(&self) -> usize {
+        self.values.offset()
+    }
+
+    fn nulls(&self) -> Option<&NullBuffer> {
+        self.nulls.as_ref()
+    }
+
+    fn logical_null_count(&self) -> usize {
+        self.null_count()
+    }
+
+    fn get_buffer_memory_size(&self) -> usize {
+        let mut sum = self.values.inner().capacity();
+        if let Some(x) = &self.nulls {
+            sum += x.buffer().capacity()
+        }
+        sum
+    }
+
+    fn get_array_memory_size(&self) -> usize {
+        std::mem::size_of::<Self>() + self.get_buffer_memory_size()
+    }
+
+    #[cfg(feature = "pool")]
+    fn claim(&self, pool: &dyn arrow_buffer::MemoryPool) {
+        self.values.claim(pool);
+        if let Some(nulls) = &self.nulls {
+            nulls.claim(pool);
+        }
+    }
+}
+
+impl ArrayAccessor for &BooleanArray {
+    type Item = bool;
+
+    fn value(&self, index: usize) -> Self::Item {
+        BooleanArray::value(self, index)
+    }
+
+    unsafe fn value_unchecked(&self, index: usize) -> Self::Item {
+        unsafe { BooleanArray::value_unchecked(self, index) }
+    }
+}
+
+impl From<Vec<bool>> for BooleanArray {
+    fn from(data: Vec<bool>) -> Self {
+        let mut mut_buf = MutableBuffer::new_null(data.len());
+        {
+            let mut_slice = mut_buf.as_slice_mut();
+            for (i, b) in data.iter().enumerate() {
+                if *b {
+                    bit_util::set_bit(mut_slice, i);
+                }
+            }
+        }
+        let array_data = ArrayData::builder(DataType::Boolean)
+            .len(data.len())
+            .add_buffer(mut_buf.into());
+
+        let array_data = unsafe { array_data.build_unchecked() };
+        BooleanArray::from(array_data)
+    }
+}
+
+impl From<Vec<Option<bool>>> for BooleanArray {
+    fn from(data: Vec<Option<bool>>) -> Self {
+        data.iter().collect()
+    }
+}
+
+impl From<ArrayData> for BooleanArray {
+    fn from(data: ArrayData) -> Self {
+        let (data_type, len, nulls, offset, mut buffers, _child_data) = data.into_parts();
+        assert_eq!(
+            data_type,
+            DataType::Boolean,
+            "BooleanArray expected ArrayData with type Boolean got {data_type:?}",
+        );
+        assert_eq!(
+            buffers.len(),
+            1,
+            "BooleanArray data should contain a single buffer only (values buffer)"
+        );
+        let buffer = buffers.pop().expect("checked above");
+        let values = BooleanBuffer::new(buffer, offset, len);
+
+        Self { values, nulls }
+    }
+}
+
+impl From<BooleanArray> for ArrayData {
+    fn from(array: BooleanArray) -> Self {
+        let builder = ArrayDataBuilder::new(DataType::Boolean)
+            .len(array.values.len())
+            .offset(array.values.offset())
+            .nulls(array.nulls)
+            .buffers(vec![array.values.into_inner()]);
+
+        unsafe { builder.build_unchecked() }
+    }
+}
+
+impl<'a> IntoIterator for &'a BooleanArray {
+    type Item = Option<bool>;
+    type IntoIter = BooleanIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        BooleanIter::<'a>::new(self)
+    }
+}
+
+impl<'a> BooleanArray {
+    /// constructs a new iterator
+    pub fn iter(&'a self) -> BooleanIter<'a> {
+        BooleanIter::<'a>::new(self)
+    }
+}
+
+/// An optional boolean value
+///
+/// This struct is used as an adapter when creating `BooleanArray` from an iterator.
+/// `FromIterator` for `BooleanArray` takes an iterator where the elements can be `into`
+/// this struct. So once implementing `From` or `Into` trait for a type, an iterator of
+/// the type can be collected to `BooleanArray`.
+///
+/// See also [NativeAdapter](crate::array::NativeAdapter).
+#[derive(Debug)]
+struct BooleanAdapter {
+    /// Corresponding Rust native type if available
+    pub native: Option<bool>,
+}
+
+impl From<bool> for BooleanAdapter {
+    fn from(value: bool) -> Self {
+        BooleanAdapter {
+            native: Some(value),
+        }
+    }
+}
+
+impl From<&bool> for BooleanAdapter {
+    fn from(value: &bool) -> Self {
+        BooleanAdapter {
+            native: Some(*value),
+        }
+    }
+}
+
+impl From<Option<bool>> for BooleanAdapter {
+    fn from(value: Option<bool>) -> Self {
+        BooleanAdapter { native: value }
+    }
+}
+
+impl From<&Option<bool>> for BooleanAdapter {
+    fn from(value: &Option<bool>) -> Self {
+        BooleanAdapter { native: *value }
+    }
+}
+
+impl<Ptr: Into<BooleanAdapter>> FromIterator<Ptr> for BooleanArray {
+    fn from_iter<I: IntoIterator<Item = Ptr>>(iter: I) -> Self {
+        let iter = iter.into_iter();
+        let capacity = match iter.size_hint() {
+            (lower, Some(upper)) if lower == upper => lower,
+            _ => 0,
+        };
+        let mut builder = BooleanBuilder::with_capacity(capacity);
+        builder.extend(iter.map(|item| item.into().native));
+        builder.finish()
+    }
+}
+
+impl BooleanArray {
+    /// Creates a [`BooleanArray`] from an iterator of trusted length.
+    ///
+    /// # Safety
+    ///
+    /// The iterator must be [`TrustedLen`](https://doc.rust-lang.org/std/iter/trait.TrustedLen.html).
+    /// I.e. that `size_hint().1` correctly reports its length. Note that this is a stronger
+    /// guarantee that `ExactSizeIterator` provides which could still report a wrong length.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the iterator does not report an upper bound on `size_hint()`.
+    #[inline]
+    #[allow(
+        private_bounds,
+        reason = "We will expose BooleanAdapter if there is a need"
+    )]
+    pub unsafe fn from_trusted_len_iter<I, P>(iter: I) -> Self
+    where
+        P: Into<BooleanAdapter>,
+        I: ExactSizeIterator<Item = P>,
+    {
+        let data_len = iter.len();
+
+        let num_bytes = bit_util::ceil(data_len, 8);
+        let mut null_builder = MutableBuffer::from_len_zeroed(num_bytes);
+        let mut val_builder = MutableBuffer::from_len_zeroed(num_bytes);
+
+        let data = val_builder.as_slice_mut();
+
+        let null_slice = null_builder.as_slice_mut();
+        iter.enumerate().for_each(|(i, item)| {
+            if let Some(a) = item.into().native {
+                unsafe {
+                    // SAFETY: There will be enough space in the buffers due to the trusted len size
+                    // hint
+                    bit_util::set_bit_raw(null_slice.as_mut_ptr(), i);
+                    if a {
+                        bit_util::set_bit_raw(data.as_mut_ptr(), i);
+                    }
+                }
+            }
+        });
+
+        let values = BooleanBuffer::new(val_builder.into(), 0, data_len);
+        let nulls = NullBuffer::from_unsliced_buffer(null_builder, data_len);
+        BooleanArray::new(values, nulls)
+    }
+}
+
+impl From<BooleanBuffer> for BooleanArray {
+    fn from(values: BooleanBuffer) -> Self {
+        Self {
+            values,
+            nulls: None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Captures the values-buffer identity for a BooleanArray so tests can assert
+    // whether an operation reused the original allocation or produced a new one.
+    struct PointerInfo {
+        ptr: *const u8,
+        offset: usize,
+        len: usize,
+    }
+
+    impl PointerInfo {
+        // Record the current values buffer pointer plus bit offset/length. The
+        // offset/length checks ensure a logically equivalent slice wasn't rebuilt
+        // with a different view over the same allocation.
+        fn new(array: &BooleanArray) -> Self {
+            Self {
+                ptr: array.values().inner().as_ptr(),
+                offset: array.values().offset(),
+                len: array.values().len(),
+            }
+        }
+
+        // Assert that the array still points at the exact same values buffer and
+        // preserves the same bit view.
+        fn assert_same(&self, array: &BooleanArray) {
+            assert_eq!(array.values().inner().as_ptr(), self.ptr);
+            assert_eq!(array.values().offset(), self.offset);
+            assert_eq!(array.values().len(), self.len);
+        }
+
+        // Assert that the array now points at a different values allocation,
+        // indicating the operation fell back to an allocating path.
+        fn assert_different(&self, array: &BooleanArray) {
+            assert_ne!(array.values().inner().as_ptr(), self.ptr);
+        }
+    }
+    use arrow_buffer::Buffer;
+    use rand::{Rng, rng};
+
+    #[test]
+    fn test_boolean_fmt_debug() {
+        let arr = BooleanArray::from(vec![true, false, false]);
+        assert_eq!(
+            "BooleanArray\n[\n  true,\n  false,\n  false,\n]",
+            format!("{arr:?}")
+        );
+    }
+
+    #[test]
+    fn test_boolean_with_null_fmt_debug() {
+        let mut builder = BooleanArray::builder(3);
+        builder.append_value(true);
+        builder.append_null();
+        builder.append_value(false);
+        let arr = builder.finish();
+        assert_eq!(
+            "BooleanArray\n[\n  true,\n  null,\n  false,\n]",
+            format!("{arr:?}")
+        );
+    }
+
+    #[test]
+    fn test_boolean_array_from_vec() {
+        let buf = Buffer::from([10_u8]);
+        let arr = BooleanArray::from(vec![false, true, false, true]);
+        assert_eq!(&buf, arr.values().inner());
+        assert_eq!(4, arr.len());
+        assert_eq!(0, arr.offset());
+        assert_eq!(0, arr.null_count());
+        for i in 0..4 {
+            assert!(!arr.is_null(i));
+            assert!(arr.is_valid(i));
+            assert_eq!(i == 1 || i == 3, arr.value(i), "failed at {i}")
+        }
+    }
+
+    #[test]
+    fn test_boolean_array_from_vec_option() {
+        let buf = Buffer::from([10_u8]);
+        let arr = BooleanArray::from(vec![Some(false), Some(true), None, Some(true)]);
+        assert_eq!(&buf, arr.values().inner());
+        assert_eq!(4, arr.len());
+        assert_eq!(0, arr.offset());
+        assert_eq!(1, arr.null_count());
+        for i in 0..4 {
+            if i == 2 {
+                assert!(arr.is_null(i));
+                assert!(!arr.is_valid(i));
+            } else {
+                assert!(!arr.is_null(i));
+                assert!(arr.is_valid(i));
+                assert_eq!(i == 1 || i == 3, arr.value(i), "failed at {i}")
+            }
+        }
+    }
+
+    #[test]
+    fn test_boolean_array_from_packed() {
+        let v = [1_u8, 2_u8, 3_u8];
+        let arr = BooleanArray::new_from_packed(v, 0, 24);
+        assert_eq!(24, arr.len());
+        assert_eq!(0, arr.offset());
+        assert_eq!(0, arr.null_count());
+        assert!(arr.nulls.is_none());
+        for i in 0..24 {
+            assert!(!arr.is_null(i));
+            assert!(arr.is_valid(i));
+            assert_eq!(
+                i == 0 || i == 9 || i == 16 || i == 17,
+                arr.value(i),
+                "failed t {i}"
+            )
+        }
+    }
+
+    #[test]
+    fn test_boolean_array_from_slice_u8() {
+        let v: Vec<u8> = vec![1, 2, 3];
+        let slice = &v[..];
+        let arr = BooleanArray::new_from_u8(slice);
+        assert_eq!(24, arr.len());
+        assert_eq!(0, arr.offset());
+        assert_eq!(0, arr.null_count());
+        assert!(arr.nulls().is_none());
+        for i in 0..24 {
+            assert!(!arr.is_null(i));
+            assert!(arr.is_valid(i));
+            assert_eq!(
+                i == 0 || i == 9 || i == 16 || i == 17,
+                arr.value(i),
+                "failed t {i}"
+            )
+        }
+    }
+
+    #[test]
+    fn test_boolean_array_from_iter() {
+        let v = vec![Some(false), Some(true), Some(false), Some(true)];
+        let arr = v.into_iter().collect::<BooleanArray>();
+        assert_eq!(4, arr.len());
+        assert_eq!(0, arr.offset());
+        assert_eq!(0, arr.null_count());
+        assert!(arr.nulls().is_none());
+        for i in 0..3 {
+            assert!(!arr.is_null(i));
+            assert!(arr.is_valid(i));
+            assert_eq!(i == 1 || i == 3, arr.value(i), "failed at {i}")
+        }
+    }
+
+    #[test]
+    fn test_boolean_array_from_non_nullable_iter() {
+        let v = vec![true, false, true];
+        let arr = v.into_iter().collect::<BooleanArray>();
+        assert_eq!(3, arr.len());
+        assert_eq!(0, arr.offset());
+        assert_eq!(0, arr.null_count());
+        assert!(arr.nulls().is_none());
+
+        assert!(arr.value(0));
+        assert!(!arr.value(1));
+        assert!(arr.value(2));
+    }
+
+    #[test]
+    fn test_boolean_array_from_nullable_iter() {
+        let v = vec![Some(true), None, Some(false), None];
+        let arr = v.into_iter().collect::<BooleanArray>();
+        assert_eq!(4, arr.len());
+        assert_eq!(0, arr.offset());
+        assert_eq!(2, arr.null_count());
+        assert!(arr.nulls().is_some());
+
+        assert!(arr.is_valid(0));
+        assert!(arr.is_null(1));
+        assert!(arr.is_valid(2));
+        assert!(arr.is_null(3));
+
+        assert!(arr.value(0));
+        assert!(!arr.value(2));
+    }
+
+    #[test]
+    fn test_boolean_array_from_nullable_trusted_len_iter() {
+        // Should exhibit the same behavior as `from_iter`, which is tested above.
+        let v = vec![Some(true), None, Some(false), None];
+        let expected = v.clone().into_iter().collect::<BooleanArray>();
+        let actual = unsafe {
+            // SAFETY: `v` has trusted length
+            BooleanArray::from_trusted_len_iter(v.into_iter())
+        };
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_boolean_array_from_iter_with_larger_upper_bound() {
+        // See https://github.com/apache/arrow-rs/issues/8505
+        // This returns an upper size hint of 4
+        let iterator = vec![Some(true), None, Some(false), None]
+            .into_iter()
+            .filter(Option::is_some);
+        let arr = iterator.collect::<BooleanArray>();
+        assert_eq!(2, arr.len());
+    }
+
+    #[test]
+    fn test_boolean_array_builder() {
+        // Test building a boolean array with ArrayData builder and offset
+        // 000011011
+        let buf = Buffer::from([27_u8]);
+        let buf2 = buf.clone();
+        let data = ArrayData::builder(DataType::Boolean)
+            .len(5)
+            .offset(2)
+            .add_buffer(buf)
+            .build()
+            .unwrap();
+        let arr = BooleanArray::from(data);
+        assert_eq!(&buf2, arr.values().inner());
+        assert_eq!(5, arr.len());
+        assert_eq!(2, arr.offset());
+        assert_eq!(0, arr.null_count());
+        for i in 0..3 {
+            assert_eq!(i != 0, arr.value(i), "failed at {i}");
+        }
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Trying to access an element at index 4 from a BooleanArray of length 3"
+    )]
+    fn test_fixed_size_binary_array_get_value_index_out_of_bound() {
+        let v = vec![Some(true), None, Some(false)];
+        let array = v.into_iter().collect::<BooleanArray>();
+
+        array.value(4);
+    }
+
+    #[test]
+    #[should_panic(expected = "BooleanArray data should contain a single buffer only \
+                               (values buffer)")]
+    // Different error messages, so skip for now
+    // https://github.com/apache/arrow-rs/issues/1545
+    #[cfg(not(feature = "force_validate"))]
+    fn test_boolean_array_invalid_buffer_len() {
+        let data = unsafe {
+            ArrayData::builder(DataType::Boolean)
+                .len(5)
+                .build_unchecked()
+        };
+        drop(BooleanArray::from(data));
+    }
+
+    #[test]
+    #[should_panic(expected = "BooleanArray expected ArrayData with type Boolean got Int32")]
+    fn test_from_array_data_validation() {
+        let _ = BooleanArray::from(ArrayData::new_empty(&DataType::Int32));
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)] // Takes too long
+    fn test_true_false_count() {
+        let mut rng = rng();
+
+        for _ in 0..10 {
+            // No nulls
+            let d: Vec<_> = (0..2000).map(|_| rng.random_bool(0.5)).collect();
+            let b = BooleanArray::from(d.clone());
+
+            let expected_true = d.iter().filter(|x| **x).count();
+            assert_eq!(b.true_count(), expected_true);
+            assert_eq!(b.false_count(), d.len() - expected_true);
+
+            // With nulls
+            let d: Vec<_> = (0..2000)
+                .map(|_| rng.random_bool(0.5).then(|| rng.random_bool(0.5)))
+                .collect();
+            let b = BooleanArray::from(d.clone());
+
+            let expected_true = d.iter().filter(|x| matches!(x, Some(true))).count();
+            assert_eq!(b.true_count(), expected_true);
+
+            let expected_false = d.iter().filter(|x| matches!(x, Some(false))).count();
+            assert_eq!(b.false_count(), expected_false);
+        }
+    }
+
+    #[test]
+    fn test_into_parts() {
+        let boolean_array = [Some(true), None, Some(false)]
+            .into_iter()
+            .collect::<BooleanArray>();
+        let (values, nulls) = boolean_array.into_parts();
+        assert_eq!(values.values(), &[0b0000_0001]);
+        assert!(nulls.is_some());
+        assert_eq!(nulls.unwrap().buffer().as_slice(), &[0b0000_0101]);
+
+        let boolean_array =
+            BooleanArray::from(vec![false, false, false, false, false, false, false, true]);
+        let (values, nulls) = boolean_array.into_parts();
+        assert_eq!(values.values(), &[0b1000_0000]);
+        assert!(nulls.is_none());
+    }
+
+    #[test]
+    fn test_new_null_array() {
+        let arr = BooleanArray::new_null(5);
+
+        assert_eq!(arr.len(), 5);
+        assert_eq!(arr.null_count(), 5);
+        assert_eq!(arr.true_count(), 0);
+        assert_eq!(arr.false_count(), 0);
+
+        for i in 0..5 {
+            assert!(arr.is_null(i));
+            assert!(!arr.is_valid(i));
+        }
+    }
+
+    #[test]
+    fn test_slice_with_nulls() {
+        let arr = BooleanArray::from(vec![Some(true), None, Some(false)]);
+        let sliced = arr.slice(1, 2);
+
+        assert_eq!(sliced.len(), 2);
+        assert_eq!(sliced.null_count(), 1);
+
+        assert!(sliced.is_null(0));
+        assert!(sliced.is_valid(1));
+        assert!(!sliced.value(1));
+    }
+
+    #[test]
+    fn test_has_true_has_false_all_true() {
+        let arr = BooleanArray::from(vec![true, true, true]);
+        assert!(arr.has_true());
+        assert!(!arr.has_false());
+    }
+
+    #[test]
+    fn test_has_true_has_false_all_false() {
+        let arr = BooleanArray::from(vec![false, false, false]);
+        assert!(!arr.has_true());
+        assert!(arr.has_false());
+    }
+
+    #[test]
+    fn test_has_true_has_false_mixed() {
+        let arr = BooleanArray::from(vec![true, false, true]);
+        assert!(arr.has_true());
+        assert!(arr.has_false());
+    }
+
+    #[test]
+    fn test_has_true_has_false_empty() {
+        let arr = BooleanArray::from(Vec::<bool>::new());
+        assert!(!arr.has_true());
+        assert!(!arr.has_false());
+    }
+
+    #[test]
+    fn test_has_true_has_false_nulls_all_valid_true() {
+        let arr = BooleanArray::from(vec![Some(true), None, Some(true)]);
+        assert!(arr.has_true());
+        assert!(!arr.has_false());
+    }
+
+    #[test]
+    fn test_has_true_has_false_nulls_all_valid_false() {
+        let arr = BooleanArray::from(vec![Some(false), None, Some(false)]);
+        assert!(!arr.has_true());
+        assert!(arr.has_false());
+    }
+
+    #[test]
+    fn test_has_true_has_false_all_null() {
+        let arr = BooleanArray::new_null(5);
+        assert!(!arr.has_true());
+        assert!(!arr.has_false());
+    }
+
+    #[test]
+    fn test_has_false_aligned_suffix_all_true() {
+        let arr = BooleanArray::from(vec![true; 129]);
+        assert!(arr.has_true());
+        assert!(!arr.has_false());
+    }
+
+    #[test]
+    fn test_has_false_non_aligned_all_true() {
+        // 65 elements: exercises the remainder path in has_false
+        let arr = BooleanArray::from(vec![true; 65]);
+        assert!(arr.has_true());
+        assert!(!arr.has_false());
+    }
+
+    #[test]
+    fn test_has_false_non_aligned_last_false() {
+        // 64 trues + 1 false: remainder path should find the false
+        let mut values = vec![true; 64];
+        values.push(false);
+        let arr = BooleanArray::from(values);
+        assert!(arr.has_true());
+        assert!(arr.has_false());
+    }
+
+    #[test]
+    fn test_has_false_exact_64_all_true() {
+        // Exactly 64 elements, no remainder
+        let arr = BooleanArray::from(vec![true; 64]);
+        assert!(arr.has_true());
+        assert!(!arr.has_false());
+    }
+
+    #[test]
+    fn test_has_true_has_false_unaligned_slices() {
+        let cases = [
+            (1, 129, true, false),
+            (3, 130, true, false),
+            (5, 65, true, false),
+            (7, 64, true, false),
+        ];
+
+        let base = BooleanArray::from(vec![true; 300]);
+
+        for (offset, len, expected_has_true, expected_has_false) in cases {
+            let arr = base.slice(offset, len);
+            assert_eq!(
+                arr.has_true(),
+                expected_has_true,
+                "offset={offset} len={len}"
+            );
+            assert_eq!(
+                arr.has_false(),
+                expected_has_false,
+                "offset={offset} len={len}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_has_true_has_false_exact_multiples_of_64() {
+        let cases = [
+            (64, true, false),
+            (128, true, false),
+            (192, true, false),
+            (256, true, false),
+        ];
+
+        for (len, expected_has_true, expected_has_false) in cases {
+            let arr = BooleanArray::from(vec![true; len]);
+            assert_eq!(arr.has_true(), expected_has_true, "len={len}");
+            assert_eq!(arr.has_false(), expected_has_false, "len={len}");
+        }
+    }
+
+    #[test]
+    fn test_bitwise_unary_not() {
+        let arr = BooleanArray::from(vec![true, false, true, false]);
+        let result = arr.bitwise_unary(|x| !x);
+        let expected = BooleanArray::from(vec![false, true, false, true]);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_bitwise_unary_preserves_nulls() {
+        let arr = BooleanArray::from(vec![Some(true), None, Some(false), Some(true)]);
+        let result = arr.bitwise_unary(|x| !x);
+
+        assert_eq!(result.null_count(), 1);
+        assert!(result.is_null(1));
+        assert!(!result.value(0));
+        assert!(result.value(2));
+        assert!(!result.value(3));
+    }
+
+    #[test]
+    fn test_bitwise_unary_mut_unshared() {
+        let arr = BooleanArray::from(vec![true, false, true, false]);
+        let info = PointerInfo::new(&arr);
+        let result = arr.bitwise_unary_mut(|x| !x).unwrap();
+        let expected = BooleanArray::from(vec![false, true, false, true]);
+        assert_eq!(result, expected);
+        info.assert_same(&result);
+    }
+
+    #[test]
+    fn test_bitwise_unary_mut_shared() {
+        let arr = BooleanArray::from(vec![true, false, true, false]);
+        let info = PointerInfo::new(&arr);
+        let _shared = arr.clone();
+        let result = arr.bitwise_unary_mut(|x| !x);
+        assert!(result.is_err());
+
+        let returned = result.unwrap_err();
+        assert_eq!(returned, BooleanArray::from(vec![true, false, true, false]));
+        info.assert_same(&returned);
+    }
+
+    #[test]
+    fn test_bitwise_unary_mut_with_nulls() {
+        let arr = BooleanArray::from(vec![Some(true), None, Some(false)]);
+        let result = arr.bitwise_unary_mut(|x| !x).unwrap();
+
+        assert_eq!(result.null_count(), 1);
+        assert!(result.is_null(1));
+        assert!(!result.value(0));
+        assert!(result.value(2));
+    }
+
+    #[test]
+    fn test_bitwise_unary_mut_or_clone_shared() {
+        let arr = BooleanArray::from(vec![true, false, true]);
+        let info = PointerInfo::new(&arr);
+        let _shared = arr.clone();
+        let result = arr.bitwise_unary_mut_or_clone(|x| !x);
+        assert_eq!(result, BooleanArray::from(vec![false, true, false]));
+        info.assert_different(&result);
+    }
+
+    #[test]
+    fn test_bitwise_unary_mut_or_clone_unshared() {
+        // Covers the uniquely-owned fast path in bitwise_unary_mut_or_clone.
+        let arr = BooleanArray::from(vec![true, false, true]);
+        let info = PointerInfo::new(&arr);
+        let result = arr.bitwise_unary_mut_or_clone(|x| !x);
+        assert_eq!(result, BooleanArray::from(vec![false, true, false]));
+        info.assert_same(&result);
+    }
+
+    #[test]
+    fn test_bitwise_bin_op_and() {
+        let a = BooleanArray::from(vec![true, false, true, true]);
+        let b = BooleanArray::from(vec![true, true, false, true]);
+        let result = a.bitwise_bin_op(&b, |a, b| a & b);
+        assert_eq!(result, BooleanArray::from(vec![true, false, false, true]));
+    }
+
+    #[test]
+    fn test_bitwise_bin_op_or() {
+        let a = BooleanArray::from(vec![true, false, true, false]);
+        let b = BooleanArray::from(vec![false, true, false, false]);
+        let result = a.bitwise_bin_op(&b, |a, b| a | b);
+        assert_eq!(result, BooleanArray::from(vec![true, true, true, false]));
+    }
+
+    #[test]
+    fn test_bitwise_bin_op_null_union() {
+        let a = BooleanArray::from(vec![Some(true), None, Some(true), Some(false)]);
+        let b = BooleanArray::from(vec![Some(true), Some(true), None, Some(true)]);
+        let result = a.bitwise_bin_op(&b, |a, b| a & b);
+
+        assert_eq!(result.null_count(), 2);
+        assert!(result.is_null(1));
+        assert!(result.is_null(2));
+        assert!(result.value(0));
+        assert!(!result.value(3));
+    }
+
+    #[test]
+    fn test_bitwise_bin_op_one_nullable() {
+        let a = BooleanArray::from(vec![Some(true), None, Some(true)]);
+        let b = BooleanArray::from(vec![false, true, true]);
+        let result = a.bitwise_bin_op(&b, |a, b| a & b);
+
+        assert_eq!(result.null_count(), 1);
+        assert!(result.is_null(1));
+        assert!(!result.value(0));
+        assert!(result.value(2));
+    }
+
+    #[test]
+    fn test_bitwise_bin_op_no_nulls() {
+        let a = BooleanArray::from(vec![true, false, true]);
+        let b = BooleanArray::from(vec![false, true, true]);
+        let result = a.bitwise_bin_op(&b, |a, b| a | b);
+
+        assert!(result.nulls().is_none());
+        assert_eq!(result, BooleanArray::from(vec![true, true, true]));
+    }
+
+    #[test]
+    fn test_bitwise_bin_op_mut_unshared() {
+        let a = BooleanArray::from(vec![true, false, true, true]);
+        let info = PointerInfo::new(&a);
+        let b = BooleanArray::from(vec![true, true, false, true]);
+        let result = a.bitwise_bin_op_mut(&b, |a, b| a & b).unwrap();
+        assert_eq!(result, BooleanArray::from(vec![true, false, false, true]));
+        info.assert_same(&result);
+    }
+
+    #[test]
+    fn test_bitwise_bin_op_mut_shared() {
+        let a = BooleanArray::from(vec![true, false, true, true]);
+        let info = PointerInfo::new(&a);
+        let _shared = a.clone();
+        let result = a.bitwise_bin_op_mut(
+            &BooleanArray::from(vec![true, true, false, true]),
+            |a, b| a & b,
+        );
+        assert!(result.is_err());
+        let returned = result.unwrap_err();
+        info.assert_same(&returned);
+    }
+
+    #[test]
+    fn test_bitwise_bin_op_mut_with_nulls() {
+        let a = BooleanArray::from(vec![Some(true), None, Some(true), Some(false)]);
+        let b = BooleanArray::from(vec![Some(true), Some(true), None, Some(true)]);
+        let result = a.bitwise_bin_op_mut(&b, |a, b| a & b).unwrap();
+
+        assert_eq!(result.null_count(), 2);
+        assert!(result.is_null(1));
+        assert!(result.is_null(2));
+        assert!(result.value(0));
+        assert!(!result.value(3));
+    }
+
+    #[test]
+    fn test_bitwise_bin_op_mut_or_clone_shared() {
+        let a = BooleanArray::from(vec![true, false, true, true]);
+        let info = PointerInfo::new(&a);
+        let _shared = a.clone();
+        let b = BooleanArray::from(vec![true, true, false, true]);
+        let result = a.bitwise_bin_op_mut_or_clone(&b, |a, b| a & b);
+        assert_eq!(result, BooleanArray::from(vec![true, false, false, true]));
+        info.assert_different(&result);
+    }
+
+    #[test]
+    fn test_bitwise_bin_op_mut_or_clone_shared_with_nulls() {
+        // When the buffer is shared, _mut_or_clone falls back to bitwise_bin_op.
+        // The null union must only be applied once, not double-applied.
+        let a = BooleanArray::from(vec![Some(true), None, Some(true), Some(false)]);
+        let info = PointerInfo::new(&a);
+        let _shared = a.clone();
+        let b = BooleanArray::from(vec![Some(true), Some(true), None, Some(true)]);
+
+        let expected = a.bitwise_bin_op(&b, |a, b| a & b);
+        let result = a.bitwise_bin_op_mut_or_clone(&b, |a, b| a & b);
+
+        assert_eq!(result, expected);
+        assert_eq!(result.null_count(), 2);
+        assert!(result.is_null(1));
+        assert!(result.is_null(2));
+        info.assert_different(&result);
+    }
+
+    #[test]
+    fn test_bitwise_bin_op_mut_or_clone_unshared_with_nulls() {
+        // Covers the uniquely-owned fast path in bitwise_bin_op_mut_or_clone,
+        // including null union on the in-place path.
+        let a = BooleanArray::from(vec![Some(true), None, Some(true), Some(false)]);
+        let info = PointerInfo::new(&a);
+        let b = BooleanArray::from(vec![Some(true), Some(true), None, Some(true)]);
+        let result = a.bitwise_bin_op_mut_or_clone(&b, |a, b| a & b);
+
+        assert_eq!(result.null_count(), 2);
+        assert!(result.is_null(1));
+        assert!(result.is_null(2));
+        assert!(result.value(0));
+        assert!(!result.value(3));
+        info.assert_same(&result);
+    }
+
+    #[test]
+    fn test_bitwise_unary_empty() {
+        let arr = BooleanArray::from(Vec::<bool>::new());
+        let result = arr.bitwise_unary(|x| !x);
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_bitwise_bin_op_empty() {
+        let a = BooleanArray::from(Vec::<bool>::new());
+        let b = BooleanArray::from(Vec::<bool>::new());
+        let result = a.bitwise_bin_op(&b, |a, b| a & b);
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_bitwise_unary_sliced() {
+        // Slicing creates a non-zero offset into the underlying buffer.
+        let arr = BooleanArray::from(vec![true, false, true, true, false]);
+        let sliced = arr.slice(1, 3); // [false, true, true]
+
+        let result = sliced.bitwise_unary(|x| !x);
+        assert_eq!(result.len(), 3);
+        assert!(result.value(0));
+        assert!(!result.value(1));
+        assert!(!result.value(2));
+    }
+
+    #[test]
+    fn test_bitwise_unary_mut_sliced() {
+        // Slicing shares the buffer, so _mut must return Err.
+        let arr = BooleanArray::from(vec![true, false, true, true, false]);
+        let sliced = arr.slice(1, 3);
+        assert!(sliced.bitwise_unary_mut(|x| !x).is_err());
+    }
+
+    #[test]
+    fn test_bitwise_unary_mut_or_clone_sliced() {
+        // Slicing shares the buffer, so _mut_or_clone falls back to allocating.
+        let arr = BooleanArray::from(vec![true, false, true, true, false]);
+        let sliced = arr.slice(1, 3); // [false, true, true]
+
+        let result = sliced.bitwise_unary_mut_or_clone(|x| !x);
+        assert_eq!(result.len(), 3);
+        assert!(result.value(0));
+        assert!(!result.value(1));
+        assert!(!result.value(2));
+    }
+
+    #[test]
+    fn test_bitwise_bin_op_different_offsets() {
+        // Left and right sliced to different offsets exercises misaligned
+        // bit handling in from_bitwise_binary_op.
+        let left_full = BooleanArray::from(vec![false, true, false, true, true]);
+        let right_full = BooleanArray::from(vec![true, true, true, false, true, false]);
+
+        let left = left_full.slice(1, 3); // [true, false, true]
+        let right = right_full.slice(2, 3); // [true, false, true]
+
+        let result = left.bitwise_bin_op(&right, |a, b| a & b);
+        assert_eq!(result.len(), 3);
+        assert!(result.value(0));
+        assert!(!result.value(1));
+        assert!(result.value(2));
+    }
+
+    #[test]
+    fn test_bitwise_bin_op_mut_or_clone_different_offsets() {
+        // Both sliced (shared buffers), so falls back to allocating path.
+        let left_full = BooleanArray::from(vec![false, true, true, false, true]);
+        let right_full = BooleanArray::from(vec![true, true, false, false, true, false]);
+
+        let left = left_full.slice(1, 3); // [true, true, false]
+        let right = right_full.slice(2, 3); // [false, false, true]
+
+        let expected = left.bitwise_bin_op(&right, |a, b| a & b);
+        let result = left.bitwise_bin_op_mut_or_clone(&right, |a, b| a & b);
+        assert_eq!(result, expected);
+    }
+}

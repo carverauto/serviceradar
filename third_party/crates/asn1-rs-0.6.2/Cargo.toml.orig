@@ -1,0 +1,76 @@
+[package]
+description = "Parser/encoder for ASN.1 BER/DER data"
+license = "MIT OR Apache-2.0"
+keywords = ["BER","DER","ASN1","parser","nom"]
+homepage = "https://github.com/rusticata/asn1-rs"
+repository = "https://github.com/rusticata/asn1-rs.git"
+name = "asn1-rs"
+version = "0.6.2"
+authors = ["Pierre Chifflier <chifflier@wzdftpd.net>"]
+categories = ["parser-implementations"]
+readme = "README.md"
+edition = "2018"
+rust-version = "1.63"
+
+include = [
+  "CHANGELOG.md",
+  "LICENSE-*",
+  "README.md",
+  ".gitignore",
+  "Cargo.toml",
+  "doc/*.md",
+  "examples/*.rs",
+  "src/*.rs",
+  "src/asn1_types/*.rs",
+  "src/asn1_types/real/*.rs",
+  "src/asn1_types/sequence/*.rs",
+  "src/asn1_types/set/*.rs",
+  "src/asn1_types/strings/*.rs",
+  "src/asn1_types/tagged/*.rs",
+  "src/ber/*.rs",
+  "src/doc/*.rs",
+  "tests/*.rs",
+]
+
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["std"]
+bigint = ["num-bigint"]
+bits = ["bitvec"]
+datetime = ["time"]
+debug = ["colored"]
+serialize = ["cookie-factory"]
+std = []
+trace = ["debug"]
+
+[dependencies]
+asn1-rs-derive = { version="0.5", path="./derive" }
+asn1-rs-impl = { version="0.2", path="./impl" }
+bitvec = { version="1.0", optional=true }
+colored = { version="2.0", optional=true }
+cookie-factory = { version="0.3.0", optional=true }
+displaydoc = "0.2.2"
+nom = { version="7.0", default-features=false, features=["std"] }
+num-bigint = { version = "0.4", optional = true }
+num-traits = "0.2.14"
+rusticata-macros = "4.0"
+thiserror = "1.0.25"
+time = { version="0.3", features=["macros", "parsing", "formatting"], optional=true }
+
+[dev-dependencies]
+colored = "2.0"
+hex-literal = "0.4"
+pem = "3.0"
+trybuild = "1.0"
+
+[package.metadata.cargo_check_external_types]
+allowed_external_types = [
+    "nom",
+    "nom::*",
+    "asn1_rs_derive",
+    "asn1_rs_derive::*"
+]

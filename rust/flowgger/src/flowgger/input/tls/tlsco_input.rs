@@ -6,6 +6,7 @@ use crate::flowgger::splitter::{
     CapnpSplitter, LineSplitter, NulSplitter, Splitter, SyslenSplitter,
 };
 use may::net::{TcpListener, TcpStream};
+use rustls::{ServerConnection, StreamOwned};
 use std::io::{stderr, BufReader, Write};
 use std::net::SocketAddr;
 use std::sync::mpsc::SyncSender;
@@ -56,13 +57,14 @@ fn handle_client(
     if let Ok(peer_addr) = client.peer_addr() {
         println!("Connection over TLS<coroutines> from [{}]", peer_addr);
     }
-    let sslclient = match tls_config.acceptor.accept(client) {
-        Err(_) => {
-            let _ = writeln!(stderr(), "SSL handshake aborted by the client");
+    let conn = match ServerConnection::new(tls_config.server_config.clone()) {
+        Err(e) => {
+            let _ = writeln!(stderr(), "Unable to start the TLS session: {e}");
             return;
         }
-        Ok(sslclient) => sslclient,
+        Ok(conn) => conn,
     };
+    let sslclient = StreamOwned::new(conn, client);
     let reader = BufReader::new(sslclient);
     let splitter = match &tls_config.framing as &str {
         "capnp" => Box::new(CapnpSplitter) as Box<Splitter<_>>,

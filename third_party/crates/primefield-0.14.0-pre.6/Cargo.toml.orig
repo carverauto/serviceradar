@@ -1,0 +1,21 @@
+[package]
+name = "primefield"
+version = "0.14.0-pre.6"
+description = "Macros for generating prime field implementations"
+authors = ["RustCrypto Developers"]
+license = "Apache-2.0 OR MIT"
+documentation = "https://docs.rs/primefield"
+homepage = "https://github.com/RustCrypto/elliptic-curves/tree/master/primefield"
+repository = "https://github.com/RustCrypto/elliptic-curves"
+readme = "README.md"
+categories = ["cryptography", "no-std"]
+keywords = ["crypto", "ecc", "field", "prime"]
+edition = "2024"
+rust-version = "1.85"
+
+[dependencies]
+bigint = { package = "crypto-bigint", version = "0.7.0-rc.6", default-features = false, features = ["hybrid-array"] }
+ff = { version = "=0.14.0-pre.0", default-features = false }
+subtle = { version = "2.6", default-features = false }
+rand_core = { version = "0.9", default-features = false }
+zeroize = { version = "1.7", default-features = false }

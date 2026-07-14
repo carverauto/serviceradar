@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 3429dff6dbc595ae082d1cc437e3798ffde5f09424b9f1e3b2c496b70a5009f7 # shrinks to tcp = TcpHeader { source_port: 0, destination_port: 0, sequence_number: 0, acknowledgment_number: 0, ns: false, fin: false, syn: false, rst: false, psh: false, ack: false, urg: false, ece: false, cwr: false, window_size: 0, checksum: 0, urgent_pointer: 0, options: [] }
+cc 3a4466de4451685da5af95d84271cf94711e9f349721c2e535c3cfb8dfcce42b # shrinks to tcp = TcpHeader { source_port: 0, destination_port: 0, sequence_number: 0, acknowledgment_number: 0, ns: false, fin: false, syn: false, rst: false, psh: false, ack: false, urg: false, ece: false, cwr: false, window_size: 0, checksum: 0, urgent_pointer: 0, options: [] }
+cc 36e04f7e28d57b5b7c5b56bffe5cfef4108cb48c3406267b9f7ac6e59c9d154d # shrinks to tcp = TcpHeader { source_port: 0, destination_port: 0, sequence_number: 0, acknowledgment_number: 0, ns: false, fin: false, syn: false, rst: false, psh: false, ack: false, urg: false, ece: false, cwr: false, window_size: 0, checksum: 0, urgent_pointer: 0, options: [] }
+cc eab44d2ba159a270c4d6efede60141d39b52c55225c27ee475235df1314c2751 # shrinks to tcp = TcpHeader { source_port: 0, destination_port: 0, sequence_number: 0, acknowledgment_number: 0, ns: false, fin: false, syn: false, rst: false, psh: false, ack: false, urg: false, ece: false, cwr: false, window_size: 0, checksum: 0, urgent_pointer: 0, options: [] }

@@ -1,0 +1,351 @@
+---
+source: src/tests.rs
+expression: result
+---
+- IPFix:
+    header:
+      version: 10
+      length: 244
+      export_time: 1530614917
+      sequence_number: 34503
+      observation_domain_id: 768
+    flowsets:
+      - header:
+          header_id: 2
+          length: 228
+        body:
+          Template:
+            template_id: 268
+            field_count: 34
+            fields:
+              - field_type_number: 12236
+                field_length: 4
+                enterprise_number: 9
+                field_type:
+                  Cisco: CiscoClientIpv4Address
+              - field_type_number: 12237
+                field_length: 4
+                enterprise_number: 9
+                field_type:
+                  Cisco: CiscoServerIpv4Address
+              - field_type_number: 12240
+                field_length: 2
+                enterprise_number: 9
+                field_type:
+                  Cisco: CiscoClientL4Port
+              - field_type_number: 12241
+                field_length: 2
+                enterprise_number: 9
+                field_type:
+                  Cisco: CiscoServerL4Port
+              - field_type_number: 234
+                field_length: 4
+                field_type:
+                  IANA: IngressVrfid
+              - field_type_number: 10
+                field_length: 4
+                field_type:
+                  IANA: IngressInterface
+              - field_type_number: 239
+                field_length: 1
+                field_type:
+                  IANA: BiflowDirection
+              - field_type_number: 12242
+                field_length: 4
+                enterprise_number: 9
+                field_type:
+                  Cisco: CiscoConnectionId
+              - field_type_number: 95
+                field_length: 4
+                field_type:
+                  IANA: ApplicationId
+              - field_type_number: 14
+                field_length: 4
+                field_type:
+                  IANA: EgressInterface
+              - field_type_number: 48
+                field_length: 1
+                field_type:
+                  IANA: SamplerId
+              - field_type_number: 9252
+                field_length: 1
+                enterprise_number: 9
+                field_type:
+                  Cisco: CiscoServicesWaasSegment
+              - field_type_number: 9253
+                field_length: 1
+                enterprise_number: 9
+                field_type:
+                  Cisco: CiscoServicesWaasPassthroughReason
+              - field_type_number: 9357
+                field_length: 65535
+                enterprise_number: 9
+                field_type:
+                  Cisco: CiscoAppHttpUriStatistics
+              - field_type_number: 12235
+                field_length: 65535
+                enterprise_number: 9
+                field_type:
+                  Cisco: CiscoAppHttpHost
+              - field_type_number: 22
+                field_length: 4
+                field_type:
+                  IANA: FlowStartSysUpTime
+              - field_type_number: 21
+                field_length: 4
+                field_type:
+                  IANA: FlowEndSysUpTime
+              - field_type_number: 278
+                field_length: 4
+                field_type:
+                  IANA: NewConnectionDeltaCount
+              - field_type_number: 232
+                field_length: 8
+                field_type:
+                  IANA: ResponderOctets
+              - field_type_number: 299
+                field_length: 8
+                field_type:
+                  IANA: ResponderPackets
+              - field_type_number: 231
+                field_length: 8
+                field_type:
+                  IANA: InitiatorOctets
+              - field_type_number: 298
+                field_length: 8
+                field_type:
+                  IANA: InitiatorPackets
+              - field_type_number: 9303
+                field_length: 4
+                enterprise_number: 9
+                field_type:
+                  Cisco:
+                    Unknown: 9303
+              - field_type_number: 9292
+                field_length: 4
+                enterprise_number: 9
+                field_type:
+                  Cisco:
+                    Unknown: 9292
+              - field_type_number: 9300
+                field_length: 4
+                enterprise_number: 9
+                field_type:
+                  Cisco:
+                    Unknown: 9300
+              - field_type_number: 9319
+                field_length: 4
+                enterprise_number: 9
+                field_type:
+                  Cisco:
+                    Unknown: 9319
+              - field_type_number: 9316
+                field_length: 4
+                enterprise_number: 9
+                field_type:
+                  Cisco:
+                    Unknown: 9316
+              - field_type_number: 9268
+                field_length: 4
+                enterprise_number: 9
+                field_type:
+                  Cisco:
+                    Unknown: 9268
+              - field_type_number: 9313
+                field_length: 4
+                enterprise_number: 9
+                field_type:
+                  Cisco:
+                    Unknown: 9313
+              - field_type_number: 9306
+                field_length: 4
+                enterprise_number: 9
+                field_type:
+                  Cisco:
+                    Unknown: 9306
+              - field_type_number: 9307
+                field_length: 4
+                enterprise_number: 9
+                field_type:
+                  Cisco:
+                    Unknown: 9307
+              - field_type_number: 9309
+                field_length: 4
+                enterprise_number: 9
+                field_type:
+                  Cisco:
+                    Unknown: 9309
+              - field_type_number: 9273
+                field_length: 4
+                enterprise_number: 9
+                field_type:
+                  Cisco:
+                    Unknown: 9273
+              - field_type_number: 9272
+                field_length: 4
+                enterprise_number: 9
+                field_type:
+                  Cisco:
+                    Unknown: 9272
+- IPFix:
+    header:
+      version: 10
+      length: 188
+      export_time: 1530614908
+      sequence_number: 34502
+      observation_domain_id: 768
+    flowsets:
+      - header:
+          header_id: 268
+          length: 172
+        body:
+          Data:
+            fields:
+              - - - Cisco: CiscoClientIpv4Address
+                  - Ip4Addr: 10.209.101.66
+                - - Cisco: CiscoServerIpv4Address
+                  - Ip4Addr: 10.0.0.241
+                - - Cisco: CiscoClientL4Port
+                  - DataNumber:
+                      U16: 49376
+                - - Cisco: CiscoServerL4Port
+                  - DataNumber:
+                      U16: 80
+                - - IANA: IngressVrfid
+                  - DataNumber:
+                      U32: 0
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 13
+                - - IANA: BiflowDirection
+                  - DataNumber:
+                      U8: 1
+                - - Cisco: CiscoConnectionId
+                  - DataNumber:
+                      U32: 2378383328
+                - - IANA: ApplicationId
+                  - ApplicationId:
+                      classification_engine_id: 3
+                      selector_id:
+                        U24: 80
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 10
+                - - IANA: SamplerId
+                  - DataNumber:
+                      U8: 9
+                - - Cisco: CiscoServicesWaasSegment
+                  - DataNumber:
+                      U8: 16
+                - - Cisco: CiscoServicesWaasPassthroughReason
+                  - DataNumber:
+                      U8: 0
+                - - Cisco: CiscoAppHttpUriStatistics
+                  - String: /DocLib1
+                - - Cisco: CiscoAppHttpHost
+                  - String: P4portal.medsigroup.ru
+                - - IANA: FlowStartSysUpTime
+                  - DataNumber:
+                      U32: 564191867
+                - - IANA: FlowEndSysUpTime
+                  - DataNumber:
+                      U32: 564303806
+                - - IANA: NewConnectionDeltaCount
+                  - DataNumber:
+                      U32: 1
+                - - IANA: ResponderOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderPackets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: InitiatorOctets
+                  - DataNumber:
+                      U64: 6208
+                - - IANA: InitiatorPackets
+                  - DataNumber:
+                      U64: 15
+                - - Cisco:
+                      Unknown: 9303
+                  - Vec:
+                      - 0
+                      - 0
+                      - 0
+                      - 0
+                - - Cisco:
+                      Unknown: 9292
+                  - Vec:
+                      - 0
+                      - 0
+                      - 0
+                      - 0
+                - - Cisco:
+                      Unknown: 9300
+                  - Vec:
+                      - 0
+                      - 0
+                      - 0
+                      - 0
+                - - Cisco:
+                      Unknown: 9319
+                  - Vec:
+                      - 0
+                      - 0
+                      - 0
+                      - 0
+                - - Cisco:
+                      Unknown: 9316
+                  - Vec:
+                      - 0
+                      - 0
+                      - 0
+                      - 0
+                - - Cisco:
+                      Unknown: 9268
+                  - Vec:
+                      - 0
+                      - 0
+                      - 0
+                      - 0
+                - - Cisco:
+                      Unknown: 9313
+                  - Vec:
+                      - 0
+                      - 0
+                      - 0
+                      - 0
+                - - Cisco:
+                      Unknown: 9306
+                  - Vec:
+                      - 0
+                      - 0
+                      - 0
+                      - 0
+                - - Cisco:
+                      Unknown: 9307
+                  - Vec:
+                      - 0
+                      - 0
+                      - 0
+                      - 0
+                - - Cisco:
+                      Unknown: 9309
+                  - Vec:
+                      - 0
+                      - 0
+                      - 0
+                      - 0
+                - - Cisco:
+                      Unknown: 9273
+                  - Vec:
+                      - 0
+                      - 0
+                      - 0
+                      - 0
+                - - Cisco:
+                      Unknown: 9272
+                  - Vec:
+                      - 0
+                      - 0
+                      - 0
+                      - 0

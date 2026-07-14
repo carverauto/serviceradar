@@ -1,5 +1,5 @@
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
-load("@rust_crates//:defs.bzl", "all_crate_deps")
+load("//third_party/crates:defs.bzl", "all_crate_deps")
 
 filegroup(
     name = "srcs",
@@ -39,46 +39,6 @@ rust_binary(
     visibility = ["//visibility:public"],
 )
 
-rust_test(
-    name = "srql_api_test",
-    srcs = [
-        "tests/api.rs",
-        "tests/support/harness.rs",
-        "tests/support/mod.rs",
-    ],
-    data = [
-        "tests/fixtures/schema.sql",
-        "tests/fixtures/seed.sql",
-        "//docker/images:cnpg_image_amd64_tar",
-    ],
-    crate_name = "srql_api_tests",
-    crate_root = "tests/api.rs",
-    edition = "2021",
-    tags = ["local"],
-    deps = [
-        ":srql_lib",
-    ] + all_crate_deps(normal = True, normal_dev = True),
-    proc_macro_deps = all_crate_deps(proc_macro = True),
-)
-
-rust_test(
-    name = "srql_comprehensive_test",
-    srcs = [
-        "tests/comprehensive_queries.rs",
-        "tests/support/harness.rs",
-        "tests/support/mod.rs",
-    ],
-    data = [
-        "tests/fixtures/schema.sql",
-        "tests/fixtures/seed.sql",
-        "//docker/images:cnpg_image_amd64_tar",
-    ],
-    crate_name = "srql_comprehensive_tests",
-    crate_root = "tests/comprehensive_queries.rs",
-    edition = "2021",
-    tags = ["local"],
-    deps = [
-        ":srql_lib",
-    ] + all_crate_deps(normal = True, normal_dev = True),
-    proc_macro_deps = all_crate_deps(proc_macro = True),
-)
+# NOTE: srql_api_test / srql_comprehensive_test moved to //integration_tests/srql.
+# They wire the CNPG Postgres image (heavy, Linux-only) and must not be reachable from
+# //rust/... — see integration_tests/srql/BUILD.bazel.

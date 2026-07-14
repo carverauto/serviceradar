@@ -1,0 +1,35 @@
+[package]
+name = "md-5"
+version = "0.11.0-rc.2"
+description = "MD5 hash function"
+authors = ["RustCrypto Developers"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+edition = "2024"
+rust-version = "1.85"
+documentation = "https://docs.rs/md-5"
+repository = "https://github.com/RustCrypto/hashes"
+keywords = ["md5", "hash", "digest"]
+categories = ["cryptography", "no-std"]
+
+[lib]
+name = "md5"
+
+[dependencies]
+digest = "0.11.0-rc.1"
+cfg-if = "1"
+
+[dev-dependencies]
+digest = { version = "0.11.0-rc.1", features = ["dev"] }
+hex-literal = "1"
+base16ct = { version = "0.3", features = ["alloc"] }
+
+[features]
+default = ["alloc", "oid"]
+alloc = ["digest/alloc"]
+oid = ["digest/oid"] # Enable OID support
+zeroize = ["digest/zeroize"]
+force-soft = [] # Force software implementation
+
+[package.metadata.docs.rs]
+all-features = true

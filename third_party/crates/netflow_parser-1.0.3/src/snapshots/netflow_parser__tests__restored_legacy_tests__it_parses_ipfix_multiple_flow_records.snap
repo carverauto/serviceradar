@@ -1,0 +1,739 @@
+---
+source: src/tests.rs
+expression: "parser.parse_bytes(&hex::decode(hex2).unwrap()).packets"
+---
+- IPFix:
+    header:
+      version: 10
+      length: 1217
+      export_time: 1412166683
+      sequence_number: 127681
+      observation_domain_id: 0
+    flowsets:
+      - header:
+          header_id: 277
+          length: 29
+        body:
+          Data:
+            fields:
+              - - - IANA: ObservationPointId
+                  - DataNumber:
+                      U32: 8731347
+                - - IANA: ExportingProcessId
+                  - DataNumber:
+                      U32: 0
+                - - Netscaler: NetscalerLicenseType
+                  - DataNumber:
+                      U8: 1
+                - - Netscaler: NetscalerMaxLicenseCount
+                  - DataNumber:
+                      U64: 5
+                - - Netscaler: NetscalerCurrentLicenseConsumed
+                  - DataNumber:
+                      U64: 0
+      - header:
+          header_id: 258
+          length: 433
+        body:
+          Data:
+            fields:
+              - - - IANA: ObservationPointId
+                  - DataNumber:
+                      U32: 8731347
+                - - IANA: ExportingProcessId
+                  - DataNumber:
+                      U32: 0
+                - - IANA: FlowId
+                  - DataNumber:
+                      U64: 2040953
+                - - Netscaler: NetscalerTransactionId
+                  - DataNumber:
+                      U32: 94120
+                - - Netscaler: NetscalerConnectionId
+                  - DataNumber:
+                      U32: 2040953
+                - - IANA: IpVersion
+                  - DataNumber:
+                      U8: 4
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Tcp
+                - - IANA: PaddingOctets
+                  - Vec:
+                      - 0
+                      - 0
+                - - IANA: SourceIpv4address
+                  - Ip4Addr: 172.18.129.61
+                - - IANA: DestinationIpv4address
+                  - Ip4Addr: 172.18.159.99
+                - - IANA: SourceTransportPort
+                  - DataNumber:
+                      U16: 51612
+                - - IANA: DestinationTransportPort
+                  - DataNumber:
+                      U16: 443
+                - - IANA: PacketDeltaCount
+                  - DataNumber:
+                      U64: 3
+                - - IANA: OctetDeltaCount
+                  - DataNumber:
+                      U64: 817
+                - - IANA: TcpControlBits
+                  - TcpControlBits:
+                      fin: false
+                      syn: false
+                      rst: false
+                      psh: true
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Netscaler: NetscalerFlowFlags
+                  - DataNumber:
+                      U64: 84025344
+                - - IANA: FlowStartMicroseconds
+                  - Duration:
+                      secs: 3621155483
+                      nanos: 175000
+                - - IANA: FlowEndMicroseconds
+                  - Duration:
+                      secs: 3621155483
+                      nanos: 178000
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 1
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 2147483651
+                - - Netscaler: NetscalerAppNameAppId
+                  - DataNumber:
+                      U32: 9510
+                - - Netscaler: NetscalerAppUnitNameAppId
+                  - DataNumber:
+                      U32: 0
+                - - Netscaler: NetscalerHttpResForwFB
+                  - DataNumber:
+                      U64: 0
+                - - Netscaler: NetscalerHttpResForwLB
+                  - DataNumber:
+                      U64: 0
+                - - Netscaler: NetscalerConnectionChainID
+                  - Vec:
+                      - 0
+                      - 80
+                      - 86
+                      - 0
+                      - 215
+                      - 43
+                      - 33
+                      - 84
+                      - 27
+                      - 244
+                      - 43
+                      - 84
+                      - 247
+                      - 173
+                      - 11
+                      - 0
+                - - Netscaler: NetscalerConnectionChainHopCount
+                  - DataNumber:
+                      U8: 1
+                - - Netscaler: NetscalerHttpReqUrl
+                  - String: /vpn/index.html
+                - - Netscaler: NetscalerHttpReqCookie
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqReferer
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqMethod
+                  - String: GET
+                - - Netscaler: NetscalerHttpReqHost
+                  - String: int-app-netscaler-10-1-ext.lab2.net
+                - - Netscaler: NetscalerHttpReqUserAgent
+                  - String: "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:32.0) Gecko/20100101 Firefox/32.0"
+                - - Netscaler: NetscalerHttpContentType
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqAuthorization
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqVia
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqXForwardedFor
+                  - String: ""
+                - - Netscaler: NetscalerAaaUsername
+                  - String: ""
+              - - - IANA: ObservationPointId
+                  - DataNumber:
+                      U32: 8731347
+                - - IANA: ExportingProcessId
+                  - DataNumber:
+                      U32: 0
+                - - IANA: FlowId
+                  - DataNumber:
+                      U64: 2040953
+                - - Netscaler: NetscalerTransactionId
+                  - DataNumber:
+                      U32: 94120
+                - - Netscaler: NetscalerConnectionId
+                  - DataNumber:
+                      U32: 2040953
+                - - IANA: IpVersion
+                  - DataNumber:
+                      U8: 4
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Tcp
+                - - IANA: PaddingOctets
+                  - Vec:
+                      - 0
+                      - 0
+                - - IANA: SourceIpv4address
+                  - Ip4Addr: 172.18.129.61
+                - - IANA: DestinationIpv4address
+                  - Ip4Addr: 172.18.159.99
+                - - IANA: SourceTransportPort
+                  - DataNumber:
+                      U16: 51612
+                - - IANA: DestinationTransportPort
+                  - DataNumber:
+                      U16: 443
+                - - IANA: PacketDeltaCount
+                  - DataNumber:
+                      U64: 1
+                - - IANA: OctetDeltaCount
+                  - DataNumber:
+                      U64: 40
+                - - IANA: TcpControlBits
+                  - TcpControlBits:
+                      fin: false
+                      syn: false
+                      rst: false
+                      psh: false
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Netscaler: NetscalerFlowFlags
+                  - DataNumber:
+                      U64: 84025344
+                - - IANA: FlowStartMicroseconds
+                  - Duration:
+                      secs: 3621155483
+                      nanos: 179000
+                - - IANA: FlowEndMicroseconds
+                  - Duration:
+                      secs: 3621155483
+                      nanos: 179000
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 1
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 2147483651
+                - - Netscaler: NetscalerAppNameAppId
+                  - DataNumber:
+                      U32: 9510
+                - - Netscaler: NetscalerAppUnitNameAppId
+                  - DataNumber:
+                      U32: 0
+                - - Netscaler: NetscalerHttpResForwFB
+                  - DataNumber:
+                      U64: 0
+                - - Netscaler: NetscalerHttpResForwLB
+                  - DataNumber:
+                      U64: 0
+                - - Netscaler: NetscalerConnectionChainID
+                  - Vec:
+                      - 0
+                      - 80
+                      - 86
+                      - 0
+                      - 215
+                      - 43
+                      - 33
+                      - 84
+                      - 27
+                      - 244
+                      - 43
+                      - 84
+                      - 247
+                      - 173
+                      - 11
+                      - 0
+                - - Netscaler: NetscalerConnectionChainHopCount
+                  - DataNumber:
+                      U8: 1
+                - - Netscaler: NetscalerHttpReqUrl
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqCookie
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqReferer
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqMethod
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqHost
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqUserAgent
+                  - String: ""
+                - - Netscaler: NetscalerHttpContentType
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqAuthorization
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqVia
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqXForwardedFor
+                  - String: ""
+                - - Netscaler: NetscalerAaaUsername
+                  - String: ""
+      - header:
+          header_id: 257
+          length: 118
+        body:
+          Data:
+            fields:
+              - - - IANA: ObservationPointId
+                  - DataNumber:
+                      U32: 8731347
+                - - IANA: ExportingProcessId
+                  - DataNumber:
+                      U32: 0
+                - - IANA: FlowId
+                  - DataNumber:
+                      U64: 2040954
+                - - Netscaler: NetscalerTransactionId
+                  - DataNumber:
+                      U32: 94120
+                - - Netscaler: NetscalerConnectionId
+                  - DataNumber:
+                      U32: 2040953
+                - - IANA: IpVersion
+                  - DataNumber:
+                      U8: 4
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Tcp
+                - - IANA: PaddingOctets
+                  - Vec:
+                      - 0
+                      - 0
+                - - IANA: SourceIpv4address
+                  - Ip4Addr: 172.18.159.99
+                - - IANA: DestinationIpv4address
+                  - Ip4Addr: 172.18.129.61
+                - - IANA: SourceTransportPort
+                  - DataNumber:
+                      U16: 443
+                - - IANA: DestinationTransportPort
+                  - DataNumber:
+                      U16: 51612
+                - - IANA: PacketDeltaCount
+                  - DataNumber:
+                      U64: 7
+                - - IANA: OctetDeltaCount
+                  - DataNumber:
+                      U64: 6917
+                - - IANA: TcpControlBits
+                  - TcpControlBits:
+                      fin: false
+                      syn: false
+                      rst: false
+                      psh: true
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Netscaler: NetscalerFlowFlags
+                  - DataNumber:
+                      U64: 1090527232
+                - - IANA: FlowStartMicroseconds
+                  - Duration:
+                      secs: 3621155483
+                      nanos: 175000
+                - - IANA: FlowEndMicroseconds
+                  - Duration:
+                      secs: 3621155483
+                      nanos: 178000
+                - - Netscaler: NetscalerRoundTripTime
+                  - DataNumber:
+                      U32: 3
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 1
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 2147483651
+                - - Netscaler: NetscalerAppNameAppId
+                  - DataNumber:
+                      U32: 9510
+                - - Netscaler: NetscalerConnectionChainID
+                  - Vec:
+                      - 0
+                      - 80
+                      - 86
+                      - 0
+                      - 215
+                      - 43
+                      - 33
+                      - 84
+                      - 27
+                      - 244
+                      - 43
+                      - 84
+                      - 247
+                      - 173
+                      - 11
+                      - 0
+                - - Netscaler: NetscalerConnectionChainHopCount
+                  - DataNumber:
+                      U8: 1
+      - header:
+          header_id: 258
+          length: 503
+        body:
+          Data:
+            fields:
+              - - - IANA: ObservationPointId
+                  - DataNumber:
+                      U32: 8731347
+                - - IANA: ExportingProcessId
+                  - DataNumber:
+                      U32: 0
+                - - IANA: FlowId
+                  - DataNumber:
+                      U64: 2040953
+                - - Netscaler: NetscalerTransactionId
+                  - DataNumber:
+                      U32: 94121
+                - - Netscaler: NetscalerConnectionId
+                  - DataNumber:
+                      U32: 2040953
+                - - IANA: IpVersion
+                  - DataNumber:
+                      U8: 4
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Tcp
+                - - IANA: PaddingOctets
+                  - Vec:
+                      - 0
+                      - 0
+                - - IANA: SourceIpv4address
+                  - Ip4Addr: 172.18.129.61
+                - - IANA: DestinationIpv4address
+                  - Ip4Addr: 172.18.159.99
+                - - IANA: SourceTransportPort
+                  - DataNumber:
+                      U16: 51612
+                - - IANA: DestinationTransportPort
+                  - DataNumber:
+                      U16: 443
+                - - IANA: PacketDeltaCount
+                  - DataNumber:
+                      U64: 1
+                - - IANA: OctetDeltaCount
+                  - DataNumber:
+                      U64: 482
+                - - IANA: TcpControlBits
+                  - TcpControlBits:
+                      fin: false
+                      syn: false
+                      rst: false
+                      psh: true
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Netscaler: NetscalerFlowFlags
+                  - DataNumber:
+                      U64: 84025344
+                - - IANA: FlowStartMicroseconds
+                  - Duration:
+                      secs: 3621155483
+                      nanos: 186000
+                - - IANA: FlowEndMicroseconds
+                  - Duration:
+                      secs: 3621155483
+                      nanos: 186000
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 1
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 2147483651
+                - - Netscaler: NetscalerAppNameAppId
+                  - DataNumber:
+                      U32: 9510
+                - - Netscaler: NetscalerAppUnitNameAppId
+                  - DataNumber:
+                      U32: 0
+                - - Netscaler: NetscalerHttpResForwFB
+                  - DataNumber:
+                      U64: 0
+                - - Netscaler: NetscalerHttpResForwLB
+                  - DataNumber:
+                      U64: 0
+                - - Netscaler: NetscalerConnectionChainID
+                  - Vec:
+                      - 0
+                      - 80
+                      - 86
+                      - 0
+                      - 215
+                      - 43
+                      - 33
+                      - 84
+                      - 27
+                      - 244
+                      - 43
+                      - 84
+                      - 157
+                      - 54
+                      - 12
+                      - 0
+                - - Netscaler: NetscalerConnectionChainHopCount
+                  - DataNumber:
+                      U8: 1
+                - - Netscaler: NetscalerHttpReqUrl
+                  - String: /vpn/images/caxtonstyle.css
+                - - Netscaler: NetscalerHttpReqCookie
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqReferer
+                  - String: "https://int-app-netscaler-10-1-ext.lab2.net/vpn/index.html"
+                - - Netscaler: NetscalerHttpReqMethod
+                  - String: GET
+                - - Netscaler: NetscalerHttpReqHost
+                  - String: int-app-netscaler-10-1-ext.lab2.net
+                - - Netscaler: NetscalerHttpReqUserAgent
+                  - String: "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:32.0) Gecko/20100101 Firefox/32.0"
+                - - Netscaler: NetscalerHttpContentType
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqAuthorization
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqVia
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqXForwardedFor
+                  - String: ""
+                - - Netscaler: NetscalerAaaUsername
+                  - String: ""
+              - - - IANA: ObservationPointId
+                  - DataNumber:
+                      U32: 8731347
+                - - IANA: ExportingProcessId
+                  - DataNumber:
+                      U32: 0
+                - - IANA: FlowId
+                  - DataNumber:
+                      U64: 2040953
+                - - Netscaler: NetscalerTransactionId
+                  - DataNumber:
+                      U32: 94121
+                - - Netscaler: NetscalerConnectionId
+                  - DataNumber:
+                      U32: 2040953
+                - - IANA: IpVersion
+                  - DataNumber:
+                      U8: 4
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Tcp
+                - - IANA: PaddingOctets
+                  - Vec:
+                      - 0
+                      - 0
+                - - IANA: SourceIpv4address
+                  - Ip4Addr: 172.18.129.61
+                - - IANA: DestinationIpv4address
+                  - Ip4Addr: 172.18.159.99
+                - - IANA: SourceTransportPort
+                  - DataNumber:
+                      U16: 51612
+                - - IANA: DestinationTransportPort
+                  - DataNumber:
+                      U16: 443
+                - - IANA: PacketDeltaCount
+                  - DataNumber:
+                      U64: 3
+                - - IANA: OctetDeltaCount
+                  - DataNumber:
+                      U64: 120
+                - - IANA: TcpControlBits
+                  - TcpControlBits:
+                      fin: false
+                      syn: false
+                      rst: false
+                      psh: false
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Netscaler: NetscalerFlowFlags
+                  - DataNumber:
+                      U64: 84025344
+                - - IANA: FlowStartMicroseconds
+                  - Duration:
+                      secs: 3621155483
+                      nanos: 186000
+                - - IANA: FlowEndMicroseconds
+                  - Duration:
+                      secs: 3621155483
+                      nanos: 187000
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 1
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 2147483651
+                - - Netscaler: NetscalerAppNameAppId
+                  - DataNumber:
+                      U32: 9510
+                - - Netscaler: NetscalerAppUnitNameAppId
+                  - DataNumber:
+                      U32: 0
+                - - Netscaler: NetscalerHttpResForwFB
+                  - DataNumber:
+                      U64: 0
+                - - Netscaler: NetscalerHttpResForwLB
+                  - DataNumber:
+                      U64: 0
+                - - Netscaler: NetscalerConnectionChainID
+                  - Vec:
+                      - 0
+                      - 80
+                      - 86
+                      - 0
+                      - 215
+                      - 43
+                      - 33
+                      - 84
+                      - 27
+                      - 244
+                      - 43
+                      - 84
+                      - 157
+                      - 54
+                      - 12
+                      - 0
+                - - Netscaler: NetscalerConnectionChainHopCount
+                  - DataNumber:
+                      U8: 1
+                - - Netscaler: NetscalerHttpReqUrl
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqCookie
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqReferer
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqMethod
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqHost
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqUserAgent
+                  - String: ""
+                - - Netscaler: NetscalerHttpContentType
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqAuthorization
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqVia
+                  - String: ""
+                - - Netscaler: NetscalerHttpReqXForwardedFor
+                  - String: ""
+                - - Netscaler: NetscalerAaaUsername
+                  - String: ""
+      - header:
+          header_id: 257
+          length: 118
+        body:
+          Data:
+            fields:
+              - - - IANA: ObservationPointId
+                  - DataNumber:
+                      U32: 8731347
+                - - IANA: ExportingProcessId
+                  - DataNumber:
+                      U32: 0
+                - - IANA: FlowId
+                  - DataNumber:
+                      U64: 2040954
+                - - Netscaler: NetscalerTransactionId
+                  - DataNumber:
+                      U32: 94121
+                - - Netscaler: NetscalerConnectionId
+                  - DataNumber:
+                      U32: 2040953
+                - - IANA: IpVersion
+                  - DataNumber:
+                      U8: 4
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Tcp
+                - - IANA: PaddingOctets
+                  - Vec:
+                      - 0
+                      - 0
+                - - IANA: SourceIpv4address
+                  - Ip4Addr: 172.18.159.99
+                - - IANA: DestinationIpv4address
+                  - Ip4Addr: 172.18.129.61
+                - - IANA: SourceTransportPort
+                  - DataNumber:
+                      U16: 443
+                - - IANA: DestinationTransportPort
+                  - DataNumber:
+                      U16: 51612
+                - - IANA: PacketDeltaCount
+                  - DataNumber:
+                      U64: 15
+                - - IANA: OctetDeltaCount
+                  - DataNumber:
+                      U64: 21968
+                - - IANA: TcpControlBits
+                  - TcpControlBits:
+                      fin: false
+                      syn: false
+                      rst: false
+                      psh: true
+                      ack: true
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - Netscaler: NetscalerFlowFlags
+                  - DataNumber:
+                      U64: 1093672960
+                - - IANA: FlowStartMicroseconds
+                  - Duration:
+                      secs: 3621155483
+                      nanos: 186000
+                - - IANA: FlowEndMicroseconds
+                  - Duration:
+                      secs: 3621155483
+                      nanos: 186000
+                - - Netscaler: NetscalerRoundTripTime
+                  - DataNumber:
+                      U32: 2
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 1
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 2147483651
+                - - Netscaler: NetscalerAppNameAppId
+                  - DataNumber:
+                      U32: 9510
+                - - Netscaler: NetscalerConnectionChainID
+                  - Vec:
+                      - 0
+                      - 80
+                      - 86
+                      - 0
+                      - 215
+                      - 43
+                      - 33
+                      - 84
+                      - 27
+                      - 244
+                      - 43
+                      - 84
+                      - 157
+                      - 54
+                      - 12
+                      - 0
+                - - Netscaler: NetscalerConnectionChainHopCount
+                  - DataNumber:
+                      U8: 1

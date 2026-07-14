@@ -1,0 +1,61 @@
+name: Run autobahn testsuite
+
+on: [push, pull_request]
+
+env:
+  CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+
+jobs:
+  autobahn:
+    name: Run autobahn testsuite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rust-src
+
+      - name: Prepare directories
+        run: |
+          mkdir autobahn/reports
+          echo "<!DOCTYPE html><html><head><title>Autobahn test suite results</title></head><body><a href="clients/index.html">Clients</a><br><a href="servers/index.html">Servers</a></body></html>" > autobahn/reports/index.html
+
+      - name: Build tokio-websockets (SIMD)
+        run: |
+          cargo build --release --example autobahn_client --example autobahn_server --features client,fastrand,nightly,server,sha1_smol,simd
+          mv target/x86_64-unknown-linux-gnu/release/examples/autobahn_client target/x86_64-unknown-linux-gnu/release/examples/autobahn_client_simd
+          mv target/x86_64-unknown-linux-gnu/release/examples/autobahn_server target/x86_64-unknown-linux-gnu/release/examples/autobahn_server_simd
+
+      - name: Build tokio-websockets (no SIMD)
+        run: |
+          cargo build --release --example autobahn_client --example autobahn_server --features client,fastrand,server,sha1_smol
+
+      - name: Build tokio-tungstenite
+        run: |
+          git clone https://github.com/snapview/tokio-tungstenite.git
+          cd tokio-tungstenite
+          cargo build --release --examples
+          cd ..
+
+      - name: Run testsuite
+        run: |
+          ./scripts/autobahn_client_ci.sh
+          ./scripts/autobahn_server_ci.sh
+
+      - name: Ensure testsuite results are okay
+        run: |
+          python3 autobahn/validate.py
+
+      - name: Upload results to GitHub pages
+        if: success() && github.ref == 'refs/heads/main'
+        uses: crazy-max/ghaction-github-pages@v4
+        with:
+          target_branch: gh-pages
+          build_dir: autobahn/reports
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

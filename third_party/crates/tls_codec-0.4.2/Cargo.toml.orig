@@ -1,0 +1,54 @@
+[package]
+name = "tls_codec"
+version = "0.4.2"
+authors = ["RustCrypto Developers"]
+license = "Apache-2.0 OR MIT"
+documentation = "https://docs.rs/tls_codec/"
+description = "A pure Rust implementation of the TLS (de)serialization"
+readme = "README.md"
+homepage = "https://github.com/RustCrypto/formats/tree/master/tls_codec"
+repository = "https://github.com/RustCrypto/formats"
+edition = "2021"
+rust-version = "1.74"
+
+[dependencies]
+zeroize = { version = "1.8", default-features = false, features = [
+    "alloc",
+    "zeroize_derive",
+] }
+
+# optional dependencies
+arbitrary = { version = "1.4", features = ["derive"], optional = true }
+tls_codec_derive = { version = "=0.4.2", path = "./derive", optional = true }
+serde = { version = "1.0.184", features = ["derive"], optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false }
+
+[features]
+default = ["std"]
+arbitrary = ["std", "dep:arbitrary"]
+derive = ["tls_codec_derive"]
+serde = ["std", "dep:serde"]
+mls = [] # In MLS variable length vectors are limited compared to QUIC.
+std = ["tls_codec_derive?/std"]
+conditional_deserialization = [
+    "derive",
+    "tls_codec_derive/conditional_deserialization",
+]
+
+[[bench]]
+name = "tls_vec"
+harness = false
+
+[[bench]]
+name = "quic_vec"
+harness = false
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ['cfg(fuzzing)']

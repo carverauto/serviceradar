@@ -1,0 +1,52 @@
+{
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "creationInfo": {
+    "created": "2026-03-12T03:17:46Z",
+    "creators": [
+      "Tool: cargo-sbom-v0.10.0"
+    ]
+  },
+  "dataLicense": "CC0-1.0",
+  "documentNamespace": "https://spdx.org/spdxdocs/deep_causality_ast-83436767-5b82-4ab5-a474-ae7220619b22",
+  "files": [
+    {
+      "SPDXID": "SPDXRef-File-deep_causality_ast",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "51c946003f5adb2a06e089b3166101ba9a4edc8f"
+        }
+      ],
+      "fileName": "./Cargo.lock",
+      "fileTypes": [
+        "SOURCE",
+        "TEXT"
+      ]
+    }
+  ],
+  "name": "deep_causality_ast",
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package-deep--causality--ast-0.1.5",
+      "description": "AST data structure for deep_causality crate.",
+      "downloadLocation": "NONE",
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "name": "deep_causality_ast",
+      "versionInfo": "0.1.5"
+    }
+  ],
+  "relationships": [
+    {
+      "relatedSpdxElement": "SPDXRef-File-deep_causality_ast",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-deep--causality--ast-0.1.5",
+      "relationshipType": "GENERATED_FROM",
+      "spdxElementId": "SPDXRef-File-deep_causality_ast"
+    }
+  ],
+  "spdxVersion": "SPDX-2.3"
+}

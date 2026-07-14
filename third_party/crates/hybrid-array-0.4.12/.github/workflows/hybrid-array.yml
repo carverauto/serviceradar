@@ -1,0 +1,125 @@
+name: hybrid-array
+
+on:
+  pull_request:
+    paths-ignore:
+      - README.md
+  push:
+    branches: master
+    paths-ignore:
+      - README.md
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: "-D warnings"
+  RUSTDOCFLAGS: "-D warnings"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - 1.85.0 # MSRV
+          - stable
+        target:
+          - armv7a-none-eabi
+          - thumbv7em-none-eabi
+          - wasm32-unknown-unknown
+    steps:
+      - uses: actions/checkout@v6
+      - uses: RustCrypto/actions/cargo-cache@master
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+          targets: ${{ matrix.target }}
+      - uses: RustCrypto/actions/cargo-hack-install@master
+      - run: cargo hack build --target ${{ matrix.target }} --feature-powerset --exclude-all-features --optional-deps bytemuck,ctutils,serde,subtle,zeroize
+
+  careful:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-careful
+      - run: cargo careful test --all-features
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.94.0
+          components: clippy
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+
+  # Generate code coverage and report to codecov.io
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - run: cargo llvm-cov --all-features --lcov --output-path lcov.info
+        env:
+          CARGO_HUSKY_DONT_INSTALL_HOOKS: true
+      - uses: codecov/codecov-action@v6
+        with:
+          fail_ci_if_error: true
+
+  doc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - run: cargo doc --all-features
+
+  miri:
+    runs-on: ubuntu-latest
+    env:
+      MIRIFLAGS: "-Zmiri-symbolic-alignment-check -Zmiri-strict-provenance"
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - s390x-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: rustup component add miri && cargo miri setup
+      - run: cargo miri test --target ${{ matrix.target }} --all-features
+
+  rustfmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  test:
+    strategy:
+      matrix:
+        toolchain:
+          - 1.85.0 # MSRV
+          - stable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: RustCrypto/actions/cargo-cache@master
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - uses: RustCrypto/actions/cargo-hack-install@master
+      - run: cargo hack test --feature-powerset --optional-deps arbitrary,bytemuck,serde,subtle,zeroize --group-features arbitrary,bytemuck,ctutils,serde,subtle,zeroize
+      - run: cargo test --all-features --release

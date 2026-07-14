@@ -1,0 +1,24 @@
+---
+source: src/tests.rs
+expression: parser.parse_bytes(&packet).packets
+---
+- V9:
+    header:
+      version: 9
+      count: 1
+      sys_up_time: 2313
+      unix_secs: 66051
+      sequence_number: 1
+      source_id: 1
+    flowsets:
+      - header:
+          flowset_id: 258
+          length: 12
+        body:
+          Data:
+            fields:
+              - - - InBytes
+                  - DataNumber:
+                      U32: 151126788
+                - - Ipv4SrcAddr
+                  - Ip4Addr: 9.9.9.8

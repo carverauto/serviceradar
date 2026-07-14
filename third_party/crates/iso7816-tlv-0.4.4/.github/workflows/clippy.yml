@@ -1,0 +1,11 @@
+name: Static Analysis
+
+on: [push]
+
+jobs:
+  checks:
+    name: Static Analysis with Clippy
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    - run:  cargo clean && cargo clippy

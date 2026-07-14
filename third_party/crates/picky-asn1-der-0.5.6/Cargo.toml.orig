@@ -1,0 +1,32 @@
+[package]
+name = "picky-asn1-der"
+version = "0.5.6"
+edition = "2024"
+rust-version = "1.85"
+authors = [
+    "KizzyCode Software Labs./Keziah Biermann <development@kizzycode.de>",
+    "Benoît CORTIER <bcortier@devolutions.net>",
+    "Alexandr Yusuk <aleksandr.yusuk@apriorit.com>",
+]
+keywords = ["serde", "asn1", "asn1-der", "serialize", "deserialize"]
+categories = ["encoding"]
+description = "An ASN.1-DER subset for serde"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Devolutions/picky-rs"
+readme = "README.md"
+include = ["src/**/*", "README.md", "CHANGELOG.md", "LICENSE-*"]
+
+[dependencies]
+picky-asn1 = { version = "0.10", path = "../picky-asn1" }
+serde = { version = "1", default-features = false, features = ["derive"] }
+serde_bytes = "0.11"
+
+[dev-dependencies]
+base64 = "0.22"
+pretty_assertions = "1.4"
+serde_bytes = "0.11"
+crypto-bigint = { version = "0.7", default-features = false, features = ["alloc"] }
+oid = { version = "0.2", default-features = false, features = ["serde_support"] }
+
+[features]
+debug_log = []

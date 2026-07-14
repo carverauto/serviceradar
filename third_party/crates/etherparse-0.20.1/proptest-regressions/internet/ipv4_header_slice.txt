@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 4cc24fab1e703ab4a8d4563e9d3f4ca100aa7611386914d66993eb37d7c3fcd6 # shrinks to header = Ipv4Header { ihl: 6, differentiated_services_code_point: 0, explicit_congestion_notification: 0, payload_len: 0, identification: 0, dont_fragment: false, more_fragments: false, fragments_offset: 0, time_to_live: 0, protocol: 252, header_checksum: 0, source: [0, 0, 0, 0], destination: [0, 0, 0, 0], options: [0, 0, 0, 0] }

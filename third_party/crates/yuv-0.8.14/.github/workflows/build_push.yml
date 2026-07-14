@@ -1,0 +1,239 @@
+name: Build
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - 'master'
+      - '!ci_test_*'
+    tags-ignore:
+      - '*'
+  pull_request:
+    branches:
+      - 'master'
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: rustup target add aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu i686-unknown-linux-gnu powerpc-unknown-linux-gnu wasm32-unknown-unknown
+      - run: RUSTFLAGS="-C target-feature=+avx2" cargo build --lib --target i686-unknown-linux-gnu
+      - run: cargo build --lib --target powerpc-unknown-linux-gnu
+      - run: RUSTFLAGS="-C target-feature=+avx2" cargo build --lib --tests --features nightly_avx512 --target x86_64-unknown-linux-gnu
+      - run: RUSTFLAGS="-C target-feature=+avx2" cargo build --lib --tests --features nightly_f16 --target x86_64-unknown-linux-gnu
+      - run: RUSTFLAGS="-C target-feature=+simd128" cargo build --lib --target wasm32-unknown-unknown
+
+  build_arm:
+    name: Build ARM
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: rustup target add aarch64-unknown-linux-gnu
+      - run: RUSTFLAGS="-C target-feature=+neon" cargo build --lib --target aarch64-unknown-linux-gnu
+      - run: RUSTFLAGS="-C target-feature=+neon" cargo build --lib --features nightly_f16 --target aarch64-unknown-linux-gnu
+
+  clippy_x86:
+    name: Clippy x86 Stable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup component add clippy
+      - run: cargo clippy --all-features -- -D warnings
+
+  clippy_x86_nightly:
+    name: Clippy x86 Nightly
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: rustup component add clippy
+      - run: cargo clippy --all-features -- -D warnings
+
+  clippy_arm:
+    name: Clippy ARM
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup component add clippy
+      - run: cargo clippy -- -D warnings
+
+  tests_arm:
+    name: Testing ARM
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo test --features rdp
+      - run: cargo test --no-default-features --features nightly_f16,rdp
+      - run: cargo test --no-default-features --features fast_mode,professional_mode,nightly_f16,rdp
+      - run: cargo test --features fast_mode,professional_mode,nightly_f16,rdp
+
+  tests_x86:
+    name: Testing x86
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo test --features rdp
+      - run: cargo test --features fast_mode,professional_mode,nightly_f16,rdp
+      - run: cargo test --no-default-features --features nightly_f16,rdp
+      - run: cargo test --no-default-features --features fast_mode,professional_mode,sse,nightly_f16,rdp
+      - run: cargo test --no-default-features --features fast_mode,professional_mode,avx,nightly_f16,rdp
+      - run: cargo test --no-default-features --features fast_mode,professional_mode,nightly_f16,rdp
+
+  tests_x86_sse_isolated:
+    name: Testing x86 SSE isolated
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: |
+          sudo apt-get -y update
+          sudo apt-get install -y qemu-user
+      - run: |
+          failed=0
+          tests=$(cargo +nightly test --lib -- --list 2>/dev/null | grep ': test' | sed 's/: test//')
+          while read -r test; do
+              rc=0
+              echo "Running: $test"
+              output=$(RUSTFLAGS="-C target-feature=+sse4.1,-avx,-avx2,-fma" \
+              CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="qemu-x86_64 -cpu Nehalem" \
+              cargo +nightly test --lib -- "$test" --exact 2>&1) || rc=$?
+              echo "$output" | grep -E "FAILED|ok|signal 4"
+              if [ "${rc:-0}" -ne 0 ]; then
+                echo "❌ Test failed: $test"
+                echo "$output"
+                failed=1
+              else
+                echo "$output" | grep -E "ok|signal 4"
+              fi
+          done <<< "$tests"
+          exit $failed
+
+  tests_x86_avx2_isolated:
+    name: Testing x86 AVX2 isolated (no FMA)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: |
+          sudo apt-get -y update
+          sudo apt-get install -y qemu-user
+      - run: |
+          failed=0
+          tests=$(cargo +nightly test --lib -- --list 2>/dev/null | grep ': test' | sed 's/: test//')
+          while read -r test; do
+              rc=0
+              echo "Running: $test"
+              output=$(RUSTFLAGS="-C target-feature=+avx2,-fma" \
+              CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="qemu-x86_64 -cpu Haswell-noTSX,avx2=on,fma=off" \
+              cargo +nightly test --lib --target x86_64-unknown-linux-gnu -- "$test" --exact 2>&1) || rc=$?
+              echo "$output" | grep -E "FAILED|ok|signal 4"
+              if [ "${rc:-0}" -ne 0 ]; then
+                echo "❌ Test failed: $test"
+                echo "$output"
+                failed=1
+              else
+                echo "$output" | grep -E "ok|signal 4"
+              fi
+          done <<< "$tests"
+          exit $failed
+
+  fuzz_arm:
+    name: Fuzzing ARM
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v6
+      - run: cargo install cargo-fuzz
+      - run: cargo fuzz run rgb_to_yuv --no-default-features -- -max_total_time=6
+      - run: cargo fuzz run rgb_to_nv --no-default-features -- -max_total_time=6
+      - run: cargo fuzz run rgb_to_y --no-default-features -- -max_total_time=6
+      - run: cargo fuzz run rgb16_to_yuv16 --no-default-features -- -max_total_time=6
+      - run: cargo fuzz run rgb16_to_nv16 --no-default-features -- -max_total_time=6
+      - run: cargo fuzz run yuv_to_rgb --no-default-features -- -max_total_time=6
+      - run: cargo fuzz run gbr_to_rgb --no-default-features -- -max_total_time=6
+      - run: cargo fuzz run yuv_nv_to_rgb --no-default-features -- -max_total_time=6
+      - run: cargo fuzz run y_to_rgb --no-default-features -- -max_total_time=6
+      - run: cargo fuzz run yuv16_to_rgb16 --no-default-features -- -max_total_time=6
+      - run: cargo fuzz run yuv16_to_rgb_f16 --no-default-features -- -max_total_time=6
+      - run: cargo fuzz run yuv16_to_ar30 --no-default-features -- -max_total_time=6
+      - run: cargo fuzz run y16_to_rgb16 --no-default-features -- -max_total_time=6
+      - run: cargo fuzz run yuv_to_yuyu2 --no-default-features -- -max_total_time=6
+      - run: cargo fuzz run yuv_nv16_to_rgb16 --no-default-features -- -max_total_time=6
+      - run: cargo fuzz run yuv_nv10_to_rgb --no-default-features -- -max_total_time=6
+      - run: cargo fuzz run shuffle --no-default-features -- -max_total_time=6
+      - run: cargo fuzz run rgb_to_f16 --no-default-features -- -max_total_time=6
+
+  fuzz_arm_i8mm:
+    name: Fuzzing ARM I8MM
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v6
+      - run: cargo install cargo-fuzz
+      - run: cargo fuzz run rgb_to_yuv --no-default-features --features nightly_i8mm -- -max_total_time=6
+      - run: cargo fuzz run rgb_to_nv --no-default-features --features nightly_i8mm -- -max_total_time=6
+
+  fuzz_arm_rdm:
+    name: Fuzzing ARM RDM
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-fuzz
+      - run: cargo fuzz run rgb_to_yuv --no-default-features --features rdm -- -max_total_time=6
+      - run: cargo fuzz run rgb_to_nv --no-default-features --features rdm -- -max_total_time=6
+      - run: cargo fuzz run rgb_to_y --no-default-features --features rdm -- -max_total_time=6
+      - run: cargo fuzz run rgb16_to_yuv16 --no-default-features --features rdm -- -max_total_time=6
+      - run: cargo fuzz run rgb16_to_nv16 --no-default-features --features rdm -- -max_total_time=6
+      - run: cargo fuzz run yuv_to_rgb --no-default-features --features rdm -- -max_total_time=6
+      - run: cargo fuzz run gbr_to_rgb --no-default-features --features rdm -- -max_total_time=6
+      - run: cargo fuzz run yuv_nv_to_rgb --no-default-features --features rdm -- -max_total_time=6
+      - run: cargo fuzz run y_to_rgb --no-default-features --features rdm -- -max_total_time=6
+      - run: cargo fuzz run yuv16_to_rgb16 --no-default-features --features rdm -- -max_total_time=6
+      - run: cargo fuzz run yuv16_to_rgb_f16 --no-default-features --features rdm -- -max_total_time=6
+      - run: cargo fuzz run yuv16_to_ar30 --no-default-features --features rdm -- -max_total_time=6
+      - run: cargo fuzz run y16_to_rgb16 --no-default-features --features rdm -- -max_total_time=6
+      - run: cargo fuzz run yuv_to_yuyu2 --no-default-features --features rdm -- -max_total_time=6
+      - run: cargo fuzz run yuv_nv16_to_rgb16 --no-default-features --features rdm -- -max_total_time=6
+      - run: cargo fuzz run yuv_nv10_to_rgb --no-default-features --features rdm -- -max_total_time=6
+      - run: cargo fuzz run shuffle --no-default-features --features rdm -- -max_total_time=6
+      - run: cargo fuzz run rgb_to_f16 --no-default-features --features rdm -- -max_total_time=6
+
+  fuzz_x86:
+    name: Fuzzing x86
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        feature: [ sse, avx ]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-fuzz
+      - run: cargo fuzz run rgb_to_yuv --no-default-features --features ${{ matrix.feature }} -- -max_total_time=6
+      - run: cargo fuzz run rgb_to_nv --no-default-features --features ${{ matrix.feature }} -- -max_total_time=6
+      - run: cargo fuzz run rgb_to_y --no-default-features --features ${{ matrix.feature }} -- -max_total_time=6
+      - run: cargo fuzz run rgb16_to_yuv16 --no-default-features --features ${{ matrix.feature }} -- -max_total_time=6
+      - run: cargo fuzz run rgb16_to_nv16 --no-default-features --features ${{ matrix.feature }} -- -max_total_time=6
+      - run: cargo fuzz run yuv_to_rgb --no-default-features --features ${{ matrix.feature }} -- -max_total_time=6
+      - run: cargo fuzz run gbr_to_rgb --no-default-features --features ${{ matrix.feature }} -- -max_total_time=6
+      - run: cargo fuzz run yuv_nv_to_rgb --no-default-features --features ${{ matrix.feature }} -- -max_total_time=6
+      - run: cargo fuzz run y_to_rgb --no-default-features --features ${{ matrix.feature }} -- -max_total_time=6
+      - run: cargo fuzz run yuv16_to_rgb16 --no-default-features --features ${{ matrix.feature }} -- -max_total_time=6
+      - run: cargo fuzz run yuv16_to_rgb_f16 --no-default-features --features ${{ matrix.feature }} -- -max_total_time=6
+      - run: cargo fuzz run yuv16_to_ar30 --no-default-features --features ${{ matrix.feature }} -- -max_total_time=6
+      - run: cargo fuzz run y16_to_rgb16 --no-default-features --features ${{ matrix.feature }} -- -max_total_time=6
+      - run: cargo fuzz run yuv_to_yuyu2 --no-default-features --features ${{ matrix.feature }} -- -max_total_time=6
+      - run: cargo fuzz run yuv_nv16_to_rgb16 --no-default-features --features ${{ matrix.feature }} -- -max_total_time=6
+      - run: cargo fuzz run yuv_nv10_to_rgb --no-default-features --features ${{ matrix.feature }} -- -max_total_time=6
+      - run: cargo fuzz run shuffle --no-default-features --features ${{ matrix.feature }} -- -max_total_time=6
+      - run: cargo fuzz run rgb_to_f16 --no-default-features --features ${{ matrix.feature }} -- -max_total_time=6
+      - run: cargo fuzz run rdp --no-default-features --features ${{ matrix.feature }} -- -max_total_time=12

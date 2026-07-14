@@ -1,0 +1,37 @@
+[package]
+name = "metrics"
+version = "0.24.6"
+edition = "2018"
+rust-version = { workspace = true }
+
+description = "A lightweight metrics facade."
+license = { workspace = true }
+authors = ["Toby Lawrence <toby@nuclearfurnace.com>"]
+repository = { workspace = true }
+homepage = { workspace = true }
+documentation = "https://docs.rs/metrics"
+readme = "README.md"
+
+categories = ["development-tools::debugging"]
+keywords = ["metrics", "facade"]
+
+[lib]
+bench = false
+
+[[bench]]
+name = "macros"
+harness = false
+
+[dependencies]
+rapidhash = { workspace = true }
+
+[target.'cfg(target_pointer_width = "32")'.dependencies]
+portable-atomic = { version = "1", default-features = false, features = [
+    "fallback",
+] }
+
+[dev-dependencies]
+criterion = { workspace = true }
+log = { workspace = true }
+rand = { workspace = true }
+trybuild = { workspace = true }

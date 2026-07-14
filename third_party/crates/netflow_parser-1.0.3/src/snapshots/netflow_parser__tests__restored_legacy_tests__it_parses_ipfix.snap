@@ -1,0 +1,52 @@
+---
+source: src/tests.rs
+expression: "NetflowParser::default().parse_bytes(&packet).packets"
+---
+- IPFix:
+    header:
+      version: 10
+      length: 64
+      export_time: 16909060
+      sequence_number: 0
+      observation_domain_id: 16909060
+    flowsets:
+      - header:
+          header_id: 2
+          length: 20
+        body:
+          Template:
+            template_id: 256
+            field_count: 3
+            fields:
+              - field_type_number: 8
+                field_length: 4
+                field_type:
+                  IANA: SourceIpv4address
+              - field_type_number: 12
+                field_length: 4
+                field_type:
+                  IANA: DestinationIpv4address
+              - field_type_number: 2
+                field_length: 4
+                field_type:
+                  IANA: PacketDeltaCount
+      - header:
+          header_id: 256
+          length: 28
+        body:
+          Data:
+            fields:
+              - - - IANA: SourceIpv4address
+                  - Ip4Addr: 1.2.3.4
+                - - IANA: DestinationIpv4address
+                  - Ip4Addr: 1.2.3.3
+                - - IANA: PacketDeltaCount
+                  - DataNumber:
+                      U32: 16909058
+              - - - IANA: SourceIpv4address
+                  - Ip4Addr: 0.2.0.2
+                - - IANA: DestinationIpv4address
+                  - Ip4Addr: 0.1.2.3
+                - - IANA: PacketDeltaCount
+                  - DataNumber:
+                      U32: 67438087

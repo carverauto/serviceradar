@@ -1,0 +1,9 @@
+[package]
+name = "ref_slice"
+version = "1.2.1"
+authors = ["Steve Klabnik <steve@steveklabnik.com>"]
+description = "Turn a reference into a slice of length one."
+license = "Apache-2.0/MIT"
+documentation = "https://docs.rs/ref_slice/"
+homepage = "https://github.com/steveklabnik/ref_slice"
+repository = "https://github.com/steveklabnik/ref_slice"

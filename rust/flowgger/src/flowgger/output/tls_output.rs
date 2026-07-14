@@ -1,14 +1,15 @@
 use crate::flowgger::config::Config;
 use crate::flowgger::merger::Merger;
-use openssl::bn::BigNum;
-use openssl::dh::Dh;
-use openssl::ssl::*;
+use crate::flowgger::tls_utils::{load_certs, load_private_key, load_root_store, provider, AcceptAnyServerCert};
 use rand;
 use rand::prelude::SliceRandom;
 use rand::Rng;
+use rustls::pki_types::ServerName;
+use rustls::{ClientConfig, ClientConnection, StreamOwned};
 use time;
 
 use super::Output;
+use std::convert::TryFrom;
 use std::io;
 use std::io::{stderr, BufWriter, ErrorKind, Write};
 use std::net::TcpStream;
@@ -18,23 +19,12 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-const DEFAULT_CIPHERS: &str =
-    "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-CHACHA20-POLY1305:\
-     ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA256:\
-     ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES256-GCM-SHA384:\
-     ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA384:\
-     ECDHE-ECDSA-AES256-SHA:ECDHE-RSA-AES256-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:\
-     AES128-SHA256:AES256-SHA256:AES128-SHA:AES256-SHA:ECDHE-ECDSA-DES-CBC3-SHA:\
-     ECDHE-RSA-DES-CBC3-SHA:DES-CBC3-SHA:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!aECDH:\
-     !EDH-DSS-DES-CBC3-SHA:!EDH-RSA-DES-CBC3-SHA:!KRB5-DES-CBC3-SHA";
-const DEFAULT_COMPRESSION: bool = false;
 const DEFAULT_RECOVERY_DELAY_INIT: u32 = 1;
 const DEFAULT_RECOVERY_DELAY_MAX: u32 = 10_000;
 const DEFAULT_RECOVERY_PROBE_TIME: u32 = 30_000;
 const DEFAULT_ASYNC: bool = false;
 const DEFAULT_TIMEOUT: u64 = 3600;
 const DEFAULT_VERIFY_PEER: bool = false;
-const TLS_VERIFY_DEPTH: u32 = 6;
 const TLS_DEFAULT_THREADS: u32 = 1;
 
 pub struct TlsOutput {
@@ -52,7 +42,7 @@ struct TlsConfig {
     #[allow(dead_code)]
     timeout: Option<Duration>,
     mx_cluster: Arc<Mutex<Cluster>>,
-    connector: SslConnector,
+    client_config: Arc<ClientConfig>,
     async_: bool,
     recovery_delay_init: u32,
     recovery_delay_max: u32,
@@ -85,15 +75,22 @@ impl TlsWorker {
             .next()
             .unwrap_or_else(|| panic!("Invalid connection string: {}", connect_chosen));
         let _ = writeln!(stderr(), "Connected to {connect_chosen}");
-        let sslclient = match self.tls_config.connector.connect(hostname, client) {
-            Err(_) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::ConnectionAborted,
-                    "SSL handshake aborted by the server",
-                ))
-            }
-            Ok(sslclient) => sslclient,
-        };
+        let server_name = ServerName::try_from(hostname.to_owned()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Invalid TLS server name: {hostname}"),
+            )
+        })?;
+        let conn = ClientConnection::new(self.tls_config.client_config.clone(), server_name)
+            .map_err(|e| io::Error::new(io::ErrorKind::ConnectionAborted, e.to_string()))?;
+        let mut sslclient = StreamOwned::new(conn, client);
+        // Drive the TLS handshake eagerly, matching the old `connector.connect()`
+        // semantics: a handshake failure must surface HERE, before the loop below pulls
+        // a message off the channel — otherwise that dequeued message is lost when the
+        // (lazy) handshake fails on first write.
+        if let Err(e) = sslclient.conn.complete_io(&mut sslclient.sock) {
+            return Err(io::Error::new(io::ErrorKind::ConnectionAborted, e));
+        }
         let _ = writeln!(stderr(), "Completed SSL handshake with {connect_chosen}");
         let mut writer = BufWriter::new(sslclient);
         let merger = &self.merger;
@@ -199,16 +196,6 @@ impl Output for TlsOutput {
     }
 }
 
-fn set_fs(ctx: &mut SslContextBuilder) {
-    let p = BigNum::from_hex_str("87A8E61DB4B6663CFFBBD19C651959998CEEF608660DD0F25D2CEED4435E3B00E00DF8F1D61957D4FAF7DF4561B2AA3016C3D91134096FAA3BF4296D830E9A7C209E0C6497517ABD5A8A9D306BCF67ED91F9E6725B4758C022E0B1EF4275BF7B6C5BFC11D45F9088B941F54EB1E59BB8BC39A0BF12307F5C4FDB70C581B23F76B63ACAE1CAA6B7902D52526735488A0EF13C6D9A51BFA4AB3AD8347796524D8EF6A167B5A41825D967E144E5140564251CCACB83E6B486F6B3CA3F7971506026C0B857F689962856DED4010ABD0BE621C3A3960A54E710C375F26375D7014103A4B54330C198AF126116D2276E11715F693877FAD7EF09CADB094AE91E1A1597").unwrap();
-    let g = BigNum::from_hex_str("3FB32C9B73134D0B2E77506660EDBD484CA7B18F21EF205407F4793A1A0BA12510DBC15077BE463FFF4FED4AAC0BB555BE3A6C1B0C6B47B1BC3773BF7E8C6F62901228F8C28CBB18A55AE31341000A650196F931C77A57F2DDF463E5E9EC144B777DE62AAAB8A8628AC376D282D6ED3864E67982428EBC831D14348F6F2F9193B5045AF2767164E1DFC967C1FB3F2E55A4BD1BFFE83B9C80D052B985D182EA0ADB2A3B7313D3FE14C8484B1E052588B9B7D2BBD2DF016199ECD06E1557CD0915B3353BBB64E0EC377FD028370DF92B52C7891428CDC67EB6184B523D1DB246C32F63078490F00EF8D647D148D47954515E2327CFEF98C582664B4C0F6CC41659").unwrap();
-    let q =
-        BigNum::from_hex_str("8CF83642A709A097B447997640129DA299B1A47D1EB3750BA308B0FE64F5FBD3")
-            .unwrap();
-    let dh = Dh::from_params(p, g, q).unwrap();
-    ctx.set_tmp_dh(&dh).unwrap();
-}
-
 fn config_parse(config: &Config) -> (TlsConfig, u32) {
     let threads = config
         .lookup("output.tls_threads")
@@ -241,13 +228,6 @@ fn config_parse(config: &Config) -> (TlsConfig, u32) {
                 .expect("output.tls_key must be a path to a .pem file"),
         )
     });
-    let ciphers = config
-        .lookup("output.tls_ciphers")
-        .map_or(DEFAULT_CIPHERS, |x| {
-            x.as_str()
-                .expect("output.tls_ciphers must be a string with a cipher suite")
-        })
-        .to_owned();
     let verify_peer = config
         .lookup("output.tls_verify_peer")
         .map_or(DEFAULT_VERIFY_PEER, |x| {
@@ -260,12 +240,6 @@ fn config_parse(config: &Config) -> (TlsConfig, u32) {
                 .expect("output.tls_ca_file must be a path to a file"),
         )
     });
-    let compression = config
-        .lookup("output.tls_compression")
-        .map_or(DEFAULT_COMPRESSION, |x| {
-            x.as_bool()
-                .expect("output.tls_compression must be a boolean")
-        });
     let timeout = config
         .lookup("output.timeout")
         .map_or(DEFAULT_TIMEOUT, |x| {
@@ -303,45 +277,35 @@ fn config_parse(config: &Config) -> (TlsConfig, u32) {
     if recovery_delay_max < recovery_delay_init {
         panic!("output.tls_recovery_delay_max cannot be less than output.tls_recovery_delay_init");
     }
-    let mut connector_builder = SslConnector::builder(SslMethod::tls()).unwrap();
-    {
-        let ctx = &mut connector_builder;
-        if !verify_peer {
-            ctx.set_verify(SslVerifyMode::NONE);
-        } else {
-            ctx.set_verify_depth(TLS_VERIFY_DEPTH);
-            ctx.set_verify(SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT);
-            if let Some(ca_file) = ca_file {
-                ctx.set_ca_file(&ca_file)
-                    .expect("Unable to read the trusted CA file");
-            }
-        }
-        let mut opts = SslOptions::CIPHER_SERVER_PREFERENCE
-            | SslOptions::NO_SESSION_RESUMPTION_ON_RENEGOTIATION;
-        if !compression {
-            opts |= SslOptions::NO_COMPRESSION;
-        }
-        ctx.set_options(opts);
-        set_fs(ctx);
-        if let Some(cert) = cert {
-            ctx.set_certificate_file(Path::new(&cert), SslFiletype::PEM)
-                .expect("Unable to read the TLS certificate");
-        }
-        if let Some(key) = key {
-            ctx.set_private_key_file(Path::new(&key), SslFiletype::PEM)
-                .expect("Unable to read the TLS key");
-        }
-        ctx.set_cipher_list(&ciphers)
-            .expect("Unsupported cipher suite");
-    }
-    let connector = connector_builder.build();
+    let crypto = provider();
+    let builder = ClientConfig::builder_with_provider(crypto.clone())
+        .with_safe_default_protocol_versions()
+        .expect("Failed to configure TLS protocol versions");
+    // verify_peer=false preserves the former SslVerifyMode::NONE (accept any server
+    // certificate); when enabled, a CA bundle is required to verify the peer.
+    let builder = if verify_peer {
+        let ca_file =
+            ca_file.expect("output.tls_ca_file is required when output.tls_verify_peer is true");
+        builder.with_root_certificates(load_root_store(&ca_file))
+    } else {
+        builder
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(AcceptAnyServerCert::new(crypto)))
+    };
+    // Optional client certificate for mutual TLS.
+    let client_config = match (cert, key) {
+        (Some(cert), Some(key)) => builder
+            .with_client_auth_cert(load_certs(Path::new(&cert)), load_private_key(Path::new(&key)))
+            .expect("Unable to configure the client TLS certificate and key"),
+        _ => builder.with_no_client_auth(),
+    };
     connect.shuffle(&mut rand::thread_rng());
     let cluster = Cluster { connect, idx: 0 };
     let mx_cluster = Arc::new(Mutex::new(cluster));
     let tls_config = TlsConfig {
         mx_cluster,
         timeout: Some(Duration::from_secs(timeout)),
-        connector,
+        client_config: Arc::new(client_config),
         async_,
         recovery_delay_init,
         recovery_delay_max,

@@ -1,6 +1,6 @@
 load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
 load("@rules_rust//rust:defs.bzl", "rust_library")
-load("@rust_crates//:defs.bzl", "all_crate_deps", "crate_deps")
+load("//third_party/crates:defs.bzl", "all_crate_deps", "crate_deps")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -35,9 +35,8 @@ rust_library(
         "tls",
     ],
     deps = all_crate_deps(normal = True) + [
-        "@rust_crates//:async-nats",
+        "//third_party/crates:async-nats",
         ":build_script",
-        "//rust/kvutil:kvutil",
     ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
     visibility = ["//visibility:public"],

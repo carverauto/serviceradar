@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 19eef79040418fc32c4437caa30b98e5676e64e06ddf9afbd3eac59fb144577a # shrinks to n = MontyParams { modulus: Odd(Uint(0x0100000000000000000000000000000000000000000000000000000000000001)), one: Uint(0x00FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF01), r2: Uint(0x0000000000000000000000000000000000000000000000000000000000010000), r3: Uint(0x00FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF000001), mod_neg_inv: Limb(0xFFFFFFFFFFFFFFFF) }

@@ -1,0 +1,57 @@
+---
+source: tests/snapshot_tests.rs
+expression: result
+---
+datagrams:
+  - version: 5
+    agent_address:
+      IPv4: 10.0.0.20
+    sub_agent_id: 100000
+    sequence_number: 1685010
+    uptime: 4217775000
+    samples:
+      - Counter:
+          sequence_number: 210889
+          source_id_type: 3
+          source_id_index: 100011
+          records:
+            - HostAdapters:
+                adapters:
+                  - if_index: 18
+                    mac_addresses:
+                      - "4E:AC:6D:E5:BA:49"
+            - VirtDiskIo:
+                capacity: 0
+                allocation: 0
+                available: 0
+                rd_req: 6903
+                rd_bytes: 86324224
+                wr_req: 1882312
+                wr_bytes: 7844720640
+                errs: 0
+            - VirtMemory:
+                memory: 532676608
+                max_memory: 536870912
+            - VirtCpu:
+                state: Blocked
+                cpu_time: 14896717
+                nr_virt_cpu: 1
+            - VirtNetIo:
+                rx_bytes: 918
+                rx_packets: 19
+                rx_errs: 0
+                rx_drop: 0
+                tx_bytes: 2518666028
+                tx_packets: 37749875
+                tx_errs: 0
+                tx_drop: 0
+            - HostParent:
+                container_type: 2
+                container_index: 1
+            - HostDescr:
+                hostname: XenServer DDK 6.1.0-59235p import
+                uuid: 714c24e8-8f4a-bf1f-aaf4-d4abd6b7e59a
+                machine_type: Unknown
+                os_name: Unknown
+                os_release: ""
+error: ~

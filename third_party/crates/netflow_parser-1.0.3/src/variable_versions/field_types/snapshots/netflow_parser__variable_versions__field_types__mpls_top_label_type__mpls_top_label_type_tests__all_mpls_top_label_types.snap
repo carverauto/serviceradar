@@ -1,0 +1,20 @@
+---
+source: src/variable_versions/field_types/mpls_top_label_type.rs
+expression: types
+---
+- Unknown
+- TeMidpoint
+- Pseudowire
+- Vpn
+- Bgp
+- Ldp
+- PathComputationElement
+- OspfV2SegmentRouting
+- OspfV3SegmentRouting
+- IsIsSegmentRouting
+- BgpSegmentRoutingPrefixSid
+- Unassigned: 11
+- Unassigned: 12
+- Unassigned: 13
+- Unassigned: 14
+- Unassigned: 15

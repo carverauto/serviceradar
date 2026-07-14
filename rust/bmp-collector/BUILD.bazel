@@ -1,83 +1,23 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+load("//third_party/crates:defs.bzl", "all_crate_deps")
+
 package(default_visibility = ["//visibility:public"])
 
-genrule(
+# Built as a hermetic Bazel target on the locally vendored crates (//third_party/crates)
+# — replaces the former cargo-in-genrule, which invoked `cargo build` and failed under
+# Bazel's sandbox trying to download crates into ~/.cargo.
+rust_binary(
+    name = "serviceradar-bmp-collector",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/main.rs",
+    edition = "2024",
+    deps = all_crate_deps(normal = True),
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)
+
+# Back-compat alias: docker/images + build/packaging reference
+# //rust/bmp-collector:bmp-collector.
+alias(
     name = "bmp-collector",
-    srcs = [
-        "Cargo.toml",
-        "src/bmp.rs",
-        "src/main.rs",
-        "src/config.rs",
-        "src/model.rs",
-        "src/publisher.rs",
-    ],
-    tools = [
-        "@rules_rust//rust/toolchain:current_cargo_files",
-        "@rules_rust//rust/toolchain:current_rust_stdlib_files",
-        "@rules_rust//rust/toolchain:current_rustc_files",
-        "@rules_rust//rust/toolchain:current_rustc_lib_files",
-    ],
-    outs = ["serviceradar-bmp-collector"],
-    cmd = """
-set -euo pipefail
-
-# Prefer Bazel toolchain binaries when they are runnable on the host, otherwise
-# fall back to host-installed rust tooling (needed for local macOS genrules).
-resolve_runnable_tool() {
-  tool_name="$$1"
-  shift
-  for candidate in "$$@"; do
-    if [ "$${candidate##*/}" != "$$tool_name" ]; then
-      continue
-    fi
-    if [ -x "$$candidate" ] && "$$candidate" --version >/dev/null 2>&1; then
-      printf '%s\n' "$$candidate"
-      return 0
-    fi
-  done
-
-  command -v "$$tool_name" 2>/dev/null || true
-}
-
-CARGO_BIN="$$(resolve_runnable_tool cargo \
-  $(locations @rules_rust//rust/toolchain:current_cargo_files))"
-RUSTC_BIN="$$(resolve_runnable_tool rustc \
-  $(locations @rules_rust//rust/toolchain:current_rustc_files))"
-
-if [ -z "$$CARGO_BIN" ]; then
-  echo "cargo not found or not runnable in toolchain or host PATH" >&2
-  exit 127
-fi
-if [ -z "$$RUSTC_BIN" ]; then
-  echo "rustc not found or not runnable in toolchain or host PATH" >&2
-  exit 127
-fi
-
-# Make cargo/rustc resolution deterministic inside Bazel's action sandbox.
-export CARGO="$$CARGO_BIN"
-export RUSTC="$$RUSTC_BIN"
-export PATH="$${CARGO_BIN%/*}:$${RUSTC_BIN%/*}:$${PATH:-}"
-
-SRC_MANIFEST="$(location Cargo.toml)"
-SRC_ROOT="$${SRC_MANIFEST%/Cargo.toml}"
-WORKDIR="$(@D)/bmp-collector-work"
-TARGET_DIR="$(@D)/cargo-target"
-rm -rf "$$WORKDIR"
-mkdir -p "$$WORKDIR"
-cp "$$SRC_ROOT/Cargo.toml" "$$WORKDIR/Cargo.toml"
-# Keep this copied crate isolated from the repository root workspace.
-printf '\n[workspace]\n' >> "$$WORKDIR/Cargo.toml"
-    mkdir -p "$$WORKDIR/src"
-    cp "$$SRC_ROOT/src/bmp.rs" "$$WORKDIR/src/bmp.rs"
-    cp "$$SRC_ROOT/src/main.rs" "$$WORKDIR/src/main.rs"
-    cp "$$SRC_ROOT/src/config.rs" "$$WORKDIR/src/config.rs"
-    cp "$$SRC_ROOT/src/model.rs" "$$WORKDIR/src/model.rs"
-cp "$$SRC_ROOT/src/publisher.rs" "$$WORKDIR/src/publisher.rs"
-
-# Avoid stale toolchain/cargo state between Bazel invocations.
-rm -rf "$$TARGET_DIR"
-CARGO_TARGET_DIR="$$TARGET_DIR" \\
-  "$$CARGO" build --release --manifest-path "$$WORKDIR/Cargo.toml" -p serviceradar-bmp-collector
-cp "$(@D)/cargo-target/release/serviceradar-bmp-collector" "$@"
-chmod 0755 "$@"
-""",
+    actual = ":serviceradar-bmp-collector",
 )

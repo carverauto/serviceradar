@@ -1,0 +1,285 @@
+name: Check build
+
+on: [push, pull_request]
+
+env:
+  CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+  OPENSSL_VERSION: 3.3.2
+
+jobs:
+  codespell:
+    name: Run codespell
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run codespell
+        uses: codespell-project/actions-codespell@v2
+
+  run-tests:
+    name: Run tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rust-src
+
+      - name: Use MSRV-specific .cargo/config.toml
+        run: |
+          mv .cargo/config.toml.msrv .cargo/config.toml
+
+      - name: Add problem matchers
+        run: echo "::add-matcher::.github/rust.json"
+
+      - name: Run tests
+        run: |
+          cargo test --all-targets --all-features
+
+  run-fuzzer:
+    name: Run fuzzer
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rust-src
+
+      - name: Use MSRV-specific .cargo/config.toml
+        run: |
+          mv .cargo/config.toml.msrv .cargo/config.toml
+
+      - name: Install cargo-fuzz
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-fuzz
+          locked: false
+
+      - name: Run stream fuzzer for a limited time
+        run: |
+          RUST_BACKTRACE=1 cargo fuzz run stream -- -max_total_time=900
+
+  build-docs:
+    name: Build docs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rust-src
+
+      - name: Add problem matchers
+        run: echo "::add-matcher::.github/rust.json"
+
+      - name: Build docs
+        env:
+          RUSTDOCFLAGS: --cfg docsrs
+        run: |
+          cargo doc --no-deps --all-features
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rust-src,clippy
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Add problem matchers
+        run: echo "::add-matcher::.github/rust.json"
+
+      - name: Run clippy
+        run: cargo clippy --all-features --all-targets
+
+  rustfmt:
+    name: Format
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rustfmt
+
+      - name: Add problem matchers
+        run: echo "::add-matcher::.github/rust.json"
+
+      - name: Run cargo fmt
+        run: cargo fmt -- --check
+
+  min-vers:
+    name: Minimal crate versions
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rust-src
+
+      - name: Install cargo-hack
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-hack
+          locked: false
+
+      - name: Install cargo-minimal-versions
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-minimal-versions
+          locked: false
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Add problem matchers
+        run: echo "::add-matcher::.github/rust.json"
+
+      - name: Check minimal versions
+        run: cargo minimal-versions check
+
+  features:
+    name: Feature powerset (nightly)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rust-src
+
+      - name: Install cargo-hack
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-hack
+          locked: false
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Add problem matchers
+        run: echo "::add-matcher::.github/rust.json"
+
+      - name: Check powerset
+        run: |
+          cargo hack check \
+            --feature-powerset \
+            --no-dev-deps \
+            --exclude-features aws-lc-rs,rustls-tls12 \
+            --group-features client,fastrand,sha1_smol \
+            --group-features server,sha1_smol
+
+  msrv:
+    name: Feature powerset (MSRV)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Use MSRV-specific .cargo/config.toml
+        run: |
+          mv .cargo/config.toml.msrv .cargo/config.toml
+
+      - name: Install GCC for aarch64-linux-gnu
+        run: |
+          sudo apt update -y
+          sudo apt install -y gcc-aarch64-linux-gnu
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+
+      - name: Install cargo-hack
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-hack
+          locked: false
+
+      - name: Install 1.79.0 toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.79.0
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Add problem matchers
+        run: echo "::add-matcher::.github/rust.json"
+
+      - name: Check powerset on x86_64
+        run: |
+          cargo hack check \
+            --feature-powerset \
+            --no-dev-deps \
+            --exclude-features aws-lc-rs,rustls-tls12,nightly \
+            --group-features client,fastrand,sha1_smol \
+            --group-features server,sha1_smol
+
+      - name: Install cached cross-compiled OpenSSL
+        id: cache-openssl
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/aarch64-linux-gnu
+          key: ${{ runner.os }}-openssl-${{ env.OPENSSL_VERSION }}
+
+      - name: Cross-compile and install OpenSSL
+        if: steps.cache-openssl.outputs.cache-hit != 'true'
+        env:
+          CROSS_COMPILE: aarch64-linux-gnu-
+        run: |
+          wget https://github.com/openssl/openssl/releases/download/openssl-${{ env.OPENSSL_VERSION }}/openssl-${{ env.OPENSSL_VERSION }}.tar.gz
+          tar xzf openssl-${{ env.OPENSSL_VERSION }}.tar.gz
+          cd openssl-${{ env.OPENSSL_VERSION }}
+          ./Configure linux-aarch64 --cross-compile-prefix=aarch64-linux-gnu- --prefix=${{ github.workspace }}/aarch64-linux-gnu
+          make -j$(nproc)
+          make install
+
+      - name: Check powerset on aarch64
+        env:
+          AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_DIR: ${{ github.workspace }}/aarch64-linux-gnu
+        run: |
+          cargo hack check \
+            --target aarch64-unknown-linux-gnu \
+            --feature-powerset \
+            --no-dev-deps \
+            --exclude-features aws-lc-rs,rustls-tls12,nightly \
+            --group-features client,fastrand,sha1_smol \
+            --group-features server,sha1_smol

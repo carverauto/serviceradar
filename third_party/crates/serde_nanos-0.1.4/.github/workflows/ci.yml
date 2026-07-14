@@ -1,0 +1,46 @@
+name: ci
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        rust: [stable, nightly]
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v3
+
+      - name: Install rust
+        run: rustup install ${{ matrix.rust }}
+
+      - name: Build
+        run: cargo build --all-targets
+
+      - name: Test
+        run: cargo test --all-targets --verbose
+
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v3
+
+      - name: Install rust
+        run: rustup install stable
+
+      - name: Install components 
+        run: |
+          rustup component add clippy
+          rustup component add rustfmt
+
+      - name: Check
+        run: cargo check --all-targets
+
+      - name: Lint
+        run: cargo clippy --all-targets
+
+      - name: Format
+        run: cargo fmt --check --all

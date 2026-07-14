@@ -1,0 +1,34 @@
+---
+source: src/tests.rs
+expression: "NetflowParser::default().parse_bytes(&packet).packets"
+---
+- V9:
+    header:
+      version: 9
+      count: 2
+      sys_up_time: 2313
+      unix_secs: 66051
+      sequence_number: 1
+      source_id: 1
+    flowsets:
+      - header:
+          flowset_id: 0
+          length: 16
+        body:
+          Template:
+            templates:
+              - template_id: 258
+                field_count: 2
+                fields:
+                  - field_type_number: 1
+                    field_type: InBytes
+                    field_length: 4
+                  - field_type_number: 8
+                    field_type: Ipv4SrcAddr
+                    field_length: 4
+      - header:
+          flowset_id: 258
+          length: 4
+        body:
+          Data:
+            fields: []
