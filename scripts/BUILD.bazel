@@ -8,6 +8,7 @@ exports_files([
     "check-native-addon-version-bumps.sh",
     "swiftlint_bazel.sh",
     "test-release-publish-contracts.sh",
+    "test-external-wasm-plugin-release-contracts.sh",
     "test-verify-native-addon-publish-negative.sh",
     "test-wasm-plugin-publish-context.sh",
     "validate-release-tag.sh",
@@ -31,6 +32,20 @@ sh_test(
         "//:.forgejo/workflows/source-security.yml",
         "//:.forgejo/workflows/wasm-plugins.yml",
         "//docker/images:image_inventory.bzl",
+    ],
+)
+
+sh_test(
+    name = "external_wasm_plugin_release_contracts_test",
+    timeout = "short",
+    srcs = ["test-external-wasm-plugin-release-contracts.sh"],
+    data = [
+        "install-external-wasm-tinygo.sh",
+        "publish-external-wasm-plugin-release.sh",
+        "test-publish-external-wasm-plugin-release.py",
+        "test-validate-external-wasm-plugin-bundle.py",
+        "validate-external-wasm-plugin-bundle.py",
+        "//:.forgejo/workflows/external-hpna-wasm-plugin.yml",
     ],
 )
 

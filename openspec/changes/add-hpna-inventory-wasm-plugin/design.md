@@ -30,6 +30,11 @@ The customer-owned plugin lives at `/Users/v161400/src/serviceradar-plugin-hpna`
 
 The ServiceRadar repository owns only reusable platform work, the OpenSpec contract, provider registration, tests, deployment wiring, and any SDK additions. The plugin emits `serviceradar.plugin_result.v1` with `serviceradar.device_discovery.v1`; it does not call ServiceRadar or CNPG directly.
 
+### Protected publication remains in the ServiceRadar trust boundary
+The external plugin repository runs ordinary test, reproducibility, vulnerability, and SBOM checks without receiving ServiceRadar signing material. A manually dispatched workflow from a merged ServiceRadar `staging` or `main` commit checks out an exact external release tag, proves that commit is reachable from the external repository's `main`, and rebuilds the Wasm bundle in an unprivileged job.
+
+The protected `serviceradar-signing` job consumes only that bundle data. It does not execute the external repository's tests, Makefile, scripts, or generated binaries. ServiceRadar-owned tooling applies the existing upload signature and OpenBao-backed cosign signature, verifies both OCI tags, generates a deterministic import index, and publishes that index to the external Forgejo release. A dedicated cross-repository Forgejo token is scoped to the external plugin repository; the upload-signing private key and OpenBao identity remain confined to ServiceRadar's existing protected release environment.
+
 ### Effective plugin configuration
 Credential rules and assignment settings compile an effective config similar to:
 
