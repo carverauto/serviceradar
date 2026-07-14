@@ -133,12 +133,21 @@ def projected_secret_blocks(doc):
             block.append(following)
 
         keys = []
+        projections = []
+        pending_key = None
         for block_line in block:
             key = re.match(r"^\s*- key:\s*[\"']?([^\s\"']+)", block_line)
             if key:
-                keys.append(key.group(1))
+                pending_key = key.group(1)
+                keys.append(pending_key)
+                continue
 
-        blocks.append((match.group("name"), keys))
+            path = re.match(r"^\s+path:\s*[\"']?([^\s\"']+)", block_line)
+            if path and pending_key:
+                projections.append((pending_key, path.group(1)))
+                pending_key = None
+
+        blocks.append((match.group("name"), keys, projections))
 
     return blocks
 
@@ -149,7 +158,7 @@ for (kind, name), doc in hosted_resources.items():
     if not blocks:
         continue
 
-    for secret_name, keys in blocks:
+    for secret_name, keys, _projections in blocks:
         if not keys:
             fail(f"{kind}/{name} projects {secret_name} without explicit items")
         if secret_name == RUNTIME and ({"root-key.pem", "cnpg-ca-key.pem"} & set(keys)):
@@ -167,10 +176,43 @@ for (kind, name), doc in hosted_resources.items():
 if long_lived_consumers == 0:
     fail("hosted render did not contain any long-lived runtime TLS consumers")
 
-if not any(name == ISSUER for doc in hosted_resources.values() for name, _ in projected_secret_blocks(doc)):
+if not any(
+    name == ISSUER
+    for doc in hosted_resources.values()
+    for name, _, _ in projected_secret_blocks(doc)
+):
     fail("hosted render does not project the isolated edge issuer Secret")
-if not any(name == CNPG_ISSUER for doc in hosted_resources.values() for name, _ in projected_secret_blocks(doc)):
+if not any(
+    name == CNPG_ISSUER
+    for doc in hosted_resources.values()
+    for name, _, _ in projected_secret_blocks(doc)
+):
     fail("hosted render does not project the isolated CNPG issuer Secret")
+
+rperf = hosted_resources.get(("Deployment", "serviceradar-rperf-client"))
+if not rperf:
+    fail("hosted render does not contain the rperf client Deployment")
+
+rperf_runtime_blocks = [
+    (keys, projections)
+    for secret_name, keys, projections in projected_secret_blocks(rperf)
+    if secret_name == RUNTIME
+]
+if len(rperf_runtime_blocks) != 1:
+    fail("rperf client must project exactly one runtime certificate Secret volume")
+
+rperf_keys, rperf_projections = rperf_runtime_blocks[0]
+expected_rperf_projections = {
+    ("root.pem", "root.pem"),
+    ("rperf-checker.pem", "rperf-checker.pem"),
+    ("rperf-checker-key.pem", "rperf-checker-key.pem"),
+    ("rperf-checker.pem", "rperf-client.pem"),
+    ("rperf-checker-key.pem", "rperf-client-key.pem"),
+}
+if set(rperf_projections) != expected_rperf_projections:
+    fail(f"rperf client has an unexpected runtime certificate projection: {rperf_projections}")
+if set(rperf_keys) != {"root.pem", "rperf-checker.pem", "rperf-checker-key.pem"}:
+    fail(f"rperf client projects unexpected runtime Secret keys: {rperf_keys}")
 PY
 
 echo "Hosted runtime certificate boundary is enforced"

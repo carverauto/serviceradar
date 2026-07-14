@@ -95,6 +95,10 @@ spec:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
           items:
 {{ include "serviceradar.runtimeCertItems" (list "root.pem" "rperf-checker.pem" "rperf-checker-key.pem") | indent 12 }}
+            - key: "rperf-checker.pem"
+              path: "rperf-client.pem"
+            - key: "rperf-checker-key.pem"
+              path: "rperf-client-key.pem"
       - name: checkers-dir
         emptyDir: {}
       {{- if .Values.spire.enabled }}
