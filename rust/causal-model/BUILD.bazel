@@ -1,5 +1,5 @@
 load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
-load("@rust_crates//:defs.bzl", "all_crate_deps")
+load("//third_party/crates:defs.bzl", "all_crate_deps")
 
 # NOTE: not verified locally (Bazel is broken on non-x86); validated in CI (x86).
 # The new crates.io deps (deep_causality_algebra, deep_causality_uncertain) require a
