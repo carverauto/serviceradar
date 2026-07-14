@@ -97,26 +97,45 @@ OpenSSL `.bazelrc` overrides are removed.
 - **THEN** it links rustls (`ring`) for syslog TLS
 - **AND** neither `openssl` (0.10) nor `openssl-src` is in flowgger's dependency graph.
 
-### Requirement: Referenced extras kept, vestigial extras dropped, no repin
+### Requirement: Vestigial extras dropped, no repin
 
 The vendored universe SHALL resolve from the committed lock with no `--repin`. The
-`ironrdp-core`/`ironrdp-pdu` `crates.spec` extras SHALL be kept as `packages` (they are
-referenced by `rust/rdp-adapter` via `@rust_crates//:ironrdp-*`, need top-level aliases,
-and are already in `//:Cargo.lock`). `libzetta` SHALL be dropped (referenced by no
-`Cargo.toml`, `Cargo.lock`, or BUILD target).
+unused `libzetta`, `ironrdp-core`, and `ironrdp-pdu` root `crates.spec` extras SHALL be
+dropped. The production RDP helper SHALL resolve its IronRDP connector graph only from
+the independent `rdp_connector_crates` universe.
 
-#### Scenario: ironrdp aliases exist; libzetta is gone
+#### Scenario: Unused root aliases are gone
 
 - **WHEN** the vendored universe is generated
-- **THEN** `//third_party/crates:ironrdp-core` and `//third_party/crates:ironrdp-pdu`
-  resolve (for `rust/rdp-adapter`'s `ironrdp-backend` feature)
-- **AND** no `libzetta` alias or target is generated
+- **THEN** no root `libzetta`, `ironrdp-core`, or `ironrdp-pdu` alias is generated
 - **AND** the RDP connector targets still resolve `ironrdp-*` from `@rdp_connector_crates`.
 
 #### Scenario: Vendor resolves from the committed lock unchanged
 
 - **WHEN** `bazel run //third_party:crates_vendor` runs without `--repin`
 - **THEN** the vendored set matches `//:Cargo.lock` with no version drift.
+
+### Requirement: Committed vendor inputs are integrity checked
+
+`scripts/vendor.sh` SHALL write a deterministic
+`third_party/crates/.serviceradar-vendor-inputs` index containing SHA-256 hashes for
+the root `Cargo.toml`, root `Cargo.lock`, and every root workspace member manifest.
+Native add-on release validation SHALL reject a changed Rust add-on manifest when its
+current manifest or root lockfile hash is absent from that index. Cargo inputs for an
+independent crate-universe extension SHALL continue to be verified in
+`MODULE.bazel.lock`.
+
+#### Scenario: Stale root vendor snapshot is rejected
+
+- **WHEN** a Rust native add-on manifest changes without refreshing the vendor input index
+- **THEN** the native add-on version-bump gate fails
+- **AND** instructs the operator to run `scripts/vendor.sh`.
+
+#### Scenario: Stale isolated RDP connector universe is rejected
+
+- **WHEN** `rust/rdp-connector-probe/Cargo.toml` or its lockfile changes without refreshing
+  `MODULE.bazel.lock`
+- **THEN** the native add-on version-bump gate fails closed.
 
 ### Requirement: Cargo splicing eliminated
 
