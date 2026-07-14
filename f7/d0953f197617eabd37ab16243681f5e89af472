@@ -1,0 +1,109 @@
+rust/flowgger/src/flowgger/input/tls/tlsco_input.rs
+  s_6f8eb423821667::t_5bfe40bb85955b 9
+  s_6f8eb423821667::t_68b641efce1712 60-62,65,67
+rust/causal-mitigation/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/causal-emit/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/edge-onboarding/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2,18
+rust/rdp-adapter/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 31-33,48-52
+rust/correlation-engine/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/causal-context/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/anomaly-core/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/causal-config/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/anomaly-disposition/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/srql/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+  s_6f8eb423821667::t_55e1f845cd6ffd 42-44
+rust/flowgger/src/flowgger/input/tls/tls_input.rs
+  s_6f8eb423821667::t_b6f3fcf07cd6eb 8
+  s_6f8eb423821667::t_c4851bbb79d4e3 75-77,80,82-84
+rust/bmp-collector/BUILD.bazel
+  s_6f8eb423821667::t_fdb5f7fc7ac33c 1-2,4,6-16,18-22
+rust/workload-identity/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/causal-engine/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/otel-addon/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/metric-proto/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 3
+rust/powerdns/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 3
+rust/causal-ingest/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/causal-causaloids/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/netprobe/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 3
+rust/config-bootstrap/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2,11
+rust/flowgger/src/flowgger/mod.rs
+  s_6f8eb423821667::t_d659f80d238cdf 55-57
+  s_6f8eb423821667::t_ce390e98b5e42d 35-36
+rust/rperf-client/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 3
+rust/srql/Cargo.toml
+  s_6f8eb423821667::t_f8702bf3f189a8 21-24
+rust/addon-sdk/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 3
+rust/flowgger/Cargo.toml
+  s_6f8eb423821667::t_f76b36c66f5a62 23
+  s_6f8eb423821667::t_cf45e140dda928 62-63
+rust/metrics-delta-writer/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/kvutil/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 3
+rust/otel/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 3
+rust/fieldsurvey-sidekick/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/flowgger/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 3,38
+rust/flowgger/src/flowgger/input/tls/mod.rs
+  s_6f8eb423821667::t_d424d9afb13d44 2-4,6,28,98-114,116,118-119,123
+rust/anomaly-addon/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/flow-collector/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 3
+rust/causal-ports/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/log-collector/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/causal-reasoning/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/trapd/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 3
+rust/causal-model/BUILD.bazel
+  s_6f8eb423821667::t_c65341d77d5ebd 2
+rust/flowgger/src/flowgger/output/tls_output.rs
+  s_6f8eb423821667::t_aacdfcc131db6d 280-301,308
+  s_6f8eb423821667::t_7009e8651dc369 78-85
+  s_6f8eb423821667::t_4f7cd434116c50 86-93
+  s_6f8eb423821667::t_6ab9068ccc20e7 3,7-8
+  s_6f8eb423821667::t_48cfec26ea1253 45
+  s_6f8eb423821667::t_4b2d418bd5ba83 12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "f7d0953f197617eabd37ab16243681f5e89af472",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
