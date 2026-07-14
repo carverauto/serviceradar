@@ -9,7 +9,7 @@
 {{- $gatewayService := default (dict) $gatewayVals.service -}}
 {{- $gatewayPort := default 50052 $gatewayService.port -}}
 {{- $agentID := default "k8s-agent" $agentVals.agentId -}}
-{{- $agentPartition := default (default "default" $gatewayVals.partitionId) $agentVals.partitionId -}}
+{{- $agentPartition := coalesce .Values.partitionId $agentVals.partitionId $gatewayVals.partitionId "default" -}}
 {{- $gatewayServiceName := "serviceradar-agent-gateway" -}}
 {{- $gatewayAddress := default (printf "%s:%v" $gatewayServiceName $gatewayPort) $agentVals.gatewayAddress -}}
 {{- $agentComponentCert := printf "%s-%s-chain.pem" $agentID $agentPartition -}}

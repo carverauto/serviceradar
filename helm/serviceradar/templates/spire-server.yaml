@@ -246,6 +246,8 @@ spec:
     metadata:
       labels:
         app: {{ $serverName }}
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
     spec:
       serviceAccountName: spire-server
       securityContext:
@@ -367,6 +369,8 @@ spec:
         - name: cert-data
           secret:
             secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+            items:
+{{ include "serviceradar.runtimeCertItems" (list $cnpgClientCert $cnpgClientKey) | indent 14 }}
   volumeClaimTemplates:
     - metadata:
         name: spire-data

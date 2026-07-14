@@ -152,6 +152,8 @@ spec:
         - name: cert-data
           secret:
             secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+            items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "ca.crt" "trivy-sidecar.pem" "trivy-sidecar-key.pem") | indent 14 }}
 ---
 apiVersion: v1
 kind: Service

@@ -48,8 +48,9 @@ spec:
       labels:
         app: serviceradar-flow-collector
         app.kubernetes.io/part-of: serviceradar
-      {{- if .Values.global.forceRolloutOnUpgrade }}
       annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+      {{- if .Values.global.forceRolloutOnUpgrade }}
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
       {{- end }}
     spec:
@@ -172,6 +173,8 @@ spec:
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "ca.crt" "flow-collector.pem" "flow-collector-key.pem") | indent 12 }}
       - name: nats-creds
         secret:
           secretName: serviceradar-nats-creds

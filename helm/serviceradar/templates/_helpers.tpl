@@ -114,12 +114,48 @@ Render a Kubernetes NetworkPolicy ports list from values entries shaped as:
 {{- default "serviceradar-runtime-certs" .Values.certs.runtimeSecretName -}}
 {{- end -}}
 
+{{- define "serviceradar.runtimeIssuerSecretName" -}}
+{{- $certs := default dict .Values.certs -}}
+{{- default (include "serviceradar.runtimeCertsSecretName" .) (get $certs "issuerSecretName") -}}
+{{- end -}}
+
+{{- define "serviceradar.cnpgIssuerSecretName" -}}
+{{- $certs := default dict .Values.certs -}}
+{{- default (include "serviceradar.runtimeCertsSecretName" .) (get $certs "cnpgIssuerSecretName") -}}
+{{- end -}}
+
+{{/*
+Render an explicit Kubernetes Secret projection for runtime certificate files.
+Every runtime-certificate volume must use this helper so a workload cannot read
+CA signing keys or another workload's leaf private key from the shared source
+Secret. Callers remain responsible for supplying the smallest key list they
+need.
+*/}}
+{{- define "serviceradar.runtimeCertItems" -}}
+{{- range . }}
+- key: {{ . | quote }}
+  path: {{ . | quote }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Hosted runtimes receive their certificate Secret from the control plane. The
+presence of the hosted runtime contract is the authoritative hosted-mode
+signal; tenant-side certificate generation must stay disabled even if a base
+values layer accidentally enables a generator.
+*/}}
+{{- define "serviceradar.hostedRuntimeEnabled" -}}
+{{- $hosted := default dict .Values.hostedRuntime -}}
+{{- ternary "true" "false" (ne "" (default "" (get $hosted "contractVersion"))) -}}
+{{- end -}}
+
 {{/*
 Pod-template annotations that force cert consumers to roll when the managed
 runtime cert layout version changes.
 */}}
 {{- define "serviceradar.runtimeCertRollAnnotations" -}}
 serviceradar.io/runtime-cert-layout-version: {{ default "1" (default (dict) .Values.certs).runtimeLayoutVersion | quote }}
+serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Values.certs).runtimeRevision | quote }}
 {{- end -}}
 
 {{- define "serviceradar.kvEnv" -}}

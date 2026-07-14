@@ -15,6 +15,19 @@ global:
 image:
   registryPullSecret: registry-carverauto-dev-cred
 
+certs:
+  # The hosted control plane writes this Secret before Helm bootstrap. Tenant
+  # clusters never generate or rotate the private CA in-cluster.
+  runtimeSecretName: serviceradar-runtime-certs
+  issuerSecretName: serviceradar-runtime-issuer-ca
+  cnpgIssuerSecretName: serviceradar-cnpg-issuer-ca
+  runtimeLayoutVersion: "4"
+  runtimeRevision: initial
+  generator:
+    enabled: false
+  regenerator:
+    enabled: false
+
 hostedRuntime:
   contractVersion: "1"
   tenant:
