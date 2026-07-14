@@ -111,19 +111,11 @@ rust_binary(
     deps = NETPROBE_DEPS,
 )
 
+# Unit tests: `crate` inherits the binary's srcs/deps/features/rustc_flags/compile_data,
+# so they cannot drift from //rust/netprobe:netprobe. Only test-only extras are here.
 rust_test(
     name = "netprobe_test",
-    srcs = glob(["src/**/*.rs"]),
-    compile_data = [
-        "p0f-corpus/p0f.fp",
-        "p0f-corpus/serviceradar-additions.fp",
-        "recog-corpus/serviceradar-recog-additions.xml",
-    ] + glob(["recog-corpus/xml/*.xml"]),
+    crate = ":netprobe",
     data = glob(["satori-corpus/xml/*.xml"]),
-    crate_features = NETPROBE_FEATURES,
-    crate_root = "src/main.rs",
-    edition = "2021",
-    rustc_flags = NETPROBE_RUSTC_FLAGS,
-    version = NETPROBE_VERSION,
-    deps = NETPROBE_DEPS + crate_deps(["tempfile"]),
+    deps = crate_deps(["tempfile"]),
 )
