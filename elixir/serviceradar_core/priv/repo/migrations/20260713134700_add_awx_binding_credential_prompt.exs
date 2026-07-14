@@ -6,6 +6,13 @@ defmodule ServiceRadar.Repo.Migrations.AddAwxBindingCredentialPrompt do
   @constraint "ansible_awx_template_bindings_callback_prompt"
 
   def up do
+    # serviceradar:allow-startup-maintenance - existing callback bindings lack
+    # the reviewed AWX credential-prompt bit and must be revoked before the new
+    # constraint becomes authoritative. This touches only the finite current
+    # callback-binding set and uses local deadlines to avoid unbounded startup.
+    execute("SET LOCAL lock_timeout = '5s'")
+    execute("SET LOCAL statement_timeout = '30s'")
+
     alter table(:ansible_awx_template_bindings, prefix: @prefix) do
       add(:ask_credential_on_launch, :boolean, null: false, default: false)
     end

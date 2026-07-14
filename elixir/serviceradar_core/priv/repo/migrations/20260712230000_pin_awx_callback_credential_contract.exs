@@ -6,6 +6,14 @@ defmodule ServiceRadar.Repo.Migrations.PinAwxCallbackCredentialContract do
   @constraint "ansible_awx_template_bindings_callback_slot"
 
   def up do
+    # serviceradar:allow-startup-maintenance - revoking callback bindings whose
+    # credential authority was never pinned is required before the stronger
+    # constraint can admit application traffic. The update is limited to the
+    # finite current callback-binding set, with local deadlines that fail the
+    # transactional migration rather than permit a partial authority change.
+    execute("SET LOCAL lock_timeout = '5s'")
+    execute("SET LOCAL statement_timeout = '30s'")
+
     alter table(:ansible_awx_template_bindings, prefix: @prefix) do
       add(:callback_credential_organization_id, :bigint)
       add(:callback_credential_injector_digest, :text)

@@ -61,6 +61,14 @@ defmodule ServiceRadar.Repo.Migrations.BindEdgePrincipalsToPartitions do
   def terminal_attempt_command_audit_sql, do: @terminal_attempt_command_audit_sql
 
   def up do
+    # serviceradar:allow-startup-maintenance - legacy assignments and live
+    # callback chains have no trustworthy partition provenance, so they must be
+    # disabled or quarantined before partition constraints admit application
+    # traffic. The audit enrichment never revives authority; every operation is
+    # a finite-table statement protected by transaction-local startup deadlines.
+    execute("SET LOCAL lock_timeout = '5s'")
+    execute("SET LOCAL statement_timeout = '2min'")
+
     alter table(:plugin_assignments, prefix: @prefix) do
       add :partition_id, :text
     end

@@ -9,6 +9,14 @@ defmodule ServiceRadar.Repo.Migrations.ScrubLegacyAnsibleSecretCapableData do
   use Ecto.Migration
 
   def up do
+    # serviceradar:allow-startup-maintenance - this fail-closed security scrub
+    # must finish before hardened launch code can read legacy secret-capable
+    # fields. Every update is a single finite-table statement; local deadlines
+    # make unexpected table growth or lock contention fail deployment instead
+    # of leaving a partially scrubbed authority boundary or hanging startup.
+    execute("SET LOCAL lock_timeout = '5s'")
+    execute("SET LOCAL statement_timeout = '2min'")
+
     execute("""
     UPDATE platform.ansible_playbook_runs
     SET requested_extra_vars = '{}'::jsonb,

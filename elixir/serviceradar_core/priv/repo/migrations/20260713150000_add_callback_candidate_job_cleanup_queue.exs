@@ -34,6 +34,13 @@ defmodule ServiceRadar.Repo.Migrations.AddCallbackCandidateJobCleanupQueue do
   def secure_attempt_terminal_audit_sql, do: @secure_attempt_terminal_audit_sql
 
   def up do
+    # serviceradar:allow-startup-maintenance - pre-migration secure attempts
+    # lack durable dispatch-partition authority and must be quarantined before
+    # the new constraint is active. Terminal audit enrichment cannot revive an
+    # attempt; finite-table statements and local deadlines bound first startup.
+    execute("SET LOCAL lock_timeout = '5s'")
+    execute("SET LOCAL statement_timeout = '2min'")
+
     alter table(:automation_callback_command_attempts, prefix: "platform") do
       add :candidate_job_ids, {:array, :bigint}, null: false, default: []
       add :cleanup_only, :boolean, null: false, default: false
