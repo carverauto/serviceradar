@@ -1,0 +1,8 @@
+---
+source: src/tests.rs
+expression: "NetflowParser::default().parse_bytes(&packet)"
+---
+packets: []
+error:
+  Partial:
+    message: "V9 parse error: Parsing requires 4 bytes/chars"

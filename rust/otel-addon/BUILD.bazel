@@ -1,5 +1,5 @@
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
-load("@rust_crates//:defs.bzl", "all_crate_deps")
+load("//third_party/crates:defs.bzl", "all_crate_deps")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -19,21 +19,15 @@ rust_binary(
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )
 
+# Unit tests: `crate` inherits the binary's srcs/deps/edition/crate_root, so they
+# cannot drift from //rust/otel-addon:serviceradar-otel-addon. Only test-only extras
+# are declared here.
 rust_test(
     name = "otel_addon_test",
-    srcs = glob(["src/**/*.rs"]),
+    crate = ":serviceradar-otel-addon",
     # fj#4383: core-emitted config_json contract fixture, include_str!'d by
     # src/addon.rs's contract test (regenerated via
     # `mix serviceradar.gen.addon_contract_fixtures`).
     compile_data = ["//go/pkg/agent:addonconfig_contract_fixtures"],
-    crate_root = "src/main.rs",
-    edition = "2024",
-    deps = all_crate_deps(
-        normal = True,
-        normal_dev = True,
-    ) + [
-        "//rust/addon-sdk:addon_sdk",
-        "//rust/otel:otel_lib",
-    ],
-    proc_macro_deps = all_crate_deps(proc_macro = True),
+    deps = all_crate_deps(normal_dev = True),
 )

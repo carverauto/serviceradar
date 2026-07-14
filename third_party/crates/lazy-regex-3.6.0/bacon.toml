@@ -1,0 +1,45 @@
+# This is a configuration file for the bacon tool
+#
+# Bacon repository: https://github.com/Canop/bacon
+# Complete help on configuration: https://dystroy.org/bacon/config/
+
+default_job = "check"
+
+[jobs.check]
+command = ["cargo", "check"]
+need_stdout = false
+
+[jobs.check-all]
+command = ["cargo", "check", "--all-targets"]
+need_stdout = false
+
+[jobs.lite]
+command = ["cargo", "check", "--all-targets", "--no-default-features", "--features", "lite"]
+need_stdout = false
+
+[jobs.clippy]
+command = [
+    "cargo", "clippy",
+    "--all-targets",
+]
+need_stdout = false
+
+[jobs.test]
+command = [
+    "cargo", "test", "--color", "always",
+    "--", "--color", "always", # see https://github.com/Canop/bacon/issues/124
+]
+need_stdout = true
+
+[jobs.doc]
+command = ["cargo", "doc", "--no-deps"]
+need_stdout = false
+
+# If the doc compiles, then it opens in your browser and bacon switches
+# to the previous job
+[jobs.doc-open]
+command = ["cargo", "doc", "--no-deps", "--open"]
+need_stdout = false
+on_success = "back" # so that we don't open the browser at each change
+
+[keybindings]

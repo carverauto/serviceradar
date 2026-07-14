@@ -1,0 +1,17 @@
+[package]
+name = "asn1-rs-impl"
+version = "0.2.0"
+authors = ["Pierre Chifflier <chifflier@wzdftpd.net>"]
+description = "Implementation details for the `asn1-rs` crate"
+license = "MIT/Apache-2.0"
+homepage = "https://github.com/rusticata/asn1-rs"
+repository = "https://github.com/rusticata/asn1-rs.git"
+edition = "2018"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = "2.0"

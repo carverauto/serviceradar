@@ -1,65 +1,37 @@
---- openssl-src-300.5.4+3.5.4.orig/src/lib.rs	2025-09-19 15:34:09
-+++ openssl-src-300.5.4+3.5.4/src/lib.rs	2025-09-19 15:34:09
-@@ -7,7 +7,50 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -7,6 +7,21 @@
  use std::process::Command;
  
  pub fn source_dir() -> PathBuf {
--    Path::new(env!("CARGO_MANIFEST_DIR")).join("openssl")
-+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-+    let mut candidates: Vec<PathBuf> = Vec::new();
-+
-+    candidates.push(manifest_dir.join("openssl"));
-+
-+    let external_rest = manifest_dir
-+        .to_str()
-+        .and_then(|s| s.split_once("/external/"))
-+        .map(|(_, rest)| PathBuf::from(rest));
-+
-+    if let Some(rest) = external_rest.as_ref() {
-+        candidates.push(Path::new("external").join(rest));
-+    }
-+
-+    if let Ok(runfiles) = env::var("RUNFILES_DIR") {
-+        let runfiles_path = PathBuf::from(runfiles);
-+        candidates.push(runfiles_path.join(manifest_dir).join("openssl"));
-+
-+        if let Some(rest) = external_rest.as_ref() {
-+            candidates.push(runfiles_path.join(rest));
-+            candidates.push(runfiles_path.join("external").join(rest));
++    // Under Bazel the crate's baked CARGO_MANIFEST_DIR points at a stale sandbox, so
++    // honor RULES_RUST_OPENSSL_SRC_DIR (an absolute $(location) into the vendored
++    // openssl/ source, expanded from ${pwd}). A dir is used directly; a marker file
++    // resolves to its parent.
++    if let Ok(p) = env::var("RULES_RUST_OPENSSL_SRC_DIR") {
++        if !p.is_empty() {
++            let path = PathBuf::from(p);
++            if path.is_dir() {
++                return path;
++            }
++            if let Some(parent) = path.parent() {
++                return parent.to_path_buf();
++            }
 +        }
 +    }
-+
-+    if let Ok(src_dir) = env::var("RULES_RUST_OPENSSL_SRC_DIR") {
-+        let override_path = PathBuf::from(src_dir);
-+        let candidate_dir = if override_path.is_dir() {
-+            override_path.clone()
-+        } else {
-+            override_path
-+                .parent()
-+                .map(Path::to_path_buf)
-+                .unwrap_or_else(|| override_path.clone())
-+        };
-+        candidates.push(candidate_dir);
-+    }
-+
-+    for candidate in &candidates {
-+        if candidate.exists() {
-+            return candidate.clone();
-+        }
-+    }
-+
-+    manifest_dir.join("openssl")
+     Path::new(env!("CARGO_MANIFEST_DIR")).join("openssl")
  }
  
- pub fn version() -> &'static str {
-@@ -503,6 +546,10 @@
-                     continue;
-                 }
+@@ -506,6 +521,12 @@
  
-+                if arg == "-no-canonical-prefixes" {
+                 if skip_next {
+                     skip_next = false;
 +                    continue;
 +                }
 +
-                 configure.arg(arg);
-             }
++                // Bazel's cc_wrapper injects `-no-canonical-prefixes`, which OpenSSL's
++                // Configure rejects (exit 255). It is irrelevant to the OpenSSL build.
++                if arg == "-no-canonical-prefixes" {
+                     continue;
+                 }
  

@@ -1,0 +1,19 @@
+[package]
+name = "sha1"
+version = "0.6.1"
+authors = ["Armin Ronacher <armin.ronacher@active-4.com>"]
+keywords = ["sha1"]
+description = "Minimal dependency free implementation of SHA1 for Rust."
+license = "BSD-3-Clause"
+repository = "https://github.com/mitsuhiko/sha1-smol"
+edition = "2018"
+
+[features]
+std = ["sha1_smol/std"]
+serde = ["sha1_smol/serde"]
+
+[dependencies]
+sha1_smol = "1.0.0"
+
+[package.metadata.docs.rs]
+all-features = true

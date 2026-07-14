@@ -1,0 +1,25 @@
+[package]
+name = "tryhard"
+version = "0.5.2"
+authors = ["Embark <opensource@embark-studios.com>"]
+license = "MIT OR Apache-2.0"
+edition = "2018"
+readme = "README.md"
+documentation = "https://docs.rs/tryhard"
+homepage = "https://github.com/EmbarkStudios/tryhard"
+description = "Easily retry futures"
+repository = "https://github.com/EmbarkStudios/tryhard"
+categories = ["rust-patterns"]
+keywords = ["tokio", "futures", "retry"]
+
+[dependencies]
+pin-project-lite = "0.2"
+
+[dependencies.tokio]
+package = "tokio"
+version = "1"
+default-features = false
+features = ["rt", "time", "macros", "test-util", "sync"]
+
+[dev-dependencies]
+futures = "0.3"

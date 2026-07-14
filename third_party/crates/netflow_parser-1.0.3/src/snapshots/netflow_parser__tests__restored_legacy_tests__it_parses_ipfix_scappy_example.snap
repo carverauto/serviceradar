@@ -1,0 +1,200 @@
+---
+source: src/tests.rs
+expression: result
+---
+- IPFix:
+    header:
+      version: 10
+      length: 116
+      export_time: 1480450135
+      sequence_number: 3791
+      observation_domain_id: 0
+    flowsets:
+      - header:
+          header_id: 2
+          length: 100
+        body:
+          Template:
+            template_id: 307
+            field_count: 23
+            fields:
+              - field_type_number: 8
+                field_length: 4
+                field_type:
+                  IANA: SourceIpv4address
+              - field_type_number: 12
+                field_length: 4
+                field_type:
+                  IANA: DestinationIpv4address
+              - field_type_number: 5
+                field_length: 1
+                field_type:
+                  IANA: IpClassOfService
+              - field_type_number: 4
+                field_length: 1
+                field_type:
+                  IANA: ProtocolIdentifier
+              - field_type_number: 7
+                field_length: 2
+                field_type:
+                  IANA: SourceTransportPort
+              - field_type_number: 11
+                field_length: 2
+                field_type:
+                  IANA: DestinationTransportPort
+              - field_type_number: 32
+                field_length: 2
+                field_type:
+                  IANA: IcmpTypeCodeIpv4
+              - field_type_number: 10
+                field_length: 4
+                field_type:
+                  IANA: IngressInterface
+              - field_type_number: 16
+                field_length: 4
+                field_type:
+                  IANA: BgpSourceAsNumber
+              - field_type_number: 17
+                field_length: 4
+                field_type:
+                  IANA: BgpDestinationAsNumber
+              - field_type_number: 18
+                field_length: 4
+                field_type:
+                  IANA: BgpNextHopIpv4address
+              - field_type_number: 14
+                field_length: 4
+                field_type:
+                  IANA: EgressInterface
+              - field_type_number: 1
+                field_length: 4
+                field_type:
+                  IANA: OctetDeltaCount
+              - field_type_number: 2
+                field_length: 4
+                field_type:
+                  IANA: PacketDeltaCount
+              - field_type_number: 22
+                field_length: 4
+                field_type:
+                  IANA: FlowStartSysUpTime
+              - field_type_number: 21
+                field_length: 4
+                field_type:
+                  IANA: FlowEndSysUpTime
+              - field_type_number: 15
+                field_length: 4
+                field_type:
+                  IANA: IpNextHopIpv4address
+              - field_type_number: 9
+                field_length: 1
+                field_type:
+                  IANA: SourceIpv4prefixLength
+              - field_type_number: 13
+                field_length: 1
+                field_type:
+                  IANA: DestinationIpv4prefixLength
+              - field_type_number: 6
+                field_length: 1
+                field_type:
+                  IANA: TcpControlBits
+              - field_type_number: 60
+                field_length: 1
+                field_type:
+                  IANA: IpVersion
+              - field_type_number: 152
+                field_length: 8
+                field_type:
+                  IANA: FlowStartMilliseconds
+              - field_type_number: 153
+                field_length: 8
+                field_type:
+                  IANA: FlowEndMilliseconds
+- IPFix:
+    header:
+      version: 10
+      length: 96
+      export_time: 1480450137
+      sequence_number: 3812
+      observation_domain_id: 0
+    flowsets:
+      - header:
+          header_id: 307
+          length: 80
+        body:
+          Data:
+            fields:
+              - - - IANA: SourceIpv4address
+                  - Ip4Addr: 70.1.115.1
+                - - IANA: DestinationIpv4address
+                  - Ip4Addr: 50.0.71.1
+                - - IANA: IpClassOfService
+                  - DataNumber:
+                      U8: 0
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Anydistributedprotocol
+                - - IANA: SourceTransportPort
+                  - DataNumber:
+                      U16: 0
+                - - IANA: DestinationTransportPort
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IcmpTypeCodeIpv4
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 827
+                - - IANA: BgpSourceAsNumber
+                  - DataNumber:
+                      U32: 2
+                - - IANA: BgpDestinationAsNumber
+                  - DataNumber:
+                      U32: 3
+                - - IANA: BgpNextHopIpv4address
+                  - Ip4Addr: 204.42.110.101
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 854
+                - - IANA: OctetDeltaCount
+                  - DataNumber:
+                      U32: 1312
+                - - IANA: PacketDeltaCount
+                  - DataNumber:
+                      U32: 9
+                - - IANA: FlowStartSysUpTime
+                  - DataNumber:
+                      U32: 3019441902
+                - - IANA: FlowEndSysUpTime
+                  - DataNumber:
+                      U32: 3019616060
+                - - IANA: IpNextHopIpv4address
+                  - Ip4Addr: 204.42.110.189
+                - - IANA: SourceIpv4prefixLength
+                  - DataNumber:
+                      U8: 24
+                - - IANA: DestinationIpv4prefixLength
+                  - DataNumber:
+                      U8: 24
+                - - IANA: TcpControlBits
+                  - TcpControlBits:
+                      fin: false
+                      syn: false
+                      rst: false
+                      psh: false
+                      ack: false
+                      urg: false
+                      ece: false
+                      cwr: false
+                      ns: false
+                - - IANA: IpVersion
+                  - DataNumber:
+                      U8: 4
+                - - IANA: FlowStartMilliseconds
+                  - Duration:
+                      secs: 1480449931
+                      nanos: 519000000
+                - - IANA: FlowEndMilliseconds
+                  - Duration:
+                      secs: 1480450105
+                      nanos: 677000000

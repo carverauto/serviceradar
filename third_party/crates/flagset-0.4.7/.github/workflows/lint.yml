@@ -1,0 +1,22 @@
+on: [push, pull_request]
+name: lint
+jobs:
+  fmt:
+    name: cargo fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust toolchain
+        run: rustup show && rustup update && rustup component add rustfmt
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: cargo clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust toolchain
+        run: rustup show && rustup update && rustup component add clippy
+      - name: cargo clippy
+        run: cargo clippy --all-features --tests -- -D warnings

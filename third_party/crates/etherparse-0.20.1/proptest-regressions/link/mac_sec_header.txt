@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 66ab8c1dc7f1c333bd90c5289bdef647537372b1b9ce894d34b3a23422abc54f # shrinks to header = MacSecHeader { ptype: Unmodified(0x0001), endstation_id: false, scb: false, an: MacSecAn(0), short_len: MacSecShortLen(0), packet_nr: 0, sci: None }
+cc 604f124b27176f7ff3c97f86d16e36928f51f7daa79c30eea702e5248f9f2abe # shrinks to header = MacSecHeader { ptype: Unmodified(0x0001), endstation_id: false, scb: false, an: MacSecAn(0), short_len: MacSecShortLen(0), packet_nr: 0, sci: None }

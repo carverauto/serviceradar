@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 0fd0278a04b30a10d618763c0c03f610dbeaec3661b8f264590f673be5363846 # shrinks to ref ipv4 = Ipv4Header { ihl: 11, differentiated_services_code_point: 0, explicit_congestion_notification: 0, payload_len: 0, identification: 0, dont_fragment: false, more_fragments: false, fragments_offset: 0, time_to_live: 0, protocol: 49, header_checksum: 0, source: [0, 0, 0, 0], destination: [0, 0, 0, 0], options: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 238, 161, 238, 54, 33, 252, 165, 192, 37] }, ref ipv6 = Ipv6Header { traffic_class: 233, flow_label: 974616, payload_length: 44475, next_header: 235, hop_limit: 186, source: [145, 233, 192, 110, 139, 99, 37, 92, 244, 136, 22, 106, 192, 236, 204, 158], destination: [217, 167, 1, 43, 51, 177, 255, 124, 199, 126, 68, 131, 107, 116, 242, 151] }

@@ -1,0 +1,20 @@
+{
+    "outdir": "./reports/servers",
+    "servers": [
+        {
+            "agent": "tokio-websockets",
+            "url": "ws://127.0.0.1:9006"
+        },
+        {
+            "agent": "tokio-websockets-simd",
+            "url": "ws://127.0.0.1:9004"
+        },
+        {
+            "agent": "tokio-tungstenite",
+            "url": "ws://127.0.0.1:9002"
+        }
+    ],
+    "cases": ["*"],
+    "exclude-cases": [],
+    "exclude-agent-cases": {}
+}

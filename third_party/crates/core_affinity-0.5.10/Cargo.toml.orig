@@ -1,0 +1,22 @@
+[package]
+name = "core_affinity"
+version = "0.5.10"
+authors = ["Philip Woods <elzairthesorcerer@gmail.com>"]
+description = "Manages CPU affinities"
+readme = "README.md"
+license = "MIT/Apache-2.0"
+documentation = "https://docs.rs/core_affinity/"
+homepage = "https://github.com/Elzair/core_affinity_rs"
+repository = "https://github.com/Elzair/core_affinity_rs"
+keywords = ["affinity", "thread-affinity", "cpu", "core"]
+categories = ["os"]
+
+[dependencies]
+num_cpus = "^1.6.2"
+
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+libc = "^0.2.30"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = "^0.2.8"
+kernel32-sys = "^0.2.2"

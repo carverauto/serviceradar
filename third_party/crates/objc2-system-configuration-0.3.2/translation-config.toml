@@ -1,0 +1,27 @@
+framework = "SystemConfiguration"
+crate = "objc2-system-configuration"
+required-crates = ["objc2-core-foundation"]
+custom-lib-rs = true
+macos = "10.1"
+maccatalyst = "13.0"
+ios = "2.0"
+tvos = "9.0"
+visionos = "1.0"
+
+# SAFETY: SystemConfiguration has no memory-safety violating
+# functions (apart from those that take pointers).
+unsafe-default-safety.documentation-is-reviewed = true
+
+# TODO(breaking): Make these unsafe, or fix the type.
+fn.SCNetworkInterfaceCopyMediaSubTypes.unsafe = false
+fn.SCNetworkInterfaceCopyMediaSubTypeOptions.unsafe = false
+fn.SCNetworkInterfaceSetMediaOptions.unsafe = false
+
+# TODO(breaking): Maybe make these unsafe?
+fn.SCNetworkConnectionScheduleWithRunLoop.unsafe = false
+fn.SCNetworkConnectionUnscheduleFromRunLoop.unsafe = false
+fn.SCNetworkReachabilityScheduleWithRunLoop.unsafe = false
+fn.SCNetworkReachabilityUnscheduleFromRunLoop.unsafe = false
+fn.SCPreferencesScheduleWithRunLoop.unsafe = false
+fn.SCPreferencesUnscheduleFromRunLoop.unsafe = false
+fn.SCDynamicStoreCreateRunLoopSource.unsafe = false

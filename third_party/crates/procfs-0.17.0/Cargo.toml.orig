@@ -1,0 +1,41 @@
+[package]
+name = "procfs"
+documentation = "https://docs.rs/procfs/"
+description = "Interface to the linux procfs pseudo-filesystem"
+readme = "../README.md"
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[features]
+backtrace = ["dep:backtrace", "procfs-core/backtrace"]
+default = ["chrono", "flate2", "procfs-core/default"]
+serde1 = ["serde", "procfs-core/serde1"]
+
+[dependencies]
+procfs-core = { path = "../procfs-core", version = "0.17.0", default-features = false }
+rustix = { version = "0.38.19", features = ["fs", "process", "param", "system", "thread"] }
+bitflags = { version = "2.0", default-features = false }
+chrono = {version = "0.4.20", optional = true, features = ["clock"], default-features = false }
+hex = "0.4"
+flate2 = { version = "1.0.3", optional = true }
+backtrace = { version = "0.3", optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+[dev-dependencies]
+criterion = "0.5"
+procinfo = "0.4.2"
+failure = "0.1"
+libc = "0.2.139"
+
+[package.metadata.docs.rs]
+all-features = true
+
+[[bench]]
+name = "cpuinfo"
+harness = false

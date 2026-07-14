@@ -1,0 +1,347 @@
+# Changelog
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+<!-- next-header -->
+
+## [Unreleased] - ReleaseDate
+
+## [0.24.6] - 2026-05-13
+
+### Added
+
+- Support for specifying `description` and `unit` as optional parameters in the `counter!`,
+  `gauge!`, and `histogram!` registration macros, allowing description and creation in a
+  single call. ([#691](https://github.com/metrics-rs/metrics/pull/691))
+
+### Fixed
+
+- Fixed a regression in the deprecated `metrics::KeyHasher` that caused
+  `metrics_util::registry::Registry` (versions 0.19.0 through 0.20.1) to insert a fresh entry
+  on every `get_or_create_counter`/`get_or_create_gauge`/`get_or_create_histogram` call for the
+  same `Key` after the internal HashMap resized. `KeyHasher` was treating the pre-computed
+  hash that `Key::hash` writes via `write_u64` as bytes to be hashed again, so
+  `BuildHasherDefault<KeyHasher>::hash_one(&key)` (used by hashbrown during resize) disagreed
+  with `Hashable::hashable(&key)` (used by the Registry for lookups). `KeyHasher` now returns
+  the pre-hashed value passed via `write_u64` verbatim, falling back to byte hashing only when
+  arbitrary bytes are written (preserving behavior for `metrics_util::DefaultHashable<H>`).
+  ([#694](https://github.com/metrics-rs/metrics/issues/694))
+
+## [0.24.5] - 2026-04-29
+
+### Fixed
+
+- Fixed a regression introduced in 0.24.4 where `hash_label` hashed the label key
+  twice instead of hashing the key and value with independent seeds, which could
+  cause label sets with identical names but different values to collide.
+  ([#690](https://github.com/metrics-rs/metrics/pull/690))
+
+## [0.24.4] - 2026-04-28
+
+### Added
+
+- New `Key::to_retained()` and `KeyName::to_retained()` methods that return a version of the key/name
+  cheap to clone for long-lived retention (allocating only when necessary).
+  ([#688](https://github.com/metrics-rs/metrics/pull/688))
+- `Counter::noop()`, `Gauge::noop()`, and `Histogram::noop()` are now `const fn`.
+  ([#654](https://github.com/metrics-rs/metrics/pull/654))
+- `KeyName::as_str` and `Key::get_hash` are now `const fn`. `Key` now derives `Clone`.
+  ([#669](https://github.com/metrics-rs/metrics/pull/669))
+
+### Changed
+
+- Internal key hasher swapped from `ahash` to `rapidhash` for faster, allocation-free hashing.
+  ([#651](https://github.com/metrics-rs/metrics/pull/651),
+  [#669](https://github.com/metrics-rs/metrics/pull/669))
+- `Key` hash is now computed eagerly at construction time, removing internal atomics from the struct.
+  ([#669](https://github.com/metrics-rs/metrics/pull/669))
+
+### Deprecated
+
+- `metrics::KeyHasher` is deprecated; use `metrics_util::common::KeyHasher` instead.
+  ([#669](https://github.com/metrics-rs/metrics/pull/669))
+
+## [0.24.3] - 2025-11-28
+
+### Added
+- Two new methods (`KeyName::into_inner` and `Key::name_shared`), as well as a `From` implementation to convert
+  `KeyName` to `std::borrow::Cow<'static, str>`, to allow for more ergonomically working with `KeyName` values.
+  ([#640](https://github.com/metrics-rs/metrics/pull/640))
+
+### Changed
+
+- Updated `From` implementation for `metrics::Cow<'a, T>` to allow properly converting `metrics::Cow<'a, str>` to
+  `std::borrow::Cow<'a, str>`. ([#635](https://github.com/metrics-rs/metrics/pull/635))
+
+## [0.24.2] - 2025-04-20
+
+### Changed
+
+- Remove object lifetime cast in `LocalRecorderGuard<'a>`. ([#564](https://github.com/metrics-rs/metrics/pull/564))
+- Update `Key` comparison logic to be independent of the order of any labels.
+  ([#565](https://github.com/metrics-rs/metrics/pull/565))
+
+## [0.24.1] - 2024-11-26
+
+### Added
+
+- Added a section to the crate-level documentation about `Metadata` and how it's used.
+- Derived `Copy`, `PartialOrd` and `Ord` for `Metadata` to allow for cheap copies and the ability to compare levels for
+  filtering purposes.
+- Added `TryFrom<&str>` for `Level` to allow parsing levels from strings.
+- Updated the documentation for `Metadata` to better explain how it's used.
+
+## [0.24.0] - 2024-10-12
+
+### Added
+
+- Added `Debug` derive to numerous types. ([#504](https://github.com/metrics-rs/metrics/pull/504))
+- Blanket implementations of `Recorder` over smart pointer representations (i.e. `Arc<T> where T: Recorder`).
+  ([#512](https://github.com/metrics-rs/metrics/pull/512))
+- Added a new method, `record_many`, to `Histogram` and `HistogramFn`, for recording a single value multiple times. This
+  method is backwards compatible as `HistogramFn` provides a default implementation. ([#531](https://github.com/metrics-rs/metrics/pull/531))
+
+### Changed
+
+- Changed `Unit::Gigibytes` to `Gibibytes` to match the proper SI prefix.
+  ([#508](https://github.com/metrics-rs/metrics/pull/508))
+- Fixed a number of Clippy lints. ([#510](https://github.com/metrics-rs/metrics/pull/510))
+- Updated the documentation for `with_local_recorder` to better explain limitations.
+- `set_global_recorder` now requires that the recorder is `Sync`.
+  ([#511](https://github.com/metrics-rs/metrics/pull/511))
+- Bump MSRV to 1.71.1. ([#530](https://github.com/metrics-rs/metrics/pull/530))
+- `with_recorder` is no longer hidden in the docs. ([#532](https://github.com/metrics-rs/metrics/pull/532))
+
+## [0.23.0] - 2024-05-27
+
+### Added
+
+- Implement `IntoLabels` for `BTreeMap<String, String>`.
+  ([#470](https://github.com/metrics-rs/metrics/pull/470))
+- Implement `From<Cow<'a, T>>` for `std::borrow::Cow<'a, T>`.
+  ([#478](https://github.com/metrics-rs/metrics/pull/478))
+
+### Changed
+
+- Bump MSRV to 1.70.0.
+- `Counter`, `Gauge`, and `Histogram` are now marked with `#[must_use]`.
+  ([#475](https://github.com/metrics-rs/metrics/pull/475))
+- Updated crate-level documentation around how histograms work.
+  ([#477](https://github.com/metrics-rs/metrics/pull/477))
+- Allow for trailing comma in arguments for all describe macros.
+  ([#483](https://github.com/metrics-rs/metrics/pull/483))
+
+## [0.22.3] - 2024-03-16
+
+### Added
+
+- Additional implementations of `IntoF64` for standard numerical types (`i8`, `u8`, `i16`, `u16`,
+  `i32`, `u32`, and `f32`).
+
+## [0.22.2] - 2024-03-16
+
+### Fixed
+
+- Bump `ahash` back to `0.8.8` to remove range constraint after an upstream fix was provided to
+  remove the unnecessary MSRV bump.
+
+## [0.22.1] - 2024-02-11
+
+### Fixed
+
+- Lock down the version of `ahash` to avoid unnecessary MSRV bumping.
+
+## [0.22.0] - 2023-12-24
+
+### Added
+
+- Support for using `Arc<T>` with `Cow<'a, T>`.
+  ([#402](https://github.com/metrics-rs/metrics/pull/402))
+
+  This will primarily allow using `Arc<str>` for metric names and labels, where previously only
+  `&'static str` or `String` were allowed. There's still work to be done to also support labels in
+  this regard.
+
+- Support for local recorders. ([#414](https://github.com/metrics-rs/metrics/pull/414))
+
+  This is a large feature, and is documented in [RELEASES.md](RELEASES.md).
+
+### Changed
+
+- Make `Unit` methods return `&'static str` (instead of `&str`) where possible. ([#392](https://github.com/metrics-rs/metrics/pull/393))
+- Bump MSRV to 1.65.0.
+- `SetRecorderError` now returns the recorder given to `set_global_recorder` if another global
+  recorder was already installed instead of leaking it. ([#414](https://github.com/metrics-rs/metrics/pull/414))
+
+## [0.21.1] - 2023-07-02
+
+### Added
+
+- Added a `From` implementation for `KeyName` from `Cow<'static, str>`.
+  ([#378](https://github.com/metrics-rs/metrics/pull/378))
+
+### Removed
+
+- Removed `metrics::set_recorder_racy` as it was intended to be used in `no_std` use cases, but
+  `metrics` is not currently compatible in `no_std` environments, so keeping `set_recorder_racy`
+  around was just API baggage.
+
+## [0.21.0] - 2023-04-16
+
+### Added
+
+- A new module, `atomics`, exposes the atomic integer type that `CounterFn` and `GaugeFn` are
+  implemented for. This will publicly re-export the type for usage by downstream crates. (Credit to
+  [@repi](https://github.com/repi) for the original PR (#347) that did this.)
+
+### Changed
+
+- Bump MSRV to 1.61.0.
+- `portable-atomic` is only used on 32-bit architectures.
+
+### Removed
+
+- Removed the `std-atomics` feature flag.
+
+## [0.20.1] - 2022-07-22
+
+### Changed
+
+- Bumped the dependency on `metrics-macros` to correctly use the updated versions that are necessary
+  for handling the recent `&'static str` -> `SharedString` change to `Recorder::describe_*`.
+
+  We'll also yank 0.20.0 once this is released to avoid the patch version triggering a breaking
+  change jump in transitive dependencies, and so people can't pick up a version of `metrics` that
+  doesn't actually work as it should.
+
+## [0.20.0] - 2022-07-20
+
+### Changed
+
+- Changed `Recorder::describe_*` to take `SharedString` instead of `&'static str` for descriptions. (#312)
+- Implemented `CounterFn` and `GaugeFn` for `portable_atomic::AtomicU64` (#313)
+- Moved implementations of `CounterFn` and `GaugeFn` for `std::sync::atomic::AtomicU64` behind a
+  default feature flag.
+
+## [0.19.0] - 2022-05-30
+
+### Fixed
+
+- Small typo in the documentation. ([#286](https://github.com/metrics-rs/metrics/pull/286))
+
+### Changed
+
+- Refactored the global recorder instance, namely around how it gets set and documenting the safety guarantees of
+  methods related to setting and unsetting it. ([#302](https://github.com/metrics-rs/metrics/pull/302))
+- Fixed an issue with pointer provenance in `metrics::Cow`. ([#303](https://github.com/metrics-rs/metrics/pull/303))
+
+## [0.18.1] - 2022-03-10
+
+### Added
+- Slices of string key/value tuples can now be passed as the labels expression in macros. ([#277](https://github.com/metrics-rs/metrics/pull/277))
+
+## [0.18.0] - 2022-01-14
+
+### Added
+- A new macro, `absolute_counter!`, for setting the value of a counter to an absolute value.
+- A new wrapper type, `KeyName`, which encapsulates creating the name portion of a `Key`.  Existing
+  methods for building a `Key`, as well as implicit conversion trait implementations, allow this to
+  be a no-op.
+- Label keys in macros can now be general expressions i.e. constants or variables.  Due to
+  limitations in how procedural macros work, and the facilities available in stable Rust for const
+  traits, even `&'static str` constants will cause allocations when used for emitting a metric.
+
+### Changed
+- Switched to metric handles through the `Recorder` API.
+  ([#240](https://github.com/metrics-rs/metrics/pull/240)).  Due to the size of this change, the
+  details are further documented and discussed in [RELEASES.md](RELEASES.md).
+- `Unit` is now `Copy`.
+- When describing a metric via the `describe_*` macros, the description is no longer optional.
+
+### Removed
+- Removed the `std` feature flag, as `metrics` depends too heavily on `std`-based types and as such
+  was not meaningfully usaable when the `std` feature flag was disabled.  This will be revisited in
+  the future.
+
+## [0.17.1] - 2021-12-16
+
+### Changed
+- Removed unnecessary `proc-macro-hack` dependency.
+
+## [0.17.0] - 2021-07-13
+
+### Changed
+- Switched from `t1ha` to `ahash` for the key hasher.
+
+## [0.16.0] - 2021-05-18
+
+### Removed
+- `NameParts` has been removed to simplify metric names, again relying on a single string which is
+  still backed by copy-on-write storage.
+
+## [0.15.1] - 2021-05-03
+### Changed
+- Nothing.  Fixed an issue with using the wrong dependency version during a mass release of
+  workspace crates.
+
+## [0.15.0] - 2021-05-03
+### Changed
+- Switched from `Key` to `&Key` in `Recorder`.
+- Refactored `KeyData` into `Key`.
+
+### Added
+- Metric keys are now pre-hashed/memoized where possible, which provides a massive speedup to
+  hashing operations over time.
+## [0.14.2] - 2021-02-13
+### Added
+- Implemented `Ord`/`PartialOrd` for various key-related types.
+
+## [0.14.1] - 2021-02-02
+### Added
+- Minor documentation test updates for better coverage of owned strings used as metric names.
+
+## [0.14.0] - 2021-02-02
+### Changed
+- Added support for owned strings as metric names. [#170](https://github.com/metrics-rs/metrics/pull/170)
+
+## [0.13.1] - 2021-01-23
+### Added
+- Added conversion from `std::borrow::Cow<'static, str>` for `SharedString`.
+
+## [0.13.0] - 2021-01-22
+### Added
+- New macros for registration: `register_counter!`, `register_gauge!`, `register_histogram!`.
+- New macros for emission: `histogram!`, `increment_counter!`, `increment_gauge!`,
+  `decrement_gauge!`.
+- Added unit support to describe the unit of a given metric.
+
+### Removed
+- Dropped the `timing!` and `value!` macros in favor of `histogram!`.
+
+### Changed
+- All macros are now procedural macros instead of declarative macros.
+- Gauges are now `f64` instead of `i64`.
+- Histograms are now `f64` instead of `u64`.
+- `Key` now split into `Key` and `KeyData` to better support constant expression metric keys via
+  macro callsites.
+- Significant overhaul of generated callsites via macros.
+
+## [0.12.1] - 2019-11-21
+### Changed
+- Cost for macros dropped to almost zero when no recorder is installed. ([#55](https://github.com/metrics-rs/metrics/pull/55))
+
+## [0.12.0] - 2019-10-18
+### Changed
+- Improved documentation. (#44, #45, #46)
+- Renamed `Recorder::record_counter` to `increment_counter` and `Recorder::record_gauge` to `update_gauge`. ([#47](https://github.com/metrics-rs/metrics/pull/47))
+
+## [0.11.1] - 2019-08-09
+### Changed
+- Fixed a bug with macros calling inner macros without a fully qualified name.
+
+## [0.11.0] - 2019-07-29
+### Added
+- Life begins at 0.11.0 for this crate, after being renamed from `metrics-facade` to `metrics` to
+  reflect the duality of `metrics` to the `log` crate. (#27)

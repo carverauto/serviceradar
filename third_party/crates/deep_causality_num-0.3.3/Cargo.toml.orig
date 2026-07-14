@@ -1,0 +1,28 @@
+[package]
+name = "deep_causality_num"
+version = "0.3.3"
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+
+repository = "https://github.com/deepcausality/deep_causality.rs"
+authors = ["Marvin Hansen <marvin.hansen@gmail.com>", ]
+description = "Number utils for for deep_causality crate."
+documentation = "https://docs.rs/deep_causality"
+categories = ["development-tools"]
+keywords = ["number-utils", "traits"]
+# Exclude all bazel files as these conflict with Bazel workspace when vendored.
+exclude = ["*.bazel", "*/*.bazel",  "*.bazel.*", "BUILD", "BUILD.bazel", "MODULE.bazel", ".bazelignore",".bazelrc", "tests/**/*"]
+
+
+[features]
+default = ["std"] # Keep std by default for convenience, can be turned off
+std = [] # Explicitly enable std
+no-std = ["libm_math"]
+libm_math = ["dep:libm"] # Feature to enable libm for no-std floating point math
+
+[dependencies]
+libm = { version = "0.2", optional = true } # Add libm as an optional dependency
+
+[lints]
+workspace = true

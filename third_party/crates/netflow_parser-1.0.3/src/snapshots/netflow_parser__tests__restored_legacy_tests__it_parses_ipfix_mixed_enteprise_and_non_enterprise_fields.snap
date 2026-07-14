@@ -1,0 +1,1167 @@
+---
+source: src/tests.rs
+expression: result
+---
+- IPFix:
+    header:
+      version: 10
+      length: 132
+      export_time: 1530614934
+      sequence_number: 6200673
+      observation_domain_id: 1024
+    flowsets:
+      - header:
+          header_id: 2
+          length: 116
+        body:
+          Template:
+            template_id: 264
+            field_count: 22
+            fields:
+              - field_type_number: 12236
+                field_length: 4
+                enterprise_number: 9
+                field_type:
+                  Cisco: CiscoClientIpv4Address
+              - field_type_number: 12237
+                field_length: 4
+                enterprise_number: 9
+                field_type:
+                  Cisco: CiscoServerIpv4Address
+              - field_type_number: 4
+                field_length: 1
+                field_type:
+                  IANA: ProtocolIdentifier
+              - field_type_number: 195
+                field_length: 1
+                field_type:
+                  IANA: IpDiffServCodePoint
+              - field_type_number: 192
+                field_length: 1
+                field_type:
+                  IANA: IpTtl
+              - field_type_number: 12241
+                field_length: 2
+                enterprise_number: 9
+                field_type:
+                  Cisco: CiscoServerL4Port
+              - field_type_number: 234
+                field_length: 4
+                field_type:
+                  IANA: IngressVrfid
+              - field_type_number: 95
+                field_length: 4
+                field_type:
+                  IANA: ApplicationId
+              - field_type_number: 58
+                field_length: 2
+                field_type:
+                  IANA: VlanId
+              - field_type_number: 10
+                field_length: 4
+                field_type:
+                  IANA: IngressInterface
+              - field_type_number: 239
+                field_length: 1
+                field_type:
+                  IANA: BiflowDirection
+              - field_type_number: 9252
+                field_length: 1
+                enterprise_number: 9
+                field_type:
+                  Cisco: CiscoServicesWaasSegment
+              - field_type_number: 14
+                field_length: 4
+                field_type:
+                  IANA: EgressInterface
+              - field_type_number: 9253
+                field_length: 1
+                enterprise_number: 9
+                field_type:
+                  Cisco: CiscoServicesWaasPassthroughReason
+              - field_type_number: 22
+                field_length: 4
+                field_type:
+                  IANA: FlowStartSysUpTime
+              - field_type_number: 21
+                field_length: 4
+                field_type:
+                  IANA: FlowEndSysUpTime
+              - field_type_number: 278
+                field_length: 4
+                field_type:
+                  IANA: NewConnectionDeltaCount
+              - field_type_number: 279
+                field_length: 8
+                field_type:
+                  IANA: ConnectionSumDurationSeconds
+              - field_type_number: 232
+                field_length: 8
+                field_type:
+                  IANA: ResponderOctets
+              - field_type_number: 299
+                field_length: 8
+                field_type:
+                  IANA: ResponderPackets
+              - field_type_number: 231
+                field_length: 8
+                field_type:
+                  IANA: InitiatorOctets
+              - field_type_number: 298
+                field_length: 8
+                field_type:
+                  IANA: InitiatorPackets
+- IPFix:
+    header:
+      version: 10
+      length: 1396
+      export_time: 1530614820
+      sequence_number: 6199655
+      observation_domain_id: 1024
+    flowsets:
+      - header:
+          header_id: 264
+          length: 1380
+        body:
+          Data:
+            fields:
+              - - - Cisco: CiscoClientIpv4Address
+                  - Ip4Addr: 10.101.255.1
+                - - Cisco: CiscoServerIpv4Address
+                  - Ip4Addr: 10.10.28.57
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Udp
+                - - IANA: IpDiffServCodePoint
+                  - DataNumber:
+                      U8: 0
+                - - IANA: IpTtl
+                  - DataNumber:
+                      U8: 255
+                - - Cisco: CiscoServerL4Port
+                  - DataNumber:
+                      U16: 2055
+                - - IANA: IngressVrfid
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ApplicationId
+                  - ApplicationId:
+                      classification_engine_id: 13
+                      selector_id:
+                        U24: 606
+                - - IANA: VlanId
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 0
+                - - IANA: BiflowDirection
+                  - DataNumber:
+                      U8: 1
+                - - Cisco: CiscoServicesWaasSegment
+                  - DataNumber:
+                      U8: 16
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 20
+                - - Cisco: CiscoServicesWaasPassthroughReason
+                  - DataNumber:
+                      U8: 0
+                - - IANA: FlowStartSysUpTime
+                  - DataNumber:
+                      U32: 4019387228
+                - - IANA: FlowEndSysUpTime
+                  - DataNumber:
+                      U32: 4019440532
+                - - IANA: NewConnectionDeltaCount
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ConnectionSumDurationSeconds
+                  - DataNumber:
+                      U64: 53
+                - - IANA: ResponderOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderPackets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: InitiatorOctets
+                  - DataNumber:
+                      U64: 192505
+                - - IANA: InitiatorPackets
+                  - DataNumber:
+                      U64: 155
+              - - - Cisco: CiscoClientIpv4Address
+                  - Ip4Addr: 172.31.255.1
+                - - Cisco: CiscoServerIpv4Address
+                  - Ip4Addr: 172.31.255.1
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Udp
+                - - IANA: IpDiffServCodePoint
+                  - DataNumber:
+                      U8: 0
+                - - IANA: IpTtl
+                  - DataNumber:
+                      U8: 254
+                - - Cisco: CiscoServerL4Port
+                  - DataNumber:
+                      U16: 3785
+                - - IANA: IngressVrfid
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ApplicationId
+                  - ApplicationId:
+                      classification_engine_id: 13
+                      selector_id:
+                        U24: 1
+                - - IANA: VlanId
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 1
+                - - IANA: BiflowDirection
+                  - DataNumber:
+                      U8: 1
+                - - Cisco: CiscoServicesWaasSegment
+                  - DataNumber:
+                      U8: 16
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 1
+                - - Cisco: CiscoServicesWaasPassthroughReason
+                  - DataNumber:
+                      U8: 0
+                - - IANA: FlowStartSysUpTime
+                  - DataNumber:
+                      U32: 4019387232
+                - - IANA: FlowEndSysUpTime
+                  - DataNumber:
+                      U32: 4019446788
+                - - IANA: NewConnectionDeltaCount
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ConnectionSumDurationSeconds
+                  - DataNumber:
+                      U64: 120
+                - - IANA: ResponderOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderPackets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: InitiatorOctets
+                  - DataNumber:
+                      U64: 2208
+                - - IANA: InitiatorPackets
+                  - DataNumber:
+                      U64: 184
+              - - - Cisco: CiscoClientIpv4Address
+                  - Ip4Addr: 10.208.22.118
+                - - Cisco: CiscoServerIpv4Address
+                  - Ip4Addr: 10.101.22.251
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Udp
+                - - IANA: IpDiffServCodePoint
+                  - DataNumber:
+                      U8: 4
+                - - IANA: IpTtl
+                  - DataNumber:
+                      U8: 61
+                - - Cisco: CiscoServerL4Port
+                  - DataNumber:
+                      U16: 17654
+                - - IANA: IngressVrfid
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ApplicationId
+                  - ApplicationId:
+                      classification_engine_id: 13
+                      selector_id:
+                        U24: 1
+                - - IANA: VlanId
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 1
+                - - IANA: BiflowDirection
+                  - DataNumber:
+                      U8: 1
+                - - Cisco: CiscoServicesWaasSegment
+                  - DataNumber:
+                      U8: 16
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 4
+                - - Cisco: CiscoServicesWaasPassthroughReason
+                  - DataNumber:
+                      U8: 0
+                - - IANA: FlowStartSysUpTime
+                  - DataNumber:
+                      U32: 4019387236
+                - - IANA: FlowEndSysUpTime
+                  - DataNumber:
+                      U32: 4019437108
+                - - IANA: NewConnectionDeltaCount
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ConnectionSumDurationSeconds
+                  - DataNumber:
+                      U64: 59
+                - - IANA: ResponderOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderPackets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: InitiatorOctets
+                  - DataNumber:
+                      U64: 96
+                - - IANA: InitiatorPackets
+                  - DataNumber:
+                      U64: 6
+              - - - Cisco: CiscoClientIpv4Address
+                  - Ip4Addr: 10.0.151.220
+                - - Cisco: CiscoServerIpv4Address
+                  - Ip4Addr: 10.101.151.95
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Udp
+                - - IANA: IpDiffServCodePoint
+                  - DataNumber:
+                      U8: 0
+                - - IANA: IpTtl
+                  - DataNumber:
+                      U8: 60
+                - - Cisco: CiscoServerL4Port
+                  - DataNumber:
+                      U16: 57339
+                - - IANA: IngressVrfid
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ApplicationId
+                  - ApplicationId:
+                      classification_engine_id: 13
+                      selector_id:
+                        U24: 1
+                - - IANA: VlanId
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 1
+                - - IANA: BiflowDirection
+                  - DataNumber:
+                      U8: 1
+                - - Cisco: CiscoServicesWaasSegment
+                  - DataNumber:
+                      U8: 16
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 4
+                - - Cisco: CiscoServicesWaasPassthroughReason
+                  - DataNumber:
+                      U8: 0
+                - - IANA: FlowStartSysUpTime
+                  - DataNumber:
+                      U32: 4019387306
+                - - IANA: FlowEndSysUpTime
+                  - DataNumber:
+                      U32: 4019447034
+                - - IANA: NewConnectionDeltaCount
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ConnectionSumDurationSeconds
+                  - DataNumber:
+                      U64: 59
+                - - IANA: ResponderOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderPackets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: InitiatorOctets
+                  - DataNumber:
+                      U64: 15264
+                - - IANA: InitiatorPackets
+                  - DataNumber:
+                      U64: 24
+              - - - Cisco: CiscoClientIpv4Address
+                  - Ip4Addr: 10.101.22.251
+                - - Cisco: CiscoServerIpv4Address
+                  - Ip4Addr: 10.25.22.18
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Udp
+                - - IANA: IpDiffServCodePoint
+                  - DataNumber:
+                      U8: 0
+                - - IANA: IpTtl
+                  - DataNumber:
+                      U8: 126
+                - - Cisco: CiscoServerL4Port
+                  - DataNumber:
+                      U16: 5001
+                - - IANA: IngressVrfid
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ApplicationId
+                  - ApplicationId:
+                      classification_engine_id: 13
+                      selector_id:
+                        U24: 1
+                - - IANA: VlanId
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 4
+                - - IANA: BiflowDirection
+                  - DataNumber:
+                      U8: 1
+                - - Cisco: CiscoServicesWaasSegment
+                  - DataNumber:
+                      U8: 16
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 20
+                - - Cisco: CiscoServicesWaasPassthroughReason
+                  - DataNumber:
+                      U8: 0
+                - - IANA: FlowStartSysUpTime
+                  - DataNumber:
+                      U32: 4019387310
+                - - IANA: FlowEndSysUpTime
+                  - DataNumber:
+                      U32: 4019446976
+                - - IANA: NewConnectionDeltaCount
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ConnectionSumDurationSeconds
+                  - DataNumber:
+                      U64: 59
+                - - IANA: ResponderOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderPackets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: InitiatorOctets
+                  - DataNumber:
+                      U64: 5872
+                - - IANA: InitiatorPackets
+                  - DataNumber:
+                      U64: 367
+              - - - Cisco: CiscoClientIpv4Address
+                  - Ip4Addr: 224.0.0.5
+                - - Cisco: CiscoServerIpv4Address
+                  - Ip4Addr: 172.31.255.1
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Ospfigp
+                - - IANA: IpDiffServCodePoint
+                  - DataNumber:
+                      U8: 0
+                - - IANA: IpTtl
+                  - DataNumber:
+                      U8: 1
+                - - Cisco: CiscoServerL4Port
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressVrfid
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ApplicationId
+                  - ApplicationId:
+                      classification_engine_id: 1
+                      selector_id:
+                        U24: 89
+                - - IANA: VlanId
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 1
+                - - IANA: BiflowDirection
+                  - DataNumber:
+                      U8: 2
+                - - Cisco: CiscoServicesWaasSegment
+                  - DataNumber:
+                      U8: 16
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 0
+                - - Cisco: CiscoServicesWaasPassthroughReason
+                  - DataNumber:
+                      U8: 0
+                - - IANA: FlowStartSysUpTime
+                  - DataNumber:
+                      U32: 4019387360
+                - - IANA: FlowEndSysUpTime
+                  - DataNumber:
+                      U32: 4019444662
+                - - IANA: NewConnectionDeltaCount
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ConnectionSumDurationSeconds
+                  - DataNumber:
+                      U64: 80
+                - - IANA: ResponderOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderPackets
+                  - DataNumber:
+                      U64: 23
+                - - IANA: InitiatorOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: InitiatorPackets
+                  - DataNumber:
+                      U64: 0
+              - - - Cisco: CiscoClientIpv4Address
+                  - Ip4Addr: 172.31.254.101
+                - - Cisco: CiscoServerIpv4Address
+                  - Ip4Addr: 172.31.254.101
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Udp
+                - - IANA: IpDiffServCodePoint
+                  - DataNumber:
+                      U8: 48
+                - - IANA: IpTtl
+                  - DataNumber:
+                      U8: 255
+                - - Cisco: CiscoServerL4Port
+                  - DataNumber:
+                      U16: 3785
+                - - IANA: IngressVrfid
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ApplicationId
+                  - ApplicationId:
+                      classification_engine_id: 13
+                      selector_id:
+                        U24: 1
+                - - IANA: VlanId
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 0
+                - - IANA: BiflowDirection
+                  - DataNumber:
+                      U8: 1
+                - - Cisco: CiscoServicesWaasSegment
+                  - DataNumber:
+                      U8: 16
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 1
+                - - Cisco: CiscoServicesWaasPassthroughReason
+                  - DataNumber:
+                      U8: 0
+                - - IANA: FlowStartSysUpTime
+                  - DataNumber:
+                      U32: 4019387474
+                - - IANA: FlowEndSysUpTime
+                  - DataNumber:
+                      U32: 4019447040
+                - - IANA: NewConnectionDeltaCount
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ConnectionSumDurationSeconds
+                  - DataNumber:
+                      U64: 60
+                - - IANA: ResponderOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderPackets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: InitiatorOctets
+                  - DataNumber:
+                      U64: 3816
+                - - IANA: InitiatorPackets
+                  - DataNumber:
+                      U64: 318
+              - - - Cisco: CiscoClientIpv4Address
+                  - Ip4Addr: 224.0.0.5
+                - - Cisco: CiscoServerIpv4Address
+                  - Ip4Addr: 172.31.250.252
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Ospfigp
+                - - IANA: IpDiffServCodePoint
+                  - DataNumber:
+                      U8: 48
+                - - IANA: IpTtl
+                  - DataNumber:
+                      U8: 1
+                - - Cisco: CiscoServerL4Port
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressVrfid
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ApplicationId
+                  - ApplicationId:
+                      classification_engine_id: 1
+                      selector_id:
+                        U24: 89
+                - - IANA: VlanId
+                  - DataNumber:
+                      U16: 290
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 20
+                - - IANA: BiflowDirection
+                  - DataNumber:
+                      U8: 2
+                - - Cisco: CiscoServicesWaasSegment
+                  - DataNumber:
+                      U8: 16
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 0
+                - - Cisco: CiscoServicesWaasPassthroughReason
+                  - DataNumber:
+                      U8: 0
+                - - IANA: FlowStartSysUpTime
+                  - DataNumber:
+                      U32: 4019387484
+                - - IANA: FlowEndSysUpTime
+                  - DataNumber:
+                      U32: 4019444636
+                - - IANA: NewConnectionDeltaCount
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ConnectionSumDurationSeconds
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderPackets
+                  - DataNumber:
+                      U64: 7
+                - - IANA: InitiatorOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: InitiatorPackets
+                  - DataNumber:
+                      U64: 0
+              - - - Cisco: CiscoClientIpv4Address
+                  - Ip4Addr: 10.208.22.13
+                - - Cisco: CiscoServerIpv4Address
+                  - Ip4Addr: 10.101.22.251
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Udp
+                - - IANA: IpDiffServCodePoint
+                  - DataNumber:
+                      U8: 4
+                - - IANA: IpTtl
+                  - DataNumber:
+                      U8: 61
+                - - Cisco: CiscoServerL4Port
+                  - DataNumber:
+                      U16: 17654
+                - - IANA: IngressVrfid
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ApplicationId
+                  - ApplicationId:
+                      classification_engine_id: 13
+                      selector_id:
+                        U24: 1
+                - - IANA: VlanId
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 1
+                - - IANA: BiflowDirection
+                  - DataNumber:
+                      U8: 1
+                - - Cisco: CiscoServicesWaasSegment
+                  - DataNumber:
+                      U8: 16
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 4
+                - - Cisco: CiscoServicesWaasPassthroughReason
+                  - DataNumber:
+                      U8: 0
+                - - IANA: FlowStartSysUpTime
+                  - DataNumber:
+                      U32: 4019387486
+                - - IANA: FlowEndSysUpTime
+                  - DataNumber:
+                      U32: 4019437338
+                - - IANA: NewConnectionDeltaCount
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ConnectionSumDurationSeconds
+                  - DataNumber:
+                      U64: 50
+                - - IANA: ResponderOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderPackets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: InitiatorOctets
+                  - DataNumber:
+                      U64: 740
+                - - IANA: InitiatorPackets
+                  - DataNumber:
+                      U64: 65
+              - - - Cisco: CiscoClientIpv4Address
+                  - Ip4Addr: 224.0.0.5
+                - - Cisco: CiscoServerIpv4Address
+                  - Ip4Addr: 172.31.254.27
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Ospfigp
+                - - IANA: IpDiffServCodePoint
+                  - DataNumber:
+                      U8: 48
+                - - IANA: IpTtl
+                  - DataNumber:
+                      U8: 1
+                - - Cisco: CiscoServerL4Port
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressVrfid
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ApplicationId
+                  - ApplicationId:
+                      classification_engine_id: 1
+                      selector_id:
+                        U24: 89
+                - - IANA: VlanId
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 1
+                - - IANA: BiflowDirection
+                  - DataNumber:
+                      U8: 2
+                - - Cisco: CiscoServicesWaasSegment
+                  - DataNumber:
+                      U8: 16
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 0
+                - - Cisco: CiscoServicesWaasPassthroughReason
+                  - DataNumber:
+                      U8: 0
+                - - IANA: FlowStartSysUpTime
+                  - DataNumber:
+                      U32: 4019387494
+                - - IANA: FlowEndSysUpTime
+                  - DataNumber:
+                      U32: 4019443438
+                - - IANA: NewConnectionDeltaCount
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ConnectionSumDurationSeconds
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderPackets
+                  - DataNumber:
+                      U64: 7
+                - - IANA: InitiatorOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: InitiatorPackets
+                  - DataNumber:
+                      U64: 0
+              - - - Cisco: CiscoClientIpv4Address
+                  - Ip4Addr: 10.100.102.116
+                - - Cisco: CiscoServerIpv4Address
+                  - Ip4Addr: 10.205.151.9
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Udp
+                - - IANA: IpDiffServCodePoint
+                  - DataNumber:
+                      U8: 0
+                - - IANA: IpTtl
+                  - DataNumber:
+                      U8: 125
+                - - Cisco: CiscoServerL4Port
+                  - DataNumber:
+                      U16: 3389
+                - - IANA: IngressVrfid
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ApplicationId
+                  - ApplicationId:
+                      classification_engine_id: 13
+                      selector_id:
+                        U24: 1
+                - - IANA: VlanId
+                  - DataNumber:
+                      U16: 290
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 20
+                - - IANA: BiflowDirection
+                  - DataNumber:
+                      U8: 2
+                - - Cisco: CiscoServicesWaasSegment
+                  - DataNumber:
+                      U8: 16
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 17
+                - - Cisco: CiscoServicesWaasPassthroughReason
+                  - DataNumber:
+                      U8: 0
+                - - IANA: FlowStartSysUpTime
+                  - DataNumber:
+                      U32: 4019387564
+                - - IANA: FlowEndSysUpTime
+                  - DataNumber:
+                      U32: 4019438730
+                - - IANA: NewConnectionDeltaCount
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ConnectionSumDurationSeconds
+                  - DataNumber:
+                      U64: 239
+                - - IANA: ResponderOctets
+                  - DataNumber:
+                      U64: 225
+                - - IANA: ResponderPackets
+                  - DataNumber:
+                      U64: 8
+                - - IANA: InitiatorOctets
+                  - DataNumber:
+                      U64: 96
+                - - IANA: InitiatorPackets
+                  - DataNumber:
+                      U64: 8
+              - - - Cisco: CiscoClientIpv4Address
+                  - Ip4Addr: 10.208.22.124
+                - - Cisco: CiscoServerIpv4Address
+                  - Ip4Addr: 10.101.22.251
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Udp
+                - - IANA: IpDiffServCodePoint
+                  - DataNumber:
+                      U8: 4
+                - - IANA: IpTtl
+                  - DataNumber:
+                      U8: 61
+                - - Cisco: CiscoServerL4Port
+                  - DataNumber:
+                      U16: 17654
+                - - IANA: IngressVrfid
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ApplicationId
+                  - ApplicationId:
+                      classification_engine_id: 13
+                      selector_id:
+                        U24: 1
+                - - IANA: VlanId
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 1
+                - - IANA: BiflowDirection
+                  - DataNumber:
+                      U8: 1
+                - - Cisco: CiscoServicesWaasSegment
+                  - DataNumber:
+                      U8: 16
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 4
+                - - Cisco: CiscoServicesWaasPassthroughReason
+                  - DataNumber:
+                      U8: 0
+                - - IANA: FlowStartSysUpTime
+                  - DataNumber:
+                      U32: 4019387592
+                - - IANA: FlowEndSysUpTime
+                  - DataNumber:
+                      U32: 4019437466
+                - - IANA: NewConnectionDeltaCount
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ConnectionSumDurationSeconds
+                  - DataNumber:
+                      U64: 59
+                - - IANA: ResponderOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderPackets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: InitiatorOctets
+                  - DataNumber:
+                      U64: 96
+                - - IANA: InitiatorPackets
+                  - DataNumber:
+                      U64: 6
+              - - - Cisco: CiscoClientIpv4Address
+                  - Ip4Addr: 172.31.254.101
+                - - Cisco: CiscoServerIpv4Address
+                  - Ip4Addr: 172.31.254.1
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Udp
+                - - IANA: IpDiffServCodePoint
+                  - DataNumber:
+                      U8: 48
+                - - IANA: IpTtl
+                  - DataNumber:
+                      U8: 255
+                - - Cisco: CiscoServerL4Port
+                  - DataNumber:
+                      U16: 3784
+                - - IANA: IngressVrfid
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ApplicationId
+                  - ApplicationId:
+                      classification_engine_id: 13
+                      selector_id:
+                        U24: 1
+                - - IANA: VlanId
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 0
+                - - IANA: BiflowDirection
+                  - DataNumber:
+                      U8: 1
+                - - Cisco: CiscoServicesWaasSegment
+                  - DataNumber:
+                      U8: 16
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 1
+                - - Cisco: CiscoServicesWaasPassthroughReason
+                  - DataNumber:
+                      U8: 0
+                - - IANA: FlowStartSysUpTime
+                  - DataNumber:
+                      U32: 4019387628
+                - - IANA: FlowEndSysUpTime
+                  - DataNumber:
+                      U32: 4019445566
+                - - IANA: NewConnectionDeltaCount
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ConnectionSumDurationSeconds
+                  - DataNumber:
+                      U64: 60
+                - - IANA: ResponderOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderPackets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: InitiatorOctets
+                  - DataNumber:
+                      U64: 552
+                - - IANA: InitiatorPackets
+                  - DataNumber:
+                      U64: 23
+              - - - Cisco: CiscoClientIpv4Address
+                  - Ip4Addr: 10.1.22.47
+                - - Cisco: CiscoServerIpv4Address
+                  - Ip4Addr: 10.101.22.251
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Udp
+                - - IANA: IpDiffServCodePoint
+                  - DataNumber:
+                      U8: 8
+                - - IANA: IpTtl
+                  - DataNumber:
+                      U8: 61
+                - - Cisco: CiscoServerL4Port
+                  - DataNumber:
+                      U16: 17654
+                - - IANA: IngressVrfid
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ApplicationId
+                  - ApplicationId:
+                      classification_engine_id: 13
+                      selector_id:
+                        U24: 1
+                - - IANA: VlanId
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 1
+                - - IANA: BiflowDirection
+                  - DataNumber:
+                      U8: 1
+                - - Cisco: CiscoServicesWaasSegment
+                  - DataNumber:
+                      U8: 16
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 4
+                - - Cisco: CiscoServicesWaasPassthroughReason
+                  - DataNumber:
+                      U8: 0
+                - - IANA: FlowStartSysUpTime
+                  - DataNumber:
+                      U32: 4019387640
+                - - IANA: FlowEndSysUpTime
+                  - DataNumber:
+                      U32: 4019437582
+                - - IANA: NewConnectionDeltaCount
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ConnectionSumDurationSeconds
+                  - DataNumber:
+                      U64: 50
+                - - IANA: ResponderOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderPackets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: InitiatorOctets
+                  - DataNumber:
+                      U64: 772
+                - - IANA: InitiatorPackets
+                  - DataNumber:
+                      U64: 67
+              - - - Cisco: CiscoClientIpv4Address
+                  - Ip4Addr: 10.101.10.12
+                - - Cisco: CiscoServerIpv4Address
+                  - Ip4Addr: 10.0.151.179
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Icmp
+                - - IANA: IpDiffServCodePoint
+                  - DataNumber:
+                      U8: 0
+                - - IANA: IpTtl
+                  - DataNumber:
+                      U8: 60
+                - - Cisco: CiscoServerL4Port
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressVrfid
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ApplicationId
+                  - ApplicationId:
+                      classification_engine_id: 13
+                      selector_id:
+                        U24: 479
+                - - IANA: VlanId
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 1
+                - - IANA: BiflowDirection
+                  - DataNumber:
+                      U8: 2
+                - - Cisco: CiscoServicesWaasSegment
+                  - DataNumber:
+                      U8: 16
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 4
+                - - Cisco: CiscoServicesWaasPassthroughReason
+                  - DataNumber:
+                      U8: 0
+                - - IANA: FlowStartSysUpTime
+                  - DataNumber:
+                      U32: 4019387662
+                - - IANA: FlowEndSysUpTime
+                  - DataNumber:
+                      U32: 4019446322
+                - - IANA: NewConnectionDeltaCount
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ConnectionSumDurationSeconds
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderPackets
+                  - DataNumber:
+                      U64: 19
+                - - IANA: InitiatorOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: InitiatorPackets
+                  - DataNumber:
+                      U64: 0
+              - - - Cisco: CiscoClientIpv4Address
+                  - Ip4Addr: 172.31.255.1
+                - - Cisco: CiscoServerIpv4Address
+                  - Ip4Addr: 172.31.254.101
+                - - IANA: ProtocolIdentifier
+                  - ProtocolType: Udp
+                - - IANA: IpDiffServCodePoint
+                  - DataNumber:
+                      U8: 0
+                - - IANA: IpTtl
+                  - DataNumber:
+                      U8: 255
+                - - Cisco: CiscoServerL4Port
+                  - DataNumber:
+                      U16: 3784
+                - - IANA: IngressVrfid
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ApplicationId
+                  - ApplicationId:
+                      classification_engine_id: 13
+                      selector_id:
+                        U24: 1
+                - - IANA: VlanId
+                  - DataNumber:
+                      U16: 0
+                - - IANA: IngressInterface
+                  - DataNumber:
+                      U32: 1
+                - - IANA: BiflowDirection
+                  - DataNumber:
+                      U8: 1
+                - - Cisco: CiscoServicesWaasSegment
+                  - DataNumber:
+                      U8: 16
+                - - IANA: EgressInterface
+                  - DataNumber:
+                      U32: 0
+                - - Cisco: CiscoServicesWaasPassthroughReason
+                  - DataNumber:
+                      U8: 0
+                - - IANA: FlowStartSysUpTime
+                  - DataNumber:
+                      U32: 4019387700
+                - - IANA: FlowEndSysUpTime
+                  - DataNumber:
+                      U32: 4019446700
+                - - IANA: NewConnectionDeltaCount
+                  - DataNumber:
+                      U32: 0
+                - - IANA: ConnectionSumDurationSeconds
+                  - DataNumber:
+                      U64: 59
+                - - IANA: ResponderOctets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: ResponderPackets
+                  - DataNumber:
+                      U64: 0
+                - - IANA: InitiatorOctets
+                  - DataNumber:
+                      U64: 1632
+                - - IANA: InitiatorPackets
+                  - DataNumber:
+                      U64: 68

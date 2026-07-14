@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 0313dcb8757d7c15ecd8a3af4a0489043408c891a7fb87e6caf643ec7bde8e7d # shrinks to eth = Ethernet2Header { source: [0, 2, 50, 70, 120, 132], destination: [225, 162, 116, 209, 135, 44], ether_type: 0x0001 }
+cc c4709ecdb8cc8ad815bd2e4e5d31d149c4a29c0e9ad2bd5e64164df59c42b871 # shrinks to eth = Ethernet2Header { source: [0, 0, 0, 0, 0, 0], destination: [0, 0, 0, 7, 128, 191], ether_type: 0x0001 }
+cc 51e35db4df6e551682b7047b57e72d8e884a9c61b3f3738c6ec65f0277515337 # shrinks to eth = Ethernet2Header { source: [3, 10, 170, 46, 204, 204], destination: [94, 67, 48, 133, 64, 179], ether_type: 0x0001 }

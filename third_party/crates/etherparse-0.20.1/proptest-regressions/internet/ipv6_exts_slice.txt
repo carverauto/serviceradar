@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 925b9a2a0ec5a0f366aebbadd60534e57feb06ff69477bf7d18e5fa85168aee3 # shrinks to header_size = 0, post_header = 52 (I-NLSP - Integrated Net Layer Security  TUBA)

@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 851d44d91acc679380cc543da5c9c124ada08859a988834338417d6e186c45bc # shrinks to arp_eth_ipv4 = ArpEthIpv4Packet { operation: ArpOperation(0), sender_mac: [0, 0, 0, 0, 0, 0], sender_ipv4: [0, 0, 0, 0], target_mac: [0, 0, 0, 0, 0, 0], target_ipv4: [0, 0, 0, 0] }

@@ -28,9 +28,9 @@ rust_library(
     crate_root = "src/lib.rs",
     edition = "2021",
     deps = [
-        "@rust_crates//:serde",
-        "@rust_crates//:serde_json-1.0.150",
-        "@rust_crates//:zeroize",
+        "//third_party/crates:serde",
+        "//third_party/crates:serde_json-1.0.150",
+        "//third_party/crates:zeroize",
     ],
 )
 
@@ -45,11 +45,9 @@ rust_library(
     crate_root = "src/lib.rs",
     edition = "2021",
     deps = [
-        "@rust_crates//:ironrdp-core",
-        "@rust_crates//:ironrdp-pdu",
-        "@rust_crates//:serde",
-        "@rust_crates//:serde_json-1.0.150",
-        "@rust_crates//:zeroize",
+        "//third_party/crates:serde",
+        "//third_party/crates:serde_json-1.0.150",
+        "//third_party/crates:zeroize",
     ],
 )
 

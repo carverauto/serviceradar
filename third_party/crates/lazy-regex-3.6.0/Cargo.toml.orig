@@ -1,0 +1,42 @@
+[package]
+name = "lazy-regex"
+version = "3.6.0"
+authors = ["Canop <cano.petrole@gmail.com>"]
+edition = "2021"
+description = "lazy static regular expressions checked at compile time"
+keywords = ["macro", "lazy", "static", "regex"]
+license = "MIT"
+categories = ["text-processing"]
+repository = "https://github.com/Canop/lazy-regex"
+readme = "README.md"
+rust-version = "1.71"
+
+[dependencies]
+once_cell = "1.21"
+regex = {version = "1.12", default-features = false, optional = true}
+regex-lite = {version = "0.1", optional = true}
+
+[dependencies.lazy-regex-proc_macros]
+path = "src/proc_macros"
+version = "3.6.0"
+
+[features]
+default = ["regex/default"]
+std = ["regex/std"]
+lite = ["regex-lite"]
+perf = ["regex/perf"]
+perf-cache = ["regex/perf-cache"]
+perf-dfa = ["regex/perf-dfa"]
+perf-inline = ["regex/perf-inline"]
+perf-literal = ["regex/perf-literal"]
+unicode = ["regex/unicode"]
+unicode-age = ["regex/unicode-age"]
+unicode-bool = ["regex/unicode-bool"]
+unicode-case = ["regex/unicode-case"]
+unicode-gencat = ["regex/unicode-gencat"]
+unicode-perl = ["regex/unicode-perl"]
+unicode-script = ["regex/unicode-script"]
+unicode-segment = ["regex/unicode-segment"]
+
+[workspace]
+members = ["src/proc_macros", "examples/regexes"]

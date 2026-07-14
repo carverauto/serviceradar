@@ -1,0 +1,83 @@
+[package]
+name = "whoami"
+version = "2.1.2"
+edition = "2021"
+license = "Apache-2.0 OR BSL-1.0 OR MIT"
+documentation = "https://docs.rs/whoami"
+homepage = "https://github.com/ardaku/whoami/releases"
+repository = "https://github.com/ardaku/whoami"
+readme = "../README.md"
+description = "Rust library for getting information about the current user and environment"
+keywords = ["user", "username", "whoami", "platform", "detect"]
+categories = [
+    "os",
+    "wasm",
+    "internationalization",
+    "localization",
+    "value-formatting",
+]
+include = [
+    "LICENSE_APACHE",
+    "LICENSE_BOOST",
+    "LICENSE_MIT",
+    "../README.md",
+    "/src/*",
+]
+rust-version = "1.75"
+
+# Target-specific dependency for apple
+[target.'cfg(target_vendor = "apple")'.dependencies.objc2-system-configuration]
+version = "0.3.2"
+optional = true
+features = ["SCDynamicStore", "SCDynamicStoreCopySpecific"]
+default-features = false
+
+# Target-specific dependency for unix-like
+[target.'cfg(all(any(target_vendor = "apple", target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "illumos", target_os = "hurd"), not(target_arch = "wasm32")))'.dependencies.libc]
+version = "0.2.186"
+optional = true
+features = []
+default-features = false
+
+# Target-specific dependency for redox
+[target.'cfg(all(target_os = "redox", not(target_arch = "wasm32")))'.dependencies.libredox]
+version = "0.1.16"
+optional = true
+features = ["call"]
+default-features = false
+
+# Target-specific dependency for wasite
+[target.'cfg(all(target_arch = "wasm32", target_os = "wasi"))'.dependencies.wasite]
+version = "1.0.2"
+optional = true
+features = []
+default-features = false
+
+# Target-specific dependency for web browser
+[target.'cfg(all(target_arch = "wasm32", not(target_os = "wasi"), not(daku)))'.dependencies.web-sys]
+version = "0.3.85"
+optional = true
+features = ["Navigator", "Document", "Window", "Location"]
+default-features = false
+
+[features]
+default = ["std", "wasi-wasite", "wasm-web"]
+
+# Instead of interfacing with the OS, force stubs to be used
+force-stub = []
+# Allow interfacing with the standard library and OS.
+std = [
+    "dep:libc",
+    "dep:libredox",
+    "dep:objc2-system-configuration",
+    "libc?/std",
+    "web-sys?/std",
+]
+# Assume a wasite conforming environment on WASI (takes precedence over
+# `wasm-web`).
+wasi-wasite = ["dep:wasite"]
+# Assume a web environment where whoami can call DOM APIs on WASM.
+wasm-web = ["dep:web-sys"]
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(daku)'] }

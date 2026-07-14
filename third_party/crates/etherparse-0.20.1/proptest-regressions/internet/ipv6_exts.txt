@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 8241e4aed6355dae62ebffd014e532bc315a4795977336d48b8ed9b83ae04d6f # shrinks to header_size = 0, post_header = 1 (ICMP - Internet Control Message)

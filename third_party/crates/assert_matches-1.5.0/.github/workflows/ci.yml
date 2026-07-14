@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  pull_request:
+    paths:
+      - '**.rs'
+      - '**.toml'
+      - '.github/workflows/ci.yml'
+  push:
+    branches: [master]
+    paths:
+      - '**.rs'
+      - '**.toml'
+      - '.github/workflows/ci.yml'
+
+jobs:
+  Test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v1
+    - uses: hecrj/setup-rust-action@v1
+
+    - name: Build
+      run: cargo build --verbose
+
+    - name: Test
+      run: cargo test --verbose
+
+    env:
+      RUST_BACKTRACE: 1
+      RUST_INCREMENTAL: 0
+      RUSTFLAGS: "-C debuginfo=0"

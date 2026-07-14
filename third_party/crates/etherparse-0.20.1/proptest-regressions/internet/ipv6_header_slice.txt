@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 10a03f9d86ad9fc6a192d9086246d29f800e3d0b526f3835a44babeeca3085dc # shrinks to header = Ipv6Header { traffic_class: 163, flow_label: 522586, payload_length: 32529, next_header: 18, hop_limit: 5, source: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], destination: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 37, 225] }

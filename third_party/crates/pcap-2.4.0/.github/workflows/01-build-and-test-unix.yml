@@ -1,0 +1,73 @@
+on:
+  workflow_call:
+    inputs:
+      os:
+        required: true
+        type: string
+      toolchain:
+        required: true
+        type: string
+      msrv:
+        required: false
+        default: false
+        type: boolean
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_VERBOSE: true
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-test:
+    runs-on: ${{ inputs.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - if: ${{ contains(inputs.os, 'ubuntu') }}
+        run: sudo apt-get install libpcap-dev
+      - if: ${{ contains(inputs.os, 'macos') }}
+        run: brew install libpcap
+      - run: |
+          rustup update --no-self-update ${{ inputs.toolchain }}
+          rustup override set ${{ inputs.toolchain }}
+      - if: inputs.msrv
+        run: cp msrv.lock Cargo.lock
+      - name: 'LIBPCAP_VER: 1.0.0'
+        run: cargo build --lib --tests
+        env:
+          LIBPCAP_VER: '1.0.0'
+      - name: 'LIBPCAP_VER: 1.2.1'
+        run: cargo build --lib --tests
+        env:
+          LIBPCAP_VER: '1.2.1'
+      - name: 'LIBPCAP_VER: 1.5.0'
+        run: cargo build --lib --tests
+        env:
+          LIBPCAP_VER: '1.5.0'
+      - name: 'LIBPCAP_VER: 1.5.3'
+        run: cargo build --lib --tests
+        env:
+          LIBPCAP_VER: '1.5.3'
+      - name: 'LIBPCAP_VER: 1.7.2'
+        run: cargo build --lib --tests
+        env:
+          LIBPCAP_VER: '1.7.2'
+      - name: 'LIBPCAP_VER: 1.9.0'
+        run: cargo build --lib --tests
+        env:
+          LIBPCAP_VER: '1.9.0'
+      - name: 'LIBPCAP_VER: 1.9.1'
+        run: cargo build --lib --tests
+        env:
+          LIBPCAP_VER: '1.9.1'
+      - run: cargo build --all-targets
+      - run: cargo test  --all-targets
+      - run: cargo build --all-targets --release
+      - run: cargo test  --all-targets --release
+      - if: ${{ ! inputs.msrv }}
+        run: cargo build --all-targets           --all-features
+      - if: ${{ ! inputs.msrv}}
+        run: cargo test  --all-targets           --all-features
+      - if: ${{ ! inputs.msrv }}
+        run: cargo build --all-targets --release --all-features
+      - if: ${{ ! inputs.msrv}}
+        run: cargo test  --all-targets --release --all-features

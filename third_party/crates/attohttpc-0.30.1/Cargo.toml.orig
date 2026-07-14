@@ -1,0 +1,127 @@
+[package]
+authors = ["Simon Bernier St-Pierre <git.sbstp.ca@gmail.com>"]
+edition = "2021"
+license = "MPL-2.0"
+name = "attohttpc"
+version = "0.30.1"
+
+categories = [
+    "network-programming",
+    "web-programming",
+    "web-programming::http-client",
+]
+description = "Small and lightweight HTTP client"
+documentation = "https://docs.rs/attohttpc"
+homepage = "https://github.com/sbstp/attohttpc"
+keywords = ["http", "https", "client", "request", "response"]
+readme = "README.md"
+repository = "https://github.com/sbstp/attohttpc"
+
+[dependencies]
+base64 = { version = "0.22.0" }
+encoding_rs = { version = "0.8.31", optional = true }
+encoding_rs_io = { version = "0.1.7", optional = true }
+flate2 = { version = "1.0.24", default-features = false, optional = true }
+http = "1"
+log = "0.4.17"
+mime = { version = "0.3.16", optional = true }
+mime_guess = { version = "2.0.5", optional = true }
+native-tls = { version = "0.2.10", optional = true }
+rand = { version = "0.9.0", optional = true }
+rustls-native-certs = { version = "0.8.1", optional = true }
+rustls = { version = "0.23.22", default-features = false, optional = true }
+serde = { version = "1.0.143", optional = true }
+serde_json = { version = "1.0.83", optional = true }
+serde_urlencoded = { version = "0.7.1", optional = true }
+url = "2.2.2"
+webpki-roots = { version = "1.0.1", optional = true }
+
+[dev-dependencies]
+anyhow = "1.0.61"
+axum = { version = "0.8.1", features = ["multipart"] }
+axum-server = { version = "0.7.1", features = ["tls-rustls"] }
+bytes = "1.10.0"
+env_logger = "0.11.0"
+http-body-util = "0.1.2"
+hyper = { version = "1.6.0", features = ["full"] }
+hyper-util = "0.1.10"
+lazy_static = "1.4.0"
+rustls = "0.23.22"
+tokio = { version = "1.20.1", features = ["full"] }
+tokio-rustls = "0.26.1"
+
+[features]
+basic-auth = []
+charsets = ["encoding_rs", "encoding_rs_io"]
+# The following three compress features are mutually exclusive.
+compress = ["flate2/default"]
+compress-zlib = ["flate2/zlib"]
+compress-zlib-ng = ["flate2/zlib-ng"]
+default = ["compress", "tls-native"]
+form = ["serde", "serde_urlencoded"]
+json = ["serde", "serde_json"]
+multipart-form = ["mime", "mime_guess", "rand"]
+single-threaded = []
+# The following TLS features are mutually exclusive
+tls-native = ["native-tls"]
+tls-rustls-webpki-roots = ["__rustls", "webpki-roots"]
+tls-rustls-native-roots = ["__rustls", "rustls-native-certs"]
+tls-rustls-webpki-roots-ring = ["__rustls-ring", "webpki-roots"]
+tls-rustls-native-roots-ring = ["__rustls-ring", "rustls-native-certs"]
+# This feature depends on tls-native
+tls-native-vendored = ["native-tls/vendored"]
+# These features are provided for backwards compatibility
+tls = ["tls-native"]
+tls-rustls = ["tls-rustls-webpki-roots"]
+tls-vendored = ["tls-native-vendored"]
+# Internal feature used to indicate rustls support
+__rustls = ["dep:rustls", "rustls/default"]
+__rustls-ring = ["rustls/ring", "rustls/std", "rustls/tls12"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[[example]]
+name = "cat"
+path = "examples/cat.rs"
+required-features = ["default"]
+
+[[example]]
+name = "imdb"
+path = "examples/imdb.rs"
+required-features = ["tls-native"]
+
+[[example]]
+name = "nhlapi"
+path = "examples/nhlapi.rs"
+required-features = ["tls-native"]
+
+[[example]]
+name = "post_json"
+path = "examples/post_json.rs"
+required-features = ["json"]
+
+[[example]]
+name = "post"
+path = "examples/post.rs"
+required-features = ["tls-native"]
+
+[[example]]
+name = "charset"
+path = "examples/charset.rs"
+required-features = ["charsets"]
+
+[[example]]
+name = "multipart"
+path = "examples/multipart.rs"
+required-features = ["multipart-form"]
+
+[[test]]
+name = "test_invalid_certs"
+path = "tests/test_invalid_certs.rs"
+required-features = ["tls-native"]
+
+[[test]]
+name = "test_multipart"
+path = "tests/test_multipart.rs"
+required-features = ["multipart-form"]
