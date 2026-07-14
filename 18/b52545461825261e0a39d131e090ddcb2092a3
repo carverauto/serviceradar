@@ -1,0 +1,71 @@
+openspec/changes/add-causal-security-detections/proposal.md
+  s_6f8eb423821667::t_5d0ae67b1cc162 1-28
+openspec/changes/add-identity-asset-flow-bridge/specs/identity-asset-flow-bridge/spec.md
+  s_6f8eb423821667::t_59063a5d16f23e 1-62
+openspec/changes/add-causal-detection-feedback/specs/causal-attack-technique-tagging/spec.md
+  s_6f8eb423821667::t_059bfbfdefc76e 1-31
+openspec/changes/add-identity-asset-flow-bridge/proposal.md
+  s_6f8eb423821667::t_bbce5badec0e67 1-19
+openspec/changes/add-causal-detection-feedback/design.md
+  s_6f8eb423821667::t_a5ad518c6dbc55 1-100
+openspec/changes/add-causal-detection-feedback/tasks.md
+  s_6f8eb423821667::t_c6c37a686361ce 1-68
+openspec/changes/add-causal-security-detections/specs/causal-security-context/spec.md
+  s_6f8eb423821667::t_6037c279ad7e81 1-61
+openspec/changes/add-causal-security-foundation/design.md
+  s_6f8eb423821667::t_b9be3fc30547ac 1-144
+openspec/changes/add-causal-detection-feedback/specs/causal-detection-feedback/spec.md
+  s_6f8eb423821667::t_653516b7b14209 1-63
+openspec/changes/add-identity-asset-flow-bridge/tasks.md
+  s_6f8eb423821667::t_61c4b6756bd232 1-66
+openspec/changes/add-identity-asset-flow-bridge/design.md
+  s_6f8eb423821667::t_bef994923c8f4c 1-138
+openspec/changes/add-causal-mitigation/tasks.md
+  s_6f8eb423821667::t_dd61741773422c 1-58
+openspec/changes/add-identity-asset-flow-bridge/specs/causal-attack-path-simulation/spec.md
+  s_6f8eb423821667::t_2028343ef7fde7 1-56
+openspec/changes/add-causal-security-detections/specs/causal-security-detections/spec.md
+  s_6f8eb423821667::t_fe8adfb869d57f 1-136
+openspec/changes/add-causal-mitigation/specs/causal-mitigation-authority/spec.md
+  s_6f8eb423821667::t_b573946cb7c438 1-111
+openspec/changes/add-causal-security-detections/design.md
+  s_6f8eb423821667::t_4c13b57b781df2 1-123
+openspec/changes/add-causal-mitigation/specs/causal-online-correction/spec.md
+  s_6f8eb423821667::t_f06ab2cf239a00 1-45
+openspec/changes/add-causal-security-foundation/specs/causal-security-observations/spec.md
+  s_6f8eb423821667::t_3354c64cb3d42d 1-24,29-58
+  s_6f8eb423821667::t_9bca57652c2d4c 25-28
+openspec/changes/add-causal-detection-feedback/proposal.md
+  s_6f8eb423821667::t_9030310000b3ee 1-71
+openspec/changes/add-causal-mitigation/proposal.md
+  s_6f8eb423821667::t_eb85499a02c860 1-32
+openspec/changes/add-causal-mitigation/specs/causal-mitigation-actions/spec.md
+  s_6f8eb423821667::t_2d88d72d04ecf1 15-21
+  s_6f8eb423821667::t_3eab14cd5eee25 1-14,22-46
+openspec/changes/add-causal-security-detections/tasks.md
+  s_6f8eb423821667::t_3c51aad4a831aa 1-50
+openspec/changes/add-causal-security-foundation/tasks.md
+  s_6f8eb423821667::t_6787e56be34d1c 1-97
+openspec/changes/add-causal-security-foundation/specs/causal-security-reasoning/spec.md
+  s_6f8eb423821667::t_a9afcb7bc9f789 1-119
+openspec/changes/add-causal-mitigation/design.md
+  s_6f8eb423821667::t_c718bbb7dbb9df 1-185
+openspec/changes/add-causal-security-foundation/proposal.md
+  s_6f8eb423821667::t_01a13b4df2a93e 1-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "18b52545461825261e0a39d131e090ddcb2092a3",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
