@@ -12,6 +12,10 @@ defmodule ServiceRadar.Automation.Ansible.PreflightSnapshotPersistenceTest do
     :immutable_launch_snapshot,
     :immutable_launch_snapshot_digest
   ]
+  @mutable_actions %{
+    AutomationOperation => [:record_state, :request_cancel],
+    AutomationExecution => [:record_state, :bind_job, :record_scope_verified]
+  }
   @migration_path
     "priv/repo/migrations/20260714160200_add_automation_preflight_snapshot_evidence.exs"
 
@@ -21,7 +25,7 @@ defmodule ServiceRadar.Automation.Ansible.PreflightSnapshotPersistenceTest do
 
       assert MapSet.subset?(MapSet.new(@attestation_fields), MapSet.new(create.accept))
 
-      for action_name <- [:record_state] do
+      for action_name <- Map.fetch!(@mutable_actions, resource) do
         action = Info.action(resource, action_name)
 
         refute Enum.any?(@attestation_fields, &(&1 in action.accept))
@@ -38,15 +42,6 @@ defmodule ServiceRadar.Automation.Ansible.PreflightSnapshotPersistenceTest do
       refute attributes.immutable_launch_snapshot.public?
       refute attributes.immutable_launch_snapshot_digest.public?
     end
-
-    refute :preflight_evidence_id in Info.action(AutomationExecution, :bind_job).accept
-    refute :immutable_launch_snapshot in Info.action(AutomationExecution, :bind_job).accept
-
-    refute :preflight_evidence_id in
-             Info.action(AutomationExecution, :record_scope_verified).accept
-
-    refute :immutable_launch_snapshot_digest in
-             Info.action(AutomationExecution, :record_scope_verified).accept
   end
 
   test "both resources mirror the database pair constraint" do
