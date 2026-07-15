@@ -108,6 +108,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
         "credential_ids" => binding.credential_ids,
         "machine_credential_id" => binding.machine_credential_id,
         "ask_credential_on_launch" => binding.ask_credential_on_launch,
+        "dispatch_marker_contract" => binding.dispatch_marker_contract,
         "callback_credential_type_id" => binding.callback_credential_type_id,
         "callback_credential_organization_id" => binding.callback_credential_organization_id,
         "callback_credential_injector_digest" => binding.callback_credential_injector_digest,

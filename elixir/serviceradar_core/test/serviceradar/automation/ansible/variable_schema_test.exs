@@ -106,6 +106,21 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchemaTest do
       assert hd(vars).name == "ok"
     end
 
+    test "AWX dispatcher markers never become operator inputs" do
+      playbook = %{
+        source_type: :awx,
+        survey_spec: %{
+          "spec" => [
+            %{"variable" => "serviceradar_dispatch_id", "type" => "text"},
+            %{"variable" => "ServiceRadar_Snapshot_Digest", "type" => "text"},
+            %{"variable" => "package_version", "type" => "text"}
+          ]
+        }
+      }
+
+      assert [%Var{name: "package_version"}] = VariableSchema.from_playbook(playbook)
+    end
+
     test "AWX multiplechoice with comma-separated choices also parses" do
       playbook = %{
         source_type: :awx,

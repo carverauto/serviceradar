@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlanTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Automation.Ansible.DispatchMarkerContract
   alias ServiceRadar.Automation.Ansible.HardenedLaunchPlan
   alias ServiceRadar.Automation.Ansible.VariableSchema.Var
 
@@ -51,6 +52,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlanTest do
         inventory_group_names: ["linux"],
         ask_limit_on_launch: true,
         dispatch_markers_retained: true,
+        dispatch_marker_contract: DispatchMarkerContract.contract(),
         project_update_on_launch: false,
         project_id: 3,
         scm_revision: String.duplicate("a", 40),

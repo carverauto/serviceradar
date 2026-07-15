@@ -2822,7 +2822,9 @@ func projectAWXSurveyField(raw json.RawMessage) (map[string]any, string, bool) {
 	question, questionOK := reviewedRawText(field["question_name"], maxAWXSurveyQuestionBytes, true)
 	fieldType, typeOK := rawString(field["type"])
 	required, requiredOK := rawBool(field["required"])
-	if !variableOK || !reviewedAWXSurveyVariable(variable) || !questionOK || !typeOK ||
+	markerLength, marker := awxDispatchMarkerLength(variable)
+	if !variableOK || (!marker && !reviewedAWXSurveyVariable(variable)) ||
+		(marker && variable != strings.ToLower(variable)) || !questionOK || !typeOK ||
 		!stringIn(fieldType, "text", "textarea", "integer", "float", "multiplechoice", "multiselect") ||
 		!requiredOK {
 		return nil, "", false
@@ -2842,6 +2844,11 @@ func projectAWXSurveyField(raw json.RawMessage) (map[string]any, string, bool) {
 	if !choicesOK || !minOK || !maxOK || !descriptionOK || (hasMin && hasMax && minFloat > maxFloat) {
 		return nil, "", false
 	}
+	if marker && (fieldType != "text" || !required || !hasMin || !hasMax ||
+		minFloat != float64(markerLength) || maxFloat != float64(markerLength) ||
+		!emptyAWXSurveyChoices(field["choices"]) || !emptyAWXSurveyDefault(field["default"])) {
+		return nil, "", false
+	}
 	if hasChoices {
 		safe["choices"] = choices
 	}
@@ -2855,6 +2862,36 @@ func projectAWXSurveyField(raw json.RawMessage) (map[string]any, string, bool) {
 		safe["question_description"] = description
 	}
 	return safe, variable, true
+}
+
+func awxDispatchMarkerLength(value string) (int, bool) {
+	switch strings.ToLower(value) {
+	case "serviceradar_dispatch_id":
+		return 36, true
+	case "serviceradar_snapshot_digest":
+		return 64, true
+	default:
+		return 0, false
+	}
+}
+
+func emptyAWXSurveyChoices(raw json.RawMessage) bool {
+	if len(raw) == 0 || string(raw) == "null" {
+		return true
+	}
+	if text, ok := rawString(raw); ok {
+		return text == ""
+	}
+	var values []string
+	return json.Unmarshal(raw, &values) == nil && len(values) == 0
+}
+
+func emptyAWXSurveyDefault(raw json.RawMessage) bool {
+	if len(raw) == 0 || string(raw) == "null" {
+		return true
+	}
+	value, ok := rawString(raw)
+	return ok && value == ""
 }
 
 func reviewedAWXSurveyVariable(value string) bool {

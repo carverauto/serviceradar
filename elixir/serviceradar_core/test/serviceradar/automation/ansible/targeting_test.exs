@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Automation.Ansible.TargetingTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Automation.Ansible.DispatchMarkerContract
   alias ServiceRadar.Automation.Ansible.Targeting
 
   defp membership(overrides \\ %{}) do
@@ -190,6 +191,7 @@ defmodule ServiceRadar.Automation.Ansible.TargetingTest do
           inventory_id: 34,
           ask_limit_on_launch: true,
           dispatch_markers_retained: true,
+          dispatch_marker_contract: DispatchMarkerContract.contract(),
           project_update_on_launch: false,
           project_id: 3,
           scm_revision: String.duplicate("a", 40),
@@ -231,6 +233,13 @@ defmodule ServiceRadar.Automation.Ansible.TargetingTest do
       assert {:error, :binding_dispatch_markers_unverified} =
                Targeting.validate_binding(
                  reviewed_binding(%{dispatch_markers_retained: false}),
+                 plan,
+                 :run
+               )
+
+      assert {:error, :binding_dispatch_marker_contract_required} =
+               Targeting.validate_binding(
+                 reviewed_binding(%{dispatch_marker_contract: %{}}),
                  plan,
                  :run
                )

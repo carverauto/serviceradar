@@ -2883,7 +2883,6 @@ func TestProjectAWXSurveyRejectsSensitiveReservedPasswordAndOversizedSpecs(t *te
 		{name: "numeric password suffix", variable: "password1", kind: "text"},
 		{name: "camel credential value", variable: "credentialValue", kind: "text"},
 		{name: "ansible reserved", variable: "ansible_password", kind: "text"},
-		{name: "dispatch reserved", variable: "serviceradar_dispatch_id", kind: "text"},
 		{name: "magic variable", variable: "inventory_hostname", kind: "text"},
 		{name: "callback reserved", variable: "callback_url", kind: "text"},
 		{name: "password type", variable: "safe_name", kind: "password"},
@@ -2913,6 +2912,88 @@ func TestProjectAWXSurveyRejectsSensitiveReservedPasswordAndOversizedSpecs(t *te
 			t.Fatalf("legitimate survey field %q was rejected", variable)
 		}
 	}
+}
+
+func TestProjectAWXSurveyAcceptsOnlyExactDispatchMarkerFields(t *testing.T) {
+	dispatch := map[string]any{
+		"variable":             "serviceradar_dispatch_id",
+		"question_name":        "ServiceRadar dispatch ID",
+		"question_description": "Injected by ServiceRadar",
+		"type":                 "text",
+		"required":             true,
+		"choices":              "",
+		"min":                  36,
+		"max":                  36,
+		"default":              "",
+	}
+	snapshot := map[string]any{
+		"variable":      "serviceradar_snapshot_digest",
+		"question_name": "ServiceRadar snapshot digest",
+		"type":          "text",
+		"required":      true,
+		"choices":       []string{},
+		"min":           64,
+		"max":           64,
+		"default":       nil,
+	}
+
+	body, err := json.Marshal(map[string]any{"spec": []any{dispatch, snapshot}})
+	if err != nil {
+		t.Fatalf("encode exact marker survey: %v", err)
+	}
+	projected, ok := projectAWXSurvey(body)
+	if !ok {
+		t.Fatal("exact restricted marker survey was rejected")
+	}
+	fields, ok := projected["spec"].([]map[string]any)
+	if !ok || len(fields) != 2 {
+		t.Fatalf("unexpected projected marker fields: %#v", projected["spec"])
+	}
+	for _, field := range fields {
+		if _, leaked := field["default"]; leaked {
+			t.Fatalf("marker default leaked into projection: %#v", field)
+		}
+	}
+
+	invalid := []struct {
+		name  string
+		field map[string]any
+	}{
+		{name: "not required", field: cloneSurveyField(dispatch, "required", false)},
+		{name: "wrong type", field: cloneSurveyField(dispatch, "type", "textarea")},
+		{name: "missing minimum", field: deleteSurveyField(dispatch, "min")},
+		{name: "short minimum", field: cloneSurveyField(dispatch, "min", 35)},
+		{name: "long maximum", field: cloneSurveyField(dispatch, "max", 37)},
+		{name: "nonempty choice", field: cloneSurveyField(dispatch, "choices", "operator")},
+		{name: "nonempty default", field: cloneSurveyField(dispatch, "default", "operator-controlled")},
+		{name: "case variant", field: cloneSurveyField(dispatch, "variable", "ServiceRadar_Dispatch_ID")},
+	}
+	for _, test := range invalid {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := json.Marshal(map[string]any{"spec": []any{test.field, snapshot}})
+			if err != nil {
+				t.Fatalf("encode invalid marker survey: %v", err)
+			}
+			if _, ok := projectAWXSurvey(body); ok {
+				t.Fatalf("invalid marker survey field was accepted: %#v", test.field)
+			}
+		})
+	}
+}
+
+func cloneSurveyField(field map[string]any, key string, value any) map[string]any {
+	copy := make(map[string]any, len(field))
+	for fieldKey, fieldValue := range field {
+		copy[fieldKey] = fieldValue
+	}
+	copy[key] = value
+	return copy
+}
+
+func deleteSurveyField(field map[string]any, key string) map[string]any {
+	copy := cloneSurveyField(field, key, nil)
+	delete(copy, key)
+	return copy
 }
 
 func TestRelativizeAWXPath(t *testing.T) {

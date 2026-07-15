@@ -8,6 +8,7 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
   ServiceRadar control plane and rebuilds fresh maps from those fields.
   """
 
+  alias ServiceRadar.Automation.Ansible.DispatchMarkerContract
   alias ServiceRadar.Automation.Ansible.Targeting
   alias ServiceRadar.Automation.Ansible.VariableSchema
 
@@ -477,7 +478,7 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
 
   defp survey_field(field) when is_map(field) do
     with variable when is_binary(variable) <- value(field, :variable),
-         true <- VariableSchema.reviewed_input_name?(variable),
+         true <- reviewed_or_dispatcher_owned_survey_field?(field, variable),
          {:ok, question_name} <- bounded_text(value(field, :question_name), 512),
          {:ok, type} <- enum(value(field, :type), @survey_types),
          {:ok, required?} <- boolean(value(field, :required)),
@@ -503,6 +504,14 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
   end
 
   defp survey_field(_field), do: :error
+
+  defp reviewed_or_dispatcher_owned_survey_field?(field, variable) do
+    case DispatchMarkerContract.validate_survey_field(field) do
+      :ok -> true
+      :not_marker -> VariableSchema.reviewed_input_name?(variable)
+      {:error, _reason} -> false
+    end
+  end
 
   defp unique_survey_variables?(fields) do
     names = Enum.map(fields, &String.downcase(&1["variable"]))

@@ -18,6 +18,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Automation.Ansible.DispatchMarkerContract
   alias ServiceRadar.Automation.Ansible.VariableSchema
   alias ServiceRadar.Automation.CallbackGrants.LaunchContract
   alias ServiceRadar.Policies.Checks.ActorHasPermission
@@ -44,7 +45,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
                           "awx_snapshot_digest",
                           "policy_version",
                           "source_ref",
-                          "callback_contract"
+                          "callback_contract",
+                          "dispatch_marker_contract"
                         ])
 
   postgres do
@@ -225,8 +227,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
            :ok <- validate_credentials(changeset),
            :ok <- validate_inventory_groups(changeset),
            :ok <- validate_input_contract(changeset),
-           :ok <- validate_review_metadata(changeset) do
-        validate_callback_contract(changeset)
+           :ok <- validate_review_metadata(changeset),
+           :ok <- validate_callback_contract(changeset) do
+        validate_dispatch_marker_contract(changeset)
       end
     end
   end
@@ -752,6 +755,24 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
 
       true ->
         :ok
+    end
+  end
+
+  # Lifecycle updates cannot rewrite reviewed fields. Keep legacy bindings
+  # revocable/expirable while requiring the restricted marker channel on every
+  # newly reviewed binding version.
+  defp validate_dispatch_marker_contract(%{action_type: :update}), do: :ok
+
+  defp validate_dispatch_marker_contract(changeset) do
+    case DispatchMarkerContract.from_review_metadata(attribute(changeset, :review_metadata)) do
+      {:ok, _contract} ->
+        :ok
+
+      {:error, _reason} ->
+        invalid(
+          :review_metadata,
+          "must contain the exact restricted AWX survey dispatch-marker contract"
+        )
     end
   end
 

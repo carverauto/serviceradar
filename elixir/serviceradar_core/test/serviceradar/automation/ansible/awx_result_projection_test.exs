@@ -234,7 +234,6 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjectionTest do
           "password",
           "api_token",
           "ansible_password",
-          "serviceradar_dispatch_id",
           "inventory_hostname",
           "callback_url"
         ] do
@@ -244,6 +243,64 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjectionTest do
 
     password = put_in(payload, ["survey_spec", "spec", Access.at(0), "type"], "password")
     assert :error = AWXResultProjection.project("awx.fetch_template", password)
+  end
+
+  test "fetch-template projects only exact dispatcher-owned marker survey fields" do
+    marker_fields = [
+      %{
+        "variable" => "serviceradar_dispatch_id",
+        "question_name" => "ServiceRadar dispatch ID",
+        "question_description" => "Injected by ServiceRadar",
+        "type" => "text",
+        "required" => true,
+        "choices" => "",
+        "min" => 36,
+        "max" => 36,
+        "default" => ""
+      },
+      %{
+        "variable" => "serviceradar_snapshot_digest",
+        "question_name" => "ServiceRadar snapshot digest",
+        "type" => "text",
+        "required" => true,
+        "choices" => "",
+        "min" => 64,
+        "max" => 64,
+        "default" => nil
+      }
+    ]
+
+    payload = %{
+      "verb" => "awx.fetch_template",
+      "ok" => true,
+      "template_id" => 78,
+      "template" =>
+        valid_template()
+        |> Map.put("survey_enabled", true)
+        |> Map.put("ask_variables_on_launch", false),
+      "survey_spec" => %{"spec" => marker_fields}
+    }
+
+    assert {:ok, safe} = AWXResultProjection.project("awx.fetch_template", payload)
+
+    assert Enum.map(safe["survey_spec"]["spec"], & &1["variable"]) == [
+             "serviceradar_dispatch_id",
+             "serviceradar_snapshot_digest"
+           ]
+
+    refute inspect(safe) =~ "default"
+
+    for invalid <- [
+          put_in(payload, ["survey_spec", "spec", Access.at(0), "required"], false),
+          put_in(payload, ["survey_spec", "spec", Access.at(0), "max"], 128),
+          put_in(
+            payload,
+            ["survey_spec", "spec", Access.at(1), "default"],
+            "operator-controlled"
+          )
+        ] do
+      assert :error = AWXResultProjection.project("awx.fetch_template", invalid)
+    end
   end
 
   test "aggregate projection budget rejects individually valid oversized surveys" do

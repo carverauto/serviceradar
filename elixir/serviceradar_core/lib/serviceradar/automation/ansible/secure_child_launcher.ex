@@ -19,6 +19,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
+  alias ServiceRadar.Automation.Ansible.DispatchMarkerContract
   alias ServiceRadar.Automation.Ansible.HardenedLaunchPlan
   alias ServiceRadar.Automation.Ansible.SecureChildLauncher.AshAdapter
   alias ServiceRadar.Automation.Ansible.Targeting
@@ -364,6 +365,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
          :ok <- binding_approval(binding, now),
          :ok <- binding_inventory(allowed_inventory_ids, scope.inventory_id),
          :ok <- binding_mode(binding, mode),
+         {:ok, dispatch_marker_contract} <-
+           DispatchMarkerContract.from_review_metadata(value(binding, :review_metadata)),
          {:ok, callback_contract} <- callback_contract(binding, callback_actions),
          {:ok, credential_ids} <- credential_ids(value(binding, :credentials)) do
       {:ok,
@@ -374,6 +377,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
          ask_limit_on_launch: value(binding, :ask_limit_on_launch),
          ask_credential_on_launch: value(binding, :ask_credential_on_launch),
          dispatch_markers_retained: value(binding, :dispatch_markers_retained),
+         dispatch_marker_contract: dispatch_marker_contract,
          project_update_on_launch: value(binding, :project_update_on_launch),
          project_id: value(binding, :project_id),
          scm_revision: value(binding, :scm_revision),

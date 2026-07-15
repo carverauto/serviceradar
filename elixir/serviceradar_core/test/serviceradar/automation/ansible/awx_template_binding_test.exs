@@ -4,6 +4,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
   alias Ash.Resource.Info
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.AwxTemplateBinding
+  alias ServiceRadar.Automation.Ansible.DispatchMarkerContract
 
   @system_actor SystemActor.system(:awx_template_binding_test)
   @catalog_viewer %{
@@ -70,6 +71,34 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
         ] do
       refute_valid(override, message)
     end
+  end
+
+  test "requires the exact restricted survey marker contract without opening extra_vars" do
+    contract = DispatchMarkerContract.contract()
+
+    assert contract["survey_enabled"] == true
+    assert contract["ask_variables_on_launch"] == false
+
+    refute_valid(
+      %{
+        review_metadata: %{
+          "review_ticket" => "SEC-1042",
+          "awx_snapshot_digest" => String.duplicate("c", 64)
+        }
+      },
+      "restricted AWX survey dispatch-marker contract"
+    )
+
+    refute_valid(
+      %{
+        review_metadata: %{
+          "review_ticket" => "SEC-1042",
+          "awx_snapshot_digest" => String.duplicate("c", 64),
+          "dispatch_marker_contract" => Map.put(contract, "ask_variables_on_launch", true)
+        }
+      },
+      "restricted AWX survey dispatch-marker contract"
+    )
   end
 
   test "requires exact inventory policy and reviewed mode prompt behavior" do
@@ -406,7 +435,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
   defp valid_review_metadata do
     %{
       "review_ticket" => "SEC-1042",
-      "awx_snapshot_digest" => String.duplicate("c", 64)
+      "awx_snapshot_digest" => String.duplicate("c", 64),
+      "dispatch_marker_contract" => DispatchMarkerContract.contract()
     }
   end
 
@@ -415,6 +445,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
       "review_ticket" => "SEC-1042",
       "awx_snapshot_digest" => String.duplicate("c", 64),
       "policy_version" => "ssh-policy-v1",
+      "dispatch_marker_contract" => DispatchMarkerContract.contract(),
       "callback_contract" => %{
         "schema" => "serviceradar.automation_callback_launch_contract/v1",
         "action" => "remote_access.ssh_ca.bundle.read",

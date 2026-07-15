@@ -9,6 +9,8 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
   when a tuple field is missing.
   """
 
+  alias ServiceRadar.Automation.Ansible.DispatchMarkerContract
+
   @host_token ~r/\A[A-Za-z0-9][A-Za-z0-9._-]{0,254}\z/
   @sha256_hex ~r/\A[0-9a-f]{64}\z/
   @scm_revision ~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/
@@ -140,6 +142,12 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
     callback_slot = value(binding, :callback_credential_slot)
     job_type = Atom.to_string(mode)
 
+    dispatch_marker_contract =
+      case DispatchMarkerContract.validate_contract(value(binding, :dispatch_marker_contract)) do
+        {:ok, contract} -> contract
+        {:error, _reason} -> nil
+      end
+
     cond do
       value(binding, :approval_state) != "approved" ->
         {:error, :binding_not_approved}
@@ -152,6 +160,9 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
 
       value(binding, :dispatch_markers_retained) != true ->
         {:error, :binding_dispatch_markers_unverified}
+
+      is_nil(dispatch_marker_contract) ->
+        {:error, :binding_dispatch_marker_contract_required}
 
       value(binding, :project_update_on_launch) != false ->
         {:error, :binding_project_is_mutable}
@@ -215,6 +226,7 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
            job_type: job_type,
            awx_created_by_id: positive_integer(value(binding, :awx_created_by_id)),
            ask_credential_on_launch: value(binding, :ask_credential_on_launch) == true,
+           dispatch_marker_contract: dispatch_marker_contract,
            callback_actions: callback_actions,
            callback_credential_type_id: callback_type_id,
            callback_credential_organization_id: callback_organization_id,

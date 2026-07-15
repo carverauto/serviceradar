@@ -26,6 +26,8 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchema do
   treatment).
   """
 
+  alias ServiceRadar.Automation.Ansible.DispatchMarkerContract
+
   defmodule Var do
     @moduledoc false
     defstruct [
@@ -278,6 +280,7 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchema do
     |> List.wrap()
     |> Enum.map(&awx_survey_entry/1)
     |> Enum.reject(&is_nil/1)
+    |> Enum.reject(&DispatchMarkerContract.reserved_name?(&1.name))
   end
 
   defp awx_survey_entry(%{} = entry) do
