@@ -217,8 +217,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
       case state do
         state when state in [:queued, :pending] ->
-          {:noreply,
-           schedule_policy_recovery_poll(socket, legacy_assignment_id, poll_ref, attempt)}
+          {:noreply, schedule_policy_recovery_poll(socket, legacy_assignment_id, poll_ref, attempt)}
 
         state when is_atom(state) ->
           {:noreply,
@@ -379,19 +378,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     {:noreply, assign(socket, :package_page, page)}
   end
 
-  def handle_event(
-        "import_first_party_catalog",
-        _params,
-        %{assigns: %{can_stage_plugins: false}} = socket
-      ) do
+  def handle_event("import_first_party_catalog", _params, %{assigns: %{can_stage_plugins: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to stage plugin packages.")}
   end
 
-  def handle_event(
-        "import_first_party_catalog",
-        _params,
-        %{assigns: %{import_running?: true}} = socket
-      ) do
+  def handle_event("import_first_party_catalog", _params, %{assigns: %{import_running?: true}} = socket) do
     {:noreply, socket}
   end
 
@@ -454,11 +445,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  def handle_event(
-        "create_package",
-        %{"create" => _params},
-        %{assigns: %{can_stage_plugins: false}} = socket
-      ) do
+  def handle_event("create_package", %{"create" => _params}, %{assigns: %{can_stage_plugins: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to stage plugin packages.")}
   end
 
@@ -561,8 +548,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
              |> put_flash(:error, "Config schema JSON is invalid")}
 
           {:error, error} ->
-            {:noreply,
-             put_flash(socket, :error, "Failed to import GitHub package: #{format_error(error)}")}
+            {:noreply, put_flash(socket, :error, "Failed to import GitHub package: #{format_error(error)}")}
         end
 
       _ ->
@@ -612,8 +598,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
              |> put_flash(:error, "Config schema JSON is invalid")}
 
           {:error, error} ->
-            {:noreply,
-             put_flash(socket, :error, "Failed to create package: #{format_error(error)}")}
+            {:noreply, put_flash(socket, :error, "Failed to create package: #{format_error(error)}")}
         end
     end
   end
@@ -656,11 +641,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
      |> assign_authenticated_partition_preview(form["agent_uid"])}
   end
 
-  def handle_event(
-        "approve_package",
-        %{"review" => _params},
-        %{assigns: %{can_approve_plugins: false}} = socket
-      ) do
+  def handle_event("approve_package", %{"review" => _params}, %{assigns: %{can_approve_plugins: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to approve plugin packages.")}
   end
 
@@ -687,12 +668,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         {:noreply, put_flash(socket, :error, message)}
 
       {:error, :verification_required} ->
-        {:noreply,
-         put_flash(socket, :error, "GitHub package must be GPG verified before approval")}
+        {:noreply, put_flash(socket, :error, "GitHub package must be GPG verified before approval")}
 
       {:error, :signature_required} ->
-        {:noreply,
-         put_flash(socket, :error, "Unsigned uploads are blocked by verification policy")}
+        {:noreply, put_flash(socket, :error, "Unsigned uploads are blocked by verification policy")}
 
       {:error, :trusted_upload_signers_not_configured} ->
         {:noreply,
@@ -743,9 +722,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     scope = socket.assigns.current_scope
     reason = socket.assigns.review_form["denied_reason"]
 
-    case Packages.revoke(socket.assigns.selected_package.id, %{denied_reason: reason},
-           scope: scope
-         ) do
+    case Packages.revoke(socket.assigns.selected_package.id, %{denied_reason: reason}, scope: scope) do
       {:ok, package} ->
         {:noreply,
          socket
@@ -763,11 +740,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     {:noreply, socket}
   end
 
-  def handle_event(
-        "create_assignment",
-        %{"assignment" => _params},
-        %{assigns: %{can_assign_plugins: false}} = socket
-      ) do
+  def handle_event("create_assignment", %{"assignment" => _params}, %{assigns: %{can_assign_plugins: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to assign plugins.")}
   end
 
@@ -789,11 +762,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  def handle_event(
-        "delete_assignment",
-        %{"id" => _id},
-        %{assigns: %{can_assign_plugins: false}} = socket
-      ) do
+  def handle_event("delete_assignment", %{"id" => _id}, %{assigns: %{can_assign_plugins: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to assign plugins.")}
   end
 
@@ -817,19 +786,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  def handle_event(
-        "upgrade_assignment",
-        %{"id" => _id},
-        %{assigns: %{can_assign_plugins: false}} = socket
-      ) do
+  def handle_event("upgrade_assignment", %{"id" => _id}, %{assigns: %{can_assign_plugins: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to assign plugins.")}
   end
 
-  def handle_event(
-        "upgrade_assignment",
-        %{"id" => id, "target-package-id" => target_package_id},
-        socket
-      ) do
+  def handle_event("upgrade_assignment", %{"id" => id, "target-package-id" => target_package_id}, socket) do
     upgrade_assignment(socket, id, target_package_id)
   end
 
@@ -837,13 +798,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     upgrade_assignment(socket, id, Map.get(params, "target_package_id"))
   end
 
-  def handle_event(
-        "request_legacy_recovery",
-        _params,
-        %{assigns: %{can_assign_plugins: false}} = socket
-      ) do
-    {:noreply,
-     put_flash(socket, :error, "You don't have permission to recover plugin assignments.")}
+  def handle_event("request_legacy_recovery", _params, %{assigns: %{can_assign_plugins: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to recover plugin assignments.")}
   end
 
   def handle_event("request_legacy_recovery", %{"id" => id, "kind" => kind}, socket) do
@@ -856,8 +812,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         end
 
       {:error, :not_found} ->
-        {:noreply,
-         put_flash(socket, :error, "Legacy assignment was not found. Refresh and try again.")}
+        {:noreply, put_flash(socket, :error, "Legacy assignment was not found. Refresh and try again.")}
 
       {:error, :unsupported_policy_owner} ->
         {:noreply, put_flash(socket, :error, unsupported_policy_owner_message())}
@@ -887,13 +842,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     {:noreply, assign(socket, :recovery_confirmation, nil)}
   end
 
-  def handle_event(
-        "confirm_legacy_recovery",
-        _params,
-        %{assigns: %{can_assign_plugins: false}} = socket
-      ) do
-    {:noreply,
-     put_flash(socket, :error, "You don't have permission to recover plugin assignments.")}
+  def handle_event("confirm_legacy_recovery", _params, %{assigns: %{can_assign_plugins: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to recover plugin assignments.")}
   end
 
   def handle_event("confirm_legacy_recovery", %{"id" => id, "kind" => kind}, socket) do
@@ -910,8 +860,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         {:noreply, put_flash(socket, :error, credential_recovery_permission_message())}
 
       _ ->
-        {:noreply,
-         put_flash(socket, :error, "Review this recovery request again before confirming.")}
+        {:noreply, put_flash(socket, :error, "Review this recovery request again before confirming.")}
     end
   end
 
@@ -936,11 +885,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  def handle_event(
-        "delete_package",
-        %{"id" => _id},
-        %{assigns: %{can_approve_plugins: false}} = socket
-      ) do
+  def handle_event("delete_package", %{"id" => _id}, %{assigns: %{can_approve_plugins: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to approve plugin packages.")}
   end
 
@@ -968,8 +913,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          |> put_flash(:info, "Package deleted")}
 
       {:error, {:assignment_errors, errors}} ->
-        {:noreply,
-         put_flash(socket, :error, "Failed to remove assignments: #{Enum.join(errors, "; ")}")}
+        {:noreply, put_flash(socket, :error, "Failed to remove assignments: #{Enum.join(errors, "; ")}")}
 
       {:error, error} ->
         {:noreply, put_flash(socket, :error, "Failed to delete package: #{format_error(error)}")}
@@ -1075,8 +1019,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:error, error} ->
         Logger.error("Plugin assignment update failed for #{assignment.id}: #{inspect(error)}")
 
-        {:noreply,
-         put_flash(socket, :error, "Failed to update assignment: #{format_error(error)}")}
+        {:noreply, put_flash(socket, :error, "Failed to update assignment: #{format_error(error)}")}
     end
   end
 
@@ -1096,13 +1039,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:error, error} ->
         Logger.error("Plugin assignment upgrade failed for #{assignment.id}: #{inspect(error)}")
 
-        {:noreply,
-         put_flash(socket, :error, "Failed to upgrade assignment: #{format_error(error)}")}
+        {:noreply, put_flash(socket, :error, "Failed to upgrade assignment: #{format_error(error)}")}
     end
   end
 
-  defp upgrade_assignment(socket, id, target_package_id)
-       when is_binary(target_package_id) and target_package_id != "" do
+  defp upgrade_assignment(socket, id, target_package_id) when is_binary(target_package_id) and target_package_id != "" do
     scope = socket.assigns.current_scope
 
     case Assignments.upgrade(id, target_package_id, scope: scope) do
@@ -1120,8 +1061,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:error, error} ->
         Logger.error("Plugin assignment upgrade failed for #{id}: #{inspect(error)}")
 
-        {:noreply,
-         put_flash(socket, :error, "Failed to upgrade assignment: #{format_error(error)}")}
+        {:noreply, put_flash(socket, :error, "Failed to upgrade assignment: #{format_error(error)}")}
     end
   end
 
@@ -1178,9 +1118,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             {:ok, payload}
 
           {:error, reason} ->
-            Logger.error(
-              "plugin wasm upload read failed package_id=#{package.id} path=#{path} reason=#{inspect(reason)}"
-            )
+            Logger.error("plugin wasm upload read failed package_id=#{package.id} path=#{path} reason=#{inspect(reason)}")
 
             {:error, :read_failed}
         end
@@ -2638,8 +2576,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           |> Enum.map(&enrich_legacy_recovery_candidate(&1, scope))
           |> Enum.filter(&legacy_recovery_candidate_actionable?/1)
 
-        {actionable_candidates, overflow != [],
-         legacy_recovery_candidate_after_id(page_candidates)}
+        {actionable_candidates, overflow != [], legacy_recovery_candidate_after_id(page_candidates)}
 
       {:error, _reason} ->
         {[], false, nil}
@@ -2654,8 +2591,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     |> assignment_value(:legacy_assignment_id)
   end
 
-  defp update_legacy_recovery_candidate_after_ids(after_ids, page, true, next_after_id)
-       when is_binary(next_after_id) do
+  defp update_legacy_recovery_candidate_after_ids(after_ids, page, true, next_after_id) when is_binary(next_after_id) do
     Map.put(after_ids, page + 1, next_after_id)
   end
 
@@ -2693,8 +2629,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  defp schedule_policy_recovery_poll(socket, legacy_assignment_id, recovery)
-       when is_map(recovery) do
+  defp schedule_policy_recovery_poll(socket, legacy_assignment_id, recovery) when is_map(recovery) do
     case legacy_recovery_result_state(recovery) do
       state when state in [:queued, :pending] ->
         schedule_policy_recovery_poll(socket, legacy_assignment_id, make_ref(), 0)
@@ -2740,8 +2675,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     )
   end
 
-  defp current_policy_recovery_poll?(%{ref: poll_ref, attempt: attempt}, poll_ref, attempt),
-    do: true
+  defp current_policy_recovery_poll?(%{ref: poll_ref, attempt: attempt}, poll_ref, attempt), do: true
 
   defp current_policy_recovery_poll?(_poll, _poll_ref, _attempt), do: false
 
@@ -2945,8 +2879,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp package_matches_release?(_package, nil), do: false
 
-  defp package_matches_release?(package, release_tag),
-    do: package.source_release_tag == release_tag
+  defp package_matches_release?(package, release_tag), do: package.source_release_tag == release_tag
 
   defp official_release_tag?(release_tag) when is_binary(release_tag) do
     Regex.match?(@official_release_tag_regex, release_tag)
@@ -3230,10 +3163,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
           %{
             requested_cpu_ms: acc.requested_cpu_ms + resource_value(resources, :requested_cpu_ms),
-            requested_memory_mb:
-              acc.requested_memory_mb + resource_value(resources, :requested_memory_mb),
-            max_open_connections:
-              acc.max_open_connections + resource_value(resources, :max_open_connections)
+            requested_memory_mb: acc.requested_memory_mb + resource_value(resources, :requested_memory_mb),
+            max_open_connections: acc.max_open_connections + resource_value(resources, :max_open_connections)
           }
         end
       end
@@ -3425,8 +3356,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  defp parse_optional_json_map_impl(_value, label),
-    do: {:error, {:invalid_json, "#{label} must be JSON"}}
+  defp parse_optional_json_map_impl(_value, label), do: {:error, {:invalid_json, "#{label} must be JSON"}}
 
   defp config_schema_present?(schema) when is_map(schema) do
     schema = stringify_keys(schema)
@@ -3536,8 +3466,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  defp normalize_assignment_params(params, config_schema)
-       when is_map(params) and is_map(config_schema) do
+  defp normalize_assignment_params(params, config_schema) when is_map(params) and is_map(config_schema) do
     alias ServiceRadar.Plugins.ConfigSchema
 
     schema = stringify_keys(config_schema)
@@ -3719,8 +3648,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     "#{name} (#{agent.uid})"
   end
 
-  defp existing_assignment(assignments, agent_uid)
-       when is_list(assignments) and is_binary(agent_uid) do
+  defp existing_assignment(assignments, agent_uid) when is_list(assignments) and is_binary(agent_uid) do
     Enum.find(assignments, fn assignment ->
       assignment.agent_uid == agent_uid
     end)
@@ -3792,23 +3720,18 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               :authenticated_agent_partition_mismatch,
               :forbidden,
               :not_found
-            ],
-       do: reason
+            ], do: reason
 
   defp normalize_partition_preview_reason(_reason), do: :unavailable
 
   defp authenticated_partition_preview_message(%{reason: :agent_offline}),
     do: "No live authenticated control session is available for this agent."
 
-  defp authenticated_partition_preview_message(%{
-         reason: :authenticated_agent_partition_unavailable
-       }),
-       do: "The live control session did not provide a trustworthy partition."
+  defp authenticated_partition_preview_message(%{reason: :authenticated_agent_partition_unavailable}),
+    do: "The live control session did not provide a trustworthy partition."
 
-  defp authenticated_partition_preview_message(%{
-         reason: :authenticated_agent_partition_mismatch
-       }),
-       do: "The live control-session identity does not match the selected agent."
+  defp authenticated_partition_preview_message(%{reason: :authenticated_agent_partition_mismatch}),
+    do: "The live control-session identity does not match the selected agent."
 
   defp authenticated_partition_preview_message(%{reason: :forbidden}),
     do: "You are not authorized to inspect this agent's live control session."
@@ -4020,11 +3943,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp policy_recovery_action_label(can_reconcile_credential_rules, true, _policy_recovery)
        when not can_reconcile_credential_rules, do: "Credential permission required"
 
-  defp policy_recovery_action_label(
-         _can_reconcile_credential_rules,
-         _credential_rule_recovery?,
-         policy_recovery
-       ) do
+  defp policy_recovery_action_label(_can_reconcile_credential_rules, _credential_rule_recovery?, policy_recovery) do
     case policy_recovery_state(policy_recovery) do
       :queued ->
         "Reconciliation queued"
@@ -4131,8 +4050,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp manual_recovery_state(_manual_recovery), do: nil
 
-  defp policy_recovery_active?(policy_recovery),
-    do: policy_recovery_state(policy_recovery) in [:queued, :pending]
+  defp policy_recovery_active?(policy_recovery), do: policy_recovery_state(policy_recovery) in [:queued, :pending]
 
   defp policy_recovery_state(policy_recovery) when is_map(policy_recovery) do
     case value_from_map(policy_recovery, :state) do
@@ -4183,12 +4101,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp policy_recovery_state(_policy_recovery), do: nil
 
   defp policy_recovery_terminal_message(:reconciled),
-    do:
-      "Policy reconciliation completed. The recovered assignment now reflects the current authoritative policy."
+    do: "Policy reconciliation completed. The recovered assignment now reflects the current authoritative policy."
 
   defp policy_recovery_terminal_message(:no_longer_eligible),
-    do:
-      "Policy reconciliation completed without a replacement because the target is no longer eligible."
+    do: "Policy reconciliation completed without a replacement because the target is no longer eligible."
 
   defp policy_recovery_terminal_message(state) do
     legacy_policy_recovery_message(%{state: state}) ||
@@ -4214,8 +4130,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   defp legacy_confirmation_message(_confirmation),
-    do:
-      "The server will validate this recovery against current authorization and live identity evidence."
+    do: "The server will validate this recovery against current authorization and live identity evidence."
 
   defp legacy_confirmation_action_label(%{kind: :manual}), do: "Confirm reapproval"
   defp legacy_confirmation_action_label(%{kind: :policy}), do: "Request reconciliation"
@@ -4240,8 +4155,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp assignment_package_id(assignment), do: assignment_value(assignment, :plugin_package_id)
   defp assignment_id(assignment), do: assignment_value(assignment, :id)
 
-  defp assignment_value(assignment, key) when is_map(assignment),
-    do: value_from_map(assignment, key)
+  defp assignment_value(assignment, key) when is_map(assignment), do: value_from_map(assignment, key)
 
   defp assignment_value(_assignment, _key), do: nil
 
@@ -4254,8 +4168,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp value_from_map(_map, _key), do: nil
 
-  defp blank_partition?(partition_id),
-    do: not (is_binary(partition_id) and String.trim(partition_id) != "")
+  defp blank_partition?(partition_id), do: not (is_binary(partition_id) and String.trim(partition_id) != "")
 
   defp legacy_recovery_details(assignment) do
     case assignment_value(assignment, :recovery) do
@@ -4360,8 +4273,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp legacy_recovery_result_state(_recovery), do: nil
 
-  defp legacy_recovery_error_message(:recovery_confirmation_required),
-    do: "Explicit confirmation is required."
+  defp legacy_recovery_error_message(:recovery_confirmation_required), do: "Explicit confirmation is required."
 
   defp legacy_recovery_error_message(:legacy_assignment_not_manual),
     do: "This row is policy-owned and must be reconciled by its authoritative policy."
@@ -4370,32 +4282,23 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     do: "This row is manually owned and must be reapproved instead."
 
   defp legacy_recovery_error_message(:legacy_assignment_not_unbound),
-    do:
-      "This row is no longer an unbound legacy assignment. Refresh and review its current state."
+    do: "This row is no longer an unbound legacy assignment. Refresh and review its current state."
 
   defp legacy_recovery_error_message(:authenticated_agent_partition_unavailable),
     do: "The selected agent has no trustworthy live partition evidence."
 
   defp legacy_recovery_error_message(reason)
-       when reason in [
-              :authenticated_agent_partition_mismatch,
-              :authenticated_agent_partition_changed
-            ],
+       when reason in [:authenticated_agent_partition_mismatch, :authenticated_agent_partition_changed],
        do: "The live control-session identity no longer matches the selected agent."
 
-  defp legacy_recovery_error_message(:agent_offline),
-    do: "The selected agent is offline. Reconnect it and try again."
+  defp legacy_recovery_error_message(:agent_offline), do: "The selected agent is offline. Reconnect it and try again."
 
   defp legacy_recovery_error_message(reason)
        when reason in [:active_assignment_conflict, :bound_manual_assignment_conflict],
        do: "An enabled assignment already owns this agent and plugin in the resolved partition."
 
   defp legacy_recovery_error_message(reason)
-       when reason in [
-              :package_not_approved,
-              :plugin_package_not_approved,
-              :plugin_package_not_found
-            ],
+       when reason in [:package_not_approved, :plugin_package_not_approved, :plugin_package_not_found],
        do: "The package is no longer approved for assignment."
 
   defp legacy_recovery_error_message(reason)
@@ -4405,11 +4308,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp legacy_recovery_error_message(:policy_reconciliation_forbidden),
     do: "You are not authorized to reconcile the owning policy or credential rule."
 
-  defp legacy_recovery_error_message(:unsupported_policy_owner),
-    do: unsupported_policy_owner_message()
+  defp legacy_recovery_error_message(:unsupported_policy_owner), do: unsupported_policy_owner_message()
 
-  defp legacy_recovery_error_message(:forbidden),
-    do: "You are not authorized to recover this assignment."
+  defp legacy_recovery_error_message(:forbidden), do: "You are not authorized to recover this assignment."
 
   defp legacy_recovery_error_message(reason)
        when reason in [
@@ -4422,15 +4323,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               :principal_not_found,
               :principal_owner_changed,
               :service_principal_write_scope_required
-            ],
-       do: "You are not authorized to recover this assignment."
+            ], do: "You are not authorized to recover this assignment."
 
   defp legacy_recovery_error_message(reason)
-       when reason in [
-              :legacy_partition_reapproval_required,
-              :legacy_assignment_not_unbound,
-              :not_legacy_unbound
-            ],
+       when reason in [:legacy_partition_reapproval_required, :legacy_assignment_not_unbound, :not_legacy_unbound],
        do: "This historical row must remain disabled. Use its explicit recovery action instead."
 
   defp legacy_recovery_error_message({:rejected, :not_legacy_unbound}),
@@ -4674,8 +4570,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp package_status_badge(:staged), do: "badge-warning"
   defp package_status_badge("staged"), do: "badge-warning"
 
-  defp package_status_badge(status) when status in [:denied, :revoked, "denied", "revoked"],
-    do: "badge-error"
+  defp package_status_badge(status) when status in [:denied, :revoked, "denied", "revoked"], do: "badge-error"
 
   defp package_status_badge(_status), do: "badge-ghost"
 
