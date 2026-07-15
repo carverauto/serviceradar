@@ -76,6 +76,11 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizer do
 
     agent
     |> identity_from_agent(package.name, "plugin", assignment.agent_uid)
+    # `agent.metadata` is inventory-derived and can lag an enrollment or be
+    # overwritten by a same-named agent in another partition. Assignment
+    # placeholders instead inherit the immutable partition that was bound by
+    # the authenticated edge control session at assignment creation.
+    |> Map.put(:partition, normalize_string(assignment.partition_id, "default"))
     |> Map.merge(%{
       available: available,
       message: message,

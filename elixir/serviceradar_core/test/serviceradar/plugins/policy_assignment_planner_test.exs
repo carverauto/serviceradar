@@ -176,4 +176,38 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlannerTest do
     [%{"items" => items}] = hd(assignments).params["inputs"]
     assert Enum.map(items, & &1["uid"]) == ["sr:device:1", "sr:device:2"]
   end
+
+  test "recovery restriction retains only the target agent's native rows" do
+    policy = %{
+      policy_id: "policy-1",
+      policy_version: 1,
+      plugin_package_id: "pkg-1"
+    }
+
+    resolved_inputs = [
+      %{
+        name: "devices",
+        entity: "devices",
+        query: "in:devices",
+        rows: [
+          %{"uid" => "sr:device:1", "agent_id" => "recovered-agent", "ip" => "10.0.0.1"},
+          %{"uid" => "sr:device:2", "agent_id" => "other-agent", "ip" => "10.0.0.2"},
+          %{"uid" => "sr:device:3", "ip" => "10.0.0.3"}
+        ]
+      }
+    ]
+
+    assert {:ok, %{summary: summary, assignments: [assignment]}} =
+             PolicyAssignmentPlanner.plan(policy, resolved_inputs,
+               generated_at: "2026-07-15T00:00:00Z",
+               restrict_agent_uid: "recovered-agent"
+             )
+
+    assert summary.matched_rows == 1
+    assert summary.agents == 1
+    assert assignment.agent_uid == "recovered-agent"
+
+    [%{"items" => items}] = assignment.params["inputs"]
+    assert Enum.map(items, & &1["uid"]) == ["sr:device:1"]
+  end
 end

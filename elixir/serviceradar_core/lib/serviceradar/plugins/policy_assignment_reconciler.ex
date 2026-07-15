@@ -24,7 +24,8 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
 
   @type assignment_store :: module()
 
-  @callback list_policy_assignments(String.t(), map()) :: {:ok, [map()]} | {:error, term()}
+  @callback list_policy_assignments(String.t(), map(), keyword()) ::
+              {:ok, [map()]} | {:error, term()}
   @callback create_assignment(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback update_assignment(map(), map(), map()) :: {:ok, map()} | {:error, term()}
   @callback disable_assignment(map(), map()) :: {:ok, map()} | {:error, term()}
@@ -41,12 +42,16 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
 
     agent_scope = normalize_agent_scope(Keyword.get(opts, :agent_scope))
 
-    with {:ok, resolved_inputs} <- resolver.resolve(input_defs, opts),
+    with {:ok, expected_partition_id} <- expected_partition_id(opts),
+         {:ok, resolved_inputs} <- resolver.resolve(input_defs, opts),
          {:ok, %{assignments: desired}} <- planner.plan(policy, resolved_inputs, opts),
-         {:ok, desired} <- bind_desired_partitions(desired, partition_resolver),
+         {:ok, desired} <-
+           bind_desired_partitions(desired, partition_resolver, expected_partition_id),
          {:ok, policy_id} <- policy_id(policy),
-         {:ok, existing} <- store.list_policy_assignments(policy_id, actor),
-         {:ok, stats} <- apply_plan(desired, existing, actor, store, agent_scope) do
+         {:ok, existing} <-
+           store.list_policy_assignments(policy_id, actor, partition_id: expected_partition_id),
+         {:ok, stats} <-
+           apply_plan(desired, existing, actor, store, agent_scope, expected_partition_id) do
       {:ok,
        %{
          resolved_inputs: length(resolved_inputs),
@@ -61,7 +66,12 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     end
   end
 
-  defp bind_desired_partitions(desired, resolver)
+  # Recovery passes the mTLS partition observed immediately before its guarded
+  # transaction. Re-resolve the partition here rather than trusting that
+  # preflight value; if the live session changed, do not hand a spec to an
+  # assignment store. The caller's transaction then also rolls back a change
+  # that occurs after this resolution but before its postflight check.
+  defp bind_desired_partitions(desired, resolver, expected_partition_id)
        when is_list(desired) and is_function(resolver, 1) do
     desired
     |> Enum.reduce_while({:ok, []}, fn spec, {:ok, acc} ->
@@ -69,10 +79,15 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
         {:ok, partition_id} when is_binary(partition_id) ->
           partition_id = String.trim(partition_id)
 
-          if partition_id == "" do
-            {:halt, {:error, :authenticated_agent_partition_unavailable}}
-          else
-            {:cont, {:ok, [Map.put(spec, :partition_id, partition_id) | acc]}}
+          cond do
+            partition_id == "" ->
+              {:halt, {:error, :authenticated_agent_partition_unavailable}}
+
+            is_binary(expected_partition_id) and partition_id != expected_partition_id ->
+              {:halt, {:error, :authenticated_agent_partition_changed}}
+
+            true ->
+              {:cont, {:ok, [Map.put(spec, :partition_id, partition_id) | acc]}}
           end
 
         {:error, reason} ->
@@ -88,8 +103,27 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     end
   end
 
-  defp bind_desired_partitions(_desired, _resolver),
+  defp bind_desired_partitions(_desired, _resolver, _expected_partition_id),
     do: {:error, :authenticated_agent_partition_unavailable}
+
+  defp expected_partition_id(opts) do
+    case Keyword.get(opts, :expected_partition_id) do
+      nil ->
+        {:ok, nil}
+
+      partition_id when is_binary(partition_id) ->
+        partition_id = String.trim(partition_id)
+
+        if partition_id == "" do
+          {:error, :authenticated_agent_partition_unavailable}
+        else
+          {:ok, partition_id}
+        end
+
+      _other ->
+        {:error, :authenticated_agent_partition_unavailable}
+    end
+  end
 
   defp authenticated_partition(agent_id) do
     case AgentCommandBus.resolve_control_session_evidence(agent_id) do
@@ -115,12 +149,17 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     end
   end
 
-  defp apply_plan(desired_specs, existing_rows, actor, store, agent_scope) do
+  defp apply_plan(desired_specs, existing_rows, actor, store, agent_scope, partition_scope) do
     desired_by_key = Map.new(desired_specs, &{{&1.partition_id, &1.assignment_key}, &1})
 
     existing_by_key =
       existing_rows
       |> Enum.filter(&is_binary(&1.source_key))
+      # The assignment store applies this filter at query time. Keep this
+      # in-memory filter as a fail-closed backstop for injected stores: a
+      # recovery that authenticated `farm01` must not update or retract a row
+      # for the same agent UID in `tonka01`.
+      |> scope_existing_partition(partition_scope)
       |> Map.new(&{{&1.partition_id, &1.source_key}, &1})
 
     # In a per-agent reconcile (agent_scope set), retraction is restricted to
@@ -178,6 +217,15 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     end)
   end
 
+  # `expected_partition_id` is only supplied by the recovery path after a
+  # fresh mTLS evidence lookup. Normal reconciliation retains its existing
+  # cross-partition behavior by passing `nil` here.
+  defp scope_existing_partition(rows, nil), do: rows
+
+  defp scope_existing_partition(rows, partition_id) when is_binary(partition_id) do
+    Enum.filter(rows, &(&1.partition_id == partition_id))
+  end
+
   defp upsert_one(spec, nil, stats, actor, store) do
     case store.create_assignment(spec, actor) do
       {:ok, _} ->
@@ -205,7 +253,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
 
   # Converge instead of duplicating. The plugin is already enabled for this
   # agent under a drifted assignment — an older policy_id/source_key whose row
-  # `list_policy_assignments/2` no longer matches for the current policy. Adopt
+  # `list_policy_assignments/3` no longer matches for the current policy. Adopt
   # that single row (update it to the desired policy spec) so there is exactly
   # one enabled assignment per (agent, package), owned by the current rule. This
   # is the golden path: no orphaned enabled rows are left behind, and the next
@@ -312,11 +360,14 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     require Ash.Query
 
     @impl true
-    def list_policy_assignments(policy_id, actor) do
-      PluginAssignment
-      |> Ash.Query.for_read(:all_partitions_for_policy, %{policy_id: policy_id}, actor: actor)
-      |> Ash.Query.filter(source == :policy)
-      |> Ash.read(actor: actor)
+    def list_policy_assignments(policy_id, actor, opts) do
+      query =
+        PluginAssignment
+        |> Ash.Query.for_read(:all_partitions_for_policy, %{policy_id: policy_id}, actor: actor)
+        |> Ash.Query.filter(source == :policy)
+        |> maybe_scope_partition(Keyword.get(opts, :partition_id))
+
+      Ash.read(query, actor: actor)
     end
 
     @impl true
@@ -442,6 +493,12 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
         {:ok, nil} -> {:error, :plugin_package_not_found}
         {:error, reason} -> {:error, reason}
       end
+    end
+
+    defp maybe_scope_partition(query, nil), do: query
+
+    defp maybe_scope_partition(query, partition_id) when is_binary(partition_id) do
+      Ash.Query.filter(query, partition_id == ^partition_id)
     end
   end
 end
