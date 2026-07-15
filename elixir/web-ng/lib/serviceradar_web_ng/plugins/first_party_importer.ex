@@ -275,22 +275,14 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
   defp validate_bundle(_bundle, _entry), do: {:error, :invalid_bundle}
 
   defp extract_bundle(bundle) do
-    path = Path.join(System.tmp_dir!(), "sr-plugin-bundle-#{System.unique_integer([:positive])}.zip")
-
-    try do
-      File.write!(path, bundle)
-
-      with {:ok, listing} <- :zip.list_dir(String.to_charlist(path)),
-           :ok <- preflight_bundle_entries(listing),
-           {:ok, files} <- :zip.extract(String.to_charlist(path), [:memory]),
-           {:ok, entries} <- normalize_bundle_entries(files) do
-        {:ok, entries}
-      else
-        {:error, reason} -> {:error, {:invalid_bundle, reason}}
-        other -> {:error, {:invalid_bundle, other}}
-      end
-    after
-      File.rm(path)
+    with {:ok, listing} <- :zip.list_dir(bundle),
+         :ok <- preflight_bundle_entries(listing),
+         {:ok, files} <- :zip.extract(bundle, [:memory]),
+         {:ok, entries} <- normalize_bundle_entries(files) do
+      {:ok, entries}
+    else
+      {:error, reason} -> {:error, {:invalid_bundle, reason}}
+      other -> {:error, {:invalid_bundle, other}}
     end
   end
 
