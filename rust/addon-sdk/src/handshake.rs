@@ -183,7 +183,7 @@ fn chown_group(path: &Path, gid: u32) -> Result<(), std::io::Error> {
 // Minimal extern binding for chown(2) to avoid taking a libc crate dependency
 // solely for the optional socket-group path. `u32::MAX` is passed for the uid to
 // mean "unchanged" (it casts to -1 as uid_t).
-extern "C" {
+unsafe extern "C" {
     #[link_name = "chown"]
     fn libc_chown(path: *const std::os::raw::c_char, owner: u32, group: u32)
         -> std::os::raw::c_int;

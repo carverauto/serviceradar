@@ -2,7 +2,7 @@
 name = "serviceradar-anomaly-disposition"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.90"
+
 description = "Central disposition kernels (seasonal residual-z, capacity least-squares / Holt-Winters forecast) — robust STATISTICS, not causal inference. Hosted on the shared serviceradar-anomaly-core streaming substrate (a CausalFlow pipeline combinator from the DeepCausality library, used here as plumbing only). The thin Rustler NIF wraps these kernels; this crate carries zero rustler dep so it stays linkable by bazel, tests, and correlation-engine (OpenSpec: add-core-causal-disposition-nif)."
 license = "Apache-2.0"
 
@@ -15,7 +15,7 @@ path = "src/lib.rs"
 # not re-vendor DeepCausality. The disposition kernels add only the seasonal /
 # capacity Value enums + their flows on top of this crate's primitives.
 serviceradar-anomaly-core = { path = "../anomaly-core" }
-deep_causality_core = "0.10.0"
+deep_causality_core = "0.11"
 
 # The NIF-facing ABI derives (NifMap/NifStruct) are gated behind this feature so
 # the kernel crate stays dependency-light: bazel, `cargo test`, and (in

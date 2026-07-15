@@ -2,6 +2,7 @@
 name = "otel-addon"
 version = "0.1.1"
 edition = "2024"
+
 description = "ServiceRadar OTEL collector packaged as a native agent add-on: local OTLP listeners + durable spool + acked RelayOtlp stream to the supervising agent (otlp-relay:v1)."
 license = "Apache-2.0"
 
@@ -18,12 +19,11 @@ env_logger = "0.11"
 hex = "0.4"
 log = "0.4"
 serde_json = "1.0"
-sha2 = "0.10"
+sha2 = "0.11"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time", "io-util"] }
 tokio-stream = { workspace = true, features = ["sync"] }
 tonic = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
-prost = { workspace = true }
 tempfile = "3.0"

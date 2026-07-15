@@ -2,7 +2,7 @@
 name = "serviceradar-causal-ports"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.90"
+
 description = "Causal security engine — boundary traits (the isolation seam): ObservationSource, ContextStore, Emitter, MitigationPolicy, ActionExecutor. Phase 0 (OpenSpec: add-causal-security-foundation)."
 license = "Apache-2.0"
 

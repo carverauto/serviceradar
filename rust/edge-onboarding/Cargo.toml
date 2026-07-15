@@ -1,7 +1,8 @@
 [package]
 name = "edge-onboarding"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+
 description = "Edge onboarding library for ServiceRadar Rust checkers (mirrors Go pkg/edgeonboarding)"
 license = "Apache-2.0"
 
@@ -13,9 +14,9 @@ path = "src/lib.rs"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
-ed25519-dalek = "2"
+ed25519-dalek = "3"
 hex = "0.4"
-thiserror = "1"
+thiserror = "2"
 tracing = "0.1"
 ureq = { version = "2", features = ["json"] }
 urlencoding = "2"

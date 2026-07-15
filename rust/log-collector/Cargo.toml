@@ -2,6 +2,7 @@
 name = "serviceradar-log-collector"
 version = "0.1.0"
 edition = "2024"
+
 description = "Unified log collector for ServiceRadar — syslog/GELF (via Flowgger) and OpenTelemetry gRPC"
 
 [[bin]]
@@ -26,7 +27,7 @@ tonic-health = { workspace = true }
 config-bootstrap = { path = "../config-bootstrap" }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
 serde = { version = "1", features = ["derive"] }
-toml = "0.8"
+toml = "1"
 anyhow = "1"
 log = "0.4"
 env_logger = "0.11"

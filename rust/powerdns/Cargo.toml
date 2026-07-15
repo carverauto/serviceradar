@@ -1,7 +1,8 @@
 [package]
 name = "serviceradar-powerdns-addon"
 version = "0.1.2"
-edition = "2021"
+edition = "2024"
+
 authors = ["ServiceRadar Team"]
 description = "PowerDNS protobuf telemetry native add-on for ServiceRadar"
 license = "Apache-2.0"
@@ -14,7 +15,7 @@ hex = "0.4"
 prost = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-stream = { workspace = true, features = ["sync"] }
 tonic = { workspace = true }

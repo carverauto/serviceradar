@@ -1,7 +1,8 @@
 [package]
 name = "serviceradar-rdp-connector-probe"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+
 authors = ["ServiceRadar Team"]
 description = "Review-only isolated IronRDP connector dependency probe"
 license = "Apache-2.0"

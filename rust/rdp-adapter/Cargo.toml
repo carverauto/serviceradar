@@ -1,7 +1,8 @@
 [package]
 name = "serviceradar-rdp-adapter"
 version = "0.1.1"
-edition = "2021"
+edition = "2024"
+
 authors = ["ServiceRadar Team"]
 description = "ServiceRadar RDP helper adapter"
 license = "Apache-2.0"

@@ -100,11 +100,20 @@ mod tests {
             std::process::id()
         ));
         std::fs::write(&path, "5.4.0-ci\n").unwrap();
-        std::env::set_var(KERNEL_RELEASE_FILE_ENV, &path);
+        // SAFETY: soundness here rests on no other thread in this test binary touching the
+        // environment while the write lands: `kernel_env_lock` serialises the tests that
+        // write this variable, and it is removed again before the guard drops. Revisit if a
+        // test that reads the environment concurrently is ever added to this crate.
+        unsafe {
+            std::env::set_var(KERNEL_RELEASE_FILE_ENV, &path);
+        }
 
         let version = current_kernel_version().unwrap();
 
-        std::env::remove_var(KERNEL_RELEASE_FILE_ENV);
+        // SAFETY: as above; still holding `kernel_env_lock`.
+        unsafe {
+            std::env::remove_var(KERNEL_RELEASE_FILE_ENV);
+        }
         let _ = std::fs::remove_file(path);
         assert_eq!(version.release, "5.4.0-ci");
         assert!(!version.supports_ebpf_capture());

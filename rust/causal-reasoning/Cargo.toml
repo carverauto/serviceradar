@@ -2,7 +2,7 @@
 name = "serviceradar-causal-reasoning"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.90"
+
 description = "Causal security engine — generic reasoning engine. Phase 0 fills the CSM SPRT step (the single Uncertain materialization) and the per-tick sample-cache discipline; the kill-chain CausaloidGraph + CSM wiring arrive in add-causal-security-detections. Generic over V: Verdict. (OpenSpec: add-causal-security-foundation)."
 license = "Apache-2.0"
 

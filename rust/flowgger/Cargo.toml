@@ -1,7 +1,7 @@
 [package]
-edition = "2018"
 name = "serviceradar-flowgger"
-version = "0.3.4"
+edition = "2024"
+
 authors = ["Frank Denis <github@pureftpd.org>", "Matteo Bigoi <bigo@crisidev.org>", "Vivien Chene <viv.chene@gmail.com>", "Francesco Berni <kurojishi@kurojishi.me>"]
 build = "build.rs"
 repository = "https://github.com/awslabs/flowgger"
@@ -36,18 +36,18 @@ tonic-build = { workspace = true }
 clap = "4"
 flate2 = "1"
 glob = { version = "0.3", optional = true }
-kafka = { version = "0.8", features = ["snappy", "gzip", "security"], optional = true }
-async-nats  = { version = "0.48", optional = true }
+kafka = { version = "0.10", features = ["snappy", "gzip", "security"], optional = true }
+async-nats  = { version = "0.49", optional = true }
 log = "0.4"
 anyhow = "1"
 pem = "3"
-notify = { version = "4.0", optional = true }
+notify = { version = "8", optional = true }
 rand = "0.8"
-redis = { version = "0.21", optional = true }
+redis = { version = "1.4", optional = true }
 serde = { version = "1", optional = true }
 serde_json = { version = "~0.8", optional = true }
 may = { version = "~0.3", optional = true }
-toml = "0.5"
+toml = "1"
 # Cap below 0.3.47: time 0.3.47's `parsing` feature adds an `impl From<HourBase>
 # for <HourBase as ModifierValue>::Type` that collides with async-nats's blanket
 # `impl<Kind> From<Kind> for Error<Kind>` under rustc 1.93 coherence (E0119),

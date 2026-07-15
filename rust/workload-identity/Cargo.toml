@@ -1,7 +1,8 @@
 [package]
 name = "serviceradar-workload-identity"
 version = "0.1.5"
-edition = "2021"
+edition = "2024"
+
 authors = ["ServiceRadar Team"]
 description = "Node-local workload identity enrichment for ServiceRadar"
 license = "Apache-2.0"
@@ -16,7 +17,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 tonic = { workspace = true }
-tower = "0.4"
+tower = "0.5"
 
 [dev-dependencies]
 tempfile = "3"

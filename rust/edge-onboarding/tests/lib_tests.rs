@@ -20,6 +20,14 @@ use edge_onboarding::{
     try_onboard, ComponentType, DeploymentType, MtlsBootstrapConfig, OnboardingResult,
     SecurityConfig, SecurityMode,
 };
+use std::sync::{Mutex, OnceLock};
+
+const ONBOARDING_TOKEN_ENV: &str = "ONBOARDING_TOKEN";
+
+fn env_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 #[test]
 fn test_component_type_as_str() {
@@ -39,8 +47,13 @@ fn test_component_type_config_filename() {
 
 #[test]
 fn test_try_onboard_no_token() {
+    let _guard = env_lock().lock().unwrap();
     // Clear the env var if set
-    std::env::remove_var("ONBOARDING_TOKEN");
+    // SAFETY: `env_lock` serialises every test in this binary that touches
+    // ONBOARDING_TOKEN, so no other thread can read the environment concurrently.
+    unsafe {
+        std::env::remove_var(ONBOARDING_TOKEN_ENV);
+    }
 
     // Should return None when no token is present
     let result = try_onboard(ComponentType::Checker).unwrap();
@@ -49,22 +62,36 @@ fn test_try_onboard_no_token() {
 
 #[test]
 fn test_try_onboard_empty_token() {
-    std::env::set_var("ONBOARDING_TOKEN", "");
+    let _guard = env_lock().lock().unwrap();
+    // SAFETY: as above; `env_lock` is held for the duration of the test.
+    unsafe {
+        std::env::set_var(ONBOARDING_TOKEN_ENV, "");
+    }
 
     let result = try_onboard(ComponentType::Checker).unwrap();
     assert!(result.is_none());
 
-    std::env::remove_var("ONBOARDING_TOKEN");
+    // SAFETY: as above; still holding `env_lock`.
+    unsafe {
+        std::env::remove_var(ONBOARDING_TOKEN_ENV);
+    }
 }
 
 #[test]
 fn test_try_onboard_whitespace_token() {
-    std::env::set_var("ONBOARDING_TOKEN", "   ");
+    let _guard = env_lock().lock().unwrap();
+    // SAFETY: as above; `env_lock` is held for the duration of the test.
+    unsafe {
+        std::env::set_var(ONBOARDING_TOKEN_ENV, "   ");
+    }
 
     let result = try_onboard(ComponentType::Checker).unwrap();
     assert!(result.is_none());
 
-    std::env::remove_var("ONBOARDING_TOKEN");
+    // SAFETY: as above; still holding `env_lock`.
+    unsafe {
+        std::env::remove_var(ONBOARDING_TOKEN_ENV);
+    }
 }
 
 #[test]

@@ -1,7 +1,8 @@
 [package]
 name = "serviceradar-metric-proto"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+
 description = "Generated prost bindings for ServiceRadar's canonical metric envelope."
 license = "Apache-2.0"
 

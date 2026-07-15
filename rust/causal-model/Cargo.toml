@@ -2,7 +2,7 @@
 name = "serviceradar-causal-model"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.90"
+
 description = "Causal security engine — shared vocabulary (tier 0): the SecVerdict lawful Verdict lattice, the deterministic ConfidenceSummary, and the Observation model consumed by the reasoning layer. Carries no IO. Phase 0 (OpenSpec: add-causal-security-foundation)."
 license = "Apache-2.0"
 

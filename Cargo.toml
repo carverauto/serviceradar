@@ -46,6 +46,11 @@ exclude = [
     "rust/netprobe/ebpf",
 ]
 
+[workspace.package]
+edition = "2024"
+rust-version = "1.93.0"
+
+
 [workspace.dependencies]
 tonic = { version = "0.12", features = ["tls", "gzip", "zstd"] }
 prost = "0.13"

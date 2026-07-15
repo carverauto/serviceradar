@@ -33,23 +33,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => None,
     };
 
-    if let Some(protoc) = resolved_protoc {
-        env::set_var("PROTOC", protoc);
-    } else if let Ok(protoc) = which::which("protoc") {
-        env::set_var("PROTOC", protoc);
-    } else if !cfg!(target_os = "macos") {
-        env::set_var("PROTOC", "/usr/bin/protoc");
-    }
-
-    if cfg!(target_os = "macos") {
-        // For macOS with Homebrew
-        if Path::new("/opt/homebrew/opt/protobuf/include").exists() {
-            env::set_var("PROTOC_INCLUDE", "/opt/homebrew/opt/protobuf/include");
-        } else if Path::new("/usr/local/opt/protobuf/include").exists() {
-            env::set_var("PROTOC_INCLUDE", "/usr/local/opt/protobuf/include");
+    // SAFETY: this runs at the top of a build script's `main`, before any thread is
+    // spawned, so no other thread can read the environment concurrently.
+    unsafe {
+        if let Some(protoc) = resolved_protoc {
+            env::set_var("PROTOC", protoc);
+        } else if let Ok(protoc) = which::which("protoc") {
+            env::set_var("PROTOC", protoc);
+        } else if !cfg!(target_os = "macos") {
+            env::set_var("PROTOC", "/usr/bin/protoc");
         }
-    } else {
-        env::set_var("PROTOC_INCLUDE", "/usr/include");
+
+        if cfg!(target_os = "macos") {
+            // For macOS with Homebrew
+            if Path::new("/opt/homebrew/opt/protobuf/include").exists() {
+                env::set_var("PROTOC_INCLUDE", "/opt/homebrew/opt/protobuf/include");
+            } else if Path::new("/usr/local/opt/protobuf/include").exists() {
+                env::set_var("PROTOC_INCLUDE", "/usr/local/opt/protobuf/include");
+            }
+        } else {
+            env::set_var("PROTOC_INCLUDE", "/usr/include");
+        }
     }
 
     if let Ok(protoc) = env::var("PROTOC") {

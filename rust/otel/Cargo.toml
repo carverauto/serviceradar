@@ -3,6 +3,7 @@ name = "otel"
 version = "0.1.0"
 edition = "2024"
 
+
 [lib]
 name = "otel"
 path = "src/lib.rs"
@@ -19,9 +20,9 @@ uuid = { version = "1", features = ["v4"] }
 tonic = { workspace = true }
 prost = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
-async-nats = "0.48"
+async-nats = "0.49"
 anyhow = "1.0"
-toml = "0.8"
+toml = "1"
 serde = { version = "1.0", features = ["derive"] }
 clap = { version = "4.0", features = ["derive"] }
 log = "0.4"

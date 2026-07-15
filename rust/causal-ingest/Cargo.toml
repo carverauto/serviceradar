@@ -2,7 +2,7 @@
 name = "serviceradar-causal-ingest"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.90"
+
 description = "Causal security engine — L1 data integration. Phase 0 fills the central score->ConfidenceSummary construction (via causal-config) and the ObservationSource seam; live SRQL/NATS/signals.state backends are feature-gated and land in later work. The ONLY crate that touches CNPG/NATS/SRQL. (OpenSpec: add-causal-security-foundation)."
 license = "Apache-2.0"
 

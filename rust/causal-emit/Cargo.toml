@@ -2,7 +2,7 @@
 name = "serviceradar-causal-emit"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.90"
+
 description = "Causal security engine — verdict emitter (SecVerdict -> signals.analytics.predictions.*). Scaffold only in Phase 0; the JetStream producer is wired in add-causal-security-detections. (OpenSpec: add-causal-security-foundation)."
 license = "Apache-2.0"
 

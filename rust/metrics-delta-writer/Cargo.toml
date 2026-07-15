@@ -2,7 +2,7 @@
 name = "serviceradar-metrics-delta-writer"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.90"
+
 description = "ServiceRadar metrics Delta lakehouse writer (OpenSpec: add-delta-metrics-lakehouse). Consumes the metrics JetStream durable, decodes MetricBatch protobuf, and batch-writes raw points to a Delta table on object storage."
 license = "Apache-2.0"
 
@@ -20,13 +20,13 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow = "1"
-async-nats = "0.48"
+async-nats = "0.49"
 envy = "0.4"
 futures = "0.3"
 prost = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serviceradar-metric-proto = { path = "../metric-proto" }
-thiserror = "1"
+thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 tokio-postgres = "0.7"
 tracing = "0.1"

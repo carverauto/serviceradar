@@ -2,7 +2,7 @@
 name = "serviceradar-causal-engine"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.90"
+
 description = "Causal security engine — the fused single-pod binary (composition root / DI + tick loop). Scaffold only in Phase 0: it composes the crate family; the runtime loop is wired by later milestones. (OpenSpec: add-causal-security-foundation)."
 license = "Apache-2.0"
 

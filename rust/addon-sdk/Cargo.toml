@@ -1,7 +1,8 @@
 [package]
 name = "addon-sdk"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+
 description = "Rust helper for ServiceRadar native agent add-ons: HashiCorp go-plugin handshake + AutoMTLS + the agent/addon gRPC contract served over a Unix-domain socket."
 license = "Apache-2.0"
 
@@ -27,7 +28,7 @@ anyhow = "1.0"
 thiserror = "1.0"
 base64 = "0.22"
 rcgen = "0.12"
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4"
 # aws-lc-rs (not ring): the go-plugin host's AutoMTLS client certificate is
 # ECDSA P-521, and rustls' ring provider does NOT support P-521 signature
@@ -39,7 +40,7 @@ rustls-pemfile = "2"
 
 [dev-dependencies]
 tempfile = "3.0"
-tower = "0.4"
+tower = "0.5"
 hyper-util = { version = "0.1", features = ["tokio"] }
 
 [build-dependencies]

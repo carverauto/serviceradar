@@ -1,7 +1,8 @@
 [package]
 name = "kvutil"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+
 
 [lib]
 name = "kvutil"
@@ -13,9 +14,9 @@ tonic = { workspace = true }
 prost = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-thiserror = "1"
+thiserror = "2"
 tokio-stream = { workspace = true }
-toml = "0.8"
+toml = "1"
 spiffe = { version = "0.16", default-features = false, features = ["x509-source"] }
 anyhow = "1"
 pem = "3"
