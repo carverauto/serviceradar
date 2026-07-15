@@ -283,11 +283,50 @@ You can automate SSH CA enrollment with a small Ansible playbook that installs t
 ServiceRadar already has an AWX/AAP-backed [Ansible Integration](./ansible). Use that integration as the normal enrollment path:
 
 1. Copy the example playbook from the ServiceRadar repository ([`docs/ansible/remote-access-ssh-ca/`](https://github.com/carverauto/serviceradar/tree/main/docs/ansible/remote-access-ssh-ca)) into a git repository that AWX uses as a Project.
-2. Create an AWX Job Template for that playbook.
+2. Create an AWX Job Template for that playbook. Keep **Prompt on launch -> Variables** disabled. Enable a survey containing the two exact ServiceRadar-owned declarations below and give them no defaults. ServiceRadar reserves these names and omits them from its own binding and run forms.
 3. Attach the AWX inventory that contains the Linux hosts, Proxmox VE hosts, or VMs you want to enroll.
 4. Register the AWX controller in ServiceRadar under **Settings -> Ansible**.
 5. Let AWX inventory sync mark the matching inventory devices as `ansible_managed`.
 6. Select one or more devices in ServiceRadar inventory and launch the enrollment job with **Run Task** or `/ansible/launch?devices=<device-uids>`.
+
+The required AWX 24.6.1 survey fragment is:
+
+```json
+{
+  "name": "ServiceRadar dispatch markers",
+  "description": "Dispatcher-owned reconciliation fields",
+  "spec": [
+    {
+      "question_name": "ServiceRadar dispatch ID",
+      "question_description": "Injected by ServiceRadar; do not set manually",
+      "required": true,
+      "type": "text",
+      "variable": "serviceradar_dispatch_id",
+      "min": 36,
+      "max": 36,
+      "default": "",
+      "choices": ""
+    },
+    {
+      "question_name": "ServiceRadar snapshot digest",
+      "question_description": "Injected by ServiceRadar; do not set manually",
+      "required": true,
+      "type": "text",
+      "variable": "serviceradar_snapshot_digest",
+      "min": 64,
+      "max": 64,
+      "default": "",
+      "choices": ""
+    }
+  ]
+}
+```
+
+This survey is a narrow AWX allow-list, not a credential channel. The reviewed binding contract requires the broad variable prompt to remain disabled and both marker declarations to be present, exact, and default-free. Additional public/internal survey fields must match the binding's separately reviewed non-secret input schema.
+
+Keep mutating templates unavailable until the hardened planner's live AWX re-fetch and drift enforcement are enabled. Marker projection validates every declaration AWX returns, but the marker contract alone is not a substitute for re-fetching the complete template, survey, project, credentials, inventory, and target memberships immediately before persistence and dispatch.
+
+AWX does not provide hidden or internal-only survey questions. AWX template administrators can see and edit these declarations, and AWX displays required survey questions during a direct AWX launch. Grant **Execute** on a hardened ServiceRadar template only to the dedicated ServiceRadar runner identity; do not grant operators a direct AWX launch path around ServiceRadar authorization. Restrict template edits to administrators, and re-review/rebind the template after any survey or template change.
 
 ServiceRadar sends AWX a host `limit` derived from the selected devices, so the sample playbook uses `hosts: all` and relies on the launch limit to narrow the run. There are two distinct execution modes:
 

@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Automation.Ansible.DispatchMarkerContract
   alias ServiceRadar.Automation.Ansible.SecureChildLauncher
 
   @actor_id "018f3f56-1111-7222-8333-123456789a01"
@@ -189,7 +190,10 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
         reviewed_by_principal_type: :human,
         reviewed_by_principal_id: "reviewer-1",
         reviewed_at: ~U[2026-07-12 14:00:00.000000Z],
-        review_metadata: %{"review_ticket" => "SEC-42"}
+        review_metadata: %{
+          "review_ticket" => "SEC-42",
+          "dispatch_marker_contract" => DispatchMarkerContract.contract()
+        }
       },
       overrides
     )
@@ -448,6 +452,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
       callback_credential_slot: "ssh_ca_callback",
       review_metadata: %{
         "policy_version" => "ssh-policy-v1",
+        "dispatch_marker_contract" => DispatchMarkerContract.contract(),
         "callback_contract" => %{
           "schema" => "serviceradar.automation_callback_launch_contract/v1",
           "action" => "remote_access.ssh_ca.bundle.read",
