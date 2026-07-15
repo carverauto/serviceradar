@@ -27,9 +27,9 @@
 ## 5. Core validation
 - [x] 5.1 Compile core and web-ng with warnings as errors.
 - [x] 5.2 Run database-free manifest, schema, catalog, provisioner, discovery, and source-reader tests.
-- [ ] 5.3 Run data-backed core/web-ng integration tests in the repository database harness.
+- [x] 5.3 Run data-backed core/web-ng integration tests in the repository database harness.
 - [x] 5.4 Run targeted Go, Rust, workflow, bundle-validator, and OpenSpec checks.
-- [ ] 5.5 Complete full CI and security scanning on the feature branch.
+- [x] 5.5 Complete full CI and security scanning on the feature branch.
 
 ## 6. Publish and operate the first external plugin
 - [ ] 6.1 Create the external Forgejo repository and push the plugin feature branch.
