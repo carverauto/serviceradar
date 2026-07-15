@@ -18,6 +18,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Automation.Ansible.AwxLaunchContract
   alias ServiceRadar.Automation.Ansible.DispatchMarkerContract
   alias ServiceRadar.Automation.Ansible.VariableSchema
   alias ServiceRadar.Automation.CallbackGrants.LaunchContract
@@ -172,6 +173,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
         :reviewed_by_principal_id,
         :reviewed_at,
         :review_metadata,
+        :reviewed_launch_snapshot,
+        :reviewed_launch_snapshot_digest,
         :superseded_at
       ]
     end
@@ -228,8 +231,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
            :ok <- validate_inventory_groups(changeset),
            :ok <- validate_input_contract(changeset),
            :ok <- validate_review_metadata(changeset),
-           :ok <- validate_callback_contract(changeset) do
-        validate_dispatch_marker_contract(changeset)
+           :ok <- validate_dispatch_marker_contract(changeset),
+           :ok <- validate_reviewed_launch_snapshot(changeset) do
+        validate_callback_contract(changeset)
       end
     end
   end
@@ -385,6 +389,17 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
 
     attribute :reviewed_at, :utc_datetime_usec, allow_nil?: false, public?: true
     attribute :review_metadata, :map, allow_nil?: false, default: %{}, public?: true
+
+    # Existing persisted digest-only bindings remain readable and revocable, but
+    # every newly approved version must carry this complete canonical contract.
+    # The lifecycle actions accept no reviewed fields, preserving immutability.
+    attribute :reviewed_launch_snapshot, :map, allow_nil?: true, public?: true
+
+    attribute :reviewed_launch_snapshot_digest, :string,
+      allow_nil?: true,
+      public?: true,
+      constraints: [max_length: 64]
+
     attribute :superseded_at, :utc_datetime_usec, allow_nil?: true, public?: true
     create_timestamp :inserted_at
     update_timestamp :updated_at
@@ -756,6 +771,72 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
       true ->
         :ok
     end
+  end
+
+  # Do not make historical rows unrevocable merely because they predate the
+  # complete reviewed snapshot. The secure launch gate uses
+  # AwxLaunchContract.from_binding/1 and therefore treats those rows as
+  # non-launchable until a reviewer creates a replacement version.
+  defp validate_reviewed_launch_snapshot(%{action_type: :update}), do: :ok
+
+  defp validate_reviewed_launch_snapshot(changeset) do
+    snapshot = attribute(changeset, :reviewed_launch_snapshot)
+    digest = attribute(changeset, :reviewed_launch_snapshot_digest)
+
+    if attribute(changeset, :approval_state) != :approved and is_nil(snapshot) and is_nil(digest) do
+      :ok
+    else
+      case AwxLaunchContract.from_binding(reviewed_launch_binding(changeset)) do
+        {:ok, _snapshot} ->
+          :ok
+
+        {:error, :reviewed_launch_snapshot_required} ->
+          invalid(
+            :reviewed_launch_snapshot,
+            "approved bindings require a complete canonical reviewed AWX launch snapshot"
+          )
+
+        {:error, :reviewed_launch_snapshot_incomplete} ->
+          invalid(
+            :reviewed_launch_snapshot_digest,
+            "must be present exactly with the reviewed AWX launch snapshot"
+          )
+
+        {:error, :review_metadata_snapshot_digest_mismatch} ->
+          invalid(
+            :reviewed_launch_snapshot_digest,
+            "must match both canonical reviewed snapshot content and review_metadata.awx_snapshot_digest"
+          )
+
+        {:error, _reason} ->
+          invalid(
+            :reviewed_launch_snapshot,
+            "must be a secret-free canonical serviceradar.awx_launch_contract.v1 projection"
+          )
+      end
+    end
+  end
+
+  defp reviewed_launch_binding(changeset) do
+    %{
+      controller_id: attribute(changeset, :controller_id),
+      job_template_id: attribute(changeset, :job_template_id),
+      project_id: attribute(changeset, :project_id),
+      scm_revision: attribute(changeset, :scm_revision),
+      allowed_inventory_ids: attribute(changeset, :allowed_inventory_ids),
+      project_update_on_launch: attribute(changeset, :project_update_on_launch),
+      execution_environment_id: attribute(changeset, :execution_environment_id),
+      credentials: attribute(changeset, :credentials),
+      run_mode_supported: attribute(changeset, :run_mode_supported),
+      check_mode_supported: attribute(changeset, :check_mode_supported),
+      ask_inventory_on_launch: attribute(changeset, :ask_inventory_on_launch),
+      ask_limit_on_launch: attribute(changeset, :ask_limit_on_launch),
+      ask_credential_on_launch: attribute(changeset, :ask_credential_on_launch),
+      ask_job_type_on_launch: attribute(changeset, :ask_job_type_on_launch),
+      review_metadata: attribute(changeset, :review_metadata),
+      reviewed_launch_snapshot: attribute(changeset, :reviewed_launch_snapshot),
+      reviewed_launch_snapshot_digest: attribute(changeset, :reviewed_launch_snapshot_digest)
+    }
   end
 
   # Lifecycle updates cannot rewrite reviewed fields. Keep legacy bindings
