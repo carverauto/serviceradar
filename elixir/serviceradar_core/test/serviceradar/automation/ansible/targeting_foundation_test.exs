@@ -10,6 +10,12 @@ defmodule ServiceRadar.Automation.Ansible.TargetingFoundationTest do
   alias ServiceRadar.Automation.Ansible.AwxHostMembership
   alias ServiceRadar.Identity.RBAC.Catalog
 
+  @migration_path Path.expand(
+                    "../../../../priv/repo/migrations/20260714170000_add_execution_target_source_fingerprint.exs",
+                    __DIR__
+                  )
+  @external_resource @migration_path
+
   test "AWX membership identity cannot collapse duplicate hostnames across inventories" do
     assert identity_attributes(AwxHostMembership, :source_identity) == [
              :controller_id,
@@ -41,6 +47,24 @@ defmodule ServiceRadar.Automation.Ansible.TargetingFoundationTest do
     refute Enum.any?(Info.identities(AutomationExecutionTarget), fn identity ->
              identity.keys == [:execution_id, :host_name]
            end)
+  end
+
+  test "execution targets retain a canonical membership source fingerprint" do
+    source_fingerprint = Info.attribute(AutomationExecutionTarget, :source_fingerprint)
+    create = Info.action(AutomationExecutionTarget, :create)
+
+    refute source_fingerprint.allow_nil?
+    assert source_fingerprint.constraints[:match] == ~r/\Asha256:[0-9a-f]{64}\z/
+    assert :source_fingerprint in create.accept
+  end
+
+  test "source-fingerprint migration preserves historical rows but rejects unproven new targets" do
+    migration = File.read!(@migration_path)
+
+    assert migration =~ "add :source_fingerprint, :text"
+
+    assert migration =~
+             "CHECK (source_fingerprint IS NOT NULL AND source_fingerprint ~ '^sha256:[0-9a-f]{64}$') NOT VALID"
   end
 
   test "mutation evidence is append-only and idempotency scoped to the target" do

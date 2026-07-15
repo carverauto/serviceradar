@@ -368,6 +368,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
           awx_host_id: 7,
           canonical_device_uid: "sr:device-7",
           membership_generation: 3,
+          source_fingerprint: "sha256:" <> String.duplicate("c", 64),
           host_name: "farm01-pve01",
           ansible_host: "192.168.2.22"
         }

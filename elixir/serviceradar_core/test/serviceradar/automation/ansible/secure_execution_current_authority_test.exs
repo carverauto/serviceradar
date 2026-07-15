@@ -13,6 +13,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthorityTest do
   @binding_id "018f3f56-1111-7222-8333-123456789ab6"
   @membership_id "018f3f56-1111-7222-8333-123456789ab7"
   @approval_id "018f3f56-1111-7222-8333-123456789ab8"
+  @source_fingerprint "sha256:" <> String.duplicate("d", 64)
 
   defmodule Source do
     @moduledoc false
@@ -132,6 +133,16 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthorityTest do
              |> authorize()
   end
 
+  test "denies launch when the membership source fingerprint drifts", %{fixture: fixture} do
+    assert {:error, :target_no_longer_authorized} =
+             fixture
+             |> put_in(
+               [:memberships, Access.at(0), :source_fingerprint],
+               "sha256:" <> String.duplicate("e", 64)
+             )
+             |> authorize()
+  end
+
   defp authorize(fixture) do
     Process.put(:secure_execution_authority_fixture, fixture)
 
@@ -231,7 +242,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthorityTest do
       canonical_device_uid: "sr:device-7",
       host_name: "farm01-node01",
       ansible_host: "192.168.2.22",
-      membership_generation: 7
+      membership_generation: 7,
+      source_fingerprint: @source_fingerprint
     }
 
     digest_target = %{
@@ -243,7 +255,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthorityTest do
       ansible_host: "192.168.2.22"
     }
 
-    target = Map.put(target, :snapshot_digest, Targeting.snapshot_digest(digest_target))
+    target = Map.put(target, :snapshot_digest, Targeting.snapshot_digest(target))
     target_digest = Targeting.target_digest([digest_target])
     snapshot_digest = String.duplicate("c", 64)
 
@@ -299,7 +311,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthorityTest do
       canonical_device_uid: "sr:device-7",
       host_name: "farm01-node01",
       ansible_host: "192.168.2.22",
-      source_generation: 7
+      source_generation: 7,
+      source_fingerprint: @source_fingerprint
     }
 
     %{

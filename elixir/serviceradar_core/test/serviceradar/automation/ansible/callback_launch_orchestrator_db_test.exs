@@ -206,6 +206,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
 
     actor_id = "callback-outer-#{suffix}"
     device_uid = "sr:callback-outer-#{suffix}"
+    source_fingerprint = "sha256:" <> String.duplicate("c", 64)
     target_digest = String.duplicate("d", 64)
     snapshot_digest = String.duplicate("e", 64)
 
@@ -229,7 +230,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
       "canonical_device_uid" => device_uid,
       "host_name" => "farm01-pve01",
       "ansible_host" => "192.168.2.22",
-      "membership_generation" => 3
+      "membership_generation" => 3,
+      "source_fingerprint" => source_fingerprint
     }
 
     response_target = %{
@@ -240,7 +242,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
           "membership_id",
           "host_name",
           "ansible_host",
-          "membership_generation"
+          "membership_generation",
+          "source_fingerprint"
         ]),
       "ca_keys" => [
         %{
@@ -367,6 +370,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
           inventory_id: 34,
           awx_host_id: 7,
           membership_generation: 3,
+          source_fingerprint: source_fingerprint,
           host_name: "farm01-pve01",
           ansible_host: "192.168.2.22",
           snapshot_digest: String.duplicate("3", 64)
@@ -435,6 +439,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
       ids: ids,
       actor_id: actor_id,
       device_uid: device_uid,
+      source_fingerprint: source_fingerprint,
       plan: plan,
       callback: callback
     }
@@ -465,7 +470,12 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
               'farm01-pve01', '192.168.2.22', true, true,
               (now() AT TIME ZONE 'utc'), 'approved', $4)
       """,
-      [fixture.ids.membership, fixture.ids.controller, fixture.device_uid, fixture.actor_id]
+      [
+        fixture.ids.membership,
+        fixture.ids.controller,
+        fixture.device_uid,
+        fixture.source_fingerprint
+      ]
     )
 
     SQL.query!(

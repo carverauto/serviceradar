@@ -360,7 +360,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
       "canonical_device_uid" => target.canonical_device_uid,
       "host_name" => target.host_name,
       "ansible_host" => target.ansible_host,
-      "membership_generation" => target.membership_generation
+      "membership_generation" => target.membership_generation,
+      "source_fingerprint" => target.source_fingerprint
     }
   end
 

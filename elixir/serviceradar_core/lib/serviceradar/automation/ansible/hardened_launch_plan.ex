@@ -14,6 +14,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
 
   @principal_types [:human, :service_principal]
   @input_classes ["public", "internal"]
+  @source_fingerprint ~r/\Asha256:[0-9a-f]{64}\z/
 
   @type plan :: %{
           operation: map(),
@@ -91,6 +92,31 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
     {:ok, controller_security_digest} =
       ControllerSecuritySnapshot.digest(controller_security_snapshot)
 
+    immutable_targets = Map.new(child.targets, &{&1.awx_host_id, &1})
+
+    targets =
+      Enum.map(membership_targets, fn target ->
+        immutable_target = Map.fetch!(immutable_targets, target.awx_host_id)
+
+        target = %{
+          membership_id: target.membership_id,
+          canonical_device_uid: immutable_target.device_uid,
+          controller_id: immutable_target.controller_id,
+          inventory_id: immutable_target.inventory_id,
+          awx_host_id: immutable_target.awx_host_id,
+          membership_generation: target.membership_generation,
+          source_fingerprint: target.source_fingerprint,
+          host_name: immutable_target.awx_host_name,
+          ansible_host: immutable_target.ansible_host
+        }
+
+        Map.put(
+          target,
+          :snapshot_digest,
+          Targeting.snapshot_digest(execution_target_snapshot(target))
+        )
+      end)
+
     snapshot = %{
       "schema" => "serviceradar.ansible_launch_snapshot.v1",
       "action" => value(intent, :action),
@@ -118,17 +144,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
       "check_mode" => mode == :check,
       "inputs" => inputs,
       "input_classifications" => classifications,
-      "targets" =>
-        Enum.map(child.targets, fn target ->
-          Map.take(target, [
-            :controller_id,
-            :inventory_id,
-            :awx_host_id,
-            :device_uid,
-            :awx_host_name,
-            :ansible_host
-          ])
-        end),
+      "targets" => Enum.map(targets, &launch_snapshot_target/1),
       "target_digest" => child.target_digest,
       "callback_actions" => callback_actions,
       "mutating" => mutating?,
@@ -189,23 +205,6 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
           "controller_security_digest" => controller_security_digest
         }
       }
-
-      targets =
-        Enum.map(membership_targets, fn target ->
-          immutable_target = Enum.find(child.targets, &(&1.awx_host_id == target.awx_host_id))
-
-          %{
-            membership_id: target.membership_id,
-            canonical_device_uid: immutable_target.device_uid,
-            controller_id: immutable_target.controller_id,
-            inventory_id: immutable_target.inventory_id,
-            awx_host_id: immutable_target.awx_host_id,
-            membership_generation: target.membership_generation,
-            host_name: immutable_target.awx_host_name,
-            ansible_host: immutable_target.ansible_host,
-            snapshot_digest: Targeting.snapshot_digest(immutable_target)
-          }
-        end)
 
       launch_opts = %{
         inventory_id: child.inventory_id,
@@ -317,7 +316,8 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
           positive_integer(
             value(membership, :source_generation) ||
               value(membership, :membership_generation)
-          )
+          ),
+        source_fingerprint: value(membership, :source_fingerprint)
       }
 
       cond do
@@ -335,6 +335,9 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
 
         is_nil(target.membership_generation) ->
           {:halt, {:error, :membership_generation_required}}
+
+        not valid_source_fingerprint?(target.source_fingerprint) ->
+          {:halt, {:error, :membership_source_fingerprint_required}}
 
         MapSet.member?(held_device_uids, target.device_uid) ->
           {:halt, {:error, {:target_held, target.device_uid}}}
@@ -422,6 +425,39 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
       "service_principal_owner_id" => value(actor, :service_principal_owner_id)
     }
   end
+
+  defp launch_snapshot_target(target) do
+    %{
+      controller_id: target.controller_id,
+      inventory_id: target.inventory_id,
+      awx_host_id: target.awx_host_id,
+      device_uid: target.canonical_device_uid,
+      awx_host_name: target.host_name,
+      ansible_host: target.ansible_host,
+      membership_id: target.membership_id,
+      membership_generation: target.membership_generation,
+      source_fingerprint: target.source_fingerprint
+    }
+  end
+
+  defp execution_target_snapshot(target) do
+    Map.take(target, [
+      :membership_id,
+      :canonical_device_uid,
+      :controller_id,
+      :inventory_id,
+      :awx_host_id,
+      :membership_generation,
+      :source_fingerprint,
+      :host_name,
+      :ansible_host
+    ])
+  end
+
+  defp valid_source_fingerprint?(value) when is_binary(value),
+    do: Regex.match?(@source_fingerprint, value)
+
+  defp valid_source_fingerprint?(_value), do: false
 
   defp positive_integer(value) when is_integer(value) and value > 0, do: value
   defp positive_integer(_), do: nil

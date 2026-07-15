@@ -7,6 +7,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlanTest do
 
   @controller_id "018f3f56-1111-7222-8333-123456789abc"
   @membership_id "018f3f56-1111-7222-8333-123456789abd"
+  @source_fingerprint "sha256:" <> String.duplicate("c", 64)
 
   defp actor(overrides \\ %{}) do
     Map.merge(
@@ -34,6 +35,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlanTest do
         awx_host_id: 7,
         canonical_device_uid: "sr:device-7",
         source_generation: 3,
+        source_fingerprint: @source_fingerprint,
         host_name: "farm01-pve01",
         ansible_host: "192.168.2.22",
         current: true,
@@ -121,8 +123,16 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlanTest do
     assert plan.execution.host_limit == "farm01-pve01"
     assert plan.execution.machine_credential_id == 5
 
-    assert [%{membership_id: @membership_id, awx_host_id: 7, membership_generation: 3}] =
-             plan.targets
+    assert [
+             %{
+               membership_id: @membership_id,
+               awx_host_id: 7,
+               membership_generation: 3,
+               source_fingerprint: @source_fingerprint
+             }
+           ] = plan.targets
+
+    assert [%{source_fingerprint: @source_fingerprint}] = plan.snapshot["targets"]
 
     assert plan.launch_opts.inventory_id == 34
     assert plan.launch_opts.host_limit == "farm01-pve01"
@@ -180,6 +190,18 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlanTest do
 
     assert {:error, {:target_held, "sr:device-7"}} =
              HardenedLaunchPlan.build(intent(%{held_device_uids: ["sr:device-7"]}))
+  end
+
+  test "requires the canonical source fingerprint on every frozen membership" do
+    assert {:error, :membership_source_fingerprint_required} =
+             HardenedLaunchPlan.build(
+               intent(%{memberships: [membership(%{source_fingerprint: nil})]})
+             )
+
+    assert {:error, :membership_source_fingerprint_required} =
+             HardenedLaunchPlan.build(
+               intent(%{memberships: [membership(%{source_fingerprint: "not-a-fingerprint"})]})
+             )
   end
 
   test "rejects a secret survey binding before local persistence" do

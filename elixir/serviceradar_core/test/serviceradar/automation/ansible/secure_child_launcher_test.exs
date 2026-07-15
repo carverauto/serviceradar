@@ -10,6 +10,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
   @membership_id "018f3f56-1111-7222-8333-123456789a04"
   @binding_id "018f3f56-1111-7222-8333-123456789a05"
   @approval_id "018f3f56-1111-7222-8333-123456789a06"
+  @source_fingerprint "sha256:" <> String.duplicate("c", 64)
   @now ~U[2026-07-12 15:00:00.000000Z]
 
   defmodule FakeAdapter do
@@ -126,6 +127,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
         awx_host_id: 7,
         canonical_device_uid: "sr:device-7",
         source_generation: 3,
+        source_fingerprint: @source_fingerprint,
         host_name: "farm01-pve01",
         ansible_host: "192.168.2.22",
         current: true,
@@ -241,7 +243,14 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
     assert plan.operation.approval_snapshot["approval_id"] == @approval_id
     assert plan.operation.request_source == "device_details"
 
-    assert [%{membership_id: @membership_id, membership_generation: 3}] = plan.targets
+    assert [
+             %{
+               membership_id: @membership_id,
+               membership_generation: 3,
+               source_fingerprint: @source_fingerprint
+             }
+           ] = plan.targets
+
     assert plan.execution.controller_id == @controller_id
     assert plan.execution.inventory_id == 34
     assert plan.execution.job_template_id == 42
