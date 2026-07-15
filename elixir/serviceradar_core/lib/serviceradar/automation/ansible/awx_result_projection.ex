@@ -9,6 +9,7 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
   """
 
   alias ServiceRadar.Automation.Ansible.DispatchMarkerContract
+  alias ServiceRadar.Automation.Ansible.AwxLaunchContract
   alias ServiceRadar.Automation.Ansible.Targeting
   alias ServiceRadar.Automation.Ansible.VariableSchema
 
@@ -126,6 +127,26 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
          "template_id" => template_id,
          "template" => template,
          "survey_spec" => survey_spec
+       }}
+    else
+      _ -> :error
+    end
+  end
+
+  # The launch gate needs the complete, secret-free contract rather than a
+  # catalog-shaped subset. Re-validate and rebuild the exact typed envelope so
+  # no raw AWX object, survey default, credential input, or unrecognized field
+  # can cross the durable AgentCommand boundary.
+  defp do_project("awx.fetch_launch_preflight", payload) do
+    with {:ok, result} <- AwxLaunchContract.from_plugin_result(payload) do
+      {:ok,
+       %{
+         "schema" => AwxLaunchContract.result_schema(),
+         "verb" => AwxLaunchContract.result_verb(),
+         "ok" => true,
+         "request_digest" => result.request_digest,
+         "preflight" => result.preflight,
+         "preflight_digest" => result.preflight_digest
        }}
     else
       _ -> :error
