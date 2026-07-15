@@ -74,6 +74,32 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
                      "labels",
                      "instance_group_ids"
                    ])
+  @launch_preflight_schema "serviceradar.awx_launch_preflight_request.v1"
+  @launch_preflight_arg_keys MapSet.new([
+                              "schema",
+                              "controller_id",
+                              "template_id",
+                              "project_id",
+                              "inventory_id",
+                              "credential_ids",
+                              "execution_environment_id",
+                              "selected_hosts"
+                            ])
+  @launch_preflight_target_keys MapSet.new([
+                                 "membership_id",
+                                 "controller_id",
+                                 "inventory_id",
+                                 "awx_host_id",
+                                 "canonical_device_uid",
+                                 "host_name",
+                                 "ansible_host",
+                                 "enabled",
+                                 "membership_generation",
+                                 "source_fingerprint"
+                               ])
+  @max_launch_preflight_targets 128
+  @canonical_positive_decimal ~r/\A[1-9][0-9]{0,9}\z/
+  @source_fingerprint ~r/\Asha256:[0-9a-f]{64}\z/
   @launch_body_key_map %{
     "extra_vars" => "extra_vars",
     "host_limit" => "limit",
@@ -125,6 +151,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
                 "awx.inventory_sync"
               ])
   @execution_verbs MapSet.new([
+                     "awx.fetch_launch_preflight",
                      "awx.launch_job",
                      "awx.fetch_job",
                      "awx.fetch_job_host_summaries",
@@ -241,6 +268,27 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   def fetch_template(controller, template_id, opts \\ []) when is_integer(template_id) do
     dispatch_verb(controller, "awx.fetch_template", %{"template_id" => template_id}, opts)
   end
+
+  @doc """
+  Fetches one bounded, redacted AWX launch preflight through the controller's
+  assigned edge agent.
+
+  `request` is an internal, server-built contract. It contains only reviewed
+  selectors and exact current membership identity; it never accepts an AWX
+  credential, arbitrary controller path, or result-selected host identity.
+  Numeric AWX IDs remain canonical decimal strings so the contract can be
+  canonically digested without JSON number-format ambiguity.
+  """
+  @spec fetch_launch_preflight(Controller.t(), map(), keyword()) ::
+          {:ok, struct()} | {:error, term()}
+  def fetch_launch_preflight(controller, request, opts \\ []) when is_map(request) do
+    with {:ok, args} <- normalize_launch_preflight_request(request) do
+      dispatch_verb(controller, "awx.fetch_launch_preflight", args, opts)
+    end
+  end
+
+  def fetch_launch_preflight(_controller, _request, _opts),
+    do: {:error, :invalid_awx_launch_preflight_request}
 
   @doc """
   Launch a Job Template. `launch_opts` may include `:extra_vars` (map),
@@ -746,6 +794,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
               "awx.list_projects",
               "awx.list_templates",
               "awx.fetch_template",
+              "awx.fetch_launch_preflight",
               "awx.inventory_sync",
               "awx.fetch_callback_credential",
               "awx.verify_callback_credential",
@@ -811,6 +860,29 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
 
       _ ->
         []
+    end
+  end
+
+  defp allowed_paths_for("awx.fetch_launch_preflight", args) do
+    with {:ok, request} <- normalize_launch_preflight_request(args) do
+      credential_paths =
+        request["credential_ids"]
+        |> Enum.map(&"=/api/v2/credentials/#{&1}/")
+
+      host_paths =
+        request["selected_hosts"]
+        |> Enum.map(&"=/api/v2/hosts/#{&1["awx_host_id"]}/")
+
+      [
+        "=/api/v2/job_templates/#{request["template_id"]}/",
+        "=/api/v2/job_templates/#{request["template_id"]}/survey_spec/",
+        "=/api/v2/projects/#{request["project_id"]}/",
+        "=/api/v2/inventories/#{request["inventory_id"]}/",
+        "=/api/v2/execution_environments/#{request["execution_environment_id"]}/"
+        | credential_paths ++ host_paths
+      ]
+    else
+      _ -> []
     end
   end
 
@@ -1052,6 +1124,176 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   end
 
   defp valid_launch_args?(_args), do: false
+
+  defp normalize_launch_preflight_request(request) when is_map(request) do
+    with {:ok, request} <- stringify_exact_launch_preflight_request(request),
+         true <- request["schema"] == @launch_preflight_schema,
+         {:ok, controller_id} <- canonical_uuid(request["controller_id"]),
+         :ok <- canonical_positive_decimal(request["template_id"]),
+         :ok <- canonical_positive_decimal(request["project_id"]),
+         :ok <- canonical_positive_decimal(request["inventory_id"]),
+         :ok <- canonical_positive_decimal(request["execution_environment_id"]),
+         {:ok, credential_ids} <- canonical_credential_ids(request["credential_ids"]),
+         {:ok, selected_hosts} <-
+           canonical_preflight_targets(
+             request["selected_hosts"],
+             controller_id,
+             request["inventory_id"]
+           ) do
+      {:ok,
+       request
+       |> Map.put("controller_id", controller_id)
+       |> Map.put("credential_ids", credential_ids)
+       |> Map.put("selected_hosts", selected_hosts)}
+    else
+      _ -> {:error, :invalid_awx_launch_preflight_request}
+    end
+  end
+
+  defp normalize_launch_preflight_request(_request),
+    do: {:error, :invalid_awx_launch_preflight_request}
+
+  defp stringify_exact_launch_preflight_request(request) do
+    normalized =
+      Enum.reduce_while(request, {:ok, %{}}, fn {key, value}, {:ok, acc} ->
+        case canonical_map_key(key) do
+          {:ok, normalized_key} ->
+            if Map.has_key?(acc, normalized_key) do
+              {:halt, {:error, :duplicate_awx_launch_preflight_key}}
+            else
+              {:cont, {:ok, Map.put(acc, normalized_key, value)}}
+            end
+
+          :error ->
+            {:halt, {:error, :invalid_awx_launch_preflight_key}}
+        end
+      end)
+
+    with {:ok, normalized} <- normalized,
+         true <- MapSet.new(Map.keys(normalized)) == @launch_preflight_arg_keys do
+      {:ok, normalized}
+    else
+      _ -> {:error, :invalid_awx_launch_preflight_request}
+    end
+  end
+
+  defp canonical_credential_ids(ids) when is_list(ids) do
+    with true <- Enum.all?(ids, &(canonical_positive_decimal(&1) == :ok)),
+         true <- ids == Enum.sort_by(ids, &String.to_integer/1),
+         true <- ids == Enum.uniq(ids) do
+      {:ok, ids}
+    else
+      _ -> {:error, :invalid_awx_launch_preflight_credentials}
+    end
+  end
+
+  defp canonical_credential_ids(_ids), do: {:error, :invalid_awx_launch_preflight_credentials}
+
+  defp canonical_preflight_targets(targets, controller_id, inventory_id)
+       when is_list(targets) and length(targets) in 1..@max_launch_preflight_targets do
+    with {:ok, normalized} <-
+           Enum.reduce_while(targets, {:ok, []}, fn target, {:ok, acc} ->
+             case canonical_preflight_target(target, controller_id, inventory_id) do
+               {:ok, normalized_target} -> {:cont, {:ok, [normalized_target | acc]}}
+               {:error, _reason} = error -> {:halt, error}
+             end
+           end),
+         normalized = Enum.reverse(normalized),
+         true <- normalized == Enum.sort_by(normalized, &String.to_integer(&1["awx_host_id"])),
+         true <- unique_preflight_target_ids?(normalized) do
+      {:ok, normalized}
+    else
+      _ -> {:error, :invalid_awx_launch_preflight_targets}
+    end
+  end
+
+  defp canonical_preflight_targets(_targets, _controller_id, _inventory_id),
+    do: {:error, :invalid_awx_launch_preflight_targets}
+
+  defp canonical_preflight_target(target, controller_id, inventory_id) when is_map(target) do
+    with {:ok, target} <- stringify_exact_preflight_target(target),
+         {:ok, membership_id} <- canonical_uuid(target["membership_id"]),
+         true <- target["controller_id"] == controller_id,
+         true <- target["inventory_id"] == inventory_id,
+         :ok <- canonical_positive_decimal(target["awx_host_id"]),
+         :ok <- canonical_positive_decimal(target["membership_generation"]),
+         :ok <- bounded_nonempty_string(target["canonical_device_uid"], 1_024),
+         :ok <- bounded_nonempty_string(target["host_name"], 512),
+         :ok <- optional_bounded_string(target["ansible_host"], 512),
+         true <- target["enabled"] == true,
+         true <- is_binary(target["source_fingerprint"]) and
+                   Regex.match?(@source_fingerprint, target["source_fingerprint"]) do
+      {:ok, Map.put(target, "membership_id", membership_id)}
+    else
+      _ -> {:error, :invalid_awx_launch_preflight_target}
+    end
+  end
+
+  defp canonical_preflight_target(_target, _controller_id, _inventory_id),
+    do: {:error, :invalid_awx_launch_preflight_target}
+
+  defp stringify_exact_preflight_target(target) do
+    normalized =
+      Enum.reduce_while(target, {:ok, %{}}, fn {key, value}, {:ok, acc} ->
+        case canonical_map_key(key) do
+          {:ok, normalized_key} ->
+            if Map.has_key?(acc, normalized_key) do
+              {:halt, {:error, :duplicate_awx_launch_preflight_target_key}}
+            else
+              {:cont, {:ok, Map.put(acc, normalized_key, value)}}
+            end
+
+          :error ->
+            {:halt, {:error, :invalid_awx_launch_preflight_target_key}}
+        end
+      end)
+
+    with {:ok, normalized} <- normalized,
+         true <- MapSet.new(Map.keys(normalized)) == @launch_preflight_target_keys do
+      {:ok, normalized}
+    else
+      _ -> {:error, :invalid_awx_launch_preflight_target}
+    end
+  end
+
+  defp unique_preflight_target_ids?(targets) do
+    host_ids = Enum.map(targets, & &1["awx_host_id"])
+    membership_ids = Enum.map(targets, & &1["membership_id"])
+    length(host_ids) == length(Enum.uniq(host_ids)) and
+      length(membership_ids) == length(Enum.uniq(membership_ids))
+  end
+
+  defp canonical_positive_decimal(value) when is_binary(value) do
+    if Regex.match?(@canonical_positive_decimal, value) and
+         String.to_integer(value) <= 2_147_483_647,
+      do: :ok,
+      else: :error
+  end
+
+  defp canonical_positive_decimal(_value), do: :error
+
+  defp canonical_uuid(value) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, canonical} -> {:ok, canonical}
+      :error -> {:error, :invalid_uuid}
+    end
+  end
+
+  defp canonical_uuid(_value), do: {:error, :invalid_uuid}
+
+  defp canonical_map_key(key) when is_binary(key), do: {:ok, key}
+  defp canonical_map_key(key) when is_atom(key), do: {:ok, Atom.to_string(key)}
+  defp canonical_map_key(_key), do: :error
+
+  defp optional_bounded_string(nil, _max_bytes), do: :ok
+  defp optional_bounded_string(value, max_bytes), do: bounded_nonempty_string(value, max_bytes)
+
+  defp bounded_nonempty_string(value, max_bytes)
+       when is_binary(value) and byte_size(value) >= 1 and byte_size(value) <= max_bytes do
+    if String.trim(value) == value and String.valid?(value), do: :ok, else: :error
+  end
+
+  defp bounded_nonempty_string(_value, _max_bytes), do: :error
 
   defp optional_arg?(args, key, validator) do
     not Map.has_key?(args, key) or validator.(Map.get(args, key))

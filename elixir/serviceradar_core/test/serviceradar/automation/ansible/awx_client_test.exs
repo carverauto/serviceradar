@@ -7,6 +7,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
   alias ServiceRadar.Edge.AgentCommandBus
 
   @callback_command_id "018f3f56-aaaa-4bbb-8ccc-123456789abc"
+  @preflight_controller_id "018f3f56-0000-7222-8333-123456789abc"
+  @preflight_membership_id "018f3f56-1111-7222-8333-123456789abc"
 
   defmodule FakeCommandBus do
     @moduledoc false
@@ -72,6 +74,35 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
   end
 
   defp callback_dispatch_opts, do: dispatch_opts() ++ [command_id: @callback_command_id]
+
+  defp launch_preflight_request(overrides \\ %{}) do
+    Map.merge(
+      %{
+        "schema" => "serviceradar.awx_launch_preflight_request.v1",
+        "controller_id" => @preflight_controller_id,
+        "template_id" => "42",
+        "project_id" => "73",
+        "inventory_id" => "7",
+        "credential_ids" => ["5", "91"],
+        "execution_environment_id" => "14",
+        "selected_hosts" => [
+          %{
+            "membership_id" => @preflight_membership_id,
+            "controller_id" => @preflight_controller_id,
+            "inventory_id" => "7",
+            "awx_host_id" => "101",
+            "canonical_device_uid" => "sr:device-101",
+            "host_name" => "node-101",
+            "ansible_host" => "192.168.2.101",
+            "enabled" => true,
+            "membership_generation" => "9",
+            "source_fingerprint" => "sha256:" <> String.duplicate("a", 64)
+          }
+        ]
+      },
+      overrides
+    )
+  end
 
   describe "dispatchability validation" do
     test "rejects controller with missing agent_id" do
@@ -170,6 +201,17 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
         {"awx.list_templates", %{}, ["GET"], ["=/api/v2/job_templates/"]},
         {"awx.fetch_template", %{"template_id" => 42}, ["GET"],
          ["=/api/v2/job_templates/42/", "=/api/v2/job_templates/42/survey_spec/"]},
+        {"awx.fetch_launch_preflight", launch_preflight_request(), ["GET"],
+         [
+           "=/api/v2/job_templates/42/",
+           "=/api/v2/job_templates/42/survey_spec/",
+           "=/api/v2/projects/73/",
+           "=/api/v2/inventories/7/",
+           "=/api/v2/execution_environments/14/",
+           "=/api/v2/credentials/5/",
+           "=/api/v2/credentials/91/",
+           "=/api/v2/hosts/101/"
+         ]},
         {"awx.inventory_sync", %{}, ["GET"], ["=/api/v2/inventories/", "/api/v2/inventories/*"]},
         {"awx.launch_job", %{"template_id" => 42, "host_limit" => "node-1"}, ["POST"],
          ["=/api/v2/job_templates/42/launch/"]},
@@ -245,6 +287,21 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
         {"awx.ping", %{"unexpected" => true}},
         {"awx.list_hosts", %{"inventory_id" => 0}},
         {"awx.fetch_template", %{"template_id" => -1}},
+        {"awx.fetch_launch_preflight", Map.delete(launch_preflight_request(), "schema")},
+        {"awx.fetch_launch_preflight", launch_preflight_request(%{"template_id" => 42})},
+        {"awx.fetch_launch_preflight", launch_preflight_request(%{"credential_ids" => ["91", "5"]})},
+        {"awx.fetch_launch_preflight",
+         launch_preflight_request(%{
+           "selected_hosts" => [
+             launch_preflight_request()["selected_hosts"] |> hd() |> Map.put("enabled", "true")
+           ]
+         })},
+        {"awx.fetch_launch_preflight",
+         launch_preflight_request(%{
+           "selected_hosts" => [
+             launch_preflight_request()["selected_hosts"] |> hd() |> Map.put("enabled", false)
+           ]
+         })},
         {"awx.launch_job", %{"template_id" => 0}},
         {"awx.launch_job", %{"template_id" => 42, "unreviewed" => true}},
         {"awx.launch_job", %{"template_id" => 42, "inventory_id" => "7"}},
@@ -291,6 +348,22 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
         assert {:error, :invalid_awx_broker_scope} =
                  AwxClient.broker_scope("https://awx.example.com", verb, args)
       end
+    end
+
+    test "preflight broker scope rejects non-string map keys without raising" do
+      malformed = Map.put(launch_preflight_request(), {:untrusted, :selector}, "value")
+
+      assert {:error, :invalid_awx_broker_scope} =
+               AwxClient.broker_scope(
+                 "https://awx.example.com",
+                 "awx.fetch_launch_preflight",
+                 malformed
+               )
+
+      assert {:error, :invalid_awx_launch_preflight_request} =
+               AwxClient.fetch_launch_preflight(controller(), malformed, dispatch_opts())
+
+      refute_received {:dispatch, _, "awx.fetch_launch_preflight", _, _}
     end
 
     test "event polling accepts only ten unique exact job pairs" do
@@ -343,6 +416,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       end
 
       for verb <- [
+            "awx.fetch_launch_preflight",
             "awx.launch_job",
             "awx.fetch_job",
             "awx.fetch_job_host_summaries",
@@ -383,6 +457,19 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       assert_receive {:dispatch, _, "awx.launch_job", execution_payload, _}
 
       assert execution_payload["credential_broker"]["credential_secret_ref"] ==
+               "credentialref:network-credential-secret:018f3f56-2222-7222-8333-123456789abc"
+
+      assert {:ok, _} =
+               AwxClient.fetch_launch_preflight(
+                 controller(),
+                 launch_preflight_request(),
+                 dispatch_opts()
+               )
+
+      assert_receive {:dispatch, _, "awx.fetch_launch_preflight", preflight_payload, _}
+
+      assert preflight_payload["args"] == launch_preflight_request()
+      assert preflight_payload["credential_broker"]["credential_secret_ref"] ==
                "credentialref:network-credential-secret:018f3f56-2222-7222-8333-123456789abc"
 
       assert {:ok, _} =
