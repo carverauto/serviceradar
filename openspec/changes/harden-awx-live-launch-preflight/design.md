@@ -7,6 +7,12 @@ operation/execution and dispatches `awx.launch_job`. Existing `fetch_template`
 and `list_hosts` support is asynchronous and cannot be used as a precondition
 before persistence.
 
+The current `AwxTemplateBinding` review metadata retains an
+`awx_snapshot_digest`, but not the reviewed canonical AWX snapshot itself. A
+digest alone proves neither what fields were reviewed nor how to compare a live
+projection. The preflight contract must therefore add immutable, secret-free
+review evidence before it can claim complete live-state comparison.
+
 This is not sufficient for a reviewed launch contract. A job template can be
 changed in AWX after ServiceRadar reviews it: a project branch, inventory,
 credential set, execution environment, survey, or prompt-on-launch flag can
@@ -37,10 +43,14 @@ move to a different address after discovery.
 ### Decision: Use one read-only compound preflight verb
 
 The AWX plugin will expose `awx.fetch_launch_preflight`. Its request is created
-only by the ServiceRadar secure-launch service and contains a controller grant,
-the reviewed template ID, inventory ID, and the already-authorized target host
-IDs. It performs only AWX `GET` requests and returns a typed, bounded,
-redacted projection:
+only by the ServiceRadar secure-launch service and carries non-secret reviewed
+selectors: controller, template, project, inventory, credential IDs,
+execution-environment ID, and already-authorized target host tuples. `AwxClient`
+mints the controller broker grant internally; the domain preflight request never
+carries a grant. The plugin performs only AWX `GET` requests against paths
+already bound by those selectors and cross-checks every returned ID. It SHALL
+NOT derive arbitrary dependent-resource paths from an initial template response.
+It returns a typed, bounded, redacted projection:
 
 - template identity, project, inventory, playbook, job settings, all
   prompt-on-launch flags, associated credential IDs, execution-environment ID,
@@ -63,10 +73,19 @@ the AWX runner's inability to edit reviewed resources; an external AWX
 administrator can still make a change after any read and must use the reviewed
 change-management process.
 
-### Decision: Compare complete execution-relevant state, not just markers
+### Decision: Persist immutable reviewed evidence, then compare complete state
 
-The approved callback binding records a canonical reviewed snapshot. A launch
-preflight requires exact equality for:
+Each approved binding version will carry immutable, secret-free
+`reviewed_launch_snapshot` and `reviewed_launch_snapshot_digest` attributes.
+The snapshot uses the versioned `serviceradar.awx_launch_contract.v1` schema,
+string-only normalized keys, no floats, and canonical JSON plus its SHA-256
+digest. It will be validated with `CallbackGrants.CanonicalJSON.digest/1` and
+cross-checked against the existing `review_metadata.awx_snapshot_digest` during
+the migration period. Existing digest-only bindings are not launchable until an
+authorized reviewer creates a complete review snapshot.
+
+A launch preflight requires exact equality between that reviewed snapshot and
+the live projection for:
 
 - template, project, and inventory IDs; project SCM type, URL, branch, and
   resolved revision; template playbook, job type, timeout, forks, and
@@ -77,8 +96,15 @@ preflight requires exact equality for:
   environment, variables, limit, SCM branch, job type, tags, verbosity, and
   diff mode;
 - the canonical survey digest and its exact restricted dispatch-marker fields;
-- the controller, inventory, host ID, enabled state, normalized name/address,
-  and identity-variable digest for every selected target.
+- the controller and inventory identity for the reviewed template.
+
+Selected hosts do not live in the binding because every launch has a dynamic
+target set. Immediately before dispatch, ServiceRadar builds an expected-target
+snapshot from each exact current `AwxHostMembership` tuple: membership ID,
+source generation/fingerprint, controller/inventory/AWX-host IDs, canonical
+device UID, host name, normalized `ansible_host`, and enabled state. The live
+result is compared only to that selected set; a host, address, or inventory
+returned by AWX can never broaden the target authority.
 
 The comparison is deny-by-default: unknown fields, duplicate IDs, a missing
 associated resource, non-canonical JSON, or an unsupported prompt value are
@@ -95,17 +121,22 @@ result, or an AWX read error returns an operator-safe preflight failure.
 No `AutomationSecureExecutionOperation`, child execution, `PlaybookRun`, or
 `awx.launch_job` command is created before a successful comparison. The
 read-only command rows remain available for audit but carry only redacted
-payloads.
+payloads. A new secret-free `AutomationAwxLaunchPreflightEvidence` resource,
+with no operation/execution foreign key, records the command ID, controller,
+agent, partition, binding/version/approval IDs, reviewed/request/target/
+controller-security/live/result digests, verification timestamp, and expiry.
+The immutable launch snapshot copies this evidence ID and digests after the
+second authorization read.
 
 ### Decision: Re-authorize and bind immutable evidence immediately before launch
 
 After a successful live comparison, ServiceRadar re-reads the actor, role
-membership, holds, callback binding, controller, and every target membership.
-It requires the same authorization and policy conditions that were true before
-the read. It then writes an immutable launch snapshot containing the binding
-revision, canonical reviewed digest, live preflight digest, and command/result
-digests. The existing launcher may dispatch `awx.launch_job` only from that
-snapshot.
+membership, holds, callback binding, controller-security state, and every target
+membership. It requires the same authorization and policy conditions that were
+true before the read. It then writes an immutable launch snapshot containing the
+binding revision, canonical reviewed digest, live preflight digest, command/
+result digests, and preflight-evidence ID. The existing launcher may dispatch
+`awx.launch_job` only from that snapshot.
 
 This protects against a user losing a permission, a hold appearing, or a
 binding/target changing while an edge read is in flight. User-supplied launch
@@ -164,6 +195,3 @@ does not silently absorb live values.
   can supplement `modified` timestamps in the double-read check? The plugin
   must treat absence as a reason to rely on canonical payload digest, not as a
   reason to skip the check.
-- Which existing immutable execution-snapshot resource is the best storage
-  location for preflight command/result digests, versus adding a small
-  secret-free preflight audit resource?

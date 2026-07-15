@@ -2,6 +2,10 @@
 
 - [ ] 1.1 Define a versioned, typed, secret-free `awx.fetch_launch_preflight`
   request/result contract and a canonical JSON/digest implementation.
+- [ ] 1.1.1 Add immutable, secret-free `reviewed_launch_snapshot` and
+  `reviewed_launch_snapshot_digest` attributes to each approved binding version,
+  validate the versioned canonical-map schema/digest, and fail closed for legacy
+  digest-only bindings.
 - [ ] 1.2 Implement the read-only AWX plugin verb with bounded GETs for the
   template, survey, project, inventory, associated credentials, execution
   environment, and selected hosts.
@@ -17,15 +21,22 @@
   `HardenedLaunchPlan`/`HardenedRunLauncher`, dispatching only the read-only
   preflight command through the controller's assigned agent.
 - [ ] 2.2 Await terminal `AgentCommand` rows with a bounded, cancellation-safe
-  database-authoritative wait; use PubSub only as a wake-up signal.
+  database-authoritative wait; reuse/factor the ControllerProvenance command
+  identity/partition validation and use PubSub only as a wake-up signal.
 - [ ] 2.3 Canonicalize and compare the complete live template, project,
   inventory, credential, execution-environment, survey, prompt, and target
-  membership contract against the approved binding.
+  membership contract against the immutable reviewed launch snapshot.
+- [ ] 2.3.1 Build the dynamic expected-target snapshot only from the selected
+  current AwxHostMembership tuples (including source generation/fingerprint),
+  and reject any returned host/address/inventory outside that exact set.
 - [ ] 2.4 Re-read actor authorization, holds, binding revision, controller, and
   target memberships after a successful preflight and before persisting a
   mutable execution.
 - [ ] 2.5 Store reviewed/live/command digests in the immutable launch snapshot;
   reject all paths that could dispatch `awx.launch_job` without them.
+- [ ] 2.5.1 Add a secret-free `AutomationAwxLaunchPreflightEvidence` resource
+  with no operation/execution foreign key, then require its identity/digests in
+  HardenedLaunchPlan and the persisted immutable launch snapshot.
 - [ ] 2.6 Normalize timeout, agent-unavailable, malformed-result, and each
   drift family into operator-safe failures with no execution/run creation.
 
@@ -46,7 +57,8 @@
 ## 4. Verification
 
 - [ ] 4.1 Add unit tests for positive preflight, all contract mismatch classes,
-  unknown fields, duplicate resources, and malformed canonical payloads.
+  unknown fields, duplicate resources, malformed canonical payloads, and
+  legacy digest-only bindings that must remain non-launchable.
 - [ ] 4.2 Add integration tests proving no operation/execution/PlaybookRun or
   `awx.launch_job` dispatch exists on preflight failure.
 - [ ] 4.3 Add integration tests proving only a successful live preflight with

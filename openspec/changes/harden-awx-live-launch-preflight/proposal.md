@@ -19,6 +19,12 @@ run.
   persisted. It compares the live snapshot to the approved callback binding,
   re-checks the requesting actor's authorization, and fails closed on timeout,
   error, missing data, or drift.
+- Persist an immutable, secret-free reviewed launch snapshot and matching digest
+  on each approved binding version. The current binding retains only a digest,
+  which is insufficient to compare all execution-relevant live fields.
+- Persist independent, secret-free preflight evidence linked to the durable
+  read-only agent command before any operation/execution exists, then copy its
+  identifiers and digests into the immutable launch snapshot.
 - Bind the reviewed revision, live snapshot digest, and durable command-result
   digests into the immutable launch snapshot. Only then may the system persist
   the execution and dispatch `awx.launch_job`.

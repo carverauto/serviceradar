@@ -27,20 +27,25 @@ The system SHALL obtain a live, redacted AWX preflight through the controller's
 assigned edge agent before creating a mutable automation execution or dispatching
 `awx.launch_job`. It SHALL compare the live template, survey, project,
 inventory, associated credentials, execution environment, launch prompt flags,
-and selected host memberships to the approved callback binding using canonical
-digests and deny-by-default semantics. It SHALL persist reviewed/live/command
-digests in the immutable launch snapshot only after the comparison and a second
-authorization read succeed.
+and selected host memberships to an immutable, secret-free reviewed launch
+snapshot owned by the approved callback binding version using canonical digests
+and deny-by-default semantics. It SHALL persist reviewed/live/command digests in
+the immutable launch snapshot only after the comparison and a second
+authorization read succeed. A digest-only legacy binding SHALL NOT be launchable
+until an authorized reviewer creates the reviewed launch snapshot.
 
 #### Scenario: Matching live state permits one launch
 - **GIVEN** a user has the required ServiceRadar launch and callback permissions
 - **AND** an approved binding fixes the template, project revision, inventory,
-  credential IDs, execution environment, survey contract, prompt policy, and
-  target host identities
+  credential IDs, execution environment, survey contract, and prompt policy
+- **AND** the exact selected targets have current AwxHostMembership tuples for
+  the reviewed controller and inventory
 - **WHEN** the user requests a launch
 - **THEN** ServiceRadar SHALL dispatch only `awx.fetch_launch_preflight` before
   creating an execution
 - **AND** the preflight SHALL be resolved from terminal durable AgentCommand rows
+- **AND** the system SHALL write secret-free preflight evidence that has no
+  operation or execution foreign key
 - **AND** ServiceRadar SHALL re-read the actor, holds, binding, controller, and
   targets before persistence
 - **AND** it SHALL persist the reviewed/live/command digests in an immutable
