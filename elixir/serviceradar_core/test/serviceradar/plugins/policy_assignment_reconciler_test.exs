@@ -54,12 +54,17 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
     end
 
     @impl true
-    def list_policy_assignments(policy_id, _actor) do
+    def list_policy_assignments(policy_id, _actor, opts) do
+      partition_id = Keyword.get(opts, :partition_id)
+
       rows =
         Agent.get(__MODULE__, fn state ->
           state
           |> Map.values()
-          |> Enum.filter(&(&1.policy_id == policy_id and &1.source == :policy))
+          |> Enum.filter(fn row ->
+            row.policy_id == policy_id and row.source == :policy and
+              (is_nil(partition_id) or row.partition_id == partition_id)
+          end)
         end)
 
       {:ok, rows}
@@ -109,6 +114,10 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
 
     def rows, do: Agent.get(__MODULE__, &Map.values/1)
 
+    def put_row(record) do
+      Agent.update(__MODULE__, &Map.put(&1, {record.partition_id, record.source_key}, record))
+    end
+
     defp spec_to_record(spec, existing \\ %{}) do
       %{
         id: Map.get(existing, :id, Ecto.UUID.generate()),
@@ -132,7 +141,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
 
     # Reproduces production assignment drift: an enabled assignment for the same
     # (agent, package) already exists under an OLDER policy_id, so the current
-    # policy's list_policy_assignments/2 returns nothing and create_assignment
+    # policy's list_policy_assignments/3 returns nothing and create_assignment
     # collides with NoDuplicateEnabledAssignment. The reconciler must adopt
     # (update) the existing row, not duplicate it.
     def start_link(existing) do
@@ -157,7 +166,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
     def created, do: Agent.get(__MODULE__, & &1.created)
 
     @impl true
-    def list_policy_assignments(_policy_id, _actor), do: {:ok, []}
+    def list_policy_assignments(_policy_id, _actor, _opts), do: {:ok, []}
 
     @impl true
     def create_assignment(_spec, _actor) do
@@ -337,5 +346,104 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
     assert rows |> Enum.map(& &1.source_key) |> Enum.uniq() |> length() == 1
     assert Enum.any?(rows, &(&1.partition_id == "farm01" and &1.enabled == false))
     assert Enum.any?(rows, &(&1.partition_id == "tonka01" and &1.enabled == true))
+  end
+
+  test "expected recovery partition rejects a changed live session before any assignment write" do
+    policy = %{
+      policy_id: "policy-recovery-partition-guard",
+      policy_version: 1,
+      plugin_package_id: Ecto.UUID.generate(),
+      params_template: %{},
+      enabled: true
+    }
+
+    # Recovery observed farm01 before entering its guarded transaction, but the
+    # reconcile-time resolver sees the same agent authenticated in tonka01.
+    # Do not create, update, adopt, or retract an assignment in that case.
+    assert {:error, errors} =
+             PolicyAssignmentReconciler.reconcile(policy, [],
+               resolver: ResolverV1,
+               store: MemoryStore,
+               expected_partition_id: "farm01",
+               partition_resolver: fn "agent-a" -> {:ok, "tonka01"} end,
+               generated_at: "2026-07-15T20:00:00Z"
+             )
+
+    assert Enum.any?(errors, &String.contains?(&1, "authenticated_agent_partition_changed"))
+    assert MemoryStore.rows() == []
+  end
+
+  test "expected recovery partition permits the preflight session" do
+    policy = %{
+      policy_id: "policy-recovery-partition-control",
+      policy_version: 1,
+      plugin_package_id: Ecto.UUID.generate(),
+      params_template: %{},
+      enabled: true
+    }
+
+    assert {:ok, %{upserted: 1}} =
+             PolicyAssignmentReconciler.reconcile(policy, [],
+               resolver: ResolverV1,
+               store: MemoryStore,
+               expected_partition_id: "farm01",
+               partition_resolver: fn "agent-a" -> {:ok, "farm01"} end,
+               generated_at: "2026-07-15T20:00:00Z"
+             )
+
+    assert [%{agent_uid: "agent-a", partition_id: "farm01", enabled: true}] =
+             MemoryStore.rows()
+  end
+
+  test "recovery partition scope leaves a same-UID assignment in another partition untouched" do
+    policy = %{
+      policy_id: "policy-recovery-partition-scope",
+      policy_version: 1,
+      plugin_package_id: Ecto.UUID.generate(),
+      params_template: %{},
+      enabled: true
+    }
+
+    # Establish the current farm01 assignment through the normal planner so its
+    # source key exactly matches the recovery plan. Then inject a separately
+    # active, stale tonka01 row for the same agent UID. The recovery's native
+    # agent scope alone is insufficient: both rows have agent-a.
+    assert {:ok, _} =
+             PolicyAssignmentReconciler.reconcile(policy, [],
+               resolver: ResolverV1,
+               store: MemoryStore,
+               partition_resolver: fn "agent-a" -> {:ok, "farm01"} end,
+               generated_at: "2026-07-15T21:00:00Z"
+             )
+
+    [farm_assignment] = MemoryStore.rows()
+
+    tonka_assignment = %{
+      farm_assignment
+      | id: Ecto.UUID.generate(),
+        partition_id: "tonka01",
+        source_key: "stale-tonka01-source",
+        interval_seconds: 987,
+        timeout_seconds: 654,
+        params: %{"must_remain" => "tonka01"}
+    }
+
+    MemoryStore.put_row(tonka_assignment)
+
+    assert {:ok, stats} =
+             PolicyAssignmentReconciler.reconcile(policy, [],
+               resolver: ResolverV1,
+               store: MemoryStore,
+               agent_scope: ["agent-a"],
+               expected_partition_id: "farm01",
+               partition_resolver: fn "agent-a" -> {:ok, "farm01"} end,
+               generated_at: "2026-07-15T21:01:00Z"
+             )
+
+    assert stats.unchanged == 1
+    assert stats.disabled == 0
+
+    assert ^tonka_assignment =
+             Enum.find(MemoryStore.rows(), &(&1.id == tonka_assignment.id))
   end
 end

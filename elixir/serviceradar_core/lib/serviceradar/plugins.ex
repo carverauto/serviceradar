@@ -14,6 +14,8 @@ defmodule ServiceRadar.Plugins do
     resource ServiceRadar.Plugins.Plugin
     resource ServiceRadar.Plugins.PluginPackage
     resource ServiceRadar.Plugins.PluginAssignment
+    resource ServiceRadar.Plugins.PluginAssignmentRecoveryAudit
+    resource ServiceRadar.Plugins.PluginPolicyAssignmentRecoveryRequest
     resource ServiceRadar.Plugins.PluginTargetPolicy
     resource ServiceRadar.Plugins.AddonPackage
     resource ServiceRadar.Plugins.ProducerSchedule

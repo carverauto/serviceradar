@@ -75,11 +75,7 @@ defmodule ServiceRadar.DataService.Client do
   """
   @spec connected?() :: boolean()
   def connected? do
-    if safe_call(:connected?, 1_000) do
-      true
-    else
-      false
-    end
+    safe_call(:connected?, 1_000) == true
   end
 
   @doc """

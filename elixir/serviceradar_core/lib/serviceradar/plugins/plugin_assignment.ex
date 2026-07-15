@@ -11,6 +11,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
 
   alias ServiceRadar.Plugins.Changes.ApplyConfigDefaults
   alias ServiceRadar.Plugins.Changes.BindAssignmentPartition
+  alias ServiceRadar.Plugins.Changes.RejectLegacyUnboundAssignmentMutation
   alias ServiceRadar.Plugins.Changes.SetAssignmentPluginId
   alias ServiceRadar.Plugins.Validations.AssignmentParams
   alias ServiceRadar.Plugins.Validations.NoDuplicateEnabledAssignment
@@ -38,7 +39,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
 
     read :by_package do
       argument :plugin_package_id, :uuid, allow_nil?: false
@@ -91,13 +92,22 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     end
 
     update :update do
+      # Legacy-unbound mutation is a runtime guard because the row's current
+      # persisted state is part of the authorization boundary.
+      require_atomic? false
       accept @mutable_fields
 
+      change RejectLegacyUnboundAssignmentMutation
       change SetAssignmentPluginId
       change ApplyConfigDefaults
       validate PackageApproved
       validate NoDuplicateEnabledAssignment
       validate AssignmentParams
+    end
+
+    destroy :destroy do
+      require_atomic? false
+      change RejectLegacyUnboundAssignmentMutation
     end
   end
 

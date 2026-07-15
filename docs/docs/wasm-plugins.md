@@ -136,6 +136,64 @@ Plugin blob upload and download tokens are transported only in explicit headers 
 
 Assigned health-result plugins, including first-party plugins such as UniFi and AlienVault OTX, appear in `/services` with a stable `plugin` service identity. When an assignment is created, the control plane seeds a pending service row; the next agent-reported plugin result updates that row with the plugin status and summary.
 
+### Authenticated partition binding and legacy recovery
+
+An operator selects an **agent**, not a partition. Before an assignment is saved,
+ServiceRadar displays the agent's **Authenticated partition** when a live mTLS
+control session can prove it. The server derives the assignment partition from
+that session again when it writes the assignment. Do not expect a partition
+drop-down or attempt to add `partition_id` to an API request: an operator-supplied
+value is never authority to route a plugin into an edge partition.
+
+If the agent is offline, enrolled in more than one currently-live partition, or
+its control-session identity cannot be verified, the assignment fails closed.
+Bring the intended agent online and resolve the identity condition before trying
+again. A displayed partition is informational; it is checked again on save so a
+reconnect between viewing the form and confirming it cannot redirect the work.
+
+Older deployments may contain a disabled assignment marked **Unbound legacy
+assignment -- reapproval required**. This is expected after the partition-binding
+migration: ServiceRadar intentionally did not infer an old assignment's partition
+from current inventory metadata.
+
+The Plugins index has a **Legacy recovery candidates** table scoped to the current
+workspace. It shows the affected agent, plugin package, recovery kind, safe
+status, and a **Review** link. The queue is bounded to 50 cursor-backed rows per
+page and shows only rows that still need action; a successfully reapproved or
+reconciled historical row leaves the queue and retains only its safe completion
+state in package detail. Treat it as a review queue, not a bulk repair tool: it
+deliberately has no bulk enable action, deep offset scan, or `default`
+partition assumption.
+
+1. Use **Review**, confirm the target agent is connected, and verify the package
+   is still approved.
+2. For a manually owned assignment, use **Reapprove** and explicitly confirm the
+   replacement. ServiceRadar creates a new, partition-bound assignment and leaves
+   the historical row disabled for audit.
+3. For a policy- or credential-rule-owned assignment, use **Reconcile policy**.
+   Do not manually clone its old configuration. Reconciliation re-evaluates the
+   currently enabled owner, target scope, package, schema, and live agent
+   identity before it can materialize a new assignment. The status refreshes while
+   it is queued or running and then shows a safe terminal outcome; refresh the
+   package detail if the browser session ends before it completes.
+4. Wait for the agent's next plugin result, then verify the restored service in
+   `/services` and the assignment detail view.
+
+Manual recovery requires plugin-assignment permission. Policy recovery requires
+current authority for its owning source; credential-rule recovery also requires
+credential-management permission. If that credential permission is absent, the
+reconciliation action is disabled and rejects a direct browser submission with
+the same missing-permission explanation. The control plane rechecks all
+authority before executing, so browser state never grants access by itself. The
+recovery UI shows only a safe state: `Reapproved` for a completed manual row, or
+a normalized policy state and replacement count for a policy row. Raw recovery
+audits and durable recovery requests remain internal; the UI does not show
+request parameters, principals, owner metadata, replacement IDs, secret values,
+tokens, or private material. Do not re-enable unbound rows with direct database
+updates.
+Do not alter or delete them through raw database access; use the audited recovery
+actions so the historical row remains available for investigation.
+
 ### First-party plugin import
 
 ServiceRadar ships first-party Wasm plugins as signed artifacts published by release automation. The Plugins UI can sync a first-party plugin index, verify the referenced signed bundle, mirror the Wasm payload into ServiceRadar-managed plugin storage, and stage the package for normal capability review. Imported first-party packages are not assignable until an authorized operator approves them.

@@ -7,6 +7,7 @@ defmodule ServiceRadar.DataService.ClientTest do
     refute Process.whereis(Client)
 
     assert {:error, :not_started} = Client.get_channel(timeout: 10)
+    refute Client.connected?()
   end
 
   test "connected? keeps an established virtual channel without probing the adapter process" do
