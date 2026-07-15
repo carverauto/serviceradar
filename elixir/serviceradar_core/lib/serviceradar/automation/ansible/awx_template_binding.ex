@@ -19,6 +19,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Automation.Ansible.VariableSchema
+  alias ServiceRadar.Automation.CallbackGrants.LaunchContract
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "ansible.catalog.view"}
@@ -42,7 +43,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
                           "review_ticket",
                           "awx_snapshot_digest",
                           "policy_version",
-                          "source_ref"
+                          "source_ref",
+                          "callback_contract"
                         ])
 
   postgres do
@@ -223,8 +225,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
            :ok <- validate_credentials(changeset),
            :ok <- validate_inventory_groups(changeset),
            :ok <- validate_input_contract(changeset),
-           :ok <- validate_callback_contract(changeset) do
-        validate_review_metadata(changeset)
+           :ok <- validate_review_metadata(changeset) do
+        validate_callback_contract(changeset)
       end
     end
   end
@@ -514,7 +516,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
       kind = map_value(ref, :kind)
       keys = map_keys(ref)
 
-      if keys == MapSet.new(["id", "kind"]) and is_integer(id) and id > 0 and is_binary(kind) and
+      if keys == MapSet.new(["id", "kind"]) and unique_normalized_map_keys?(ref) and
+           is_integer(id) and id > 0 and is_binary(kind) and
            Regex.match?(@credential_kind, kind) do
         {:cont, {:ok, [%{"id" => id, "kind" => kind} | acc]}}
       else
@@ -569,6 +572,17 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
   end
 
   defp input_schema(schema) when is_map(schema) and map_size(schema) <= 100 do
+    if unique_normalized_map_keys?(schema) do
+      validate_input_definitions(schema)
+    else
+      {:error, :input_schema, "must not contain duplicate normalized input names"}
+    end
+  end
+
+  defp input_schema(_),
+    do: {:error, :input_schema, "must be a map containing at most 100 typed fields"}
+
+  defp validate_input_definitions(schema) do
     Enum.reduce_while(schema, :ok, fn {name, definition}, :ok ->
       name = to_string(name)
 
@@ -578,9 +592,6 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
       end
     end)
   end
-
-  defp input_schema(_),
-    do: {:error, :input_schema, "must be a map containing at most 100 typed fields"}
 
   defp input_definition(name, definition) do
     type = map_value(definition, :type)
@@ -593,7 +604,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
       not VariableSchema.reviewed_input_name?(name) ->
         {:error, :input_schema, "contains a secret, magic, transport, or reserved input name"}
 
-      not is_map(definition) or not MapSet.subset?(map_keys(definition), @input_definition_keys) ->
+      not is_map(definition) or not unique_normalized_map_keys?(definition) or
+          not MapSet.subset?(map_keys(definition), @input_definition_keys) ->
         {:error, :input_schema, "definitions contain unreviewed keys"}
 
       not MapSet.member?(@input_types, type) ->
@@ -629,7 +641,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
         MapSet.member?(@classifications, classification)
       end)
 
-    if schema_keys == classification_keys and valid_values? do
+    if unique_normalized_map_keys?(classifications) and schema_keys == classification_keys and
+         valid_values? do
       :ok
     else
       {:error, :input_classifications,
@@ -674,7 +687,44 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
         invalid(:callback_actions, "must contain unique reviewed callback action names")
 
       true ->
+        validate_callback_launch_contract(changeset, actions)
+    end
+  end
+
+  # Lifecycle updates cannot rewrite reviewed fields. Keep malformed legacy rows
+  # revocable/expirable while enforcing the complete contract on every new row.
+  defp validate_callback_launch_contract(%{action_type: :update}, _actions), do: :ok
+
+  defp validate_callback_launch_contract(changeset, []) do
+    metadata = attribute(changeset, :review_metadata)
+
+    if is_map(metadata) and
+         not MapSet.member?(map_keys(metadata), "callback_contract"),
+       do: :ok,
+       else:
+         invalid(
+           :review_metadata,
+           "cannot retain a callback launch contract when callback actions are empty"
+         )
+  end
+
+  defp validate_callback_launch_contract(changeset, actions) do
+    binding = %{
+      callback_actions: actions,
+      ask_credential_on_launch: attribute(changeset, :ask_credential_on_launch),
+      callback_credential_slot: attribute(changeset, :callback_credential_slot),
+      review_metadata: attribute(changeset, :review_metadata)
+    }
+
+    case LaunchContract.from_binding(binding) do
+      {:ok, _contract} ->
         :ok
+
+      {:error, _reason} ->
+        invalid(
+          :review_metadata,
+          "must contain one exact registry-backed callback launch contract"
+        )
     end
   end
 
@@ -686,6 +736,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
     cond do
       not is_map(metadata) or not MapSet.subset?(map_keys(metadata), @review_metadata_keys) ->
         invalid(:review_metadata, "must contain only reviewed non-secret metadata fields")
+
+      not unique_normalized_map_keys?(metadata) ->
+        invalid(:review_metadata, "must not contain duplicate normalized metadata fields")
 
       not is_binary(ticket) or byte_size(ticket) not in 1..255 ->
         invalid(:review_metadata, "must identify the external review ticket")
@@ -752,6 +805,11 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
 
   defp map_keys(map) when is_map(map), do: map |> Map.keys() |> MapSet.new(&to_string/1)
   defp map_keys(_map), do: MapSet.new()
+
+  defp unique_normalized_map_keys?(map) when is_map(map),
+    do: map_size(map) == MapSet.size(map_keys(map))
+
+  defp unique_normalized_map_keys?(_map), do: false
 
   defp invalid(field, message), do: {:error, field: field, message: message}
 end
