@@ -166,8 +166,12 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
         command_bus = Keyword.get(opts, :command_bus, AgentCommandBus)
 
         command_bus
-        |> dispatch_command(assignment.agent_uid, command_type, transmit_payload,
+        |> dispatch_command(
+          assignment.agent_uid,
+          command_type,
+          transmit_payload,
           ttl_seconds: timeout_seconds,
+          required_partition: assignment.partition_id,
           source: :automation,
           context: %{
             producer_schedule_id: to_string(schedule.id),

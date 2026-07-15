@@ -486,7 +486,20 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   attr(:awx_secrets, :any, default: [])
 
   defp controller_form(assigns) do
-    assigns = assign(assigns, :selected_secret_id, controller_form_secret_id(assigns.form))
+    assigns =
+      assigns
+      |> assign(
+        :selected_sync_secret_id,
+        controller_form_secret_id(assigns.form, :sync_credential_secret_id)
+      )
+      |> assign(
+        :selected_execution_secret_id,
+        controller_form_secret_id(assigns.form, :execution_credential_secret_id)
+      )
+      |> assign(
+        :selected_callback_secret_id,
+        controller_form_secret_id(assigns.form, :callback_credential_secret_id)
+      )
 
     ~H"""
     <div class="rounded-lg border border-base-300 bg-base-200/60 p-4">
@@ -548,57 +561,136 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </div>
 
-          <div class="form-control md:col-span-2">
+          <div role="alert" class="alert alert-info alert-soft md:col-span-2 text-sm">
+            Use separate least-privilege AWX principals for sync, execution, and callback
+            credential lifecycle. Callback may deliberately reuse execution, but it never
+            falls back automatically.
+          </div>
+
+          <fieldset class="fieldset rounded-box border border-base-300 p-3 md:col-span-2">
+            <legend class="fieldset-legend">Sync credential</legend>
             <label class="label">
               <span class="label-text">
-                {if @editing_id, do: "New AWX API token", else: "AWX API token"}
+                {if @editing_id, do: "New sync API token", else: "Sync API token"}
               </span>
               <span class="label-text-alt text-xs text-base-content/60">
                 {if @editing_id,
-                  do: "Leave blank to keep the existing encrypted token.",
-                  else: "Stored encrypted as a network credential."}
+                  do: "Leave blank to keep the selected encrypted sync token.",
+                  else: "Used only for health, catalog, and inventory reads."}
               </span>
             </label>
             <input
               type="password"
-              name="controller[awx_api_token]"
+              id="controller-sync-awx-api-token"
+              name="controller[sync_awx_api_token]"
               value=""
-              class="input input-bordered input-sm font-mono"
+              class="input input-sm font-mono"
               autocomplete="off"
-              placeholder={if @editing_id, do: "Paste only to rotate", else: "Paste AWX token"}
+              placeholder={if @editing_id, do: "Paste only to rotate sync", else: "Paste sync token"}
             />
-          </div>
 
-          <div class="form-control md:col-span-2">
             <label class="label">
-              <span class="label-text">Existing credential secret</span>
+              <span class="label-text">Existing sync credential secret</span>
               <span class="label-text-alt text-xs text-base-content/60">
                 Provision AWX tokens in Settings → Credentials → New Secret → AWX API Token.
               </span>
             </label>
             <select
-              name="controller[credential_secret_id]"
-              class="select select-bordered select-sm"
+              id="controller-sync-credential-secret-id"
+              name="controller[sync_credential_secret_id]"
+              class="select select-sm"
             >
-              <option value="" selected={@selected_secret_id in [nil, ""]}>
+              <option value="" selected={@selected_sync_secret_id in [nil, ""]}>
                 — none / paste a token above —
               </option>
               <option
                 :for={secret <- @awx_secrets}
                 value={secret.id}
-                selected={to_string(secret.id) == @selected_secret_id}
+                selected={to_string(secret.id) == @selected_sync_secret_id}
               >
                 {secret.name}
               </option>
               <option
-                :if={@selected_secret_id not in ["" | Enum.map(@awx_secrets, &to_string(&1.id))]}
-                value={@selected_secret_id}
+                :if={@selected_sync_secret_id not in ["" | Enum.map(@awx_secrets, &to_string(&1.id))]}
+                value={@selected_sync_secret_id}
                 selected={true}
               >
-                {@selected_secret_id} (current)
+                {@selected_sync_secret_id} (current)
               </option>
             </select>
-          </div>
+            <input
+              type="hidden"
+              name="controller[credential_secret_id]"
+              value={@selected_sync_secret_id}
+            />
+          </fieldset>
+
+          <fieldset class="fieldset rounded-box border border-base-300 p-3 md:col-span-2">
+            <legend class="fieldset-legend">Execution credential</legend>
+            <select
+              id="controller-execution-credential-secret-id"
+              name="controller[execution_credential_secret_id]"
+              class="select select-sm"
+            >
+              <option value="" selected={@selected_execution_secret_id in [nil, ""]}>
+                — none / launching and job polling disabled —
+              </option>
+              <option
+                :for={secret <- @awx_secrets}
+                value={secret.id}
+                selected={to_string(secret.id) == @selected_execution_secret_id}
+              >
+                {secret.name}
+              </option>
+              <option
+                :if={
+                  @selected_execution_secret_id not in [
+                    "" | Enum.map(@awx_secrets, &to_string(&1.id))
+                  ]
+                }
+                value={@selected_execution_secret_id}
+                selected={true}
+              >
+                {@selected_execution_secret_id} (current)
+              </option>
+            </select>
+            <p class="label">
+              Requires only the exact inventory/template/credential use and job lifecycle roles.
+            </p>
+          </fieldset>
+
+          <fieldset class="fieldset rounded-box border border-base-300 p-3 md:col-span-2">
+            <legend class="fieldset-legend">Callback credential lifecycle</legend>
+            <select
+              id="controller-callback-credential-secret-id"
+              name="controller[callback_credential_secret_id]"
+              class="select select-sm"
+            >
+              <option value="" selected={@selected_callback_secret_id in [nil, ""]}>
+                — none / callback-enabled playbooks disabled —
+              </option>
+              <option
+                :for={secret <- @awx_secrets}
+                value={secret.id}
+                selected={to_string(secret.id) == @selected_callback_secret_id}
+              >
+                {secret.name}
+              </option>
+              <option
+                :if={
+                  @selected_callback_secret_id not in ["" | Enum.map(@awx_secrets, &to_string(&1.id))]
+                }
+                value={@selected_callback_secret_id}
+                selected={true}
+              >
+                {@selected_callback_secret_id} (current)
+              </option>
+            </select>
+            <p class="label">
+              Use a principal limited to Credential Admin in a dedicated empty AWX organization.
+              Selecting the same secret as execution is supported when intentionally reviewed.
+            </p>
+          </fieldset>
 
           <div class="form-control">
             <label class="label">
@@ -1286,9 +1378,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp create_controller_with_secret(params) do
     [NetworkCredentialSecret, Controller]
     |> Ash.transaction(fn ->
-      with {:ok, credential_secret_id} <- resolve_controller_credential_secret_id(params, nil),
+      with {:ok, credentials} <- resolve_controller_credentials(params, %{}),
            {:ok, ctrl} <-
-             Controller.create_controller(controller_attrs(params, credential_secret_id),
+             Controller.create_controller(controller_attrs(params, credentials),
                actor: actor()
              ) do
         ctrl
@@ -1302,10 +1394,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp update_controller_with_secret(%Controller{} = ctrl, params) do
     [NetworkCredentialSecret, Controller]
     |> Ash.transaction(fn ->
-      with {:ok, credential_secret_id} <-
-             resolve_controller_credential_secret_id(params, ctrl.credential_secret_id),
+      with {:ok, credentials} <-
+             resolve_controller_credentials(params, controller_credentials(ctrl)),
            {:ok, updated} <-
-             Controller.update_controller(ctrl, controller_attrs(params, credential_secret_id), actor: actor()) do
+             Controller.update_controller(ctrl, controller_attrs(params, credentials), actor: actor()) do
         updated
       else
         {:error, reason} -> Ash.DataLayer.rollback([NetworkCredentialSecret, Controller], reason)
@@ -1314,33 +1406,76 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     |> normalize_transaction_result()
   end
 
-  defp resolve_controller_credential_secret_id(params, existing_secret_id) do
-    token = nilify_blank(params["awx_api_token"])
-    secret_id = nilify_blank(params["credential_secret_id"]) || existing_secret_id
+  defp resolve_controller_credentials(params, existing) do
+    sync_token =
+      nilify_blank(params["sync_awx_api_token"]) || nilify_blank(params["awx_api_token"])
 
-    cond do
-      token ->
-        create_awx_token_secret(params, token)
-
-      secret_id ->
-        validate_credential_secret_id(secret_id)
-
-      true ->
-        {:error, :missing_awx_credential}
+    with {:ok, sync_secret_id} <- resolve_sync_credential(params, existing, sync_token),
+         {:ok, execution_secret_id} <-
+           resolve_optional_credential(params, "execution_credential_secret_id", existing),
+         {:ok, callback_secret_id} <-
+           resolve_optional_credential(params, "callback_credential_secret_id", existing) do
+      {:ok,
+       %{
+         sync: sync_secret_id,
+         execution: execution_secret_id,
+         callback: callback_secret_id
+       }}
     end
   end
 
-  defp create_awx_token_secret(params, token) do
+  defp resolve_sync_credential(params, _existing, token) when is_binary(token) do
+    create_awx_token_secret(params, token, "sync")
+  end
+
+  defp resolve_sync_credential(params, existing, nil) do
+    selected =
+      cond do
+        Map.has_key?(params, "sync_credential_secret_id") ->
+          nilify_blank(params["sync_credential_secret_id"])
+
+        Map.has_key?(params, "credential_secret_id") ->
+          nilify_blank(params["credential_secret_id"])
+
+        true ->
+          Map.get(existing, :sync)
+      end
+
+    case selected do
+      nil -> {:error, {:missing_awx_credential, :sync}}
+      secret_id -> validate_credential_secret_id(secret_id, :sync)
+    end
+  end
+
+  defp resolve_optional_credential(params, param, existing) do
+    purpose = optional_credential_purpose(param)
+
+    if Map.has_key?(params, param) do
+      case nilify_blank(params[param]) do
+        nil -> {:ok, nil}
+        secret_id -> validate_credential_secret_id(secret_id, purpose)
+      end
+    else
+      {:ok, Map.get(existing, purpose)}
+    end
+  end
+
+  defp optional_credential_purpose("execution_credential_secret_id"), do: :execution
+  defp optional_credential_purpose("callback_credential_secret_id"), do: :callback
+
+  defp create_awx_token_secret(params, token, purpose) do
     case NetworkCredentialSecret.create_secret(
            %{
-             name: awx_token_secret_name(params["name"]),
-             description: "AWX OAuth2 token for Ansible controller #{nonempty_string(params["name"], "unnamed")}",
+             name: awx_token_secret_name(params["name"], purpose),
+             description:
+               "AWX #{purpose} OAuth2 token for Ansible controller #{nonempty_string(params["name"], "unnamed")}",
              provider: @awx_credential_provider,
              credential_kind: :api_token,
              secret_payload: token,
              last_rotated_at: DateTime.utc_now(),
              metadata: %{
                "source" => "ansible_controller_form",
+               "credential_purpose" => purpose,
                "controller_name" => nonempty_string(params["name"], nil),
                "base_url" => nonempty_string(params["base_url"], nil)
              }
@@ -1352,20 +1487,23 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     end
   end
 
-  defp validate_credential_secret_id(secret_id) do
+  defp validate_credential_secret_id(secret_id, purpose) do
     case Ecto.UUID.cast(secret_id) do
       {:ok, uuid} -> {:ok, uuid}
-      :error -> {:error, :invalid_credential_secret_id}
+      :error -> {:error, {:invalid_credential_secret_id, purpose}}
     end
   end
 
-  defp controller_attrs(params, credential_secret_id) do
+  defp controller_attrs(params, credentials) do
     %{
       name: params["name"],
       description: nilify_blank(params["description"]),
       base_url: params["base_url"],
       agent_id: params["agent_id"],
-      credential_secret_id: credential_secret_id,
+      credential_secret_id: credentials.sync,
+      sync_credential_secret_id: credentials.sync,
+      execution_credential_secret_id: credentials.execution,
+      callback_credential_secret_id: credentials.callback,
       inventory_sync_interval_seconds: to_int(params["inventory_sync_interval_seconds"]) || 300,
       catalog_sync_interval_seconds: to_int(params["catalog_sync_interval_seconds"]) || 600,
       run_pulse_interval_ms: to_int(params["run_pulse_interval_ms"]) || 2000
@@ -1378,8 +1516,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       "description" => "",
       "base_url" => "",
       "agent_id" => "",
-      "awx_api_token" => "",
+      "sync_awx_api_token" => "",
       "credential_secret_id" => "",
+      "sync_credential_secret_id" => "",
+      "execution_credential_secret_id" => "",
+      "callback_credential_secret_id" => "",
       "inventory_sync_interval_seconds" => "300",
       "catalog_sync_interval_seconds" => "600",
       "run_pulse_interval_ms" => "2000"
@@ -1392,8 +1533,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       "description" => ctrl.description || "",
       "base_url" => ctrl.base_url,
       "agent_id" => ctrl.agent_id,
-      "awx_api_token" => "",
-      "credential_secret_id" => ctrl.credential_secret_id,
+      "sync_awx_api_token" => "",
+      "credential_secret_id" => ctrl.sync_credential_secret_id || ctrl.credential_secret_id,
+      "sync_credential_secret_id" => ctrl.sync_credential_secret_id || ctrl.credential_secret_id,
+      "execution_credential_secret_id" => ctrl.execution_credential_secret_id,
+      "callback_credential_secret_id" => ctrl.callback_credential_secret_id,
       "inventory_sync_interval_seconds" => to_string(ctrl.inventory_sync_interval_seconds),
       "catalog_sync_interval_seconds" => to_string(ctrl.catalog_sync_interval_seconds),
       "run_pulse_interval_ms" => to_string(ctrl.run_pulse_interval_ms)
@@ -1417,9 +1561,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     end
   end
 
-  defp controller_form_secret_id(form) do
+  defp controller_credentials(%Controller{} = controller) do
+    %{
+      sync: controller.sync_credential_secret_id || controller.credential_secret_id,
+      execution: controller.execution_credential_secret_id,
+      callback: controller.callback_credential_secret_id
+    }
+  end
+
+  defp controller_form_secret_id(form, field) do
     form
-    |> Phoenix.HTML.Form.input_value(:credential_secret_id)
+    |> Phoenix.HTML.Form.input_value(field)
     |> case do
       nil -> ""
       value -> to_string(value)
@@ -1848,10 +2000,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp format_ash_error_detail(%{message: message}) when is_binary(message), do: message
   defp format_ash_error_detail(_other), do: "invalid input"
 
-  defp format_controller_error(:missing_awx_credential), do: "Enter an AWX API token or an existing credential secret ID."
+  defp format_controller_error({:missing_awx_credential, :sync}),
+    do: "Enter a sync AWX API token or select an existing sync credential."
 
-  defp format_controller_error(:invalid_credential_secret_id),
-    do: "Existing credential secret ID must be a UUID. Paste the AWX token in the AWX API token field."
+  defp format_controller_error({:invalid_credential_secret_id, purpose}),
+    do: "The #{purpose} credential secret ID must be a UUID."
 
   defp format_controller_error(other), do: format_ash_error(other)
 
@@ -1860,16 +2013,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp normalize_transaction_result({:error, reason, _stacktrace}), do: {:error, reason}
 
   defp sanitize_controller_form_params(params) do
-    Map.put(params, "awx_api_token", "")
+    params
+    |> Map.put("awx_api_token", "")
+    |> Map.put("sync_awx_api_token", "")
   end
 
-  defp awx_token_secret_name(name) do
+  defp awx_token_secret_name(name, purpose) do
     base =
       name
       |> nonempty_string("AWX controller")
       |> String.slice(0, 80)
 
-    "AWX token - #{base} - #{System.unique_integer([:positive])}"
+    "AWX #{purpose} token - #{base} - #{System.unique_integer([:positive])}"
   end
 
   defp nonempty_string(value, fallback) when is_binary(value) do

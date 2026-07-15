@@ -11,10 +11,19 @@ defmodule ServiceRadar.AgentConfig.DependencyDispatcher do
 
   require Logger
 
+  @task_supervisor ServiceRadar.AgentConfig.DependencyDispatcher.TaskSupervisor
+
   @doc "Dispatches cataloged config side effects asynchronously."
   @spec dispatch_async(Notification.t(), keyword()) :: :ok
   def dispatch_async(notification, opts \\ []) do
-    Task.start(fn -> dispatch(notification, opts) end)
+    case Task.Supervisor.start_child(@task_supervisor, fn -> dispatch(notification, opts) end) do
+      {:ok, _pid} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to start agent config dependency dispatch: #{inspect(reason)}")
+    end
+
     :ok
   end
 

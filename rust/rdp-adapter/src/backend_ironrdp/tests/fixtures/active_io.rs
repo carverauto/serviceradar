@@ -289,6 +289,63 @@ fn connector_probe_routes_active_stage_outputs_to_upstream_and_media_queue() {
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
 #[test]
+fn connector_probe_fails_closed_on_server_deactivation() {
+    let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+    let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+    let credential = build_memory_user_credential(
+        payload
+            .credential_grant
+            .as_ref()
+            .expect("memory user credential grant"),
+        &payload.actor_id,
+    )
+    .expect("credential");
+    let mut session = ActiveStageSessionProbe::new(
+        &plan,
+        &credential,
+        Vec::<u8>::new(),
+        &payload.target.screen,
+        "session-1".to_owned(),
+        "media-1".to_owned(),
+    );
+    let image = ironrdp_session::image::DecodedImage::new(
+        ironrdp_graphics::image_processing::PixelFormat::RgbA32,
+        800,
+        600,
+    );
+    let mut media_queue = VecDeque::new();
+    let mut next_sequence = 7;
+
+    let probe = handle_active_stage_outputs_with_writer_for_probe(
+        vec![ironrdp_session::ActiveStageOutput::DeactivateAll],
+        |_frame| Ok(()),
+        &mut media_queue,
+        &image,
+        &payload.target.screen,
+        "session-1",
+        "media-1",
+        &mut next_sequence,
+        1234,
+    )
+    .expect("server deactivation classified");
+
+    let err = session
+        .observe_outputs(probe)
+        .expect_err("server deactivation must fail closed");
+
+    assert_eq!(err, BackendError::Unsupported(ACTIVE_SESSION_TERMINATED));
+    assert_eq!(
+        session
+            .input(&desktop_key_frame("Enter", true))
+            .expect_err("input after deactivation must remain rejected"),
+        BackendError::Unsupported(ACTIVE_SESSION_TERMINATED)
+    );
+    assert!(media_queue.is_empty());
+    assert_eq!(next_sequence, 7);
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+#[test]
 fn connector_probe_rejects_active_stage_response_write_failures() {
     let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
     let image = ironrdp_session::image::DecodedImage::new(

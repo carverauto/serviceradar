@@ -11,7 +11,15 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilderTest do
         ip: "10.1.0.1",
         hostname: "axis-cam-1",
         vendor_name: "AXIS",
-        tags: %{"brand" => "axis"}
+        tags: %{"brand" => "axis"},
+        metadata: %{
+          "integration_id" => "proxmox:v2:farm01:vm:155",
+          "hypervisor_provider_ref" => "proxmox:guest:pve01:qemu:155",
+          "hypervisor_guest_type" => "qemu",
+          "hypervisor_vmid" => 155,
+          "proxmox_base_url" => "https://192.168.2.10:8006",
+          "api_token" => "must-not-be-copied"
+        }
       },
       %{
         "device_uid" => "sr:device:2",
@@ -29,6 +37,12 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilderTest do
 
     assert first["vendor"] == "AXIS"
     assert first["labels"] == %{"brand" => "axis"}
+    assert first["integration_id"] == "proxmox:v2:farm01:vm:155"
+    assert first["provider_ref"] == "proxmox:guest:pve01:qemu:155"
+    assert first["target_kind"] == "qemu_guest"
+    assert first["vmid"] == "155"
+    assert first["proxmox_base_url"] == "https://192.168.2.10:8006"
+    refute inspect(first) =~ "must-not-be-copied"
     assert second["ip"] == "10.1.0.2"
     assert second["hostname"] == "axis-cam-2"
   end

@@ -19,6 +19,18 @@ defmodule ServiceRadar.Automation.Ansible.RunPulseWorkerTest do
     def fetch_events_for_jobs(_controller, _pairs, _opts), do: {:error, :boom}
   end
 
+  defmodule FailSecondBatchAwxClient do
+    @moduledoc false
+
+    def fetch_events_for_jobs(controller, pairs, opts) do
+      send(self(), {:fetch_events_for_jobs, controller.id, pairs, opts})
+
+      if opts[:context]["batch_index"] == 2,
+        do: {:error, :boom},
+        else: {:ok, %{id: "command-1"}}
+    end
+  end
+
   defp controller(overrides \\ %{}) do
     Map.merge(
       %Controller{
@@ -84,6 +96,9 @@ defmodule ServiceRadar.Automation.Ansible.RunPulseWorkerTest do
       assert opts[:context]["controller_id"] == "ctrl-uuid-1"
       assert opts[:context]["verb"] == "awx.fetch_events_for_jobs"
       assert opts[:context]["active_run_count"] == 1
+      assert opts[:context]["batch_count"] == 1
+      assert opts[:context]["batch_index"] == 1
+      assert opts[:context]["batch_run_count"] == 1
     end
 
     test "treats nil last_event_id as 0" do
@@ -97,6 +112,46 @@ defmodule ServiceRadar.Automation.Ansible.RunPulseWorkerTest do
 
       assert_received {:fetch_events_for_jobs, _, [%{job_id: 1, since_id: 0}], _}
     end
+
+    test "chunks more than ten active runs without dropping or duplicating pairs" do
+      runs =
+        Enum.map(1..23, fn job_id ->
+          %{
+            id: "r-#{job_id}",
+            awx_job_id: job_id,
+            last_event_id: job_id * 10,
+            state: :running
+          }
+        end)
+
+      assert :ok =
+               RunPulseWorker.tick_controller(controller(), runs,
+                 awx_client: FakeAwxClient,
+                 test_pid: self()
+               )
+
+      assert_received {:fetch_events_for_jobs, "ctrl-uuid-1", first_batch, first_opts}
+      assert_received {:fetch_events_for_jobs, "ctrl-uuid-1", second_batch, second_opts}
+      assert_received {:fetch_events_for_jobs, "ctrl-uuid-1", third_batch, third_opts}
+
+      assert Enum.map([first_batch, second_batch, third_batch], &length/1) == [10, 10, 3]
+
+      assert Enum.concat([first_batch, second_batch, third_batch]) ==
+               Enum.map(1..23, &%{job_id: &1, since_id: &1 * 10})
+
+      for {opts, batch_index, batch_run_count} <- [
+            {first_opts, 1, 10},
+            {second_opts, 2, 10},
+            {third_opts, 3, 3}
+          ] do
+        assert opts[:source] == :automation
+        assert opts[:context]["active_run_count"] == 23
+        assert opts[:context]["batch_count"] == 3
+        assert opts[:context]["batch_index"] == batch_index
+        assert opts[:context]["batch_run_count"] == batch_run_count
+        assert map_size(opts[:context]) == 6
+      end
+    end
   end
 
   describe "dispatch failure handling" do
@@ -105,6 +160,27 @@ defmodule ServiceRadar.Automation.Ansible.RunPulseWorkerTest do
 
       assert {:error, :boom} =
                RunPulseWorker.tick_controller(controller(), runs, awx_client: FailingAwxClient)
+    end
+
+    test "halts after the first failed batch and reports that error" do
+      runs =
+        Enum.map(1..23, fn job_id ->
+          %{id: "r-#{job_id}", awx_job_id: job_id, last_event_id: 0, state: :running}
+        end)
+
+      assert {:error, :boom} =
+               RunPulseWorker.tick_controller(controller(), runs,
+                 awx_client: FailSecondBatchAwxClient
+               )
+
+      assert_received {:fetch_events_for_jobs, _, first_batch, first_opts}
+      assert_received {:fetch_events_for_jobs, _, second_batch, second_opts}
+      refute_received {:fetch_events_for_jobs, _, _third_batch, _third_opts}
+
+      assert length(first_batch) == 10
+      assert first_opts[:context]["batch_index"] == 1
+      assert length(second_batch) == 10
+      assert second_opts[:context]["batch_index"] == 2
     end
   end
 

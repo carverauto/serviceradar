@@ -98,6 +98,6 @@ rust_library(
     }),
     version = "1.5.0",
     deps = [
-        "//third_party/crates/spin-0.9.8:spin",
+        "//third_party/crates/spin-0.9.9:spin",
     ],
 )

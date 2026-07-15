@@ -81,13 +81,14 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookSchedule do
         :enabled,
         :playbook_id,
         :target_device_uids,
-        :requested_extra_vars,
         :cron,
         :timezone,
         :allow_concurrent,
         :owner_id,
         :metadata
       ]
+
+      change set_attribute(:enabled, false)
     end
 
     update :update do
@@ -96,7 +97,6 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookSchedule do
         :description,
         :playbook_id,
         :target_device_uids,
-        :requested_extra_vars,
         :cron,
         :timezone,
         :allow_concurrent,
@@ -105,7 +105,13 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookSchedule do
     end
 
     update :enable do
-      change set_attribute(:enabled, true)
+      require_atomic? false
+
+      validate fn _changeset, _context ->
+        {:error,
+         field: :enabled,
+         message: "requires a hardened immutable execution delegation and reapproval"}
+      end
     end
 
     update :disable do

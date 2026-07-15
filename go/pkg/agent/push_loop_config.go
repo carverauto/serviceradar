@@ -319,9 +319,13 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 		if pluginConfig == nil {
 			pluginConfig = pluginConfigFromConfigJSON(configResp.ConfigJson)
 		}
-		if pluginConfig != nil {
-			p.applyPluginConfig(pluginConfig)
-		}
+		// A full config response is authoritative for every section. In
+		// particular, an older control plane that omits the typed plugin field
+		// (or sends an undecodable JSON fallback) must not leave assignments from
+		// the previous config running while the agent commits the new version.
+		// ApplyConfig(nil) is the fail-closed empty desired state and also cancels
+		// streaming executions whose assignment generation was revoked.
+		p.applyPluginConfig(pluginConfig)
 	}
 
 	if firstAttempt {

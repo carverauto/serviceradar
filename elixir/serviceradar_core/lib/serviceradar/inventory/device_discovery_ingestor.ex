@@ -32,6 +32,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   mint a new duplicate device per rotation.
   """
 
+  alias ServiceRadar.Automation.Ansible.AwxMembershipReconciler
   alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SyncIngestor
@@ -70,6 +71,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   def ingest(payload, status, opts) when is_map(payload) do
     actor = Keyword.fetch!(opts, :actor)
     device_sync = Keyword.get(opts, :device_sync, &sync_device_inventory/2)
+    membership_sync = Keyword.get(opts, :membership_sync, &sync_awx_memberships/2)
 
     source_observation_sync =
       Keyword.get(opts, :source_observation_sync, &sync_source_observations/3)
@@ -93,12 +95,14 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
              source_observation_preflight
            ),
          updates = Enum.flat_map(process_batches, fn {_envelope, batch} -> batch end),
-         :ok <- sync_devices_if_present(updates, actor, device_sync) do
-      sync_source_observation_batches(
-        process_batches,
-        context,
-        source_observation_sync
-      )
+         :ok <- sync_devices_if_present(updates, actor, device_sync),
+         :ok <-
+           sync_source_observation_batches(
+             process_batches,
+             context,
+             source_observation_sync
+           ) do
+      membership_sync.(payload, %{actor: actor})
     end
   rescue
     e ->
@@ -115,7 +119,11 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   defp sync_devices_if_present([], _actor, _device_sync), do: :ok
 
   defp sync_devices_if_present(updates, actor, device_sync) do
-    device_sync.(updates, %{actor: actor})
+    case device_sync.(updates, %{actor: actor}) do
+      :ok -> :ok
+      {:error, _reason} = error -> error
+      other -> {:error, {:invalid_device_sync_result, other}}
+    end
   end
 
   defp sync_source_observations(envelope, updates, context) do
@@ -158,6 +166,10 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
         _other -> {:halt, {:error, :invalid_source_observation_result}}
       end
     end)
+  end
+
+  defp sync_awx_memberships(payload, context) do
+    AwxMembershipReconciler.reconcile(payload, actor: context.actor)
   end
 
   defp discovery_envelopes(payload) do

@@ -8,13 +8,13 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleStreamController do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler
 
-  @console_permission "devices.console.open"
+  @console_permissions ["devices.console.open", "devices.console.credentials.use"]
   @default_browser_stream_timeout_ms to_timeout(hour: 1)
 
   def connect(conn, %{"id" => session_id}) do
     scope = conn.assigns[:current_scope]
 
-    with :ok <- require_permission(scope),
+    with {:ok, scope} <- require_permission(scope),
          {:ok, normalized_id} <- normalize_uuid(session_id, "id") do
       conn
       |> WebSockAdapter.upgrade(
@@ -24,7 +24,7 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleStreamController do
       )
       |> halt()
     else
-      {:error, :forbidden} ->
+      {:error, reason} when reason in [:forbidden, :permission_revoked] ->
         conn
         |> put_status(:forbidden)
         |> json(%{error: "forbidden", message: "Proxmox console permission is required"})
@@ -37,7 +37,11 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleStreamController do
   end
 
   defp require_permission(scope) do
-    if RBAC.can?(scope, @console_permission), do: :ok, else: {:error, :forbidden}
+    authorization_module().authorize_current(scope, @console_permissions)
+  end
+
+  defp authorization_module do
+    Application.get_env(:serviceradar_web_ng, :current_user_authorization_module, RBAC)
   end
 
   defp normalize_uuid(value, field_name) when is_binary(value) do

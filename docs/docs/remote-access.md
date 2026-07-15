@@ -36,7 +36,7 @@ ServiceRadar supports several credential paths, but they are not equal.
 
 Preferred path:
 
-1. The user signs in through ServiceRadar, usually via Authentik, another OIDC provider, SAML, LDAP-backed SSO, or local auth plus MFA.
+1. The user signs in through ServiceRadar with OIDC or SAML SSO. A local password login is deliberately ineligible for SSH certificate issuance, even if the account previously used SSO.
 2. ServiceRadar evaluates RBAC and the remote access target policy.
 3. ServiceRadar signs a short-lived OpenSSH user certificate with allowed principals, target restrictions, key ID, and TTL.
 4. The browser session and edge path use the short-lived certificate for this one remote access session.
@@ -95,6 +95,52 @@ SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON='["--ca-key-file","/run/secre
 SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID=serviceradar-user-ca-2026q2
 ```
 
+For a Kubernetes bootstrap or lab deployment, create the private-key Secret
+out of band and reference it from Helm. Do not put the private key in a values
+file, rendered manifest, or Git repository:
+
+```bash
+kubectl create secret generic serviceradar-ssh-ca \
+  --from-file=ca-key=/secure/path/serviceradar_user_ca \
+  --namespace serviceradar
+
+kubectl create secret generic serviceradar-ssh-certificate-policy \
+  --from-file=certificate-policy.json=/secure/path/remote-access-ssh-policy.json \
+  --namespace serviceradar
+```
+
+```yaml
+remoteAccess:
+  ssh:
+    enabled: true
+  sshCertificatePolicy:
+    enabled: true
+    existingSecretName: serviceradar-ssh-certificate-policy
+    secretKey: certificate-policy.json
+    workloads:
+      web: true
+      core: false
+  sshCaSigner:
+    enabled: true
+    keyId: serviceradar-user-ca-2026q2
+    existingSecretName: serviceradar-ssh-ca
+    secretKey: ca-key
+    workloads:
+      web: true
+      core: false
+```
+
+The web-ng and core-elx images include the bootstrap signer binary. The chart
+mounts exactly the selected CA Secret key at
+`/run/secrets/serviceradar_ssh_ca` with read-only `0400` projection and fails
+rendering when an enabled signer lacks a Secret, key ID, or workload. Enable
+only the workload that owns certificate issuance. Replace this file-backed
+bootstrap with an OpenBao/Vault/KMS/HSM-backed command before production use.
+The certificate policy is mounted independently from an operator-owned Secret
+at `/etc/serviceradar/remote-access-ssh-policy/certificate-policy.json`. The
+chart does not accept inline policy content because the target account and
+opaque-principal mapping is internal authorization data.
+
 Signer environment variables:
 
 | Variable | Purpose |
@@ -123,37 +169,60 @@ The signer intentionally limits certificate power. By default it issues only the
 Configure certificate policy with either a JSON environment variable or a mounted file:
 
 ```bash
-SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_FILE=/etc/serviceradar/remote-access-ssh-policy.json
+SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_FILE=/etc/serviceradar/remote-access-ssh-policy/certificate-policy.json
 ```
 
-Example policy:
+Example account-bound policy:
 
 ```json
 {
-  "allowed_principals": ["ubuntu", "admin"],
+  "accounts": [
+    {
+      "name": "mfreeman",
+      "principals": ["srp_v1_6d8b1e49fbe24ad487ce2c5c"]
+    }
+  ],
   "principal_mappings": [
     {
       "source": "groups",
       "value": "linux-admins",
-      "principals": ["ubuntu", "admin"]
+      "principals": ["srp_v1_6d8b1e49fbe24ad487ce2c5c"]
     },
     {
       "source": "email_domain",
       "value": "example.com",
-      "principals": ["ubuntu"]
+      "principals": ["srp_v1_6d8b1e49fbe24ad487ce2c5c"]
     }
   ],
   "ttl_seconds": 3600,
   "targets": {
     "vm-linux-01": {
-      "allowed_principals": ["ubuntu"],
+      "accounts": [
+        {
+          "name": "mfreeman",
+          "principals": ["srp_v1_91c5f16df8aa4d90a6db2ed7"]
+        }
+      ],
       "ttl_seconds": 1800
     }
   }
 }
 ```
 
-Use `SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_JSON` for small lab policies. Use the file path in production so policy can be managed as a mounted secret or config artifact.
+Each account name is the existing non-root Unix account requested by the user.
+Each principal is an opaque, target-specific token matching
+`^srp_v1_[A-Za-z0-9_-]{20,96}$`. ServiceRadar chooses principals only from the
+exact selected account. When `principal_mappings` is configured, the IdP-derived
+principal set is intersected with that account's set; an empty intersection is
+denied. A principal may appear under only one account within a target policy,
+preventing one certificate from authenticating as a second Unix account. The
+browser never supplies or receives these principals.
+
+The public Ansible enrollment role must install the exact same account/principal
+mapping in the target's `AuthorizedPrincipalsFile`. ServiceRadar fails closed
+when an SSH-certificate target has no `accounts` mapping. The inline JSON
+environment variable remains available for isolated development, but the Helm
+chart intentionally supports only the Secret-backed file path.
 
 ## Linux Target Enrollment
 
@@ -162,14 +231,16 @@ Each Linux target must trust the ServiceRadar user CA. The account still has to 
 Install the public key:
 
 ```bash
-sudo install -o root -g root -m 0644 serviceradar_user_ca.pub /etc/ssh/serviceradar_user_ca.pub
+sudo install -d -o root -g root -m 0755 /etc/ssh/serviceradar/current
+sudo install -o root -g root -m 0644 serviceradar_user_ca.pub \
+  /etc/ssh/serviceradar/current/trusted-user-ca-keys.pub
 ```
 
 Create `/etc/ssh/sshd_config.d/60-serviceradar-user-ca.conf`:
 
 ```text
 PubkeyAuthentication yes
-TrustedUserCAKeys /etc/ssh/serviceradar_user_ca.pub
+TrustedUserCAKeys /etc/ssh/serviceradar/current/trusted-user-ca-keys.pub
 ```
 
 Validate and reload SSH:
@@ -185,25 +256,25 @@ On Debian or Ubuntu, the service can be named `ssh` instead of `sshd`:
 sudo systemctl reload ssh
 ```
 
-By default, OpenSSH accepts a user certificate when the certificate principal list contains the login account name. For example, a certificate with principal `ubuntu` can log in as `ubuntu`.
-
-If you need to map group-like principals to accounts, enable an authorized principals file:
+ServiceRadar's remote-access model deliberately keeps the requested Unix login
+account separate from the opaque certificate principal. Enable an authorized
+principals file:
 
 ```text
 PubkeyAuthentication yes
-TrustedUserCAKeys /etc/ssh/serviceradar_user_ca.pub
-AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u
+TrustedUserCAKeys /etc/ssh/serviceradar/current/trusted-user-ca-keys.pub
+AuthorizedPrincipalsFile /etc/ssh/serviceradar/current/authorized-principals/%u
 ```
 
-Then create one file per account:
+Then create one file per account containing only the opaque principals assigned
+to that target and account:
 
 ```bash
-sudo mkdir -p /etc/ssh/auth_principals
-printf "linux-admins\nubuntu\n" | sudo tee /etc/ssh/auth_principals/ubuntu
-sudo chmod 0644 /etc/ssh/auth_principals/ubuntu
+sudo mkdir -p /etc/ssh/serviceradar/current/authorized-principals
+printf "srp_v1_6d8b1e49fbe24ad487ce2c5c\n" | \
+  sudo tee /etc/ssh/serviceradar/current/authorized-principals/mfreeman
+sudo chmod 0644 /etc/ssh/serviceradar/current/authorized-principals/mfreeman
 ```
-
-Use authorized principals only when you need this extra mapping layer. It is simpler to issue certificates whose principals directly match allowed Linux login names.
 
 ## Ansible Enrollment
 
@@ -212,15 +283,59 @@ You can automate SSH CA enrollment with a small Ansible playbook that installs t
 ServiceRadar already has an AWX/AAP-backed [Ansible Integration](./ansible). Use that integration as the normal enrollment path:
 
 1. Copy the example playbook from the ServiceRadar repository ([`docs/ansible/remote-access-ssh-ca/`](https://github.com/carverauto/serviceradar/tree/main/docs/ansible/remote-access-ssh-ca)) into a git repository that AWX uses as a Project.
-2. Create an AWX Job Template for that playbook.
+2. Create an AWX Job Template for that playbook. Keep **Prompt on launch -> Variables** disabled. Enable a survey containing the two exact ServiceRadar-owned declarations below and give them no defaults. ServiceRadar reserves these names and omits them from its own binding and run forms.
 3. Attach the AWX inventory that contains the Linux hosts, Proxmox VE hosts, or VMs you want to enroll.
 4. Register the AWX controller in ServiceRadar under **Settings -> Ansible**.
 5. Let AWX inventory sync mark the matching inventory devices as `ansible_managed`.
 6. Select one or more devices in ServiceRadar inventory and launch the enrollment job with **Run Task** or `/ansible/launch?devices=<device-uids>`.
 
-ServiceRadar sends AWX a host `limit` derived from the selected devices, so the sample playbook uses `hosts: all` and relies on the launch limit to narrow the run. The playbook accepts the public CA key and SSH server options as `extra_vars`; define them in an AWX Survey for a polished operator flow or enter them as raw JSON from the ServiceRadar launch page. For ServiceRadar-launched AWX jobs, pass the public key inline as `serviceradar_ssh_ca_public_key`; `serviceradar_ssh_ca_public_key_file` only works when that file is available inside the AWX execution environment.
+The required AWX 24.6.1 survey fragment is:
 
-Example launch variables:
+```json
+{
+  "name": "ServiceRadar dispatch markers",
+  "description": "Dispatcher-owned reconciliation fields",
+  "spec": [
+    {
+      "question_name": "ServiceRadar dispatch ID",
+      "question_description": "Injected by ServiceRadar; do not set manually",
+      "required": true,
+      "type": "text",
+      "variable": "serviceradar_dispatch_id",
+      "min": 36,
+      "max": 36,
+      "default": "",
+      "choices": ""
+    },
+    {
+      "question_name": "ServiceRadar snapshot digest",
+      "question_description": "Injected by ServiceRadar; do not set manually",
+      "required": true,
+      "type": "text",
+      "variable": "serviceradar_snapshot_digest",
+      "min": 64,
+      "max": 64,
+      "default": "",
+      "choices": ""
+    }
+  ]
+}
+```
+
+This survey is a narrow AWX allow-list, not a credential channel. The reviewed binding contract requires the broad variable prompt to remain disabled and both marker declarations to be present, exact, and default-free. Additional public/internal survey fields must match the binding's separately reviewed non-secret input schema.
+
+Keep mutating templates unavailable until the hardened planner's live AWX re-fetch and drift enforcement are enabled. Marker projection validates every declaration AWX returns, but the marker contract alone is not a substitute for re-fetching the complete template, survey, project, credentials, inventory, and target memberships immediately before persistence and dispatch.
+
+AWX does not provide hidden or internal-only survey questions. AWX template administrators can see and edit these declarations, and AWX displays required survey questions during a direct AWX launch. Grant **Execute** on a hardened ServiceRadar template only to the dedicated ServiceRadar runner identity; do not grant operators a direct AWX launch path around ServiceRadar authorization. Restrict template edits to administrators, and re-review/rebind the template after any survey or template change.
+
+ServiceRadar sends AWX a host `limit` derived from the selected devices, so the sample playbook uses `hosts: all` and relies on the launch limit to narrow the run. There are two distinct execution modes:
+
+- An integrated, callback-enabled ServiceRadar launch obtains the public CA and exact target/account/principal policy from ServiceRadar's reviewed callback response. Do not put that response, the callback bearer, or the CA mapping in a survey, ordinary `extra_vars`, inventory variables, facts, artifacts, or target files.
+- A direct `ansible-playbook` run outside ServiceRadar can accept a public CA key file as an explicit operator-controlled fallback. This path has no ServiceRadar callback authority and must not receive a ServiceRadar API key or callback bearer.
+
+The inline `serviceradar_ssh_ca_public_key` variable remains a manual/lab fallback only. It is not the integrated ServiceRadar/AWX enrollment path.
+
+Example manual/lab variables:
 
 ```json
 {
@@ -252,6 +367,109 @@ ansible-playbook \
   -e serviceradar_sshd_service=ssh \
   -e serviceradar_ssh_ca_public_key_file=/secure/path/serviceradar_user_ca.pub
 ```
+
+### Callback response policy
+
+Callback-enabled enrollment is disabled by default. Enabling it requires the exact reviewed AWX custom-credential contract and an operator-owned Kubernetes Secret containing the target-scoped response policy:
+
+```yaml
+automationCallbacks:
+  enabled: true
+  awxCredentialTypeId: 91
+  awxOrganizationId: 2
+  awxInjectorDigest: "<lowercase-sha256-of-the-reviewed-injector>"
+  responsePolicy:
+    existingSecretName: serviceradar-automation-callback-policy
+    secretKey: response-policy.json
+```
+
+`awxOrganizationId` must name a dedicated empty AWX organization used only for
+ServiceRadar's ephemeral callback credentials. The controller's callback
+principal (normally the same least-privilege principal selected for execution)
+may hold that organization's Credential Admin role. It must not hold Credential
+Admin in the organization containing production machine credentials. Sync uses
+a separate read-only controller credential, and no AWX controller token is ever
+passed to the enrollment playbook.
+
+The chart rejects enabled deployments with zero AWX IDs, a malformed injector digest, or no policy Secret. Both core and web-ng mount the Secret read-only. Keep it in a Secret rather than a ConfigMap: SSH CA public keys are public, but the per-device account and opaque-principal mapping is internal authorization data.
+
+The policy file has this exact shape. Replace every example identifier and key with values from the reviewed ServiceRadar binding, AWX inventory, and CA custody boundary:
+
+```json
+{
+  "schema": "serviceradar.automation.callback_response_policy/v1",
+  "policies": [
+    {
+      "enabled": true,
+      "action": "remote_access.ssh_ca.bundle.read",
+      "action_version": "1.0.0",
+      "policy_version": "ssh-policy-v3",
+      "scope": {
+        "tenant_id": "platform",
+        "controller_id": "<serviceradar-controller-uuid>",
+        "inventory_id": 34,
+        "job_template_id": 42,
+        "binding_id": "<serviceradar-binding-uuid>",
+        "binding_version": 7,
+        "approval_id": "<serviceradar-approval-uuid>",
+        "scm_revision": "<reviewed-40-to-64-character-lowercase-hex-revision>",
+        "content_sha256": "<reviewed-64-character-lowercase-sha256>"
+      },
+      "review": {
+        "state": "approved",
+        "reviewed_by_principal_type": "human",
+        "reviewed_by_principal_id": "<reviewer-principal-id>",
+        "reviewed_at": "2026-07-13T01:00:00.000000Z",
+        "expires_at": "2026-07-20T01:00:00.000000Z"
+      },
+      "signer_key_id": "serviceradar-user-ca-2026q2",
+      "ca_keys": [
+        {
+          "id": "serviceradar-user-ca-2026q2",
+          "public_key": "ssh-ed25519 <base64-public-key-blob>",
+          "fingerprint": "SHA256:<openssh-sha256-fingerprint>"
+        }
+      ],
+      "targets": [
+        {
+          "state": "ready",
+          "target_identity": {
+            "controller_id": "<serviceradar-controller-uuid>",
+            "inventory_id": 34,
+            "awx_host_id": 100,
+            "canonical_device_uid": "device:linux-01"
+          },
+          "ca_key_ids": ["serviceradar-user-ca-2026q2"],
+          "accounts": [
+            {
+              "name": "mfreeman",
+              "principals": ["srp_v1_0123456789abcdefghijklmnop"]
+            }
+          ],
+          "transaction": {
+            "generation": "generation-7",
+            "machine_credential_ref": "awx-credential-ref:5"
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+The provider accepts only public OpenSSH CA keys whose declared fingerprint matches the key blob. It rejects private-key fields, passwords, bearer/API tokens, reusable credentials, `root` target accounts, non-opaque principals, unknown fields, duplicate selectors, disabled targets, and partial target sets. Every ready target must trust the declared `signer_key_id`. Policy selection uses only tenant, controller, inventory, template, binding/approval, reviewed revision/content, AWX host ID, and canonical device UID. Hostnames and IP addresses are copied from the current authorized inventory membership and never select a policy.
+
+The current external-command signer returns certificates but does not expose a trusted public-key discovery API. Before enabling callbacks, export and attest its public key and fingerprint inside the signer custody process, put only that public material in this policy, and verify that `signer_key_id` exactly matches `SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID`. Never mount the signer private key in the response-policy Secret. During rotation, include both public keys only for the reviewed overlap window and make the active signer key the declared `signer_key_id`.
+
+Create or update the policy Secret through your normal secret-management/GitOps process. A one-off bootstrap command is:
+
+```bash
+kubectl -n <namespace> create secret generic serviceradar-automation-callback-policy \
+  --from-file=response-policy.json=/secure/path/response-policy.json \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+ServiceRadar validates the complete file at startup, re-reads the matching policy during every callback authority check, and compares its canonical digest with the immutable issuance snapshot. Disabling, expiring, removing, or changing a CA/account/principal mapping denies the whole callback; the operator must launch a newly authorized job. A policy update never broadens an already-issued grant.
 
 ## Host Key Trust
 
@@ -305,6 +523,116 @@ Without that metadata, TCP targets remain registered and policy-enforced but are
 
 To register an application or TCP target, use **Remote access targets** at `/remote-access/targets` (or the `/api/remote-access/targets` API) and provide the target name, device UID, the agent ID that can reach the service, the upstream scheme/host/port, and the allowed methods, path prefixes, and TLS policy. Targets are validated and stored centrally; the browser only ever selects an existing target ID.
 
+## RDP WebRTC ICE And TURN
+
+RDP screen and input traffic uses WebRTC after the route-bound remote-access
+control channel reports the session ready. Configure ICE endpoints as
+deployment policy; do not put them in desktop target records or browser input.
+
+STUN-only example for a deployment whose public server-reflexive candidates
+are reachable:
+
+```yaml
+remoteAccess:
+  desktop:
+    rdp:
+      enabled: true
+      webRTC:
+        iceServers:
+          - urls:
+              - "stun:stun.example.net:3478"
+```
+
+When the chart-wide NetworkPolicy is enabled, add a narrowly scoped egress
+exception for the core-elx pods that originate ICE traffic. Kubernetes
+NetworkPolicy cannot match the ICE server's DNS name, so resolve and review the
+current addresses before deployment and configure only the required ports:
+
+```yaml
+networkPolicy:
+  enabled: true
+
+remoteAccess:
+  desktop:
+    rdp:
+      enabled: true
+      webRTC:
+        networkPolicy:
+          enabled: true
+          allowedCIDRs:
+            - "192.0.2.40/32"
+            - "2001:db8:40::1/128"
+          allowedUDPPorts:
+            - 3478
+          allowedTCPPorts: []
+```
+
+This renders an additive `Egress` policy selecting only
+`app: serviceradar-core`; it does not grant ICE egress to web-ng or other
+ServiceRadar pods. When the chart's ordered Calico log-and-deny policy is also
+enabled, the same template renders a matching core-only Calico `Allow`
+immediately before that final deny; the existing deny policy remains unchanged.
+Rendering fails when the chart-wide policy or RDP is disabled, the CIDR list is
+empty or contains a DNS name/catch-all destination, or the UDP/TCP port lists
+contain values outside `1..65535`. Re-resolve and review address changes instead
+of widening the destination to `0.0.0.0/0` or `::/0`.
+
+Use TURN for restrictive NAT or firewall environments. ServiceRadar supports
+the TURN REST shared-secret convention and mints a different HMAC credential
+for every viewer. Create the shared secret through your secret-management
+system, store at least 32 printable non-whitespace bytes in one Kubernetes
+Secret key, and reference only that Secret from values:
+
+```yaml
+remoteAccess:
+  desktop:
+    rdp:
+      enabled: true
+      webRTC:
+        iceServers:
+          - urls:
+              - "turn:turn.example.net:3478?transport=udp"
+              - "turns:turn.example.net:5349?transport=tcp"
+        turn:
+          existingSecretName: serviceradar-turn-rest
+          secretKey: shared-secret
+          credentialTtlSeconds: 600
+        networkPolicy:
+          enabled: true
+          allowedCIDRs:
+            - "192.0.2.41/32"
+          allowedUDPPorts:
+            - 3478
+          allowedTCPPorts:
+            - 5349
+```
+
+The chart mounts only the selected key at
+`/etc/serviceradar/remote-access-rdp-turn/shared-secret`. It fails rendering
+when TURN endpoints lack an existing Secret or use a credential TTL outside
+`1..3600` seconds. Runtime validation also rejects inline usernames,
+credentials, shared secrets, URI userinfo, unsupported schemes, malformed
+hosts or ports, and oversized endpoint lists. The browser receives only the
+public endpoint plus its expiring derived username and credential; it never
+receives the shared secret.
+
+Equivalent non-Helm runtime variables are:
+
+| Variable | Purpose |
+|----------|---------|
+| `SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED` | Enables the registered RDP target and device-launch surfaces in web-ng/core. |
+| `SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_ICE_SERVERS_JSON` | Bounded JSON list of public STUN/TURN URL objects; credentials are forbidden. |
+| `SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_SHARED_SECRET_FILE` | Path to the mounted TURN REST shared-secret file. Required when a `turn:` or `turns:` endpoint is configured. |
+| `SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_CREDENTIAL_TTL_SECONDS` | Per-viewer credential lifetime; defaults to 600 and cannot exceed 3600 seconds. |
+
+The launcher posts only the registered desktop target ID, fixed RDP
+protocol/adapter identifiers, and an optional approval ID. The user's target
+username/password is sent once over the authenticated control WebSocket,
+cleared from browser state immediately after the send is queued, and never
+included in the WebRTC configuration. A single bounded deadline covers target
+session creation, control attach, and the exact ready frame; timeout closes the
+control and server sessions.
+
 ## User Workflows
 
 ### SSH Into A Linux Host Or VM
@@ -345,7 +673,7 @@ sudo sshd -t
 
 Common failures:
 
-- `Permission denied (publickey)`: the CA public key is missing, the certificate is expired, the certificate principal does not match the login user, or `AuthorizedPrincipalsFile` does not list the presented principal.
+- `Permission denied (publickey)`: the CA public key is missing, the certificate is expired, the selected Unix account is not authorized, or its `AuthorizedPrincipalsFile` does not list the opaque principal in the presented certificate.
 - User exists in ServiceRadar but not on the host: create the account locally or fix LDAP/AD/NSS/PAM integration on the target.
 - Route denied: the device is not assigned to an eligible agent or gateway, or the remote access policy does not allow that target.
 - Connection timeout: the selected edge agent cannot reach the target on TCP `22`.

@@ -3,7 +3,7 @@
 This file tracks remediation work surfaced by the deep-dive review. Each finding entry follows:
 
 ```
-- [ ] N.M [SEV] <one-line summary>
+<unchecked> N.M [SEV] <one-line summary>
       Where: <file:line>  (commit: <sha-or-"working tree">)
       Why: <impact in one sentence>
       Fix: <intended remediation>
@@ -1164,7 +1164,7 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
       Where: `Cargo.lock` (working tree); `rust/rdp-adapter/Cargo.toml`
       Why: `ironrdp` is crypto/protocol code; floating minor lets a future `cargo update` swap behaviour silently.
       Fix: Add a `# audited <date>, RUSTSEC-clean` comment on each pinned line and add `cargo-deny`/`cargo-audit` to CI (see 6.9).
-      Resolution: RDP adapter/probe IronRDP dependencies are exact-version pinned with audit rationale comments; CI now triggers on RDP Rust paths and runs cargo-audit 0.22.1 against `rust/rdp-connector-probe` with only documented known IronRDP 0.8.0 transitive advisories ignored.
+      Resolution: RDP adapter/probe IronRDP dependencies are exact-version pinned with audit rationale comments. The isolated probe now pins blocking/connector 0.10.0, core 0.2.1, graphics/PDU 0.9.0, and session 0.11.0; CI triggers on RDP Rust paths, runs cargo-audit 0.22.1 with only RUSTSEC-2023-0071 and RUSTSEC-2023-0089 documented as upstream transitive exceptions, and runs the isolated probe plus both adapter connector Bazel tests with `--lockfile_mode=error`. The upgrade removes yanked `spin 0.9.8` and the stale `paste` advisory.
 
 - [x] 6.9 [H] AGPL guardrail `check-teleport-license-paths.sh` is not invoked by any CI workflow
       Where: `scripts/check-teleport-license-paths.sh` exists, `.forgejo/workflows/*` doesn't call it (working tree / staging)
@@ -1212,11 +1212,11 @@ Overall: dep posture is good — Cargo.lock + go.sum committed, no `[patch.crate
       Fix: Append a step to `source-security.yml` (or a new `license-audit.yml`) that runs the script with the package list from `expand-remote-access-teleport-parity/matrix.md`9.
       Resolution: Covered by 6.9 via dedicated `.forgejo/workflows/license-check.yml`; it discovers actual ServiceRadar Teleport imports and invokes the AGPL path scanner on PRs, protected-branch pushes, and manual dispatch.
 
-- [x] 6.G.2 [M] No `cargo audit` (RUSTSEC) wired for `rust/rdp-connector-probe` or the ironrdp 0.8.0 transitive tree
+- [x] 6.G.2 [M] No `cargo audit` (RUSTSEC) wired for `rust/rdp-connector-probe`
       Where: CI workflows (working tree); crate at `rust/rdp-connector-probe/Cargo.toml`
-      Why: The connector-probe pulls ironrdp-connector / -session / -blocking 0.8.0 (RDP state machine, CredSSP, blocking I/O) — review-only today but the lock is already on disk and updates run silently.
+      Why: The connector-probe pulls exact-pinned ironrdp-connector/blocking 0.10.0 and ironrdp-session 0.11.0 (RDP state machine, CredSSP, blocking I/O) — review-only today but the lock is already on disk and updates otherwise run silently.
       Fix: Add `cargo-audit --deny warnings` to `tests-rust.yml` against the connector-probe workspace member; surface advisory IDs as PR comments
-      Resolution: `tests-rust.yml` now includes RDP crate paths and runs `cargo audit --deny warnings` against `rust/rdp-connector-probe` with the three current review-only IronRDP 0.8.0 transitive advisory exceptions listed in the workflow summary; any new RustSec warning or vulnerability fails CI.
+      Resolution: `tests-rust.yml` includes RDP crate paths and runs `cargo audit --deny warnings` against `rust/rdp-connector-probe`. The workflow lists only RUSTSEC-2023-0071 and RUSTSEC-2023-0089 as current review-only transitive exceptions; any new RustSec warning or vulnerability fails CI. It also runs the isolated probe and both adapter connector Bazel tests with an immutable module lock. The 2026-07-13 refresh removed yanked `spin 0.9.8` and obsolete RUSTSEC-2024-0436 while retaining non-yanked `spin 0.9.9` only in IronRDP connector 0.10.0's forced smart-card build subtree.
 
 - [x] 6.G.3 [L] `github.com/cilium/ebpf v0.21.0` maintenance window not documented
       Where: `go.mod` (working tree)
@@ -1242,15 +1242,20 @@ Overall: dep posture is good — Cargo.lock + go.sum committed, no `[patch.crate
       Fix: Add a CHANGELOG entry or commit-message follow-up describing what (if anything) replaced it, or confirm dead-code removal. Non-security, but housekeeping that prevents an accidental re-add.
       Resolution: Existing CHANGELOG entry documents that MTR ASN enrichment moved out of the agent and into core via `ServiceRadar.Observability.GeoIP`, removing the MaxMind Go dependency and `asn_db_path` / `ASNDBPath` agent configuration.
 
+- [ ] 6.G.7 [L] Remove IronRDP's forced smart-card dependency subtree when upstream exposes a feature gate
+      Where: `rust/rdp-connector-probe/Cargo.toml`; `openspec/changes/add-remote-access-desktop-rdp/dependency-review.md`
+      Why: `ironrdp-connector 0.10.0` unconditionally enables `sspi/scard`, so the isolated review graph retains `winscard 0.3.3 -> iso7816 0.1.4 -> heapless 0.7.17 -> spin 0.9.9` even though ServiceRadar rejects smart-card redirection before connector construction. Cargo features are additive, so `default-features = false` cannot remove this unreachable build baggage.
+      Fix: Upgrade to a maintained upstream IronRDP release that feature-gates `sspi/scard`, disable that feature, and verify `cargo tree --locked --target all` contains no `winscard`, `iso7816`, `heapless`, or `spin`. Do not add a ServiceRadar-maintained connector fork, version override, archived `spin` vendor, or audit ignore to work around the upstream feature shape.
+
 **Positives (supply chain):**
 - ironrdp's heavyweight crates (-connector / -session / -blocking / -graphics) live only in the **review-only** `rdp-connector-probe`; the production `rdp-adapter` keeps a minimal direct-dep footprint (ironrdp-core, ironrdp-pdu, zeroize).
 - All Cargo dep sources are crates.io; no `git =`, no `[patch.crates-io]`, no `replace` directives.
 - Bazel `MODULE.bazel` uses only canonical-registry pins; no `git_override` / `single_version_override` / `archive_override`.
-- rustls upgraded to 0.23.40 + `rustls-native-certs 0.8.3`; modern AEAD/TLS-1.2+ posture.
+- The isolated RDP connector probe declares rustls 0.23.40 / `rustls-native-certs 0.8.3` and currently locks 0.23.42 / 0.8.4; modern AEAD/TLS-1.2+ posture.
 - Both `Cargo.lock` and `go.sum` checked in; OSV-Scanner + Syft already run in `source-security.yml`.
 
 **Coverage notes (supply chain):**
-- No live `cargo audit` / `osv-scanner --offline` run (per scope: no network tools). Recommend running before merge.
+- A fresh 2026-07-13 `cargo audit --deny warnings` run passed for the isolated RDP connector probe with only the two documented upstream exceptions; OSV-Scanner remains covered by `source-security.yml`.
 - Membrane.WebRTC dep (server-side SDP/ICE) not audited here — review-E2 deferred it.
 - License scanning today is OSV (vulns) only; the AGPL surface needs its own gate.
 

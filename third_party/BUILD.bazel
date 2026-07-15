@@ -109,24 +109,5 @@ filegroup(
             patches = ["@//third_party/rust_patches:openssl_src_runfiles_patch"],
         )],
     },
-    # ironrdp-core/ironrdp-pdu need top-level aliases: rust/rdp-adapter references
-    # //third_party/crates:ironrdp-{core,pdu} (was @rust_crates//:ironrdp-*) for its
-    # ironrdp-backend feature. They are already in //:Cargo.lock (via rdp-adapter's
-    # optional deps), so this adds aliases without a repin. libzetta is intentionally
-    # dropped — it was referenced by no Cargo.toml, Cargo.lock, or BUILD target.
-    packages = {
-        "ironrdp-core": crate.spec(
-            default_features = False,
-            features = ["alloc"],
-            package = "ironrdp-core",
-            version = "0.1.5",
-        ),
-        "ironrdp-pdu": crate.spec(
-            default_features = False,
-            features = ["alloc"],
-            package = "ironrdp-pdu",
-            version = "0.7.0",
-        ),
-    },
     tags = ["manual"],
 )

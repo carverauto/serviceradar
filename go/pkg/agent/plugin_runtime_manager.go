@@ -97,27 +97,29 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 	}
 
 	return &PluginManager{
-		logger:             cfg.Logger,
-		cacheDir:           cacheDir,
-		localStoreDir:      localStoreDir,
-		httpClient:         client,
-		artifactHTTPClient: artifactClient,
-		compilationCache:   wazero.NewCompilationCache(),
-		credentialBroker:   cfg.CredentialBroker,
-		artifactUploader:   cfg.ArtifactUploader,
-		credentialCache:    make(map[string]credentialBrokerCacheEntry),
-		credentialNow:      time.Now,
-		ctx:                rootCtx,
-		cancel:             cancel,
-		runners:            make(map[string]*pluginRunner),
-		streams:            make(map[string]*pluginAssignment),
-		actions:            make(map[string]*pluginAssignment),
-		activeActions:      make(map[string]struct{}),
-		results:            make(chan PluginResult, 1024),
-		signals:            make(chan PluginSignalTelemetry, 1024),
-		conditions:         newPluginConditionDebouncer(time.Now),
-		states:             make(map[string]*assignmentState),
-		stateNow:           time.Now,
+		logger:                        cfg.Logger,
+		cacheDir:                      cacheDir,
+		localStoreDir:                 localStoreDir,
+		httpClient:                    client,
+		artifactHTTPClient:            artifactClient,
+		compilationCache:              wazero.NewCompilationCache(),
+		credentialBroker:              cfg.CredentialBroker,
+		awxCallbackCredentialResolver: cfg.AWXCallbackCredentialResolver,
+		artifactUploader:              cfg.ArtifactUploader,
+		credentialCache:               make(map[string]credentialBrokerCacheEntry),
+		credentialNow:                 time.Now,
+		ctx:                           rootCtx,
+		cancel:                        cancel,
+		runners:                       make(map[string]*pluginRunner),
+		streams:                       make(map[string]*pluginAssignment),
+		actions:                       make(map[string]*pluginAssignment),
+		activeActions:                 make(map[string]struct{}),
+		streamExecutions:              make(map[uint64]activePluginStreamExecution),
+		results:                       make(chan PluginResult, 1024),
+		signals:                       make(chan PluginSignalTelemetry, 1024),
+		conditions:                    newPluginConditionDebouncer(time.Now),
+		states:                        make(map[string]*assignmentState),
+		stateNow:                      time.Now,
 	}
 }
 
@@ -141,6 +143,21 @@ func (m *PluginManager) SetCredentialBroker(resolver CredentialBrokerResolver) {
 	m.credentialMu.Lock()
 	defer m.credentialMu.Unlock()
 	m.credentialBroker = resolver
+}
+
+// SetAWXCallbackCredentialEnvelopeResolver installs the selected-agent,
+// single-resolution launch-envelope boundary. Resolved callback inputs remain
+// memory-only and are never added to AgentCommandBus payloads or plugin config.
+func (m *PluginManager) SetAWXCallbackCredentialEnvelopeResolver(
+	resolver AWXCallbackCredentialEnvelopeResolver,
+) {
+	if m == nil {
+		return
+	}
+
+	m.awxCallbackCredentialMu.Lock()
+	defer m.awxCallbackCredentialMu.Unlock()
+	m.awxCallbackCredentialResolver = resolver
 }
 
 // ApplyConfig applies plugin assignments from config, replacing existing runners.
@@ -174,6 +191,7 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 		// does not retry the download with a stale token (401), without
 		// restarting runners (task 3.3, refactor-device-identity-reconciliation).
 		m.refreshDownloadCredentials(assignments)
+		m.refreshPluginHostAuthorities(assignments)
 		m.logger.Debug().Str("config_hash", configHash).Msg("Plugin config unchanged; refreshed download credentials only")
 
 		return
@@ -184,12 +202,32 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 
 	m.refreshAssignmentStates(admitted)
 
+	nextRunners := make(map[string]*pluginRunner)
+	nextStreams := make(map[string]*pluginAssignment)
+	nextActions := make(map[string]*pluginAssignment)
+	nextStreamingGenerations := make(map[string]string)
+
+	for _, assignment := range admitted {
+		if assignment.isStreaming() {
+			nextStreams[assignment.AssignmentID] = assignment
+			nextStreamingGenerations[assignment.AssignmentID] = assignment.generation
+			continue
+		}
+		if assignment.isActionOnly() {
+			nextActions[assignment.AssignmentID] = assignment
+			continue
+		}
+		nextRunners[assignment.AssignmentID] = newPluginRunner(m, assignment)
+	}
+
 	m.mu.Lock()
 	prev := m.runners
-	m.runners = make(map[string]*pluginRunner)
-	m.streams = make(map[string]*pluginAssignment)
-	m.actions = make(map[string]*pluginAssignment)
+	m.runners = nextRunners
+	m.streams = nextStreams
+	m.actions = nextActions
 	m.mu.Unlock()
+
+	m.cancelRevokedStreamingExecutions(nextStreamingGenerations)
 
 	for _, runner := range prev {
 		runner.stop()
@@ -201,29 +239,59 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 
 	for _, assignment := range admitted {
 		if assignment.isStreaming() {
-			m.mu.Lock()
-			m.streams[assignment.AssignmentID] = assignment
-			m.mu.Unlock()
 			m.prefetchAssignment(assignment)
 			continue
 		}
 		if assignment.isActionOnly() {
-			m.mu.Lock()
-			m.actions[assignment.AssignmentID] = assignment
-			m.mu.Unlock()
 			m.prefetchAssignment(assignment)
 			continue
 		}
 
-		runner := newPluginRunner(m, assignment)
-		m.mu.Lock()
-		m.runners[assignment.AssignmentID] = runner
-		m.mu.Unlock()
-		runner.start(m.ctx)
+		nextRunners[assignment.AssignmentID].start(m.ctx)
 		m.prefetchAssignment(assignment)
 	}
 
 	m.setConfigHash(configHash)
+}
+
+// refreshPluginHostAuthorities adopts volatile broker lease fields without
+// restarting a runner. Stable origin/rule/target/grant scope is part of the
+// config fingerprint, so only an authority with the identical stable hash can
+// replace the currently retained bindings.
+func (m *PluginManager) refreshPluginHostAuthorities(incoming []*pluginAssignment) {
+	if m == nil || len(incoming) == 0 {
+		return
+	}
+
+	byID := make(map[string]*pluginAssignment, len(incoming))
+	for _, assignment := range incoming {
+		if assignment != nil && assignment.AssignmentID != "" {
+			byID[assignment.AssignmentID] = assignment
+		}
+	}
+
+	m.mu.RLock()
+	current := make([]*pluginAssignment, 0, len(m.runners)+len(m.streams)+len(m.actions))
+	for _, runner := range m.runners {
+		if runner != nil && runner.assignment != nil {
+			current = append(current, runner.assignment)
+		}
+	}
+	for _, assignment := range m.streams {
+		if assignment != nil {
+			current = append(current, assignment)
+		}
+	}
+	for _, assignment := range m.actions {
+		if assignment != nil {
+			current = append(current, assignment)
+		}
+	}
+	m.mu.RUnlock()
+
+	for _, assignment := range current {
+		assignment.refreshPluginHostAuthority(byID[assignment.AssignmentID])
+	}
 }
 
 // refreshDownloadCredentials copies the freshly minted artifact download
@@ -623,6 +691,7 @@ func (m *PluginManager) Stop() {
 	}
 
 	m.cancel()
+	m.cancelAllStreamingExecutions()
 
 	m.mu.Lock()
 	prev := m.runners
@@ -640,6 +709,177 @@ func (m *PluginManager) Stop() {
 			_ = m.compilationCache.Close(context.Background())
 		}
 	})
+}
+
+func (m *PluginManager) registerStreamingExecution(
+	ctx context.Context,
+	assignment *pluginAssignment,
+) (context.Context, uint64, error) {
+	if m == nil || assignment == nil || assignment.generation == "" {
+		return nil, 0, errStreamingPluginAssignmentNotFound
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	m.mu.RLock()
+	current, ok := m.streams[assignment.AssignmentID]
+	if !ok || current == nil || current.generation != assignment.generation {
+		m.mu.RUnlock()
+		return nil, 0, errStreamingPluginAssignmentNotFound
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	m.streamExecutionMu.Lock()
+	m.nextStreamExecutionID++
+	id := m.nextStreamExecutionID
+	m.streamExecutions[id] = activePluginStreamExecution{
+		assignmentID: assignment.AssignmentID,
+		generation:   assignment.generation,
+		cancel:       cancel,
+	}
+	m.streamExecutionMu.Unlock()
+	m.mu.RUnlock()
+
+	return runCtx, id, nil
+}
+
+func (m *PluginManager) unregisterStreamingExecution(id uint64) {
+	if m == nil || id == 0 {
+		return
+	}
+
+	m.streamExecutionMu.Lock()
+	delete(m.streamExecutions, id)
+	m.streamExecutionMu.Unlock()
+}
+
+func (m *PluginManager) cancelRevokedStreamingExecutions(activeGenerations map[string]string) {
+	if m == nil {
+		return
+	}
+
+	cancels := make([]context.CancelFunc, 0)
+	m.streamExecutionMu.Lock()
+	for _, execution := range m.streamExecutions {
+		if activeGenerations[execution.assignmentID] != execution.generation && execution.cancel != nil {
+			cancels = append(cancels, execution.cancel)
+		}
+	}
+	m.streamExecutionMu.Unlock()
+
+	for _, cancel := range cancels {
+		cancel()
+	}
+}
+
+func (m *PluginManager) cancelAllStreamingExecutions() {
+	if m == nil {
+		return
+	}
+
+	cancels := make([]context.CancelFunc, 0)
+	m.streamExecutionMu.Lock()
+	for _, execution := range m.streamExecutions {
+		if execution.cancel != nil {
+			cancels = append(cancels, execution.cancel)
+		}
+	}
+	m.streamExecutionMu.Unlock()
+
+	for _, cancel := range cancels {
+		cancel()
+	}
+}
+
+func (m *PluginManager) pluginAssignmentGenerationActive(
+	assignment *pluginAssignment,
+	mode pluginExecutionMode,
+) bool {
+	if m == nil || assignment == nil || assignment.generation == "" {
+		return false
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	switch mode {
+	case pluginExecutionModeStreaming:
+		current := m.streams[assignment.AssignmentID]
+		if current != nil && current.generation == assignment.generation {
+			assignment.refreshPluginHostAuthority(current)
+			return true
+		}
+		return false
+	case pluginExecutionModeScheduled, pluginExecutionModeAction:
+		runner := m.runners[assignment.AssignmentID]
+		if runner != nil && runner.assignment != nil &&
+			runner.assignment.generation == assignment.generation {
+			assignment.refreshPluginHostAuthority(runner.assignment)
+			return true
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+// ProxmoxAssignmentPolicyAcks returns only assignment bindings that trusted
+// host code successfully parsed and retained from the currently active plugin
+// config. The deterministic ordering keeps hello/config-ack evidence stable.
+func (m *PluginManager) ProxmoxAssignmentPolicyAcks() []*proto.PluginAssignmentPolicyAck {
+	if m == nil {
+		return nil
+	}
+
+	m.mu.RLock()
+	assignments := make([]*pluginAssignment, 0, len(m.runners)+len(m.streams))
+	for _, runner := range m.runners {
+		if runner != nil && runner.assignment != nil {
+			assignments = append(assignments, runner.assignment)
+		}
+	}
+	for _, assignment := range m.streams {
+		if assignment != nil {
+			assignments = append(assignments, assignment)
+		}
+	}
+	m.mu.RUnlock()
+
+	acks := make([]*proto.PluginAssignmentPolicyAck, 0, len(assignments))
+	seen := make(map[string]struct{}, len(assignments))
+	for _, assignment := range assignments {
+		if assignment == nil || assignment.AssignmentID == "" ||
+			!assignment.proxmoxHostAuthorityRequired ||
+			!isProxmoxHostAuthorityAssignment(assignment.PluginID, assignment.Entrypoint) {
+			continue
+		}
+
+		binding, ok := assignment.proxmoxAssignmentPolicyBinding()
+		if !ok {
+			continue
+		}
+		key := assignment.AssignmentID + "\x00" + assignment.PluginID
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		acks = append(acks, &proto.PluginAssignmentPolicyAck{
+			AssignmentId:                assignment.AssignmentID,
+			PluginId:                    assignment.PluginID,
+			AssignmentPolicyVersion:     binding.PolicyVersion,
+			AssignmentPolicyFingerprint: binding.Fingerprint,
+		})
+	}
+
+	sort.Slice(acks, func(i, j int) bool {
+		if acks[i].AssignmentId == acks[j].AssignmentId {
+			return acks[i].PluginId < acks[j].PluginId
+		}
+		return acks[i].AssignmentId < acks[j].AssignmentId
+	})
+
+	return acks
 }
 
 // StreamingAssignments returns the currently admitted camera streaming plugin assignments.
@@ -699,24 +939,36 @@ func (m *PluginManager) OpenCameraRelayStream(
 	if !m.acquireSlot() {
 		return nil, errStreamingPluginAdmissionDenied
 	}
-
-	wasm, err := m.loadWasm(ctx, assignment)
+	streamCtx, cancel := context.WithCancel(ctx)
+	runCtx, executionID, err := m.registerStreamingExecution(streamCtx, assignment)
 	if err != nil {
+		cancel()
+		m.releaseSlot()
+		return nil, err
+	}
+
+	wasm, err := m.loadWasm(runCtx, assignment)
+	if err != nil {
+		cancel()
+		m.unregisterStreamingExecution(executionID)
 		m.releaseSlot()
 		return nil, err
 	}
 
 	configJSON, err := buildStreamingPluginConfig(assignment.ParamsJSON, spec)
 	if err != nil {
+		cancel()
+		m.unregisterStreamingExecution(executionID)
 		m.releaseSlot()
 		return nil, err
 	}
 
-	runCtx, cancel := context.WithCancel(ctx)
 	stream := newPluginCameraRelayStream(cancel)
 	bridge := newPluginCameraMediaBridge(stream)
 
 	go func() {
+		defer cancel()
+		defer m.unregisterStreamingExecution(executionID)
 		defer m.releaseSlot()
 
 		execErr := m.executeStreamingPlugin(runCtx, assignment, wasm, configJSON, bridge)
@@ -1014,7 +1266,7 @@ func (m *PluginManager) RunAction(ctx context.Context, assignmentID string, invo
 		return nil, err
 	}
 
-	result, err := m.executeActionWithWasm(runCtx, assignment, wasm, configJSON, credentialGrants)
+	result, err := m.executeActionWithWasm(runCtx, assignment, wasm, configJSON, credentialGrants, nil, nil)
 	if err == nil && assignment.ingestsActionResults() {
 		result, err = m.enqueueActionResult(runCtx, assignment, result)
 	}
@@ -1033,6 +1285,61 @@ func (m *PluginManager) RunPluginVerb(
 	pluginID string,
 	configJSON json.RawMessage,
 	credentialGrants []credentialBrokerGrant,
+	timeout time.Duration,
+) ([]byte, error) {
+	return m.runPluginVerb(ctx, pluginID, configJSON, credentialGrants, nil, nil, timeout)
+}
+
+// RunPluginVerbWithAuthorizedRequestBody runs one verb while retaining exact
+// control-plane-produced request bytes solely in the trusted host boundary.
+// The bytes are never added to the Wasm configuration.
+func (m *PluginManager) RunPluginVerbWithAuthorizedRequestBody(
+	ctx context.Context,
+	pluginID string,
+	configJSON json.RawMessage,
+	credentialGrants []credentialBrokerGrant,
+	authorizedRequestBody []byte,
+	timeout time.Duration,
+) ([]byte, error) {
+	return m.runPluginVerb(
+		ctx,
+		pluginID,
+		configJSON,
+		credentialGrants,
+		authorizedRequestBody,
+		nil,
+		timeout,
+	)
+}
+
+// RunPluginVerbWithAWXCallbackCredential runs one AWX verb with a memory-only
+// credential input available solely to the exact /api/v2/credentials/ POST
+// rewrite in the trusted host HTTP boundary.
+func (m *PluginManager) RunPluginVerbWithAWXCallbackCredential(
+	ctx context.Context,
+	pluginID string,
+	configJSON json.RawMessage,
+	credentialGrants []credentialBrokerGrant,
+	callbackCredential *awxCallbackCredentialMemoryInput,
+	timeout time.Duration,
+) ([]byte, error) {
+	if callbackCredential == nil {
+		return nil, errAWXCallbackCredentialInputMissing
+	}
+	// Ownership transfers at this boundary. Destruction is guaranteed even if
+	// assignment lookup, Wasm loading/instantiation, preflight verification, or
+	// the sentinel POST fails before the plugin returns normally.
+	defer callbackCredential.destroy()
+	return m.runPluginVerb(ctx, pluginID, configJSON, credentialGrants, nil, callbackCredential, timeout)
+}
+
+func (m *PluginManager) runPluginVerb(
+	ctx context.Context,
+	pluginID string,
+	configJSON json.RawMessage,
+	credentialGrants []credentialBrokerGrant,
+	authorizedRequestBody []byte,
+	callbackCredential *awxCallbackCredentialMemoryInput,
 	timeout time.Duration,
 ) ([]byte, error) {
 	if m == nil {
@@ -1066,7 +1373,15 @@ func (m *PluginManager) RunPluginVerb(
 		return nil, err
 	}
 
-	result, err := m.executeActionWithWasm(runCtx, assignment, wasm, configJSON, credentialGrants)
+	result, err := m.executeActionWithWasm(
+		runCtx,
+		assignment,
+		wasm,
+		configJSON,
+		credentialGrants,
+		authorizedRequestBody,
+		callbackCredential,
+	)
 	m.recordExecution(err == nil)
 	return result, err
 }

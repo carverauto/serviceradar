@@ -264,6 +264,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
         @command_type,
         payload,
         ttl_seconds: ttl_seconds,
+        required_partition: assignment.partition_id,
         source: :automation,
         actor: actor,
         context:
@@ -291,6 +292,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
         @command_type,
         payload,
         ttl_seconds: ttl_seconds,
+        required_partition: assignment.partition_id,
         source: :automation,
         actor: actor,
         context:

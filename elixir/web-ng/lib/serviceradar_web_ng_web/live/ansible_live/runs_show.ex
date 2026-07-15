@@ -108,9 +108,14 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
       <header class="flex items-center justify-between gap-4">
         <div class="space-y-1">
           <p class="text-xs text-base-content/60">
-            <.link navigate={~p"/ansible/runs"} class="link link-hover">← Ansible runs</.link>
+            <.link navigate={~p"/ansible/runs"} class="link link-hover">
+              ← Legacy Ansible runs
+            </.link>
           </p>
-          <h1 class="text-2xl font-semibold">Run {shorten(@bundle.run.id)}</h1>
+          <div class="flex flex-wrap items-center gap-2">
+            <h1 class="text-2xl font-semibold">Run {shorten(@bundle.run.id)}</h1>
+            <span class="badge badge-outline badge-sm">Legacy PlaybookRun</span>
+          </div>
           <p class="text-sm text-base-content/70 flex gap-3 flex-wrap">
             <span class={["badge", state_badge_class(@bundle.run.state)]}>{@bundle.run.state}</span>
             <span :if={@bundle.run.awx_job_id}>
@@ -120,7 +125,12 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
             <span :if={!@bundle.run.schedule_id} class="badge badge-ghost">ad-hoc</span>
           </p>
         </div>
-        <button type="button" class="btn btn-sm btn-ghost" phx-click="refresh">Refresh</button>
+        <div class="flex items-center gap-2">
+          <.link navigate={~p"/ansible/operations"} class="btn btn-ghost btn-sm">
+            Secure operations
+          </.link>
+          <button type="button" class="btn btn-sm btn-ghost" phx-click="refresh">Refresh</button>
+        </div>
       </header>
 
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">

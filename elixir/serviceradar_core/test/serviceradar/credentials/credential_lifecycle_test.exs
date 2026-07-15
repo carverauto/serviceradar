@@ -6,6 +6,7 @@ defmodule ServiceRadar.Credentials.CredentialLifecycleTest do
   alias ServiceRadar.Credentials.CredentialEventWriter
   alias ServiceRadar.Credentials.CredentialSecretProvider
   alias ServiceRadar.Credentials.CredentialSecretResolutionAudit
+  alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
@@ -59,6 +60,20 @@ defmodule ServiceRadar.Credentials.CredentialLifecycleTest do
     refute ActorHasPermission.match?(@viewer, [permission: "settings.credentials.manage"], %{})
 
     assert Ash.can?({NetworkCredentialSecret, :create}, @credential_manager)
+  end
+
+  test "credential rule integration and controller scope is generated and immutable" do
+    integration = Info.attribute(NetworkCredentialRule, :integration_id)
+    controller = Info.attribute(NetworkCredentialRule, :controller_id)
+
+    assert integration.allow_nil? == false
+    assert controller.allow_nil? == false
+    assert is_function(integration.default, 0)
+    assert is_function(controller.default, 0)
+
+    for action_name <- [:create, :update], field <- [:integration_id, :controller_id] do
+      refute field in Info.action(NetworkCredentialRule, action_name).accept
+    end
   end
 
   test "resolution audit creation is system-only while credential managers can read" do

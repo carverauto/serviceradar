@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Edge.AgentConfigPluginTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.AgentConfig.Compiler
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Edge.Crypto
 
@@ -76,6 +77,52 @@ defmodule ServiceRadar.Edge.AgentConfigPluginTest do
                1_780_000_000
              ) > 0
     end
+  end
+
+  test "host-authority lease rotation re-versions delivery without changing public params" do
+    assignment = %{
+      assignment_id: "proxmox-assignment",
+      params: %{
+        "credential_rule_id" => "rule-1",
+        "api_token" => "__SERVICERADAR_HOST_CREDENTIAL__"
+      },
+      host_params: %{
+        "schema" => "serviceradar.plugin_host_authority.v1",
+        "bindings" => [
+          %{
+            "binding_id" => "binding-1",
+            "provider" => "proxmox",
+            "credential_rule_id" => "rule-1",
+            "origin" => "https://192.168.2.10:8006",
+            "insecure_skip_verify" => false,
+            "target_ids" => %{"device_uid" => "pve-farm-1"},
+            "credential_broker" => %{
+              "schema" => "serviceradar.edge_credential_broker_grant.v1",
+              "grant_id" => "grant-a",
+              "credential_secret_ref" => "secretref:network_credential:secret-1",
+              "expires_at" => "2026-07-13T15:00:00Z"
+            }
+          }
+        ]
+      }
+    }
+
+    rotated =
+      assignment
+      |> put_in(
+        [:host_params, "bindings", Access.at(0), "credential_broker", "grant_id"],
+        "grant-b"
+      )
+      |> put_in(
+        [:host_params, "bindings", Access.at(0), "credential_broker", "expires_at"],
+        "2026-07-13T15:05:00Z"
+      )
+
+    projection = AgentConfigGenerator.plugin_assignment_version_projection(assignment)
+    rotated_projection = AgentConfigGenerator.plugin_assignment_version_projection(rotated)
+
+    assert projection.params == rotated_projection.params
+    refute Compiler.content_hash(projection) == Compiler.content_hash(rotated_projection)
   end
 
   test "plugin config preserves github metadata on agent assignments" do
@@ -162,7 +209,7 @@ defmodule ServiceRadar.Edge.AgentConfigPluginTest do
     refute Map.has_key?(params, "_secret_material")
   end
 
-  test "plugin config resolves policy credential broker api token refs even when package schema is stale" do
+  test "Proxmox inventory proto rendering never resolves or exposes legacy credential fields" do
     assignment =
       base_plugin_assignment(%{
         source: :policy,
@@ -190,18 +237,21 @@ defmodule ServiceRadar.Edge.AgentConfigPluginTest do
     [proto] = config.assignments
     params = Jason.decode!(proto.params_json)
 
-    assert params["api_token"] == "root@pam!sr=token-secret"
-    assert params["api_token_secret_ref"] == "secretref:api_token_secret_ref:test"
+    assert params["api_token"] == "__SERVICERADAR_HOST_CREDENTIAL__"
+    refute Map.has_key?(params, "api_token_secret_ref")
+    refute Map.has_key?(params, "credential_broker")
     refute Map.has_key?(params, "_secret_material")
+    refute proto.params_json =~ "token-secret"
   end
 
-  test "plugin config resolves policy console credential secrets even when package schema is stale" do
+  test "Proxmox console proto rendering never resolves or exposes legacy SSH credentials" do
     payload = Jason.encode!(%{"username" => "root", "private_key" => "PRIVATE KEY"})
 
     assignment =
       base_plugin_assignment(%{
         source: :policy,
         plugin_id: "proxmox-console",
+        entrypoint: "run_console",
         params: %{
           "credential_broker" => %{
             "schema" => "serviceradar.edge_credential_broker_grant.v1",
@@ -225,11 +275,13 @@ defmodule ServiceRadar.Edge.AgentConfigPluginTest do
     [proto] = config.assignments
     params = Jason.decode!(proto.params_json)
 
-    assert params["credential_secret"] == payload
+    assert params["credential_secret"] == "__SERVICERADAR_HOST_CREDENTIAL__"
+    refute Map.has_key?(params, "credential_broker")
     refute Map.has_key?(params, "_secret_material")
+    refute proto.params_json =~ "PRIVATE KEY"
   end
 
-  test "plugin config resolves policy credential broker refs inside plugin input templates" do
+  test "Proxmox inventory input templates expose only the host-credential sentinel" do
     assignment =
       base_plugin_assignment(%{
         source: :policy,
@@ -263,18 +315,21 @@ defmodule ServiceRadar.Edge.AgentConfigPluginTest do
     params = Jason.decode!(proto.params_json)
 
     refute Map.has_key?(params, "api_token")
-    assert params["template"]["api_token"] == "root@pam!sr=token-secret"
-    assert params["template"]["api_token_secret_ref"] == "secretref:api_token_secret_ref:test"
+    assert params["template"]["api_token"] == "__SERVICERADAR_HOST_CREDENTIAL__"
+    refute Map.has_key?(params["template"], "api_token_secret_ref")
+    refute Map.has_key?(params["template"], "credential_broker")
     refute Map.has_key?(params["template"], "_secret_material")
+    refute proto.params_json =~ "token-secret"
   end
 
-  test "plugin config resolves policy console credential secrets inside plugin input templates" do
+  test "Proxmox console input templates expose only the host-credential sentinel" do
     payload = Jason.encode!(%{"username" => "root", "private_key" => "PRIVATE KEY"})
 
     assignment =
       base_plugin_assignment(%{
         source: :policy,
         plugin_id: "proxmox-console",
+        entrypoint: "run_console",
         params: %{
           "schema" => "serviceradar.plugin_inputs.v1",
           "agent_id" => "agent-a",
@@ -303,11 +358,13 @@ defmodule ServiceRadar.Edge.AgentConfigPluginTest do
     [proto] = config.assignments
     params = Jason.decode!(proto.params_json)
 
-    assert params["template"]["credential_secret"] == payload
+    assert params["template"]["credential_secret"] == "__SERVICERADAR_HOST_CREDENTIAL__"
+    refute Map.has_key?(params["template"], "credential_broker")
     refute Map.has_key?(params["template"], "_secret_material")
+    refute proto.params_json =~ "PRIVATE KEY"
   end
 
-  test "plugin config does not resolve manual credential refs without schema support" do
+  test "manual Proxmox assignments fail closed without exposing credential refs" do
     assignment =
       base_plugin_assignment(%{
         source: :manual,
@@ -335,9 +392,11 @@ defmodule ServiceRadar.Edge.AgentConfigPluginTest do
     [proto] = config.assignments
     params = Jason.decode!(proto.params_json)
 
-    refute Map.has_key?(params, "api_token")
-    assert params["api_token_secret_ref"] == "secretref:api_token_secret_ref:test"
+    assert params["api_token"] == "__SERVICERADAR_HOST_CREDENTIAL__"
+    refute Map.has_key?(params, "api_token_secret_ref")
+    refute Map.has_key?(params, "credential_broker")
     refute Map.has_key?(params, "_secret_material")
+    refute proto.params_json =~ "token-secret"
   end
 
   defp base_plugin_assignment(overrides) do

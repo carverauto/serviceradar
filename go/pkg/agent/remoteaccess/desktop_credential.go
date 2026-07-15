@@ -129,7 +129,8 @@ func NormalizeDesktopCredentialGrantAt(
 		if grant.SessionID == "" {
 			return grant, fmt.Errorf("%w: memory user credential grant requires session binding", ErrInvalidDesktopTarget)
 		}
-		if !desktopStringListAllows(target.Credential.AllowedPrincipals, grant.Username) {
+		if len(target.Credential.AllowedPrincipals) == 0 ||
+			!desktopStringListContains(target.Credential.AllowedPrincipals, grant.Username) {
 			return grant, fmt.Errorf("%w: credential grant principal not allowed by target policy", ErrInvalidDesktopTarget)
 		}
 	}

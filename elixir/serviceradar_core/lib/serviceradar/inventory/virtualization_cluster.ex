@@ -13,7 +13,19 @@ defmodule ServiceRadar.Inventory.VirtualizationCluster do
   @devices_view_check {ActorHasPermission, permission: "devices.view"}
   @devices_update_check {ActorHasPermission, permission: "devices.update"}
   @devices_delete_check {ActorHasPermission, permission: "devices.delete"}
-  @fields [:provider, :provider_ref, :name, :status, :version, :metadata, :observed_at]
+  @identity_fields [
+    :provider,
+    :provider_ref,
+    :identity_version,
+    :identity_state,
+    :integration_id,
+    :controller_id,
+    :native_cluster_id,
+    :object_kind,
+    :native_object_id,
+    :provider_instance_ref
+  ]
+  @mutable_fields [:name, :status, :version, :metadata, :observed_at]
 
   postgres do
     table "virtualization_clusters"
@@ -25,11 +37,11 @@ defmodule ServiceRadar.Inventory.VirtualizationCluster do
     defaults [:read, :destroy]
 
     create :create do
-      accept @fields
+      accept @identity_fields ++ @mutable_fields
     end
 
     update :update do
-      accept @fields
+      accept @mutable_fields
     end
 
     read :by_provider_ref do
@@ -60,6 +72,41 @@ defmodule ServiceRadar.Inventory.VirtualizationCluster do
 
     attribute :provider_ref, :string do
       allow_nil? false
+      public? true
+    end
+
+    attribute :identity_version, :integer do
+      public? true
+    end
+
+    attribute :identity_state, :atom do
+      allow_nil? false
+      default :legacy
+      public? true
+      constraints one_of: [:legacy, :authoritative, :quarantined]
+    end
+
+    attribute :integration_id, :uuid do
+      public? true
+    end
+
+    attribute :controller_id, :uuid do
+      public? true
+    end
+
+    attribute :native_cluster_id, :string do
+      public? true
+    end
+
+    attribute :object_kind, :string do
+      public? true
+    end
+
+    attribute :native_object_id, :string do
+      public? true
+    end
+
+    attribute :provider_instance_ref, :string do
       public? true
     end
 

@@ -14,10 +14,12 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Credentials.Changes.WriteBrokerGrantLifecycleEvent
+  alias ServiceRadar.Credentials.RequestBodyPolicy
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
-  @schema "serviceradar.edge_credential_broker_grant.v1"
+  @schema_v1 "serviceradar.edge_credential_broker_grant.v1"
+  @schema_v2 "serviceradar.edge_credential_broker_grant.v2"
   @credential_manage_check {ActorHasPermission, permission: "settings.credentials.manage"}
 
   @fields [
@@ -32,10 +34,12 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     :target_id,
     :agent_id,
     :resolution_location,
+    :allowed_schemes,
     :allowed_methods,
     :allowed_paths,
     :allowed_hosts,
     :allowed_ports,
+    :request_body_policy,
     :inject,
     :metadata,
     :ttl_seconds,
@@ -226,6 +230,12 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
       constraints one_of: [:control_plane, :agent, :hybrid]
     end
 
+    attribute :allowed_schemes, {:array, :string} do
+      allow_nil? false
+      public? true
+      default []
+    end
+
     attribute :allowed_methods, {:array, :string} do
       allow_nil? false
       public? true
@@ -248,6 +258,12 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
       allow_nil? false
       public? true
       default []
+    end
+
+    attribute :request_body_policy, RequestBodyPolicy do
+      allow_nil? false
+      public? true
+      default %{}
     end
 
     attribute :inject, :map do
@@ -332,7 +348,8 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     end
   end
 
-  def schema, do: @schema
+  def schema, do: @schema_v1
+  def body_bound_schema, do: @schema_v2
 
   @doc "Build issue attrs from the common caller shape and calculate expiry."
   def issue_attrs(attrs, now \\ DateTime.utc_now()) when is_map(attrs) do
@@ -353,14 +370,15 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     |> Map.update(:expires_at, default_expires_at, &truncate_datetime/1)
   end
 
-  @doc "Build the legacy wire payload used by agents and plugins."
+  @doc "Build the versioned wire payload used by agents and plugins."
   def to_payload(grant_or_attrs, extras \\ %{}) when is_map(grant_or_attrs) do
     inject = value(grant_or_attrs, :inject) || %{}
     allow = allow_payload(grant_or_attrs)
+    request_body_policy = normalize_request_body_policy!(grant_or_attrs)
     expires_at = value(grant_or_attrs, :expires_at) || derived_expires_at(grant_or_attrs)
 
     %{
-      "schema" => @schema,
+      "schema" => schema_for(request_body_policy),
       "grant_id" => stringify(value(grant_or_attrs, :id)),
       "grant_type" => value(grant_or_attrs, :grant_type),
       "credential_rule_id" => stringify(value(grant_or_attrs, :credential_rule_id)),
@@ -443,12 +461,24 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
 
   defp allow_payload(grant_or_attrs) do
     compact_map(%{
+      "schemes" => list_value(grant_or_attrs, :allowed_schemes),
       "methods" => list_value(grant_or_attrs, :allowed_methods),
       "paths" => list_value(grant_or_attrs, :allowed_paths),
       "hosts" => list_value(grant_or_attrs, :allowed_hosts),
-      "ports" => list_value(grant_or_attrs, :allowed_ports)
+      "ports" => list_value(grant_or_attrs, :allowed_ports),
+      "request_body" => normalize_request_body_policy!(grant_or_attrs)
     })
   end
+
+  defp normalize_request_body_policy!(grant_or_attrs) do
+    case RequestBodyPolicy.normalize(value(grant_or_attrs, :request_body_policy) || %{}) do
+      {:ok, policy} -> policy
+      {:error, reason} -> raise ArgumentError, "invalid request body policy: #{inspect(reason)}"
+    end
+  end
+
+  defp schema_for(policy) when is_map(policy) and map_size(policy) > 0, do: @schema_v2
+  defp schema_for(_policy), do: @schema_v1
 
   defp secret_ref_for(nil), do: nil
   defp secret_ref_for(secret_id), do: SecretRefs.network_credential_ref(to_string(secret_id))

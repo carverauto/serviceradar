@@ -13,7 +13,347 @@ import {RemoteDesktopWebRTCClient} from "../../js/lib/remote_desktop/webrtc_clie
 
 const DEFAULT_QUEUE_MAX_FRAMES = 12
 const DEFAULT_RENDER_DRAIN_FRAMES = 4
+const DEFAULT_RDP_LAUNCH_TIMEOUT_MS = 30_000
+const DEFAULT_RDP_ACTIVITY_INTERVAL_MS = 30_000
 const EMPTY_RENDERER_STATS = {framesApplied: 0, tilesApplied: 0, lastSequence: null}
+
+function csrfToken() {
+  return document.querySelector("meta[name='csrf-token']")?.getAttribute("content") || ""
+}
+
+function websocketUrl(path) {
+  const url = new URL(path, window.location.origin)
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
+  return url.toString()
+}
+
+function apiError(payload, fallback) {
+  const error = new Error(payload?.message || payload?.error || fallback)
+  error.code = payload?.error || ""
+  return error
+}
+
+function normalizedString(value) {
+  return typeof value === "string" ? value.trim() : ""
+}
+
+export function buildRdpSessionRequest(desktopTargetId, deviceUid, approvalId = "") {
+  const request = {
+    protocol: "rdp",
+    adapter: "rdp",
+    desktop_target_id: normalizedString(desktopTargetId),
+    device_uid: normalizedString(deviceUid),
+  }
+  const normalizedApprovalId = normalizedString(approvalId)
+
+  if (normalizedApprovalId) {
+    request.approval_id = normalizedApprovalId
+  }
+
+  return request
+}
+
+export function buildRdpAttachMessage(session, credential) {
+  return {
+    type: "attach",
+    ticket: session?.ticket,
+    session_id: session?.id,
+    credential: {
+      username: normalizedString(credential?.username),
+      password: credential?.password || "",
+    },
+  }
+}
+
+export function readyForSession(message, sessionId) {
+  return message?.type === "ready" && message?.session_id === sessionId
+}
+
+export function rdpLaunchInProgress(status) {
+  return status === "opening" || status === "attaching" || status === "awaiting_ready"
+}
+
+function validCreatedSession(session) {
+  return Boolean(
+    normalizedString(session?.id) &&
+      normalizedString(session?.ticket) &&
+      normalizedString(session?.websocket_path),
+  )
+}
+
+function sessionClosePath(createPath, sessionId) {
+  return `${createPath.replace(/\/+$/u, "")}/${encodeURIComponent(sessionId)}/close`
+}
+
+export function createRdpLauncherRuntime({
+  desktopTargetId,
+  deviceUid,
+  approvalId = "",
+  createPath = "/api/remote-access/sessions",
+  fetchImpl = (...args) => globalThis.fetch(...args),
+  socketFactory = (path) => new WebSocket(websocketUrl(path)),
+  csrfTokenProvider = csrfToken,
+  launchTimeoutMs = DEFAULT_RDP_LAUNCH_TIMEOUT_MS,
+  setTimeoutImpl = (...args) => globalThis.setTimeout(...args),
+  clearTimeoutImpl = (handle) => globalThis.clearTimeout(handle),
+  abortControllerFactory = () => (
+    typeof globalThis.AbortController === "function" ? new globalThis.AbortController() : null
+  ),
+  onStatus = () => {},
+  onReady = () => {},
+  onError = () => {},
+  onCredentialCleared = () => {},
+  onClosed = () => {},
+}) {
+  let session = null
+  let socket = null
+  let credential = null
+  let closing = false
+  let ready = false
+  let closeRequested = false
+  let launchDeadline = null
+  let abortController = null
+  let lastActivityAtMs = 0
+
+  function clearCredential() {
+    if (!credential) {
+      return
+    }
+
+    credential.password = ""
+    credential = null
+    onCredentialCleared()
+  }
+
+  function clearLaunchDeadline() {
+    if (launchDeadline !== null) {
+      clearTimeoutImpl(launchDeadline)
+      launchDeadline = null
+    }
+    abortController = null
+  }
+
+  function abortLaunchRequest() {
+    try {
+      abortController?.abort?.()
+    } catch (_error) {
+      // Timeout/close is authoritative even when an AbortController shim fails.
+    }
+    abortController = null
+  }
+
+  async function requestSessionClose(reason) {
+    if (!session?.id || closeRequested) {
+      return
+    }
+
+    closeRequested = true
+
+    try {
+      await fetchImpl(sessionClosePath(createPath, session.id), {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          "x-csrf-token": csrfTokenProvider(),
+        },
+        body: JSON.stringify({reason}),
+        keepalive: true,
+      })
+    } catch (_error) {
+      // The server also expires abandoned sessions; never surface cleanup details.
+    }
+  }
+
+  function closeSocket(reason) {
+    if (socket && (socket.readyState === 0 || socket.readyState === 1)) {
+      socket.close(1000, reason.slice(0, 120))
+    }
+    socket = null
+  }
+
+  function recordActivity() {
+    const nowMs = Date.now()
+
+    if (
+      closing ||
+      !ready ||
+      !socket ||
+      socket.readyState !== 1 ||
+      nowMs - lastActivityAtMs < DEFAULT_RDP_ACTIVITY_INTERVAL_MS
+    ) {
+      return false
+    }
+
+    try {
+      socket.send(JSON.stringify({type: "activity", session_id: session.id}))
+      lastActivityAtMs = nowMs
+      return true
+    } catch (_error) {
+      fail("Unable to refresh the RDP session activity lease.")
+      return false
+    }
+  }
+
+  function close(reason = "RDP launcher closed") {
+    if (closing) {
+      return
+    }
+
+    closing = true
+    abortLaunchRequest()
+    clearLaunchDeadline()
+    clearCredential()
+    closeSocket(reason)
+    void requestSessionClose(reason)
+    onClosed()
+  }
+
+  function fail(message) {
+    if (closing) {
+      return
+    }
+
+    onStatus("failed")
+    onError(message)
+    close("RDP session failed")
+  }
+
+  function attachSocket() {
+    try {
+      socket = socketFactory(session.websocket_path)
+    } catch (_error) {
+      fail("Unable to open the RDP control channel.")
+      return
+    }
+
+    socket.addEventListener("open", () => {
+      if (closing || !credential) {
+        return
+      }
+
+      onStatus("attaching")
+      try {
+        socket.send(JSON.stringify(buildRdpAttachMessage(session, credential)))
+      } catch (_error) {
+        fail("Unable to authorize the RDP control channel.")
+        return
+      }
+
+      clearCredential()
+      onStatus("awaiting_ready")
+    })
+
+    socket.addEventListener("message", (event) => {
+      if (closing) {
+        return
+      }
+
+      let message
+      try {
+        message = JSON.parse(event.data)
+      } catch (_error) {
+        fail("The RDP control channel returned an invalid response.")
+        return
+      }
+
+      if (readyForSession(message, session.id)) {
+        ready = true
+        clearLaunchDeadline()
+        clearCredential()
+        onStatus("ready")
+        onReady(session)
+        return
+      }
+
+      if (message?.type === "error") {
+        fail(message.message || "The RDP control channel rejected the session.")
+      }
+    })
+
+    socket.addEventListener("error", () => {
+      fail("The RDP control channel failed.")
+    })
+
+    socket.addEventListener("close", () => {
+      socket = null
+      if (!closing) {
+        fail(ready ? "The RDP control channel closed." : "The RDP session closed before it was ready.")
+      }
+    })
+  }
+
+  async function open({username, password}) {
+    if (closing || session) {
+      return
+    }
+
+    const normalizedTargetId = normalizedString(desktopTargetId)
+    const normalizedDeviceUid = normalizedString(deviceUid)
+    const normalizedUsername = normalizedString(username)
+
+    if (!normalizedTargetId) {
+      onError("The authorized RDP target is missing.")
+      return
+    }
+
+    if (!normalizedDeviceUid) {
+      onError("The RDP launch device is missing.")
+      return
+    }
+
+    if (!normalizedUsername || !password) {
+      onError("Windows username and password are required.")
+      return
+    }
+
+    credential = {username: normalizedUsername, password}
+    onStatus("opening")
+    abortController = abortControllerFactory()
+    launchDeadline = setTimeoutImpl(() => {
+      abortLaunchRequest()
+      fail("The RDP session did not become ready before the launch deadline.")
+    }, launchTimeoutMs)
+
+    try {
+      const response = await fetchImpl(createPath, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          "x-csrf-token": csrfTokenProvider(),
+        },
+        body: JSON.stringify(buildRdpSessionRequest(normalizedTargetId, normalizedDeviceUid, approvalId)),
+        ...(abortController?.signal ? {signal: abortController.signal} : {}),
+      })
+
+      const payload = await response.json()
+
+      if (closing) {
+        if (response.ok && normalizedString(payload?.data?.id)) {
+          session = payload.data
+          await requestSessionClose("RDP launcher closed during session creation")
+        }
+        return
+      }
+
+      if (!response.ok) {
+        throw apiError(payload, "Unable to open the RDP session.")
+      }
+
+      if (!validCreatedSession(payload?.data)) {
+        throw new Error("The RDP session response was incomplete.")
+      }
+
+      session = payload.data
+      attachSocket()
+    } catch (error) {
+      fail(error?.message || "Unable to open the RDP session.")
+    }
+  }
+
+  return {open, close, recordActivity}
+}
 
 function createRemoteDesktopWebRTCClient(options) {
   return new RemoteDesktopWebRTCClient(options)
@@ -55,6 +395,9 @@ export function Component({
   queueMaxFrames = DEFAULT_QUEUE_MAX_FRAMES,
   autoConnect = false,
   clientFactory = createRemoteDesktopWebRTCClient,
+  onDisconnect = null,
+  onConnectionFailure = null,
+  onActivity = null,
 }) {
   const policySnapshot = session?.desktop_policy_snapshot || {}
   const policy = useMemo(() => normalizeDesktopPolicySnapshot(policySnapshot), [policySnapshot])
@@ -65,6 +408,8 @@ export function Component({
   const canvasRef = useRef(null)
   const videoRef = useRef(null)
   const clientRef = useRef(null)
+  const failureReportedRef = useRef(false)
+  const mountedRef = useRef(true)
   const [connectionStatus, setConnectionStatus] = useState(autoConnect ? "pending" : "idle")
   const [viewerSessionId, setViewerSessionId] = useState("")
   const [frameCount, setFrameCount] = useState(0)
@@ -78,8 +423,10 @@ export function Component({
   const closeClient = useCallback((reason = "desktop viewer closed") => {
     clientRef.current?.close(reason)
     clientRef.current = null
-    setViewerSessionId("")
-    setMediaStream(null)
+    if (mountedRef.current) {
+      setViewerSessionId("")
+      setMediaStream(null)
+    }
   }, [])
 
   const connect = useCallback(async () => {
@@ -89,6 +436,7 @@ export function Component({
 
     setLastError("")
     setConnectionStatus("connecting")
+    failureReportedRef.current = false
     setViewerSessionId("")
     setFrameCount(0)
     setDroppedFrameCount(0)
@@ -101,8 +449,17 @@ export function Component({
       signalingPath: session.desktop_webrtc_signaling_path,
       iceServers: session.desktop_webrtc_ice_servers || [],
       mediaQueueState: () => renderQueueRef.current.state(),
-      onStatus: setConnectionStatus,
+      onStatus(nextStatus) {
+        if (mountedRef.current) {
+          setConnectionStatus(nextStatus)
+        }
+      },
       onFrame(frame) {
+        if (!mountedRef.current) {
+          return
+        }
+
+        onActivity?.()
         const result = renderQueueRef.current.push(frame)
         const droppedCount = result.accepted ? result.dropped.length : result.dropped.length + 1
 
@@ -115,17 +472,43 @@ export function Component({
         setQueueStats(queueState(renderQueueRef.current))
       },
       onFrameDropped() {
+        if (!mountedRef.current) {
+          return
+        }
+
+        onActivity?.()
         setDroppedFrameCount((count) => count + 1)
         setQueueStats(queueState(renderQueueRef.current))
       },
       onClose(label) {
-        setConnectionStatus(`closed:${label}`)
+        if (!mountedRef.current) {
+          return
+        }
+
+        if (!failureReportedRef.current) {
+          failureReportedRef.current = true
+          const message = `Desktop media connection closed: ${label}`
+          setConnectionStatus(`closed:${label}`)
+          setLastError(message)
+          onConnectionFailure?.(message)
+        }
       },
       onError(error) {
-        setLastError(error?.message || "Desktop media connection failed")
+        if (!mountedRef.current) {
+          return
+        }
+
+        if (!failureReportedRef.current) {
+          failureReportedRef.current = true
+          const message = error?.message || "Desktop media connection failed"
+          setLastError(message)
+          onConnectionFailure?.(message)
+        }
       },
       onMediaStream(stream) {
-        setMediaStream(stream)
+        if (mountedRef.current) {
+          setMediaStream(stream)
+        }
       },
     })
 
@@ -133,20 +516,43 @@ export function Component({
 
     try {
       const viewer = await client.connect()
+      if (!mountedRef.current) {
+        client.close?.("desktop viewer unmounted")
+        return
+      }
+
       setViewerSessionId(viewer.viewerSessionId || "")
       setConnectionStatus("connected")
     } catch (error) {
       client.close?.("desktop viewer connect failed")
       clientRef.current = null
-      setLastError(error?.message || "Unable to start desktop media session")
+      if (!mountedRef.current) {
+        return
+      }
+
+      const message = error?.message || "Unable to start desktop media session"
+      setLastError(message)
       setConnectionStatus("error")
+      if (!failureReportedRef.current) {
+        failureReportedRef.current = true
+        onConnectionFailure?.(message)
+      }
     }
-  }, [clientFactory, session])
+  }, [clientFactory, onActivity, onConnectionFailure, session])
 
   const disconnect = useCallback(() => {
     closeClient("operator closed desktop viewer")
     setConnectionStatus("closed")
-  }, [closeClient])
+    onDisconnect?.()
+  }, [closeClient, onDisconnect])
+
+  useEffect(() => {
+    mountedRef.current = true
+
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     closeClient("desktop session changed")
@@ -166,11 +572,12 @@ export function Component({
   const sendControlFrame = useCallback((frame) => {
     if (sendDesktopControlFrame(clientRef.current, frame)) {
       setControlFrameCount((count) => count + 1)
+      onActivity?.()
       return true
     }
 
     return false
-  }, [])
+  }, [onActivity])
 
   const handleCanvasFocus = useCallback(() => {
     sendControlFrame(buildDesktopFocusFrame(session, true))
@@ -279,8 +686,13 @@ export function Component({
       const result = drainDesktopRenderQueue(renderQueueRef.current, {
         maxFrames: DEFAULT_RENDER_DRAIN_FRAMES,
         onFrameError(error) {
-          setLastError(error?.message || "Unable to render desktop frame")
+          const message = error?.message || "Unable to render desktop frame"
+          setLastError(message)
           closeClient("desktop renderer rejected frame")
+          if (!failureReportedRef.current) {
+            failureReportedRef.current = true
+            onConnectionFailure?.(message)
+          }
         },
         renderTarget: canvasRenderTarget(),
       })
@@ -316,7 +728,7 @@ export function Component({
         cancelFrame(frameHandle)
       }
     }
-  }, [canvasRenderTarget, sendResizeFrame, session])
+  }, [canvasRenderTarget, closeClient, onConnectionFailure, sendResizeFrame, session])
 
   if (!session) {
     return (
@@ -357,6 +769,7 @@ export function Component({
               autoPlay
               className={`pointer-events-none absolute inset-0 h-full w-full object-contain ${mediaStream ? "" : "hidden"}`}
               muted
+              onTimeUpdate={() => onActivity?.()}
               playsInline
               ref={videoRef}
             />
@@ -440,4 +853,194 @@ export function Component({
   )
 }
 
-export default Component
+export function Launcher({
+  desktopTargetId = "",
+  deviceUid = "",
+  approvalId = "",
+  createPath = "/api/remote-access/sessions",
+  title = "RDP remote access",
+  fetchImpl = (...args) => globalThis.fetch(...args),
+  socketFactory = (path) => new WebSocket(websocketUrl(path)),
+  csrfTokenProvider = csrfToken,
+  clientFactory = createRemoteDesktopWebRTCClient,
+}) {
+  const usernameRef = useRef(null)
+  const passwordRef = useRef(null)
+  const runtimeRef = useRef(null)
+  const mountedRef = useRef(true)
+  const [session, setSession] = useState(null)
+  const [status, setStatus] = useState("idle")
+  const [error, setError] = useState("")
+
+  const clearPasswordInput = useCallback(() => {
+    if (passwordRef.current) {
+      passwordRef.current.value = ""
+    }
+  }, [])
+
+  const closeActiveSession = useCallback((reason, nextStatus = "closed") => {
+    runtimeRef.current?.close(reason)
+    runtimeRef.current = null
+    clearPasswordInput()
+    setSession(null)
+    setStatus(nextStatus)
+  }, [clearPasswordInput])
+
+  useEffect(() => {
+    mountedRef.current = true
+
+    return () => {
+      mountedRef.current = false
+      clearPasswordInput()
+      runtimeRef.current?.close("RDP launcher unmounted")
+      runtimeRef.current = null
+    }
+  }, [clearPasswordInput])
+
+  const handleSubmit = useCallback((event) => {
+    event.preventDefault()
+    setError("")
+
+    const username = usernameRef.current?.value || ""
+    const password = passwordRef.current?.value || ""
+    let runtime
+
+    runtime = createRdpLauncherRuntime({
+      desktopTargetId,
+      deviceUid,
+      approvalId,
+      createPath,
+      fetchImpl,
+      socketFactory,
+      csrfTokenProvider,
+      onStatus(nextStatus) {
+        if (mountedRef.current) {
+          setStatus(nextStatus)
+        }
+      },
+      onReady(nextSession) {
+        if (mountedRef.current) {
+          setError("")
+          setSession(nextSession)
+        }
+      },
+      onError(message) {
+        if (mountedRef.current) {
+          setError(message)
+        }
+      },
+      onCredentialCleared: clearPasswordInput,
+      onClosed() {
+        if (runtimeRef.current === runtime) {
+          runtimeRef.current = null
+        }
+        if (mountedRef.current) {
+          setSession(null)
+        }
+      },
+    })
+
+    runtimeRef.current?.close("RDP launcher restarted")
+    runtimeRef.current = runtime
+    void runtime.open({username, password})
+  }, [approvalId, clearPasswordInput, createPath, csrfTokenProvider, desktopTargetId, deviceUid, fetchImpl, socketFactory])
+
+  const handleConnectionFailure = useCallback((message) => {
+    if (mountedRef.current) {
+      setError(message)
+      closeActiveSession("RDP media connection failed", "failed")
+    }
+  }, [closeActiveSession])
+
+  if (session) {
+    return (
+      <Component
+        autoConnect
+        clientFactory={clientFactory}
+        onActivity={() => runtimeRef.current?.recordActivity()}
+        onConnectionFailure={handleConnectionFailure}
+        onDisconnect={() => closeActiveSession("Operator closed RDP session")}
+        session={session}
+        title={title}
+      />
+    )
+  }
+
+  const opening = rdpLaunchInProgress(status)
+
+  return (
+    <section className="flex h-full min-h-[560px] items-center justify-center bg-base-200 p-4 sm:p-8">
+      <div className="card card-border w-full max-w-lg bg-base-100">
+        <div className="card-body gap-5">
+          <div>
+            <h2 className="card-title">{title}</h2>
+            <p className="mt-2 text-sm text-base-content/70">
+              Enter credentials for the Windows account on this device. ServiceRadar sends them once to the authorized edge route and does not retain them.
+            </p>
+          </div>
+
+          {error ? (
+            <div id="rdp-launch-error" className="alert alert-error" role="alert">
+              <span>{error}</span>
+            </div>
+          ) : null}
+
+          {opening ? (
+            <div id="rdp-launch-status" className="alert alert-info" role="status">
+              <span className="loading loading-spinner loading-sm" aria-hidden="true"></span>
+              <span>
+                {status === "awaiting_ready"
+                  ? "Waiting for the RDP route to become ready…"
+                  : status === "attaching"
+                    ? "Authorizing the RDP connection…"
+                    : "Opening the RDP session…"}
+              </span>
+            </div>
+          ) : null}
+
+          <form id="rdp-credential-form" className="space-y-4" onSubmit={handleSubmit}>
+            <fieldset className="fieldset">
+              <legend className="fieldset-legend">Windows username</legend>
+              <input
+                id="rdp-windows-username"
+                className="input w-full"
+                autoComplete="username"
+                disabled={opening}
+                name="username"
+                ref={usernameRef}
+                required
+                type="text"
+              />
+              <p className="label">Use the local or domain-qualified account allowed by the target policy.</p>
+            </fieldset>
+
+            <fieldset className="fieldset">
+              <legend className="fieldset-legend">Password</legend>
+              <input
+                id="rdp-windows-password"
+                className="input w-full"
+                autoComplete="current-password"
+                disabled={opening}
+                name="password"
+                ref={passwordRef}
+                required
+                type="password"
+              />
+              <p className="label">The password is cleared immediately after the one-time attach message is sent.</p>
+            </fieldset>
+
+            <div className="card-actions justify-end">
+              <button id="rdp-connect-button" className="btn btn-primary" disabled={opening} type="submit">
+                {opening ? "Connecting…" : "Connect with RDP"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+export default function RemoteAccessDesktopSession(props) {
+  return normalizedString(props?.desktopTargetId) ? <Launcher {...props} /> : <Component {...props} />
+}

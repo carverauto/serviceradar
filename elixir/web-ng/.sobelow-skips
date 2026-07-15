@@ -105,9 +105,9 @@ DOS.StringToAtom: Unsafe `String.to_atom`,lib/serviceradar_web_ng_web/live/devic
 
 # browser_raw_auth is a GET-only websocket-upgrade pipeline. It does not mutate
 # state, and router-origin checks plus authentication protect browser clients.
-Config.CSRF: Missing CSRF Protections,lib/serviceradar_web_ng_web/router.ex:65,1DB48A5
+Config.CSRF: Missing CSRF Protections,lib/serviceradar_web_ng_web/router.ex:66,7009373
 
 # api_docs_spec serves authenticated OpenAPI JSON only; callers must already be
 # authorized through session or bearer authentication and no form action mutates state.
-Config.CSRF: Missing CSRF Protections,lib/serviceradar_web_ng_web/router.ex:113,3A3971B
+Config.CSRF: Missing CSRF Protections,lib/serviceradar_web_ng_web/router.ex:114,3173E02
 DOS.StringToAtom: Unsafe `String.to_atom`,lib/serviceradar_web_ng_web/live/device_live/discovery_sources_components.ex:341,7DB415F

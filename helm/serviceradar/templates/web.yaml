@@ -55,6 +55,42 @@
 {{- $adminEmail := default "root@localhost" $webNg.adminEmail -}}
 {{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
+{{- $automationCallbacks := default (dict) .Values.automationCallbacks -}}
+{{- include "serviceradar.validateAutomationCallbacks" . -}}
+{{- $automationCallbacksEnabled := false -}}
+{{- if hasKey $automationCallbacks "enabled" -}}{{- $automationCallbacksEnabled = get $automationCallbacks "enabled" -}}{{- end -}}
+{{- $automationCallbackResponsePolicy := default (dict) $automationCallbacks.responsePolicy -}}
+{{- $automationCallbackOrigin := default $webNgPublicUrl $automationCallbacks.canonicalOrigin -}}
+{{- $remoteAccess := default (dict) .Values.remoteAccess -}}
+{{- $remoteAccessDesktop := default (dict) $remoteAccess.desktop -}}
+{{- $remoteAccessDesktopRdp := default (dict) $remoteAccessDesktop.rdp -}}
+{{- $remoteAccessDesktopRdpEnabled := false -}}
+{{- if hasKey $remoteAccessDesktopRdp "enabled" -}}{{- $remoteAccessDesktopRdpEnabled = get $remoteAccessDesktopRdp "enabled" -}}{{- end -}}
+{{- $remoteAccessDesktopWebRTC := default (dict) $remoteAccessDesktopRdp.webRTC -}}
+{{- $remoteAccessDesktopIceServers := default (list) $remoteAccessDesktopWebRTC.iceServers -}}
+{{- $remoteAccessDesktopIceServersJSON := toJson $remoteAccessDesktopIceServers -}}
+{{- $remoteAccessDesktopTurnConfigured := and $remoteAccessDesktopRdpEnabled (regexMatch "(?i)\"turns?:" $remoteAccessDesktopIceServersJSON) -}}
+{{- $remoteAccessDesktopTurn := default (dict) $remoteAccessDesktopWebRTC.turn -}}
+{{- include "serviceradar.validateRemoteAccessDesktopWebRTC" . -}}
+{{- $remoteAccessSsh := default (dict) $remoteAccess.ssh -}}
+{{- $remoteAccessSshEnabled := false -}}
+{{- if hasKey $remoteAccessSsh "enabled" -}}{{- $remoteAccessSshEnabled = get $remoteAccessSsh "enabled" -}}{{- end -}}
+{{- $sshCertificatePolicy := default (dict) $remoteAccess.sshCertificatePolicy -}}
+{{- include "serviceradar.validateRemoteAccessSSHCertificatePolicy" . -}}
+{{- $sshCertificatePolicyEnabled := false -}}
+{{- if hasKey $sshCertificatePolicy "enabled" -}}{{- $sshCertificatePolicyEnabled = get $sshCertificatePolicy "enabled" -}}{{- end -}}
+{{- $sshCertificatePolicyWorkloads := default (dict) $sshCertificatePolicy.workloads -}}
+{{- $sshCertificatePolicyWeb := true -}}
+{{- if hasKey $sshCertificatePolicyWorkloads "web" -}}{{- $sshCertificatePolicyWeb = get $sshCertificatePolicyWorkloads "web" -}}{{- end -}}
+{{- $sshCertificatePolicyWebEnabled := and $sshCertificatePolicyEnabled $sshCertificatePolicyWeb -}}
+{{- $sshCaSigner := default (dict) $remoteAccess.sshCaSigner -}}
+{{- include "serviceradar.validateRemoteAccessSSHCaSigner" . -}}
+{{- $sshCaSignerEnabled := false -}}
+{{- if hasKey $sshCaSigner "enabled" -}}{{- $sshCaSignerEnabled = get $sshCaSigner "enabled" -}}{{- end -}}
+{{- $sshCaSignerWorkloads := default (dict) $sshCaSigner.workloads -}}
+{{- $sshCaSignerWeb := true -}}
+{{- if hasKey $sshCaSignerWorkloads "web" -}}{{- $sshCaSignerWeb = get $sshCaSignerWorkloads "web" -}}{{- end -}}
+{{- $sshCaSignerWebEnabled := and $sshCaSignerEnabled $sshCaSignerWeb -}}
 {{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
 {{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
 {{- $datasvc := default (dict) $webNg.datasvc -}}
@@ -497,6 +533,54 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: cloak-key
+        - name: SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED
+          value: {{ $automationCallbacksEnabled | quote }}
+        {{- if $automationCallbacksEnabled }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE
+          value: "/etc/serviceradar/automation-callback/hmac-keyring.json"
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE
+          value: "/etc/serviceradar/automation-callback/envelope-key"
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID
+          value: {{ default "current" $automationCallbacks.envelopeKeyId | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_ORIGIN
+          value: {{ $automationCallbackOrigin | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_CREDENTIAL_TYPE_ID
+          value: {{ $automationCallbacks.awxCredentialTypeId | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_ORGANIZATION_ID
+          value: {{ $automationCallbacks.awxOrganizationId | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_INJECTOR_DIGEST
+          value: {{ $automationCallbacks.awxInjectorDigest | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_RESPONSE_POLICY_FILE
+          value: "/etc/serviceradar/automation-callback-policy/response-policy.json"
+        {{- end }}
+        {{- if $sshCertificatePolicyWebEnabled }}
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_FILE
+          value: "/etc/serviceradar/remote-access-ssh-policy/certificate-policy.json"
+        {{- end }}
+        {{- if $sshCaSignerWebEnabled }}
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ENABLED
+          value: "true"
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_COMMAND
+          value: {{ default "/usr/local/bin/serviceradar-sshca-signer" $sshCaSigner.command | quote }}
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON
+          value: {{ toJson $sshCaSigner.args | quote }}
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID
+          value: {{ $sshCaSigner.keyId | quote }}
+        {{- end }}
+        - name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED
+          value: {{ $remoteAccessDesktopRdpEnabled | quote }}
+        {{- if $remoteAccessDesktopRdpEnabled }}
+        - name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_ICE_SERVERS_JSON
+          value: {{ $remoteAccessDesktopIceServersJSON | quote }}
+        {{- end }}
+        {{- if $remoteAccessDesktopTurnConfigured }}
+        - name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_SHARED_SECRET_FILE
+          value: "/etc/serviceradar/remote-access-rdp-turn/shared-secret"
+        - name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_CREDENTIAL_TTL_SECONDS
+          value: {{ default 600 $remoteAccessDesktopTurn.credentialTtlSeconds | quote }}
+        {{- end }}
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_ENABLED
+          value: {{ $remoteAccessSshEnabled | quote }}
         {{- if $geoipMmdb.enabled }}
         - name: GEOLITE_MMDB_DIR
           value: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
@@ -591,6 +675,30 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
+        {{- if $automationCallbacksEnabled }}
+        - name: automation-callback-secrets
+          mountPath: /etc/serviceradar/automation-callback
+          readOnly: true
+        - name: automation-callback-response-policy
+          mountPath: /etc/serviceradar/automation-callback-policy
+          readOnly: true
+        {{- end }}
+        {{- if $sshCertificatePolicyWebEnabled }}
+        - name: remote-access-ssh-certificate-policy
+          mountPath: /etc/serviceradar/remote-access-ssh-policy
+          readOnly: true
+        {{- end }}
+        {{- if $sshCaSignerWebEnabled }}
+        - name: remote-access-ssh-ca
+          mountPath: {{ default "/run/secrets/serviceradar_ssh_ca" $sshCaSigner.mountPath | quote }}
+          subPath: ca-key
+          readOnly: true
+        {{- end }}
+        {{- if $remoteAccessDesktopTurnConfigured }}
+        - name: remote-access-rdp-turn
+          mountPath: /etc/serviceradar/remote-access-rdp-turn
+          readOnly: true
+        {{- end }}
         {{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
         - name: nats-creds
           mountPath: /etc/serviceradar/creds
@@ -645,6 +753,51 @@ spec:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
           items:
 {{ include "serviceradar.runtimeCertItems" (list "root.pem" "web.pem" "web-key.pem" "cnpg-client.pem" "cnpg-client-key.pem") | indent 12 }}
+      {{- if $automationCallbacksEnabled }}
+      - name: automation-callback-secrets
+        secret:
+          secretName: {{ $secrets | quote }}
+          defaultMode: 0440
+          items:
+          - key: automation-callback-hmac-keyring
+            path: hmac-keyring.json
+          - key: automation-callback-envelope-key
+            path: envelope-key
+      - name: automation-callback-response-policy
+        secret:
+          secretName: {{ $automationCallbackResponsePolicy.existingSecretName | quote }}
+          defaultMode: 0440
+          items:
+          - key: {{ $automationCallbackResponsePolicy.secretKey | quote }}
+            path: response-policy.json
+      {{- end }}
+      {{- if $sshCertificatePolicyWebEnabled }}
+      - name: remote-access-ssh-certificate-policy
+        secret:
+          secretName: {{ $sshCertificatePolicy.existingSecretName | quote }}
+          defaultMode: 0440
+          items:
+          - key: {{ $sshCertificatePolicy.secretKey | quote }}
+            path: certificate-policy.json
+      {{- end }}
+      {{- if $sshCaSignerWebEnabled }}
+      - name: remote-access-ssh-ca
+        secret:
+          secretName: {{ $sshCaSigner.existingSecretName | quote }}
+          defaultMode: 0400
+          items:
+          - key: {{ $sshCaSigner.secretKey | quote }}
+            path: ca-key
+      {{- end }}
+      {{- if $remoteAccessDesktopTurnConfigured }}
+      - name: remote-access-rdp-turn
+        secret:
+          secretName: {{ $remoteAccessDesktopTurn.existingSecretName | quote }}
+          defaultMode: 0440
+          items:
+          - key: {{ $remoteAccessDesktopTurn.secretKey | quote }}
+            path: shared-secret
+      {{- end }}
       {{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
       - name: nats-creds
         secret:

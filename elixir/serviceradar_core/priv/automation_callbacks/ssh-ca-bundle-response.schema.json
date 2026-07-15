@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "serviceradar.remote_access.ssh_ca_bundle/v1",
+  "title": "ServiceRadar SSH CA automation callback response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "action",
+    "manifest_sha256",
+    "job_id",
+    "phase",
+    "operation",
+    "state",
+    "authorization",
+    "targets"
+  ],
+  "properties": {
+    "schema_version": {"const": "serviceradar.remote_access.ssh_ca_bundle/v1"},
+    "action": {"const": "remote_access.ssh_ca.bundle.read"},
+    "manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "job_id": {"type": "integer", "minimum": 1},
+    "phase": {"enum": ["preflight", "stage", "verify", "commit"]},
+    "operation": {"enum": ["enroll", "overlap", "retire", "remove"]},
+    "state": {"enum": ["present", "absent"]},
+    "authorization": {"$ref": "#/definitions/authorization"},
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {"$ref": "#/definitions/target"}
+    }
+  },
+  "definitions": {
+    "targetIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["controller_id", "inventory_id", "awx_host_id", "canonical_device_uid"],
+      "properties": {
+        "controller_id": {"type": "string", "minLength": 1},
+        "inventory_id": {"type": ["string", "integer"]},
+        "awx_host_id": {"type": ["string", "integer"]},
+        "canonical_device_uid": {"type": "string", "minLength": 1}
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["permissions", "policy_approved", "binding_verified"],
+      "properties": {
+        "permissions": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "policy_approved": {"const": true},
+        "binding_verified": {"const": true},
+        "scm_revision": {"type": "string"},
+        "content_sha256": {"type": "string"},
+        "approval_id": {"type": "string"},
+        "binding_id": {"type": "string"}
+      }
+    },
+    "caKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "public_key", "fingerprint"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+        "public_key": {"type": "string", "maxLength": 16384},
+        "fingerprint": {"type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{20,60}$"}
+      }
+    },
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "principals"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z_][a-z0-9_-]{0,31}$"},
+        "principals": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^srp_v1_[A-Za-z0-9_-]{20,96}$"}
+        }
+      }
+    },
+    "transaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string"},
+        "stage_job_id": {"type": ["string", "integer"]},
+        "verification_job_id": {"type": ["string", "integer"]},
+        "generation": {"type": "string"},
+        "machine_credential_ref": {"type": "string"}
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inventory_hostname",
+        "inventory_address",
+        "target_identity",
+        "operation",
+        "phase",
+        "state",
+        "ca_keys",
+        "accounts",
+        "transaction",
+        "authorization"
+      ],
+      "properties": {
+        "inventory_hostname": {"type": "string", "minLength": 1},
+        "inventory_address": {"type": "string", "minLength": 1},
+        "target_identity": {"$ref": "#/definitions/targetIdentity"},
+        "operation": {"enum": ["enroll", "overlap", "retire", "remove"]},
+        "phase": {"enum": ["preflight", "stage", "verify", "commit"]},
+        "state": {"enum": ["present", "absent"]},
+        "ca_keys": {"type": "array", "items": {"$ref": "#/definitions/caKey"}},
+        "accounts": {"type": "array", "items": {"$ref": "#/definitions/account"}},
+        "transaction": {"$ref": "#/definitions/transaction"},
+        "authorization": {"$ref": "#/definitions/authorization"},
+        "retirement_proof": {"type": "object"}
+      }
+    }
+  }
+}

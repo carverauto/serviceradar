@@ -6,7 +6,9 @@ exports_files([
     "check-addon-binary-size.sh",
     "check-gazelle-drift.sh",
     "check-native-addon-version-bumps.sh",
+    "check-rust-vendor-tracked.py",
     "swiftlint_bazel.sh",
+    "test-native-addon-version-bumps.sh",
     "test-release-publish-contracts.sh",
     "test-external-wasm-plugin-release-workflow.sh",
     "test-verify-native-addon-publish-negative.sh",
@@ -49,6 +51,14 @@ sh_test(
         "@jq_linux_amd64//file",
         "@jq_linux_arm64//file",
     ],
+)
+
+sh_test(
+    name = "native_addon_version_bumps_test",
+    timeout = "short",
+    srcs = ["test-native-addon-version-bumps.sh"],
+    args = ["$(rootpath :check-native-addon-version-bumps.sh)"],
+    data = ["check-native-addon-version-bumps.sh"],
 )
 
 sh_test(

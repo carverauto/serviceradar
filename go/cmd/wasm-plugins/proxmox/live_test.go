@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -113,11 +112,10 @@ func liveConfigFromEnv(t *testing.T) (Config, bool) {
 
 	includeGuests := true
 	cfg := Config{
-		BaseURL:            normalizeBaseURL(baseURL),
-		APIToken:           token,
-		TimeoutMS:          liveEnvInt("SERVICERADAR_PROXMOX_TIMEOUT_MS", defaultTimeoutMS),
-		IncludeGuests:      &includeGuests,
-		InsecureSkipVerify: liveEnvBool("SERVICERADAR_PROXMOX_INSECURE_SKIP_VERIFY"),
+		BaseURL:       normalizeBaseURL(baseURL),
+		APIToken:      hostCredentialSentinel,
+		TimeoutMS:     liveEnvInt("SERVICERADAR_PROXMOX_TIMEOUT_MS", defaultTimeoutMS),
+		IncludeGuests: &includeGuests,
 	}
 	cfg.applyDefaults()
 
@@ -160,15 +158,6 @@ func liveEnvInt(key string, fallback int) int {
 	return parsed
 }
 
-func liveEnvBool(key string) bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
-	case "1", "true", "yes", "y", "on":
-		return true
-	default:
-		return false
-	}
-}
-
 type liveHTTPClient struct{}
 
 func (liveHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
@@ -178,9 +167,6 @@ func (liveHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 	}
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	if req.InsecureSkipVerify {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // operator-controlled live smoke test
-	}
 
 	client := &http.Client{Timeout: timeout, Transport: transport}
 	method := strings.TrimSpace(req.Method)
@@ -193,6 +179,9 @@ func (liveHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 		return nil, err
 	}
 	for key, value := range req.Headers {
+		if key == "Authorization" && value == hostCredentialSentinel {
+			value = liveTokenFromEnv()
+		}
 		httpReq.Header.Set(key, value)
 	}
 

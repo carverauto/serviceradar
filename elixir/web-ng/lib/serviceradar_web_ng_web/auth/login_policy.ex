@@ -45,6 +45,20 @@ defmodule ServiceRadarWebNGWeb.Auth.LoginPolicy do
   end
 
   @doc """
+  Returns whether public password recovery is valid for this current account.
+
+  Recovery never creates a local credential for an SSO-provisioned identity.
+  Unlike interactive break-glass login, the environment override is not a
+  recovery authority. The account must already have a password and must be
+  locally eligible under the persisted account/settings policy.
+  """
+  @spec password_recovery_allowed?(map() | struct(), map() | struct() | nil) :: boolean()
+  def password_recovery_allowed?(user, settings) do
+    not is_nil(hashed_password(user)) and
+      (password_only?(settings) or local_login_enabled?(user))
+  end
+
+  @doc """
   Whether the break-glass env switch (`SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN`) is active.
 
   When active, local login is permitted (still requires a valid password) and the

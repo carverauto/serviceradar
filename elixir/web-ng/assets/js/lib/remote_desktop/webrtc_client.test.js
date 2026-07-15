@@ -89,6 +89,11 @@ class MockPeerConnection {
     this.handlers.track?.(event)
   }
 
+  emitConnectionState(state) {
+    this.connectionState = state
+    this.handlers.connectionstatechange?.({})
+  }
+
   close() {
     this.closed = true
     this.connectionState = "closed"
@@ -195,6 +200,100 @@ describe("RemoteDesktopWebRTCClient", () => {
     expect(onOpen).toHaveBeenCalledWith(DESKTOP_CONTROL_CHANNEL)
   })
 
+  it("deletes a late viewer response after an in-flight connection is closed", async () => {
+    let resolveCreate
+    const createResponse = new Promise((resolve) => {
+      resolveCreate = resolve
+    })
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => createResponse)
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({data: {signaling_state: "closed"}}),
+      })
+    const peerConnectionFactory = vi.fn(() => new MockPeerConnection({}))
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-late/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory,
+    })
+
+    const connectPromise = client.connect()
+    client.close("desktop viewer unmounted")
+
+    resolveCreate({
+      ok: true,
+      json: async () => ({
+        data: {
+          viewer_session_id: "viewer-late",
+          offer_sdp: "v=0\r\nm=application",
+        },
+      }),
+    })
+
+    await expect(connectPromise).rejects.toThrow(/connection was closed/)
+    expect(peerConnectionFactory).not.toHaveBeenCalled()
+    expect(client.viewerSessionId).toBeNull()
+    expect(client.peerConnection).toBeNull()
+    expect(fetchMock.mock.calls[1]).toEqual([
+      "/api/desktop-sessions/session-late/webrtc/session/viewer-late",
+      expect.objectContaining({
+        method: "DELETE",
+        keepalive: true,
+        body: JSON.stringify({reason: "desktop viewer closed during creation"}),
+      }),
+    ])
+  })
+
+  it("closes the peer, viewer API session, and UI callback on peer failure", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-peer-failed",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({data: {signaling_state: "closed"}}),
+      })
+    const peer = new MockPeerConnection({})
+    const onClose = vi.fn()
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-peer-failed/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      onClose,
+    })
+
+    await client.connect()
+    peer.emitConnectionState("failed")
+    await Promise.resolve()
+
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalledWith("failed")
+    expect(peer.closed).toBe(true)
+    expect(client.viewerSessionId).toBeNull()
+    expect(fetchMock.mock.calls[2]).toEqual([
+      "/api/desktop-sessions/session-peer-failed/webrtc/session/viewer-peer-failed",
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({reason: "desktop peer connection failed"}),
+      }),
+    ])
+  })
+
   it("validates desktop WebRTC offer media sections and video codecs", () => {
     expect(validateDesktopOfferSdp("v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n")).toContain(
       "m=application"
@@ -212,15 +311,21 @@ describe("RemoteDesktopWebRTCClient", () => {
   })
 
   it("rejects disallowed desktop WebRTC offers before applying remote description", async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        data: {
-          viewer_session_id: "viewer-bad-offer",
-          offer_sdp: "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n",
-        },
-      }),
-    })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-bad-offer",
+            offer_sdp: "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n",
+          },
+        }),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({data: {signaling_state: "closed"}}),
+      })
     const peer = new MockPeerConnection({})
     const client = new RemoteDesktopWebRTCClient({
       signalingPath: "/api/desktop-sessions/session-bad-offer/webrtc/session",
@@ -230,8 +335,16 @@ describe("RemoteDesktopWebRTCClient", () => {
     })
 
     await expect(client.connect()).rejects.toThrow(/media type/)
+    await Promise.resolve()
     expect(peer.remoteDescription).toBeUndefined()
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[1]).toEqual([
+      "/api/desktop-sessions/session-bad-offer/webrtc/session/viewer-bad-offer",
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({reason: "desktop viewer connect failed"}),
+      }),
+    ])
   })
 
   it("surfaces received WebRTC video tracks for browser media-track rendering", async () => {

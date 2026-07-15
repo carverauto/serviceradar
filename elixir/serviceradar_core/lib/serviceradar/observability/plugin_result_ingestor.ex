@@ -16,6 +16,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Inventory.DeviceDiscoveryIngestor
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
+  alias ServiceRadar.Inventory.ProxmoxSourceScopeResolver
   alias ServiceRadar.Inventory.VulnerabilityAdvisoryIngestor
   alias ServiceRadar.Observability.PluginResultReportedMarker
   alias ServiceRadar.Observability.PluginResultSlot
@@ -1552,6 +1553,20 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       else: trim_incomplete_utf8(binary_part(text, 0, byte_size(text) - 1))
   end
 
+  # Proxmox inventory results also carry a generic device-discovery envelope for
+  # compatibility with older consumers. Running that handler would reconcile
+  # the plugin-owned, globally scoped `proxmox:*` identifiers before the
+  # authenticated source scope is resolved below. The Proxmox enrichment path
+  # is the sole device creator for these results so cluster/node/vmid identity
+  # remains scoped to the approved assignment and credential rule.
+  defp handler_support({DeviceDiscoveryIngestor, _opts}, payload, status) do
+    device_discovery_support(payload, status)
+  end
+
+  defp handler_support(DeviceDiscoveryIngestor, payload, status) do
+    device_discovery_support(payload, status)
+  end
+
   defp handler_support({handler, _opts}, payload, status) when is_atom(handler) do
     handler_support(handler, payload, status)
   end
@@ -1576,6 +1591,60 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   end
 
   defp handler_support(handler, _payload, _status), do: {:error, {:invalid_handler, handler}}
+
+  defp device_discovery_support(payload, status) do
+    if ProxmoxEnrichmentIngestor.supports?(payload, status) do
+      {:ok, false}
+    else
+      handler_support_result(DeviceDiscoveryIngestor.supports?(payload, status))
+    end
+  rescue
+    error -> {:error, {:support_check_failed, error}}
+  catch
+    kind, reason -> {:error, {:support_check_failed, {kind, reason}}}
+  end
+
+  defp handler_support_result(true), do: {:ok, true}
+  defp handler_support_result(false), do: {:ok, false}
+  defp handler_support_result(other), do: {:error, {:unexpected_support_result, other}}
+
+  defp ingest_handler(ProxmoxEnrichmentIngestor, payload, status, observed_at, actor) do
+    with {:ok, source_scope} <-
+           proxmox_source_scope_resolver().resolve(payload, status, actor: actor) do
+      ProxmoxEnrichmentIngestor.ingest(payload, status,
+        actor: actor,
+        observed_at: observed_at,
+        source_scope: source_scope
+      )
+    end
+  rescue
+    e ->
+      {:error, e}
+  catch
+    kind, reason ->
+      {:error, {kind, reason}}
+  end
+
+  defp ingest_handler({ProxmoxEnrichmentIngestor, opts}, payload, status, observed_at, actor) do
+    with {:ok, source_scope} <-
+           proxmox_source_scope_resolver().resolve(payload, status, actor: actor) do
+      ProxmoxEnrichmentIngestor.ingest(
+        payload,
+        status,
+        Keyword.merge(opts,
+          actor: actor,
+          observed_at: observed_at,
+          source_scope: source_scope
+        )
+      )
+    end
+  rescue
+    e ->
+      {:error, e}
+  catch
+    kind, reason ->
+      {:error, {kind, reason}}
+  end
 
   defp ingest_handler(handler, payload, status, observed_at, actor) when is_atom(handler) do
     handler.ingest(payload, status, actor: actor, observed_at: observed_at)
@@ -1610,6 +1679,14 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       :serviceradar_core,
       :plugin_result_handlers,
       platform_contract_handlers()
+    )
+  end
+
+  defp proxmox_source_scope_resolver do
+    Application.get_env(
+      :serviceradar_core,
+      :proxmox_source_scope_resolver,
+      ProxmoxSourceScopeResolver
     )
   end
 

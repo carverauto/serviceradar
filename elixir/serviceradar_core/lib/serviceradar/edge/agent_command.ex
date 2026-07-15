@@ -51,6 +51,7 @@ defmodule ServiceRadar.Edge.AgentCommand do
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
     define :create_command, action: :create
+    define :create_command_with_id, action: :create_with_id
     define :mark_sent, action: :mark_sent
     define :acknowledge, action: :acknowledge
     define :start, action: :start
@@ -74,7 +75,15 @@ defmodule ServiceRadar.Edge.AgentCommand do
     create :create do
       accept @command_fields
 
+      argument :command_id, :uuid, allow_nil?: true
+
       change fn changeset, _context ->
+        changeset =
+          case Ash.Changeset.get_argument(changeset, :command_id) do
+            nil -> changeset
+            command_id -> Ash.Changeset.force_change_attribute(changeset, :id, command_id)
+          end
+
         ttl = Ash.Changeset.get_attribute(changeset, :ttl_seconds) || 60
 
         expires_at =
@@ -82,6 +91,26 @@ defmodule ServiceRadar.Edge.AgentCommand do
             DateTime.add(DateTime.utc_now(), ttl, :second)
 
         Ash.Changeset.change_attribute(changeset, :expires_at, expires_at)
+      end
+    end
+
+    create :create_with_id do
+      accept @command_fields
+      argument :command_id, :uuid, allow_nil?: false
+
+      change fn changeset, _context ->
+        ttl = Ash.Changeset.get_attribute(changeset, :ttl_seconds) || 60
+
+        expires_at =
+          Ash.Changeset.get_attribute(changeset, :expires_at) ||
+            DateTime.add(DateTime.utc_now(), ttl, :second)
+
+        changeset
+        |> Ash.Changeset.force_change_attribute(
+          :id,
+          Ash.Changeset.get_argument(changeset, :command_id)
+        )
+        |> Ash.Changeset.change_attribute(:expires_at, expires_at)
       end
     end
 
@@ -173,6 +202,7 @@ defmodule ServiceRadar.Edge.AgentCommand do
 
     policy action([
              :create,
+             :create_with_id,
              :mark_sent,
              :acknowledge,
              :start,

@@ -12,7 +12,12 @@ func streamSSHConsole(
 	bridge proxmoxConsoleBridge,
 	_ func(consoleConfig) (sshConsoleSession, error),
 ) error {
-	payload, err := json.Marshal(cfg)
+	// The host already retains the immutable session target and broker grant.
+	// Never echo config, credentials, destination, or host-key policy back across
+	// the untrusted Wasm ABI.
+	payload, err := json.Marshal(struct {
+		SessionID string `json:"session_id"`
+	}{SessionID: cfg.Console.SessionID})
 	if err != nil {
 		return err
 	}

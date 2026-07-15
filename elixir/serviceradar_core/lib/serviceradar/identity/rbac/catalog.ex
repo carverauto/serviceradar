@@ -150,6 +150,13 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         },
         %{
+          key: "devices.console.credentials.use",
+          label: "Use device console credentials",
+          description:
+            "Use scoped broker-managed credentials while opening supported device consoles",
+          default_roles: @admin_roles
+        },
+        %{
           key: "devices.remote_access.ssh.open",
           label: "Open SSH remote access",
           description:
@@ -161,6 +168,13 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           label: "Override SSH remote-access targets",
           description:
             "Open SSH remote-access sessions with explicit upstream host or port overrides",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.ssh.ca_bundle.read",
+          label: "Distribute SSH remote-access CA policy",
+          description:
+            "Authorize target-scoped SSH CA bundle and principal policy retrieval by reviewed automation callbacks",
           default_roles: @admin_roles
         },
         %{
@@ -589,6 +603,20 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           description:
             "Create, edit, enable, disable, and delete scheduled / recurring Ansible playbook runs.",
           default_roles: @operator_roles
+        },
+        %{
+          key: "ansible.delegations.manage",
+          label: "Manage Ansible execution delegations",
+          description:
+            "Bind an owned, fixed-ceiling service principal to an Ansible schedule or operation.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "ansible.targets.holds.clear",
+          label: "Clear Ansible target holds",
+          description:
+            "Reconcile and clear a device-wide Ansible mutation hold using current approval, policy, and recovery evidence.",
+          default_roles: @admin_roles
         }
       ]
     },

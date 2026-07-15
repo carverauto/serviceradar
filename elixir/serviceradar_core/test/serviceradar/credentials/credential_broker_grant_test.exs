@@ -4,6 +4,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantTest do
   alias Ash.Resource.Info
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialBrokerGrant
+  alias ServiceRadar.Credentials.RequestBodyPolicy
   alias ServiceRadar.Credentials.SecretBroker
 
   @secret_id "018f3f56-1111-7222-8333-123456789abc"
@@ -72,6 +73,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantTest do
         agent_id: "agent-a",
         resolution_location: :agent,
         inject: %{"type" => "http_header", "name" => "Authorization", "scheme" => "Bearer"},
+        allowed_schemes: ["https"],
         allowed_methods: ["POST"],
         allowed_paths: ["/api/v2/"],
         ttl_seconds: 300
@@ -95,7 +97,11 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantTest do
              "agent_id" => "agent-a"
            }
 
-    assert payload["allow"] == %{"methods" => ["POST"], "paths" => ["/api/v2/"]}
+    assert payload["allow"] == %{
+             "schemes" => ["https"],
+             "methods" => ["POST"],
+             "paths" => ["/api/v2/"]
+           }
   end
 
   test "payload derives expiry for non-persisted attrs" do
@@ -114,6 +120,50 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantTest do
     refute Map.has_key?(payload, "grant_id")
     assert {:ok, expires_at, 0} = DateTime.from_iso8601(payload["expires_at"])
     assert DateTime.after?(expires_at, DateTime.utc_now())
+  end
+
+  test "body-bound grants use v2 and carry only the typed policy in the allow envelope" do
+    body = ~s({"limit":"node-1"})
+
+    attrs =
+      CredentialBrokerGrant.issue_attrs(%{
+        id: "grant-1",
+        secret_id: @secret_id,
+        grant_type: "awx_oauth2_token",
+        consumer_kind: :ansible,
+        consumer_id: "controller-1",
+        purpose: "awx.launch_job",
+        resolution_location: :agent,
+        allowed_methods: ["POST"],
+        allowed_paths: ["=/api/v2/job_templates/42/launch/"],
+        request_body_policy: RequestBodyPolicy.bound_bytes(body, max_bytes: 256 * 1024)
+      })
+
+    payload = CredentialBrokerGrant.to_payload(attrs)
+
+    assert payload["schema"] == CredentialBrokerGrant.body_bound_schema()
+    assert payload["allow"]["request_body"]["mode"] == "bound_bytes"
+    assert payload["allow"]["request_body"]["source"] == RequestBodyPolicy.bound_body_source()
+    refute inspect(payload["allow"]["request_body"]) =~ body
+  end
+
+  test "invalid body policies fail closed before wire serialization" do
+    assert_raise ArgumentError, fn ->
+      CredentialBrokerGrant.to_payload(%{
+        secret_ref: "credentialref:network-credential-secret:#{@secret_id}",
+        grant_type: "awx_oauth2_token",
+        consumer_kind: :ansible,
+        purpose: "awx.launch_job",
+        request_body_policy: %{
+          "mode" => "bound_bytes",
+          "sha256" => "not-a-digest",
+          "source" => "plugin.body",
+          "content_type" => "application/json",
+          "max_bytes" => 1024,
+          "max_mutations" => 1
+        }
+      })
+    end
   end
 
   test "grant validation enforces scope and expiry" do

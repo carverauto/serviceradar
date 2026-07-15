@@ -1,0 +1,69 @@
+suite: remote access SSH CA signer custody
+templates:
+  - templates/core.yaml
+  - templates/web.yaml
+tests:
+  - it: mounts one operator-owned CA key into web by default
+    set:
+      remoteAccess.sshCaSigner.enabled: true
+      remoteAccess.sshCaSigner.keyId: demo-ca-v1
+      remoteAccess.sshCaSigner.existingSecretName: serviceradar-ssh-ca
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ENABLED
+            value: "true"
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-web-ng
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: remote-access-ssh-ca
+            mountPath: /run/secrets/serviceradar_ssh_ca
+            subPath: ca-key
+            readOnly: true
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-web-ng
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: remote-access-ssh-ca
+            secret:
+              secretName: serviceradar-ssh-ca
+              defaultMode: 256
+              items:
+                - key: ca-key
+                  path: ca-key
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-web-ng
+
+  - it: can scope key custody to core instead of web
+    set:
+      remoteAccess.sshCaSigner.enabled: true
+      remoteAccess.sshCaSigner.keyId: core-ca-v1
+      remoteAccess.sshCaSigner.existingSecretName: serviceradar-core-ssh-ca
+      remoteAccess.sshCaSigner.workloads.web: false
+      remoteAccess.sshCaSigner.workloads.core: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID
+            value: core-ca-v1
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-core
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: remote-access-ssh-ca
+            mountPath: /run/secrets/serviceradar_ssh_ca
+            subPath: ca-key
+            readOnly: true
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-core

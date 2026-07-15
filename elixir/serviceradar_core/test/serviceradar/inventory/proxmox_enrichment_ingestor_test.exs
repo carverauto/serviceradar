@@ -4,6 +4,135 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
   alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
 
   @observed_at ~U[2026-05-06 16:45:00Z]
+  @farm_scope %{
+    integration_id: "11111111-1111-4111-8111-111111111111",
+    controller_id: "22222222-2222-4222-8222-222222222222",
+    partition_id: "farm01"
+  }
+  @tonka_scope %{
+    integration_id: "33333333-3333-4333-8333-333333333333",
+    controller_id: "44444444-4444-4444-8444-444444444444",
+    partition_id: "tonka01"
+  }
+
+  test "mints v3 refs only from a trusted source scope" do
+    parent = self()
+    payload = payload_with_details(details_fixture(), @observed_at)
+
+    assert :ok =
+             ProxmoxEnrichmentIngestor.ingest(payload, %{},
+               source_scope: @farm_scope,
+               persist: fn records ->
+                 send(parent, {:v3_records, records})
+                 :ok
+               end
+             )
+
+    assert_receive {:v3_records, records}
+
+    instance_ref =
+      "proxmox:v3:#{@farm_scope.integration_id}:#{@farm_scope.controller_id}:lab"
+
+    assert [cluster] = records.clusters
+    assert cluster.provider_instance_ref == instance_ref
+    assert cluster.provider_ref == "#{instance_ref}:cluster:lab"
+    assert cluster.identity_version == 3
+    assert cluster.integration_id == @farm_scope.integration_id
+    assert cluster.controller_id == @farm_scope.controller_id
+    assert cluster.metadata["partition"] == @farm_scope.partition_id
+    assert cluster.legacy_provider_refs == ["proxmox:cluster:lab"]
+
+    host_a = find_record!(records.hosts, "#{instance_ref}:node:pve-a")
+    assert host_a.cluster_provider_ref == cluster.provider_ref
+    assert host_a.object_kind == "node"
+    assert host_a.native_object_id == "pve-a"
+    assert host_a.metadata["integration_id"] == host_a.provider_ref
+    assert host_a.legacy_provider_refs == ["proxmox:node:pve-a"]
+    # metadata.device_id is result-owned. Even with a matching hostname it
+    # cannot choose an existing device for an authoritative v3 record.
+    assert is_nil(host_a.device_uid)
+
+    host_b = find_record!(records.hosts, "#{instance_ref}:node:pve-b")
+    assert is_nil(host_b.device_uid)
+
+    assert [guest] = records.guests
+    assert guest.provider_ref == "#{instance_ref}:qemu:100"
+    assert guest.host_provider_ref == host_a.provider_ref
+    assert guest.object_kind == "qemu"
+    assert guest.native_object_id == "100"
+    assert guest.legacy_provider_refs == ["proxmox:guest:pve-a:qemu:100"]
+    assert is_nil(guest.device_uid)
+
+    guest_nic =
+      Enum.find(records.network_interfaces, &(&1.guest_provider_ref == guest.provider_ref))
+
+    assert is_nil(guest_nic.device_uid)
+
+    assert Enum.all?(
+             records.datastores ++
+               records.host_disks ++
+               records.network_interfaces ++
+               records.storage_systems,
+             &String.starts_with?(&1.provider_ref, instance_ref <> ":")
+           )
+
+    # Values in the untrusted result cannot create a v3 scope on their own.
+    untrusted_details =
+      details_fixture()
+      |> put_in(
+        ["targets", Access.at(0), "metadata", "source_integration_id"],
+        @tonka_scope.integration_id
+      )
+      |> put_in(
+        ["targets", Access.at(0), "metadata", "source_controller_id"],
+        @tonka_scope.controller_id
+      )
+
+    assert :ok =
+             ProxmoxEnrichmentIngestor.ingest(
+               payload_with_details(untrusted_details, @observed_at),
+               %{},
+               persist: fn legacy_records ->
+                 send(parent, {:legacy_records, legacy_records})
+                 :ok
+               end
+             )
+
+    assert_receive {:legacy_records, legacy_records}
+    assert [legacy_cluster] = legacy_records.clusters
+    assert legacy_cluster.provider_ref == "proxmox:cluster:lab"
+    refute Map.has_key?(legacy_cluster, :identity_version)
+  end
+
+  test "keeps farm01 and tonka01 records distinct with identical native inventory" do
+    parent = self()
+    payload = payload_with_details(details_fixture(), @observed_at)
+
+    for {label, scope} <- [farm: @farm_scope, tonka: @tonka_scope] do
+      assert :ok =
+               ProxmoxEnrichmentIngestor.ingest(payload, %{},
+                 source_scope: scope,
+                 persist: fn records ->
+                   send(parent, {label, records})
+                   :ok
+                 end
+               )
+    end
+
+    assert_receive {:farm, farm}
+    assert_receive {:tonka, tonka}
+
+    for key <- [:clusters, :hosts, :guests, :datastores, :host_disks, :network_interfaces] do
+      farm_refs = farm |> Map.fetch!(key) |> MapSet.new(& &1.provider_ref)
+      tonka_refs = tonka |> Map.fetch!(key) |> MapSet.new(& &1.provider_ref)
+      assert MapSet.disjoint?(farm_refs, tonka_refs)
+    end
+
+    assert hd(farm.guests).native_object_id == hd(tonka.guests).native_object_id
+    assert hd(farm.guests).host_provider_ref != hd(tonka.guests).host_provider_ref
+    assert hd(farm.guests).metadata["partition"] == "farm01"
+    assert hd(tonka.guests).metadata["partition"] == "tonka01"
+  end
 
   test "advertises support for typed Proxmox enrichment details" do
     payload = %{

@@ -40,7 +40,7 @@ The CA-bundle permission SHALL be present only on the built-in administrator rol
 - **THEN** only principals assigned that role become eligible for future grants and existing grants do not expand retroactively
 
 ### Requirement: Integrated grants activate only after exact AWX binding
-ServiceRadar SHALL create the parent run, child execution, immutable snapshot, and unusable pending grant before dispatch. It SHALL atomically verify and bind the returned controller-local AWX job ID, controller, inventory, template, revision, exact non-empty limit, and target count before activation.
+ServiceRadar SHALL create the parent run, child execution, immutable snapshot, and unusable pending grant before dispatch. It SHALL atomically verify and bind the returned controller-local AWX job ID, controller, inventory, template, revision, exact non-empty limit, approved base credentials plus exactly one bound ephemeral callback credential, and target count before activation. It SHALL keep the grant pending until authenticated job-host summaries match the complete immutable AWX host-ID/name set. The reviewed helper SHALL read AWX's system-provided positive integer `JOB_ID` directly from the execution environment, include it in the request, and require the response to echo it. The custom credential, surveys, inventory, and ordinary variables MUST NOT inject or override `JOB_ID`.
 
 #### Scenario: Callback races activation
 - **WHEN** the execution environment calls while the grant is pending
@@ -53,6 +53,14 @@ ServiceRadar SHALL create the parent run, child execution, immutable snapshot, a
 #### Scenario: Job is relaunched or copied
 - **WHEN** AWX starts a relaunch/copy without the exact active child/job binding
 - **THEN** the old grant is unusable
+
+#### Scenario: Copied job retains the ephemeral callback credential
+- **WHEN** a copied or relaunched job presents the old bearer and idempotency key but AWX supplies its distinct runtime `JOB_ID`
+- **THEN** ServiceRadar denies the request before response release or budget consumption
+
+#### Scenario: Full host scope is not materialized yet
+- **WHEN** the accepted job has not produced one authenticated host-bound summary for every immutable target
+- **THEN** the callback remains pending and receives no CA or principal policy
 
 ### Requirement: Target and response policy binding is mandatory
 Every integrated grant SHALL bind a normalized immutable snapshot/hash of exact device UIDs, AWX host IDs/names/addresses, controller, inventory, template, revision, CA key set, policy version, and per-target account/principal mapping. Requests MUST NOT select or replace those values, and one target losing authorization SHALL deny the whole child retrieval.
@@ -96,6 +104,21 @@ The authorized dispatcher, AWX credential-decryption path, selected execution en
 #### Scenario: Managed host runs the role
 - **WHEN** the execution environment applies enrollment
 - **THEN** the host receives only its public CA/principal files and no callback token/environment value
+
+#### Scenario: Runtime job identity is read
+- **WHEN** the helper builds its callback request
+- **THEN** it reads `JOB_ID` from AWX's system runtime environment and not from the ephemeral custom credential or any playbook-controlled value
+
+### Requirement: Callback key custody is least privilege by runtime
+The web/API runtime SHALL be the only ServiceRadar workload that receives the callback bearer HMAC keyring and canonical callback origin. The core runtime MAY receive the launch-envelope key and non-secret reviewed AWX/response-policy contract for envelope resolution and internal continuation. Internal result, cleanup, and recovery operations MUST use persisted authority without the bearer HMAC keyring. Agent gateways MUST receive none of this callback custody material. A disabled deployment MUST NOT project callback key files into any workload.
+
+#### Scenario: Internal cleanup runs on core
+- **WHEN** core coordinates or recovers an already-authorized callback child
+- **THEN** it uses secret-free internal lifecycle adapters and cannot issue or consume a callback bearer
+
+#### Scenario: Callback feature is disabled during an upgrade
+- **WHEN** an installation uses an older external Secret without callback keys and leaves callbacks disabled
+- **THEN** core, web, and gateway render without callback-key environment variables, mounts, or volumes
 
 ### Requirement: Callback transport is canonical and bounded
 Integrated callbacks SHALL use a server-selected canonical HTTPS origin with CA/hostname verification. User, catalog, playbook, redirect, proxy, or response input MUST NOT change the credential destination. The helper SHALL disable redirects and credential forwarding, bound method/time/size, validate content type/schema, and expose sanitized statuses.

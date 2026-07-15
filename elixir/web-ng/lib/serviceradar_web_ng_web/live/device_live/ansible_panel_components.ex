@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   attr(:can_run_ansible, :boolean, default: false)
   attr(:device_deleted, :boolean, default: false)
   attr(:ansible_controller_id, :string, default: nil)
+  attr(:secure_history, :list, default: [])
   attr(:runs, :list, default: [])
   attr(:playbooks, :list, default: [])
   attr(:launch_open, :boolean, default: false)
@@ -24,12 +25,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   attr(:vars, :list, default: [])
   attr(:var_values, :map, default: %{})
   attr(:launch_notice, :string, default: nil)
+  attr(:launch_ready, :boolean, default: false)
+  attr(:launch_resolution, :map, default: nil)
+  attr(:launch_readiness, :string, default: nil)
+  attr(:launch_form, :any, required: true)
 
   def ansible_runs_section(assigns) do
     assigns =
       assigns
       |> assign(:launchable?, assigns.can_run_ansible and not assigns.device_deleted and assigns.playbooks != [])
-      |> assign(:has_runs, assigns.runs != [])
+      |> assign(:has_secure_history, assigns.secure_history != [])
+      |> assign(:has_legacy_runs, assigns.runs != [])
+      |> assign(:has_history, assigns.secure_history != [] or assigns.runs != [])
 
     ~H"""
     <section
@@ -45,14 +52,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
           <div>
             <h2 class="text-sm font-semibold text-base-content">Ansible</h2>
             <p class="text-xs text-base-content/60">
-              AWX inventory member · playbook run history
+              AWX inventory member · secure operations and legacy run history
             </p>
           </div>
         </div>
 
         <div class="flex items-center gap-2">
+          <.link
+            navigate={~p"/ansible/operations"}
+            class="link link-hover text-xs text-base-content/60"
+          >
+            Secure operations
+          </.link>
           <.link navigate={~p"/ansible/runs"} class="link link-hover text-xs text-base-content/60">
-            All runs
+            Legacy runs
           </.link>
           <button
             :if={@can_run_ansible and not @device_deleted}
@@ -67,67 +80,173 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
         </div>
       </div>
 
-      <div :if={not @has_runs} class="px-4 py-6 text-sm text-base-content/60">
+      <div :if={not @has_history} class="px-4 py-6 text-sm text-base-content/60">
         No playbook runs have targeted this device yet.
         <span :if={@can_run_ansible and @playbooks == []} class="block text-xs mt-1">
           No launchable playbooks are bound to this device's AWX controller.
         </span>
       </div>
 
-      <div :if={@has_runs} class="overflow-x-auto">
-        <table class="table table-sm">
-          <thead>
-            <tr>
-              <th>Playbook</th>
-              <th>Run</th>
-              <th>Host result</th>
-              <th>Tasks</th>
-              <th>Started</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr :for={target <- @runs}>
-              <td class="max-w-[16rem] truncate" title={playbook_name(target)}>
-                {playbook_name(target)}
-              </td>
-              <td>
-                <span class={["badge badge-sm", state_badge_class(run_state(target))]}>
-                  {run_state(target)}
-                </span>
-              </td>
-              <td>
-                <span class={["badge badge-sm", target_badge_class(target.status)]}>
-                  {target.status}
-                </span>
-              </td>
-              <td class="whitespace-nowrap text-xs text-base-content/70">
-                <span class="text-success">{target.ok_count} ok</span>
-                <span :if={target.changed_count > 0} class="text-warning">
-                  · {target.changed_count} chg
-                </span>
-                <span :if={target.failed_count > 0} class="text-error">
-                  · {target.failed_count} fail
-                </span>
-                <span :if={target.unreachable_count > 0} class="text-error">
-                  · {target.unreachable_count} unreachable
-                </span>
-              </td>
-              <td class="whitespace-nowrap text-xs">
-                {fmt_ts(target.started_at || target.inserted_at)}
-              </td>
-              <td>
-                <.link
-                  :if={run_id(target)}
-                  navigate={~p"/ansible/runs/#{run_id(target)}"}
-                  class="btn btn-ghost btn-xs"
-                >
-                  View
-                </.link>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      <div :if={@has_secure_history} class="border-b border-base-200">
+        <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+          <div>
+            <h3 class="text-sm font-semibold">Secure operation history</h3>
+            <p class="text-xs text-base-content/60">
+              Immutable controller, inventory, and AWX host identity.
+            </p>
+          </div>
+          <span class="badge badge-success badge-sm">ServiceRadar secured</span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="table table-sm" data-testid="device-secure-ansible-history">
+            <thead>
+              <tr>
+                <th>Operation</th>
+                <th>Execution</th>
+                <th>Exact target</th>
+                <th>Controller / inventory</th>
+                <th>AWX job</th>
+                <th>Started</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={record <- @secure_history}>
+                <td>
+                  <span class={["badge badge-sm", state_badge_class(record.operation.state)]}>
+                    {record.operation.state}
+                  </span>
+                  <code class="mt-1 block text-xs">{short_id(record.operation.id)}</code>
+                </td>
+                <td>
+                  <span class={["badge badge-sm", state_badge_class(record.execution.state)]}>
+                    {record.execution.state}
+                  </span>
+                  <span
+                    :if={record.execution.scope_verified_at}
+                    class="mt-1 block text-xs text-success"
+                  >
+                    Scope verified
+                  </span>
+                  <span
+                    :if={is_nil(record.execution.scope_verified_at)}
+                    class="mt-1 block text-xs text-warning"
+                  >
+                    Scope proof pending
+                  </span>
+                </td>
+                <td>
+                  <div class="flex flex-wrap items-center gap-1">
+                    <span class={["badge badge-sm", target_badge_class(record.target.status)]}>
+                      {record.target.status}
+                    </span>
+                    <span :if={record.target.active_hold} class="badge badge-error badge-sm">
+                      hold active
+                    </span>
+                  </div>
+                  <code class="mt-1 block text-xs">
+                    host {record.target.awx_host_id} · gen {record.target.membership_generation}
+                  </code>
+                  <span class="block text-xs text-base-content/60">
+                    {record.target.host_name} · {record.target.ansible_host || "no address"}
+                  </span>
+                </td>
+                <td>
+                  <span class="text-xs">{controller_name(record.execution.controller)}</span>
+                  <code class="block max-w-56 break-all text-xs text-base-content/60">
+                    {record.target.controller_id} / inventory {record.target.inventory_id}
+                  </code>
+                </td>
+                <td>
+                  <code class="text-xs">
+                    {record.execution.awx_job_id || "not bound"}
+                  </code>
+                  <span class="block text-xs text-base-content/60">controller-local</span>
+                </td>
+                <td class="whitespace-nowrap text-xs">
+                  {fmt_ts(record.execution.started_at || record.operation.started_at)}
+                </td>
+                <td>
+                  <.link
+                    navigate={~p"/ansible/operations/#{record.operation.id}"}
+                    class="btn btn-ghost btn-xs"
+                  >
+                    Evidence
+                  </.link>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div :if={@has_legacy_runs}>
+        <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+          <div>
+            <h3 class="text-sm font-semibold">Legacy PlaybookRun history</h3>
+            <p class="text-xs text-base-content/60">
+              Pre-hardening task/event records; not secure operation evidence.
+            </p>
+          </div>
+          <span class="badge badge-outline badge-sm">Legacy</span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Playbook</th>
+                <th>Run</th>
+                <th>Host result</th>
+                <th>Tasks</th>
+                <th>Started</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={target <- @runs}>
+                <td class="max-w-[16rem] truncate" title={playbook_name(target)}>
+                  {playbook_name(target)}
+                </td>
+                <td>
+                  <span class={["badge badge-sm", state_badge_class(run_state(target))]}>
+                    {run_state(target)}
+                  </span>
+                </td>
+                <td>
+                  <span class={["badge badge-sm", target_badge_class(target.status)]}>
+                    {target.status}
+                  </span>
+                </td>
+                <td class="whitespace-nowrap text-xs text-base-content/70">
+                  <span class="text-success">{target.ok_count} ok</span>
+                  <span :if={target.changed_count > 0} class="text-warning">
+                    · {target.changed_count} chg
+                  </span>
+                  <span :if={target.failed_count > 0} class="text-error">
+                    · {target.failed_count} fail
+                  </span>
+                  <span :if={target.unreachable_count > 0} class="text-error">
+                    · {target.unreachable_count} unreachable
+                  </span>
+                </td>
+                <td class="whitespace-nowrap text-xs">
+                  {fmt_ts(target.started_at || target.inserted_at)}
+                </td>
+                <td>
+                  <.link
+                    :if={run_id(target)}
+                    navigate={~p"/ansible/runs/#{run_id(target)}"}
+                    class="btn btn-ghost btn-xs"
+                  >
+                    View
+                  </.link>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <.launch_modal
@@ -137,6 +256,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
         vars={@vars}
         var_values={@var_values}
         notice={@launch_notice}
+        ready={@launch_ready}
+        resolution={@launch_resolution}
+        readiness={@launch_readiness}
+        form={@launch_form}
       />
     </section>
     """
@@ -149,6 +272,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   attr(:vars, :list, default: [])
   attr(:var_values, :map, default: %{})
   attr(:notice, :string, default: nil)
+  attr(:ready, :boolean, default: false)
+  attr(:resolution, :map, default: nil)
+  attr(:readiness, :string, default: nil)
+  attr(:form, :any, required: true)
 
   defp launch_modal(assigns) do
     ~H"""
@@ -168,8 +295,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
             <.icon name="hero-play" class="size-5 text-primary" />
           </div>
           <div class="min-w-0 flex-1">
-            <h3 class="text-lg font-semibold text-base-content">Launch a playbook</h3>
-            <p class="text-sm text-base-content/60">Runs against this device only.</p>
+            <h3 class="text-lg font-semibold text-base-content">Launch a reviewed playbook</h3>
+            <p class="text-sm text-base-content/60">
+              ServiceRadar resolves the exact AWX membership again on submit.
+            </p>
           </div>
         </div>
 
@@ -179,8 +308,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
         </div>
 
         <.form
-          for={%{}}
-          as={:launch}
+          for={@form}
           id="device-ansible-launch-form"
           phx-change="ansible_launch_change"
           phx-submit="ansible_launch"
@@ -190,7 +318,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
             <label class="label">
               <span class="label-text font-medium">Playbook</span>
               <span class="label-text-alt text-xs text-base-content/60">
-                {length(@playbooks)} launchable
+                {length(@playbooks)} catalog candidate{if length(@playbooks) == 1, do: "", else: "s"}
               </span>
             </label>
             <select name="playbook_id" class="select select-bordered w-full">
@@ -210,13 +338,49 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
             </p>
           </div>
 
+          <div
+            :if={@selected_playbook_id}
+            id="device-ansible-launch-readiness"
+            role="status"
+            class={[
+              "alert",
+              if(@ready, do: "alert-success", else: "alert-warning")
+            ]}
+          >
+            <.icon
+              name={if(@ready, do: "hero-check-circle", else: "hero-shield-exclamation")}
+              class="size-5"
+            />
+            <div class="min-w-0">
+              <p class="text-sm font-medium">{@readiness}</p>
+              <div :if={@ready and @resolution} class="mt-1 flex flex-wrap gap-1.5">
+                <span class="badge badge-success badge-sm">Binding approved</span>
+                <span class="badge badge-success badge-sm">Target ready</span>
+                <span class="badge badge-ghost badge-sm">
+                  Inventory {resolution_value(@resolution, :inventory_id)}
+                </span>
+                <span class="badge badge-ghost badge-sm">
+                  Binding v{resolution_value(@resolution, :binding_version)}
+                </span>
+              </div>
+            </div>
+          </div>
+
           <div :if={@vars != []} class="space-y-3">
-            <h4 class="text-sm font-medium">Variables</h4>
-            <.var_input :for={var <- @vars} var={var} value={Map.get(@var_values, var.name)} />
+            <h4 class="text-sm font-medium">Reviewed inputs</h4>
+            <p class="text-xs text-base-content/60">
+              Only non-secret fields declared by the approved binding are accepted.
+            </p>
+            <.var_input
+              :for={var <- @vars}
+              var={var}
+              value={Map.get(@var_values, var.name)}
+              name={"inputs[#{var.name}]"}
+            />
           </div>
 
           <div :if={@vars == [] and @selected_playbook_id} class="text-xs text-base-content/60">
-            This playbook declares no variables.
+            This reviewed binding declares no operator inputs. Credentials remain pre-bound in AWX.
           </div>
 
           <div class="modal-action">
@@ -226,7 +390,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
             <button
               type="submit"
               class="btn btn-primary"
-              disabled={is_nil(@selected_playbook_id) or @playbooks == []}
+              disabled={is_nil(@selected_playbook_id) or @playbooks == [] or not @ready}
             >
               <.icon name="hero-play" class="size-4" /> Launch
             </button>
@@ -267,18 +431,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
 
   def var_input(%{var: %Var{type: :password}} = assigns) do
     ~H"""
-    <div class="form-control">
-      <label class="label">
-        <span class="label-text">{@var.label}</span>
-        <span class="label-text-alt text-xs text-base-content/60">stored only at launch time</span>
-      </label>
-      <input
-        type="password"
-        name={field_name(@var, @name)}
-        value={@value}
-        class="input input-bordered input-sm font-mono"
-        autocomplete="off"
-      />
+    <div role="alert" class="alert alert-warning">
+      <.icon name="hero-lock-closed" class="size-5" />
+      <span class="text-sm">
+        {@var.label} is a secret input and cannot be collected. Bind it to a reviewed AWX credential.
+      </span>
     </div>
     """
   end
@@ -381,6 +538,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   defp field_name(%Var{name: name}, nil), do: name
   defp field_name(_var, name) when is_binary(name), do: name
 
+  defp resolution_value(resolution, key) when is_map(resolution) do
+    Map.get(resolution, key) || Map.get(resolution, to_string(key)) || "—"
+  end
+
   defp launch_disabled_reason(true, _controller_id), do: nil
   defp launch_disabled_reason(false, nil), do: "This device isn't bound to an AWX controller."
   defp launch_disabled_reason(false, _controller_id), do: "No launchable playbooks for this device's AWX controller."
@@ -394,6 +555,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   defp run_id(%{run: %{id: id}}) when is_binary(id), do: id
   defp run_id(_), do: nil
 
+  defp controller_name(%{name: name}) when is_binary(name) and name != "", do: name
+  defp controller_name(_controller), do: "Controller"
+
+  defp short_id(id) when is_binary(id) and byte_size(id) > 8, do: String.slice(id, 0, 8) <> "…"
+
+  defp short_id(id), do: to_string(id)
+
   defp fmt_ts(nil), do: "—"
   defp fmt_ts(%DateTime{} = ts), do: Calendar.strftime(ts, "%Y-%m-%d %H:%M")
   defp fmt_ts(_), do: "—"
@@ -405,12 +573,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   defp state_badge_class(:canceled), do: "badge-neutral"
   defp state_badge_class(:running), do: "badge-info"
   defp state_badge_class(:launching), do: "badge-info"
+  defp state_badge_class(:scope_verified), do: "badge-info"
+  defp state_badge_class(:dispatching), do: "badge-info"
+  defp state_badge_class(:dispatch_partial), do: "badge-warning"
+  defp state_badge_class(:dispatch_ambiguous), do: "badge-error"
+  defp state_badge_class(:cancel_failed), do: "badge-error"
   defp state_badge_class(:pending), do: "badge-ghost"
   defp state_badge_class(_), do: "badge-ghost"
 
   defp target_badge_class(:ok), do: "badge-success"
   defp target_badge_class(:failed), do: "badge-error"
   defp target_badge_class(:unreachable), do: "badge-error"
+  defp target_badge_class(:scope_mismatch), do: "badge-error"
+  defp target_badge_class(:canceled), do: "badge-neutral"
   defp target_badge_class(:skipped), do: "badge-neutral"
   defp target_badge_class(:pending), do: "badge-ghost"
   defp target_badge_class(_), do: "badge-ghost"

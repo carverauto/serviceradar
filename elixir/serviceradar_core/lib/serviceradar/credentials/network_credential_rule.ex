@@ -165,6 +165,22 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
   attributes do
     uuid_v7_primary_key :id
 
+    attribute :integration_id, :uuid do
+      allow_nil? false
+      public? true
+      default &Ecto.UUID.generate/0
+
+      description "Immutable identity of the configured integration scope"
+    end
+
+    attribute :controller_id, :uuid do
+      allow_nil? false
+      public? true
+      default &Ecto.UUID.generate/0
+
+      description "Immutable identity of the configured controller scope"
+    end
+
     attribute :name, :string do
       allow_nil? false
       public? true
@@ -305,5 +321,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
 
   identities do
     identity :unique_scoped_name, [:provider, :scope_type, :scope_value, :name]
+    identity :unique_integration_id, [:integration_id]
+    identity :unique_controller_id, [:controller_id]
   end
 end

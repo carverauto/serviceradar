@@ -7,11 +7,15 @@ defmodule ServiceRadar.AgentCommands.PubSub do
   """
 
   @pubsub ServiceRadar.PubSub
+  @ingress_topic "agent:commands:ingress"
 
   @doc "Build the agent command topic."
   def topic do
     "agent:commands"
   end
+
+  @doc "Build the private ingress topic consumed by the persistence gate."
+  def ingress_topic, do: @ingress_topic
 
   @doc "Topic for agent release target status changes."
   def release_target_topic do
@@ -45,21 +49,39 @@ defmodule ServiceRadar.AgentCommands.PubSub do
     Phoenix.PubSub.subscribe(@pubsub, topic())
   end
 
+  @doc "Subscribe to unaudited gateway updates before durable persistence."
+  def subscribe_ingress do
+    Phoenix.PubSub.subscribe(@pubsub, ingress_topic())
+  end
+
   @doc "Subscribe to updates for one command."
   def subscribe(command_id) when is_binary(command_id) do
     Phoenix.PubSub.subscribe(@pubsub, topic(command_id))
   end
 
   def broadcast_ack(data) when is_map(data) do
-    safe_broadcast(topic(), {:command_ack, Map.put(data, :received_at, DateTime.utc_now())})
+    safe_broadcast(
+      ingress_topic(),
+      {:command_ack, Map.put(data, :received_at, DateTime.utc_now())}
+    )
   end
 
   def broadcast_progress(data) when is_map(data) do
-    safe_broadcast(topic(), {:command_progress, Map.put(data, :updated_at, DateTime.utc_now())})
+    safe_broadcast(
+      ingress_topic(),
+      {:command_progress, Map.put(data, :updated_at, DateTime.utc_now())}
+    )
   end
 
   def broadcast_result(data) when is_map(data) do
     event = {:command_result, Map.put(data, :completed_at, DateTime.utc_now())}
+
+    safe_broadcast(ingress_topic(), event)
+  end
+
+  @doc "Fan out a command result only after the status handler persisted it exactly."
+  def broadcast_persisted_result(data) when is_map(data) do
+    event = {:command_result, Map.put_new(data, :completed_at, DateTime.utc_now())}
 
     safe_broadcast(topic(), event)
     broadcast_command_scoped_result(data, event)

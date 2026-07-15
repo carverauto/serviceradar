@@ -18,6 +18,8 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSession do
 
   @console_permission "devices.console.open"
   @console_check {ActorHasPermission, permission: @console_permission}
+  @credential_use_permission "devices.console.credentials.use"
+  @credential_use_check {ActorHasPermission, permission: @credential_use_permission}
 
   @create_fields [
     :ticket_hash,
@@ -155,7 +157,9 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSession do
 
     system_bypass()
     read_with_permission(@console_check)
+    read_with_permission(@credential_use_check)
     action_type_with_permission(:create, @console_check)
+    action_type_with_permission(:create, @credential_use_check)
 
     policy action_type([:update, :destroy]) do
       authorize_if actor_attribute_equals(:role, :system)
@@ -230,6 +234,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSession do
     end
 
     attribute :requested_by, :uuid do
+      allow_nil? false
       public? true
     end
 

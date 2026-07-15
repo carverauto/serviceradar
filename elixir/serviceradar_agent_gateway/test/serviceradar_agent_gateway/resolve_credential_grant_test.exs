@@ -64,6 +64,79 @@ defmodule ServiceRadarAgentGateway.ResolveCredentialGrantTest do
     assert response.message == "credential grant resolution denied"
   end
 
+  test "launch envelope rejects mtls identity mismatch before core lookup", context do
+    request = launch_envelope_request(agent_id: "agent-1")
+    stream = cert_stream(issue_cert_der!("agent-2", context))
+
+    assert_raise GRPC.RPCError, ~r/component_id mismatch/, fn ->
+      AgentGatewayServer.resolve_automation_launch_envelope(request, stream)
+    end
+  end
+
+  test "launch envelope denial is sanitized when no core node is available", context do
+    request = launch_envelope_request(agent_id: "agent-1")
+    stream = cert_stream(issue_cert_der!("agent-1", context))
+
+    assert %Monitoring.AutomationLaunchEnvelopeResolveResponse{} =
+             response =
+             AgentGatewayServer.resolve_automation_launch_envelope(request, stream)
+
+    refute response.success
+    assert response.bearer == <<>>
+    assert response.idempotency_key == <<>>
+    assert response.callback_grant_id == ""
+    assert response.message == "automation launch envelope resolution denied"
+  end
+
+  test "launch envelope response keeps bearer bytes out of the denial contract" do
+    expires_at = ~U[2026-07-13 02:05:00.000000Z]
+
+    assert %Monitoring.AutomationLaunchEnvelopeResolveResponse{} =
+             response =
+             AgentGatewayServer.automation_launch_envelope_response(
+               {:ok,
+                {:ok,
+                 %{
+                   bearer: <<1, 2, 3>>,
+                   idempotency_key: <<4, 5, 6>>,
+                   callback_grant_id: "01980a6d-4a62-7b3f-a249-5f825874ca53",
+                   callback_url: "https://demo.example.com/callback",
+                   callback_allowed_origin: "https://demo.example.com",
+                   manifest_sha256: String.duplicate("a", 64),
+                   scm_revision: String.duplicate("b", 40),
+                   content_sha256: String.duplicate("c", 64),
+                   callback_phase: "stage",
+                   callback_operation: "enroll",
+                   callback_state: "present",
+                   controller_id: "01980a6d-4a62-7b3f-a249-5f825874ca44",
+                   inventory_id: 17,
+                   job_template_id: 23,
+                   callback_credential_type_id: 91,
+                   callback_credential_organization_id: 2,
+                   callback_credential_injector_sha256: String.duplicate("d", 64),
+                   dispatch_agent_id: "agent-1",
+                   child_execution_id: "01980a6d-4a62-7b3f-a249-5f825874ca42",
+                   command_id: "01980a6d-4a62-7b3f-a249-5f825874ca41",
+                   expires_at: expires_at
+                 }}},
+               "agent-1",
+               "01980a6d-4a62-7b3f-a249-5f825874ca41"
+             )
+
+    assert response.success
+    assert response.bearer == <<1, 2, 3>>
+    assert response.idempotency_key == <<4, 5, 6>>
+    assert response.callback_url == "https://demo.example.com/callback"
+    assert response.callback_allowed_origin == "https://demo.example.com"
+    assert response.manifest_sha256 == String.duplicate("a", 64)
+    assert response.callback_credential_type_id == 91
+    assert response.callback_credential_organization_id == 2
+    assert response.callback_credential_injector_sha256 == String.duplicate("d", 64)
+    assert response.dispatch_agent_id == "agent-1"
+    assert response.command_id == "01980a6d-4a62-7b3f-a249-5f825874ca41"
+    assert response.expires_at_unix == DateTime.to_unix(expires_at)
+  end
+
   defp credential_request(overrides) do
     attrs =
       Keyword.merge(
@@ -80,6 +153,20 @@ defmodule ServiceRadarAgentGateway.ResolveCredentialGrantTest do
       )
 
     struct!(Monitoring.CredentialBrokerResolveRequest, attrs)
+  end
+
+  defp launch_envelope_request(overrides) do
+    attrs =
+      Keyword.merge(
+        [
+          agent_id: "agent-1",
+          envelope_ref: "srle1_" <> Base.url_encode64(:binary.copy(<<7>>, 32), padding: false),
+          command_id: "01980a6d-4a62-7b3f-a249-5f825874ca41"
+        ],
+        overrides
+      )
+
+    struct!(Monitoring.AutomationLaunchEnvelopeResolveRequest, attrs)
   end
 
   defp cert_stream(cert_der) do

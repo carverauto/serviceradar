@@ -317,23 +317,21 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 		}
 
 		chunk := &proto.GatewayStatusChunk{
-			Services:    []*proto.GatewayServiceStatus{status},
-			GatewayId:   gatewayID,
-			AgentId:     agentID,
-			Timestamp:   timestamp,
-			Partition:   partition,
-			SourceIp:    sourceIP,
-			IsFinal:     i == len(results)-1,
-			ChunkIndex:  int32(i),
-			TotalChunks: int32(len(results)),
-			KvStoreId:   kvStoreID,
-			Version:     runtimeMetadata.Version,
-			Hostname:    runtimeMetadata.Hostname,
-			Os:          runtimeMetadata.Os,
-			Arch:        runtimeMetadata.Arch,
-			Capabilities: []string{
-				pluginResultRetainedDeliveryCapabilityV1,
-			},
+			Services:     []*proto.GatewayServiceStatus{status},
+			GatewayId:    gatewayID,
+			AgentId:      agentID,
+			Timestamp:    timestamp,
+			Partition:    partition,
+			SourceIp:     sourceIP,
+			IsFinal:      i == len(results)-1,
+			ChunkIndex:   int32(i),
+			TotalChunks:  int32(len(results)),
+			KvStoreId:    kvStoreID,
+			Version:      runtimeMetadata.Version,
+			Hostname:     runtimeMetadata.Hostname,
+			Os:           runtimeMetadata.Os,
+			Arch:         runtimeMetadata.Arch,
+			Capabilities: pluginResultTransportCapabilities(),
 		}
 		chunks = append(chunks, chunk)
 	}
@@ -366,6 +364,19 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 
 	p.logger.Warn().Msg("Gateway did not acknowledge plugin result stream")
 	return false
+}
+
+// pluginResultTransportCapabilities returns capabilities implemented by the
+// agent binary and asserted on the transport envelope. They must not be
+// derived from plugin-controlled result labels. Return a fresh slice for each
+// chunk so one stream consumer cannot mutate another chunk's assertion.
+func pluginResultTransportCapabilities() []string {
+	return []string{
+		pluginResultRetainedDeliveryCapabilityV1,
+		pluginHostAuthorityCapabilityV1,
+		proxmoxSemanticConnectorCapabilityV1,
+		proxmoxIdentityCapabilityV3,
+	}
 }
 
 func pluginResultStreamTimeout(chunkCount int) time.Duration {

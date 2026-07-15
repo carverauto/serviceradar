@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.Authorization.Permissions do
 
   use Permit.Permissions, actions_module: ServiceRadarWebNGWeb.Authorization.Actions
 
+  alias ServiceRadar.Automation.Ansible.AutomationOperation, as: AnsibleAutomationOperation
   alias ServiceRadar.Automation.Ansible.Controller, as: AnsibleController
   alias ServiceRadar.Automation.Ansible.Playbook, as: AnsiblePlaybook
   alias ServiceRadar.Automation.Ansible.PlaybookRepository, as: AnsibleRepository
@@ -52,6 +53,7 @@ defmodule ServiceRadarWebNGWeb.Authorization.Permissions do
 
       "ansible.runs.view" ->
         permissions
+        |> read(AnsibleAutomationOperation)
         |> read(AnsibleRun)
         |> read(AnsiblePlaybook)
         |> read(AnsibleController)

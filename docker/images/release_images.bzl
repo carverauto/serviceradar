@@ -368,6 +368,7 @@ def declare_web_ng_release_container_amd64(
         env = None,
         workdir = "/app",
         exposed_ports = None,
+        extra_tars = None,
         visibility = None,
         target_compatible_with = None):
     """Declare the web-ng release image with build-info and Bun SSR layers."""
@@ -427,6 +428,9 @@ def declare_web_ng_release_container_amd64(
         target_compatible_with = target_compatible_with,
     )
 
+    if extra_tars == None:
+        extra_tars = []
+
     declare_elixir_release_container_amd64(
         name = name,
         base = base,
@@ -443,7 +447,7 @@ def declare_web_ng_release_container_amd64(
             ":{}".format(bun_layer_name),
             ":{}".format(cosign_layer_name),
             ":{}".format(ca_bundle_layer_name),
-        ],
+        ] + extra_tars,
         base_image_name = base_image_name,
         visibility = visibility,
         target_compatible_with = target_compatible_with,

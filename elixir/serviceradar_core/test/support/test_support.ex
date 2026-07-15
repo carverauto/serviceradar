@@ -10,6 +10,10 @@ defmodule ServiceRadar.TestSupport do
   alias ServiceRadar.ProcessRegistry
 
   @sandbox_teardown_margin_ms 60_000
+  @dependency_dispatcher_drain_timeout_ms 30_000
+  @dependency_dispatcher_registry_poll_ms 10
+  @result_coordination_drain_timeout_ms 70_000
+  @result_coordination_registry_poll_ms 10
   @stateful_engine_drain_timeout_ms 5_000
   @stateful_engine_registry_poll_ms 10
 
@@ -75,6 +79,8 @@ defmodule ServiceRadar.TestSupport do
 
   defp stop_repo_owner(owner) do
     drain_stateful_alert_engines()
+    drain_dependency_dispatcher_tasks()
+    drain_result_coordination_tasks()
 
     if Process.alive?(owner) do
       Sandbox.stop_owner(owner)
@@ -82,6 +88,70 @@ defmodule ServiceRadar.TestSupport do
   after
     # start_owner!/2 leaves the pool pointing at the stopped shared owner.
     Sandbox.mode(ServiceRadar.Repo, :manual)
+  end
+
+  @doc false
+  def drain_dependency_dispatcher_tasks do
+    supervisor = ServiceRadar.AgentConfig.DependencyDispatcher.TaskSupervisor
+
+    if Process.whereis(supervisor) do
+      deadline =
+        System.monotonic_time(:millisecond) + @dependency_dispatcher_drain_timeout_ms
+
+      await_empty_dependency_dispatcher(supervisor, deadline)
+    else
+      :ok
+    end
+  end
+
+  defp await_empty_dependency_dispatcher(supervisor, deadline) do
+    case Task.Supervisor.children(supervisor) do
+      [] ->
+        :ok
+
+      children ->
+        if remaining_timeout(deadline) == 0 do
+          raise "agent config dependency dispatcher did not drain: #{inspect(children)}"
+        end
+
+        receive do
+        after
+          min(@dependency_dispatcher_registry_poll_ms, remaining_timeout(deadline)) -> :ok
+        end
+
+        await_empty_dependency_dispatcher(supervisor, deadline)
+    end
+  end
+
+  @doc false
+  def drain_result_coordination_tasks do
+    supervisor = ServiceRadar.AgentCommands.ResultCoordinationTaskSupervisor
+
+    if Process.whereis(supervisor) do
+      deadline = System.monotonic_time(:millisecond) + @result_coordination_drain_timeout_ms
+      await_empty_result_coordination(supervisor, deadline)
+    else
+      :ok
+    end
+  end
+
+  defp await_empty_result_coordination(supervisor, deadline) do
+    case Task.Supervisor.children(supervisor) do
+      [] ->
+        :ok
+
+      children ->
+        if remaining_timeout(deadline) == 0 do
+          raise "agent command result coordination did not drain: #{inspect(children)}"
+        end
+
+        receive do
+        after
+          min(@result_coordination_registry_poll_ms, remaining_timeout(deadline)) -> :ok
+        end
+
+        await_empty_result_coordination(supervisor, deadline)
+    end
   end
 
   @doc false

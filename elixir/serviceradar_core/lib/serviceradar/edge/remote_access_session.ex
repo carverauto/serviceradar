@@ -14,6 +14,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
 
   import Ash.Expr
 
+  alias ServiceRadar.Edge.Checks.ActorCanCreateRemoteAccessProtocol
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @remote_access_ssh_permission "devices.remote_access.ssh.open"
@@ -74,7 +75,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
     store_action_name? true
     store_action_inputs? false
     create_version_on_destroy? false
-    ignore_attributes [:attach_ticket_hash, :inserted_at, :updated_at]
+    ignore_attributes [:attach_ticket_hash, :last_activity_at, :inserted_at, :updated_at]
+    ignore_actions [:record_activity]
   end
 
   code_interface do
@@ -170,7 +172,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
       authorize_if @remote_access_rdp_check
     end
 
-    action_type_with_permission(:create, @remote_access_ssh_check)
+    policy action_type(:create) do
+      authorize_if ActorCanCreateRemoteAccessProtocol
+    end
 
     policy action_type([:update, :destroy]) do
       authorize_if actor_attribute_equals(:role, :system)

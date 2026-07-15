@@ -40,8 +40,13 @@ describe("RemoteAccessDesktopSession hook", () => {
 
   it("mounts the React session shell with parsed dataset props", () => {
     const ctx = hookContext(JSON.stringify({
+      desktopTargetId: "desktop-target-1",
+      deviceUid: "windows-1",
+      createPath: "/api/remote-access/sessions",
       title: "Finance desktop",
       session: {id: "session-1"},
+      targetHost: "browser-must-not-select.example.test",
+      password: "must-not-cross-hook-boundary",
     }))
 
     ctx.mounted()
@@ -49,9 +54,14 @@ describe("RemoteAccessDesktopSession hook", () => {
     expect(mocks.createRoot).toHaveBeenCalledWith(ctx.el)
     expect(mocks.render).toHaveBeenCalledTimes(1)
     expect(mocks.render.mock.calls[0][0].props).toMatchObject({
+      desktopTargetId: "desktop-target-1",
+      deviceUid: "windows-1",
+      createPath: "/api/remote-access/sessions",
       title: "Finance desktop",
       session: {id: "session-1"},
     })
+    expect(mocks.render.mock.calls[0][0].props).not.toHaveProperty("targetHost")
+    expect(mocks.render.mock.calls[0][0].props).not.toHaveProperty("password")
   })
 
   it("falls back to empty props when dataset JSON is invalid", () => {

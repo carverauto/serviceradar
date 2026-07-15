@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.TestSupport.RemoteAccessSessionManagerStub
+  alias ServiceRadarWebNG.TestSupport.RemoteDesktopWebRTCSignalingManagerStub
 
   setup %{conn: conn} do
     previous_manager = Application.get_env(:serviceradar_web_ng, :remote_access_session_manager)
@@ -43,6 +44,15 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
     previous_remote_access_desktop_webrtc_ice_servers =
       Application.get_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_ice_servers)
 
+    previous_remote_access_desktop_webrtc_signaling_manager =
+      Application.get_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_signaling_manager)
+
+    previous_remote_access_desktop_webrtc_test_pid =
+      Application.get_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_test_pid)
+
+    previous_remote_access_desktop_webrtc_close_all_result =
+      Application.get_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_close_all_result)
+
     previous_target_host_override =
       Application.get_env(:serviceradar_web_ng, :remote_access_target_host_override_enabled)
 
@@ -51,6 +61,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
 
     previous_target_port_override =
       Application.get_env(:serviceradar_web_ng, :remote_access_target_port_override_enabled)
+
+    previous_device_visibility_fetcher =
+      Application.get_env(:serviceradar_web_ng, :remote_access_device_visibility_fetcher)
 
     Application.put_env(
       :serviceradar_web_ng,
@@ -72,6 +85,20 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
 
     Application.put_env(:serviceradar_web_ng, :remote_access_ssh_enabled, true)
 
+    Application.put_env(
+      :serviceradar_web_ng,
+      :remote_access_desktop_webrtc_signaling_manager,
+      RemoteDesktopWebRTCSignalingManagerStub
+    )
+
+    Application.put_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_test_pid, self())
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :remote_access_device_visibility_fetcher,
+      fn device_uid, _opts -> {:ok, %ServiceRadar.Inventory.Device{uid: device_uid}} end
+    )
+
     on_exit(fn ->
       restore_env(:remote_access_session_manager, previous_manager)
       restore_env(:remote_access_session_fetcher, previous_fetcher)
@@ -84,13 +111,28 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       restore_env(:remote_access_desktop_target_provider, previous_remote_access_desktop_target_provider)
       restore_env(:remote_access_desktop_targets, previous_remote_access_desktop_targets)
       restore_env(:remote_access_desktop_webrtc_ice_servers, previous_remote_access_desktop_webrtc_ice_servers)
+
+      restore_env(
+        :remote_access_desktop_webrtc_signaling_manager,
+        previous_remote_access_desktop_webrtc_signaling_manager
+      )
+
+      restore_env(:remote_access_desktop_webrtc_test_pid, previous_remote_access_desktop_webrtc_test_pid)
+
+      restore_env(
+        :remote_access_desktop_webrtc_close_all_result,
+        previous_remote_access_desktop_webrtc_close_all_result
+      )
+
       restore_env(:remote_access_ssh_host_key_skip_verify_enabled, previous_skip_verify)
       restore_env(:remote_access_target_host_override_enabled, previous_target_host_override)
       restore_env(:remote_access_target_host_override_allowlist, previous_target_host_override_allowlist)
       restore_env(:remote_access_target_port_override_enabled, previous_target_port_override)
+      restore_env(:remote_access_device_visibility_fetcher, previous_device_visibility_fetcher)
     end)
 
     user = admin_user_fixture()
+    Process.put(:remote_access_test_user_id, user.id)
     {:ok, token, _claims} = Guardian.create_access_token(user)
 
     conn = Plug.Conn.put_req_header(conn, "authorization", "Bearer #{token}")
@@ -198,6 +240,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
           credential_custody_mode: "centrally_brokered",
           credential_rule_id: credential_rule_id,
           approval_required: true,
+          allowed_principals: ["  DOMAIN\\mfreeman  ", "DOMAIN\\mfreeman", "ops-admin"],
           target_tls: %{"mode" => "verify_ca", "password" => "must-not-forward"},
           nla: %{"required" => true},
           screen_policy: %{"max_width" => 1920, "max_height" => 1080},
@@ -233,13 +276,23 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
 
       conn =
         post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "windows-1",
           "protocol" => "rdp",
           "desktop_target_id" => "desktop-target-1",
           "metadata" => %{
+            "allowed_principals" => ["browser-controlled"],
+            "desktop_allowed_principals" => ["browser-controlled"],
             "client_trace_id" => "trace-1",
             "rdp.kdc_proxy_url" => "tcp://kdc.browser.example.com:88",
             "rdp.kerberos_hostname" => "browser.example.com",
             "target_tls" => %{"mode" => "skip_verify"},
+            "screen_policy" => %{
+              "max_width" => 99_999,
+              "max_height" => 99_999,
+              "frame_rate" => 999,
+              "bitrate_bps" => 999_999_999
+            },
+            "nested" => %{"screen" => %{"max_width" => 99_999}},
             "password" => "must-not-forward"
           }
         })
@@ -268,16 +321,72 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert request.metadata["target_display_name"] == "Finance Desktop"
       assert request.metadata["target_tls"] == %{"mode" => "verify_ca"}
       assert request.metadata["nla"] == %{"required" => true}
-      assert request.metadata["screen_policy"] == %{"max_width" => 1920, "max_height" => 1080}
+
+      assert request.metadata["screen_policy"] == %{
+               "max_width" => 1920,
+               "max_height" => 1080,
+               "frame_rate" => 30,
+               "bitrate_bps" => 8_000_000,
+               "idle_seconds" => 900,
+               "ttl_seconds" => 3600
+             }
+
+      refute get_in(request.metadata, ["nested", "screen"])
       assert request.metadata["redirection_policy"] == %{"clipboard" => "disabled", "drive" => "disabled"}
       assert request.metadata["environment"] == "prod"
       assert request.metadata["rdp.kdc_proxy_url"] == "tcp://kdc.policy.example.com:88"
       assert request.metadata["rdp.kerberos_hostname"] == "win-1.example.com"
       assert request.metadata["client_trace_id"] == "trace-1"
+      assert request.metadata["desktop_allowed_principals"] == ["DOMAIN\\mfreeman", "ops-admin"]
       refute Map.has_key?(request.metadata, "password")
       refute Map.has_key?(request.metadata, "secret")
       assert request.recording_policy == %{"mode" => "metadata_only"}
       assert match?(%Scope{}, opts[:scope])
+    end
+
+    test "materializes bounded screen defaults when target policy is empty", %{
+      conn: conn,
+      user: user
+    } do
+      session_id = Ecto.UUID.generate()
+      put_test_permissions(user, ["devices.remote_access.rdp.open"])
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, true)
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_targets, [desktop_target()])
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_session_manager_open_result,
+        {:ok, %{session: rdp_session(session_id), ticket: "srra_rdp_default_ticket"}}
+      )
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "windows-1",
+          "protocol" => "rdp",
+          "desktop_target_id" => "desktop-target-1",
+          "metadata" => %{
+            "screen_policy" => %{
+              "max_width" => 99_999,
+              "max_height" => 99_999,
+              "frame_rate" => 999,
+              "bitrate_bps" => 999_999_999,
+              "idle_seconds" => 999_999,
+              "ttl_seconds" => 999_999
+            }
+          }
+        })
+
+      assert json_response(conn, 201)["data"]["id"] == session_id
+      assert_receive {:open_remote_access_session, "windows-1", request, _opts}
+
+      assert request.metadata["screen_policy"] == %{
+               "max_width" => 1920,
+               "max_height" => 1080,
+               "frame_rate" => 30,
+               "bitrate_bps" => 8_000_000,
+               "idle_seconds" => 900,
+               "ttl_seconds" => 3600
+             }
     end
 
     test "returns not found for RDP create when desktop access is disabled", %{conn: conn, user: user} do
@@ -286,6 +395,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
 
       conn =
         post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "windows-1",
           "protocol" => "rdp",
           "desktop_target_id" => "desktop-target-1"
         })
@@ -295,12 +405,101 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       refute_receive {:open_remote_access_session, _device_uid, _request, _opts}
     end
 
+    test "rejects an RDP launch when the browser device does not exactly match the target", %{
+      conn: conn,
+      user: user
+    } do
+      put_test_permissions(user, ["devices.remote_access.rdp.open"])
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, true)
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_targets, [desktop_target()])
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "windows-2",
+          "protocol" => "rdp",
+          "desktop_target_id" => "desktop-target-1"
+        })
+
+      body = json_response(conn, 404)
+      assert body["error"] == "remote_access_desktop_target_not_found"
+      refute_receive {:open_remote_access_session, _device_uid, _request, _opts}
+    end
+
+    test "rejects an RDP launch when the target device is not visible to the user", %{
+      conn: conn,
+      user: user
+    } do
+      put_test_permissions(user, ["devices.remote_access.rdp.open"])
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, true)
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_targets, [desktop_target()])
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_device_visibility_fetcher,
+        fn _device_uid, _opts -> {:error, :not_found} end
+      )
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "windows-1",
+          "protocol" => "rdp",
+          "desktop_target_id" => "desktop-target-1"
+        })
+
+      body = json_response(conn, 404)
+      assert body["error"] == "remote_access_desktop_target_not_found"
+      refute_receive {:open_remote_access_session, _device_uid, _request, _opts}
+    end
+
+    test "rejects a disabled static RDP target", %{conn: conn, user: user} do
+      put_test_permissions(user, ["devices.remote_access.rdp.open"])
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, true)
+
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_targets, [
+        desktop_target(%{enabled: false})
+      ])
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "windows-1",
+          "protocol" => "rdp",
+          "desktop_target_id" => "desktop-target-1"
+        })
+
+      body = json_response(conn, 404)
+      assert body["error"] == "remote_access_desktop_target_not_found"
+      refute_receive {:open_remote_access_session, _device_uid, _request, _opts}
+    end
+
+    test "rejects a disabled RDP target returned by a custom provider", %{conn: conn, user: user} do
+      put_test_permissions(user, ["devices.remote_access.rdp.open"])
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, true)
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_desktop_target_provider,
+        fn _scope, _opts -> {:ok, [desktop_target(%{enabled: false})]} end
+      )
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "windows-1",
+          "protocol" => "rdp",
+          "desktop_target_id" => "desktop-target-1"
+        })
+
+      body = json_response(conn, 404)
+      assert body["error"] == "remote_access_desktop_target_not_found"
+      refute_receive {:open_remote_access_session, _device_uid, _request, _opts}
+    end
+
     test "requires RDP permission before creating RDP sessions", %{conn: conn, user: user} do
       put_test_permissions(user, ["devices.remote_access.ssh.open"])
       Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, true)
 
       conn =
         post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "windows-1",
           "protocol" => "rdp",
           "desktop_target_id" => "desktop-target-1"
         })
@@ -316,6 +515,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
 
       conn =
         post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "windows-1",
           "protocol" => "rdp",
           "desktop_target_id" => "desktop-target-1",
           "target_host" => "browser.example.com",
@@ -698,8 +898,12 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
           "metadata" => %{
             "safe" => "kept",
             "ssh_host_key_policy" => "known_hosts",
+            "accounts" => [%{"name" => "root", "principals" => ["client-controlled"]}],
+            "ssh_accounts" => [%{"name" => "root", "principals" => ["client-controlled"]}],
             "ssh_allowed_principals" => ["root"],
             "allowed_principals" => ["root"],
+            "principals" => ["root"],
+            "requested_principals" => ["root"],
             "ssh_principal_mappings" => [
               %{"source" => "groups", "value" => "admins", "principals" => ["root"]}
             ],
@@ -722,8 +926,12 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert request.metadata["ssh_host_key_policy"] == "known_hosts"
 
       for key <- ~w(
+            accounts
+            ssh_accounts
             ssh_allowed_principals
             allowed_principals
+            principals
+            requested_principals
             ssh_principal_mappings
             principal_mappings
             ssh_certificate_ttl_seconds
@@ -848,7 +1056,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
 
       body = json_response(conn, 422)
       assert body["error"] == "remote_access_session_unavailable"
-      assert body["message"] =~ "trusted principal policy"
+      assert body["message"] =~ "trusted account and principal policy"
     end
 
     test "maps approval-required policy denials without issuing a ticket", %{conn: conn} do
@@ -951,8 +1159,29 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert body["data"]["desktop_webrtc_signaling_path"] ==
                "/api/remote-access/sessions/#{session_id}/webrtc/session"
 
-      assert body["data"]["desktop_webrtc_ice_servers"] == [%{"urls" => ["stun:stun.example.com:3478"]}]
+      assert body["data"]["desktop_webrtc_ice_servers"] == []
       refute Map.has_key?(body["data"], "ticket")
+    end
+
+    test "does not reveal or close an RDP session owned by another user", %{conn: conn, user: user} do
+      session_id = Ecto.UUID.generate()
+      put_test_permissions(user, ["devices.remote_access.rdp.open"])
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_session_manager_fetch_result,
+        {:ok, rdp_session(session_id, requested_by: Ecto.UUID.generate())}
+      )
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions/#{session_id}/close", %{
+          "reason" => "operator_requested"
+        })
+
+      body = json_response(conn, 404)
+      assert body["error"] == "remote_access_session_not_found"
+      refute_receive {:close_remote_access_session, ^session_id, _opts}
+      refute_receive {:desktop_webrtc_close_all_for_session, ^session_id, _opts}
     end
 
     test "requires RDP permission before closing RDP sessions", %{conn: conn, user: user} do
@@ -973,6 +1202,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       body = json_response(conn, 403)
       assert body["error"] == "forbidden"
       refute_receive {:close_remote_access_session, ^session_id, _opts}
+      refute_receive {:desktop_webrtc_close_all_for_session, ^session_id, _opts}
     end
 
     test "allows RDP close with RDP permission without SSH permission", %{conn: conn, user: user} do
@@ -1000,10 +1230,30 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert body["data"]["protocol"] == "rdp"
       assert body["data"]["status"] == "closing"
       assert_receive {:close_remote_access_session, ^session_id, _opts}
+      assert_receive {:desktop_webrtc_close_all_for_session, ^session_id, opts}
+      assert opts[:actor_id] == user.id
+      assert opts[:reason] == "operator_requested"
+      refute Keyword.has_key?(opts, :scope)
     end
   end
 
   describe "GET /api/remote-access/sessions/:id" do
+    test "does not reveal a session owned by another user", %{conn: conn, user: user} do
+      session_id = Ecto.UUID.generate()
+      put_test_permissions(user, ["devices.remote_access.rdp.open"])
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_session_manager_fetch_result,
+        {:ok, rdp_session(session_id, requested_by: Ecto.UUID.generate())}
+      )
+
+      conn = get(conn, ~p"/api/remote-access/sessions/#{session_id}")
+
+      body = json_response(conn, 404)
+      assert body["error"] == "remote_access_session_not_found"
+    end
+
     test "requires protocol-specific permission for RDP sessions", %{conn: conn, user: user} do
       session_id = Ecto.UUID.generate()
       put_test_permissions(user, ["devices.remote_access.ssh.open"])
@@ -1082,6 +1332,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
           agent_id: "agent-1",
           gateway_id: "gateway-1",
           credential_custody_mode: :user_present,
+          requested_by: Process.get(:remote_access_test_user_id),
           status: :active,
           rbac_decision: :allowed,
           attach_expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
@@ -1092,6 +1343,22 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
         ],
         attrs
       )
+    )
+  end
+
+  defp desktop_target(attrs \\ %{}) do
+    Map.merge(
+      %{
+        id: "desktop-target-1",
+        enabled: true,
+        label: "Test desktop",
+        device_uid: "windows-1",
+        target_host: "windows-1.example.com",
+        target_port: 3389,
+        agent_id: "agent-1",
+        gateway_id: "gateway-1"
+      },
+      attrs
     )
   end
 

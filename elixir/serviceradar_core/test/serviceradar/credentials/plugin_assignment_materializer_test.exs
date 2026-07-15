@@ -30,7 +30,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
         secret_id: "018f3f56-1111-7222-8333-123456789abc",
         purpose: :inventory_enrichment,
         target_query: "in:devices metadata.proxmox_candidate:true",
-        tls_policy: :skip_verify,
+        tls_policy: :verify,
         updated_at: updated_at,
         metadata: %{
           "include_guests" => false,
@@ -94,7 +94,6 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
              "api_token_secret_ref" => ref,
              "credential_rule_id" => "rule-1",
              "include_guests" => false,
-             "insecure_skip_verify" => true,
              "timeout_ms" => 45_000,
              "auto_discovery_enabled" => true
            } = policy.params_template
@@ -187,7 +186,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     refute Map.has_key?(policy.params_template, "auto_discovery_enabled")
   end
 
-  test "reconcile_rules can build Proxmox console policies from API-token inventory rules" do
+  test "reconcile_rules does not build console policies from inventory-only API-token rules" do
     rules = [
       credential_rule(%{
         id: "shared-proxmox-api-rule",
@@ -209,26 +208,8 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
                test_pid: self()
              )
 
-    assert summary.rules == 1
-    assert_receive {:reconcile, policy, _input_defs, _opts}
-
-    assert policy.policy_id == "network-credential-rule:shared-proxmox-api-rule:console_access"
-
-    assert %{
-             "credential_broker" => %{
-               "credential_rule_id" => "shared-proxmox-api-rule",
-               "grant_type" => "proxmox_console",
-               "auth_method" => "proxmox_api_token"
-             },
-             "api_token_secret_ref" => ref,
-             "credential_rule_id" => "shared-proxmox-api-rule"
-           } = policy.params_template
-
-    assert ref == "credentialref:network-credential-secret:secret-proxmox-api-shared"
-    broker = policy.params_template["credential_broker"]
-    assert is_binary(broker["grant_id"])
-    assert {:ok, _expires_at, 0} = DateTime.from_iso8601(broker["expires_at"])
-    refute Map.has_key?(policy.params_template, "credential_secret")
+    assert summary.rules == 0
+    refute_receive {:reconcile, _policy, _input_defs, _opts}
   end
 
   test "materialized policy output is compatible with plugin inputs planner payloads" do

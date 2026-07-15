@@ -186,7 +186,11 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   end
 
   attr :id, :string, required: true
-  attr :session, :map, required: true
+  attr :session, :map, default: nil
+  attr :desktop_target_id, :string, default: ""
+  attr :device_uid, :string, default: ""
+  attr :approval_id, :string, default: ""
+  attr :create_path, :string, default: "/api/remote-access/sessions"
   attr :title, :string, default: "RDP remote access"
   attr :class, :string, default: ""
 
@@ -194,6 +198,10 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
     assigns =
       assign(assigns, :props, %{
         session: assigns.session,
+        desktopTargetId: assigns.desktop_target_id,
+        deviceUid: assigns.device_uid,
+        approvalId: assigns.approval_id,
+        createPath: assigns.create_path,
         title: assigns.title
       })
 

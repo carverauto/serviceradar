@@ -41,7 +41,7 @@ func (f *fakeHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/termproxy"):
 		return &sdk.HTTPResponse{
 			Status: http.StatusOK,
-			Body:   []byte(`{"data":{"port":5901,"ticket":"PVEVNC:ticket","user":"root@pam"}}`),
+			Body:   []byte(`{"data":{"port":5901,"ticket":"__SERVICERADAR_HOST_PROXMOX_TICKET__"}}`),
 		}, nil
 	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/status"):
 		return &sdk.HTTPResponse{
@@ -145,7 +145,7 @@ func TestRunProxmoxCheckBuildsInventory(t *testing.T) {
 
 	result, err := runProxmoxCheck(Config{
 		BaseURL:       "https://pve-a.example:8006/",
-		APIToken:      "PVEAPIToken=root@pam!sr=test-token",
+		APIToken:      hostCredentialSentinel,
 		IncludeGuests: boolPtr(true),
 	})
 	if err != nil {
@@ -166,7 +166,7 @@ func TestRunProxmoxCheckBuildsInventory(t *testing.T) {
 			t.Fatalf("guest inventory must not use the cluster-wide resources endpoint, got %s", req.URL)
 		}
 	}
-	if client.requests[0].Headers["Authorization"] != "PVEAPIToken=root@pam!sr=test-token" {
+	if client.requests[0].Headers["Authorization"] != hostCredentialSentinel {
 		t.Fatalf("authorization header was not set")
 	}
 	if len(batches) < 2 {
@@ -254,7 +254,7 @@ func TestFetchGuestsUsesNodeScopedEndpointsAndLXCConfigIPs(t *testing.T) {
 	proxmoxHTTP = client
 	t.Cleanup(func() { proxmoxHTTP = oldHTTP })
 
-	cfg := Config{BaseURL: "https://pve-a.example:8006", APIToken: "PVEAPIToken=root@pam!sr=test-token"}
+	cfg := Config{BaseURL: "https://pve-a.example:8006", APIToken: hostCredentialSentinel}
 	cfg.applyDefaults()
 
 	warnings := map[string]string{}
@@ -402,7 +402,7 @@ func TestGetJSONIncludesSanitizedHTTPErrorBody(t *testing.T) {
 	t.Cleanup(func() { proxmoxHTTP = oldHTTP })
 
 	var out map[string]any
-	err := getJSON(Config{TimeoutMS: defaultTimeoutMS}, Target{BaseURL: "https://pve.example:8006"}, "PVEAPIToken=root@pam!sr=test", "/api2/json/test", &out)
+	err := getJSON(Config{TimeoutMS: defaultTimeoutMS}, Target{BaseURL: "https://pve.example:8006"}, hostCredentialSentinel, "/api2/json/test", &out)
 	if err == nil {
 		t.Fatal("expected HTTP error")
 	}
@@ -416,26 +416,23 @@ func TestGetJSONIncludesSanitizedHTTPErrorBody(t *testing.T) {
 	}
 }
 
-func TestRunProxmoxCheckAcceptsBareAPITokenMaterial(t *testing.T) {
+func TestRunProxmoxCheckRejectsRawAPITokenMaterial(t *testing.T) {
 	client := &fakeHTTPClient{}
 	oldHTTP := proxmoxHTTP
 	proxmoxHTTP = client
 	t.Cleanup(func() { proxmoxHTTP = oldHTTP })
 
 	includeGuests := false
-	result, err := runProxmoxCheck(Config{
+	_, err := runProxmoxCheck(Config{
 		BaseURL:       "https://pve-a.example:8006/",
 		APIToken:      "root@pam!sr=test-token",
 		IncludeGuests: &includeGuests,
 	})
-	if err != nil {
-		t.Fatalf("runProxmoxCheck() error = %v", err)
+	if err == nil || !strings.Contains(err.Error(), errMissingToken.Error()) {
+		t.Fatalf("raw token error = %v, want fail-closed missing-token result", err)
 	}
-	if result.Status != sdk.StatusOK {
-		t.Fatalf("unexpected status: %s", result.Status)
-	}
-	if got := client.requests[0].Headers["Authorization"]; got != "PVEAPIToken=root@pam!sr=test-token" {
-		t.Fatalf("expected normalized Proxmox API token header, got %q", got)
+	if len(client.requests) != 0 {
+		t.Fatalf("raw token caused %d network requests", len(client.requests))
 	}
 }
 
@@ -443,8 +440,8 @@ func boolPtr(value bool) *bool {
 	return &value
 }
 
-func TestConfigFromMapBuildsTargetsFromPluginInputs(t *testing.T) {
-	cfg, err := configFromMap(map[string]any{
+func TestConfigFromMapRejectsBrokerGrant(t *testing.T) {
+	_, err := configFromMap(map[string]any{
 		"schema":         sdk.PluginInputsSchemaV1,
 		"policy_id":      "policy-1",
 		"policy_version": 1,
@@ -482,33 +479,8 @@ func TestConfigFromMapBuildsTargetsFromPluginInputs(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("configFromMap() error = %v", err)
-	}
-
-	if cfg.TimeoutMS != 45000 {
-		t.Fatalf("unexpected timeout: %d", cfg.TimeoutMS)
-	}
-	if cfg.includeGuests() {
-		t.Fatalf("expected include_guests=false from template")
-	}
-	if got := len(cfg.Targets); got != 2 {
-		t.Fatalf("expected two generated targets, got %d", got)
-	}
-	if cfg.Targets[0].BaseURL != "https://10.10.0.11:8006" {
-		t.Fatalf("unexpected first target URL: %s", cfg.Targets[0].BaseURL)
-	}
-	if cfg.Targets[0].APIToken != "" {
-		t.Fatalf("plugin input targets must not inherit raw API tokens")
-	}
-	if cfg.CredentialBroker["schema"] != "serviceradar.edge_credential_broker_grant.v1" {
-		t.Fatalf("expected broker grant to stay in the template")
-	}
-	if cfg.Targets[0].DeviceID != "sr:device:1" || cfg.Targets[0].Partition != "dc-a" {
-		t.Fatalf("unexpected first target metadata: %#v", cfg.Targets[0])
-	}
-	if cfg.Targets[1].BaseURL != "https://pve-b.example:8006" {
-		t.Fatalf("unexpected second target URL: %s", cfg.Targets[1].BaseURL)
+	if err == nil {
+		t.Fatal("Wasm config accepted a credential broker grant")
 	}
 }
 
@@ -520,14 +492,9 @@ func TestConfigFromJSONBuildsTargetsFromPluginInputs(t *testing.T) {
 		"agent_id": "agent-1",
 		"generated_at": "2026-05-06T19:00:00Z",
 		"template": {
-			"api_token_secret_ref": "credentialref:network-credential-secret:test-secret",
-			"api_token": "PVEAPIToken=root@pam!sr=test-token",
+			"api_token": "__SERVICERADAR_HOST_CREDENTIAL__",
 			"include_guests": true,
-			"timeout_ms": 45000,
-			"credential_broker": {
-				"schema": "serviceradar.edge_credential_broker_grant.v1",
-				"allow": {"methods": ["GET"], "paths": ["/api2/json/version"]}
-			}
+			"timeout_ms": 45000
 		},
 		"inputs": [{
 			"name": "targets",
@@ -552,7 +519,7 @@ func TestConfigFromJSONBuildsTargetsFromPluginInputs(t *testing.T) {
 	if !cfg.includeGuests() {
 		t.Fatalf("expected include_guests=true from template")
 	}
-	if cfg.APIToken != "PVEAPIToken=root@pam!sr=test-token" {
+	if cfg.APIToken != hostCredentialSentinel {
 		t.Fatalf("expected template API token, got %q", cfg.APIToken)
 	}
 	if got := len(cfg.Targets); got != 2 {
@@ -569,7 +536,7 @@ func TestConfigFromJSONBuildsTargetsFromPluginInputs(t *testing.T) {
 	}
 }
 
-func TestConfigFromMapAppliesRuntimeResolvedAPITokenToPluginInputTargets(t *testing.T) {
+func TestConfigFromMapAppliesHostSentinelToPluginInputTargets(t *testing.T) {
 	cfg, err := configFromMap(map[string]any{
 		"schema":         sdk.PluginInputsSchemaV1,
 		"policy_id":      "policy-1",
@@ -577,8 +544,7 @@ func TestConfigFromMapAppliesRuntimeResolvedAPITokenToPluginInputTargets(t *test
 		"agent_id":       "agent-1",
 		"generated_at":   "2026-05-06T19:00:00Z",
 		"template": map[string]any{
-			"api_token_secret_ref": "credentialref:network-credential-secret:test-secret",
-			"api_token":            "PVEAPIToken=root@pam!sr=test-token",
+			"api_token": hostCredentialSentinel,
 		},
 		"inputs": []any{
 			map[string]any{
@@ -598,14 +564,14 @@ func TestConfigFromMapAppliesRuntimeResolvedAPITokenToPluginInputTargets(t *test
 		t.Fatalf("configFromMap() error = %v", err)
 	}
 
-	if cfg.APIToken != "PVEAPIToken=root@pam!sr=test-token" {
-		t.Fatalf("expected runtime api token to be applied")
+	if cfg.APIToken != hostCredentialSentinel {
+		t.Fatalf("expected host credential sentinel to be applied")
 	}
 	if len(cfg.Targets) != 1 {
 		t.Fatalf("expected one target, got %d", len(cfg.Targets))
 	}
-	if cfg.Targets[0].APIToken != "PVEAPIToken=root@pam!sr=test-token" {
-		t.Fatalf("expected runtime api token to be inherited by generated target")
+	if cfg.Targets[0].APIToken != hostCredentialSentinel {
+		t.Fatalf("expected host credential sentinel to be inherited by generated target")
 	}
 }
 
@@ -685,7 +651,7 @@ func TestRunProxmoxCheckRequiresTargetAndToken(t *testing.T) {
 	}
 }
 
-func TestConfigSchemaOnlyExposesInternalAPITokenSecretRef(t *testing.T) {
+func TestConfigSchemaExposesNoCredentialOrTLSBypassInputs(t *testing.T) {
 	raw, err := os.ReadFile("config.schema.json")
 	if err != nil {
 		t.Fatalf("read schema: %v", err)
@@ -697,75 +663,131 @@ func TestConfigSchemaOnlyExposesInternalAPITokenSecretRef(t *testing.T) {
 	}
 
 	properties := schema["properties"].(map[string]any)
-	if _, ok := properties["api_token"]; ok {
-		t.Fatal("published schema must not expose raw api_token")
+	if schema["additionalProperties"] != false {
+		t.Fatal("published inventory schema must reject undeclared authority fields")
 	}
-	apiTokenRef, ok := properties["api_token_secret_ref"].(map[string]any)
-	if !ok {
-		t.Fatal("published schema must include internal api_token_secret_ref for runtime resolution")
+	allowed := map[string]struct{}{
+		"timeout_ms": {}, "max_response_bytes": {}, "max_guests": {}, "include_guests": {},
 	}
-	if apiTokenRef["secretRef"] != true {
-		t.Fatal("api_token_secret_ref must be a secretRef field")
+	if len(properties) != len(allowed) {
+		t.Fatalf("published inventory schema properties = %#v, want bounded presentation settings only", properties)
 	}
-	if apiTokenRef["x-serviceradar-ui-hidden"] != true || apiTokenRef["x-serviceradar-internal"] != true {
-		t.Fatal("api_token_secret_ref must stay hidden/internal")
-	}
-	if properties["base_url"].(map[string]any)["x-serviceradar-ui-hidden"] != true {
-		t.Fatal("base_url must stay hidden from central assignment UI")
-	}
-
-	targets := properties["targets"].(map[string]any)
-	if targets["x-serviceradar-ui-hidden"] != true {
-		t.Fatal("targets must stay hidden from central assignment UI")
-	}
-	items := targets["items"].(map[string]any)
-	targetProperties := items["properties"].(map[string]any)
-	if _, ok := targetProperties["api_token"]; ok {
-		t.Fatal("published target schema must not expose raw api_token")
+	for key := range properties {
+		if _, ok := allowed[key]; !ok {
+			t.Fatalf("published inventory schema exposes authority-bearing field %q", key)
+		}
 	}
 }
 
-func TestValidateConsoleConfigRequiresScopedBroker(t *testing.T) {
+func TestConsoleConfigSchemaExposesNoCredentialOrTLSBypassInputs(t *testing.T) {
+	raw, err := os.ReadFile("config.console.schema.json")
+	if err != nil {
+		t.Fatalf("read console schema: %v", err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatalf("decode console schema: %v", err)
+	}
+	properties := schema["properties"].(map[string]any)
+	if schema["additionalProperties"] != false {
+		t.Fatal("published console schema must reject undeclared authority fields")
+	}
+	if len(properties) != 1 || properties["timeout_ms"] == nil {
+		t.Fatalf("published console schema properties = %#v, want timeout_ms only", properties)
+	}
+}
+
+func TestValidateConsoleConfigUsesHostCredentialSentinelWithoutBrokerGrant(t *testing.T) {
 	cfg := consoleConfig{
 		CredentialRuleID: "rule-1",
-		CredentialBroker: map[string]any{"schema": "serviceradar.edge_credential_broker_grant.v1"},
-		Console:          consoleContext{SessionID: "session-1"},
-		Target:           consoleTarget{Hostname: "pve.example"},
-		TimeoutMS:        defaultTimeoutMS,
+		APIToken:         hostCredentialSentinel,
+		Console: consoleContext{
+			SessionID:          "session-1",
+			ConsoleMode:        "proxmox_termproxy",
+			CredentialRuleID:   "rule-1",
+			PluginAssignmentID: "assignment-1",
+		},
+		Target:    consoleTarget{Hostname: "pve.example"},
+		TimeoutMS: defaultTimeoutMS,
 	}
 
 	if err := validateConsoleConfig(cfg); err != nil {
 		t.Fatalf("validateConsoleConfig returned error: %v", err)
 	}
+	if got := normalizeProxmoxAPIToken(cfg.APIToken); got != hostCredentialSentinel {
+		t.Fatalf("normalized sentinel = %q, want exact host sentinel", got)
+	}
 
-	cfg.CredentialBroker = nil
-	if err := validateConsoleConfig(cfg); err == nil || !strings.Contains(err.Error(), "credential_broker") {
-		t.Fatalf("expected credential_broker validation error, got %v", err)
+	cfg.CredentialRuleID = ""
+	if err := validateConsoleConfig(cfg); err == nil || !strings.Contains(err.Error(), "credential_rule_id") {
+		t.Fatalf("expected credential_rule_id validation error, got %v", err)
 	}
 }
 
-func TestConsoleConfigSchemaHidesAgentLocalSecrets(t *testing.T) {
-	raw, err := os.ReadFile("config.console.schema.json")
+func TestResolveProxmoxConsoleTargetSupportsSourceScopedV3Identity(t *testing.T) {
+	cfg := consoleConfig{
+		Console: consoleContext{TargetKind: "qemu_guest"},
+		Target: consoleTarget{
+			ProviderRef:    "proxmox:v3:provider-1:controller-1:farm%3A01:qemu:101",
+			Cluster:        "farm:01",
+			Node:           "pve01",
+			VMID:           101,
+			TargetKind:     "qemu_guest",
+			ControllerID:   "controller-1",
+			NativeObjectID: "101",
+		},
+	}
+
+	target, err := resolveProxmoxConsoleTarget(cfg)
 	if err != nil {
-		t.Fatalf("read console schema: %v", err)
+		t.Fatalf("resolveProxmoxConsoleTarget returned error: %v", err)
+	}
+	if target.Cluster != "farm:01" || target.Node != "pve01" || target.VMID != 101 ||
+		target.TargetKind != "qemu_guest" {
+		t.Fatalf("unexpected v3 console target: %#v", target)
 	}
 
-	var schema map[string]any
-	if err := json.Unmarshal(raw, &schema); err != nil {
-		t.Fatalf("decode console schema: %v", err)
+	cfg.Target.Node = ""
+	if _, err := resolveProxmoxConsoleTarget(cfg); err == nil || !strings.Contains(err.Error(), "node") {
+		t.Fatalf("v3 guest without explicit owner node returned %v", err)
 	}
 
-	properties := schema["properties"].(map[string]any)
-	for _, key := range []string{"target", "ssh"} {
-		if properties[key].(map[string]any)["x-serviceradar-ui-hidden"] != true {
-			t.Fatalf("%s must stay hidden from central assignment UI", key)
+	cfg.Target.Node = "pve01"
+	cfg.Target.VMID = 102
+	if _, err := resolveProxmoxConsoleTarget(cfg); err == nil || !strings.Contains(err.Error(), "vmid") {
+		t.Fatalf("mismatched v3 vmid returned %v", err)
+	}
+}
+
+func TestProxmoxManifestsGrantNoStaticDomainAuthority(t *testing.T) {
+	for _, path := range []string{"plugin.yaml", "plugin.console.yaml"} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		manifest := string(raw)
+		if !strings.Contains(manifest, "allowed_domains: []") || strings.Contains(manifest, `"*"`) {
+			t.Fatalf("%s must grant no static domain wildcard authority", path)
 		}
 	}
-	sshProperties := properties["ssh"].(map[string]any)["properties"].(map[string]any)
-	for _, key := range []string{"password", "private_key", "passphrase"} {
-		if sshProperties[key].(map[string]any)["x-serviceradar-sensitive"] != true {
-			t.Fatalf("ssh.%s must be marked sensitive", key)
-		}
+}
+
+func TestConsoleConfigRejectsLegacyCredentialAndTransportAuthority(t *testing.T) {
+	tests := map[string]map[string]any{
+		"raw ssh object":            {"ssh": map[string]any{"username": "root", "password": "secret"}},
+		"raw credential object":     {"credential_secret": map[string]any{"username": "root", "password": "secret"}},
+		"raw credential string":     {"credential_secret": "secret"},
+		"raw api token":             {"api_token": "PVEAPIToken=user@pve!token=secret"},
+		"TLS verification bypass":   {"insecure_skip_verify": true},
+		"SSH verification bypass":   {"ssh_host_key_policy": "skip_verify"},
+		"private key in nested map": {"nested": map[string]any{"private_key": "secret"}},
+	}
+	for name, raw := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := consoleConfigFromMap(raw); err == nil {
+				t.Fatal("legacy authority-bearing console config was accepted")
+			}
+		})
 	}
 }
 
@@ -777,14 +799,15 @@ func TestConsoleConfigFromPluginInputsSelectsScopedTarget(t *testing.T) {
 		"agent_id":       "agent-1",
 		"generated_at":   "2026-05-07T00:00:00Z",
 		"template": map[string]any{
-			"credential_broker":  map[string]any{"schema": "serviceradar.edge_credential_broker_grant.v1"},
 			"credential_rule_id": "rule-1",
+			"credential_secret":  hostCredentialSentinel,
 		},
 		"console": map[string]any{
-			"session_id":         "session-1",
-			"device_uid":         "device-b",
-			"credential_rule_id": "rule-1",
-			"console_mode":       "ssh",
+			"session_id":           "session-1",
+			"device_uid":           "device-b",
+			"credential_rule_id":   "rule-1",
+			"plugin_assignment_id": "assignment-1",
+			"console_mode":         "ssh",
 		},
 		"inputs": []any{
 			map[string]any{
@@ -829,10 +852,17 @@ func TestRunConsoleWithDepsStreamsSSHSession(t *testing.T) {
 	}
 	cfg := consoleConfig{
 		CredentialRuleID: "rule-1",
-		CredentialBroker: map[string]any{"schema": "serviceradar.edge_credential_broker_grant.v1"},
-		Console:          consoleContext{SessionID: "session-1", ConsoleMode: "ssh", Cols: 80, Rows: 24},
-		Target:           consoleTarget{Hostname: "pve.example"},
-		TimeoutMS:        defaultTimeoutMS,
+		HostCredential:   hostCredentialSentinel,
+		Console: consoleContext{
+			SessionID:          "session-1",
+			ConsoleMode:        "ssh",
+			CredentialRuleID:   "rule-1",
+			PluginAssignmentID: "assignment-1",
+			Cols:               80,
+			Rows:               24,
+		},
+		Target:    consoleTarget{Hostname: "pve.example"},
+		TimeoutMS: defaultTimeoutMS,
 	}
 
 	err := runConsoleWithDeps(cfg, consoleDeps{
@@ -884,13 +914,17 @@ func TestRunConsoleWithDepsStreamsNativeProxmoxConsole(t *testing.T) {
 	bridge := newFakeConsoleBridge(consoleInputFrame{FrameType: "close"})
 	ws := &fakeWebSocketConn{}
 	cfg := consoleConfig{
-		CredentialRuleID:   "rule-1",
-		CredentialBroker:   map[string]any{"schema": "serviceradar.edge_credential_broker_grant.v1"},
-		APIToken:           "root@pam!sr=test-token",
-		Console:            consoleContext{SessionID: "session-1", ConsoleMode: "proxmox_termproxy", TargetKind: "pve_host"},
-		Target:             consoleTarget{BaseURL: "https://pve.example:8006", ProviderRef: "proxmox:node:pve-a"},
-		TimeoutMS:          defaultTimeoutMS,
-		InsecureSkipVerify: true,
+		CredentialRuleID: "rule-1",
+		APIToken:         hostCredentialSentinel,
+		Console: consoleContext{
+			SessionID:          "session-1",
+			ConsoleMode:        "proxmox_termproxy",
+			TargetKind:         "pve_host",
+			CredentialRuleID:   "rule-1",
+			PluginAssignmentID: "assignment-1",
+		},
+		Target:    consoleTarget{BaseURL: "https://pve.example:8006", ProviderRef: "proxmox:node:pve-a"},
+		TimeoutMS: defaultTimeoutMS,
 	}
 
 	err := runConsoleWithDeps(cfg, consoleDeps{
@@ -916,17 +950,17 @@ func TestRunConsoleWithDepsStreamsNativeProxmoxConsole(t *testing.T) {
 	if client.requests[0].Method != http.MethodPost {
 		t.Fatalf("expected POST proxy request, got %s", client.requests[0].Method)
 	}
-	if got := client.requests[0].Headers["Authorization"]; got != "PVEAPIToken=root@pam!sr=test-token" {
+	if got := client.requests[0].Headers["Authorization"]; got != hostCredentialSentinel {
 		t.Fatalf("unexpected Authorization header %q", got)
 	}
 	if !strings.HasPrefix(ws.url, "wss://pve.example:8006/api2/json/nodes/pve-a/vncwebsocket?") {
 		t.Fatalf("unexpected websocket URL %q", ws.url)
 	}
-	if ws.headers["Authorization"] != "PVEAPIToken=root@pam!sr=test-token" {
+	if ws.headers["Authorization"] != hostCredentialSentinel {
 		t.Fatalf("unexpected websocket Authorization header %q", ws.headers["Authorization"])
 	}
-	if !ws.insecureSkipVerify {
-		t.Fatal("expected websocket to inherit insecure_skip_verify")
+	if ws.insecureSkipVerify || client.requests[0].InsecureSkipVerify {
+		t.Fatal("Proxmox native console requested a TLS verification bypass")
 	}
 	if !ws.closed {
 		t.Fatal("expected websocket to close")
@@ -1084,12 +1118,12 @@ func TestInterfacesFromGuestConfigMergesIPConfig(t *testing.T) {
 
 func TestGuestAgentEnabled(t *testing.T) {
 	cases := map[string]bool{
-		"1":                          true,
-		"1,fstrim_cloned_disks=1":    true,
-		"enabled=1,type=virtio":      true,
-		"0":                          false,
-		"":                           false,
-		"enabled=0":                  false,
+		"1":                       true,
+		"1,fstrim_cloned_disks=1": true,
+		"enabled=1,type=virtio":   true,
+		"0":                       false,
+		"":                        false,
+		"enabled=0":               false,
 	}
 	for raw, want := range cases {
 		if got := guestAgentEnabled(map[string]string{"agent": raw}); got != want {

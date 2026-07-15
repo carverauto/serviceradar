@@ -1013,6 +1013,12 @@ agent:
   statusDebounceInterval: "30s"
   statusHeartbeatInterval: "5m"
   remoteAccessKnownHostsFile: "/var/lib/serviceradar/checkers/remote-access-known_hosts"
+  # Public CA bundles trusted by the host-owned Wasm HTTP transport in addition
+  # to the operating-system roots. Wasm modules cannot read or replace them.
+  # Use absolute paths mounted into the agent; invalid bundles fail plugin HTTP
+  # closed. The platform runtime CA permits verified internal integrations.
+  pluginHTTPTrustedCAFiles:
+    - /etc/serviceradar/certs/root.pem
   checkersStorage:
     enabled: true
     basePath: "/var/lib/serviceradar/checkers"
@@ -1914,6 +1920,91 @@ secrets:
   edgeOnboardingKey: ""
   # Base64-encoded 32-byte key for AshCloak (optional override).
   cloakKey: ""
+
+# Exact reviewed AWX custom-credential contract used by callback-enabled
+# template bindings. Callback execution remains off until every field and an
+# operator-owned response-policy Secret are configured. When enabled, the chart
+# rejects zero IDs, malformed digests, and missing policy mounts.
+automationCallbacks:
+  enabled: false
+  # Server-owned bare HTTPS origin used to derive every callback URL. Empty
+  # inherits webNg.publicUrl. Paths, query strings, userinfo, and HTTP are
+  # rejected at runtime; playbook/catalog/survey data cannot override it.
+  canonicalOrigin: ""
+  # Non-secret identifier for the single active launch-envelope key. Changing
+  # it invalidates outstanding envelopes, whose lifetime is capped at 10m.
+  envelopeKeyId: "current"
+  awxCredentialTypeId: 0
+  awxOrganizationId: 0
+  # Lowercase SHA-256 of the exact AWX custom credential injector definition.
+  awxInjectorDigest: ""
+  responsePolicy:
+    # Existing Secret containing the reviewed, target-scoped public SSH CA
+    # response policy. The chart never generates this policy or CA material.
+    existingSecretName: ""
+    secretKey: "response-policy.json"
+  # The HMAC keyring itself lives in secrets.existingSecretName. For zero-gap
+  # rotation, first add the next key as inactive and roll both core and web;
+  # then make it active and roll both workloads again. Retain every retired key
+  # for at least the maximum outstanding callback-grant TTL before removing it.
+  # The chart validates but never silently replaces an existing keyring.
+
+# External-command SSH user-certificate signer. The chart mounts only one key
+# from an operator-created Secret and never accepts private CA material in
+# values. Keep the default workload scope to web-ng, which owns interactive
+# remote-access sessions; enable core only in deployments that route issuance
+# through core-elx instead.
+remoteAccess:
+  desktop:
+    rdp:
+      enabled: false
+      webRTC:
+        # Public ICE endpoint metadata only. Each entry may contain only urls;
+        # inline usernames, credentials, and shared secrets are rejected.
+        iceServers: []
+        # Optional additive egress policy for the core-elx pods that originate
+        # WebRTC ICE traffic. This requires the chart-wide NetworkPolicy and
+        # accepts only explicit IPv4/IPv6 CIDRs plus numeric UDP/TCP ports.
+        # DNS names and catch-all destination CIDRs are rejected.
+        networkPolicy:
+          enabled: false
+          allowedCIDRs: []
+          allowedUDPPorts: []
+          allowedTCPPorts: []
+        turn:
+          # Required only when iceServers contains turn:/turns: URLs. The chart
+          # mounts one operator-created Secret key into web-ng and never accepts
+          # the TURN REST shared secret in values or a plain environment value.
+          existingSecretName: ""
+          secretKey: "shared-secret"
+          credentialTtlSeconds: 600
+  ssh:
+    enabled: false
+  # Target-scoped account-to-principal authorization policy. This is internal
+  # authorization data, so the chart accepts only an operator-created Secret
+  # reference and never renders policy content from values.
+  sshCertificatePolicy:
+    enabled: false
+    existingSecretName: ""
+    secretKey: "certificate-policy.json"
+    workloads:
+      web: true
+      core: false
+  sshCaSigner:
+    enabled: false
+    command: "/usr/local/bin/serviceradar-sshca-signer"
+    keyId: ""
+    existingSecretName: ""
+    secretKey: "ca-key"
+    mountPath: "/run/secrets/serviceradar_ssh_ca"
+    args:
+      - "--ca-key-file"
+      - "/run/secrets/serviceradar_ssh_ca"
+      - "--max-ttl"
+      - "8h"
+    workloads:
+      web: true
+      core: false
 # Network sweep defaults (can be tuned per-deploy)
 sweep:
   # Target networks and ports to scan

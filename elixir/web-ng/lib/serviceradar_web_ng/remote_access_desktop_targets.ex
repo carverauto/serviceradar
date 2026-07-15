@@ -102,7 +102,7 @@ defmodule ServiceRadarWebNG.RemoteAccessDesktopTargets do
   @spec get_authorized(term(), String.t(), keyword()) :: {:ok, target()} | {:error, term()}
   def get_authorized(scope, target_id, opts \\ []) when is_binary(target_id) do
     with {:ok, targets} <- list_authorized(scope, opts) do
-      case Enum.find(targets, &(Map.get(&1, "id") == target_id)) do
+      case Enum.find(targets, &(Map.get(&1, "id") == target_id and Map.get(&1, "enabled") == true)) do
         nil -> {:error, :remote_access_desktop_target_not_found}
         target -> {:ok, target}
       end
@@ -162,12 +162,13 @@ defmodule ServiceRadarWebNG.RemoteAccessDesktopTargets do
       credential_custody_mode: target.credential_custody_mode,
       credential_rule_id: target.credential_rule_id,
       approval_required: target.approval_required,
+      allowed_principals: target.allowed_principals || [],
       target_tls: target.target_tls,
       nla: target.nla,
       screen_policy: target.screen_policy,
       redirection_policy: target.redirection_policy,
       recording_policy: target.recording_policy,
-      metadata: Map.put(target.metadata || %{}, "allowed_principals", target.allowed_principals || [])
+      metadata: target.metadata || %{}
     }
   end
 
@@ -179,6 +180,7 @@ defmodule ServiceRadarWebNG.RemoteAccessDesktopTargets do
       {:ok,
        reject_empty(%{
          "id" => target_id,
+         "enabled" => boolean_field(target, ["enabled", :enabled], true),
          "label" => string_field_value(target, ["label", :label, "name", :name]) || target_host,
          "device_uid" => string_field_value(target, ["device_uid", :device_uid, "uid", :uid]),
          "target_kind" => string_field_value(target, ["target_kind", :target_kind]) || "inventory_device",
@@ -190,6 +192,7 @@ defmodule ServiceRadarWebNG.RemoteAccessDesktopTargets do
            string_field_value(target, ["credential_custody_mode", :credential_custody_mode]) || "user_present",
          "credential_rule_id" => string_field_value(target, ["credential_rule_id", :credential_rule_id]),
          "approval_required" => boolean_field(target, ["approval_required", :approval_required], false),
+         "allowed_principals" => string_list_field(target, metadata, ["allowed_principals", :allowed_principals]),
          "route" =>
            compact_map(%{
              "agent_id" => string_field_value(target, ["agent_id", :agent_id]),
@@ -265,14 +268,14 @@ defmodule ServiceRadarWebNG.RemoteAccessDesktopTargets do
   defp normalize_port(_value), do: nil
 
   defp boolean_field(map, keys, default) do
-    Enum.find_value(keys, fn key ->
+    Enum.reduce_while(keys, default, fn key, _acc ->
       case Map.get(map, key) do
-        value when is_boolean(value) -> value
-        value when value in ["true", "1", "yes", "on"] -> true
-        value when value in ["false", "0", "no", "off"] -> false
-        _ -> nil
+        value when is_boolean(value) -> {:halt, value}
+        value when value in ["true", "1", "yes", "on"] -> {:halt, true}
+        value when value in ["false", "0", "no", "off"] -> {:halt, false}
+        _ -> {:cont, default}
       end
-    end) || default
+    end)
   end
 
   defp first_safe_policy(target, metadata, keys) do
@@ -287,6 +290,27 @@ defmodule ServiceRadarWebNG.RemoteAccessDesktopTargets do
   end
 
   defp first_map_value(_map, _keys), do: nil
+
+  defp string_list_field(target, metadata, keys) do
+    case first_map_value(target, keys) || first_map_value(metadata, keys) do
+      values when is_list(values) ->
+        values
+        |> Enum.flat_map(fn
+          value when is_binary(value) ->
+            case String.trim(value) do
+              "" -> []
+              principal -> [principal]
+            end
+
+          _value ->
+            []
+        end)
+        |> Enum.uniq()
+
+      _value ->
+        []
+    end
+  end
 
   defp safe_map_field(map, keys) do
     case first_map_value(map, keys) do

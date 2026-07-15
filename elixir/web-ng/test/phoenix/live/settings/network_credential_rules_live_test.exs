@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.Credentials.CredentialUsePolicy
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Plugins.Plugin
@@ -93,6 +94,117 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     rule = get_rule_by_name!(scope, "PVE inventory")
     assert rule.target_query == "in:devices"
     assert rule.metadata["auto_discovery_enabled"] == true
+  end
+
+  test "creates an explicit console actor-use policy from the settings form", %{
+    conn: conn,
+    scope: scope
+  } do
+    secret = credential_secret_fixture(scope)
+
+    {:ok, lv, html} = live(conn, ~p"/settings/networks/credentials/new")
+
+    assert html =~ "Console credential users"
+    assert html =~ ~s(name="credential_rule[credential_use_roles]")
+    assert html =~ ~s(value="admin")
+
+    lv
+    |> form("#credential-rule-form",
+      credential_rule: %{
+        "name" => "PVE console",
+        "description" => "",
+        "provider" => "proxmox",
+        "auth_method" => "proxmox_api_token",
+        "purposes" => ["inventory_enrichment", "console_access"],
+        "target_query" => "in:devices",
+        "scope_type" => "agent",
+        "scope_value" => "agent-a",
+        "secret_id" => secret.id,
+        "priority" => "25",
+        "allowed_ports" => "8006",
+        "tls_policy" => "verify",
+        "credential_use_roles" => "admin, operator",
+        "credential_use_principals" => "oidc|pve-user",
+        "credential_use_groups" => "pve-console-operators",
+        "auto_discovery_enabled" => "false"
+      }
+    )
+    |> render_submit()
+
+    assert_patch(lv, ~p"/settings/networks/credentials")
+
+    rule = get_rule_by_name!(scope, "PVE console")
+
+    assert rule.metadata["credential_use_policy"] == %{
+             "schema" => CredentialUsePolicy.schema(),
+             "roles" => ["admin", "operator"],
+             "principals" => ["oidc|pve-user"],
+             "groups" => ["pve-console-operators"]
+           }
+  end
+
+  test "rejects console rules without an actor-use selector", %{conn: conn, scope: scope} do
+    secret = credential_secret_fixture(scope)
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
+
+    html =
+      lv
+      |> form("#credential-rule-form",
+        credential_rule: %{
+          "name" => "Unrestricted console",
+          "description" => "",
+          "provider" => "proxmox",
+          "auth_method" => "proxmox_api_token",
+          "purposes" => ["console_access"],
+          "target_query" => "in:devices",
+          "scope_type" => "agent",
+          "scope_value" => "agent-a",
+          "secret_id" => secret.id,
+          "priority" => "25",
+          "allowed_ports" => "8006",
+          "tls_policy" => "verify",
+          "credential_use_roles" => "",
+          "credential_use_principals" => "",
+          "credential_use_groups" => "",
+          "auto_discovery_enabled" => "false"
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Console access requires at least one allowed role, user, or IdP group"
+    refute get_rule_by_name!(scope, "Unrestricted console")
+  end
+
+  test "rejects Proxmox API rules that disable TLS certificate verification", %{
+    conn: conn,
+    scope: scope
+  } do
+    secret = credential_secret_fixture(scope)
+    {:ok, lv, html} = live(conn, ~p"/settings/networks/credentials/new")
+
+    refute html =~ ~s(<option value="skip_verify">)
+
+    html =
+      lv
+      |> form("#credential-rule-form",
+        credential_rule: %{
+          "name" => "Insecure PVE",
+          "provider" => "proxmox",
+          "auth_method" => "proxmox_api_token",
+          "purposes" => ["inventory_enrichment"],
+          "target_query" => "in:devices",
+          "scope_type" => "agent",
+          "scope_value" => "agent-a",
+          "secret_id" => secret.id,
+          "priority" => "25",
+          "allowed_ports" => "8006",
+          "tls_policy" => "skip_verify"
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Proxmox API access requires TLS certificate verification"
+    refute get_rule_by_name!(scope, "Insecure PVE")
   end
 
   test "validates required credential rule fields", %{conn: conn, scope: scope} do

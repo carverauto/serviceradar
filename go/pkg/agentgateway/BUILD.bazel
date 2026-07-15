@@ -1,4 +1,4 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "agentgateway",
@@ -18,5 +18,24 @@ go_library(
         "@org_golang_google_grpc//keepalive",
         "@org_golang_google_grpc//status",
         "@org_golang_google_protobuf//proto",
+    ],
+)
+
+go_test(
+    name = "agentgateway_test",
+    srcs = [
+        "gateway_client_camera_media_integration_test.go",
+        "gateway_client_test.go",
+    ],
+    embed = [":agentgateway"],
+    deps = [
+        "//go/pkg/logger",
+        "//go/pkg/models",
+        "//proto",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_protobuf//proto",
+        "@org_uber_go_mock//gomock",
     ],
 )

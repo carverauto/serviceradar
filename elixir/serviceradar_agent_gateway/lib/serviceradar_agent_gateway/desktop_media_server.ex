@@ -169,7 +169,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
     desktop_session_id = required_string(request.desktop_session_id, "desktop_session_id")
     media_session_id = required_string(request.media_session_id, "media_session_id")
 
-    case session_tracker().close_session(desktop_session_id, media_session_id, agent_id, %{
+    case close_desktop_media_route(desktop_session_id, media_session_id, agent_id, %{
            media_ingest_id: request.media_ingest_id,
            reason: request.reason
          }) do
@@ -193,6 +193,11 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
 
       {:error, :agent_id_mismatch} ->
         raise GRPC.RPCError, status: :permission_denied, message: "desktop media session owner mismatch"
+
+      {:error, :core_ingress_cleanup_failed} ->
+        raise GRPC.RPCError,
+          status: :unavailable,
+          message: "desktop media core cleanup is temporarily unavailable"
     end
   rescue
     error in ArgumentError ->
@@ -208,7 +213,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
     desktop_session_id = required_string(request.desktop_session_id, "desktop_session_id")
     media_session_id = required_string(request.media_session_id, "media_session_id")
 
-    case session_tracker().close_session(desktop_session_id, media_session_id, agent_id, %{
+    case close_desktop_media_route(desktop_session_id, media_session_id, agent_id, %{
            media_ingest_id: request.media_ingest_id,
            reason: request.reason
          }) do
@@ -237,6 +242,31 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
 
       {:error, :agent_id_mismatch} ->
         raise GRPC.RPCError, status: :permission_denied, message: "desktop media session owner mismatch"
+
+      {:error, :core_ingress_cleanup_failed} ->
+        raise GRPC.RPCError,
+          status: :unavailable,
+          message: "desktop media core cleanup is temporarily unavailable"
+    end
+  end
+
+  defp close_desktop_media_route(desktop_session_id, media_session_id, agent_id, attrs) do
+    closing_attrs = Map.put(attrs, :pending_core_cleanup, true)
+
+    with {:ok, _closing_session} <-
+           session_tracker().mark_closing(
+             desktop_session_id,
+             media_session_id,
+             agent_id,
+             closing_attrs
+           ),
+         :ok <- close_core_ingress(desktop_session_id) do
+      session_tracker().close_session(
+        desktop_session_id,
+        media_session_id,
+        agent_id,
+        attrs
+      )
     end
   end
 
@@ -317,7 +347,10 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
       Map.new(metadata)
     )
 
-    Logger.warning("Rejected desktop media frame owner binding", metadata)
+    Logger.warning(
+      "Rejected desktop media frame owner binding",
+      Keyword.update(metadata, :desktop_session_id, "invalid", &safe_log_identifier/1)
+    )
 
     raise GRPC.RPCError, status: :permission_denied, message: frame_owner_error_message(reason)
   end
@@ -475,6 +508,47 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
     Application.get_env(:serviceradar_agent_gateway, :desktop_media_frame_forwarder, DesktopMediaForwarder)
   end
 
+  defp close_core_ingress(desktop_session_id) do
+    forwarder = frame_forwarder()
+
+    result =
+      if is_atom(forwarder) and Code.ensure_loaded?(forwarder) and
+           function_exported?(forwarder, :close_session, 1) do
+        forwarder.close_session(desktop_session_id)
+      else
+        {:error, :core_ingress_cleanup_unavailable}
+      end
+
+    case result do
+      :ok ->
+        :ok
+
+      other ->
+        Logger.warning("Desktop media core ingress cleanup failed; close remains pending",
+          desktop_session_id: safe_log_identifier(desktop_session_id),
+          reason: inspect(other)
+        )
+
+        {:error, :core_ingress_cleanup_failed}
+    end
+  rescue
+    error ->
+      Logger.warning("Desktop media core ingress cleanup raised; close remains pending",
+        desktop_session_id: safe_log_identifier(desktop_session_id),
+        reason: Exception.message(error)
+      )
+
+      {:error, :core_ingress_cleanup_failed}
+  catch
+    :exit, reason ->
+      Logger.warning("Desktop media core ingress cleanup exited; close remains pending",
+        desktop_session_id: safe_log_identifier(desktop_session_id),
+        reason: inspect(reason)
+      )
+
+      {:error, :core_ingress_cleanup_failed}
+  end
+
   defp identity_resolver do
     Application.get_env(
       :serviceradar_agent_gateway,
@@ -490,6 +564,14 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
   defp capacity_error_message(:gateway, limit) do
     "per-gateway desktop media session limit exceeded (limit=#{limit})"
   end
+
+  defp safe_log_identifier(value) when is_binary(value) do
+    if byte_size(value) <= 128 and Regex.match?(~r/\A[A-Za-z0-9_.:-]+\z/, value),
+      do: value,
+      else: "invalid"
+  end
+
+  defp safe_log_identifier(_value), do: "invalid"
 
   defp extract_identity_from_stream(stream) do
     MediaIdentity.extract_identity_from_stream(stream, identity_resolver(), "Desktop media")

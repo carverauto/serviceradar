@@ -62,9 +62,14 @@ fn build_connector_kerberos_config_for_plan(
         return Ok(None);
     }
 
+    let hostname = plan
+        .kerberos_hostname
+        .clone()
+        .ok_or(BackendError::Unsupported(INVALID_CONNECTION_PLAN))?;
+
     ironrdp_connector::credssp::KerberosConfig::new(
         plan.kdc_proxy_url.clone(),
-        plan.kerberos_hostname.clone(),
+        hostname,
     )
     .map(Some)
     .map_err(|_| BackendError::Unsupported(INVALID_CONNECTION_PLAN))
@@ -83,7 +88,7 @@ fn connector_kerberos_binding_from_config(
             .kdc_proxy_url
             .as_ref()
             .map(|url| url.as_str().to_owned()),
-        hostname: config.hostname.clone(),
+        hostname: Some(config.hostname.clone()),
     }
 }
 

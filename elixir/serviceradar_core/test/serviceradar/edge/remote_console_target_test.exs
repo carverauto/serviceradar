@@ -26,6 +26,8 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetTest do
              "hostname" => "pve01",
              "ip" => "192.0.2.10"
            }
+
+    refute Map.has_key?(target.metadata, "identity_state")
   end
 
   test "preserves provider refs for hypervisor guest targets" do

@@ -34,6 +34,14 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
     GenServer.call(server_name(opts), {:remove_webrtc_viewer, session_id, viewer_session_id})
   end
 
+  def close_session(session_id, opts \\ []) when is_binary(session_id) do
+    GenServer.call(server_name(opts), {:close_session, session_id})
+  end
+
+  def prune_session(session_id, opts \\ []) when is_binary(session_id) do
+    GenServer.call(server_name(opts), {:prune_session, session_id})
+  end
+
   def forward_frame(session_id, %Desktopmedia.DesktopMediaFrameChunk{} = frame, opts \\ []) when is_binary(session_id) do
     GenServer.call(
       server_name(opts),
@@ -124,8 +132,48 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
 
         if viewer, do: emit_viewer_event(:removed, updated, viewer)
 
-        {:reply, :ok, put_in(state, [:sessions, session_id], updated)}
+        next_state =
+          if map_size(viewers) == 0 do
+            update_in(state, [:sessions], &Map.delete(&1, session_id))
+          else
+            put_in(state, [:sessions, session_id], updated)
+          end
+
+        {:reply, :ok, next_state}
     end
+  end
+
+  def handle_call({:close_session, session_id}, _from, state) do
+    case Map.get(state.sessions, session_id) do
+      nil ->
+        {:reply, :ok, state}
+
+      session ->
+        empty_session =
+          session
+          |> Map.put(:viewers, %{})
+          |> Map.put(:updated_at_unix, now_unix())
+
+        Enum.each(session.viewers, fn {_viewer_session_id, viewer} ->
+          remove_provider_viewer(viewer, session_id)
+          emit_viewer_event(:removed, empty_session, viewer)
+        end)
+
+        {:reply, :ok, update_in(state, [:sessions], &Map.delete(&1, session_id))}
+    end
+  end
+
+  def handle_call({:prune_session, session_id}, _from, state) do
+    next_state =
+      case Map.get(state.sessions, session_id) do
+        %{viewers: viewers} when map_size(viewers) == 0 ->
+          update_in(state, [:sessions], &Map.delete(&1, session_id))
+
+        _active_or_missing ->
+          state
+      end
+
+    {:reply, :ok, next_state}
   end
 
   def handle_call({:forward_frame, session_id, frame, opts}, _from, state) do
@@ -198,6 +246,12 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
   end
 
   def handle_call(:reset, _from, state) do
+    Enum.each(state.sessions, fn {session_id, session} ->
+      Enum.each(session.viewers, fn {_viewer_session_id, viewer} ->
+        remove_provider_viewer(viewer, session_id)
+      end)
+    end)
+
     {:reply, :ok, %{state | sessions: %{}}}
   end
 

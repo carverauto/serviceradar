@@ -33,6 +33,11 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 )
 
+const (
+	testDesktopRDPHelperAgentID   = "agent-1"
+	testDesktopRDPHelperGatewayID = "gateway-1"
+)
+
 var errFakeDesktopRDPHelperStartFailed = errors.New("helper start failed")
 
 func TestDesktopRDPHelperAdapterOpenSendsPayloadAndClearsCredential(t *testing.T) {
@@ -46,7 +51,7 @@ func TestDesktopRDPHelperAdapterOpenSendsPayloadAndClearsCredential(t *testing.T
 		ActorID:   "user-1",
 		SessionID: "desktop-session-1",
 		TargetID:  "target-1",
-		RouteID:   "agent-1",
+		RouteID:   testDesktopRDPHelperAgentID,
 	}
 
 	session, err := (desktopRDPHelperAdapter{
@@ -57,8 +62,8 @@ func TestDesktopRDPHelperAdapterOpenSendsPayloadAndClearsCredential(t *testing.T
 	}).Open(context.Background(), remoteaccess.DesktopAdapterOpenRequest{
 		SessionID:        "desktop-session-1",
 		ActorID:          "user-1",
-		LocalAgentID:     "agent-1",
-		CurrentGatewayID: "gateway-1",
+		LocalAgentID:     testDesktopRDPHelperAgentID,
+		CurrentGatewayID: testDesktopRDPHelperGatewayID,
 		StartUnix:        1_778_000_000,
 		Target:           testDesktopRDPHelperTarget(),
 		CredentialGrant:  grant,
@@ -85,8 +90,8 @@ func TestDesktopRDPHelperAdapterOpenSendsPayloadAndClearsCredential(t *testing.T
 	if payload.Schema != "serviceradar.rdp.helper.open.v1" ||
 		payload.SessionID != "desktop-session-1" ||
 		payload.ActorID != "user-1" ||
-		payload.LocalAgentID != "agent-1" ||
-		payload.GatewayID != "gateway-1" ||
+		payload.LocalAgentID != testDesktopRDPHelperAgentID ||
+		payload.GatewayID != testDesktopRDPHelperGatewayID ||
 		payload.CredentialGrant == nil ||
 		payload.CredentialGrant.Username != "alice@example.com" ||
 		payload.CredentialGrant.Password != "secret" {
@@ -112,8 +117,8 @@ func TestDesktopRDPHelperAdapterUsesDynamicHelperPath(t *testing.T) {
 	}).Open(context.Background(), remoteaccess.DesktopAdapterOpenRequest{
 		SessionID:        "desktop-session-1",
 		ActorID:          "user-1",
-		LocalAgentID:     "agent-1",
-		CurrentGatewayID: "gateway-1",
+		LocalAgentID:     testDesktopRDPHelperAgentID,
+		CurrentGatewayID: testDesktopRDPHelperGatewayID,
 		StartUnix:        1_778_000_000,
 		Target:           testDesktopRDPHelperTarget(),
 		MediaSender:      &fakeDesktopRDPHelperMediaSender{},
@@ -138,7 +143,7 @@ func TestDesktopRDPHelperAdapterOpenClearsCredentialOnHelperStartFailure(t *test
 		ActorID:   "user-1",
 		SessionID: "desktop-session-1",
 		TargetID:  "target-1",
-		RouteID:   "agent-1",
+		RouteID:   testDesktopRDPHelperAgentID,
 	}
 	_, err := (desktopRDPHelperAdapter{
 		HelperPath: "helper",
@@ -148,8 +153,8 @@ func TestDesktopRDPHelperAdapterOpenClearsCredentialOnHelperStartFailure(t *test
 	}).Open(context.Background(), remoteaccess.DesktopAdapterOpenRequest{
 		SessionID:        "desktop-session-1",
 		ActorID:          "user-1",
-		LocalAgentID:     "agent-1",
-		CurrentGatewayID: "gateway-1",
+		LocalAgentID:     testDesktopRDPHelperAgentID,
+		CurrentGatewayID: testDesktopRDPHelperGatewayID,
 		StartUnix:        1_778_000_000,
 		Target:           testDesktopRDPHelperTarget(),
 		CredentialGrant:  grant,
@@ -890,8 +895,8 @@ func openTestDesktopRDPHelperSession(
 	}).Open(context.Background(), remoteaccess.DesktopAdapterOpenRequest{
 		SessionID:        "desktop-session-1",
 		ActorID:          "user-1",
-		LocalAgentID:     "agent-1",
-		CurrentGatewayID: "gateway-1",
+		LocalAgentID:     testDesktopRDPHelperAgentID,
+		CurrentGatewayID: testDesktopRDPHelperGatewayID,
 		StartUnix:        1_778_000_000,
 		Target:           testDesktopRDPHelperTarget(),
 		MediaSender:      mediaSender,
@@ -903,8 +908,8 @@ func testDesktopRDPHelperTarget() remoteaccess.DesktopTarget {
 		TargetID: "target-1",
 		Protocol: remoteaccess.ProtocolRDP,
 		Route: remoteaccess.DesktopRoute{
-			SelectedAgentID: "agent-1",
-			SelectedGateway: "gateway-1",
+			SelectedAgentID: testDesktopRDPHelperAgentID,
+			SelectedGateway: testDesktopRDPHelperGatewayID,
 		},
 		Upstream: remoteaccess.DesktopUpstream{Host: "rdp.example", Port: remoteaccess.DesktopDefaultRDPPort},
 		TLS: remoteaccess.DesktopTLSPolicy{

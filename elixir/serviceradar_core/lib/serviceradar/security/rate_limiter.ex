@@ -37,6 +37,25 @@ defmodule ServiceRadar.Security.RateLimiter do
   @cleanup_interval to_timeout(minute: 5)
   @registration_interval to_timeout(second: 30)
   @snapshot_timeout to_timeout(second: 2)
+  @built_in_default_bucket [limit: 60, window_seconds: 60]
+  @built_in_buckets %{
+    auth_local: [limit: 5, window_seconds: 60],
+    auth_password_reset: [limit: 5, window_seconds: 300],
+    auth_oidc_callback: [limit: 30, window_seconds: 60],
+    auth_saml_callback: [limit: 30, window_seconds: 60],
+    cli_device_auth: [limit: 30, window_seconds: 60],
+    dashboard_publish: [limit: 10, window_seconds: 60],
+    dashboard_publish_admin: [limit: 30, window_seconds: 60],
+    edge_onboarding_package_create_actor: [limit: 10, window_seconds: 60],
+    edge_onboarding_package_create_partition: [limit: 30, window_seconds: 60],
+    cli_token_poll: [limit: 60, window_seconds: 60],
+    plugin_upload: [limit: 10, window_seconds: 60],
+    oauth_password_grant: [limit: 10, window_seconds: 60],
+    oauth_client_credentials: [limit: 20, window_seconds: 60],
+    remote_access_ssh_certificate_issue: [limit: 10, window_seconds: 60],
+    automation_callback_grant: [limit: 30, window_seconds: 60],
+    api_default: [limit: 120, window_seconds: 60]
+  }
 
   @type bucket :: atom() | binary()
   @type subject_key :: term()
@@ -96,14 +115,19 @@ defmodule ServiceRadar.Security.RateLimiter do
   end
 
   @doc """
-  Returns `{limit, window_seconds}` for a configured bucket. Falls back
-  to the default bucket. Caller-supplied `opts` override config.
+  Returns `{limit, window_seconds}` for a configured bucket. Security-sensitive
+  bucket defaults are compiled into this shared module because a parent Mix
+  release does not inherit a path dependency's config files. Explicit runtime
+  config and caller-supplied `opts` may override those defaults.
   """
   @spec resolve_bucket(bucket(), opts()) :: {pos_integer(), pos_integer()}
   def resolve_bucket(bucket, opts \\ []) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
-    default = Keyword.get(config, :default_bucket, limit: 60, window_seconds: 60)
-    buckets = config |> Keyword.get(:buckets, %{}) |> normalize_buckets()
+    default = Keyword.get(config, :default_bucket, @built_in_default_bucket)
+
+    buckets =
+      Map.merge(@built_in_buckets, config |> Keyword.get(:buckets, %{}) |> normalize_buckets())
+
     base = Map.get(buckets, bucket, default)
     limit = Keyword.get(opts, :limit, Keyword.get(base, :limit, 60))
     window = Keyword.get(opts, :window_seconds, Keyword.get(base, :window_seconds, 60))

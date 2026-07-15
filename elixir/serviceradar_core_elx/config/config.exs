@@ -43,6 +43,7 @@ config :serviceradar_core,
     ServiceRadar.Credentials,
     ServiceRadar.Automation.Northbound,
     ServiceRadar.Automation.Ansible,
+    ServiceRadar.Automation.Callbacks,
     ServiceRadar.Security
   ]
 

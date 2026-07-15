@@ -10,9 +10,9 @@
 - [x] 1.3 Rewrite the openssl-src runfiles/readme label references from
   `@rust_crates__openssl-src-*//:…` to the vendored crate's labels
   (`//third_party/crates/openssl-src-300.6.1-3.6.3:…`; `+`→`-` sanitized).
-- [x] 1.4 `packages`: keep `ironrdp-core`/`ironrdp-pdu` (referenced by `rust/rdp-adapter`
-  via `@rust_crates//:ironrdp-*`, so they need top-level aliases; already in the lock →
-  no repin). Drop `libzetta` (referenced by no Cargo.toml / Cargo.lock / BUILD target).
+- [x] 1.4 Drop the unused `libzetta`, `ironrdp-core`, and `ironrdp-pdu` root `packages`
+  extras. The shipped RDP helper resolves IronRDP from the exact-pinned, independent
+  `rdp_connector_crates` universe instead of duplicating that graph in the root vendor.
 - [x] 1.5 Add `.cargo/config.toml` to the root `exports_files(...)` and pass
   `cargo_config = "//:.cargo/config.toml"`.
 - [x] 1.6 Fix `scripts/vendor.sh` (`//thirdparty`→`//third_party`) and make it the
@@ -26,6 +26,10 @@
   `openssl-sys` annotation labels.
 - [ ] 2.3 Commit `third_party/crates/**`. If the ~1 GB local weight is unacceptable,
   switch to `mode = "remote"` (design D4).
+- [x] 2.4 Record the root Cargo manifest, lockfile, and all workspace member manifest
+  hashes in `third_party/crates/.serviceradar-vendor-inputs`; make the native add-on
+  version guard validate this index while retaining `MODULE.bazel.lock` validation for
+  the independent RDP connector universe.
 
 ## 3. Drop OpenSSL for rustls where possible; vendor it where not (openssl portability)
 
@@ -60,7 +64,7 @@
 
 - [x] 4.1 Swap `@rust_crates//:` → `//third_party/crates:` across all Rust BUILD files —
   covers both `load("…/:defs.bzl", …)` and direct alias labels (`@rust_crates//:serde`,
-  `:ironrdp-core`, `:tempfile`, `:zeroize`, `:async-nats`, `:serde_json-1.0.150`). 43
+  `:tempfile`, `:zeroize`, `:async-nats`, `:serde_json-1.0.150`). 43
   refs across 33 files (incl. `rust/rdp-adapter` + 3 `third_party/rust_patches/*`). Dep
   lists unchanged.
 - [x] 4.2 Representative build green: `//rust/metric-proto`, `//rust/kvutil`,

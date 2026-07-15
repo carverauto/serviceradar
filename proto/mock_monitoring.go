@@ -321,6 +321,26 @@ func (mr *MockAgentGatewayServiceClientMockRecorder) PushStatus(ctx, in any, opt
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PushStatus", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).PushStatus), varargs...)
 }
 
+// ResolveAutomationLaunchEnvelope mocks base method.
+func (m *MockAgentGatewayServiceClient) ResolveAutomationLaunchEnvelope(ctx context.Context, in *AutomationLaunchEnvelopeResolveRequest, opts ...grpc.CallOption) (*AutomationLaunchEnvelopeResolveResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ResolveAutomationLaunchEnvelope", varargs...)
+	ret0, _ := ret[0].(*AutomationLaunchEnvelopeResolveResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResolveAutomationLaunchEnvelope indicates an expected call of ResolveAutomationLaunchEnvelope.
+func (mr *MockAgentGatewayServiceClientMockRecorder) ResolveAutomationLaunchEnvelope(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveAutomationLaunchEnvelope", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).ResolveAutomationLaunchEnvelope), varargs...)
+}
+
 // ResolveCredentialGrant mocks base method.
 func (m *MockAgentGatewayServiceClient) ResolveCredentialGrant(ctx context.Context, in *CredentialBrokerResolveRequest, opts ...grpc.CallOption) (*CredentialBrokerResolveResponse, error) {
 	m.ctrl.T.Helper()
@@ -462,6 +482,21 @@ func (m *MockAgentGatewayServiceServer) PushStatus(arg0 context.Context, arg1 *G
 func (mr *MockAgentGatewayServiceServerMockRecorder) PushStatus(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PushStatus", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).PushStatus), arg0, arg1)
+}
+
+// ResolveAutomationLaunchEnvelope mocks base method.
+func (m *MockAgentGatewayServiceServer) ResolveAutomationLaunchEnvelope(arg0 context.Context, arg1 *AutomationLaunchEnvelopeResolveRequest) (*AutomationLaunchEnvelopeResolveResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResolveAutomationLaunchEnvelope", arg0, arg1)
+	ret0, _ := ret[0].(*AutomationLaunchEnvelopeResolveResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResolveAutomationLaunchEnvelope indicates an expected call of ResolveAutomationLaunchEnvelope.
+func (mr *MockAgentGatewayServiceServerMockRecorder) ResolveAutomationLaunchEnvelope(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveAutomationLaunchEnvelope", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).ResolveAutomationLaunchEnvelope), arg0, arg1)
 }
 
 // ResolveCredentialGrant mocks base method.

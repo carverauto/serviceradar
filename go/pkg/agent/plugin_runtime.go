@@ -87,13 +87,14 @@ var (
 
 // PluginManagerConfig configures the Wasm plugin manager.
 type PluginManagerConfig struct {
-	CacheDir           string
-	LocalStoreDir      string
-	Logger             logger.Logger
-	HTTPClient         *http.Client
-	ArtifactHTTPClient *http.Client
-	CredentialBroker   CredentialBrokerResolver
-	ArtifactUploader   PluginArtifactUploader
+	CacheDir                      string
+	LocalStoreDir                 string
+	Logger                        logger.Logger
+	HTTPClient                    *http.Client
+	ArtifactHTTPClient            *http.Client
+	CredentialBroker              CredentialBrokerResolver
+	AWXCallbackCredentialResolver AWXCallbackCredentialEnvelopeResolver
+	ArtifactUploader              PluginArtifactUploader
 }
 
 // CredentialBrokerResolver resolves a validated broker grant for agent-owned
@@ -108,18 +109,20 @@ type CredentialBrokerMaterial = coreaddon.CredentialBrokerMaterial
 
 // PluginManager manages Wasm plugin assignments and execution.
 type PluginManager struct {
-	logger             logger.Logger
-	cacheDir           string
-	localStoreDir      string
-	httpClient         *http.Client
-	artifactHTTPClient *http.Client
-	compilationCache   wazero.CompilationCache
-	credentialBroker   CredentialBrokerResolver
-	artifactUploader   PluginArtifactUploader
-	credentialCache    map[string]credentialBrokerCacheEntry
-	credentialNow      func() time.Time
-	credentialMu       sync.Mutex
-	artifactMu         sync.Mutex
+	logger                        logger.Logger
+	cacheDir                      string
+	localStoreDir                 string
+	httpClient                    *http.Client
+	artifactHTTPClient            *http.Client
+	compilationCache              wazero.CompilationCache
+	credentialBroker              CredentialBrokerResolver
+	awxCallbackCredentialResolver AWXCallbackCredentialEnvelopeResolver
+	artifactUploader              PluginArtifactUploader
+	credentialCache               map[string]credentialBrokerCacheEntry
+	credentialNow                 func() time.Time
+	credentialMu                  sync.Mutex
+	awxCallbackCredentialMu       sync.Mutex
+	artifactMu                    sync.Mutex
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -131,8 +134,11 @@ type PluginManager struct {
 	results chan PluginResult
 	signals chan PluginSignalTelemetry
 
-	actionMu      sync.Mutex
-	activeActions map[string]struct{}
+	actionMu              sync.Mutex
+	activeActions         map[string]struct{}
+	streamExecutionMu     sync.Mutex
+	streamExecutions      map[uint64]activePluginStreamExecution
+	nextStreamExecutionID uint64
 
 	// conditions de-duplicates per-cycle plugin condition events (e.g. Proxmox
 	// resource pressure/bottleneck) so only level transitions are forwarded.
@@ -166,6 +172,12 @@ type assignmentState struct {
 type credentialBrokerCacheEntry struct {
 	material  CredentialBrokerMaterial
 	expiresAt time.Time
+}
+
+type activePluginStreamExecution struct {
+	assignmentID string
+	generation   string
+	cancel       context.CancelFunc
 }
 
 // PluginResult captures a raw plugin result payload.

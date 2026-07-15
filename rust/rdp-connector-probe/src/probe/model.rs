@@ -330,6 +330,8 @@ pub fn build_connector_config(
         bitmap: None,
         dig_product_id: String::new(),
         client_dir: CLIENT_DIR.to_owned(),
+        alternate_shell: String::new(),
+        work_dir: String::new(),
         platform: ironrdp_pdu::rdp::capability_sets::MajorPlatformType::UNIX,
         hardware_id: None,
         request_data: None,
@@ -338,8 +340,10 @@ pub fn build_connector_config(
         performance_flags: ironrdp_pdu::rdp::client_info::PerformanceFlags::default(),
         license_cache: None,
         timezone_info: ironrdp_pdu::rdp::client_info::TimezoneInfo::default(),
+        compression_type: None,
         enable_server_pointer: false,
         pointer_software_rendering: false,
+        multitransport_flags: None,
     })
 }
 
@@ -437,24 +441,21 @@ fn build_active_stage_for_probe(
     let config = plan.connector_config;
     let desktop_size = config.desktop_size;
     let connector = ironrdp_connector::ClientConnector::new(config.clone(), CLIENT_ADDR);
-    let connection_activation =
-        ironrdp_connector::connection_activation::ConnectionActivationSequence::new(
-            config, 1003, 1004,
-        );
-    let connection_result = ironrdp_connector::ConnectionResult {
-        io_channel_id: 1003,
-        user_channel_id: 1004,
+    let active_stage = ironrdp_session::ActiveStageBuilder {
         static_channels: connector.static_channels,
-        desktop_size,
+        user_channel_id: 1004,
+        io_channel_id: 1003,
+        message_channel_id: None,
+        // This synthetic probe only encodes fast-path client input; no server
+        // share-control frames are processed, so no negotiated share ID exists.
+        share_id: 0,
+        compression_type: None,
         enable_server_pointer: false,
         pointer_software_rendering: false,
-        connection_activation,
-    };
+    }
+    .build();
 
-    Ok((
-        ironrdp_session::ActiveStage::new(connection_result),
-        desktop_size,
-    ))
+    Ok((active_stage, desktop_size))
 }
 
 fn summarize_active_stage_outputs(
@@ -478,7 +479,9 @@ fn summarize_active_stage_outputs(
             | ironrdp_session::ActiveStageOutput::PointerPosition { .. }
             | ironrdp_session::ActiveStageOutput::PointerBitmap(_)
             | ironrdp_session::ActiveStageOutput::Terminate(_)
-            | ironrdp_session::ActiveStageOutput::DeactivateAll(_) => {}
+            | ironrdp_session::ActiveStageOutput::DeactivateAll
+            | ironrdp_session::ActiveStageOutput::MultitransportRequest(_)
+            | ironrdp_session::ActiveStageOutput::AutoDetect(_) => {}
         }
     }
 
@@ -488,4 +491,3 @@ fn summarize_active_stage_outputs(
         graphics_updates,
     }
 }
-

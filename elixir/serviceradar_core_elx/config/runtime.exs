@@ -2,6 +2,8 @@ import Config
 
 alias Geolix.Adapter.MMDB2
 alias Oban.Plugins.Cron
+alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
+alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
 alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.Jobs.AlertsRetentionWorker
@@ -10,6 +12,43 @@ alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecas
 alias ServiceRadar.Observability.DataRetentionWorker
 alias ServiceRadar.Observability.ProductionSchedule
 alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
+
+callback_deployment =
+  RuntimeConfig.callback_deployment_config!(%{
+    enabled: System.get_env("SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED", "false"),
+    credential_type_id: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_CREDENTIAL_TYPE_ID"),
+    organization_id: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_ORGANIZATION_ID"),
+    injector_digest: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_INJECTOR_DIGEST"),
+    response_policy_file: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_RESPONSE_POLICY_FILE")
+  })
+
+# This release hosts callback result coordination and recovery from
+# serviceradar_core. Those internal continuations use persisted authority and
+# must never receive the web tier's bearer HMAC keyring.
+config :serviceradar_core, :automation_callback_grants, []
+
+if is_map(callback_deployment) do
+  envelope_key =
+    "SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE"
+    |> System.get_env()
+    |> RuntimeConfig.load_envelope_key_file!()
+
+  config :serviceradar_core,
+         FileCallbackResponsePolicyProvider,
+         callback_deployment.response_policy_provider_config
+
+  config :serviceradar_core,
+         :automation_callback_awx_credential_contract,
+         callback_deployment.credential_contract
+
+  config :serviceradar_core,
+         :automation_callback_response_policy_provider,
+         callback_deployment.response_policy_provider
+
+  config :serviceradar_core,
+    automation_launch_envelope_key: envelope_key,
+    automation_launch_envelope_key_id: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID", "current")
+end
 
 parse_int_env = fn env_name, default ->
   case System.get_env(env_name) do
@@ -375,6 +414,19 @@ config :serviceradar_core, :spiffe,
 
 config :serviceradar_core,
   mapper_topology_edge_stale_minutes: parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
+
+# Keep authenticated desktop viewers and ingress actors bounded. These are
+# deliberately runtime-tunable so operators can size the media plane without
+# weakening owner-bound authorization.
+config :serviceradar_core_elx,
+  remote_desktop_webrtc_max_viewers_per_session:
+    max(parse_int_env.("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_MAX_VIEWERS_PER_SESSION", 2), 1),
+  remote_desktop_webrtc_max_viewers_per_actor:
+    max(parse_int_env.("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_MAX_VIEWERS_PER_ACTOR", 4), 1),
+  remote_desktop_webrtc_max_viewers_global:
+    max(parse_int_env.("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_MAX_VIEWERS_GLOBAL", 64), 1),
+  remote_desktop_media_ingress_idle_timeout_ms:
+    max(parse_int_env.("SERVICERADAR_REMOTE_ACCESS_DESKTOP_INGRESS_IDLE_TIMEOUT_MS", 60_000), 1_000)
 
 if config_env() == :prod do
   cloak_key =

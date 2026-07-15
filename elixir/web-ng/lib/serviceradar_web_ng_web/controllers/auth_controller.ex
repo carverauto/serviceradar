@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
+  alias ServiceRadar.Identity.Users
   alias ServiceRadar.Security.Lockouts
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Guardian
@@ -67,11 +68,15 @@ defmodule ServiceRadarWebNGWeb.AuthController do
         # local-login-vs-SSO server-side (fail closed) before creating a session.
         case enforce_local_login(user) do
           {:allow, _settings} ->
-            record_successful_auth_async(conn, user, :password, break_glass?: LoginPolicy.force_local_login?())
+            case record_successful_auth(conn, user, :password, break_glass?: LoginPolicy.force_local_login?()) do
+              {:ok, user} ->
+                conn
+                |> put_flash(:info, "Signed in successfully.")
+                |> UserAuth.log_in_user(user)
 
-            conn
-            |> put_flash(:info, "Signed in successfully.")
-            |> UserAuth.log_in_user(user)
+              {:error, reason} ->
+                login_recording_failed(conn, user, reason, ~p"/users/log-in")
+            end
 
           {:deny, settings} ->
             deny_local_login(conn, user.email, settings)
@@ -121,14 +126,18 @@ defmodule ServiceRadarWebNGWeb.AuthController do
           {:allow, _settings} ->
             Logger.info("Successful local admin login for #{email} from IP: #{client_ip}")
 
-            record_successful_auth_async(conn, user, :password,
-              hook_method: "local_password",
-              break_glass?: LoginPolicy.force_local_login?()
-            )
+            case record_successful_auth(conn, user, :password,
+                   hook_method: "local_password",
+                   break_glass?: LoginPolicy.force_local_login?()
+                 ) do
+              {:ok, user} ->
+                conn
+                |> put_flash(:info, "Signed in successfully.")
+                |> UserAuth.log_in_user(user)
 
-            conn
-            |> put_flash(:info, "Signed in successfully.")
-            |> UserAuth.log_in_user(user)
+              {:error, reason} ->
+                login_recording_failed(conn, user, reason, ~p"/auth/local")
+            end
 
           {:deny, settings} ->
             Logger.warning("Local admin login denied by policy (SSO-enforced) for #{email} from IP: #{client_ip}")
@@ -174,6 +183,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
   defp maybe_send_password_reset(email, actor) do
     with {:ok, user} <- User.get_by_email(email, actor: actor),
+         :ok <- enforce_password_recovery(user),
          {:ok, token, _claims} <-
            Guardian.create_access_token(user, token_type: "reset", ttl: {1, :hour}) do
       reset_url = AuthURL.password_reset_url(token)
@@ -185,6 +195,18 @@ defmodule ServiceRadarWebNGWeb.AuthController do
     end
 
     :ok
+  end
+
+  defp enforce_password_recovery(user) do
+    settings =
+      case ConfigCache.get_settings() do
+        {:ok, settings} -> settings
+        {:error, _reason} -> nil
+      end
+
+    if LoginPolicy.password_recovery_allowed?(user, settings),
+      do: :ok,
+      else: {:error, :password_recovery_denied}
   end
 
   # Resolves AuthSettings (fail closed on error) and applies the server-side
@@ -215,34 +237,54 @@ defmodule ServiceRadarWebNGWeb.AuthController do
     |> redirect(to: LoginPolicy.sso_entry_path(settings))
   end
 
-  defp record_successful_auth_async(conn, user, auth_method, opts) do
+  # Persist the authentication method before creating a browser session. In
+  # particular, a password login must immediately replace a historical OIDC or
+  # SAML value so downstream authorization cannot mistake it for the current
+  # authentication method. Hooks and audit enrichment remain best-effort async
+  # work after that security-relevant write succeeds.
+  defp record_successful_auth(conn, user, auth_method, opts) do
     hook_method = Keyword.get(opts, :hook_method, Atom.to_string(auth_method))
     break_glass? = Keyword.get(opts, :break_glass?, false)
     ip = ClientIP.get(conn)
     user_agent = conn |> Plug.Conn.get_req_header("user-agent") |> List.first()
     actor = SystemActor.system(:auth_controller)
 
-    task = fn ->
-      _ = User.record_authentication(user, actor: actor)
-      _ = Hooks.on_user_authenticated(user, %{"method" => hook_method})
-      _ = UserAuthEvents.record_login_context(user, auth_method, ip, user_agent)
+    with {:ok, user} <- Users.record_login(user, auth_method, actor: actor) do
+      task = fn ->
+        _ = User.record_authentication(user, actor: actor)
+        _ = Hooks.on_user_authenticated(user, %{"method" => hook_method})
+        _ = UserAuthEvents.record_login_context(user, auth_method, ip, user_agent)
 
-      if break_glass? do
-        Logger.warning(
-          "[break-glass] Local login permitted by SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN " <>
-            "for #{user.email} from IP: #{ip}"
-        )
+        if break_glass? do
+          Logger.warning(
+            "[break-glass] Local login permitted by SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN " <>
+              "for #{user.email} from IP: #{ip}"
+          )
 
-        _ = UserAuthEvents.record_login_context(user, :break_glass_local_login, ip, user_agent)
+          _ = UserAuthEvents.record_login_context(user, :break_glass_local_login, ip, user_agent)
+        end
+
+        :ok
       end
 
-      :ok
-    end
+      case Task.Supervisor.start_child(ServiceRadarWebNG.TaskSupervisor, task) do
+        {:ok, _pid} -> :ok
+        {:error, reason} -> Logger.warning("Unable to start auth audit task: #{inspect(reason)}")
+      end
 
-    case Task.Supervisor.start_child(ServiceRadarWebNG.TaskSupervisor, task) do
-      {:ok, _pid} -> :ok
-      {:error, reason} -> Logger.warning("Unable to start auth audit task: #{inspect(reason)}")
+      {:ok, user}
     end
+  end
+
+  defp login_recording_failed(conn, user, reason, redirect_path) do
+    Logger.error(
+      "Refusing login because the authentication method could not be persisted " <>
+        "for user_id=#{user.id}: #{inspect(reason)}"
+    )
+
+    conn
+    |> put_flash(:error, "Unable to sign in. Please try again.")
+    |> redirect(to: redirect_path)
   end
 
   @doc """
@@ -275,6 +317,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
     with :ok <- validate_reset_password_confirmation(password, password_confirmation),
          {:ok, user, _claims} <- Guardian.verify_token(token, token_type: "reset"),
+         :ok <- enforce_password_recovery(user),
          {:ok, user} <-
            user
            |> Ash.Changeset.for_update(
@@ -282,7 +325,12 @@ defmodule ServiceRadarWebNGWeb.AuthController do
              %{password: password},
              actor: actor
            )
-           |> Ash.update() do
+           |> Ash.update(),
+         {:ok, user} <-
+           record_successful_auth(conn, user, :password,
+             hook_method: "password_reset",
+             break_glass?: false
+           ) do
       conn
       |> put_flash(:info, "Password reset successfully.")
       |> UserAuth.log_in_user(user)

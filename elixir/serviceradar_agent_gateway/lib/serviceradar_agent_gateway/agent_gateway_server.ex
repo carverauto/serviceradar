@@ -36,6 +36,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   use GRPC.Server, service: Monitoring.AgentGatewayService.Service
 
+  alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadarAgentGateway.AgentRegistryProxy
@@ -125,7 +126,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     identity = extract_identity_from_stream(stream)
     {identity, _component_type} = resolve_component_type!(identity, agent_id)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
-    partition_id = resolve_partition(identity, request.partition)
+    partition_id = resolve_partition(identity)
     capabilities = normalize_capabilities(request.capabilities || [])
     source_ip = get_peer_ip(stream)
 
@@ -172,12 +173,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     identity = extract_identity_from_stream(stream)
     {identity, component_type} = resolve_component_type!(identity, agent_id)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+    partition_id = resolve_partition(identity)
 
     Logger.info("Config request received: component_type=#{component_type}, agent_id=#{agent_id}")
 
     # Generate config from database using the config generator
     AgentGatewaySync
-    |> core_call(:get_config_if_changed, [agent_id, config_version], 15_000)
+    |> core_call(:get_config_if_changed, [agent_id, partition_id, config_version], 15_000)
     |> handle_config_response(agent_id, config_version)
   end
 
@@ -237,7 +239,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp credential_grant_denied_response(agent_id, grant_id, reason) do
     Logger.warning(
-      "Credential broker grant resolution denied: agent_id=#{agent_id}, grant_id=#{grant_id}, reason=#{inspect(reason)}"
+      "Credential broker grant resolution denied",
+      [agent_id: agent_id, grant_id: grant_id] ++ SafeFailureEvidence.log_metadata(reason)
     )
 
     %Monitoring.CredentialBrokerResolveResponse{
@@ -245,6 +248,94 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       message: "credential grant resolution denied"
     }
   end
+
+  @doc """
+  Resolve a single-use automation launch envelope for an authenticated agent.
+
+  The mTLS certificate, not the request body, establishes the agent identity.
+  Only the opaque reference and command correlation cross this RPC boundary.
+  """
+  @spec resolve_automation_launch_envelope(
+          Monitoring.AutomationLaunchEnvelopeResolveRequest.t(),
+          GRPC.Server.Stream.t()
+        ) :: Monitoring.AutomationLaunchEnvelopeResolveResponse.t()
+  def resolve_automation_launch_envelope(request, stream) do
+    identity = extract_identity_from_stream(stream)
+    agent_id = identity |> Map.fetch!(:component_id) |> required_agent_id()
+    {identity, _component_type} = resolve_component_type!(identity, agent_id)
+    enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+    partition_id = resolve_partition(identity)
+
+    enforce_component_identity!(
+      identity,
+      required_agent_id(request.agent_id),
+      @agent_gateway_component_types
+    )
+
+    request_map = %{
+      agent_id: agent_id,
+      partition_id: partition_id,
+      envelope_ref: request.envelope_ref,
+      command_id: request.command_id
+    }
+
+    AgentGatewaySync
+    |> core_call(:resolve_automation_launch_envelope, [request_map], 15_000)
+    |> automation_launch_envelope_response(agent_id, request.command_id)
+  end
+
+  @doc false
+  def automation_launch_envelope_response(core_result, agent_id, command_id) do
+    case core_result do
+      {:ok, {:ok, material}} ->
+        %Monitoring.AutomationLaunchEnvelopeResolveResponse{
+          success: true,
+          message: "automation launch envelope resolved",
+          bearer: Map.get(material, :bearer, <<>>),
+          idempotency_key: Map.get(material, :idempotency_key, <<>>),
+          callback_grant_id: Map.get(material, :callback_grant_id, ""),
+          expires_at_unix: expires_at_unix(Map.get(material, :expires_at)),
+          callback_url: Map.get(material, :callback_url, <<>>),
+          callback_allowed_origin: Map.get(material, :callback_allowed_origin, <<>>),
+          manifest_sha256: Map.get(material, :manifest_sha256, <<>>),
+          scm_revision: Map.get(material, :scm_revision, <<>>),
+          content_sha256: Map.get(material, :content_sha256, <<>>),
+          callback_phase: Map.get(material, :callback_phase, <<>>),
+          callback_operation: Map.get(material, :callback_operation, <<>>),
+          callback_state: Map.get(material, :callback_state, <<>>),
+          controller_id: Map.get(material, :controller_id, ""),
+          inventory_id: Map.get(material, :inventory_id, 0),
+          job_template_id: Map.get(material, :job_template_id, 0),
+          callback_credential_type_id: Map.get(material, :callback_credential_type_id, 0),
+          callback_credential_organization_id: Map.get(material, :callback_credential_organization_id, 0),
+          callback_credential_injector_sha256: Map.get(material, :callback_credential_injector_sha256, <<>>),
+          dispatch_agent_id: Map.get(material, :dispatch_agent_id, ""),
+          child_execution_id: Map.get(material, :child_execution_id, ""),
+          command_id: Map.get(material, :command_id, "")
+        }
+
+      {:ok, {:error, reason}} ->
+        automation_launch_envelope_denied_response(agent_id, command_id, reason)
+
+      {:error, reason} ->
+        automation_launch_envelope_denied_response(agent_id, command_id, reason)
+    end
+  end
+
+  defp automation_launch_envelope_denied_response(agent_id, command_id, reason) do
+    Logger.warning(
+      "Automation launch envelope resolution denied",
+      [agent_id: agent_id, command_id: command_id] ++ SafeFailureEvidence.log_metadata(reason)
+    )
+
+    %Monitoring.AutomationLaunchEnvelopeResolveResponse{
+      success: false,
+      message: "automation launch envelope resolution denied"
+    }
+  end
+
+  defp expires_at_unix(%DateTime{} = expires_at), do: DateTime.to_unix(expires_at, :second)
+  defp expires_at_unix(_expires_at), do: 0
 
   @doc """
   Stream an agent config response in bounded chunks.
@@ -263,12 +354,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     identity = extract_identity_from_stream(stream)
     {identity, component_type} = resolve_component_type!(identity, agent_id)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+    partition_id = resolve_partition(identity)
 
     Logger.info("Stream config request received: component_type=#{component_type}, agent_id=#{agent_id}")
 
     response =
       AgentGatewaySync
-      |> core_call(:get_config_if_changed, [agent_id, config_version], 15_000)
+      |> core_call(:get_config_if_changed, [agent_id, partition_id, config_version], 15_000)
       |> handle_config_response(agent_id, config_version)
 
     chunks = config_response_chunks(agent_id, response)
@@ -316,7 +408,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     # Extract identity from mTLS certificate (secure source of truth)
     identity = extract_identity_from_stream(stream)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
-    partition = resolve_partition(identity, request.partition)
+    partition = resolve_partition(identity)
 
     refresh_agent_heartbeat(identity, agent_id, partition, request, stream)
 
@@ -625,6 +717,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp strict_delivery_status?(%{source: source} = status), do: strict_delivery_source?(source, status)
+
   defp strict_delivery_status?(_status), do: false
 
   defp gateway_status_directives(service, %{directives: directives}) when is_map(directives) do
@@ -760,7 +853,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     |> Enum.uniq()
   end
 
-  defp resolve_partition(identity, _request_partition) do
+  defp resolve_partition(identity) do
     partition_id = Map.fetch!(identity, :partition_id)
     normalize_partition(partition_id)
   end
@@ -1315,7 +1408,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     Logger.debug("Received chunk #{chunk_index + 1}/#{total_chunks} from agent #{agent_id}")
 
-    partition = resolve_partition(identity, chunk.partition)
+    partition = resolve_partition(identity)
     ensure_stream_registration(state.registered?, identity, agent_id, partition, chunk, stream)
 
     metadata =
@@ -1654,7 +1747,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     {identity, _component_type} = resolve_component_type!(identity, agent_id)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
 
-    partition_id = resolve_partition(identity, hello.partition)
+    partition_id = resolve_partition(identity)
     capabilities = normalize_capabilities(hello.capabilities || [])
     source_ip = get_peer_ip(stream)
 
@@ -1664,16 +1757,25 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     track_connected_agent(agent_id, partition_id, hello, source_ip)
 
     {:ok, session} = ControlStreamSession.start_link(stream: stream)
-    register_control_session(session, agent_id, partition_id, capabilities, identity_context)
+
+    register_control_session(
+      session,
+      agent_id,
+      partition_id,
+      capabilities,
+      identity_context,
+      hello
+    )
   end
 
-  defp register_control_session(session, agent_id, partition_id, capabilities, identity_context) do
+  defp register_control_session(session, agent_id, partition_id, capabilities, identity_context, hello) do
     case ControlStreamSession.register(
            session,
            agent_id,
            partition_id,
            capabilities,
-           identity_context
+           identity_context,
+           hello
          ) do
       :ok ->
         Logger.info("Control stream established: agent_id=#{agent_id}, partition=#{partition_id}")

@@ -45,6 +45,10 @@ const (
 	capabilitySweepBannerGrab                             = "sweep.banner_grab"
 	capabilitySweepBannerGrabAvailable                    = "sweep.banner_grab.available"
 	capabilitySweepBannerGrabUnavailable                  = "sweep.banner_grab.unavailable"
+	pluginHostAuthorityCapabilityV1                       = "plugin-host-authority:v1"
+	proxmoxSemanticConnectorCapabilityV1                  = "proxmox-semantic-connector:v1"
+	proxmoxConsolePolicyBindingCapabilityV1               = "proxmox-console-policy-binding:v1"
+	proxmoxIdentityCapabilityV3                           = "proxmox-identity:v3"
 
 	agentCapabilityServiceName = "agent"
 	agentCapabilityServiceType = "agent"
@@ -310,6 +314,10 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		remoteaccess.CapabilityRemoteAccessFile,
 		remoteaccess.CapabilityRemoteAccessSFTP,
 		remoteaccess.CapabilityRemoteAccessRecording,
+		pluginHostAuthorityCapabilityV1,
+		proxmoxSemanticConnectorCapabilityV1,
+		proxmoxConsolePolicyBindingCapabilityV1,
+		proxmoxIdentityCapabilityV3,
 	}
 	if options.hostNetworkVisibilitySupported {
 		capabilities = append(capabilities, capabilityHostNetworkVisibility)

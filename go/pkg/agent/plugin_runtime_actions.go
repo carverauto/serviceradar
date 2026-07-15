@@ -19,14 +19,20 @@ package agent
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	coreaddon "github.com/carverauto/serviceradar/go/pkg/addon"
 )
+
+const maxCredentialBrokerMutations = 16
 
 func buildActionPluginConfig(baseConfig []byte, invocationPayload json.RawMessage) ([]byte, error) {
 	var actionPayload any = map[string]any{}
@@ -121,7 +127,7 @@ func pluginActionGrantForHTTPRequest(
 			lastErr = err
 			continue
 		}
-		if err := validatePluginActionGrantAllow(grant.Allow, method, reqURL); err != nil {
+		if err := validatePluginActionGrantAllow(*grant, method, reqURL); err != nil {
 			lastErr = err
 			continue
 		}
@@ -135,7 +141,18 @@ func validatePluginActionCredentialGrantEnvelope(grant credentialBrokerGrant, no
 	if strings.TrimSpace(grant.CredentialSecretRef) == "" {
 		return errInvalidCredentialBrokerGrant
 	}
-	if grant.Schema != "" && grant.Schema != "serviceradar.edge_credential_broker_grant.v1" {
+	schema := strings.TrimSpace(grant.Schema)
+	switch schema {
+	case "", coreaddon.CredentialBrokerGrantSchemaV1:
+		if !credentialBrokerRequestBodyPolicyEmpty(grant.Allow.RequestBody) {
+			return errInvalidCredentialBrokerGrant
+		}
+	case coreaddon.CredentialBrokerGrantSchemaV2:
+		if strings.TrimSpace(grant.GrantID) == "" ||
+			validateCredentialBrokerRequestBodyPolicy(grant.Allow.RequestBody) != nil {
+			return errInvalidCredentialBrokerGrant
+		}
+	default:
 		return errInvalidCredentialBrokerGrant
 	}
 	if grant.TTLSeconds < 0 {
@@ -156,12 +173,28 @@ func validatePluginActionCredentialGrantEnvelope(grant credentialBrokerGrant, no
 	return nil
 }
 
-func validatePluginActionGrantAllow(allow credentialBrokerACL, method string, reqURL *url.URL) error {
+func validatePluginActionGrantAllow(grant credentialBrokerGrant, method string, reqURL *url.URL) error {
+	allow := grant.Allow
 	if len(allow.Hosts) == 0 {
 		return errCredentialBrokerGrantDenied
 	}
 
-	if len(allow.Methods) > 0 && !stringInFoldedList(method, allow.Methods) {
+	strictAWXScope := strings.EqualFold(strings.TrimSpace(grant.GrantType), "awx_oauth2_token")
+	requestedScheme := strings.ToLower(strings.TrimSpace(reqURL.Scheme))
+	if (strictAWXScope && len(allow.Schemes) == 0) ||
+		(len(allow.Schemes) > 0 && !stringInFoldedList(requestedScheme, allow.Schemes)) {
+		return errCredentialBrokerGrantDenied
+	}
+	if strictAWXScope && !credentialBrokerHTTPMethodSafe(method) &&
+		strings.TrimSpace(grant.Schema) != coreaddon.CredentialBrokerGrantSchemaV2 {
+		return errCredentialBrokerGrantDenied
+	}
+	// AWX grants are issued by a closed verb registry and must always carry an
+	// exact HTTP scope. Other legacy plugin grants still use host-only ACLs;
+	// tightening those requires per-integration migration instead of silently
+	// breaking Proxmox console or UniFi camera traffic here.
+	if (strictAWXScope && len(allow.Methods) == 0) ||
+		(len(allow.Methods) > 0 && !stringInFoldedList(method, allow.Methods)) {
 		return errCredentialBrokerGrantDenied
 	}
 
@@ -169,7 +202,8 @@ func validatePluginActionGrantAllow(allow credentialBrokerACL, method string, re
 	if requestedPath == "" {
 		requestedPath = "/"
 	}
-	if len(allow.Paths) > 0 && !credentialBrokerPathAllowed(allow.Paths, requestedPath) {
+	if (strictAWXScope && len(allow.Paths) == 0) ||
+		(len(allow.Paths) > 0 && !credentialBrokerPathAllowed(allow.Paths, requestedPath)) {
 		return errCredentialBrokerGrantDenied
 	}
 
@@ -190,12 +224,75 @@ func validatePluginActionGrantAllow(allow credentialBrokerACL, method string, re
 	return nil
 }
 
+func validateCredentialBrokerRequestBodyPolicy(policy coreaddon.CredentialBrokerRequestBodyPolicy) error {
+	mode := strings.TrimSpace(policy.Mode)
+	if policy.MaxMutations < 1 || policy.MaxMutations > maxCredentialBrokerMutations {
+		return errInvalidCredentialBrokerGrant
+	}
+	if policy.ContentType != "" && !validCredentialBrokerContentType(policy.ContentType) {
+		return errInvalidCredentialBrokerGrant
+	}
+
+	switch mode {
+	case coreaddon.CredentialBrokerRequestBodyModeEmpty:
+		if policy.SHA256 != "" || policy.Source != "" || policy.MaxBytes != 0 || policy.Handler != "" {
+			return errInvalidCredentialBrokerGrant
+		}
+	case coreaddon.CredentialBrokerRequestBodyModeBoundBytes:
+		if !validCredentialBrokerSHA256(policy.SHA256) ||
+			policy.Source != coreaddon.CredentialBrokerBoundBodySource ||
+			policy.ContentType == "" || policy.MaxBytes < 1 ||
+			policy.MaxBytes > pluginMaxPayloadBytes || policy.Handler != "" {
+			return errInvalidCredentialBrokerGrant
+		}
+	case coreaddon.CredentialBrokerRequestBodyModeTrustedRewrite:
+		if policy.Handler != coreaddon.CredentialBrokerAWXCallbackBodyHandler ||
+			policy.ContentType == "" || policy.MaxBytes < 1 ||
+			policy.MaxBytes > pluginMaxPayloadBytes || policy.SHA256 != "" || policy.Source != "" {
+			return errInvalidCredentialBrokerGrant
+		}
+	default:
+		return errInvalidCredentialBrokerGrant
+	}
+
+	return nil
+}
+
+func credentialBrokerRequestBodyPolicyEmpty(policy coreaddon.CredentialBrokerRequestBodyPolicy) bool {
+	return policy == (coreaddon.CredentialBrokerRequestBodyPolicy{})
+}
+
+func credentialBrokerHTTPMethodSafe(method string) bool {
+	switch strings.ToUpper(strings.TrimSpace(method)) {
+	case http.MethodGet, http.MethodHead:
+		return true
+	default:
+		return false
+	}
+}
+
+func validCredentialBrokerSHA256(value string) bool {
+	if len(value) != 64 || value != strings.ToLower(value) {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == 32
+}
+
+func validCredentialBrokerContentType(value string) bool {
+	value = strings.TrimSpace(value)
+	mediaType, params, err := mime.ParseMediaType(value)
+	return err == nil && len(params) == 0 && value == mediaType && value == strings.ToLower(value)
+}
+
 func credentialBrokerPathAllowed(patterns []string, requested string) bool {
 	for _, pattern := range patterns {
 		pattern = strings.TrimSpace(pattern)
 		switch {
 		case pattern == "":
 			continue
+		case strings.HasPrefix(pattern, "=") && strings.TrimPrefix(pattern, "=") == requested:
+			return true
 		case pattern == requested:
 			return true
 		case strings.HasSuffix(pattern, "*") && strings.HasPrefix(requested, strings.TrimSuffix(pattern, "*")):

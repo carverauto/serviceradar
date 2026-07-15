@@ -98,6 +98,11 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProviderTest do
       {:ok, %{control_frame_count: 1, last_control_frame: frame}}
     end
 
+    def provider_terminated(session_id, viewer_session_id, opts) do
+      send(test_pid(), {:provider_terminated, session_id, viewer_session_id, opts})
+      :ok
+    end
+
     defp test_pid do
       Application.fetch_env!(:serviceradar_core_elx, :remote_desktop_data_channel_provider_test_pid)
     end
@@ -326,6 +331,31 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProviderTest do
     send(provider_pid, {:ex_webrtc, pc, {:data, control_ref, Jason.encode!(frame)}})
 
     assert_receive {:apply_control_frame, "desktop-4", "viewer-4", ^frame, [server: :webrtc_manager_test]}
+  end
+
+  test "provider teardown promptly notifies the signaling manager", ctx do
+    signaling = new_signaling()
+
+    assert :ok =
+             DataChannelProvider.add_webrtc_viewer("desktop-close", "viewer-close", signaling,
+               registry: ctx.registry,
+               supervisor: ctx.supervisor,
+               peer_connection: PeerConnectionStub,
+               signaling_manager: SignalingManagerStub,
+               signaling_manager_opts: [actor_id: "actor-1"]
+             )
+
+    assert_receive {:pc_started, _pc, _opts}
+    assert {:ok, provider_pid} = lookup(ctx.registry, "desktop-close", "viewer-close")
+    monitor_ref = Process.monitor(provider_pid)
+
+    assert :ok =
+             DataChannelProvider.remove_webrtc_viewer("desktop-close", "viewer-close", registry: ctx.registry)
+
+    assert_receive {:provider_terminated, "desktop-close", "viewer-close", [actor_id: "actor-1"]}
+    assert_receive {:DOWN, ^monitor_ref, :process, ^provider_pid, :normal}
+    _ = :sys.get_state(ctx.registry)
+    assert :error = lookup(ctx.registry, "desktop-close", "viewer-close")
   end
 
   defp new_signaling do

@@ -44,7 +44,8 @@ func validDesktopTarget() DesktopTarget {
 			Mode: DesktopTLSModeVerify,
 		},
 		Credential: DesktopCredentialPolicy{
-			Mode: DesktopCredentialModeMemoryUser,
+			Mode:              DesktopCredentialModeMemoryUser,
+			AllowedPrincipals: []string{"alice"},
 		},
 	}
 }

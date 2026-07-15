@@ -39,6 +39,8 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
     table "authored_dashboards"
     repo ServiceRadar.Repo
     schema "platform"
+
+    identity_wheres_to_sql unique_slug: "slug IS NOT NULL"
     migrate? false
 
     references do

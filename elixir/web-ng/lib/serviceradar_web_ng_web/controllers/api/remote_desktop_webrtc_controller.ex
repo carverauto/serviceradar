@@ -33,6 +33,17 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCController do
         {:error, :viewer_session_not_found} ->
           render_viewer_session_not_found(conn)
 
+        {:error, {:viewer_limit_exceeded, kind, limit}}
+        when kind in [:session, :actor, :global] and is_integer(limit) ->
+          conn
+          |> put_status(:too_many_requests)
+          |> json(%{
+            error: "desktop_webrtc_viewer_limit_exceeded",
+            message: "desktop WebRTC viewer capacity is exhausted",
+            scope: Atom.to_string(kind),
+            limit: limit
+          })
+
         {:error, reason} when is_binary(reason) ->
           conn
           |> put_status(:unprocessable_entity)
@@ -221,7 +232,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCController do
 
   defp fetch_desktop_session_for_scope(session_id, scope) do
     with {:ok, session} <- remote_access_session_fetcher().(session_id, scope: scope),
-         :ok <- require_desktop_session(session) do
+         :ok <- require_desktop_session(session),
+         :ok <- require_session_owner(session, scope) do
       {:ok, session}
     end
   end
@@ -240,14 +252,31 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCController do
   defp value_to_string(value) when is_binary(value), do: value
   defp value_to_string(_value), do: nil
 
+  defp require_session_owner(%{requested_by: requested_by}, scope) do
+    with actor_id when is_binary(actor_id) <- scope_actor_id(scope),
+         owner_id when is_binary(owner_id) <- normalize_id(requested_by),
+         true <- actor_id == owner_id do
+      :ok
+    else
+      _mismatch -> {:error, :not_found}
+    end
+  end
+
+  defp scope_actor_id(%{user: %{id: id}}), do: normalize_id(id)
+  defp scope_actor_id(_scope), do: nil
+
+  defp normalize_id(id) when is_binary(id), do: id
+  defp normalize_id(id) when not is_nil(id), do: to_string(id)
+  defp normalize_id(_id), do: nil
+
   defp create_session_json(session_id, signal_session) do
-    signal_session
-    |> stringify_keys()
-    |> Map.merge(%{
+    signal_session = stringify_keys(signal_session)
+
+    Map.merge(signal_session, %{
       "session_id" => session_id,
       "transport" => RemoteDesktopWebRTC.transport_name(),
       "signaling_path" => RemoteDesktopWebRTC.signaling_path(session_id),
-      "ice_servers" => RemoteDesktopWebRTC.ice_servers()
+      "ice_servers" => Map.get(signal_session, "ice_servers", [])
     })
   end
 

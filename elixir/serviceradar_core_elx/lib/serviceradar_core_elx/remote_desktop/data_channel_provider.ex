@@ -192,10 +192,9 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider do
   def handle_info({:ex_webrtc, _pc, _message}, state), do: {:noreply, state}
 
   @impl true
-  def terminate(_reason, %{peer_connection: nil}), do: :ok
-
-  def terminate(_reason, state) do
-    _ = state.peer_connection_module.close(state.peer_connection)
+  def terminate(reason, state) do
+    notify_signaling_manager_terminated(state, reason)
+    close_peer_connection(state)
     :ok
   end
 
@@ -251,6 +250,33 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider do
   defp set_channel_open(%{media_ref: ref} = state, ref, open?), do: %{state | media_open?: open?}
   defp set_channel_open(%{control_ref: ref} = state, ref, open?), do: %{state | control_open?: open?}
   defp set_channel_open(state, _ref, _open?), do: state
+
+  defp notify_signaling_manager_terminated(state, _reason) do
+    if function_exported?(state.signaling_manager, :provider_terminated, 3) do
+      state.signaling_manager.provider_terminated(
+        state.session_id,
+        state.viewer_session_id,
+        state.signaling_manager_opts
+      )
+    end
+
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
+  defp close_peer_connection(%{peer_connection: nil}), do: :ok
+
+  defp close_peer_connection(state) do
+    _ = state.peer_connection_module.close(state.peer_connection)
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    :exit, _reason -> :ok
+  end
 
   defp lookup(session_id, viewer_session_id, opts) do
     registry = Keyword.get(opts, :registry, @default_registry)

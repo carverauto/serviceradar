@@ -326,6 +326,127 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
     refute DeviceDiscoveryIngestor.supports?("not a payload", %{})
   end
 
+  test "reconciles AWX memberships only after device sync succeeds" do
+    parent = self()
+
+    payload = %{
+      "device_discovery" => [
+        %{
+          "schema" => "serviceradar.device_discovery.v1",
+          "source" => "awx",
+          "devices" => [%{"device_id" => "awx:controller:host:100", "hostname" => "node-1"}]
+        }
+      ]
+    }
+
+    assert :ok =
+             DeviceDiscoveryIngestor.ingest(payload, %{},
+               actor: :actor,
+               device_sync: fn _updates, _context ->
+                 send(parent, :device_sync_finished)
+                 :ok
+               end,
+               membership_sync: fn ^payload, %{actor: :actor} ->
+                 send(parent, :membership_sync_started)
+                 :ok
+               end
+             )
+
+    assert_receive :device_sync_finished
+    assert_receive :membership_sync_started
+  end
+
+  test "reconciles source observations before AWX memberships" do
+    parent = self()
+
+    payload = %{
+      "device_discovery" => [
+        %{
+          "schema" => "serviceradar.device_discovery.v1",
+          "source" => "awx",
+          "collection_id" => "awx-collection-1",
+          "devices" => [%{"device_id" => "awx:controller:host:100", "hostname" => "node-1"}]
+        }
+      ]
+    }
+
+    assert :ok =
+             DeviceDiscoveryIngestor.ingest(payload, %{partition: "default"},
+               actor: :actor,
+               source_observation_preflight: fn _envelope, _updates, _context ->
+                 send(parent, {:phase, :source_preflight})
+                 {:ok, :process}
+               end,
+               device_sync: fn _updates, _context ->
+                 send(parent, {:phase, :device_sync})
+                 :ok
+               end,
+               source_observation_sync: fn _envelope, _updates, _context ->
+                 send(parent, {:phase, :source_sync})
+                 :ok
+               end,
+               membership_sync: fn ^payload, %{actor: :actor} ->
+                 send(parent, {:phase, :membership_sync})
+                 :ok
+               end
+             )
+
+    phases =
+      for _ <- 1..4 do
+        assert_receive {:phase, phase}
+        phase
+      end
+
+    assert phases == [:source_preflight, :device_sync, :source_sync, :membership_sync]
+  end
+
+  test "does not reconcile memberships when device sync fails" do
+    parent = self()
+    payload = awx_payload_with_device()
+
+    assert {:error, :device_sync_failed} =
+             DeviceDiscoveryIngestor.ingest(payload, %{},
+               actor: :actor,
+               device_sync: fn _updates, _context -> {:error, :device_sync_failed} end,
+               membership_sync: fn _payload, _context ->
+                 send(parent, :unexpected_membership_sync)
+                 :ok
+               end
+             )
+
+    refute_received :unexpected_membership_sync
+  end
+
+  test "complete empty aggregates can reconcile absence without a device write" do
+    parent = self()
+
+    payload = %{
+      "device_discovery" => [
+        %{
+          "schema" => "serviceradar.device_discovery.v1",
+          "source" => "awx",
+          "devices" => []
+        }
+      ]
+    }
+
+    assert :ok =
+             DeviceDiscoveryIngestor.ingest(payload, %{},
+               actor: :actor,
+               device_sync: fn _updates, _context ->
+                 send(parent, :unexpected_device_sync)
+                 :ok
+               end,
+               membership_sync: fn ^payload, %{actor: :actor} ->
+                 send(parent, :empty_membership_sync)
+                 :ok
+               end
+             )
+
+    refute_received :unexpected_device_sync
+    assert_receive :empty_membership_sync
+  end
+
   describe "proxmox canonical identity metadata passthrough" do
     alias ServiceRadar.Inventory.IdentityReconciler
     alias ServiceRadar.Inventory.Sync.Normalize
@@ -529,5 +650,17 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
 
       assert is_nil(update["ip"])
     end
+  end
+
+  defp awx_payload_with_device do
+    %{
+      "device_discovery" => [
+        %{
+          "schema" => "serviceradar.device_discovery.v1",
+          "source" => "awx",
+          "devices" => [%{"device_id" => "awx:controller:host:100", "hostname" => "node-1"}]
+        }
+      ]
+    }
   end
 end

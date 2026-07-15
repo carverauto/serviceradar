@@ -1,6 +1,6 @@
 id: proxmox-console
 name: Proxmox Console
-version: 0.1.2
+version: 0.1.3
 description: Streams Proxmox PVE, VM, and LXC console sessions through the ServiceRadar console bridge
 entrypoint: run_console
 runtime: wasi-preview1
@@ -10,17 +10,14 @@ capabilities:
   - log
   - http_request
   - proxmox_console_stream
-  - tcp_connect
-  - tcp_read
-  - tcp_write
-  - tcp_close
   - websocket_connect
   - websocket_send
   - websocket_recv
   - websocket_close
 permissions:
-  allowed_domains:
-    - "*"
+  # Destinations are supplied only by the agent's exact host-authority
+  # binding. The untrusted module receives no static domain authority.
+  allowed_domains: []
   allowed_ports:
     - 22
     - 8006
