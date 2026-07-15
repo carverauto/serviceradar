@@ -42,6 +42,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
   defp dispatch_opts,
     do: [command_bus: FakeCommandBus, test_pid: self(), grant_issuer: &fake_grant/1]
 
+  defp preflight_controller, do: controller(%{id: @preflight_controller_id})
+
   defp fake_grant(attrs) do
     grant =
       attrs
@@ -302,6 +304,18 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
              launch_preflight_request()["selected_hosts"] |> hd() |> Map.put("enabled", false)
            ]
          })},
+        {"awx.fetch_launch_preflight",
+         launch_preflight_request(%{
+           "selected_hosts" => [
+             launch_preflight_request()["selected_hosts"] |> hd() |> Map.put("host_name", "NODE-101")
+           ]
+         })},
+        {"awx.fetch_launch_preflight",
+         launch_preflight_request(%{
+           "selected_hosts" => [
+             launch_preflight_request()["selected_hosts"] |> hd() |> Map.put("ansible_host", nil)
+           ]
+         })},
         {"awx.launch_job", %{"template_id" => 0}},
         {"awx.launch_job", %{"template_id" => 42, "unreviewed" => true}},
         {"awx.launch_job", %{"template_id" => 42, "inventory_id" => "7"}},
@@ -362,6 +376,13 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
 
       assert {:error, :invalid_awx_launch_preflight_request} =
                AwxClient.fetch_launch_preflight(controller(), malformed, dispatch_opts())
+
+      refute_received {:dispatch, _, "awx.fetch_launch_preflight", _, _}
+    end
+
+    test "preflight binds the request controller to the dispatched controller" do
+      assert {:error, :controller_launch_preflight_identity_mismatch} =
+               AwxClient.fetch_launch_preflight(controller(), launch_preflight_request(), dispatch_opts())
 
       refute_received {:dispatch, _, "awx.fetch_launch_preflight", _, _}
     end
@@ -461,7 +482,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
 
       assert {:ok, _} =
                AwxClient.fetch_launch_preflight(
-                 controller(),
+                 preflight_controller(),
                  launch_preflight_request(),
                  dispatch_opts()
                )

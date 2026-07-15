@@ -282,7 +282,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   @spec fetch_launch_preflight(Controller.t(), map(), keyword()) ::
           {:ok, struct()} | {:error, term()}
   def fetch_launch_preflight(controller, request, opts \\ []) when is_map(request) do
-    with {:ok, args} <- normalize_launch_preflight_request(request) do
+    with {:ok, args} <- normalize_launch_preflight_request(request),
+         :ok <- exact_preflight_controller(controller, args["controller_id"]) do
       dispatch_verb(controller, "awx.fetch_launch_preflight", args, opts)
     end
   end
@@ -1153,6 +1154,19 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   defp normalize_launch_preflight_request(_request),
     do: {:error, :invalid_awx_launch_preflight_request}
 
+  defp exact_preflight_controller(%Controller{} = controller, controller_id) do
+    with {:ok, canonical_controller_id} <- canonical_uuid(controller.id) do
+      if canonical_controller_id == controller_id,
+        do: :ok,
+        else: {:error, :controller_launch_preflight_identity_mismatch}
+    else
+      _ -> {:error, :controller_launch_preflight_identity_invalid}
+    end
+  end
+
+  defp exact_preflight_controller(_controller, _controller_id),
+    do: {:error, :controller_launch_preflight_identity_invalid}
+
   defp stringify_exact_launch_preflight_request(request) do
     normalized =
       Enum.reduce_while(request, {:ok, %{}}, fn {key, value}, {:ok, acc} ->
@@ -1217,9 +1231,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
          true <- target["inventory_id"] == inventory_id,
          :ok <- canonical_positive_decimal(target["awx_host_id"]),
          :ok <- canonical_positive_decimal(target["membership_generation"]),
-         :ok <- bounded_nonempty_string(target["canonical_device_uid"], 1_024),
-         :ok <- bounded_nonempty_string(target["host_name"], 512),
-         :ok <- optional_bounded_string(target["ansible_host"], 512),
+         :ok <- safe_launch_preflight_text(target["canonical_device_uid"], 1_024),
+         :ok <- canonical_preflight_host_name(target["host_name"]),
+         :ok <- canonical_preflight_address(target["ansible_host"]),
          true <- target["enabled"] == true,
          true <- is_binary(target["source_fingerprint"]) and
                    Regex.match?(@source_fingerprint, target["source_fingerprint"]) do
@@ -1285,15 +1299,67 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   defp canonical_map_key(key) when is_atom(key), do: {:ok, Atom.to_string(key)}
   defp canonical_map_key(_key), do: :error
 
-  defp optional_bounded_string(nil, _max_bytes), do: :ok
-  defp optional_bounded_string(value, max_bytes), do: bounded_nonempty_string(value, max_bytes)
+  defp canonical_preflight_host_name(value) when is_binary(value) do
+    normalized = value |> String.trim() |> String.downcase()
 
-  defp bounded_nonempty_string(value, max_bytes)
-       when is_binary(value) and byte_size(value) >= 1 and byte_size(value) <= max_bytes do
-    if String.trim(value) == value and String.valid?(value), do: :ok, else: :error
+    if normalized == value and
+         byte_size(normalized) <= 255 and
+         normalized not in ["", "all", "ungrouped"] and
+         Regex.match?(~r/\A[a-z0-9][a-z0-9._-]*\z/, normalized),
+      do: :ok,
+      else: :error
   end
 
-  defp bounded_nonempty_string(_value, _max_bytes), do: :error
+  defp canonical_preflight_host_name(_value), do: :error
+
+  defp canonical_preflight_address(value) when is_binary(value) do
+    normalized =
+      value
+      |> String.trim()
+      |> unbracket_preflight_address()
+      |> normalize_preflight_address()
+
+    if normalized == value, do: :ok, else: :error
+  end
+
+  defp canonical_preflight_address(_value), do: :error
+
+  defp unbracket_preflight_address("[" <> rest) do
+    if String.ends_with?(rest, "]"),
+      do: String.trim_trailing(rest, "]"),
+      else: "[" <> rest
+  end
+
+  defp unbracket_preflight_address(value), do: value
+
+  defp normalize_preflight_address(value) when is_binary(value) do
+    cond do
+      not safe_launch_preflight_text(value, 255) -> :invalid
+      String.contains?(value, ["/", "\\", "@", "?", "#", "%"]) -> :invalid
+      String.contains?(value, ":") ->
+        if Regex.match?(~r/\A[0-9A-Fa-f:.]+\z/, value),
+          do: String.downcase(value),
+          else: :invalid
+
+      true ->
+        normalized = value |> String.downcase() |> String.trim_trailing(".")
+
+        if normalized != "" and
+             not String.contains?(normalized, "..") and
+             Regex.match?(~r/\A[a-z0-9._-]+\z/, normalized),
+          do: normalized,
+          else: :invalid
+    end
+  end
+
+  defp safe_launch_preflight_text(value, max_bytes)
+       when is_binary(value) and byte_size(value) >= 1 and byte_size(value) <= max_bytes do
+    if String.valid?(value) and not String.match?(value, ~r/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u),
+      do: :ok,
+      else: :error
+  end
+
+  defp safe_launch_preflight_text(_value, _max_bytes), do: :error
 
   defp optional_arg?(args, key, validator) do
     not Map.has_key?(args, key) or validator.(Map.get(args, key))
