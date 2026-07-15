@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   require Ash.Query
 
   @repo_url "https://code.carverauto.dev/carverauto/serviceradar"
+  @external_repo_url "https://code.carverauto.dev/carverauto/serviceradar-plugin-example-inventory"
   @manifest_yaml """
   id: live-first-party-plugin
   name: Live First-party Plugin
@@ -54,6 +55,22 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
     def get(url, _opts) do
       cond do
+        String.contains?(
+          url,
+          "/api/v1/repos/carverauto/serviceradar-plugin-example-inventory/releases?per_page="
+        ) ->
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: [PluginPackageLiveTest.external_release()]
+           }}
+
+        String.contains?(
+          url,
+          "/api/v1/repos/carverauto/serviceradar-plugin-example-inventory/releases/tags/v2.0.0"
+        ) ->
+          {:ok, %Req.Response{status: 200, body: PluginPackageLiveTest.external_release()}}
+
         String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases?per_page=") ->
           {:ok,
            %Req.Response{
@@ -69,14 +86,19 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
         String.ends_with?(url, "/serviceradar-wasm-plugin-index.json") ->
           body =
-            if String.contains?(url, "/v1.0.0/") do
-              PluginPackageLiveTest.old_index()
-            else
-              Application.get_env(
-                :serviceradar_web_ng,
-                :plugin_live_test_index,
-                PluginPackageLiveTest.index()
-              )
+            cond do
+              String.contains?(url, "serviceradar-plugin-example-inventory") ->
+                PluginPackageLiveTest.external_index()
+
+              String.contains?(url, "/v1.0.0/") ->
+                PluginPackageLiveTest.old_index()
+
+              true ->
+                Application.get_env(
+                  :serviceradar_web_ng,
+                  :plugin_live_test_index,
+                  PluginPackageLiveTest.index()
+                )
             end
 
           {:ok, %Req.Response{status: 200, body: Jason.encode!(body)}}
@@ -175,6 +197,32 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert html =~ "Live First-party Plugin"
     assert html =~ "live-first-party-plugin"
     assert html =~ "import-ready"
+  end
+
+  test "loads and imports a signed catalog from a trusted external repository", %{
+    conn: conn,
+    actor: actor
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+
+    html =
+      lv
+      |> form("#select-first-party-repository-form", %{
+        "catalog_repository" => %{"repo_url" => @external_repo_url}
+      })
+      |> render_submit()
+
+    assert html =~ @external_repo_url
+    assert html =~ "Live First-party Plugin"
+
+    lv
+    |> element("button[phx-click='import_first_party_plugin'][phx-value-plugin-id='live-first-party-plugin']")
+    |> render_click()
+
+    assert [package] = Packages.list(%{"plugin_id" => "live-first-party-plugin"}, actor: actor)
+    assert package.source_type == :first_party
+    assert package.source_repo_url == @external_repo_url
+    assert package.source_release_tag == "v2.0.0"
   end
 
   test "plugin catalog defaults to latest official release and can select older releases", %{
@@ -515,6 +563,21 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     }
   end
 
+  def external_release do
+    %{
+      "tag_name" => "v2.0.0",
+      "name" => "Example inventory plugin v2.0.0",
+      "html_url" => "https://code.carverauto.dev/carverauto/serviceradar-plugin-example-inventory/releases/tag/v2.0.0",
+      "assets" => [
+        %{
+          "name" => "serviceradar-wasm-plugin-index.json",
+          "browser_download_url" =>
+            "https://code.carverauto.dev/carverauto/serviceradar-plugin-example-inventory/releases/download/v2.0.0/serviceradar-wasm-plugin-index.json"
+        }
+      ]
+    }
+  end
+
   def index do
     %{
       "schema_version" => 1,
@@ -548,6 +611,25 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
             "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v1.0.0/old-first-party-plugin.upload-signature.json",
           "bundle_digest" => Storage.sha256(bundle()),
           "oci_ref" => "registry.carverauto.dev/serviceradar/wasm-plugin-old-first-party-plugin:v1.0.0"
+        }
+      ]
+    }
+  end
+
+  def external_index do
+    %{
+      "schema_version" => 1,
+      "plugins" => [
+        %{
+          "plugin_id" => "live-first-party-plugin",
+          "name" => "Live First-party Plugin",
+          "version" => "2.0.0",
+          "bundle_url" =>
+            "https://code.carverauto.dev/carverauto/serviceradar-plugin-example-inventory/releases/download/v2.0.0/live-first-party-plugin.zip",
+          "upload_signature_url" =>
+            "https://code.carverauto.dev/carverauto/serviceradar-plugin-example-inventory/releases/download/v2.0.0/live-first-party-plugin.upload-signature.json",
+          "bundle_digest" => Storage.sha256(bundle()),
+          "oci_ref" => "registry.carverauto.dev/serviceradar/wasm-plugin-live-first-party-plugin:v2.0.0"
         }
       ]
     }

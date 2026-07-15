@@ -23,6 +23,7 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
   @default_stale_threshold_minutes 240
   @self_scheduled_workers [
     "ServiceRadar.Credentials.CameraCredentialRuleReconcileWorker",
+    "ServiceRadar.Credentials.PluginIntegrationReconcileWorker",
     "ServiceRadar.Credentials.ProxmoxCredentialRuleReconcileWorker",
     "ServiceRadar.Edge.AgentCommandCleanupWorker",
     "ServiceRadar.Identity.CliAuthCleanupWorker",

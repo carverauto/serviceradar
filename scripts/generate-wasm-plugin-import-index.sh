@@ -7,6 +7,7 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cosign_common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/wasm-plugin-publish-context.sh"
 
 ORAS_BIN="$(cosign_resolve_executable "${ORAS_BIN:-oras}" || true)"
 if [[ -z "${ORAS_BIN}" ]]; then
@@ -15,12 +16,11 @@ if [[ -z "${ORAS_BIN}" ]]; then
 fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BAZEL_BIN="${BAZEL_BIN:-bazel}"
-BAZEL_BIN_DIR="${BAZEL_BIN_DIR:-$("${BAZEL_BIN}" info bazel-bin 2>/dev/null)}"
-METADATA_DIR="${BAZEL_BIN_DIR}/build/wasm_plugins"
+wasm_plugin_publish_init "${REPO_ROOT}"
 REGISTRY_HOST="${OCI_REGISTRY:-registry.carverauto.dev}"
 OCI_PROJECT="${OCI_PROJECT:-serviceradar}"
 OUTPUT="${OUTPUT:-${REPO_ROOT}/serviceradar-wasm-plugin-index.json}"
+GENERATED_AT="${GENERATED_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 
 if [[ "$#" -eq 0 ]]; then
   TAG="sha-$(git -C "${REPO_ROOT}" rev-parse HEAD)"
@@ -28,7 +28,7 @@ else
   TAG="$1"
 fi
 
-"${BAZEL_BIN}" build //build/wasm_plugins:all_metadata >/dev/null
+wasm_plugin_publish_build_metadata //build/wasm_plugins:all_metadata
 
 shopt -s nullglob
 metadata_files=("${METADATA_DIR}"/*.metadata.json)
@@ -44,7 +44,7 @@ trap 'rm -f "${tmp}"' EXIT
 
 printf '{"schema_version":1,"release_tag":%s,"generated_at":%s,"plugins":[' \
   "$(jq -Rn --arg tag "${TAG}" '$tag')" \
-  "$(jq -Rn --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '$now')" >"${tmp}"
+  "$(jq -Rn --arg now "${GENERATED_AT}" '$now')" >"${tmp}"
 
 first=true
 for metadata in "${metadata_files[@]}"; do

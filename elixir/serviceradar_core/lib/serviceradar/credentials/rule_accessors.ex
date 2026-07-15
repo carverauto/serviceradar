@@ -90,6 +90,7 @@ defmodule ServiceRadar.Credentials.RuleAccessors do
       "generic" -> :generic
       "camera_inventory" -> :camera_inventory
       "camera_stream" -> :camera_stream
+      "device_inventory" -> :device_inventory
       _ -> @inventory_purpose
     end
   end
@@ -130,4 +131,6 @@ defmodule ServiceRadar.Credentials.RuleAccessors do
   defp metadata_atom_key("rtsp_port"), do: :rtsp_port
   defp metadata_atom_key("bootstrap_path"), do: :bootstrap_path
   defp metadata_atom_key("login_path"), do: :login_path
+  defp metadata_atom_key("schedule_enabled"), do: :schedule_enabled
+  defp metadata_atom_key("cadence_seconds"), do: :cadence_seconds
 end

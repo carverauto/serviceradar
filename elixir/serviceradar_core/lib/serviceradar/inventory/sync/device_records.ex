@@ -16,6 +16,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
       {device_type, device_type_id} = Enrichment.infer_device_type(update, classification)
       metadata = Enrichment.merge_classification_metadata(update.metadata || %{}, classification)
       owner = Enrichment.infer_owner(update, metadata)
+      persisted_metadata = persisted_metadata(metadata, source)
 
       record = %{
         uid: device_id,
@@ -39,7 +40,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
         is_managed: true,
         is_active: true,
         owner: owner,
-        metadata: metadata,
+        metadata: persisted_metadata,
         tags: update.tags || %{},
         discovery_sources: [source],
         first_seen_time: update.first_seen_time || timestamp,
@@ -121,4 +122,12 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
     do: new_value
 
   defp prefer_positive_int(_new_value, old_value), do: old_value
+
+  # Complete plugin inventories keep source identity in typed identifiers and
+  # source observations. They must not replace another source's canonical identity.
+  defp persisted_metadata(%{"plugin_inventory_snapshot" => true} = metadata, _source) do
+    Map.drop(metadata, ["integration_id", "integration_type", "plugin_inventory_snapshot"])
+  end
+
+  defp persisted_metadata(metadata, _source), do: metadata
 end

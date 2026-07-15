@@ -9,6 +9,7 @@ defmodule ServiceRadar.Inventory.Identity.Reassignments do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DeviceSourceObservation
   alias ServiceRadar.Inventory.Identity.AgentAnchor
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Monitoring.Alert
@@ -35,6 +36,17 @@ defmodule ServiceRadar.Inventory.Identity.Reassignments do
       :device_uid,
       from_id,
       %{device_uid: to_id},
+      actor
+    )
+  end
+
+  def reassign_source_observations(from_id, to_id, actor) do
+    bulk_reassign(
+      DeviceSourceObservation,
+      :reassign_device,
+      :device_id,
+      from_id,
+      %{device_id: to_id},
       actor
     )
   end

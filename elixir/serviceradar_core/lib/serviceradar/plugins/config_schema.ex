@@ -6,10 +6,11 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
   alias ServiceRadar.Plugins.MapUtils
 
   @allowed_formats ~w(uri email password)
-  @allowed_root_keys ~w($schema type title description properties required additionalProperties)
+  @allowed_root_keys ~w($schema $defs type title description properties required additionalProperties)
   @allowed_property_keys ~w(
-    type title description default enum minimum maximum minLength maxLength pattern format items
-    minItems maxItems uniqueItems properties required additionalProperties secretRef
+    $ref type title description default enum minimum maximum minLength maxLength pattern format items
+    minItems maxItems uniqueItems minProperties maxProperties dependentRequired properties required
+    additionalProperties secretRef
   )
   @allowed_types ~w(string integer number boolean array object)
 
@@ -27,6 +28,7 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
       errors = validate_required(schema, errors)
       errors = validate_additional_properties(schema, errors)
       errors = validate_properties(Map.get(schema, "properties"), "properties", errors)
+      errors = validate_defs(Map.get(schema, "$defs"), errors)
 
       case errors do
         [] -> :ok
@@ -144,7 +146,11 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
     end
   end
 
-  defp validation_schema(%{} = schema), do: Map.delete(schema, "$schema")
+  defp validation_schema(%{} = schema) do
+    schema
+    |> Map.delete("$schema")
+    |> draft4_compatible_schema()
+  end
 
   defp runtime_injected_property?(%{} = property) do
     Map.get(property, "x-serviceradar-credential-materialized") == true or
@@ -223,14 +229,21 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
   end
 
   defp validate_property_type(errors, schema, path) do
-    case Map.get(schema, "type") do
-      nil ->
+    case {Map.get(schema, "type"), Map.get(schema, "$ref")} do
+      {nil, reference} when is_binary(reference) ->
+        if valid_local_ref?(reference) do
+          errors
+        else
+          ["#{path}.$ref must reference #/$defs/<name>" | errors]
+        end
+
+      {nil, nil} ->
         ["#{path}.type is required" | errors]
 
-      type when type in @allowed_types ->
+      {type, _reference} when type in @allowed_types ->
         errors
 
-      type ->
+      {type, _reference} ->
         ["#{path}.type must be one of: #{Enum.join(@allowed_types, ", ")} (got #{type})" | errors]
     end
   end
@@ -244,6 +257,7 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
     |> validate_format(schema, path)
     |> validate_items(schema, path)
     |> validate_secret_ref(schema, path)
+    |> validate_object_constraints(schema, path)
   end
 
   defp validate_enum(errors, schema, path) do
@@ -326,7 +340,7 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
     if Map.get(schema, "type") == "array" do
       case Map.get(schema, "items") do
         nil -> ["#{path}.items is required for array types" | errors]
-        value when is_map(value) -> validate_property_type(errors, value, "#{path}.items")
+        value when is_map(value) -> validate_property_schema(errors, value, "#{path}.items")
         _ -> ["#{path}.items must be an object" | errors]
       end
     else
@@ -359,6 +373,103 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
         errors
     end
   end
+
+  defp validate_defs(nil, errors), do: errors
+
+  defp validate_defs(%{} = definitions, errors) do
+    Enum.reduce(definitions, errors, fn {name, schema}, acc ->
+      path = "$defs.#{name}"
+
+      cond do
+        not (is_binary(name) and Regex.match?(~r/^[A-Za-z0-9_.-]{1,128}$/, name)) ->
+          ["$defs contains an invalid definition name" | acc]
+
+        not is_map(schema) ->
+          ["#{path} must be an object" | acc]
+
+        true ->
+          validate_property_schema(acc, schema, path)
+      end
+    end)
+  end
+
+  defp validate_defs(_definitions, errors), do: ["schema.$defs must be an object" | errors]
+
+  defp validate_property_schema(errors, schema, path) do
+    errors
+    |> then(&validate_keys(schema, @allowed_property_keys, path, &1))
+    |> validate_property_type(schema, path)
+    |> validate_property_constraints(schema, path)
+    |> validate_nested_properties(schema, path)
+  end
+
+  defp validate_object_constraints(errors, schema, path) do
+    if Map.get(schema, "type") == "object" do
+      errors
+      |> validate_integer(schema, "minProperties", path)
+      |> validate_integer(schema, "maxProperties", path)
+      |> validate_object_bounds(schema, path)
+      |> validate_dependent_required(schema, path)
+    else
+      errors
+    end
+  end
+
+  defp validate_object_bounds(errors, schema, path) do
+    case {Map.get(schema, "minProperties"), Map.get(schema, "maxProperties")} do
+      {minimum, maximum}
+      when is_integer(minimum) and minimum >= 0 and is_integer(maximum) and maximum >= 0 and
+             minimum > maximum ->
+        ["#{path}.minProperties must be less than or equal to maxProperties" | errors]
+
+      _ ->
+        errors
+    end
+  end
+
+  defp validate_dependent_required(errors, schema, path) do
+    case Map.get(schema, "dependentRequired") do
+      nil ->
+        errors
+
+      %{} = dependencies ->
+        Enum.reduce(dependencies, errors, fn {key, values}, acc ->
+          if is_binary(key) and is_list(values) and values != [] and
+               Enum.all?(values, &is_binary/1) do
+            acc
+          else
+            ["#{path}.dependentRequired must map property names to non-empty string lists" | acc]
+          end
+        end)
+
+      _ ->
+        ["#{path}.dependentRequired must be an object" | errors]
+    end
+  end
+
+  defp valid_local_ref?(reference),
+    do: Regex.match?(~r|^#/\$defs/[A-Za-z0-9_.-]{1,128}$|, reference)
+
+  defp draft4_compatible_schema(value) when is_list(value),
+    do: Enum.map(value, &draft4_compatible_schema/1)
+
+  defp draft4_compatible_schema(%{} = value) do
+    Map.new(value, fn
+      {"$defs", definitions} ->
+        {"definitions", draft4_compatible_schema(definitions)}
+
+      {"dependentRequired", dependencies} ->
+        {"dependencies", draft4_compatible_schema(dependencies)}
+
+      {"$ref", "#/$defs/" <> rest} ->
+        {"$ref", "#/definitions/" <> rest}
+
+      {key, nested} ->
+        {key, draft4_compatible_schema(nested)}
+    end)
+  end
+
+  defp draft4_compatible_schema(value), do: value
 
   defp validate_integer(errors, schema, key, path) do
     case Map.get(schema, key) do
@@ -443,6 +554,7 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
     list =
       cond do
         is_list(value) -> value
+        is_binary(value) and Map.get(item_schema, "type") == "object" -> decode_json_list(value)
         is_binary(value) -> split_list(value)
         true -> []
       end
@@ -499,6 +611,13 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
     |> String.split(["\n", ","], trim: true)
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
+  end
+
+  defp decode_json_list(value) do
+    case Jason.decode(String.trim(value)) do
+      {:ok, decoded} when is_list(decoded) -> decoded
+      _ -> [value]
+    end
   end
 
   defp format_error(%{error: error, path: path}) when is_list(path) do

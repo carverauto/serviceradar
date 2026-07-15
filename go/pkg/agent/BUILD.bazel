@@ -51,6 +51,7 @@ go_library(
         "plugin_condition_debounce.go",
         "plugin_http_trust.go",
         "plugin_runtime.go",
+        "plugin_runtime_action_result.go",
         "plugin_runtime_actions.go",
         "plugin_runtime_artifact.go",
         "plugin_runtime_assignment.go",

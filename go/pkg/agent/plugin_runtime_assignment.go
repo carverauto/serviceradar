@@ -116,6 +116,14 @@ func (a *pluginAssignment) isStreaming() bool {
 	return a.Capabilities[pluginCapabilityCameraMediaStream] || a.Capabilities[pluginCapabilityProxmoxConsole]
 }
 
+func (a *pluginAssignment) isActionOnly() bool {
+	return a != nil && a.Capabilities != nil && a.Capabilities[pluginCapabilityActionOnly]
+}
+
+func (a *pluginAssignment) ingestsActionResults() bool {
+	return a != nil && a.Capabilities != nil && a.Capabilities[pluginCapabilityActionResultIngest]
+}
+
 func (a *pluginAssignment) streamingSnapshot() StreamingPluginAssignment {
 	if a == nil {
 		return StreamingPluginAssignment{}

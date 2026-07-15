@@ -33,6 +33,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   """
 
   alias ServiceRadar.Automation.Ansible.AwxMembershipReconciler
+  alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SyncIngestor
 
@@ -72,21 +73,36 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     device_sync = Keyword.get(opts, :device_sync, &sync_device_inventory/2)
     membership_sync = Keyword.get(opts, :membership_sync, &sync_awx_memberships/2)
 
-    updates =
+    source_observation_sync =
+      Keyword.get(opts, :source_observation_sync, &sync_source_observations/3)
+
+    source_observation_preflight =
+      Keyword.get(opts, :source_observation_preflight, &preflight_source_observations/3)
+
+    discovery_batches =
       payload
       |> discovery_envelopes()
-      |> Enum.flat_map(&device_updates(&1, payload, status))
+      |> Enum.map(fn envelope ->
+        {envelope, device_updates(envelope, payload, status)}
+      end)
 
-    device_result =
-      case updates do
-        [] -> :ok
-        updates -> device_sync.(updates, %{actor: actor})
-      end
+    context = source_observation_context(status, actor)
 
-    case device_result do
-      :ok -> membership_sync.(payload, %{actor: actor})
-      {:error, _reason} = error -> error
-      other -> {:error, {:invalid_device_sync_result, other}}
+    with {:ok, process_batches} <-
+           preflight_source_observation_batches(
+             discovery_batches,
+             context,
+             source_observation_preflight
+           ),
+         updates = Enum.flat_map(process_batches, fn {_envelope, batch} -> batch end),
+         :ok <- sync_devices_if_present(updates, actor, device_sync),
+         :ok <-
+           sync_source_observation_batches(
+             process_batches,
+             context,
+             source_observation_sync
+           ) do
+      membership_sync.(payload, %{actor: actor})
     end
   rescue
     e ->
@@ -98,6 +114,58 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
   defp sync_device_inventory(updates, context) when is_list(updates) do
     SyncIngestor.ingest_updates(updates, actor: context.actor)
+  end
+
+  defp sync_devices_if_present([], _actor, _device_sync), do: :ok
+
+  defp sync_devices_if_present(updates, actor, device_sync) do
+    case device_sync.(updates, %{actor: actor}) do
+      :ok -> :ok
+      {:error, _reason} = error -> error
+      other -> {:error, {:invalid_device_sync_result, other}}
+    end
+  end
+
+  defp sync_source_observations(envelope, updates, context) do
+    DeviceSourceObservationIngestor.ingest(envelope, updates, context)
+  end
+
+  defp preflight_source_observations(envelope, updates, context) do
+    DeviceSourceObservationIngestor.preflight(envelope, updates, context)
+  end
+
+  defp source_observation_context(status, actor) do
+    %{
+      actor: actor,
+      partition: partition_value(status)
+    }
+  end
+
+  defp preflight_source_observation_batches(batches, context, preflight) do
+    batches
+    |> Enum.reduce_while({:ok, []}, fn {envelope, updates} = batch, {:ok, acc} ->
+      case preflight.(envelope, updates, context) do
+        :ok -> {:cont, {:ok, [batch | acc]}}
+        {:ok, :process} -> {:cont, {:ok, [batch | acc]}}
+        {:ok, :idempotent} -> {:cont, {:ok, acc}}
+        {:error, _} = error -> {:halt, error}
+        _other -> {:halt, {:error, :invalid_source_observation_preflight_result}}
+      end
+    end)
+    |> case do
+      {:ok, process_batches} -> {:ok, Enum.reverse(process_batches)}
+      error -> error
+    end
+  end
+
+  defp sync_source_observation_batches(batches, context, source_observation_sync) do
+    Enum.reduce_while(batches, :ok, fn {envelope, updates}, :ok ->
+      case source_observation_sync.(envelope, updates, context) do
+        :ok -> {:cont, :ok}
+        {:error, _} = error -> {:halt, error}
+        _other -> {:halt, {:error, :invalid_source_observation_result}}
+      end
+    end)
   end
 
   defp sync_awx_memberships(payload, context) do
@@ -222,6 +290,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
   defp device_metadata(device, envelope, payload) do
     location = map_value(device, ["location"])
+    envelope_metadata = map_value(envelope, ["metadata"]) || %{}
     base = stringify_map(map_value(device, ["metadata"]) || %{})
 
     base
@@ -229,6 +298,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     |> maybe_put_new("integration_id", integration_id(device, envelope))
     |> maybe_put("plugin_discovery_schema", @schema)
     |> maybe_put("plugin_discovery_source", string_value(envelope, ["source"]))
+    |> maybe_put("plugin_inventory_snapshot", Map.get(envelope_metadata, "snapshot_complete"))
     |> maybe_put("collection_id", string_value(envelope, ["collection_id", "collectionId"]))
     |> maybe_put("reference_hash", string_value(envelope, ["reference_hash", "referenceHash"]))
     |> maybe_put("vendor_name", string_value(device, ["vendor_name", "vendorName", "vendor"]))

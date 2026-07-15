@@ -3,6 +3,7 @@ set -euo pipefail
 
 # shellcheck source=scripts/cosign_common.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cosign_common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/wasm-plugin-publish-context.sh"
 trap cosign_cleanup_temp_files EXIT
 
 if ! command -v cosign >/dev/null 2>&1; then
@@ -32,9 +33,7 @@ if [[ -z "${ORAS_BIN}" ]]; then
 fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BAZEL_BIN="${BAZEL_BIN:-bazel}"
-BAZEL_BIN_DIR="${BAZEL_BIN_DIR:-$("${BAZEL_BIN}" info bazel-bin 2>/dev/null)}"
-METADATA_DIR="${BAZEL_BIN_DIR}/build/wasm_plugins"
+wasm_plugin_publish_init "${REPO_ROOT}"
 REGISTRY_HOST="${OCI_REGISTRY:-registry.carverauto.dev}"
 OCI_PROJECT="${OCI_PROJECT:-serviceradar}"
 COMMIT_TAG="sha-$(git -C "${REPO_ROOT}" rev-parse HEAD)"
@@ -293,7 +292,7 @@ EOF
   rm -f "${payload_file}" "${signature_file}" "${bundle_file}" "${stdout_file}" "${extracted_signature_file}" "${config_file}" "${manifest_file}"
 }
 
-"${BAZEL_BIN}" build //build/wasm_plugins:all_metadata >/dev/null
+wasm_plugin_publish_build_metadata //build/wasm_plugins:all_metadata
 
 shopt -s nullglob
 metadata_files=("${METADATA_DIR}"/*.metadata.json)

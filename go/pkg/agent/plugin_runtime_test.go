@@ -395,6 +395,22 @@ func TestPluginAssignmentClassifiesCameraMediaStreamingCapability(t *testing.T) 
 	}
 }
 
+func TestPluginAssignmentClassifiesActionOnlyCapability(t *testing.T) {
+	assignment := newPluginAssignment(
+		&proto.PluginAssignmentConfig{
+			AssignmentId: "action-1",
+			PluginId:     "example-inventory",
+			Entrypoint:   "run_check",
+			Capabilities: []string{pluginCapabilityActionOnly, pluginCapabilityActionResultIngest},
+		},
+		logger.NewTestLogger(),
+	)
+
+	if !assignment.isActionOnly() {
+		t.Fatal("expected action-only capability to classify assignment as action-only")
+	}
+}
+
 func TestPluginManagerApplyConfigSeparatesStreamingAssignments(t *testing.T) {
 	mgr := NewPluginManager(t.Context(), PluginManagerConfig{Logger: logger.NewTestLogger()})
 	defer mgr.Stop()
@@ -419,6 +435,15 @@ func TestPluginManagerApplyConfigSeparatesStreamingAssignments(t *testing.T) {
 				TimeoutSec:   5,
 				Capabilities: []string{pluginCapabilityCameraMediaStream, "log"},
 			},
+			{
+				AssignmentId: "action-1",
+				PluginId:     "example-inventory",
+				Entrypoint:   "run_check",
+				Enabled:      true,
+				IntervalSec:  60,
+				TimeoutSec:   900,
+				Capabilities: []string{pluginCapabilityActionOnly, pluginCapabilityActionResultIngest},
+			},
 		},
 	})
 
@@ -431,11 +456,20 @@ func TestPluginManagerApplyConfigSeparatesStreamingAssignments(t *testing.T) {
 	if len(mgr.streams) != 1 {
 		t.Fatalf("expected 1 streaming assignment, got %d", len(mgr.streams))
 	}
+	if len(mgr.actions) != 1 {
+		t.Fatalf("expected 1 action-only assignment, got %d", len(mgr.actions))
+	}
 	if _, ok := mgr.runners["scheduled-1"]; !ok {
 		t.Fatalf("expected scheduled assignment to start a runner")
 	}
 	if _, ok := mgr.streams["streaming-1"]; !ok {
 		t.Fatalf("expected streaming assignment to be cataloged separately")
+	}
+	if _, ok := mgr.actions["action-1"]; !ok {
+		t.Fatal("expected action-only assignment to be cataloged without a runner")
+	}
+	if assignment, ok := mgr.lookupRunnerAssignment("action-1"); !ok || assignment.PluginID != "example-inventory" {
+		t.Fatal("expected exact action lookup to find action-only assignment")
 	}
 }
 

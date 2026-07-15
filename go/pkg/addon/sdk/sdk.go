@@ -73,6 +73,7 @@ const (
 
 	ProducerScheduleRunSchemaV1            = addon.ProducerScheduleRunSchemaV1
 	ProducerScheduleCommandPluginRunAction = addon.ProducerScheduleCommandPluginRunAction
+	CapabilityActionResultIngestV1         = addon.CapabilityActionResultIngestV1
 	ProducerScheduleTypeInterval           = addon.ProducerScheduleTypeInterval
 	ProducerScheduleTypeCron               = addon.ProducerScheduleTypeCron
 	ProducerScheduleTypeManual             = addon.ProducerScheduleTypeManual

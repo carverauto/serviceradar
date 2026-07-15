@@ -11,17 +11,26 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
   import Bitwise
 
+  alias ServiceRadar.Inventory.Identity.HardwareSerial
   alias ServiceRadar.Inventory.Identity.Mac
 
   require Logger
 
-  @identifier_priority [:agent_id, :armis_device_id, :integration_id, :netbox_device_id, :mac]
+  @identifier_priority [
+    :agent_id,
+    :armis_device_id,
+    :integration_id,
+    :netbox_device_id,
+    :hardware_serial,
+    :mac
+  ]
 
   @type strong_identifiers :: %{
           agent_id: String.t() | nil,
           armis_id: String.t() | nil,
           integration_id: String.t() | nil,
           netbox_id: String.t() | nil,
+          hardware_serial: String.t() | nil,
           mac: String.t() | nil,
           macs: [String.t()],
           legacy_mac: String.t() | nil,
@@ -62,6 +71,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
       armis_id: get_armis_id(metadata),
       integration_id: integration_id,
       netbox_id: get_trimmed(metadata, "netbox_device_id"),
+      hardware_serial: HardwareSerial.from_update(update),
       mac: List.first(macs),
       macs: macs,
       legacy_mac: legacy_mac_blob(raw_mac),
@@ -246,6 +256,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
       ids_get(ids, :armis_id) != nil or
       ids_get(ids, :integration_id) != nil or
       ids_get(ids, :netbox_id) != nil or
+      ids_get(ids, :hardware_serial) != nil or
       ids_get(ids, :mac) != nil
   end
 
@@ -255,12 +266,26 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
   @spec highest_priority_identifier(strong_identifiers()) :: {atom() | nil, String.t() | nil}
   def highest_priority_identifier(ids) do
     cond do
-      ids_get(ids, :agent_id) != nil -> {:agent_id, ids_get(ids, :agent_id)}
-      ids_get(ids, :armis_id) != nil -> {:armis_device_id, ids_get(ids, :armis_id)}
-      ids_get(ids, :integration_id) != nil -> {:integration_id, ids_get(ids, :integration_id)}
-      ids_get(ids, :netbox_id) != nil -> {:netbox_device_id, ids_get(ids, :netbox_id)}
-      ids_get(ids, :mac) != nil -> {:mac, ids_get(ids, :mac)}
-      true -> {nil, nil}
+      ids_get(ids, :agent_id) != nil ->
+        {:agent_id, ids_get(ids, :agent_id)}
+
+      ids_get(ids, :armis_id) != nil ->
+        {:armis_device_id, ids_get(ids, :armis_id)}
+
+      ids_get(ids, :integration_id) != nil ->
+        {:integration_id, ids_get(ids, :integration_id)}
+
+      ids_get(ids, :netbox_id) != nil ->
+        {:netbox_device_id, ids_get(ids, :netbox_id)}
+
+      ids_get(ids, :hardware_serial) != nil ->
+        {:hardware_serial, ids_get(ids, :hardware_serial)}
+
+      ids_get(ids, :mac) != nil ->
+        {:mac, ids_get(ids, :mac)}
+
+      true ->
+        {nil, nil}
     end
   end
 
@@ -268,6 +293,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
   def get_identifier_value(ids, :armis_device_id), do: ids_get(ids, :armis_id)
   def get_identifier_value(ids, :integration_id), do: ids_get(ids, :integration_id)
   def get_identifier_value(ids, :netbox_device_id), do: ids_get(ids, :netbox_id)
+  def get_identifier_value(ids, :hardware_serial), do: ids_get(ids, :hardware_serial)
   def get_identifier_value(ids, :mac), do: ids_get(ids, :mac)
   def get_identifier_value(_ids, _type), do: nil
 
@@ -288,6 +314,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
       |> maybe_add_seed("armis", ids_get(ids, :armis_id))
       |> maybe_add_seed("integration", ids_get(ids, :integration_id))
       |> maybe_add_seed("netbox", ids_get(ids, :netbox_id))
+      |> maybe_add_seed("hardware_serial", ids_get(ids, :hardware_serial))
       |> maybe_add_seed("mac", ids_get(ids, :mac))
 
     hash_input =

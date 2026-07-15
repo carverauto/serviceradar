@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   attr :schema, :map, default: %{}
   attr :params, :map, default: %{}
   attr :base_name, :string, default: "params"
+  attr :docs_url, :string, default: nil
 
   attr :credential_coverage, :map,
     default: nil,
@@ -33,6 +34,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
       Enum.split_with(properties, fn {_name, prop} -> advanced?(prop) end)
 
     required = Map.get(schema, "required", [])
+    docs_url = docs_url(assigns.docs_url, schema)
 
     assigns =
       assigns
@@ -42,7 +44,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
       |> assign(:basic_properties, basic_properties)
       |> assign(:advanced_properties, advanced_properties)
       |> assign(:required, required)
-      |> assign(:docs_url, docs_url(schema))
+      |> assign(:docs_url, docs_url)
 
     ~H"""
     <div class="space-y-4">
@@ -301,14 +303,16 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
 
   defp coverage_scope_label(_coverage), do: ""
 
-  defp docs_url(schema) do
-    schema
-    |> Map.get("x-serviceradar-docs-url")
-    |> case do
-      value when is_binary(value) and value != "" -> value
-      _ -> fallback_docs_url(schema)
-    end
+  defp docs_url(explicit_url, schema) do
+    Enum.find([explicit_url, Map.get(schema, "x-serviceradar-docs-url"), fallback_docs_url(schema)], &safe_docs_url?/1)
   end
+
+  defp safe_docs_url?(value) when is_binary(value) do
+    uri = URI.parse(value)
+    uri.scheme == "https" and is_binary(uri.host) and uri.host != "" and is_nil(uri.userinfo)
+  end
+
+  defp safe_docs_url?(_value), do: false
 
   defp fallback_docs_url(%{"title" => "Proxmox Console"}) do
     "https://docs.serviceradar.cloud/docs/proxmox#console-access"
@@ -326,6 +330,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
     value = Map.get(params, name)
 
     cond do
+      is_list(value) and Enum.any?(value, &is_map/1) -> Jason.encode!(value, pretty: true)
       is_list(value) -> Enum.join(value, "\n")
       is_map(value) -> Jason.encode!(value)
       true -> value || ""

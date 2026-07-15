@@ -6,10 +6,11 @@ metadata=""
 oras_bin=""
 upload_signature_tool=""
 extra_tag=""
+commit_sha=""
 
 usage() {
   cat <<'EOF'
-Usage: publish_plugin.sh --bundle <bundle.zip> --metadata <bundle.metadata.json> --oras <oras-bin> --upload-signature-tool <tool> [--tag <tag>]
+Usage: publish_plugin.sh --bundle <bundle.zip> --metadata <bundle.metadata.json> --oras <oras-bin> --upload-signature-tool <tool> [--tag <tag>] [--commit-sha <sha>]
 EOF
 }
 
@@ -33,6 +34,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --tag)
       extra_tag="$2"
+      shift 2
+      ;;
+    --commit-sha)
+      commit_sha="$2"
       shift 2
       ;;
     --help|-h)
@@ -129,7 +134,10 @@ print(data["upload_signature_media_type"])
 PY
 }
 
-mapfile -t meta < <(read_metadata "${metadata}")
+meta=()
+while IFS= read -r line; do
+  meta+=("${line}")
+done < <(read_metadata "${metadata}")
 plugin_id="${meta[0]}"
 repository_name="${meta[1]}"
 artifact_type="${meta[2]}"
@@ -139,7 +147,13 @@ upload_signature_media_type="${meta[4]}"
 registry="${OCI_REGISTRY:-registry.carverauto.dev}"
 project="${OCI_PROJECT:-serviceradar}"
 repo="${registry}/${project}/${repository_name}"
-commit_sha="$(git -C "${BUILD_WORKSPACE_DIRECTORY:-$(pwd)}" rev-parse HEAD)"
+if [[ -z "${commit_sha}" ]]; then
+  commit_sha="$(git -C "${BUILD_WORKSPACE_DIRECTORY:-$(pwd)}" rev-parse HEAD)"
+fi
+if [[ ! "${commit_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "error: commit SHA must be a lowercase 40-character Git commit" >&2
+  exit 1
+fi
 tags=("sha-${commit_sha}")
 tmp_dir="$(mktemp -d "${PWD}/.wasm-upload-signature.XXXXXX")"
 trap 'rm -rf "${tmp_dir}"' EXIT

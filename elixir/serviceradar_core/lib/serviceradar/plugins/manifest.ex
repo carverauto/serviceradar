@@ -8,6 +8,7 @@ defmodule ServiceRadar.Plugins.Manifest do
   """
 
   alias ServiceRadar.Plugins.ConfigSchema
+  alias ServiceRadar.Plugins.IntegrationDescriptor
   alias ServiceRadar.Plugins.ValueUtils
 
   @enforce_keys [:id, :name, :version, :entrypoint, :capabilities, :outputs, :resources]
@@ -27,7 +28,8 @@ defmodule ServiceRadar.Plugins.Manifest do
     :schema_version,
     :display_contract,
     :signal_schemas,
-    :producer_schedules
+    :producer_schedules,
+    :integrations
   ]
 
   @type t :: %__MODULE__{
@@ -46,7 +48,8 @@ defmodule ServiceRadar.Plugins.Manifest do
           schema_version: pos_integer() | nil,
           display_contract: map(),
           signal_schemas: [map()],
-          producer_schedules: [map()]
+          producer_schedules: [map()],
+          integrations: IntegrationDescriptor.descriptor()
         }
 
   @allowed_runtimes ["none", "wasi-preview1"]
@@ -74,7 +77,9 @@ defmodule ServiceRadar.Plugins.Manifest do
     "udp_sendto",
     "artifact-staging:v1",
     "advisory-feed:v1",
-    "producer-schedule:v1"
+    "producer-schedule:v1",
+    "action-result-ingest:v1",
+    "action-only:v1"
   ]
   @allowed_producer_dispatch_scopes ["assignment", "package", "target_query"]
   @allowed_producer_command_types ["plugin.run_action", "addon.run_command"]
@@ -184,6 +189,15 @@ defmodule ServiceRadar.Plugins.Manifest do
     {producer_schedules, errors} =
       validate_producer_schedules(fetch(map, :producer_schedules), errors)
 
+    {integrations, errors} =
+      case IntegrationDescriptor.validate(fetch(map, :integrations), producer_schedules) do
+        {:ok, integrations} ->
+          {integrations, errors}
+
+        {:error, integration_errors} ->
+          {IntegrationDescriptor.empty(), integration_errors ++ errors}
+      end
+
     if errors == [] do
       schema_version = schema_version || 1
 
@@ -204,7 +218,8 @@ defmodule ServiceRadar.Plugins.Manifest do
          schema_version: schema_version,
          display_contract: display_contract,
          signal_schemas: signal_schemas,
-         producer_schedules: producer_schedules
+         producer_schedules: producer_schedules,
+         integrations: integrations
        }}
     else
       {:error, Enum.reverse(errors)}

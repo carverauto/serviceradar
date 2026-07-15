@@ -32,7 +32,10 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     # mapped to more than one device); the full identifier table is never
     # loaded into memory. Bare-IP overlap is NOT merge evidence (policy:
     # weak/medium evidence never merges devices), and neither are
-    # locally-administered MACs.
+    # locally-administered MACs or serial-only matches. Hardware serials are
+    # useful during source-aware ingestion, where conflicting universal MACs
+    # can veto convergence, but ambiguous legacy serial rows must not drive an
+    # unattended scheduled merge.
     identifier_duplicates = duplicate_identifier_groups()
 
     components =
@@ -78,7 +81,7 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
 
     # identifier_type is an Ash.Type.Atom enum column, so the query must use
     # atoms — passing strings makes Ecto fail to dump them to the EctoType.
-    types = Ids.identifier_priority()
+    types = automatic_merge_identifier_types()
 
     query =
       from(di in DeviceIdentifier,
@@ -102,6 +105,11 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     |> Enum.map(fn {type, value, partition, device_ids} ->
       {{partition, type, value}, MapSet.new(device_ids)}
     end)
+  end
+
+  @doc false
+  def automatic_merge_identifier_types do
+    Ids.identifier_priority() -- [:hardware_serial]
   end
 
   defp build_duplicate_components(duplicate_entries) do

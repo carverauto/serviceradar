@@ -35,6 +35,94 @@ The control plane stores the manifest and config schema in the database and stor
 
 The exact manifest fields, the supported config JSON Schema subset, and the `serviceradar.plugin_result.v1` result schema are documented in full on the [developer portal](https://developer.serviceradar.cloud).
 
+### Package-declared integrations
+
+External inventory plugins own their provider-specific configuration, operator
+documentation, credential profile, schedule binding, inventory source label,
+and source metadata display fields. Put the documentation under `docs/`, define
+the configuration controls in `config.schema.json`, and publish the bounded
+declarative contract under `integrations` in `plugin.yaml`:
+
+```yaml
+producer_schedules:
+  - schedule_id: example-inventory.refresh
+    label: Refresh example inventory
+    action_id: example-inventory.refresh
+    command_type: plugin.run_action
+    default_cadence_seconds: 86400
+    min_cadence_seconds: 3600
+    max_cadence_seconds: 2592000
+    credential_requirements:
+      inventory_account:
+        required: true
+        resolution_location: agent
+        grants: []
+
+integrations:
+  documentation:
+    title: Example inventory configuration
+    path: docs/configuration.md
+  credential_profiles:
+    - provider: example-inventory
+      label: Example Inventory
+      auth_methods:
+        - id: username_password
+          credential_kind: username_password
+      purposes: [device_inventory]
+      scope_types: [agent]
+      provisioning:
+        mode: producer_schedule
+        schedule_id: example-inventory.refresh
+        credential_requirement: inventory_account
+  inventory_sources:
+    - source: example-inventory
+      label: Example Inventory
+      metadata_fields:
+        - key: site
+          label: Site
+```
+
+ServiceRadar validates this data while importing the signed package and builds
+the credentials UI, assignment reconciliation, schedule binding, and discovery
+source display from it. Adding another provider does not require a core catalog
+entry, provider module, documentation page, or workflow. The protected
+`external-wasm-plugin.yml` workflow accepts any repository matching the
+configured external plugin namespace and packages conventional `docs/`,
+`display/`, and `schemas/` resources with the module.
+
+Provider code is never loaded into the control plane. Core consumes only the
+validated descriptor, JSON Schema, generic discovery envelope, and nested
+`source_metadata`; duplicate provider/source claims and attempts to replace a
+reserved built-in provider are rejected.
+
+### Pre-production validation
+
+Validate a new inventory integration in a non-production partition before
+enabling its recurring schedule:
+
+1. Run the plugin repository's complete verification target, including unit
+   tests, static analysis, TinyGo compilation, deterministic bundle
+   reproduction, and vulnerability scanning.
+2. Publish an exact release tag through the protected generic workflow. Import
+   and approve the signed package, then confirm that its configuration fields,
+   credential profile, documentation, source labels, and disabled schedule all
+   come from the package descriptor.
+3. Assign the package to one test agent with a least-privilege credential rule
+   and use **Run Now**. Confirm that the command status contains only bounded
+   identifiers, counts, and hashes and that logs, results, and audit events do
+   not contain credentials or bearer tokens.
+4. Compare the source-inventory API result with a current provider export.
+   Verify row counts, stable source object and integration IDs, declared
+   metadata, and canonical DIRE matches. Replaying the same collection must be
+   idempotent; a later complete collection may mark omitted observations absent
+   but must not delete canonical devices.
+5. Run two collections at a shortened approved cadence, then restore the
+   intended cadence. Verify recurring and Run Now executions use the same
+   assignment, credential, RBAC, audit, timeout, and result-ingestion path.
+6. Exercise rollback by disabling the schedule or revoking the package and
+   confirming that no further command can be dispatched while existing source
+   observations remain auditable.
+
 Plugins that emit OCSF events or OTEL-style logs must also declare
 `signal_schemas` in `plugin.yaml`. Each signal schema points at a payload JSON Schema
 and a declarative display contract shipped with the same package version. See

@@ -86,6 +86,29 @@ fn devices_docs_example_discovery_sources_matches_any_source() {
 }
 
 #[test]
+fn devices_external_inventory_source_and_metadata_filters_are_bound() {
+    let query = r#"in:devices discovery_sources:(example-inventory) metadata.source_instance:"example-prod" metadata.site:IAD"#;
+    let plan = plan_for(query);
+
+    let (sql, params) =
+        devices::to_sql_and_params(&plan).expect("should build external inventory device query");
+
+    assert!(sql.contains("coalesce(discovery_sources, ARRAY[]::text[]) &&"));
+    assert!(sql.contains("metadata"));
+    assert!(sql.contains("source_instance"));
+    assert!(sql.contains("site"));
+    assert!(params.iter().any(
+        |param| matches!(param, BindParam::TextArray(values) if values == &vec!["example-inventory".to_string()])
+    ));
+    assert!(params
+        .iter()
+        .any(|param| matches!(param, BindParam::Text(value) if value == "example-prod")));
+    assert!(params
+        .iter()
+        .any(|param| matches!(param, BindParam::Text(value) if value == "IAD")));
+}
+
+#[test]
 fn devices_discovery_sources_negation_builds_negative_array_filter() {
     let query = "in:devices !discovery_sources:(armis)";
     let plan = plan_for(query);

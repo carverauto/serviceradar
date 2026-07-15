@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"net/url"
@@ -347,9 +348,106 @@ func applyCredentialBrokerHTTPInjection(
 		query.Set(name, value)
 		req.URL.RawQuery = query.Encode()
 		return nil
+	case "form_urlencoded":
+		return applyCredentialBrokerFormInjection(req, grant, material)
 	default:
 		return errCredentialBrokerInjectionUnsupported
 	}
+}
+
+func applyCredentialBrokerFormInjection(
+	req *http.Request,
+	grant credentialBrokerGrant,
+	material CredentialBrokerMaterial,
+) error {
+	if !credentialBrokerFormHasExactTarget(grant.Inject) {
+		return errCredentialBrokerFormInvalid
+	}
+	if !credentialBrokerInjectionTargetsRequest(req, grant.Inject) {
+		return nil
+	}
+	if req.URL == nil || !strings.EqualFold(req.URL.Scheme, "https") {
+		return errCredentialBrokerFormInvalid
+	}
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(req.Header.Get("Content-Type"), ";")[0]))
+	if contentType != "" && contentType != "application/x-www-form-urlencoded" {
+		return errCredentialBrokerFormInvalid
+	}
+
+	body := []byte(nil)
+	if req.Body != nil {
+		read, err := io.ReadAll(io.LimitReader(req.Body, pluginMaxPayloadBytes+1))
+		if err != nil || len(read) > pluginMaxPayloadBytes {
+			return errCredentialBrokerFormInvalid
+		}
+		body = read
+	}
+	form, err := url.ParseQuery(string(body))
+	if err != nil {
+		return errCredentialBrokerFormInvalid
+	}
+
+	for key, targetField := range grant.Inject {
+		if !strings.HasPrefix(key, "field_") {
+			continue
+		}
+		sourceField := strings.TrimPrefix(key, "field_")
+		targetField = strings.TrimSpace(targetField)
+		if sourceField == "" || targetField == "" || form.Has(targetField) {
+			return errCredentialBrokerSecretFieldPresent
+		}
+		value := credentialMaterialFieldValue(material, sourceField)
+		if value == "" {
+			return errCredentialBrokerMaterialUnavailable
+		}
+		form.Set(targetField, value)
+	}
+	for key, value := range grant.Inject {
+		if strings.HasPrefix(key, "fixed_") {
+			field := strings.TrimSpace(strings.TrimPrefix(key, "fixed_"))
+			if field == "" {
+				return errCredentialBrokerFormInvalid
+			}
+			form.Set(field, value)
+		}
+	}
+
+	encoded := form.Encode()
+	req.Body = io.NopCloser(strings.NewReader(encoded))
+	req.ContentLength = int64(len(encoded))
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader(encoded)), nil
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return nil
+}
+
+func credentialBrokerFormHasExactTarget(inject map[string]string) bool {
+	return strings.TrimSpace(inject["method"]) != "" &&
+		strings.TrimSpace(inject["host"]) != "" &&
+		strings.TrimSpace(inject["path"]) != ""
+}
+
+func credentialBrokerInjectionTargetsRequest(req *http.Request, inject map[string]string) bool {
+	if req == nil || req.URL == nil {
+		return false
+	}
+	if method := strings.TrimSpace(inject["method"]); method != "" &&
+		!strings.EqualFold(method, req.Method) {
+		return false
+	}
+	if host := strings.TrimSpace(inject["host"]); host != "" &&
+		!strings.EqualFold(host, req.URL.Hostname()) && !strings.EqualFold(host, req.URL.Host) {
+		return false
+	}
+	path := req.URL.EscapedPath()
+	if path == "" {
+		path = "/"
+	}
+	if expected := strings.TrimSpace(inject["path"]); expected != "" && expected != path {
+		return false
+	}
+	return true
 }
 
 func applyCredentialBrokerHeaderInjection(
@@ -396,7 +494,7 @@ func credentialMaterialFieldValue(material CredentialBrokerMaterial, keys ...str
 			continue
 		}
 		for _, candidate := range []string{key, strings.ToLower(key), strings.ToUpper(key)} {
-			if value := strings.TrimSpace(material.Fields[candidate]); value != "" {
+			if value := material.Fields[candidate]; strings.TrimSpace(value) != "" {
 				return value
 			}
 		}

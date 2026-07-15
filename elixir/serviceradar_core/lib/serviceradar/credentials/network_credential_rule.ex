@@ -235,7 +235,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
                     :discovery,
                     :generic,
                     :camera_inventory,
-                    :camera_stream
+                    :camera_stream,
+                    :device_inventory
                   ]
     end
 

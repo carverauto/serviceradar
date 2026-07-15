@@ -173,6 +173,146 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
     refute_received {:unexpected_device_sync, _, _}
   end
 
+  test "routes a complete plugin inventory collection through device sync before source activation" do
+    parent = self()
+
+    payload = %{
+      "status" => "OK",
+      "device_discovery" => [
+        %{
+          "schema" => "serviceradar.device_discovery.v1",
+          "source" => "example-inventory",
+          "collection_id" => "example-collection-1",
+          "reference_hash" => String.duplicate("a", 64),
+          "observed_at" => "2026-07-13T18:00:00Z",
+          "metadata" => %{
+            "source_instance" => "example-prod",
+            "snapshot_complete" => true,
+            "query_hash" => String.duplicate("b", 64)
+          },
+          "devices" => [
+            %{
+              "device_id" => "201",
+              "hostname" => "iad-asw-01",
+              "ip" => "192.0.2.20",
+              "serial" => "FOC1234ABC",
+              "vendor_name" => "Cisco",
+              "metadata" => %{
+                "integration_id" => "example-inventory:v1:example-prod:device:201",
+                "integration_type" => "example-inventory",
+                "source_metadata" => %{
+                  "instance_id" => "example-prod",
+                  "partition" => "IAD"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+
+    assert :ok =
+             DeviceDiscoveryIngestor.ingest(payload, %{partition: "default"},
+               actor: :actor,
+               device_sync: fn updates, _context ->
+                 send(parent, {:device_sync, updates})
+                 :ok
+               end,
+               source_observation_preflight: fn envelope, updates, context ->
+                 send(parent, {:source_preflight, envelope, updates, context})
+                 {:ok, :process}
+               end,
+               source_observation_sync: fn envelope, updates, context ->
+                 send(parent, {:source_sync, envelope, updates, context})
+                 :ok
+               end
+             )
+
+    assert_receive {:source_preflight, preflight_envelope, [preflight_update], preflight_context}
+    assert preflight_envelope["collection_id"] == "example-collection-1"
+    assert preflight_update["source"] == "example-inventory"
+    assert preflight_context == %{actor: :actor, partition: "default"}
+
+    assert_receive {:device_sync, [update]}
+    assert update["source"] == "example-inventory"
+    assert update["metadata"]["integration_type"] == "example-inventory"
+    assert update["metadata"]["serial_number"] == "FOC1234ABC"
+
+    assert_receive {:source_sync, envelope, [^update], context}
+    assert envelope["collection_id"] == "example-collection-1"
+    assert context == %{actor: :actor, partition: "default"}
+  end
+
+  test "rejects stale plugin inventory collections before canonical device sync" do
+    parent = self()
+
+    payload = %{
+      "device_discovery" => [
+        %{
+          "schema" => "serviceradar.device_discovery.v1",
+          "source" => "example-inventory",
+          "devices" => [
+            %{"device_id" => "example-inventory:v1:lab:device:1", "hostname" => "iad-asw-01"}
+          ]
+        }
+      ]
+    }
+
+    assert {:error, :stale_source_snapshot} =
+             DeviceDiscoveryIngestor.ingest(payload, %{partition: "default"},
+               actor: :actor,
+               source_observation_preflight: fn _envelope, _updates, _context ->
+                 {:error, :stale_source_snapshot}
+               end,
+               device_sync: fn _updates, _context ->
+                 send(parent, :unexpected_device_sync)
+                 :ok
+               end,
+               source_observation_sync: fn _envelope, _updates, _context ->
+                 send(parent, :unexpected_source_sync)
+                 :ok
+               end
+             )
+
+    refute_received :unexpected_device_sync
+    refute_received :unexpected_source_sync
+  end
+
+  test "idempotent plugin inventory collections skip canonical and source writes" do
+    parent = self()
+
+    payload = %{
+      "device_discovery" => [
+        %{
+          "schema" => "serviceradar.device_discovery.v1",
+          "source" => "example-inventory",
+          "devices" => [
+            %{"device_id" => "example-inventory:v1:lab:device:1", "hostname" => "iad-asw-01"}
+          ]
+        }
+      ]
+    }
+
+    assert :ok =
+             DeviceDiscoveryIngestor.ingest(payload, %{partition: "default"},
+               actor: :actor,
+               source_observation_preflight: fn _envelope, _updates, _context ->
+                 {:ok, :idempotent}
+               end,
+               device_sync: fn _updates, _context ->
+                 send(parent, :unexpected_device_sync)
+                 :ok
+               end,
+               source_observation_sync: fn _envelope, _updates, _context ->
+                 send(parent, :unexpected_source_sync)
+                 :ok
+               end
+             )
+
+    refute_received :unexpected_device_sync
+    refute_received :unexpected_source_sync
+  end
+
   test "advertises support only for device discovery payloads" do
     discovery = %{
       "device_discovery" => [
@@ -214,6 +354,50 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
 
     assert_receive :device_sync_finished
     assert_receive :membership_sync_started
+  end
+
+  test "reconciles source observations before AWX memberships" do
+    parent = self()
+
+    payload = %{
+      "device_discovery" => [
+        %{
+          "schema" => "serviceradar.device_discovery.v1",
+          "source" => "awx",
+          "collection_id" => "awx-collection-1",
+          "devices" => [%{"device_id" => "awx:controller:host:100", "hostname" => "node-1"}]
+        }
+      ]
+    }
+
+    assert :ok =
+             DeviceDiscoveryIngestor.ingest(payload, %{partition: "default"},
+               actor: :actor,
+               source_observation_preflight: fn _envelope, _updates, _context ->
+                 send(parent, {:phase, :source_preflight})
+                 {:ok, :process}
+               end,
+               device_sync: fn _updates, _context ->
+                 send(parent, {:phase, :device_sync})
+                 :ok
+               end,
+               source_observation_sync: fn _envelope, _updates, _context ->
+                 send(parent, {:phase, :source_sync})
+                 :ok
+               end,
+               membership_sync: fn ^payload, %{actor: :actor} ->
+                 send(parent, {:phase, :membership_sync})
+                 :ok
+               end
+             )
+
+    phases =
+      for _ <- 1..4 do
+        assert_receive {:phase, phase}
+        phase
+      end
+
+    assert phases == [:source_preflight, :device_sync, :source_sync, :membership_sync]
   end
 
   test "does not reconcile memberships when device sync fails" do

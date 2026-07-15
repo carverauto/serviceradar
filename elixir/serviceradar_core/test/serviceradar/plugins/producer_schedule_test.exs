@@ -163,6 +163,137 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
     assert CredentialRedactor.redact(transmit_payload) == transmit_payload
   end
 
+  test "one credential reference issues exact endpoint grants for token and inventory requests",
+       %{
+         actor: actor,
+         uid: uid
+       } do
+    Process.put(:producer_schedule_test_pid, self())
+    on_exit(fn -> Process.delete(:producer_schedule_test_pid) end)
+
+    plugin_id = "example-inventory-producer-#{uid}"
+    agent_uid = "agent-example-inventory-#{uid}"
+
+    credential_requirements = %{
+      "inventory_service_account" => %{
+        "required" => true,
+        "resolution_location" => "agent",
+        "grants" => [
+          %{
+            "name" => "token",
+            "grant_type" => "network_automation_oauth_password",
+            "purpose" => "device_inventory_token",
+            "allow" => %{"methods" => ["POST"], "url_param" => "token_url"},
+            "inject" => %{
+              "type" => "form_urlencoded",
+              "url_param" => "token_url",
+              "field_username" => "username",
+              "field_password" => "password",
+              "fixed_grant_type" => "password"
+            }
+          },
+          %{
+            "name" => "inventory",
+            "grant_type" => "network_automation_wrapper_access",
+            "purpose" => "device_inventory",
+            "allow" => %{"methods" => ["POST"], "url_param" => "api_url"}
+          }
+        ]
+      }
+    }
+
+    assert {:ok, package} =
+             create_package(actor, plugin_id, %{
+               "credential_requirements" => credential_requirements
+             })
+
+    assert {:ok, package} = approve_package(actor, package)
+    assert {:ok, assignment} = create_assignment(actor, package, agent_uid)
+
+    assert {:ok, schedule} =
+             ProducerSchedule
+             |> Ash.Query.filter(
+               plugin_package_id == ^package.id and schedule_id == "advisory.refresh"
+             )
+             |> Ash.read_one(actor: actor)
+
+    assert {:ok, schedule} =
+             schedule
+             |> Ash.Changeset.for_update(
+               :update,
+               %{
+                 enabled: true,
+                 plugin_assignment_id: assignment.id,
+                 params: %{
+                   "token_url" => "https://identity.example.com/oauth/token",
+                   "api_url" => "https://wrapper.example.com/api/inventory"
+                 },
+                 credential_refs: %{
+                   "inventory_service_account" => "credentialref:example:service-account"
+                 },
+                 metadata: %{"credential_rule_id" => Ash.UUID.generate()}
+               },
+               actor: actor
+             )
+             |> Ash.update()
+
+    assert {:ok, _command_id} =
+             ProducerScheduleDispatcher.dispatch(schedule,
+               actor: actor,
+               command_bus: __MODULE__,
+               grant_issuer: fn attrs ->
+                 send(test_pid(), {:inventory_credential_grant, attrs})
+
+                 {:ok,
+                  %{
+                    "schema" => "serviceradar.edge_credential_broker_grant.v1",
+                    "grant_id" => "grant-#{attrs.grant_type}",
+                    "credential_secret_ref" => attrs.secret_ref,
+                    "inject" => attrs.inject,
+                    "allow" => %{
+                      "methods" => attrs.allowed_methods,
+                      "hosts" => attrs.allowed_hosts,
+                      "ports" => attrs.allowed_ports,
+                      "paths" => attrs.allowed_paths
+                    }
+                  }}
+               end
+             )
+
+    assert_receive {:inventory_credential_grant, token_grant}
+    assert token_grant.grant_type == "network_automation_oauth_password"
+    assert token_grant.purpose == "device_inventory_token"
+    assert token_grant.allowed_methods == ["POST"]
+    assert token_grant.allowed_hosts == ["identity.example.com"]
+    assert token_grant.allowed_ports == [443]
+    assert token_grant.allowed_paths == ["/oauth/token"]
+    assert token_grant.credential_rule_id == schedule.metadata["credential_rule_id"]
+
+    assert token_grant.inject == %{
+             "type" => "form_urlencoded",
+             "method" => "POST",
+             "host" => "identity.example.com",
+             "path" => "/oauth/token",
+             "field_username" => "username",
+             "field_password" => "password",
+             "fixed_grant_type" => "password"
+           }
+
+    assert_receive {:inventory_credential_grant, inventory_grant}
+    assert inventory_grant.grant_type == "network_automation_wrapper_access"
+    assert inventory_grant.purpose == "device_inventory"
+    assert inventory_grant.allowed_methods == ["POST"]
+    assert inventory_grant.allowed_hosts == ["wrapper.example.com"]
+    assert inventory_grant.allowed_ports == [443]
+    assert inventory_grant.allowed_paths == ["/api/inventory"]
+    assert inventory_grant.credential_rule_id == schedule.metadata["credential_rule_id"]
+    assert inventory_grant.inject == %{}
+
+    assert_receive {:producer_schedule_dispatch, ^agent_uid, "plugin.run_action", payload, _opts}
+    assert length(payload["credential_brokers"]) == 2
+    refute Map.has_key?(payload, "credential_refs")
+  end
+
   test "run_now records commandbus dispatch errors for offline agents", %{actor: actor, uid: uid} do
     assert {:ok, schedule} = create_enabled_schedule(actor, uid)
 

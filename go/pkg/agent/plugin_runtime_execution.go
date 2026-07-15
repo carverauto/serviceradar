@@ -243,7 +243,11 @@ func (e *pluginExecution) hostSubmitResult(ctx context.Context, mod api.Module, 
 	if !ok {
 		return pluginErrInvalid
 	}
-	if len(payload) > pluginMaxPayloadBytes {
+	maxPayloadBytes := pluginMaxPayloadBytes
+	if e.mode == pluginExecutionModeAction && e.assignment.ingestsActionResults() {
+		maxPayloadBytes = pluginMaxActionIngestResultBytes
+	}
+	if len(payload) > maxPayloadBytes {
 		return pluginErrTooLarge
 	}
 

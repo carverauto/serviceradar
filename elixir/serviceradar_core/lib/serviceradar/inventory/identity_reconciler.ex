@@ -21,7 +21,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
 
   ## Resolution Priority
 
-  1. Strong identifiers (Agent ID > Armis ID > Integration ID > NetBox ID > MAC)
+  1. Strong identifiers (Agent ID > Armis ID > Integration ID > NetBox ID >
+     manufacturer-scoped hardware serial > MAC)
   2. Existing `sr:` UUID in update (re-validated against canonical mapping)
   3. IP-only fallback (only when no strong identifier is present)
 
