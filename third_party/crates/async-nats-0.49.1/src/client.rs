@@ -1,0 +1,1346 @@
+// Copyright 2020-2022 The NATS Authors
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use core::pin::Pin;
+use core::task::{Context, Poll};
+use std::future::Future;
+
+use crate::connection::State;
+use crate::message::OutboundMessage;
+use crate::subject::ToSubject;
+use crate::ServerInfo;
+
+use super::{header::HeaderMap, status::StatusCode, Command, Message, Subscriber};
+use crate::error::Error;
+use bytes::Bytes;
+use futures_util::future::TryFutureExt;
+use futures_util::{Sink, SinkExt as _, StreamExt};
+use portable_atomic::AtomicU64;
+use regex::Regex;
+use std::fmt::Display;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::sync::LazyLock;
+use std::time::Duration;
+use thiserror::Error;
+use tokio::sync::{mpsc, oneshot};
+use tokio_util::sync::PollSender;
+
+static VERSION_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\Av?([0-9]+)\.?([0-9]+)?\.?([0-9]+)?").unwrap());
+
+/// An error returned from the [`Client::publish`], [`Client::publish_with_headers`],
+/// [`Client::publish_with_reply`] or [`Client::publish_with_reply_and_headers`] functions.
+pub type PublishError = Error<PublishErrorKind>;
+
+impl From<tokio::sync::mpsc::error::SendError<Command>> for PublishError {
+    fn from(err: tokio::sync::mpsc::error::SendError<Command>) -> Self {
+        PublishError::with_source(PublishErrorKind::Send, err)
+    }
+}
+
+impl From<tokio_util::sync::PollSendError<Command>> for PublishError {
+    fn from(err: tokio_util::sync::PollSendError<Command>) -> Self {
+        PublishError::with_source(PublishErrorKind::Send, err)
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum PublishErrorKind {
+    MaxPayloadExceeded,
+    InvalidSubject,
+    Send,
+}
+
+impl Display for PublishErrorKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PublishErrorKind::MaxPayloadExceeded => write!(f, "max payload size exceeded"),
+            PublishErrorKind::Send => write!(f, "failed to send message"),
+            PublishErrorKind::InvalidSubject => write!(f, "invalid subject"),
+        }
+    }
+}
+
+/// Shared error text for the max-payload errors, from `(max_payload, size)`.
+pub(crate) fn max_payload_message((max_payload, size): (usize, usize)) -> String {
+    format!("Payload size limit of {max_payload} exceeded by message size of {size}")
+}
+
+/// `map_err` helper turning a size violation into a [`PublishError`].
+fn max_payload_error(sizes: (usize, usize)) -> PublishError {
+    PublishError::with_source(
+        PublishErrorKind::MaxPayloadExceeded,
+        max_payload_message(sizes),
+    )
+}
+
+/// Client is a `Cloneable` handle to NATS connection.
+/// Client should not be created directly. Instead, one of two methods can be used:
+/// [crate::connect] and [crate::ConnectOptions::connect]
+#[derive(Clone, Debug)]
+pub struct Client {
+    info: tokio::sync::watch::Receiver<Option<ServerInfo>>,
+    pub(crate) state: tokio::sync::watch::Receiver<State>,
+    pub(crate) sender: mpsc::Sender<Command>,
+    poll_sender: PollSender<Command>,
+    next_subscription_id: Arc<AtomicU64>,
+    subscription_capacity: usize,
+    inbox_prefix: Arc<str>,
+    request_timeout: Option<Duration>,
+    max_payload: Arc<AtomicUsize>,
+    connection_stats: Arc<Statistics>,
+    skip_subject_validation: bool,
+}
+
+pub mod traits {
+    use std::{future::Future, time::Duration};
+
+    use bytes::Bytes;
+
+    use crate::{message, subject::ToSubject, Message};
+
+    use super::{PublishError, Request, RequestError, SubscribeError};
+
+    pub trait Publisher {
+        fn publish_with_reply<S, R>(
+            &self,
+            subject: S,
+            reply: R,
+            payload: Bytes,
+        ) -> impl Future<Output = Result<(), PublishError>>
+        where
+            S: ToSubject,
+            R: ToSubject;
+
+        fn publish_message(
+            &self,
+            msg: message::OutboundMessage,
+        ) -> impl Future<Output = Result<(), PublishError>>;
+    }
+    pub trait Subscriber {
+        fn subscribe<S>(
+            &self,
+            subject: S,
+        ) -> impl Future<Output = Result<crate::Subscriber, SubscribeError>>
+        where
+            S: ToSubject;
+    }
+    pub trait Requester {
+        fn send_request<S>(
+            &self,
+            subject: S,
+            request: Request,
+        ) -> impl Future<Output = Result<Message, RequestError>>
+        where
+            S: ToSubject;
+    }
+    pub trait TimeoutProvider {
+        fn timeout(&self) -> Option<Duration>;
+    }
+}
+
+impl traits::Requester for Client {
+    fn send_request<S: ToSubject>(
+        &self,
+        subject: S,
+        request: Request,
+    ) -> impl Future<Output = Result<Message, RequestError>> {
+        self.send_request(subject, request)
+    }
+}
+
+impl traits::TimeoutProvider for Client {
+    fn timeout(&self) -> Option<Duration> {
+        self.timeout()
+    }
+}
+
+impl traits::Publisher for Client {
+    fn publish_with_reply<S, R>(
+        &self,
+        subject: S,
+        reply: R,
+        payload: Bytes,
+    ) -> impl Future<Output = Result<(), PublishError>>
+    where
+        S: ToSubject,
+        R: ToSubject,
+    {
+        self.publish_with_reply(subject, reply, payload)
+    }
+
+    async fn publish_message(&self, msg: OutboundMessage) -> Result<(), PublishError> {
+        if msg.subject.is_empty()
+            || (!self.skip_subject_validation && !crate::is_valid_publish_subject(&msg.subject))
+        {
+            return Err(PublishError::with_source(
+                PublishErrorKind::InvalidSubject,
+                crate::subject::SubjectError::InvalidFormat,
+            ));
+        }
+        self.check_payload_size(msg.headers.as_ref(), msg.payload.len())
+            .map_err(max_payload_error)?;
+        self.sender
+            .send(Command::Publish(msg))
+            .await
+            .map_err(Into::into)
+    }
+}
+
+impl traits::Subscriber for Client {
+    fn subscribe<S>(&self, subject: S) -> impl Future<Output = Result<Subscriber, SubscribeError>>
+    where
+        S: ToSubject,
+    {
+        self.subscribe(subject)
+    }
+}
+
+impl Sink<OutboundMessage> for Client {
+    type Error = PublishError;
+
+    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.poll_sender.poll_ready_unpin(cx).map_err(Into::into)
+    }
+
+    fn start_send(mut self: Pin<&mut Self>, msg: OutboundMessage) -> Result<(), Self::Error> {
+        self.check_payload_size(msg.headers.as_ref(), msg.payload.len())
+            .map_err(max_payload_error)?;
+        self.poll_sender
+            .start_send_unpin(Command::Publish(msg))
+            .map_err(Into::into)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.poll_sender.poll_flush_unpin(cx).map_err(Into::into)
+    }
+
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.poll_sender.poll_close_unpin(cx).map_err(Into::into)
+    }
+}
+
+impl Client {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        info: tokio::sync::watch::Receiver<Option<ServerInfo>>,
+        state: tokio::sync::watch::Receiver<State>,
+        sender: mpsc::Sender<Command>,
+        capacity: usize,
+        inbox_prefix: String,
+        request_timeout: Option<Duration>,
+        max_payload: Arc<AtomicUsize>,
+        statistics: Arc<Statistics>,
+        skip_subject_validation: bool,
+    ) -> Client {
+        let poll_sender = PollSender::new(sender.clone());
+        Client {
+            info,
+            state,
+            sender,
+            poll_sender,
+            next_subscription_id: Arc::new(AtomicU64::new(1)),
+            subscription_capacity: capacity,
+            inbox_prefix: inbox_prefix.into(),
+            request_timeout,
+            max_payload,
+            connection_stats: statistics,
+            skip_subject_validation,
+        }
+    }
+
+    /// Validates a subject for publishing (protocol-framing safety only).
+    /// Checks for empty and whitespace. Does not check dot structure.
+    pub(crate) fn maybe_validate_publish_subject<S: ToSubject>(
+        &self,
+        subject: S,
+    ) -> Result<crate::Subject, crate::subject::SubjectError> {
+        let subject = subject.to_subject();
+        if subject.is_empty()
+            || (!self.skip_subject_validation && !crate::is_valid_publish_subject(&subject))
+        {
+            return Err(crate::subject::SubjectError::InvalidFormat);
+        }
+        Ok(subject)
+    }
+
+    /// Validates a subject for subscribing (protocol-framing + dot structure).
+    /// Always runs regardless of `skip_subject_validation` (matches Go/Java behavior).
+    pub(crate) fn validate_subscribe_subject<S: ToSubject>(
+        &self,
+        subject: S,
+    ) -> Result<crate::Subject, crate::subject::SubjectError> {
+        let subject = subject.to_subject();
+        if !subject.is_valid() {
+            return Err(crate::subject::SubjectError::InvalidFormat);
+        }
+        Ok(subject)
+    }
+
+    /// Returns the default timeout for requests set when creating the client.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// println!("default request timeout: {:?}", client.timeout());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn timeout(&self) -> Option<Duration> {
+        self.request_timeout
+    }
+
+    /// Returns the last received info from the server if one has been observed.
+    ///
+    /// This is useful when [`ConnectOptions::retry_on_initial_connect`][crate::ConnectOptions::retry_on_initial_connect]
+    /// is enabled and the client is returned before the first server `INFO`
+    /// message arrives.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main () -> Result<(), async_nats::Error> {
+    /// let client = async_nats::ConnectOptions::new()
+    ///     .retry_on_initial_connect()
+    ///     .connect("demo.nats.io")
+    ///     .await?;
+    /// println!("info available: {}", client.try_server_info().is_some());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn try_server_info(&self) -> Option<ServerInfo> {
+        // We ignore notifying the watcher, as that requires mutable client reference.
+        self.info.borrow().clone()
+    }
+
+    /// Returns last received info from the server.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main () -> Result<(), async_nats::Error> {
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// println!("info: {:?}", client.server_info());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn server_info(&self) -> ServerInfo {
+        self.try_server_info().unwrap_or_default()
+    }
+
+    /// Returns the maximum payload size currently used by the client.
+    ///
+    /// Before the first server `INFO` message arrives, this returns the default
+    /// server payload limit used for client-side publish validation.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main () -> Result<(), async_nats::Error> {
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// println!("max payload: {:?}", client.max_payload());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn max_payload(&self) -> usize {
+        self.max_payload.load(Ordering::Relaxed)
+    }
+
+    /// Checks the wire size (serialized headers + payload, matching the server's
+    /// `HPUB` total) against the negotiated `max_payload`. On violation returns
+    /// `(max_payload, size)` for the caller to wrap in its own error.
+    pub(crate) fn check_payload_size(
+        &self,
+        headers: Option<&HeaderMap>,
+        payload_len: usize,
+    ) -> Result<(), (usize, usize)> {
+        let max_payload = self.max_payload.load(Ordering::Relaxed);
+        let size = match headers {
+            Some(headers) if !headers.is_empty() => headers.wire_len() + payload_len,
+            _ => payload_len,
+        };
+        if size > max_payload {
+            Err((max_payload, size))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Returns true if the server version is compatible with the version components.
+    ///
+    /// This has to be used with caution, as it is not guaranteed that the server
+    /// that client is connected to is the same version that the one that is
+    /// a JetStream meta/stream/consumer leader, especially across leafnodes.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// assert!(client.is_server_compatible(2, 8, 4));
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn is_server_compatible(&self, major: i64, minor: i64, patch: i64) -> bool {
+        let info = self.server_info();
+
+        let server_version_captures = match VERSION_RE.captures(&info.version) {
+            Some(captures) => captures,
+            None => return false,
+        };
+
+        let server_major = server_version_captures
+            .get(1)
+            .map(|m| m.as_str().parse::<i64>().unwrap())
+            .unwrap();
+
+        let server_minor = server_version_captures
+            .get(2)
+            .map(|m| m.as_str().parse::<i64>().unwrap())
+            .unwrap();
+
+        let server_patch = server_version_captures
+            .get(3)
+            .map(|m| m.as_str().parse::<i64>().unwrap())
+            .unwrap();
+
+        if server_major < major
+            || (server_major == major && server_minor < minor)
+            || (server_major == major && server_minor == minor && server_patch < patch)
+        {
+            return false;
+        }
+        true
+    }
+
+    /// Publish a [Message] to a given subject.
+    ///
+    /// Returns `PublishErrorKind::InvalidSubject` if the subject is invalid
+    /// (empty or contains whitespace). This check can be disabled with
+    /// [`ConnectOptions::skip_subject_validation`][crate::ConnectOptions::skip_subject_validation] (empty subjects are
+    /// always rejected).
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// client.publish("events.data", "payload".into()).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn publish<S: ToSubject>(
+        &self,
+        subject: S,
+        payload: Bytes,
+    ) -> Result<(), PublishError> {
+        let subject = self
+            .maybe_validate_publish_subject(subject)
+            .map_err(|e| PublishError::with_source(PublishErrorKind::InvalidSubject, e))?;
+
+        self.check_payload_size(None, payload.len())
+            .map_err(max_payload_error)?;
+
+        self.sender
+            .send(Command::Publish(OutboundMessage {
+                subject,
+                payload,
+                reply: None,
+                headers: None,
+            }))
+            .await?;
+        Ok(())
+    }
+
+    /// Publish a [Message] with headers to a given subject.
+    ///
+    /// # Examples
+    /// ```
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// use std::str::FromStr;
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// let mut headers = async_nats::HeaderMap::new();
+    /// headers.insert(
+    ///     "X-Header",
+    ///     async_nats::HeaderValue::from_str("Value").unwrap(),
+    /// );
+    /// client
+    ///     .publish_with_headers("events.data", headers, "payload".into())
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn publish_with_headers<S: ToSubject>(
+        &self,
+        subject: S,
+        headers: HeaderMap,
+        payload: Bytes,
+    ) -> Result<(), PublishError> {
+        let subject = self
+            .maybe_validate_publish_subject(subject)
+            .map_err(|e| PublishError::with_source(PublishErrorKind::InvalidSubject, e))?;
+
+        self.check_payload_size(Some(&headers), payload.len())
+            .map_err(max_payload_error)?;
+
+        self.sender
+            .send(Command::Publish(OutboundMessage {
+                subject,
+                payload,
+                reply: None,
+                headers: Some(headers),
+            }))
+            .await?;
+        Ok(())
+    }
+
+    /// Publish a [Message] to a given subject, with specified response subject
+    /// to which the subscriber can respond.
+    /// This method does not await for the response.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// client
+    ///     .publish_with_reply("events.data", "reply_subject", "payload".into())
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn publish_with_reply<S: ToSubject, R: ToSubject>(
+        &self,
+        subject: S,
+        reply: R,
+        payload: Bytes,
+    ) -> Result<(), PublishError> {
+        let subject = self
+            .maybe_validate_publish_subject(subject)
+            .map_err(|e| PublishError::with_source(PublishErrorKind::InvalidSubject, e))?;
+        let reply = self
+            .maybe_validate_publish_subject(reply)
+            .map_err(|e| PublishError::with_source(PublishErrorKind::InvalidSubject, e))?;
+
+        self.check_payload_size(None, payload.len())
+            .map_err(max_payload_error)?;
+
+        self.sender
+            .send(Command::Publish(OutboundMessage {
+                subject,
+                payload,
+                reply: Some(reply),
+                headers: None,
+            }))
+            .await?;
+        Ok(())
+    }
+
+    /// Publish a [Message] to a given subject with headers and specified response subject
+    /// to which the subscriber can respond.
+    /// This method does not await for the response.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// use std::str::FromStr;
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// let mut headers = async_nats::HeaderMap::new();
+    /// client
+    ///     .publish_with_reply_and_headers("events.data", "reply_subject", headers, "payload".into())
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn publish_with_reply_and_headers<S: ToSubject, R: ToSubject>(
+        &self,
+        subject: S,
+        reply: R,
+        headers: HeaderMap,
+        payload: Bytes,
+    ) -> Result<(), PublishError> {
+        let subject = self
+            .maybe_validate_publish_subject(subject)
+            .map_err(|e| PublishError::with_source(PublishErrorKind::InvalidSubject, e))?;
+        let reply = self
+            .maybe_validate_publish_subject(reply)
+            .map_err(|e| PublishError::with_source(PublishErrorKind::InvalidSubject, e))?;
+
+        self.check_payload_size(Some(&headers), payload.len())
+            .map_err(max_payload_error)?;
+
+        self.sender
+            .send(Command::Publish(OutboundMessage {
+                subject,
+                payload,
+                reply: Some(reply),
+                headers: Some(headers),
+            }))
+            .await?;
+        Ok(())
+    }
+
+    /// Sends the request with headers.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// let response = client.request("service", "data".into()).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn request<S: ToSubject>(
+        &self,
+        subject: S,
+        payload: Bytes,
+    ) -> Result<Message, RequestError> {
+        let request = Request::new().payload(payload);
+        self.send_request(subject, request).await
+    }
+
+    /// Sends the request with headers.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// let mut headers = async_nats::HeaderMap::new();
+    /// headers.insert("Key", "Value");
+    /// let response = client
+    ///     .request_with_headers("service", headers, "data".into())
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn request_with_headers<S: ToSubject>(
+        &self,
+        subject: S,
+        headers: HeaderMap,
+        payload: Bytes,
+    ) -> Result<Message, RequestError> {
+        let request = Request::new().headers(headers).payload(payload);
+        self.send_request(subject, request).await
+    }
+
+    /// Sends the request created by the [Request].
+    ///
+    /// Returns `RequestErrorKind::InvalidSubject` if the subject is invalid
+    /// (empty or contains whitespace).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// let request = async_nats::Request::new().payload("data".into());
+    /// let response = client.send_request("service", request).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn send_request<S: ToSubject>(
+        &self,
+        subject: S,
+        request: Request,
+    ) -> Result<Message, RequestError> {
+        let subject = self
+            .maybe_validate_publish_subject(subject)
+            .map_err(|e| RequestError::with_source(RequestErrorKind::InvalidSubject, e))?;
+
+        // Reject oversized requests up front, else they'd be sent and time out.
+        self.check_payload_size(
+            request.headers.as_ref(),
+            request.payload.as_ref().map_or(0, Bytes::len),
+        )
+        .map_err(|sizes| {
+            RequestError::with_source(
+                RequestErrorKind::MaxPayloadExceeded,
+                max_payload_message(sizes),
+            )
+        })?;
+
+        if let Some(inbox) = request.inbox {
+            let timeout = request.timeout.unwrap_or(self.request_timeout);
+            let mut subscriber = self.subscribe(inbox.clone()).await?;
+            let payload: Bytes = request.payload.unwrap_or_default();
+            match request.headers {
+                Some(headers) => {
+                    self.publish_with_reply_and_headers(subject, inbox, headers, payload)
+                        .await?
+                }
+                None => self.publish_with_reply(subject, inbox, payload).await?,
+            }
+            let request = match timeout {
+                Some(timeout) => {
+                    tokio::time::timeout(timeout, subscriber.next())
+                        .map_err(|err| RequestError::with_source(RequestErrorKind::TimedOut, err))
+                        .await?
+                }
+                None => subscriber.next().await,
+            };
+            match request {
+                Some(message) => {
+                    if message.status == Some(StatusCode::NO_RESPONDERS) {
+                        return Err(RequestError::with_source(
+                            RequestErrorKind::NoResponders,
+                            "no responders",
+                        ));
+                    }
+                    Ok(message)
+                }
+                None => Err(RequestError::with_source(
+                    RequestErrorKind::Other,
+                    "broken pipe",
+                )),
+            }
+        } else {
+            let (sender, receiver) = oneshot::channel();
+
+            let payload = request.payload.unwrap_or_default();
+            let respond = self.new_inbox().into();
+            let headers = request.headers;
+
+            self.sender
+                .send(Command::Request {
+                    subject,
+                    payload,
+                    respond,
+                    headers,
+                    sender,
+                })
+                .map_err(|err| RequestError::with_source(RequestErrorKind::Other, err))
+                .await?;
+
+            let timeout = request.timeout.unwrap_or(self.request_timeout);
+            let request = match timeout {
+                Some(timeout) => {
+                    tokio::time::timeout(timeout, receiver)
+                        .map_err(|err| RequestError::with_source(RequestErrorKind::TimedOut, err))
+                        .await?
+                }
+                None => receiver.await,
+            };
+
+            match request {
+                Ok(message) => {
+                    if message.status == Some(StatusCode::NO_RESPONDERS) {
+                        return Err(RequestError::with_source(
+                            RequestErrorKind::NoResponders,
+                            "no responders",
+                        ));
+                    }
+                    Ok(message)
+                }
+                Err(err) => Err(RequestError::with_source(RequestErrorKind::Other, err)),
+            }
+        }
+    }
+
+    /// Create a new globally unique inbox which can be used for replies.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// # let mut nc = async_nats::connect("demo.nats.io").await?;
+    /// let reply = nc.new_inbox();
+    /// let rsub = nc.subscribe(reply).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn new_inbox(&self) -> String {
+        format!("{}.{}", self.inbox_prefix, crate::id_generator::next())
+    }
+
+    /// Subscribes to a subject to receive [messages][Message].
+    ///
+    /// Returns an error if the subject is invalid (empty, contains whitespace,
+    /// or has malformed dot structure). This validation always runs regardless
+    /// of [`ConnectOptions::skip_subject_validation`][crate::ConnectOptions::skip_subject_validation].
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// use futures_util::StreamExt;
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// let mut subscription = client.subscribe("events.>").await?;
+    /// while let Some(message) = subscription.next().await {
+    ///     println!("received message: {:?}", message);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn subscribe<S: ToSubject>(&self, subject: S) -> Result<Subscriber, SubscribeError> {
+        let subject = self
+            .validate_subscribe_subject(subject)
+            .map_err(|e| SubscribeError::with_source(SubscribeErrorKind::InvalidSubject, e))?;
+
+        let sid = self.next_subscription_id.fetch_add(1, Ordering::Relaxed);
+        let (sender, receiver) = mpsc::channel(self.subscription_capacity);
+
+        self.sender
+            .send(Command::Subscribe {
+                sid,
+                subject,
+                queue_group: None,
+                sender,
+            })
+            .await?;
+
+        Ok(Subscriber::new(sid, self.sender.clone(), receiver))
+    }
+
+    /// Subscribes to a subject with a queue group to receive [messages][Message].
+    ///
+    /// Returns an error if the subject is invalid (empty, contains whitespace,
+    /// or has malformed dot structure) or if the queue group name is invalid
+    /// (empty or contains whitespace). Subject and queue group validation always
+    /// runs regardless of [`ConnectOptions::skip_subject_validation`][crate::ConnectOptions::skip_subject_validation].
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// use futures_util::StreamExt;
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// let mut subscription = client.queue_subscribe("events.>", "queue".into()).await?;
+    /// while let Some(message) = subscription.next().await {
+    ///     println!("received message: {:?}", message);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn queue_subscribe<S: ToSubject>(
+        &self,
+        subject: S,
+        queue_group: String,
+    ) -> Result<Subscriber, SubscribeError> {
+        let subject = self
+            .validate_subscribe_subject(subject)
+            .map_err(|e| SubscribeError::with_source(SubscribeErrorKind::InvalidSubject, e))?;
+
+        if !crate::is_valid_queue_group(&queue_group) {
+            return Err(SubscribeError::new(SubscribeErrorKind::InvalidQueueName));
+        }
+
+        let sid = self.next_subscription_id.fetch_add(1, Ordering::Relaxed);
+        let (sender, receiver) = mpsc::channel(self.subscription_capacity);
+
+        self.sender
+            .send(Command::Subscribe {
+                sid,
+                subject,
+                queue_group: Some(queue_group),
+                sender,
+            })
+            .await?;
+
+        Ok(Subscriber::new(sid, self.sender.clone(), receiver))
+    }
+
+    /// Flushes the internal buffer ensuring that all messages are sent.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// client.flush().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn flush(&self) -> Result<(), FlushError> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.sender
+            .send(Command::Flush { observer: tx })
+            .await
+            .map_err(|err| FlushError::with_source(FlushErrorKind::SendError, err))?;
+
+        rx.await
+            .map_err(|err| FlushError::with_source(FlushErrorKind::FlushError, err))?;
+        Ok(())
+    }
+
+    /// Drains all subscriptions, stops any new messages from being published, and flushes any remaining
+    /// messages, then closes the connection. Once completed, any streams associated with the
+    /// connection and its [Clients](crate::Client) will be closed, and further [crate::Client] commands will fail.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// use futures_util::StreamExt;
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// let mut subscription = client.subscribe("events.>").await?;
+    ///
+    /// client.drain().await?;
+    ///
+    /// # // existing subscriptions are closed and further commands will fail
+    /// assert!(subscription.next().await.is_none());
+    /// client
+    ///     .subscribe("events.>")
+    ///     .await
+    ///     .expect_err("Expected further commands to fail");
+    ///
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn drain(&self) -> Result<(), DrainError> {
+        // Drain all subscriptions
+        self.sender.send(Command::Drain { sid: None }).await?;
+
+        // Remaining process is handled on the handler-side
+        Ok(())
+    }
+
+    /// Returns the current state of the connection.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// println!("connection state: {}", client.connection_state());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn connection_state(&self) -> State {
+        self.state.borrow().to_owned()
+    }
+
+    /// Forces the client to reconnect.
+    /// Keep in mind that client will reconnect automatically if the connection is lost and this
+    /// method does not have to be used in normal circumstances.
+    /// However, if you want to force the client to reconnect, for example to re-trigger
+    /// the `auth-callback`, or manually rebalance connections, this method can be useful.
+    /// This method does not wait for connection to be re-established.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// client.force_reconnect().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn force_reconnect(&self) -> Result<(), ReconnectError> {
+        self.sender
+            .send(Command::Reconnect)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Replaces the server pool used for reconnection attempts.
+    ///
+    /// The new pool takes effect on the next reconnect attempt; it does not
+    /// trigger an immediate reconnect. To force an immediate reconnect with
+    /// the new pool, call [`Client::force_reconnect`] after this method.
+    ///
+    /// Per-server state (failed attempt count, connection history) is preserved
+    /// for servers that appear in both the old and new pools.
+    ///
+    /// This also resets the global reconnection attempt counter, so any
+    /// progress toward [`ConnectOptions::max_reconnects`](crate::ConnectOptions::max_reconnects)
+    /// is cleared.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// client
+    ///     .set_server_pool(["nats://server1:4222", "nats://server2:4222"].as_slice())
+    ///     .await?;
+    /// // Optionally force reconnect to apply immediately:
+    /// client.force_reconnect().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn set_server_pool<A: crate::ToServerAddrs>(
+        &self,
+        addrs: A,
+    ) -> Result<(), SetServerPoolError> {
+        let servers: Vec<crate::ServerAddr> = addrs
+            .to_server_addrs()
+            .map_err(|err| {
+                SetServerPoolError::with_source(SetServerPoolErrorKind::InvalidAddress, err)
+            })?
+            .collect();
+
+        if servers.is_empty() {
+            return Err(SetServerPoolError::new(SetServerPoolErrorKind::EmptyPool));
+        }
+
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .send(Command::SetServerPool {
+                servers,
+                result: tx,
+            })
+            .await
+            .map_err(|err| SetServerPoolError::with_source(SetServerPoolErrorKind::Send, err))?;
+
+        rx.await
+            .map_err(|err| SetServerPoolError::with_source(SetServerPoolErrorKind::Send, err))?
+            .map_err(|err| {
+                SetServerPoolError::with_source(SetServerPoolErrorKind::MixedSchemes, err)
+            })
+    }
+
+    /// Returns a snapshot of the current server pool.
+    ///
+    /// The returned list includes both explicitly configured and discovered
+    /// servers, along with per-server metadata such as reconnect count and
+    /// connection history.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// let pool = client.server_pool().await?;
+    /// for server in &pool {
+    ///     println!(
+    ///         "{:?}: {} failed attempts",
+    ///         server.addr, server.failed_attempts
+    ///     );
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn server_pool(&self) -> Result<Vec<crate::Server>, ServerPoolError> {
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .send(Command::ServerPool { result: tx })
+            .await
+            .map_err(|err| ServerPoolError::with_source(ServerPoolErrorKind::Send, err))?;
+
+        rx.await
+            .map_err(|err| ServerPoolError::with_source(ServerPoolErrorKind::Send, err))
+    }
+
+    /// Returns struct representing statistics of the whole lifecycle of the client.
+    /// This includes number of bytes sent/received, number of messages sent/received,
+    /// and number of times the connection was established.
+    /// As this returns [Arc] with [AtomicU64] fields, it can be safely reused and shared
+    /// across threads.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// let statistics = client.statistics();
+    /// println!("client statistics: {:#?}", statistics);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn statistics(&self) -> Arc<Statistics> {
+        self.connection_stats.clone()
+    }
+}
+
+/// Used for building customized requests.
+#[derive(Default)]
+pub struct Request {
+    pub payload: Option<Bytes>,
+    pub headers: Option<HeaderMap>,
+    pub timeout: Option<Option<Duration>>,
+    pub inbox: Option<String>,
+}
+
+impl Request {
+    pub fn new() -> Request {
+        Default::default()
+    }
+
+    /// Sets the payload of the request. If not used, empty payload will be sent.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// let request = async_nats::Request::new().payload("data".into());
+    /// client.send_request("service", request).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn payload(mut self, payload: Bytes) -> Request {
+        self.payload = Some(payload);
+        self
+    }
+
+    /// Sets the headers of the requests.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// use std::str::FromStr;
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// let mut headers = async_nats::HeaderMap::new();
+    /// headers.insert(
+    ///     "X-Example",
+    ///     async_nats::HeaderValue::from_str("Value").unwrap(),
+    /// );
+    /// let request = async_nats::Request::new()
+    ///     .headers(headers)
+    ///     .payload("data".into());
+    /// client.send_request("service", request).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn headers(mut self, headers: HeaderMap) -> Request {
+        self.headers = Some(headers);
+        self
+    }
+
+    /// Sets the custom timeout of the request. Overrides default [Client] timeout.
+    /// Setting it to [Option::None] disables the timeout entirely which might result in deadlock.
+    /// To use default timeout, simply do not call this function.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// let request = async_nats::Request::new()
+    ///     .timeout(Some(std::time::Duration::from_secs(15)))
+    ///     .payload("data".into());
+    /// client.send_request("service", request).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn timeout(mut self, timeout: Option<Duration>) -> Request {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    /// Sets custom inbox for this request. Overrides both customized and default [Client] Inbox.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// use std::str::FromStr;
+    /// let client = async_nats::connect("demo.nats.io").await?;
+    /// let request = async_nats::Request::new()
+    ///     .inbox("custom_inbox".into())
+    ///     .payload("data".into());
+    /// client.send_request("service", request).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn inbox(mut self, inbox: String) -> Request {
+        self.inbox = Some(inbox);
+        self
+    }
+}
+
+#[derive(Error, Debug)]
+#[error("failed to send reconnect: {0}")]
+pub struct ReconnectError(#[source] crate::Error);
+
+impl From<tokio::sync::mpsc::error::SendError<Command>> for ReconnectError {
+    fn from(err: tokio::sync::mpsc::error::SendError<Command>) -> Self {
+        ReconnectError(Box::new(err))
+    }
+}
+
+/// An error returned from [`Client::set_server_pool`].
+pub type SetServerPoolError = Error<SetServerPoolErrorKind>;
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum SetServerPoolErrorKind {
+    /// Failed to send command to the connection handler.
+    Send,
+    /// One or more server addresses could not be parsed.
+    InvalidAddress,
+    /// The pool contains a mix of WebSocket (`ws://`, `wss://`) and
+    /// non-websocket (`nats://`, `tls://`) URLs, which is not allowed.
+    MixedSchemes,
+    /// The server pool cannot be empty.
+    EmptyPool,
+}
+
+impl Display for SetServerPoolErrorKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Send => write!(f, "failed to send set_server_pool command"),
+            Self::InvalidAddress => write!(f, "invalid server address"),
+            Self::EmptyPool => write!(f, "server pool cannot be empty"),
+            Self::MixedSchemes => write!(
+                f,
+                "cannot mix websocket and non-websocket URLs in server pool"
+            ),
+        }
+    }
+}
+
+/// An error returned from [`Client::server_pool`].
+pub type ServerPoolError = Error<ServerPoolErrorKind>;
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum ServerPoolErrorKind {
+    /// Failed to send command to the connection handler.
+    Send,
+}
+
+impl Display for ServerPoolErrorKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Send => write!(f, "failed to send server_pool command"),
+        }
+    }
+}
+
+/// An error returned from the [`Client::subscribe`] or [`Client::queue_subscribe`] functions.
+pub type SubscribeError = Error<SubscribeErrorKind>;
+
+impl From<tokio::sync::mpsc::error::SendError<Command>> for SubscribeError {
+    fn from(err: tokio::sync::mpsc::error::SendError<Command>) -> Self {
+        SubscribeError::with_source(SubscribeErrorKind::Other, err)
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum SubscribeErrorKind {
+    /// The subject is invalid (empty, contains whitespace, or has malformed dot structure).
+    InvalidSubject,
+    /// The queue group name is invalid (empty or contains whitespace).
+    InvalidQueueName,
+    /// Other errors, client/io related.
+    Other,
+}
+
+impl Display for SubscribeErrorKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidSubject => write!(f, "invalid subject"),
+            Self::InvalidQueueName => write!(f, "invalid queue name"),
+            Self::Other => write!(f, "subscribe failed"),
+        }
+    }
+}
+
+#[derive(Error, Debug)]
+#[error("failed to send drain: {0}")]
+pub struct DrainError(#[source] crate::Error);
+
+impl From<tokio::sync::mpsc::error::SendError<Command>> for DrainError {
+    fn from(err: tokio::sync::mpsc::error::SendError<Command>) -> Self {
+        DrainError(Box::new(err))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RequestErrorKind {
+    /// There are services listening on requested subject, but they didn't respond
+    /// in time.
+    TimedOut,
+    /// No one is listening on request subject.
+    NoResponders,
+    /// The subject is invalid (empty or contains whitespace).
+    InvalidSubject,
+    /// The payload (plus headers) exceeds the server's `max_payload`.
+    MaxPayloadExceeded,
+    /// Other errors, client/io related.
+    Other,
+}
+
+impl Display for RequestErrorKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TimedOut => write!(f, "request timed out"),
+            Self::NoResponders => write!(f, "no responders"),
+            Self::InvalidSubject => write!(f, "invalid subject"),
+            Self::MaxPayloadExceeded => write!(f, "max payload size exceeded"),
+            Self::Other => write!(f, "request failed"),
+        }
+    }
+}
+
+/// Error returned when a core NATS request fails.
+/// To be enumerate over the variants, call [RequestError::kind].
+pub type RequestError = Error<RequestErrorKind>;
+
+impl From<PublishError> for RequestError {
+    fn from(e: PublishError) -> Self {
+        RequestError::with_source(RequestErrorKind::Other, e)
+    }
+}
+
+impl From<SubscribeError> for RequestError {
+    fn from(e: SubscribeError) -> Self {
+        RequestError::with_source(RequestErrorKind::Other, e)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FlushErrorKind {
+    /// Sending the flush failed client side.
+    SendError,
+    /// Flush failed.
+    /// This can happen mostly in case of connection issues
+    /// that cannot be resolved quickly.
+    FlushError,
+}
+
+impl Display for FlushErrorKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SendError => write!(f, "failed to send flush request"),
+            Self::FlushError => write!(f, "flush failed"),
+        }
+    }
+}
+
+pub type FlushError = Error<FlushErrorKind>;
+
+/// Represents statistics for the instance of the client throughout its lifecycle.
+#[derive(Default, Debug)]
+pub struct Statistics {
+    /// Number of bytes received. This does not include the protocol overhead.
+    pub in_bytes: AtomicU64,
+    /// Number of bytes sent. This doe not include the protocol overhead.
+    pub out_bytes: AtomicU64,
+    /// Number of messages received.
+    pub in_messages: AtomicU64,
+    /// Number of messages sent.
+    pub out_messages: AtomicU64,
+    /// Number of times connection was established.
+    /// Initial connect will be counted as well, then all successful reconnects.
+    pub connects: AtomicU64,
+}

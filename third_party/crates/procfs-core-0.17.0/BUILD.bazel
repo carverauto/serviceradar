@@ -34,10 +34,6 @@ rust_library(
             "WORKSPACE.bazel",
         ],
     ),
-    crate_features = [
-        "chrono",
-        "default",
-    ],
     crate_root = "src/lib.rs",
     edition = "2018",
     rustc_env_files = [
@@ -99,7 +95,6 @@ rust_library(
     version = "0.17.0",
     deps = [
         "//third_party/crates/bitflags-2.11.1:bitflags",
-        "//third_party/crates/chrono-0.4.44:chrono",
         "//third_party/crates/hex-0.4.3:hex",
     ],
 )

@@ -1,0 +1,1877 @@
+// Copyright 2020-2022 The NATS Authors
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+mod client {
+    use async_nats::client::Request;
+    use async_nats::connection::State;
+    use async_nats::header::HeaderValue;
+    use async_nats::{
+        ConnectErrorKind, ConnectOptions, Event, RequestErrorKind, ServerAddr, Subject,
+    };
+    use bytes::Bytes;
+    use futures_util::future::join_all;
+    use futures_util::stream::StreamExt;
+    use std::path::PathBuf;
+    use std::str::FromStr;
+    use std::sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    };
+    use std::time::{Duration, Instant};
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn force_reconnect() {
+        let (dctx, mut dcrx) = tokio::sync::mpsc::channel(1);
+        let (rctx, mut rcrx) = tokio::sync::mpsc::channel(1);
+
+        let server = nats_server::run_basic_server();
+
+        let client = async_nats::ConnectOptions::new()
+            .event_callback(move |event| {
+                let dctx = dctx.clone();
+                let rctx = rctx.clone();
+                async move {
+                    match event {
+                        Event::Disconnected => dctx.send(()).await.unwrap(),
+                        Event::Connected => rctx.send(()).await.unwrap(),
+                        _ => (),
+                    }
+                }
+            })
+            .connect(server.client_url())
+            .await
+            .unwrap();
+
+        let mut sub = client.subscribe("foo").await.unwrap();
+
+        // make sure message sent just before reconnect is flushed.
+        client.publish("test", "data".into()).await.unwrap();
+        client.force_reconnect().await.unwrap();
+
+        // initial connect event.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            rcrx.recv().await.unwrap();
+            dcrx.recv().await.unwrap();
+            rcrx.recv().await.unwrap();
+        })
+        .await
+        .unwrap();
+        // make sure we actually disconnected and reconnected.
+
+        // make sure our subscription is still active.
+        client.publish("foo", "data".into()).await.unwrap();
+
+        tokio::time::timeout(Duration::from_secs(5), sub.next())
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn basic_pub_sub() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        let mut subscriber = client.subscribe("foo").await.unwrap();
+
+        for _ in 0..10 {
+            client.publish("foo", "data".into()).await.unwrap()
+        }
+        client.flush().await.unwrap();
+
+        let mut i = 0;
+        while tokio::time::timeout(tokio::time::Duration::from_millis(500), subscriber.next())
+            .await
+            .unwrap()
+            .is_some()
+        {
+            i += 1;
+            if i >= 10 {
+                break;
+            }
+        }
+        assert_eq!(i, 10);
+    }
+
+    #[tokio::test]
+    async fn queue_sub() {
+        let server = nats_server::run_basic_server();
+        const NUM_SUBSCRIBERS: usize = 3;
+        const NUM_ITEMS: usize = 20;
+
+        let mut subscribers = Vec::new();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+        for _i in 0..NUM_SUBSCRIBERS {
+            subscribers.push(
+                client
+                    .queue_subscribe("qfoo", "group".into())
+                    .await
+                    .unwrap(),
+            );
+        }
+
+        for _ in 0..NUM_ITEMS {
+            client.publish("qfoo", "data".into()).await.unwrap();
+        }
+        client.flush().await.unwrap();
+        let mut results = Vec::new();
+        for mut subscriber in subscribers.into_iter() {
+            results.push(tokio::spawn(async move {
+                let mut count = 0u32;
+                while let Ok(Some(_)) = tokio::time::timeout(
+                    tokio::time::Duration::from_millis(1000),
+                    subscriber.next(),
+                )
+                .await
+                {
+                    count += 1;
+                }
+                count
+            }));
+        }
+        let counts = join_all(results.iter_mut())
+            .await
+            .into_iter()
+            .filter_map(|n| n.ok())
+            .collect::<Vec<u32>>();
+        let total: u32 = counts.iter().sum();
+        assert_eq!(total, NUM_ITEMS as u32, "all items received");
+        let num_receivers = counts.into_iter().filter(|n| *n > 0u32).count();
+        assert!(num_receivers > 1, "should not all go to single subscriber");
+    }
+
+    #[tokio::test]
+    async fn cloned_client() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+        let mut subscriber = client.clone().subscribe("foo").await.unwrap();
+
+        let cloned_client = client.clone();
+        for _ in 0..10 {
+            cloned_client.publish("foo", "data".into()).await.unwrap();
+        }
+
+        let mut i = 0;
+        while tokio::time::timeout(tokio::time::Duration::from_millis(500), subscriber.next())
+            .await
+            .unwrap()
+            .is_some()
+        {
+            i += 1;
+            if i >= 10 {
+                break;
+            }
+        }
+        assert_eq!(i, 10);
+    }
+
+    #[tokio::test]
+    async fn publish_with_headers() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        let mut subscriber = client.subscribe("test").await.unwrap();
+
+        let mut headers = async_nats::HeaderMap::new();
+        headers.insert("X-Test", HeaderValue::from_str("Test").unwrap());
+
+        client
+            .publish_with_headers("test", headers.clone(), b"".as_ref().into())
+            .await
+            .unwrap();
+
+        client.flush().await.unwrap();
+
+        let message = subscriber.next().await.unwrap();
+        assert_eq!(message.headers.unwrap(), headers);
+
+        let mut headers = async_nats::HeaderMap::new();
+        headers.insert("X-Test", HeaderValue::from_str("Test").unwrap());
+        headers.append("X-Test", "Second");
+
+        client
+            .publish_with_headers("test", headers.clone(), "test".into())
+            .await
+            .unwrap();
+
+        let message = subscriber.next().await.unwrap();
+        assert_eq!(message.headers.unwrap(), headers);
+    }
+
+    #[tokio::test]
+    async fn publish_request() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        let mut sub = client.subscribe("test").await.unwrap();
+
+        tokio::spawn({
+            let client = client.clone();
+            async move {
+                let msg = sub.next().await.unwrap();
+                client
+                    .publish(msg.reply.unwrap(), "resp".into())
+                    .await
+                    .unwrap();
+            }
+        });
+        let inbox = client.new_inbox();
+        let mut insub = client.subscribe(inbox.clone()).await.unwrap();
+        client
+            .publish_with_reply("test", inbox, "data".into())
+            .await
+            .unwrap();
+        assert!(insub.next().await.is_some());
+    }
+
+    #[tokio::test]
+    async fn request() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        let mut sub = client.subscribe("test").await.unwrap();
+
+        tokio::spawn({
+            let client = client.clone();
+            async move {
+                let msg = sub.next().await.unwrap();
+                client
+                    .publish(msg.reply.unwrap(), "reply".into())
+                    .await
+                    .unwrap();
+            }
+        });
+
+        let resp = tokio::time::timeout(
+            tokio::time::Duration::from_millis(500),
+            client.request("test", "request".into()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(resp.unwrap().payload, Bytes::from("reply"));
+    }
+
+    #[tokio::test]
+    async fn request_timeout() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        let _sub = client.subscribe("service").await.unwrap();
+        client.flush().await.unwrap();
+
+        let err = client
+            .request("service", "payload".into())
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), RequestErrorKind::TimedOut)
+    }
+
+    #[tokio::test]
+    async fn request_no_responders() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        let err = tokio::time::timeout(
+            tokio::time::Duration::from_millis(300),
+            client.request("test", "request".into()),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert_eq!(RequestErrorKind::NoResponders, err.kind());
+    }
+
+    #[tokio::test]
+    async fn request_builder() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        let inbox: Subject = "CUSTOMIZED".into();
+        let mut sub = client.subscribe("service").await.unwrap();
+
+        tokio::task::spawn({
+            let client = client.clone();
+            let inbox = inbox.clone();
+            async move {
+                let request = sub.next().await.unwrap();
+                let reply = request.reply.unwrap();
+                assert_eq!(reply, inbox);
+                client.publish(reply, "ok".into()).await.unwrap();
+                client.flush().await.unwrap();
+            }
+        });
+
+        let request = Request::new().inbox(inbox.to_string());
+        client.send_request("service", request).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn unsubscribe() {
+        use std::error::Error;
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        let mut sub = client.subscribe("test").await.unwrap();
+
+        client.publish("test", "data".into()).await.unwrap();
+        client.flush().await.unwrap();
+
+        assert!(sub.next().await.is_some());
+        let result = sub.unsubscribe().await;
+        match result {
+            Ok(()) => println!("ok"),
+            Err(err) => {
+                println!("error: {err}");
+                println!("source: {:?}", err.source())
+            }
+        }
+        // check if we can still send messages after unsubscribe.
+        let mut sub2 = client.subscribe("test2").await.unwrap();
+        client.publish("test2", "data".into()).await.unwrap();
+        client.flush().await.unwrap();
+        assert!(sub2.next().await.is_some());
+    }
+
+    #[tokio::test]
+    async fn unsubscribe_after() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        let mut sub = client.subscribe("test").await.unwrap();
+
+        for _ in 0..2 {
+            client.publish("test", "data".into()).await.unwrap();
+        }
+
+        sub.unsubscribe_after(3).await.unwrap();
+        client.publish("test", "data".into()).await.unwrap();
+        client.flush().await.unwrap();
+
+        for _ in 0..3 {
+            assert!(sub.next().await.is_some());
+        }
+        assert!(sub.next().await.is_none());
+    }
+    #[tokio::test]
+    async fn unsubscribe_after_immediate() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        let mut sub = client.subscribe("test").await.unwrap();
+
+        client.publish("test", "data".into()).await.unwrap();
+        client.publish("test", "data".into()).await.unwrap();
+
+        sub.unsubscribe_after(1).await.unwrap();
+        client.flush().await.unwrap();
+
+        assert!(sub.next().await.is_some());
+        assert!(sub.next().await.is_none());
+    }
+
+    // The subscription correctly stops on the client side at max regardless as reconnecting does
+    // not reset the client state. However, this does not prove that the server is not wasting
+    // bandwidth and CPU by continuing to send messages to the dropped subscriber, which are
+    // silently ignored. A TCP proxy is needed to observe the server side behavior here.
+    #[tokio::test]
+    async fn unsubscribe_after_reconnect() {
+        let server = nats_server::run_basic_server();
+        let server_port = server.client_port();
+
+        let listen_fd = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_port = listen_fd.local_addr().unwrap().port();
+
+        let max = 3;
+
+        let spurious = Arc::new(AtomicU64::new(0));
+        let spurious_proxy = Arc::clone(&spurious);
+
+        let delivered = Arc::new(AtomicU64::new(0));
+        let delivered_proxy = Arc::clone(&delivered);
+
+        tokio::task::spawn(async move {
+            loop {
+                let Ok((downstream, _)) = listen_fd.accept().await else {
+                    break;
+                };
+
+                let upstream = tokio::net::TcpStream::connect(format!("127.0.0.1:{server_port}"))
+                    .await
+                    .unwrap();
+
+                let spurious = Arc::clone(&spurious_proxy);
+                let delivered_total = Arc::clone(&delivered_proxy);
+
+                tokio::task::spawn(async move {
+                    let (dr, mut dw) = tokio::io::split(downstream);
+                    let (sr, mut sw) = tokio::io::split(upstream);
+
+                    let c2s = async move {
+                        let mut reader = tokio::io::BufReader::new(dr);
+                        let mut line = String::new();
+                        loop {
+                            line.clear();
+                            let n = reader.read_line(&mut line).await.unwrap_or(0);
+                            if n == 0 {
+                                break;
+                            }
+                            sw.write_all(line.as_bytes()).await.ok();
+                        }
+                    };
+
+                    let s2c = async move {
+                        let mut reader = tokio::io::BufReader::new(sr);
+                        let mut line = String::new();
+
+                        loop {
+                            line.clear();
+                            let n = reader.read_line(&mut line).await.unwrap_or(0);
+                            if n == 0 {
+                                break;
+                            }
+
+                            if line.starts_with("MSG test ") {
+                                let delivered = delivered_total.fetch_add(1, Ordering::Relaxed) + 1;
+                                if delivered > max {
+                                    // server didn't stop after unsub_after
+                                    spurious.fetch_add(1, Ordering::Relaxed);
+                                }
+                            }
+
+                            dw.write_all(line.as_bytes()).await.ok();
+
+                            if line.starts_with("MSG ") {
+                                let num_bytes: usize =
+                                    line.trim().rsplit(' ').next().unwrap().parse().unwrap();
+
+                                let mut payload = vec![0u8; num_bytes + 2]; // for \r\n
+                                reader.read_exact(&mut payload).await.unwrap();
+                                dw.write_all(&payload).await.ok();
+                            }
+                        }
+                    };
+
+                    tokio::select! {
+                        _ = c2s => {},
+                        _ = s2c => {},
+                    }
+                });
+            }
+        });
+
+        let (dctx, mut dcrx) = tokio::sync::mpsc::channel(1);
+        let (rctx, mut rcrx) = tokio::sync::mpsc::channel(1);
+
+        let client = async_nats::ConnectOptions::new()
+            .event_callback(move |event| {
+                let dctx = dctx.clone();
+                let rctx = rctx.clone();
+                async move {
+                    match event {
+                        Event::Disconnected => dctx.send(()).await.unwrap(),
+                        Event::Connected => rctx.send(()).await.unwrap(),
+                        _ => (),
+                    }
+                }
+            })
+            .connect(format!("127.0.0.1:{proxy_port}"))
+            .await
+            .unwrap();
+
+        let mut sub = client.subscribe("test").await.unwrap();
+        sub.unsubscribe_after(max).await.unwrap();
+
+        client.publish("test", "data".into()).await.unwrap();
+        client.flush().await.unwrap();
+        assert!(tokio::time::timeout(Duration::from_secs(5), sub.next())
+            .await
+            .unwrap()
+            .is_some());
+
+        client.force_reconnect().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            // initial connect event.
+            rcrx.recv().await.unwrap();
+            dcrx.recv().await.unwrap();
+            rcrx.recv().await.unwrap();
+        })
+        .await
+        .unwrap();
+
+        for _ in 0..5 {
+            client.publish("test", "data".into()).await.unwrap();
+        }
+        client.flush().await.unwrap();
+
+        for _ in 0..(max - 1) {
+            assert!(tokio::time::timeout(Duration::from_secs(5), sub.next())
+                .await
+                .unwrap()
+                .is_some());
+        }
+        assert!(tokio::time::timeout(Duration::from_secs(5), sub.next())
+            .await
+            .unwrap()
+            .is_none());
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        assert_eq!(
+            spurious.load(Ordering::Relaxed),
+            0,
+            "server sent messages after UNSUB limit"
+        );
+    }
+
+    #[tokio::test]
+    async fn connect_invalid() {
+        assert!(async_nats::connect("localhost:1111").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn connect_domain() {
+        assert!(async_nats::connect("demo.nats.io").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn connect_invalid_tls_over_ip() {
+        let server = nats_server::run_basic_server();
+        assert!(async_nats::ConnectOptions::new()
+            .require_tls(true)
+            .connect(server.client_url())
+            .await
+            .is_err());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[tokio::test]
+    async fn reconnect_fallback() {
+        use async_nats::ServerAddr;
+
+        let mut servers = vec![
+            nats_server::run_basic_server(),
+            nats_server::run_basic_server(),
+            nats_server::run_basic_server(),
+        ];
+
+        let client = async_nats::ConnectOptions::new()
+            .connect(
+                servers
+                    .iter()
+                    .map(|server| server.client_url().parse::<ServerAddr>().unwrap())
+                    .collect::<Vec<ServerAddr>>()
+                    .as_slice(),
+            )
+            .await
+            .unwrap();
+
+        let mut subscriber = client.subscribe("test").await.unwrap();
+        while !servers.is_empty() {
+            assert_eq!(State::Connected, client.connection_state());
+            client.publish("test", "data".into()).await.unwrap();
+            client.flush().await.unwrap();
+            assert!(subscriber.next().await.is_some());
+
+            drop(servers.remove(0));
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn token_auth() {
+        let server = nats_server::run_server("tests/configs/token.conf");
+        let client = async_nats::ConnectOptions::with_token("s3cr3t".into())
+            .connect(server.client_url())
+            .await
+            .unwrap();
+
+        let mut sub = client.subscribe("test").await.unwrap();
+        client.publish("test", "test".into()).await.unwrap();
+        client.flush().await.unwrap();
+        assert!(sub.next().await.is_some());
+    }
+
+    #[tokio::test]
+    async fn user_pass_auth() {
+        let server = nats_server::run_server("tests/configs/user_pass.conf");
+        let client =
+            async_nats::ConnectOptions::with_user_and_password("derek".into(), "s3cr3t".into())
+                .connect(server.client_url())
+                .await
+                .unwrap();
+
+        let mut sub = client.subscribe("test").await.unwrap();
+        client.publish("test", "test".into()).await.unwrap();
+        client.flush().await.unwrap();
+        assert!(sub.next().await.is_some());
+    }
+
+    #[tokio::test]
+    async fn required_auth_not_provided() {
+        let server = nats_server::run_server("tests/configs/user_pass.conf");
+        let err = async_nats::ConnectOptions::new()
+            .connect(server.client_url())
+            .await
+            .unwrap_err()
+            .kind();
+        assert_eq!(ConnectErrorKind::AuthorizationViolation, err);
+    }
+
+    #[tokio::test]
+    async fn user_pass_auth_wrong_pass() {
+        let server = nats_server::run_server("tests/configs/user_pass.conf");
+        let err = async_nats::ConnectOptions::with_user_and_password(
+            "derek".into(),
+            "bad_password".into(),
+        )
+        .connect(server.client_url())
+        .await
+        .unwrap_err();
+        assert_eq!(ConnectErrorKind::AuthorizationViolation, err.kind());
+    }
+
+    #[tokio::test]
+    async fn connection_callbacks() {
+        let server = nats_server::run_basic_server();
+        let port = server.client_port().to_string();
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(128);
+        let (dc_tx, mut dc_rx) = tokio::sync::mpsc::channel(128);
+        let client = async_nats::ConnectOptions::new()
+            .event_callback(move |event| {
+                let tx = tx.clone();
+                let dc_tx = dc_tx.clone();
+                async move {
+                    if let Event::Connected = event {
+                        println!("reconnection callback fired");
+                        tx.send(()).await.unwrap();
+                    }
+                    if let Event::Disconnected = event {
+                        println!("disconnect callback fired");
+                        dc_tx.send(()).await.unwrap();
+                    }
+                }
+            })
+            .connect(server.client_url())
+            .await
+            .unwrap();
+        println!("connected");
+        client.subscribe("test").await.unwrap();
+        client.flush().await.unwrap();
+
+        println!("dropped server {:?}", server.client_url());
+        drop(server);
+        tokio::time::sleep(Duration::from_secs(3)).await;
+
+        let _server = nats_server::run_server_with_port("", Some(port.as_str()));
+
+        tokio::time::timeout(Duration::from_secs(15), dc_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(15), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    #[cfg_attr(target_os = "windows", ignore)]
+    async fn lame_duck_callback() {
+        let server = nats_server::run_basic_server();
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(128);
+        let client = ConnectOptions::new()
+            .event_callback(move |event| {
+                let tx = tx.clone();
+                async move {
+                    if let Event::LameDuckMode = event {
+                        tx.send(()).await.unwrap();
+                    }
+                }
+            })
+            .connect(server.client_url())
+            .await
+            .unwrap();
+
+        let mut sub = client.subscribe("data").await.unwrap();
+        client.publish("data", "data".into()).await.unwrap();
+        sub.next().await.unwrap();
+
+        nats_server::set_lame_duck_mode(&server);
+        tokio::time::timeout(Duration::from_secs(10), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn slow_consumers() {
+        let server = nats_server::run_basic_server();
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(128);
+        let client = ConnectOptions::new()
+            .subscription_capacity(1)
+            .event_callback(move |event| {
+                let tx = tx.clone();
+                async move {
+                    if let Event::SlowConsumer(_) = event {
+                        tx.send(()).await.unwrap()
+                    }
+                }
+            })
+            .connect(server.client_url())
+            .await
+            .unwrap();
+
+        let _sub = client.subscribe("data").await.unwrap();
+        client.publish("data", "data".into()).await.unwrap();
+        client.publish("data", "data".into()).await.unwrap();
+        client.flush().await.unwrap();
+        client.publish("data", "data".into()).await.unwrap();
+        client.flush().await.unwrap();
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    #[tokio::test]
+    async fn no_echo() {
+        // no_echo disabled.
+        let server = nats_server::run_basic_server();
+        let client = ConnectOptions::new()
+            .connect(server.client_url())
+            .await
+            .unwrap();
+        let mut subscription = client.subscribe("echo").await.unwrap();
+        client.publish("echo", "data".into()).await.unwrap();
+        tokio::time::timeout(Duration::from_millis(500), subscription.next())
+            .await
+            .unwrap();
+
+        // no_echo enabled.
+        let server = nats_server::run_basic_server();
+        let client = ConnectOptions::new()
+            .no_echo()
+            .connect(server.client_url())
+            .await
+            .unwrap();
+        let mut subscription = client.subscribe("echo").await.unwrap();
+        client.publish("echo", "data".into()).await.unwrap();
+        tokio::time::timeout(Duration::from_millis(50), subscription.next())
+            .await
+            .expect_err("should timeout");
+    }
+
+    #[tokio::test]
+    async fn reconnect_failures() {
+        let server = nats_server::run_basic_server();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let _client = ConnectOptions::new()
+            .event_callback(move |err| {
+                let tx = tx.clone();
+                async move {
+                    tx.send(err.to_string()).unwrap();
+                }
+            })
+            .connect(server.client_url())
+            .await
+            .unwrap();
+        drop(server);
+        rx.recv().await;
+        rx.recv().await;
+        rx.recv().await;
+        rx.recv().await;
+    }
+
+    #[tokio::test]
+    async fn reconnect_delay_callback_custom() {
+        let server = nats_server::run_basic_server();
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let _ = ConnectOptions::new()
+            .retry_on_initial_connect()
+            .reconnect_delay_callback(move |attempts| {
+                let tx = tx.clone();
+
+                let duration = std::time::Duration::from_millis(std::cmp::min(
+                    ((attempts - 1) * 500) as u64,
+                    1500,
+                ));
+
+                // report back the number of attempts
+                tx.send((attempts, duration)).unwrap();
+
+                duration
+            })
+            .connect(server.client_url())
+            .await
+            .unwrap();
+
+        drop(server);
+
+        let (attempt, duration) = rx.recv().await.unwrap();
+        assert_eq!(attempt, 1);
+        assert_eq!(duration.as_millis(), 0);
+
+        let (attempt, duration) = rx.recv().await.unwrap();
+        assert_eq!(attempt, 2);
+        assert_eq!(duration.as_millis(), 500);
+
+        let (attempt, duration) = rx.recv().await.unwrap();
+        assert_eq!(attempt, 3);
+        assert_eq!(duration.as_millis(), 1000);
+
+        let (attempt, duration) = rx.recv().await.unwrap();
+        assert_eq!(attempt, 4);
+        assert_eq!(duration.as_millis(), 1500);
+
+        // we don't exceed 1500ms
+        let (attempt, duration) = rx.recv().await.unwrap();
+        assert_eq!(attempt, 5);
+        assert_eq!(duration.as_millis(), 1500);
+    }
+
+    #[tokio::test]
+    async fn connect_timeout() {
+        // create the notifiers we'll use to synchronize readiness state
+        let startup_listener = std::sync::Arc::new(tokio::sync::Notify::new());
+        let startup_signal = startup_listener.clone();
+        // preregister for a notify_waiters
+        let startup_notified = startup_listener.notified();
+
+        // spawn a listening socket with no connect queue
+        // so after one connection it hangs - since we are not
+        // calling accept() on the socket
+        tokio::spawn(async move {
+            let socket = tokio::net::TcpSocket::new_v4()?;
+            socket.set_reuseaddr(true)?;
+            socket.bind("127.0.0.1:4848".parse().unwrap())?;
+            let _listener = if cfg!(target_os = "macos") {
+                socket.listen(1)?
+            } else {
+                socket.listen(0)?
+            };
+            // notify preregistered
+            startup_signal.notify_waiters();
+
+            // wait for the done signal
+            startup_signal.notified().await;
+            Ok::<(), std::io::Error>(())
+        });
+
+        startup_notified.await;
+        let _hanger = tokio::net::TcpStream::connect("127.0.0.1:4848")
+            .await
+            .unwrap();
+        let timeout_result = ConnectOptions::new()
+            .connection_timeout(tokio::time::Duration::from_millis(200))
+            .connect("nats://127.0.0.1:4848")
+            .await;
+
+        assert_eq!(
+            timeout_result.unwrap_err().kind(),
+            ConnectErrorKind::TimedOut
+        );
+        startup_listener.notify_one();
+    }
+
+    #[tokio::test]
+    async fn inbox_prefix() {
+        let server = nats_server::run_basic_server();
+        let client = ConnectOptions::new()
+            .custom_inbox_prefix("BOB")
+            .connect(server.client_url())
+            .await
+            .unwrap();
+
+        let mut inbox_wildcard_subscription = client.subscribe("BOB.>").await.unwrap();
+        let mut subscription = client.subscribe("request").await.unwrap();
+
+        tokio::task::spawn({
+            let client = client.clone();
+            async move {
+                let msg = subscription.next().await.unwrap();
+                client
+                    .publish(msg.reply.unwrap(), "prefix workers".into())
+                    .await
+                    .unwrap();
+            }
+        });
+
+        client.request("request", "data".into()).await.unwrap();
+        inbox_wildcard_subscription.next().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn connection_state() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+        assert_eq!(State::Connected, client.connection_state());
+        drop(server);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert_eq!(State::Disconnected, client.connection_state());
+    }
+
+    #[tokio::test]
+    async fn publish_error_should_be_nameable() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+        let _error: Result<(), async_nats::PublishError> =
+            client.publish("foo", "data".into()).await;
+    }
+
+    #[tokio::test]
+    async fn retry_on_initial_connect() {
+        let _client = ConnectOptions::new()
+            .connect("localhost:7779")
+            .await
+            .expect_err("should fail to connect");
+        let client = ConnectOptions::new()
+            .event_callback(|ev| async move {
+                println!("event: {ev}");
+            })
+            .retry_on_initial_connect()
+            .connect("localhost:7779")
+            .await
+            .unwrap();
+
+        assert!(
+            client.try_server_info().is_none(),
+            "server info should not be available before the first INFO frame"
+        );
+        assert_eq!(
+            client.server_info(),
+            async_nats::ServerInfo::default(),
+            "server_info should preserve the original fallback state"
+        );
+        assert_eq!(
+            client.max_payload(),
+            1024 * 1024,
+            "current max payload should use the default server payload limit"
+        );
+
+        let mut sub = client.subscribe("DATA").await.unwrap();
+        client.publish("DATA", "payload".into()).await.unwrap();
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let _server = nats_server::run_server_with_port("", Some("7779"));
+        sub.next().await.unwrap();
+
+        let info = client
+            .try_server_info()
+            .expect("server info should be available after connecting");
+        assert_eq!(info.port, 7779);
+        assert_eq!(client.server_info(), info);
+    }
+
+    #[tokio::test]
+    async fn retained_servers_order() {
+        let mut servers = vec![
+            nats_server::run_basic_server(),
+            nats_server::run_basic_server(),
+        ];
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let _ = ConnectOptions::with_user_and_password("js".into(), "js".into())
+            .event_callback(move |event| {
+                let tx = tx.clone();
+                async move {
+                    if let Event::Disconnected = event {
+                        tx.send(()).unwrap();
+                    }
+                }
+            })
+            .retain_servers_order()
+            .connect(
+                servers
+                    .iter()
+                    .map(|s| s.client_url().parse::<ServerAddr>().unwrap())
+                    .collect::<Vec<ServerAddr>>(),
+            )
+            .await
+            .unwrap();
+
+        drop(servers.remove(0));
+        rx.recv().await;
+    }
+
+    #[tokio::test]
+    async fn multiple_auth_methods() {
+        use async_nats::ServerAddr;
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+
+        let mut servers = vec![
+            nats_server::run_basic_server(),
+            nats_server::run_server("tests/configs/jwt.conf"),
+            nats_server::run_server("tests/configs/token.conf"),
+        ];
+
+        let client = async_nats::ConnectOptions::new()
+            .user_and_password("js".into(), "js".into())
+            .token("s3cr3t".into())
+            .credentials_file(path.join("tests/configs/TestUser.creds"))
+            .await
+            .unwrap()
+            .connect(
+                servers
+                    .iter()
+                    .map(|server| server.client_url().parse::<ServerAddr>().unwrap())
+                    .collect::<Vec<ServerAddr>>()
+                    .as_slice(),
+            )
+            .await
+            .unwrap();
+
+        let mut subscriber = client.subscribe("test").await.unwrap();
+        while !servers.is_empty() {
+            client.publish("test", "data".into()).await.unwrap();
+            client.flush().await.unwrap();
+            assert!(subscriber.next().await.is_some());
+
+            drop(servers.remove(0));
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn custom_auth_callback() {
+        let server = nats_server::run_server("tests/configs/user_pass.conf");
+
+        ConnectOptions::with_auth_callback(move |_| async move {
+            let mut auth = async_nats::Auth::new();
+            auth.username = Some("derek".to_string());
+            auth.password = Some("s3cr3t".to_string());
+            Ok(auth)
+        })
+        .connect(server.client_url())
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn custom_auth_callback_jwt() {
+        let server = nats_server::run_server("tests/configs/jwt.conf");
+
+        ConnectOptions::with_auth_callback(move |nonce| async move {
+            let mut auth = async_nats::Auth::new();
+            auth.jwt = Some("eyJ0eXAiOiJKV1QiLCJhbGciOiJlZDI1NTE5LW5rZXkifQ.".to_owned() +
+                "eyJqdGkiOiJMN1dBT1hJU0tPSUZNM1QyNEhMQ09ENzJRT1czQkNVWEdETjRKVU1SSUtHTlQ3RzdZVFRRIiwiaWF0IjoxNjUxNzkwOTgyLCJpc3MiOiJBRFRRUzdaQ0ZWSk5XNTcyNkdPWVhXNVRTQ1pGTklRU0hLMlpHWVVCQ0Q1RDc3T1ROTE9PS1pPWiIsIm5hbWUiOiJUZXN0V" +
+                "XNlciIsInN1YiI6IlVBRkhHNkZVRDJVVTRTREZWQUZVTDVMREZPMlhNNFdZTTc2VU5YVFBKWUpLN0VFTVlSQkhUMlZFIiwibmF0cyI6eyJwdWIiOnt9LCJzdWIiOnt9LCJzdWJzIjotMSwiZGF0YSI6LTEsInBheWxvYWQiOi0xLCJ0eXBlIjoidXNlciIsInZlcnNpb24iOjJ9fQ." +
+                "bp2-Jsy33l4ayF7Ku1MNdJby4WiMKUrG-rSVYGBusAtV3xP4EdCa-zhSNUaBVIL3uYPPCQYCEoM1pCUdOnoJBg");
+
+            let key_pair = nkeys::KeyPair::from_seed("SUACH75SWCM5D2JMJM6EKLR2WDARVGZT4QC6LX3AGHSWOMVAKERABBBRWM").unwrap();
+            let sign = key_pair.sign(&nonce).map_err(async_nats::AuthError::new)?;
+            auth.signature = Some(sign);
+
+            Ok(auth)
+        })
+        .connect(server.client_url())
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn max_reconnects() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let _client = ConnectOptions::new()
+            .max_reconnects(5)
+            .retry_on_initial_connect()
+            .event_callback(move |event| {
+                let tx = tx.clone();
+                async move {
+                    println!("event: {event}");
+                    tx.send(event).unwrap();
+                }
+            })
+            .connect("localhost:7778")
+            .await
+            .unwrap();
+
+        for _ in 0..5 {
+            match rx.recv().await.unwrap() {
+                Event::ClientError(async_nats::ClientError::Other(_)) => (),
+                other => panic!("unexpected event: {other:?}"),
+            };
+        }
+        assert_eq!(
+            rx.recv().await.unwrap(),
+            Event::ClientError(async_nats::ClientError::MaxReconnects)
+        );
+    }
+
+    #[tokio::test]
+    async fn publish_payload_size() {
+        let server = nats_server::run_server("tests/configs/max_payload.conf");
+
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        assert_eq!(client.max_payload(), 1024 * 128);
+
+        // this exceeds the small payload limit in server config.
+        let payload = vec![0u8; 1024 * 1024];
+
+        client.publish("big", payload.into()).await.unwrap_err();
+        client.publish("small", "data".into()).await.unwrap();
+        client
+            .publish("just_ok", vec![0u8; 1024 * 128].into())
+            .await
+            .unwrap();
+    }
+
+    // Client and server agree on the payload byte count: exactly `max_payload`
+    // round-trips intact; one byte more is rejected.
+    #[tokio::test]
+    async fn payload_size_boundary_matches_server() {
+        let server = nats_server::run_server("tests/configs/max_payload.conf");
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+        let max = client.max_payload();
+        assert_eq!(max, 1024 * 128);
+
+        let mut sub = client.subscribe("boundary").await.unwrap();
+
+        // Exactly max_payload: accepted and delivered back with the same length.
+        client
+            .publish("boundary", vec![7u8; max].into())
+            .await
+            .unwrap();
+        client.flush().await.unwrap();
+
+        let msg = tokio::time::timeout(Duration::from_secs(5), sub.next())
+            .await
+            .expect("server dropped the exactly-max message")
+            .expect("subscription closed");
+        assert_eq!(msg.payload.len(), max);
+
+        // One byte over: rejected client-side before send...
+        let err = client
+            .publish("boundary", vec![7u8; max + 1].into())
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), async_nats::PublishErrorKind::MaxPayloadExceeded);
+
+        // ...and never delivered: the next message is the small "fence", not
+        // the oversized payload.
+        client.publish("boundary", "fence".into()).await.unwrap();
+        client.flush().await.unwrap();
+
+        let next = tokio::time::timeout(Duration::from_secs(5), sub.next())
+            .await
+            .expect("expected the fence message")
+            .expect("subscription closed");
+        assert_eq!(next.payload, Bytes::from("fence"));
+    }
+
+    #[tokio::test]
+    async fn publish_with_headers_payload_size() {
+        let server = nats_server::run_server("tests/configs/max_payload.conf");
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+        let max = client.max_payload();
+        assert_eq!(max, 1024 * 128);
+
+        // Oversized payload must be rejected by every publish variant.
+        let big = || Bytes::from(vec![0u8; 1024 * 1024]);
+
+        let err = client
+            .publish_with_headers("big", async_nats::HeaderMap::new(), big())
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), async_nats::PublishErrorKind::MaxPayloadExceeded);
+
+        let err = client
+            .publish_with_reply("big", "reply", big())
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), async_nats::PublishErrorKind::MaxPayloadExceeded);
+
+        let err = client
+            .publish_with_reply_and_headers("big", "reply", async_nats::HeaderMap::new(), big())
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), async_nats::PublishErrorKind::MaxPayloadExceeded);
+
+        // Headers count toward `max_payload`: payload at the limit + headers > limit.
+        let mut headers = async_nats::HeaderMap::new();
+        headers.insert("Key", "Value");
+        let err = client
+            .publish_with_headers("at_limit", headers, vec![0u8; max].into())
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), async_nats::PublishErrorKind::MaxPayloadExceeded);
+    }
+
+    #[tokio::test]
+    async fn request_payload_size() {
+        let server = nats_server::run_server("tests/configs/max_payload.conf");
+        let client = async_nats::ConnectOptions::new()
+            .request_timeout(Some(Duration::from_secs(3)))
+            .connect(server.client_url())
+            .await
+            .unwrap();
+        assert_eq!(client.max_payload(), 1024 * 128);
+
+        // Oversized requests fail fast with a typed error, not a timeout.
+        let err = client
+            .request("big", vec![0u8; 1024 * 1024].into())
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), RequestErrorKind::MaxPayloadExceeded);
+
+        let err = client
+            .request_with_headers(
+                "big",
+                async_nats::HeaderMap::new(),
+                vec![0u8; 1024 * 1024].into(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), RequestErrorKind::MaxPayloadExceeded);
+    }
+
+    #[tokio::test]
+    async fn publish_message_payload_size() {
+        use async_nats::client::traits::Publisher;
+        use async_nats::message::OutboundMessage;
+
+        let server = nats_server::run_server("tests/configs/max_payload.conf");
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        let err = client
+            .publish_message(OutboundMessage {
+                subject: "big".to_string().into(),
+                reply: None,
+                payload: vec![0u8; 1024 * 1024].into(),
+                headers: None,
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), async_nats::PublishErrorKind::MaxPayloadExceeded);
+    }
+
+    #[tokio::test]
+    async fn sink_payload_size() {
+        use async_nats::message::OutboundMessage;
+        use futures_util::SinkExt;
+
+        let server = nats_server::run_server("tests/configs/max_payload.conf");
+        let mut client = async_nats::connect(server.client_url()).await.unwrap();
+
+        let err = client
+            .send(OutboundMessage {
+                subject: "big".to_string().into(),
+                reply: None,
+                payload: vec![0u8; 1024 * 1024].into(),
+                headers: None,
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), async_nats::PublishErrorKind::MaxPayloadExceeded);
+    }
+
+    #[tokio::test]
+    async fn client_statistics() {
+        let server = nats_server::run_basic_server();
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let client = async_nats::ConnectOptions::new()
+            .event_callback(move |event| {
+                let tx = tx.clone();
+                async move {
+                    if let Event::Connected = event {
+                        tx.send(()).await.unwrap();
+                    }
+                }
+            })
+            .connect(server.client_url())
+            .await
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let stats = client.statistics();
+
+        assert_eq!(stats.in_messages.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.out_messages.load(Ordering::Relaxed), 0);
+        assert!(stats.in_bytes.load(Ordering::Relaxed) != 0);
+        assert!(stats.out_bytes.load(Ordering::Relaxed) != 0);
+        assert_eq!(stats.connects.load(Ordering::Relaxed), 1);
+
+        let mut responder = client.subscribe("request").await.unwrap();
+        tokio::task::spawn({
+            let client = client.clone();
+            async move {
+                let msg = responder.next().await.unwrap();
+                client
+                    .publish(msg.reply.unwrap(), "response".into())
+                    .await
+                    .unwrap();
+            }
+        });
+        client.request("request", "data".into()).await.unwrap();
+
+        let mut sub = client.subscribe("test").await.unwrap();
+        client.publish("test", "data".into()).await.unwrap();
+        client.publish("test", "data".into()).await.unwrap();
+        sub.next().await.unwrap();
+        sub.next().await.unwrap();
+
+        client.flush().await.unwrap();
+        client.force_reconnect().await.unwrap();
+
+        tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(stats.in_messages.load(Ordering::Relaxed), 4);
+        assert_eq!(stats.out_messages.load(Ordering::Relaxed), 4);
+        assert!(stats.in_bytes.load(Ordering::Relaxed) != 0);
+        assert!(stats.out_bytes.load(Ordering::Relaxed) != 0);
+        assert_eq!(stats.connects.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn client_timeout() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        assert_eq!(client.timeout(), Some(Duration::from_secs(10)));
+
+        let client = async_nats::ConnectOptions::new()
+            .request_timeout(Some(Duration::from_secs(30)))
+            .connect(server.client_url())
+            .await
+            .unwrap();
+
+        assert_eq!(client.timeout(), Some(Duration::from_secs(30)));
+
+        let client = async_nats::ConnectOptions::new()
+            .request_timeout(None)
+            .connect(server.client_url())
+            .await
+            .unwrap();
+
+        assert_eq!(client.timeout(), None);
+    }
+
+    #[tokio::test]
+    async fn drain_subscription_basic() {
+        use std::error::Error;
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        let mut sub = client.subscribe("test").await.unwrap();
+
+        // publish some data
+        client.publish("test", "data".into()).await.unwrap();
+        client.flush().await.unwrap();
+
+        // confirm we receive that data
+        assert!(sub.next().await.is_some());
+
+        // now drain the subscription
+        let result = sub.drain().await;
+        match result {
+            Ok(()) => println!("ok"),
+            Err(err) => {
+                println!("error: {err}");
+                println!("source: {:?}", err.source())
+            }
+        }
+
+        // assert the stream is closed after draining
+        assert!(sub.next().await.is_none());
+
+        // confirm we can still reconnect and send messages on a new subscription
+        let mut sub2 = client.subscribe("test2").await.unwrap();
+        client.publish("test2", "data".into()).await.unwrap();
+        client.flush().await.unwrap();
+        assert!(sub2.next().await.is_some());
+    }
+
+    #[tokio::test]
+    async fn drain_subscription_unsub_after() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        let mut sub = client.subscribe("test").await.unwrap();
+
+        sub.unsubscribe_after(120)
+            .await
+            .expect("Expected to send unsub_after");
+
+        // publish some data
+        client.publish("test", "data".into()).await.unwrap();
+        client.publish("test", "data".into()).await.unwrap();
+        client.flush().await.unwrap();
+
+        // Send the drain command
+        sub.drain().await.expect("Expected to drain the sub");
+
+        // we should receive all published data then close immediately
+        assert!(sub.next().await.is_some());
+        assert!(sub.next().await.is_some());
+        assert!(sub.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn drain_subscription_active() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        // spawn a task to constantly write to the subscription
+        let constant_writer = tokio::spawn({
+            let client = client.clone();
+            async move {
+                loop {
+                    client.publish("test", "data".into()).await.unwrap();
+                    client.flush().await.unwrap();
+                }
+            }
+        });
+
+        let mut sub = client.subscribe("test").await.unwrap();
+
+        // confirm we receive some data
+        assert!(sub.next().await.is_some());
+
+        // now drain the subscription
+        sub.drain().await.unwrap();
+
+        // yield to the runtime to ensure constant_writer gets a chance to publish a message or two to the subject
+        tokio::time::sleep(Duration::from_millis(1)).await;
+
+        // assert the subscription stream is closed after draining
+        let sleep_fut = async move { while sub.next().await.is_some() {} };
+        tokio::time::timeout(Duration::from_secs(10), sleep_fut)
+            .await
+            .expect("Expected stream to drain within 10s");
+
+        // assert constant_writer doesn't fail to write after the only sub is drained (i.e. client operations still work fine)
+        assert!(!constant_writer.is_finished());
+
+        // confirm we can still reconnect and receive messages on the same subject on a new subscription
+        let mut sub2 = client.subscribe("test").await.unwrap();
+        assert!(sub2.next().await.is_some());
+    }
+
+    #[tokio::test]
+    async fn drain_client_basic() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        let mut sub = client.subscribe("test").await.unwrap();
+
+        // publish some data
+        client.publish("test", "data".into()).await.unwrap();
+        client.flush().await.unwrap();
+
+        // confirm we receive that data
+        assert!(sub.next().await.is_some());
+
+        // now drain the client
+        client.drain().await.unwrap();
+
+        // assert the sub's stream is closed after draining
+        assert!(sub.next().await.is_none());
+
+        // we should not be able to perform any more operations on a drained client
+        client
+            .subscribe("test2")
+            .await
+            .expect_err("Expected client to be drained");
+
+        client
+            .publish("test", "data".into())
+            .await
+            .expect_err("Expected client to be drained");
+
+        // we should be able to connect with a new client
+        let _client2 = async_nats::connect(server.client_url())
+            .await
+            .expect("Expected to be able to create a new client");
+    }
+
+    #[tokio::test]
+    async fn subject_validation_rejects_bad_subjects() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        // publish should reject a subject with spaces
+        client
+            .publish("bad subject", "data".into())
+            .await
+            .expect_err("publish should reject subject with spaces");
+
+        // subscribe should reject a subject with spaces
+        client
+            .subscribe("bad subject")
+            .await
+            .expect_err("subscribe should reject subject with spaces");
+
+        // publish_with_reply should reject an invalid reply subject
+        client
+            .publish_with_reply("valid", "bad reply", "data".into())
+            .await
+            .expect_err("publish_with_reply should reject reply subject with spaces");
+
+        // request should also reject a subject with spaces
+        let err = client
+            .request("bad subject", "data".into())
+            .await
+            .expect_err("request should reject subject with spaces");
+        // Verify it's actually a validation error, not a timeout or no-responders error
+        assert_ne!(
+            err.kind(),
+            RequestErrorKind::TimedOut,
+            "expected a subject validation error, got timeout: {err:?}"
+        );
+        assert_ne!(
+            err.kind(),
+            RequestErrorKind::NoResponders,
+            "expected a subject validation error, got no-responders: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn request_validates_subject() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        // request should reject a subject with spaces
+        let err = client
+            .request("bad subject", "data".into())
+            .await
+            .expect_err("request should reject subject with spaces");
+        assert_eq!(err.kind(), RequestErrorKind::InvalidSubject);
+
+        // request_with_headers should reject a subject with spaces
+        let err = client
+            .request_with_headers("bad subject", async_nats::HeaderMap::new(), "data".into())
+            .await
+            .expect_err("request_with_headers should reject subject with spaces");
+        assert_eq!(err.kind(), RequestErrorKind::InvalidSubject);
+    }
+
+    #[tokio::test]
+    async fn queue_subscribe_validates_queue_group() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        // queue_subscribe should reject a queue group with spaces
+        client
+            .queue_subscribe("events", "bad group".into())
+            .await
+            .expect_err("queue_subscribe should reject queue group with spaces");
+
+        // queue_subscribe should reject a queue group with CRLF
+        client
+            .queue_subscribe("events", "bad\r\ngroup".into())
+            .await
+            .expect_err("queue_subscribe should reject queue group with CRLF");
+
+        // queue_subscribe should reject a queue group with tab
+        client
+            .queue_subscribe("events", "bad\tgroup".into())
+            .await
+            .expect_err("queue_subscribe should reject queue group with tab");
+
+        // queue_subscribe should reject an empty queue group
+        client
+            .queue_subscribe("events", "".into())
+            .await
+            .expect_err("queue_subscribe should reject empty queue group");
+
+        // valid queue group should succeed
+        client
+            .queue_subscribe("events", "workers".into())
+            .await
+            .expect("queue_subscribe should accept valid queue group");
+    }
+
+    #[tokio::test]
+    async fn skip_subject_validation_allows_bad_publish_subjects() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::ConnectOptions::new()
+            .skip_subject_validation(true)
+            .connect(server.client_url())
+            .await
+            .unwrap();
+
+        // Publish validation is skippable — double dots are allowed through.
+        client
+            .publish("foo..bar", "data".into())
+            .await
+            .expect("publish should allow double dots when validation is skipped");
+    }
+
+    #[tokio::test]
+    async fn skip_subject_validation_still_validates_subscribe() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::ConnectOptions::new()
+            .skip_subject_validation(true)
+            .connect(server.client_url())
+            .await
+            .unwrap();
+
+        // Subscribe validation always runs (matching Go/Java behavior).
+        client
+            .subscribe("foo..bar")
+            .await
+            .expect_err("subscribe should reject double dots even when skip is enabled");
+    }
+
+    #[tokio::test]
+    async fn drain_subscription_deadlock() {
+        let server = nats_server::run_basic_server();
+        let client = async_nats::connect(server.client_url()).await.unwrap();
+
+        let mut subscriber = client.subscribe("test").await.unwrap();
+        client.flush().await.unwrap();
+
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        let start = Instant::now();
+        subscriber.drain().await.unwrap();
+
+        // With the bug: next() would block until the server sends a ping (~60s)
+        // With the fix: next() returns None immediately after drain completes
+        subscriber.next().await;
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed.as_secs() < 5,
+            "drain took too long: {:?} - bug likely present",
+            elapsed
+        );
+    }
+
+    #[tokio::test]
+    async fn local_address() {
+        let server = nats_server::run_basic_server();
+
+        let addr: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let client = ConnectOptions::new()
+            .local_address(addr)
+            .connect(server.client_url())
+            .await
+            .unwrap();
+
+        client.publish("test", "data".into()).await.unwrap();
+        client.flush().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn local_address_with_port() {
+        let server = nats_server::run_basic_server();
+
+        let addr: std::net::SocketAddr = "127.0.0.1:19898".parse().unwrap();
+        let client = ConnectOptions::new()
+            .local_address(addr)
+            .connect(server.client_url())
+            .await
+            .unwrap();
+
+        client.publish("test", "data".into()).await.unwrap();
+        client.flush().await.unwrap();
+
+        // Connection succeeded, meaning the bind to port 19898 worked.
+        // If the port was already in use or bind failed, connect would have errored.
+    }
+
+    // Tests that connection_timeout covers the full NATS handshake, not just TCP connect.
+    // This verifies the fix for https://github.com/nats-io/nats.rs/issues/1526.
+
+    #[tokio::test]
+    async fn handshake_timeout_no_info() {
+        // Server accepts TCP but never sends INFO — the client should time out.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Accept connections but never write anything (no INFO sent).
+        let handle = tokio::spawn(async move {
+            let (_stream, _peer) = listener.accept().await.unwrap();
+            // Hold the connection open without sending INFO.
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        });
+
+        let start = Instant::now();
+        let result = ConnectOptions::new()
+            .connection_timeout(Duration::from_millis(500))
+            .connect(format!("nats://127.0.0.1:{}", addr.port()))
+            .await;
+
+        let elapsed = start.elapsed();
+
+        assert_eq!(
+            result.unwrap_err().kind(),
+            ConnectErrorKind::TimedOut,
+            "should time out when server never sends INFO"
+        );
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "timeout should fire near 500ms, but took {:?}",
+            elapsed,
+        );
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn handshake_timeout_no_pong() {
+        // Server accepts TCP and sends INFO, but never responds with PONG
+        // after the client sends CONNECT+PING.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let handle = tokio::spawn(async move {
+            let (mut stream, _peer) = listener.accept().await.unwrap();
+            // Send a valid INFO line so the client proceeds past INFO read.
+            let info = format!("INFO {{\"server_id\":\"test\",\"server_name\":\"test\",\"version\":\"2.10.0\",\"proto\":1,\"host\":\"127.0.0.1\",\"port\":{},\"max_payload\":1048576}}\r\n", addr.port());
+            tokio::io::AsyncWriteExt::write_all(&mut stream, info.as_bytes())
+                .await
+                .unwrap();
+            // Now hold the connection open without reading CONNECT+PING or sending PONG.
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        });
+
+        let start = Instant::now();
+        let result = ConnectOptions::new()
+            .connection_timeout(Duration::from_millis(500))
+            .connect(format!("nats://127.0.0.1:{}", addr.port()))
+            .await;
+
+        let elapsed = start.elapsed();
+
+        assert_eq!(
+            result.unwrap_err().kind(),
+            ConnectErrorKind::TimedOut,
+            "should time out when server never sends PONG"
+        );
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "timeout should fire near 500ms, but took {:?}",
+            elapsed,
+        );
+
+        handle.abort();
+    }
+
+    // Regression test for https://github.com/nats-io/nats.rs/issues/1593.
+    //
+    // A silent (network-partitioned) server must be detected via the client-origin
+    // PING/PONG keepalive even when the client keeps publishing faster than the
+    // configured `ping_interval`. Previously, every outgoing command reset the ping
+    // interval, so a publish loop faster than `ping_interval` starved the keepalive
+    // timer: no PING was ever sent, `pending_pings` never grew, and the disconnect
+    // was never detected.
+    #[tokio::test]
+    async fn ping_not_starved_by_frequent_publishes() {
+        // Mock server: complete the handshake (INFO + a single PONG), then go silent —
+        // keep draining the client's writes (so publishes never block on a full buffer)
+        // but never answer another PING. This emulates a partitioned/paused server whose
+        // TCP socket stays open.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let handle = tokio::spawn(async move {
+            let (mut stream, _peer) = listener.accept().await.unwrap();
+            let info = format!("INFO {{\"server_id\":\"test\",\"server_name\":\"test\",\"version\":\"2.10.0\",\"proto\":1,\"host\":\"127.0.0.1\",\"port\":{},\"max_payload\":1048576}}\r\n", addr.port());
+            stream.write_all(info.as_bytes()).await.unwrap();
+
+            let mut buf = [0u8; 1024];
+            let mut handshake_ponged = false;
+            loop {
+                let n = match stream.read(&mut buf).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => n,
+                };
+                // Answer only the handshake PING so `connect()` succeeds. Afterwards
+                // stay silent: drain and discard everything, never sending another PONG.
+                if !handshake_ponged && buf[..n].windows(6).any(|w| w == b"PING\r\n") {
+                    stream.write_all(b"PONG\r\n").await.unwrap();
+                    handshake_ponged = true;
+                }
+            }
+        });
+
+        const PING_INTERVAL: Duration = Duration::from_millis(500);
+
+        let (disc_tx, mut disc_rx) = tokio::sync::mpsc::channel::<()>(1);
+        let client = ConnectOptions::new()
+            .ping_interval(PING_INTERVAL)
+            .event_callback(move |event| {
+                let disc_tx = disc_tx.clone();
+                async move {
+                    if let Event::Disconnected = event {
+                        disc_tx.try_send(()).ok();
+                    }
+                }
+            })
+            .connect(format!("nats://127.0.0.1:{}", addr.port()))
+            .await
+            .unwrap();
+
+        // Publish much faster than `ping_interval` (every 50ms vs 500ms), and keep
+        // doing so for the whole detection window — the bug is that each publish reset
+        // the ping timer, so the starvation only manifests while publishes are in flight.
+        let publishes = Arc::new(AtomicU64::new(0));
+        let publisher = client.clone();
+        let pub_count = publishes.clone();
+        let pub_task = tokio::spawn(async move {
+            loop {
+                if publisher.publish("foo", "data".into()).await.is_ok() {
+                    pub_count.fetch_add(1, Ordering::Relaxed);
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        });
+
+        // With a healthy keepalive, the silent server is detected within a few ping
+        // intervals (MAX_PENDING_PINGS = 2 → ~1.5s). Allow generous slack for CI.
+        let start = Instant::now();
+        let result = tokio::time::timeout(Duration::from_secs(10), disc_rx.recv()).await;
+        let elapsed = start.elapsed();
+
+        pub_task.abort();
+        handle.abort();
+
+        assert!(
+            result.is_ok(),
+            "disconnect from a silent server was never detected while publishing \
+             faster than ping_interval (ping keepalive starved)"
+        );
+        // The starvation precondition must have actually held: many publishes succeeded,
+        // each faster than the ping interval.
+        assert!(
+            publishes.load(Ordering::Relaxed) > 5,
+            "publish loop did not run fast enough to exercise the bug"
+        );
+        // Detection must come from the keepalive timer, not an instantaneous I/O error:
+        // it cannot fire before at least one full ping interval has elapsed.
+        assert!(
+            elapsed >= PING_INTERVAL,
+            "disconnected too early ({elapsed:?}) to be the ping keepalive"
+        );
+    }
+}

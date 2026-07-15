@@ -1,0 +1,23 @@
+[package]
+name = "block-buffer"
+version = "0.12.1"
+authors = ["RustCrypto Developers"]
+edition = "2024"
+rust-version = "1.85"
+documentation = "https://docs.rs/block-buffer"
+readme = "README.md"
+repository = "https://github.com/RustCrypto/utils"
+license = "MIT OR Apache-2.0"
+keywords = ["block", "buffer"]
+categories = ["cryptography", "no-std"]
+description = "Buffer types for block processing of data"
+
+[dependencies]
+hybrid-array = "0.4"
+zeroize = { version = "1.8", optional = true, default-features = false }
+
+[dev-dependencies]
+hex-literal = "1"
+
+[lints]
+workspace = true

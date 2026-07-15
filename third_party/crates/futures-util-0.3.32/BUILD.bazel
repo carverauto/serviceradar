@@ -48,24 +48,7 @@ rust_library(
         "sink",
         "slab",
         "std",
-    ] + select({
-        "@rules_rust//rust/platform:wasm32-unknown-emscripten": [
-            "default",  # wasm32-unknown-emscripten
-        ],
-        "@rules_rust//rust/platform:wasm32-unknown-unknown": [
-            "default",  # wasm32-unknown-unknown
-        ],
-        "@rules_rust//rust/platform:wasm32-wasip1": [
-            "default",  # wasm32-wasip1
-        ],
-        "@rules_rust//rust/platform:wasm32-wasip1-threads": [
-            "default",  # wasm32-wasip1-threads
-        ],
-        "@rules_rust//rust/platform:wasm32-wasip2": [
-            "default",  # wasm32-wasip2
-        ],
-        "//conditions:default": [],
-    }),
+    ],
     crate_root = "src/lib.rs",
     edition = "2018",
     proc_macro_deps = [

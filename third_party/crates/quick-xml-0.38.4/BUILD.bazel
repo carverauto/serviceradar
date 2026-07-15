@@ -36,8 +36,6 @@ rust_library(
     ),
     crate_features = [
         "default",
-        "serde",
-        "serialize",
     ],
     crate_root = "src/lib.rs",
     edition = "2021",
@@ -100,6 +98,5 @@ rust_library(
     version = "0.38.4",
     deps = [
         "//third_party/crates/memchr-2.8.1:memchr",
-        "//third_party/crates/serde-1.0.228:serde",
     ],
 )

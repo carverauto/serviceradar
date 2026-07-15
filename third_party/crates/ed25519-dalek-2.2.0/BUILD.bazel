@@ -35,13 +35,8 @@ rust_library(
         ],
     ),
     crate_features = [
-        "alloc",
-        "default",
         "digest",
-        "fast",
         "signature",
-        "std",
-        "zeroize",
     ],
     crate_root = "src/lib.rs",
     edition = "2021",
@@ -108,6 +103,5 @@ rust_library(
         "//third_party/crates/sha2-0.10.9:sha2",
         "//third_party/crates/signature-2.2.0:signature",
         "//third_party/crates/subtle-2.6.1:subtle",
-        "//third_party/crates/zeroize-1.8.2:zeroize",
     ],
 )

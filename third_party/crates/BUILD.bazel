@@ -67,50 +67,50 @@ alias(
 )
 
 alias(
-    name = "arrow-array-58.3.0",
-    actual = "//third_party/crates/arrow-array-58.3.0:arrow_array",
+    name = "arrow-array-59.1.0",
+    actual = "//third_party/crates/arrow-array-59.1.0:arrow_array",
     tags = ["manual"],
 )
 
 alias(
     name = "arrow-array",
-    actual = "//third_party/crates/arrow-array-58.3.0:arrow_array",
+    actual = "//third_party/crates/arrow-array-59.1.0:arrow_array",
     tags = ["manual"],
 )
 
 alias(
-    name = "arrow-ipc-58.3.0",
-    actual = "//third_party/crates/arrow-ipc-58.3.0:arrow_ipc",
+    name = "arrow-ipc-59.1.0",
+    actual = "//third_party/crates/arrow-ipc-59.1.0:arrow_ipc",
     tags = ["manual"],
 )
 
 alias(
     name = "arrow-ipc",
-    actual = "//third_party/crates/arrow-ipc-58.3.0:arrow_ipc",
+    actual = "//third_party/crates/arrow-ipc-59.1.0:arrow_ipc",
     tags = ["manual"],
 )
 
 alias(
-    name = "arrow-schema-58.3.0",
-    actual = "//third_party/crates/arrow-schema-58.3.0:arrow_schema",
+    name = "arrow-schema-59.1.0",
+    actual = "//third_party/crates/arrow-schema-59.1.0:arrow_schema",
     tags = ["manual"],
 )
 
 alias(
     name = "arrow-schema",
-    actual = "//third_party/crates/arrow-schema-58.3.0:arrow_schema",
+    actual = "//third_party/crates/arrow-schema-59.1.0:arrow_schema",
     tags = ["manual"],
 )
 
 alias(
-    name = "async-nats-0.48.0",
-    actual = "//third_party/crates/async-nats-0.48.0:async_nats",
+    name = "async-nats-0.49.1",
+    actual = "//third_party/crates/async-nats-0.49.1:async_nats",
     tags = ["manual"],
 )
 
 alias(
     name = "async-nats",
-    actual = "//third_party/crates/async-nats-0.48.0:async_nats",
+    actual = "//third_party/crates/async-nats-0.49.1:async_nats",
     tags = ["manual"],
 )
 
@@ -175,14 +175,14 @@ alias(
 )
 
 alias(
-    name = "aya-log-0.2.1",
-    actual = "//third_party/crates/aya-log-0.2.1:aya_log",
+    name = "aya-log-0.3.0",
+    actual = "//third_party/crates/aya-log-0.3.0:aya_log",
     tags = ["manual"],
 )
 
 alias(
     name = "aya-log",
-    actual = "//third_party/crates/aya-log-0.2.1:aya_log",
+    actual = "//third_party/crates/aya-log-0.3.0:aya_log",
     tags = ["manual"],
 )
 
@@ -331,14 +331,14 @@ alias(
 )
 
 alias(
-    name = "deep_causality_core-0.10.0",
-    actual = "//third_party/crates/deep_causality_core-0.10.0:deep_causality_core",
+    name = "deep_causality_core-0.11.1",
+    actual = "//third_party/crates/deep_causality_core-0.11.1:deep_causality_core",
     tags = ["manual"],
 )
 
 alias(
     name = "deep_causality_core",
-    actual = "//third_party/crates/deep_causality_core-0.10.0:deep_causality_core",
+    actual = "//third_party/crates/deep_causality_core-0.11.1:deep_causality_core",
     tags = ["manual"],
 )
 
@@ -391,25 +391,25 @@ alias(
 )
 
 alias(
-    name = "ed25519-dalek-2.2.0",
-    actual = "//third_party/crates/ed25519-dalek-2.2.0:ed25519_dalek",
+    name = "ed25519-dalek-3.0.0",
+    actual = "//third_party/crates/ed25519-dalek-3.0.0:ed25519_dalek",
     tags = ["manual"],
 )
 
 alias(
     name = "ed25519-dalek",
-    actual = "//third_party/crates/ed25519-dalek-2.2.0:ed25519_dalek",
-    tags = ["manual"],
-)
-
-alias(
-    name = "env_logger-0.10.2",
-    actual = "//third_party/crates/env_logger-0.10.2:env_logger",
+    actual = "//third_party/crates/ed25519-dalek-3.0.0:ed25519_dalek",
     tags = ["manual"],
 )
 
 alias(
     name = "env_logger-0.11.10",
+    actual = "//third_party/crates/env_logger-0.11.10:env_logger",
+    tags = ["manual"],
+)
+
+alias(
+    name = "env_logger",
     actual = "//third_party/crates/env_logger-0.11.10:env_logger",
     tags = ["manual"],
 )
@@ -727,14 +727,14 @@ alias(
 )
 
 alias(
-    name = "phf-0.11.3",
-    actual = "//third_party/crates/phf-0.11.3:phf",
+    name = "phf-0.14.0",
+    actual = "//third_party/crates/phf-0.14.0:phf",
     tags = ["manual"],
 )
 
 alias(
     name = "phf",
-    actual = "//third_party/crates/phf-0.11.3:phf",
+    actual = "//third_party/crates/phf-0.14.0:phf",
     tags = ["manual"],
 )
 
@@ -775,14 +775,14 @@ alias(
 )
 
 alias(
-    name = "procfs-0.17.0",
-    actual = "//third_party/crates/procfs-0.17.0:procfs",
+    name = "procfs-0.18.0",
+    actual = "//third_party/crates/procfs-0.18.0:procfs",
     tags = ["manual"],
 )
 
 alias(
     name = "procfs",
-    actual = "//third_party/crates/procfs-0.17.0:procfs",
+    actual = "//third_party/crates/procfs-0.18.0:procfs",
     tags = ["manual"],
 )
 
@@ -829,8 +829,8 @@ alias(
 )
 
 alias(
-    name = "quick-xml",
-    actual = "//third_party/crates/quick-xml-0.38.4:quick_xml",
+    name = "quick-xml-0.41.0",
+    actual = "//third_party/crates/quick-xml-0.41.0:quick_xml",
     tags = ["manual"],
 )
 
@@ -919,18 +919,6 @@ alias(
 )
 
 alias(
-    name = "rust-s3-0.37.2",
-    actual = "//third_party/crates/rust-s3-0.37.2:s3",
-    tags = ["manual"],
-)
-
-alias(
-    name = "rust-s3",
-    actual = "//third_party/crates/rust-s3-0.37.2:s3",
-    tags = ["manual"],
-)
-
-alias(
     name = "rustix-1.1.4",
     actual = "//third_party/crates/rustix-1.1.4:rustix",
     tags = ["manual"],
@@ -1003,14 +991,14 @@ alias(
 )
 
 alias(
-    name = "serviceradar-flowgger-0.3.4",
-    actual = "//third_party/crates/serviceradar-flowgger-0.3.4:flowgger",
+    name = "serviceradar-flowgger-0.0.0",
+    actual = "//third_party/crates/serviceradar-flowgger-0.0.0:flowgger",
     tags = ["manual"],
 )
 
 alias(
     name = "serviceradar-flowgger",
-    actual = "//third_party/crates/serviceradar-flowgger-0.3.4:flowgger",
+    actual = "//third_party/crates/serviceradar-flowgger-0.0.0:flowgger",
     tags = ["manual"],
 )
 
@@ -1081,8 +1069,8 @@ alias(
 )
 
 alias(
-    name = "sha2",
-    actual = "//third_party/crates/sha2-0.10.9:sha2",
+    name = "sha2-0.11.0",
+    actual = "//third_party/crates/sha2-0.11.0:sha2",
     tags = ["manual"],
 )
 
@@ -1099,14 +1087,14 @@ alias(
 )
 
 alias(
-    name = "snmp2-0.4.14",
-    actual = "//third_party/crates/snmp2-0.4.14:snmp2",
+    name = "snmp2-0.5.2",
+    actual = "//third_party/crates/snmp2-0.5.2:snmp2",
     tags = ["manual"],
 )
 
 alias(
     name = "snmp2",
-    actual = "//third_party/crates/snmp2-0.4.14:snmp2",
+    actual = "//third_party/crates/snmp2-0.5.2:snmp2",
     tags = ["manual"],
 )
 
@@ -1231,14 +1219,14 @@ alias(
 )
 
 alias(
-    name = "toml-0.5.11",
-    actual = "//third_party/crates/toml-0.5.11:toml",
+    name = "toml-1.1.3+spec-1.1.0",
+    actual = "//third_party/crates/toml-1.1.3-spec-1.1.0:toml",
     tags = ["manual"],
 )
 
 alias(
-    name = "toml-0.8.23",
-    actual = "//third_party/crates/toml-0.8.23:toml",
+    name = "toml",
+    actual = "//third_party/crates/toml-1.1.3-spec-1.1.0:toml",
     tags = ["manual"],
 )
 
@@ -1291,13 +1279,13 @@ alias(
 )
 
 alias(
-    name = "tower-0.4.13",
-    actual = "//third_party/crates/tower-0.4.13:tower",
+    name = "tower-0.5.3",
+    actual = "//third_party/crates/tower-0.5.3:tower",
     tags = ["manual"],
 )
 
 alias(
-    name = "tower-0.5.3",
+    name = "tower",
     actual = "//third_party/crates/tower-0.5.3:tower",
     tags = ["manual"],
 )

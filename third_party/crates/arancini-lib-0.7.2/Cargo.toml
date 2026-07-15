@@ -10,7 +10,7 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2021"
+edition = "2024"
 name = "arancini-lib"
 version = "0.7.2"
 build = false
@@ -26,7 +26,7 @@ autotests = false
 autobenches = false
 description = "High-performance BMP collector"
 homepage = "https://github.com/carverauto"
-readme = "README.md"
+readme = "../README.md"
 keywords = [
     "BGP",
     "BMP",
@@ -47,35 +47,29 @@ path = "tests/processor.rs"
 name = "tests"
 path = "tests/tests.rs"
 
-[dependencies.ahash]
-version = "0.8.11"
-
-[dependencies.anyhow]
-version = "1.0.95"
+[dependencies]
+ahash = "0.8"
+anyhow = "1.0"
+bytes = "1.9.0"
+chrono = "0.4"
+metrics = "0.24"
+rand = "0.9"
+tracing = "0.1"
 
 [dependencies.bgpkit-parser]
-version = "0.15.0"
-features = ["serde"]
-
-[dependencies.bytes]
-version = "1.9.0"
-
-[dependencies.chrono]
-version = "0.4.39"
-
-[dependencies.metrics]
-version = "0.24.2"
-
-[dependencies.rand]
-version = "0.9.0"
+version = "0.15"
+features = [
+    "parser",
+    "serde",
+]
+default-features = false
 
 [dependencies.serde]
-version = "1.0.217"
+version = "1"
 features = ["derive"]
+default-features = false
 
 [dependencies.tokio]
-version = "1.42.0"
+version = "1"
 features = ["macros"]
-
-[dependencies.tracing]
-version = "0.1.41"
+default-features = false

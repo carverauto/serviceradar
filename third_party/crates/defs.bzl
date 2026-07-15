@@ -302,7 +302,7 @@ _NORMAL_DEPENDENCIES = {
             "rcgen": Label("//third_party/crates/rcgen-0.12.1:rcgen"),
             "rustls": Label("//third_party/crates/rustls-0.23.40:rustls"),
             "rustls-pemfile": Label("//third_party/crates/rustls-pemfile-2.2.0:rustls_pemfile"),
-            "sha2": Label("//third_party/crates/sha2-0.10.9:sha2"),
+            "sha2": Label("//third_party/crates/sha2-0.11.0:sha2"),
             "thiserror": Label("//third_party/crates/thiserror-1.0.69:thiserror"),
             "tokio": Label("//third_party/crates/tokio-1.52.3:tokio"),
             "tokio-rustls": Label("//third_party/crates/tokio-rustls-0.26.4:tokio_rustls"),
@@ -319,7 +319,7 @@ _NORMAL_DEPENDENCIES = {
             "prost": Label("//third_party/crates/prost-0.13.5:prost"),
             "serde": Label("//third_party/crates/serde-1.0.228:serde"),
             "serde_json": Label("//third_party/crates/serde_json-1.0.150:serde_json"),
-            "sha2": Label("//third_party/crates/sha2-0.10.9:sha2"),
+            "sha2": Label("//third_party/crates/sha2-0.11.0:sha2"),
             "tokio": Label("//third_party/crates/tokio-1.52.3:tokio"),
             "tokio-stream": Label("//third_party/crates/tokio-stream-0.1.18:tokio_stream"),
             "tonic": Label("//third_party/crates/tonic-0.12.3:tonic"),
@@ -328,7 +328,7 @@ _NORMAL_DEPENDENCIES = {
     "rust/anomaly-core": {
         _COMMON_CONDITION: {
             "clap": Label("//third_party/crates/clap-4.6.1:clap"),
-            "deep_causality_core": Label("//third_party/crates/deep_causality_core-0.10.0:deep_causality_core"),
+            "deep_causality_core": Label("//third_party/crates/deep_causality_core-0.11.1:deep_causality_core"),
             "deep_causality_data_structures": Label("//third_party/crates/deep_causality_data_structures-0.10.14:deep_causality_data_structures"),
             "flate2": Label("//third_party/crates/flate2-1.1.9:flate2"),
             "serde": Label("//third_party/crates/serde-1.0.228:serde"),
@@ -337,22 +337,20 @@ _NORMAL_DEPENDENCIES = {
     },
     "rust/anomaly-disposition": {
         _COMMON_CONDITION: {
-            "deep_causality_core": Label("//third_party/crates/deep_causality_core-0.10.0:deep_causality_core"),
+            "deep_causality_core": Label("//third_party/crates/deep_causality_core-0.11.1:deep_causality_core"),
         },
     },
     "rust/bmp-collector": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
             "arancini-lib": Label("//third_party/crates/arancini-lib-0.7.2:arancini_lib"),
-            "async-nats": Label("//third_party/crates/async-nats-0.48.0:async_nats"),
+            "async-nats": Label("//third_party/crates/async-nats-0.49.1:async_nats"),
             "bgpkit-parser": Label("//third_party/crates/bgpkit-parser-0.15.0:bgpkit_parser"),
             "bytes": Label("//third_party/crates/bytes-1.11.1:bytes"),
-            "chrono": Label("//third_party/crates/chrono-0.4.44:chrono"),
             "clap": Label("//third_party/crates/clap-4.6.1:clap"),
             "env_logger": Label("//third_party/crates/env_logger-0.11.10:env_logger"),
             "hex": Label("//third_party/crates/hex-0.4.3:hex"),
             "log": Label("//third_party/crates/log-0.4.30:log"),
-            "rust-s3": Label("//third_party/crates/rust-s3-0.37.2:s3"),
             "rustls": Label("//third_party/crates/rustls-0.23.40:rustls"),
             "serde": Label("//third_party/crates/serde-1.0.228:serde"),
             "serde_json": Label("//third_party/crates/serde_json-1.0.150:serde_json"),
@@ -396,23 +394,23 @@ _NORMAL_DEPENDENCIES = {
         _COMMON_CONDITION: {
             "serde": Label("//third_party/crates/serde-1.0.228:serde"),
             "serde_json": Label("//third_party/crates/serde_json-1.0.150:serde_json"),
-            "thiserror": Label("//third_party/crates/thiserror-1.0.69:thiserror"),
+            "thiserror": Label("//third_party/crates/thiserror-2.0.18:thiserror"),
             "tokio": Label("//third_party/crates/tokio-1.52.3:tokio"),
-            "toml": Label("//third_party/crates/toml-0.8.23:toml"),
+            "toml": Label("//third_party/crates/toml-1.1.3-spec-1.1.0:toml"),
             "tracing": Label("//third_party/crates/tracing-0.1.44:tracing"),
         },
     },
     "rust/correlation-engine": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
-            "async-nats": Label("//third_party/crates/async-nats-0.48.0:async_nats"),
+            "async-nats": Label("//third_party/crates/async-nats-0.49.1:async_nats"),
             "chrono": Label("//third_party/crates/chrono-0.4.44:chrono"),
             "deep_causality": Label("//third_party/crates/deep_causality-0.13.10:deep_causality"),
             "envy": Label("//third_party/crates/envy-0.4.2:envy"),
             "futures": Label("//third_party/crates/futures-0.3.32:futures"),
             "serde": Label("//third_party/crates/serde-1.0.228:serde"),
             "serde_json": Label("//third_party/crates/serde_json-1.0.150:serde_json"),
-            "thiserror": Label("//third_party/crates/thiserror-1.0.69:thiserror"),
+            "thiserror": Label("//third_party/crates/thiserror-2.0.18:thiserror"),
             "tokio": Label("//third_party/crates/tokio-1.52.3:tokio"),
             "tracing": Label("//third_party/crates/tracing-0.1.44:tracing"),
             "tracing-subscriber": Label("//third_party/crates/tracing-subscriber-0.3.23:tracing_subscriber"),
@@ -422,12 +420,12 @@ _NORMAL_DEPENDENCIES = {
     "rust/edge-onboarding": {
         _COMMON_CONDITION: {
             "base64": Label("//third_party/crates/base64-0.22.1:base64"),
-            "ed25519-dalek": Label("//third_party/crates/ed25519-dalek-2.2.0:ed25519_dalek"),
+            "ed25519-dalek": Label("//third_party/crates/ed25519-dalek-3.0.0:ed25519_dalek"),
             "hex": Label("//third_party/crates/hex-0.4.3:hex"),
             "libc": Label("//third_party/crates/libc-0.2.186:libc"),
             "serde": Label("//third_party/crates/serde-1.0.228:serde"),
             "serde_json": Label("//third_party/crates/serde_json-1.0.150:serde_json"),
-            "thiserror": Label("//third_party/crates/thiserror-1.0.69:thiserror"),
+            "thiserror": Label("//third_party/crates/thiserror-2.0.18:thiserror"),
             "tracing": Label("//third_party/crates/tracing-0.1.44:tracing"),
             "ureq": Label("//third_party/crates/ureq-2.12.1:ureq"),
             "urlencoding": Label("//third_party/crates/urlencoding-2.1.3:urlencoding"),
@@ -436,17 +434,17 @@ _NORMAL_DEPENDENCIES = {
     "rust/fieldsurvey-sidekick": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
-            "arrow-array": Label("//third_party/crates/arrow-array-58.3.0:arrow_array"),
-            "arrow-ipc": Label("//third_party/crates/arrow-ipc-58.3.0:arrow_ipc"),
-            "arrow-schema": Label("//third_party/crates/arrow-schema-58.3.0:arrow_schema"),
+            "arrow-array": Label("//third_party/crates/arrow-array-59.1.0:arrow_array"),
+            "arrow-ipc": Label("//third_party/crates/arrow-ipc-59.1.0:arrow_ipc"),
+            "arrow-schema": Label("//third_party/crates/arrow-schema-59.1.0:arrow_schema"),
             "axum": Label("//third_party/crates/axum-0.7.9:axum"),
             "clap": Label("//third_party/crates/clap-4.6.1:clap"),
             "libc": Label("//third_party/crates/libc-0.2.186:libc"),
             "serde": Label("//third_party/crates/serde-1.0.228:serde"),
             "serde_json": Label("//third_party/crates/serde_json-1.0.150:serde_json"),
-            "sha2": Label("//third_party/crates/sha2-0.10.9:sha2"),
+            "sha2": Label("//third_party/crates/sha2-0.11.0:sha2"),
             "tokio": Label("//third_party/crates/tokio-1.52.3:tokio"),
-            "toml": Label("//third_party/crates/toml-0.8.23:toml"),
+            "toml": Label("//third_party/crates/toml-1.1.3-spec-1.1.0:toml"),
             "tracing": Label("//third_party/crates/tracing-0.1.44:tracing"),
             "tracing-subscriber": Label("//third_party/crates/tracing-subscriber-0.3.23:tracing_subscriber"),
         },
@@ -454,7 +452,7 @@ _NORMAL_DEPENDENCIES = {
     "rust/flow-collector": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
-            "async-nats": Label("//third_party/crates/async-nats-0.48.0:async_nats"),
+            "async-nats": Label("//third_party/crates/async-nats-0.49.1:async_nats"),
             "clap": Label("//third_party/crates/clap-4.6.1:clap"),
             "env_logger": Label("//third_party/crates/env_logger-0.11.10:env_logger"),
             "flowparser-sflow": Label("//third_party/crates/flowparser-sflow-0.3.0:flowparser_sflow"),
@@ -470,7 +468,7 @@ _NORMAL_DEPENDENCIES = {
     "rust/flowgger": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
-            "async-nats": Label("//third_party/crates/async-nats-0.48.0:async_nats"),
+            "async-nats": Label("//third_party/crates/async-nats-0.49.1:async_nats"),
             "clap": Label("//third_party/crates/clap-4.6.1:clap"),
             "flate2": Label("//third_party/crates/flate2-1.1.9:flate2"),
             "log": Label("//third_party/crates/log-0.4.30:log"),
@@ -485,7 +483,7 @@ _NORMAL_DEPENDENCIES = {
             "time": Label("//third_party/crates/time-0.3.46:time"),
             "time-tz": Label("//third_party/crates/time-tz-0.3.1:time_tz"),
             "tokio": Label("//third_party/crates/tokio-1.52.3:tokio"),
-            "toml": Label("//third_party/crates/toml-0.5.11:toml"),
+            "toml": Label("//third_party/crates/toml-1.1.3-spec-1.1.0:toml"),
             "tonic": Label("//third_party/crates/tonic-0.12.3:tonic"),
             "tonic-health": Label("//third_party/crates/tonic-health-0.12.3:tonic_health"),
         },
@@ -498,10 +496,10 @@ _NORMAL_DEPENDENCIES = {
             "serde": Label("//third_party/crates/serde-1.0.228:serde"),
             "serde_json": Label("//third_party/crates/serde_json-1.0.150:serde_json"),
             "spiffe": Label("//third_party/crates/spiffe-0.16.0:spiffe"),
-            "thiserror": Label("//third_party/crates/thiserror-1.0.69:thiserror"),
+            "thiserror": Label("//third_party/crates/thiserror-2.0.18:thiserror"),
             "tokio": Label("//third_party/crates/tokio-1.52.3:tokio"),
             "tokio-stream": Label("//third_party/crates/tokio-stream-0.1.18:tokio_stream"),
-            "toml": Label("//third_party/crates/toml-0.8.23:toml"),
+            "toml": Label("//third_party/crates/toml-1.1.3-spec-1.1.0:toml"),
             "tonic": Label("//third_party/crates/tonic-0.12.3:tonic"),
         },
     },
@@ -514,7 +512,7 @@ _NORMAL_DEPENDENCIES = {
             "rustls": Label("//third_party/crates/rustls-0.23.40:rustls"),
             "serde": Label("//third_party/crates/serde-1.0.228:serde"),
             "tokio": Label("//third_party/crates/tokio-1.52.3:tokio"),
-            "toml": Label("//third_party/crates/toml-0.8.23:toml"),
+            "toml": Label("//third_party/crates/toml-1.1.3-spec-1.1.0:toml"),
             "tonic": Label("//third_party/crates/tonic-0.12.3:tonic"),
             "tonic-health": Label("//third_party/crates/tonic-health-0.12.3:tonic_health"),
         },
@@ -527,12 +525,12 @@ _NORMAL_DEPENDENCIES = {
     "rust/metrics-delta-writer": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
-            "async-nats": Label("//third_party/crates/async-nats-0.48.0:async_nats"),
+            "async-nats": Label("//third_party/crates/async-nats-0.49.1:async_nats"),
             "envy": Label("//third_party/crates/envy-0.4.2:envy"),
             "futures": Label("//third_party/crates/futures-0.3.32:futures"),
             "prost": Label("//third_party/crates/prost-0.13.5:prost"),
             "serde": Label("//third_party/crates/serde-1.0.228:serde"),
-            "thiserror": Label("//third_party/crates/thiserror-1.0.69:thiserror"),
+            "thiserror": Label("//third_party/crates/thiserror-2.0.18:thiserror"),
             "tokio": Label("//third_party/crates/tokio-1.52.3:tokio"),
             "tokio-postgres": Label("//third_party/crates/tokio-postgres-0.7.17:tokio_postgres"),
             "tracing": Label("//third_party/crates/tracing-0.1.44:tracing"),
@@ -548,14 +546,14 @@ _NORMAL_DEPENDENCIES = {
             "etherparse": Label("//third_party/crates/etherparse-0.20.1:etherparse"),
             "log": Label("//third_party/crates/log-0.4.30:log"),
             "nix": Label("//third_party/crates/nix-0.31.3:nix"),
-            "phf": Label("//third_party/crates/phf-0.11.3:phf"),
+            "phf": Label("//third_party/crates/phf-0.14.0:phf"),
             "prometheus": Label("//third_party/crates/prometheus-0.14.0:prometheus"),
             "prost": Label("//third_party/crates/prost-0.13.5:prost"),
-            "quick-xml": Label("//third_party/crates/quick-xml-0.38.4:quick_xml"),
+            "quick-xml": Label("//third_party/crates/quick-xml-0.41.0:quick_xml"),
             "regex-automata": Label("//third_party/crates/regex-automata-0.4.14:regex_automata"),
             "serde": Label("//third_party/crates/serde-1.0.228:serde"),
             "serde_json": Label("//third_party/crates/serde_json-1.0.150:serde_json"),
-            "sha2": Label("//third_party/crates/sha2-0.10.9:sha2"),
+            "sha2": Label("//third_party/crates/sha2-0.11.0:sha2"),
             "thiserror": Label("//third_party/crates/thiserror-2.0.18:thiserror"),
             "tokio": Label("//third_party/crates/tokio-1.52.3:tokio"),
         },
@@ -564,15 +562,15 @@ _NORMAL_DEPENDENCIES = {
         },
         "cfg(target_os = \"linux\")": {
             "aya": Label("//third_party/crates/aya-0.13.1:aya"),
-            "aya-log": Label("//third_party/crates/aya-log-0.2.1:aya_log"),
+            "aya-log": Label("//third_party/crates/aya-log-0.3.0:aya_log"),
             "libc": Label("//third_party/crates/libc-0.2.186:libc"),
-            "procfs": Label("//third_party/crates/procfs-0.17.0:procfs"),
+            "procfs": Label("//third_party/crates/procfs-0.18.0:procfs"),
         },
     },
     "rust/otel": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
-            "async-nats": Label("//third_party/crates/async-nats-0.48.0:async_nats"),
+            "async-nats": Label("//third_party/crates/async-nats-0.49.1:async_nats"),
             "chrono": Label("//third_party/crates/chrono-0.4.44:chrono"),
             "clap": Label("//third_party/crates/clap-4.6.1:clap"),
             "env_logger": Label("//third_party/crates/env_logger-0.11.10:env_logger"),
@@ -590,7 +588,7 @@ _NORMAL_DEPENDENCIES = {
             "serde": Label("//third_party/crates/serde-1.0.228:serde"),
             "tokio": Label("//third_party/crates/tokio-1.52.3:tokio"),
             "tokio-rustls": Label("//third_party/crates/tokio-rustls-0.26.4:tokio_rustls"),
-            "toml": Label("//third_party/crates/toml-0.8.23:toml"),
+            "toml": Label("//third_party/crates/toml-1.1.3-spec-1.1.0:toml"),
             "tonic": Label("//third_party/crates/tonic-0.12.3:tonic"),
             "uuid": Label("//third_party/crates/uuid-1.23.1:uuid"),
         },
@@ -605,7 +603,7 @@ _NORMAL_DEPENDENCIES = {
             "hex": Label("//third_party/crates/hex-0.4.3:hex"),
             "log": Label("//third_party/crates/log-0.4.30:log"),
             "serde_json": Label("//third_party/crates/serde_json-1.0.150:serde_json"),
-            "sha2": Label("//third_party/crates/sha2-0.10.9:sha2"),
+            "sha2": Label("//third_party/crates/sha2-0.11.0:sha2"),
             "tokio": Label("//third_party/crates/tokio-1.52.3:tokio"),
             "tokio-stream": Label("//third_party/crates/tokio-stream-0.1.18:tokio_stream"),
             "tonic": Label("//third_party/crates/tonic-0.12.3:tonic"),
@@ -619,7 +617,7 @@ _NORMAL_DEPENDENCIES = {
             "prost": Label("//third_party/crates/prost-0.13.5:prost"),
             "serde": Label("//third_party/crates/serde-1.0.228:serde"),
             "serde_json": Label("//third_party/crates/serde_json-1.0.150:serde_json"),
-            "sha2": Label("//third_party/crates/sha2-0.10.9:sha2"),
+            "sha2": Label("//third_party/crates/sha2-0.11.0:sha2"),
             "tokio": Label("//third_party/crates/tokio-1.52.3:tokio"),
             "tokio-stream": Label("//third_party/crates/tokio-stream-0.1.18:tokio_stream"),
             "tonic": Label("//third_party/crates/tonic-0.12.3:tonic"),
@@ -672,7 +670,7 @@ _NORMAL_DEPENDENCIES = {
             "serde": Label("//third_party/crates/serde-1.0.228:serde"),
             "serde_json": Label("//third_party/crates/serde_json-1.0.150:serde_json"),
             "sha2": Label("//third_party/crates/sha2-0.10.9:sha2"),
-            "thiserror": Label("//third_party/crates/thiserror-1.0.69:thiserror"),
+            "thiserror": Label("//third_party/crates/thiserror-2.0.18:thiserror"),
             "tokio": Label("//third_party/crates/tokio-1.52.3:tokio"),
             "tokio-postgres": Label("//third_party/crates/tokio-postgres-0.7.17:tokio_postgres"),
             "tokio-postgres-rustls": Label("//third_party/crates/tokio-postgres-rustls-0.13.0:tokio_postgres_rustls"),
@@ -686,9 +684,9 @@ _NORMAL_DEPENDENCIES = {
     "rust/trapd": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
-            "async-nats": Label("//third_party/crates/async-nats-0.48.0:async_nats"),
+            "async-nats": Label("//third_party/crates/async-nats-0.49.1:async_nats"),
             "clap": Label("//third_party/crates/clap-4.6.1:clap"),
-            "env_logger": Label("//third_party/crates/env_logger-0.10.2:env_logger"),
+            "env_logger": Label("//third_party/crates/env_logger-0.11.10:env_logger"),
             "futures": Label("//third_party/crates/futures-0.3.32:futures"),
             "log": Label("//third_party/crates/log-0.4.30:log"),
             "pem": Label("//third_party/crates/pem-3.0.6:pem"),
@@ -696,7 +694,7 @@ _NORMAL_DEPENDENCIES = {
             "rustls": Label("//third_party/crates/rustls-0.23.40:rustls"),
             "serde": Label("//third_party/crates/serde-1.0.228:serde"),
             "serde_json": Label("//third_party/crates/serde_json-1.0.150:serde_json"),
-            "snmp2": Label("//third_party/crates/snmp2-0.4.14:snmp2"),
+            "snmp2": Label("//third_party/crates/snmp2-0.5.2:snmp2"),
             "spiffe": Label("//third_party/crates/spiffe-0.16.0:spiffe"),
             "tokio": Label("//third_party/crates/tokio-1.52.3:tokio"),
             "tonic": Label("//third_party/crates/tonic-0.12.3:tonic"),
@@ -715,7 +713,7 @@ _NORMAL_DEPENDENCIES = {
             "serde_json": Label("//third_party/crates/serde_json-1.0.150:serde_json"),
             "tokio": Label("//third_party/crates/tokio-1.52.3:tokio"),
             "tonic": Label("//third_party/crates/tonic-0.12.3:tonic"),
-            "tower": Label("//third_party/crates/tower-0.4.13:tower"),
+            "tower": Label("//third_party/crates/tower-0.5.3:tower"),
         },
     },
     "third_party/rust_patches/reqsign-azure-storage-1.0.0": {
@@ -947,7 +945,7 @@ _NORMAL_DEV_DEPENDENCIES = {
         _COMMON_CONDITION: {
             "hyper-util": Label("//third_party/crates/hyper-util-0.1.20:hyper_util"),
             "tempfile": Label("//third_party/crates/tempfile-3.27.0:tempfile"),
-            "tower": Label("//third_party/crates/tower-0.4.13:tower"),
+            "tower": Label("//third_party/crates/tower-0.5.3:tower"),
         },
     },
     "rust/anomaly-addon": {
@@ -984,9 +982,6 @@ _NORMAL_DEV_DEPENDENCIES = {
         },
     },
     "rust/correlation-engine": {
-        _COMMON_CONDITION: {
-            "pretty_assertions": Label("//third_party/crates/pretty_assertions-1.4.1:pretty_assertions"),
-        },
     },
     "rust/edge-onboarding": {
         _COMMON_CONDITION: {
@@ -1029,7 +1024,6 @@ _NORMAL_DEV_DEPENDENCIES = {
     },
     "rust/otel-addon": {
         _COMMON_CONDITION: {
-            "prost": Label("//third_party/crates/prost-0.13.5:prost"),
             "tempfile": Label("//third_party/crates/tempfile-3.27.0:tempfile"),
         },
     },
@@ -1108,8 +1102,6 @@ _NORMAL_DEV_ALIASES = {
         },
     },
     "rust/correlation-engine": {
-        _COMMON_CONDITION: {
-        },
     },
     "rust/edge-onboarding": {
         _COMMON_CONDITION: {
@@ -1478,8 +1470,6 @@ _PROC_MACRO_DEV_ALIASES = {
         },
     },
     "rust/correlation-engine": {
-        _COMMON_CONDITION: {
-        },
     },
     "rust/edge-onboarding": {
         _COMMON_CONDITION: {
@@ -1954,7 +1944,6 @@ _CONDITIONS = {
     "cfg(all(target_arch = \"x86\", target_env = \"gnu\", not(target_abi = \"llvm\"), not(windows_raw_dylib)))": ["@rules_rust//rust/platform:i686-unknown-linux-gnu"],
     "cfg(all(target_arch = \"x86\", target_env = \"msvc\", not(windows_raw_dylib)))": ["@rules_rust//rust/platform:i686-pc-windows-msvc"],
     "cfg(all(target_arch = \"x86_64\", target_env = \"gnu\", not(target_abi = \"llvm\"), not(windows_raw_dylib)))": ["@rules_rust//rust/platform:x86_64-unknown-linux-gnu", "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu"],
-    "cfg(all(target_family = \"wasm\", target_os = \"unknown\"))": ["@rules_rust//rust/platform:wasm32-unknown-unknown"],
     "cfg(all(target_os = \"uefi\", getrandom_backend = \"efi_rng\"))": [],
     "cfg(all(unix, not(target_os = \"macos\")))": ["@rules_rust//rust/platform:aarch64-apple-ios", "@rules_rust//rust/platform:aarch64-apple-ios-sim", "@rules_rust//rust/platform:aarch64-linux-android", "@rules_rust//rust/platform:aarch64-unknown-fuchsia", "@rules_rust//rust/platform:aarch64-unknown-linux-gnu", "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu", "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710", "@rules_rust//rust/platform:arm-unknown-linux-gnueabi", "@rules_rust//rust/platform:armv7-linux-androideabi", "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi", "@rules_rust//rust/platform:i686-linux-android", "@rules_rust//rust/platform:i686-unknown-freebsd", "@rules_rust//rust/platform:i686-unknown-linux-gnu", "@rules_rust//rust/platform:powerpc-unknown-linux-gnu", "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu", "@rules_rust//rust/platform:s390x-unknown-linux-gnu", "@rules_rust//rust/platform:wasm32-unknown-emscripten", "@rules_rust//rust/platform:x86_64-apple-ios", "@rules_rust//rust/platform:x86_64-linux-android", "@rules_rust//rust/platform:x86_64-unknown-freebsd", "@rules_rust//rust/platform:x86_64-unknown-fuchsia", "@rules_rust//rust/platform:x86_64-unknown-linux-gnu", "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu"],
     "cfg(any())": [],
@@ -1973,7 +1962,6 @@ _CONDITIONS = {
     "cfg(any(windows, unix, target_os = \"redox\"))": ["@rules_rust//rust/platform:aarch64-apple-darwin", "@rules_rust//rust/platform:aarch64-apple-ios", "@rules_rust//rust/platform:aarch64-apple-ios-sim", "@rules_rust//rust/platform:aarch64-linux-android", "@rules_rust//rust/platform:aarch64-pc-windows-msvc", "@rules_rust//rust/platform:aarch64-unknown-fuchsia", "@rules_rust//rust/platform:aarch64-unknown-linux-gnu", "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu", "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710", "@rules_rust//rust/platform:arm-unknown-linux-gnueabi", "@rules_rust//rust/platform:armv7-linux-androideabi", "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi", "@rules_rust//rust/platform:i686-apple-darwin", "@rules_rust//rust/platform:i686-linux-android", "@rules_rust//rust/platform:i686-pc-windows-msvc", "@rules_rust//rust/platform:i686-unknown-freebsd", "@rules_rust//rust/platform:i686-unknown-linux-gnu", "@rules_rust//rust/platform:powerpc-unknown-linux-gnu", "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu", "@rules_rust//rust/platform:s390x-unknown-linux-gnu", "@rules_rust//rust/platform:wasm32-unknown-emscripten", "@rules_rust//rust/platform:x86_64-apple-darwin", "@rules_rust//rust/platform:x86_64-apple-ios", "@rules_rust//rust/platform:x86_64-linux-android", "@rules_rust//rust/platform:x86_64-pc-windows-msvc", "@rules_rust//rust/platform:x86_64-unknown-freebsd", "@rules_rust//rust/platform:x86_64-unknown-fuchsia", "@rules_rust//rust/platform:x86_64-unknown-linux-gnu", "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu"],
     "cfg(curve25519_dalek_backend = \"fiat\")": [],
     "cfg(not(all(target_arch = \"arm\", target_os = \"none\")))": ["@rules_rust//rust/platform:aarch64-apple-darwin", "@rules_rust//rust/platform:aarch64-apple-ios", "@rules_rust//rust/platform:aarch64-apple-ios-sim", "@rules_rust//rust/platform:aarch64-linux-android", "@rules_rust//rust/platform:aarch64-pc-windows-msvc", "@rules_rust//rust/platform:aarch64-unknown-fuchsia", "@rules_rust//rust/platform:aarch64-unknown-linux-gnu", "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu", "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710", "@rules_rust//rust/platform:aarch64-unknown-uefi", "@rules_rust//rust/platform:arm-unknown-linux-gnueabi", "@rules_rust//rust/platform:armv7-linux-androideabi", "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi", "@rules_rust//rust/platform:i686-apple-darwin", "@rules_rust//rust/platform:i686-linux-android", "@rules_rust//rust/platform:i686-pc-windows-msvc", "@rules_rust//rust/platform:i686-unknown-freebsd", "@rules_rust//rust/platform:i686-unknown-linux-gnu", "@rules_rust//rust/platform:powerpc-unknown-linux-gnu", "@rules_rust//rust/platform:riscv32imc-unknown-none-elf", "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu", "@rules_rust//rust/platform:riscv64gc-unknown-none-elf", "@rules_rust//rust/platform:s390x-unknown-linux-gnu", "@rules_rust//rust/platform:wasm32-unknown-emscripten", "@rules_rust//rust/platform:wasm32-unknown-unknown", "@rules_rust//rust/platform:wasm32-wasip1", "@rules_rust//rust/platform:wasm32-wasip1-threads", "@rules_rust//rust/platform:wasm32-wasip2", "@rules_rust//rust/platform:x86_64-apple-darwin", "@rules_rust//rust/platform:x86_64-apple-ios", "@rules_rust//rust/platform:x86_64-linux-android", "@rules_rust//rust/platform:x86_64-pc-windows-msvc", "@rules_rust//rust/platform:x86_64-unknown-freebsd", "@rules_rust//rust/platform:x86_64-unknown-fuchsia", "@rules_rust//rust/platform:x86_64-unknown-linux-gnu", "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu", "@rules_rust//rust/platform:x86_64-unknown-none", "@rules_rust//rust/platform:x86_64-unknown-uefi"],
-    "cfg(not(all(target_family = \"wasm\", target_os = \"unknown\")))": ["@rules_rust//rust/platform:aarch64-apple-darwin", "@rules_rust//rust/platform:aarch64-apple-ios", "@rules_rust//rust/platform:aarch64-apple-ios-sim", "@rules_rust//rust/platform:aarch64-linux-android", "@rules_rust//rust/platform:aarch64-pc-windows-msvc", "@rules_rust//rust/platform:aarch64-unknown-fuchsia", "@rules_rust//rust/platform:aarch64-unknown-linux-gnu", "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu", "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710", "@rules_rust//rust/platform:aarch64-unknown-uefi", "@rules_rust//rust/platform:arm-unknown-linux-gnueabi", "@rules_rust//rust/platform:armv7-linux-androideabi", "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi", "@rules_rust//rust/platform:i686-apple-darwin", "@rules_rust//rust/platform:i686-linux-android", "@rules_rust//rust/platform:i686-pc-windows-msvc", "@rules_rust//rust/platform:i686-unknown-freebsd", "@rules_rust//rust/platform:i686-unknown-linux-gnu", "@rules_rust//rust/platform:powerpc-unknown-linux-gnu", "@rules_rust//rust/platform:riscv32imc-unknown-none-elf", "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu", "@rules_rust//rust/platform:riscv64gc-unknown-none-elf", "@rules_rust//rust/platform:s390x-unknown-linux-gnu", "@rules_rust//rust/platform:thumbv7em-none-eabi", "@rules_rust//rust/platform:thumbv8m.main-none-eabi", "@rules_rust//rust/platform:wasm32-unknown-emscripten", "@rules_rust//rust/platform:wasm32-wasip1", "@rules_rust//rust/platform:wasm32-wasip1-threads", "@rules_rust//rust/platform:wasm32-wasip2", "@rules_rust//rust/platform:x86_64-apple-darwin", "@rules_rust//rust/platform:x86_64-apple-ios", "@rules_rust//rust/platform:x86_64-linux-android", "@rules_rust//rust/platform:x86_64-pc-windows-msvc", "@rules_rust//rust/platform:x86_64-unknown-freebsd", "@rules_rust//rust/platform:x86_64-unknown-fuchsia", "@rules_rust//rust/platform:x86_64-unknown-linux-gnu", "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu", "@rules_rust//rust/platform:x86_64-unknown-none", "@rules_rust//rust/platform:x86_64-unknown-uefi"],
     "cfg(not(target_arch = \"wasm32\"))": ["@rules_rust//rust/platform:aarch64-apple-darwin", "@rules_rust//rust/platform:aarch64-apple-ios", "@rules_rust//rust/platform:aarch64-apple-ios-sim", "@rules_rust//rust/platform:aarch64-linux-android", "@rules_rust//rust/platform:aarch64-pc-windows-msvc", "@rules_rust//rust/platform:aarch64-unknown-fuchsia", "@rules_rust//rust/platform:aarch64-unknown-linux-gnu", "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu", "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710", "@rules_rust//rust/platform:aarch64-unknown-uefi", "@rules_rust//rust/platform:arm-unknown-linux-gnueabi", "@rules_rust//rust/platform:armv7-linux-androideabi", "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi", "@rules_rust//rust/platform:i686-apple-darwin", "@rules_rust//rust/platform:i686-linux-android", "@rules_rust//rust/platform:i686-pc-windows-msvc", "@rules_rust//rust/platform:i686-unknown-freebsd", "@rules_rust//rust/platform:i686-unknown-linux-gnu", "@rules_rust//rust/platform:powerpc-unknown-linux-gnu", "@rules_rust//rust/platform:riscv32imc-unknown-none-elf", "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu", "@rules_rust//rust/platform:riscv64gc-unknown-none-elf", "@rules_rust//rust/platform:s390x-unknown-linux-gnu", "@rules_rust//rust/platform:thumbv7em-none-eabi", "@rules_rust//rust/platform:thumbv8m.main-none-eabi", "@rules_rust//rust/platform:x86_64-apple-darwin", "@rules_rust//rust/platform:x86_64-apple-ios", "@rules_rust//rust/platform:x86_64-linux-android", "@rules_rust//rust/platform:x86_64-pc-windows-msvc", "@rules_rust//rust/platform:x86_64-unknown-freebsd", "@rules_rust//rust/platform:x86_64-unknown-fuchsia", "@rules_rust//rust/platform:x86_64-unknown-linux-gnu", "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu", "@rules_rust//rust/platform:x86_64-unknown-none", "@rules_rust//rust/platform:x86_64-unknown-uefi"],
     "cfg(not(target_has_atomic = \"64\"))": ["@rules_rust//rust/platform:powerpc-unknown-linux-gnu", "@rules_rust//rust/platform:riscv32imc-unknown-none-elf", "@rules_rust//rust/platform:thumbv7em-none-eabi", "@rules_rust//rust/platform:thumbv8m.main-none-eabi"],
     "cfg(not(target_has_atomic = \"ptr\"))": ["@rules_rust//rust/platform:riscv32imc-unknown-none-elf"],

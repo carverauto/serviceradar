@@ -1,0 +1,26 @@
+[package]
+name = "des"
+version = "0.8.1" # Also update html_root_url in lib.rs when bumping this
+description = "DES and Triple DES (3DES, TDES) block ciphers implementation"
+authors = ["RustCrypto Developers"]
+license = "MIT OR Apache-2.0"
+edition = "2021"
+rust-version = "1.56"
+readme = "README.md"
+documentation = "https://docs.rs/des"
+repository = "https://github.com/RustCrypto/block-ciphers"
+keywords = ["crypto", "des", "tdes", "block-cipher"]
+categories = ["cryptography", "no-std"]
+
+[dependencies]
+cipher = "0.4.2"
+
+[dev-dependencies]
+cipher = { version = "0.4.2", features = ["dev"] }
+
+[features]
+zeroize = ["cipher/zeroize"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
