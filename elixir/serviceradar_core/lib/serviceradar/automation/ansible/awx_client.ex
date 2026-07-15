@@ -98,6 +98,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
                                  "source_fingerprint"
                                ])
   @max_launch_preflight_targets 128
+  @max_launch_preflight_credentials 128
   @canonical_positive_decimal ~r/\A[1-9][0-9]{0,9}\z/
   @source_fingerprint ~r/\Asha256:[0-9a-f]{64}\z/
   @launch_body_key_map %{
@@ -1192,7 +1193,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   end
 
   defp canonical_credential_ids(ids) when is_list(ids) do
-    with true <- Enum.all?(ids, &(canonical_positive_decimal(&1) == :ok)),
+    with true <- length(ids) <= @max_launch_preflight_credentials,
+         true <- Enum.all?(ids, &(canonical_positive_decimal(&1) == :ok)),
          true <- ids == Enum.sort_by(ids, &String.to_integer/1),
          true <- ids == Enum.uniq(ids) do
       {:ok, ids}
