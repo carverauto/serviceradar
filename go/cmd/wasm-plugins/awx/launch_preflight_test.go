@@ -214,6 +214,58 @@ func TestRunFetchLaunchPreflightRejectsNonCanonicalOrUnboundedRequestBeforeHTTP(
 	}
 }
 
+func TestRunFetchLaunchPreflightRejectsSurveyDefaultBeforeDependentReads(t *testing.T) {
+	template := launchPreflightTemplateBody(t, "2026-07-14T20:00:00Z", "")
+	responses := launchPreflightResponses(t, template, template)
+	responses[1] = launchPreflightSurveyResponse(t, launchPreflightTestSecret)
+	fake := &scriptedHTTPClient{responses: responses}
+	swapHTTP(t, fake)
+
+	result := dispatch(Config{
+		BaseURL:  "https://awx.example.test",
+		APIToken: "broker-sentinel",
+		Verb:     launchPreflightVerb,
+		Args:     validLaunchPreflightArgs(),
+	})
+	if result.Status != sdk.StatusCritical {
+		t.Fatalf("expected CRITICAL, got %s", result.Status)
+	}
+	if len(fake.requests) != 2 {
+		t.Fatalf("unreviewed survey default must stop after the survey read, got %d requests", len(fake.requests))
+	}
+	if strings.Contains(result.Details, launchPreflightTestSecret) || strings.Contains(result.Summary, launchPreflightTestSecret) {
+		t.Fatalf("survey default leaked into failure: summary=%q details=%q", result.Summary, result.Details)
+	}
+}
+
+func TestLaunchPreflightSurveyDefaultPolicyIsFailClosed(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		defaultValue any
+		setDefault   bool
+		allow        bool
+	}{
+		{name: "default omitted", allow: true},
+		{name: "default null", defaultValue: nil, setDefault: true, allow: true},
+		{name: "default empty string", defaultValue: "", setDefault: true, allow: true},
+		{name: "default text", defaultValue: "unreviewed", setDefault: true, allow: false},
+		{name: "default zero", defaultValue: 0, setDefault: true, allow: false},
+		{name: "default false", defaultValue: false, setDefault: true, allow: false},
+		{name: "default empty collection", defaultValue: []any{}, setDefault: true, allow: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			field := map[string]any{"variable": "release"}
+			if test.setDefault {
+				field["default"] = test.defaultValue
+			}
+			body := mustLaunchPreflightJSON(t, map[string]any{"spec": []any{field}})
+			if got := launchPreflightSurveyDefaultsEmpty(body); got != test.allow {
+				t.Fatalf("launchPreflightSurveyDefaultsEmpty() = %t, want %t", got, test.allow)
+			}
+		})
+	}
+}
+
 func TestRunFetchLaunchPreflightFailsClosedWhenAnyPromptFlagIsMissing(t *testing.T) {
 	for _, promptField := range launchPreflightPromptFieldNames() {
 		t.Run(promptField, func(t *testing.T) {
@@ -513,19 +565,7 @@ func launchPreflightResponses(t *testing.T, firstTemplate, lastTemplate []byte) 
 	t.Helper()
 	return []*sdk.HTTPResponse{
 		{Status: http.StatusOK, Body: firstTemplate},
-		{Status: http.StatusOK, Body: mustLaunchPreflightJSON(t, map[string]any{
-			"name": "Launch survey",
-			"spec": []any{map[string]any{
-				"variable":             "version",
-				"question_name":        "Release version",
-				"question_description": "Reviewed release input",
-				"type":                 "text",
-				"required":             true,
-				"min":                  1,
-				"max":                  20,
-				"default":              launchPreflightTestSecret,
-			}},
-		})},
+		launchPreflightSurveyResponse(t, ""),
 		{Status: http.StatusOK, Body: launchPreflightProjectBody(t, false, true)},
 		{Status: http.StatusOK, Body: mustLaunchPreflightJSON(t, map[string]any{
 			"id": 8, "name": "Production", "modified": "2026-07-14T18:00:00Z", "kind": "", "variables": launchPreflightTestSecret,
@@ -542,6 +582,23 @@ func launchPreflightResponses(t *testing.T, firstTemplate, lastTemplate []byte) 
 		})},
 		{Status: http.StatusOK, Body: lastTemplate},
 	}
+}
+
+func launchPreflightSurveyResponse(t *testing.T, defaultValue any) *sdk.HTTPResponse {
+	t.Helper()
+	return &sdk.HTTPResponse{Status: http.StatusOK, Body: mustLaunchPreflightJSON(t, map[string]any{
+		"name": "Launch survey",
+		"spec": []any{map[string]any{
+			"variable":             "version",
+			"question_name":        "Release version",
+			"question_description": "Reviewed release input",
+			"type":                 "text",
+			"required":             true,
+			"min":                  1,
+			"max":                  20,
+			"default":              defaultValue,
+		}},
+	})}
 }
 
 func launchPreflightCredentialBody(t *testing.T, id int, name, kind, modified string) []byte {

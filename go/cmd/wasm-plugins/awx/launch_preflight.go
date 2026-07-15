@@ -787,6 +787,14 @@ func fetchLaunchPreflightSurvey(cfg Config, req launchPreflightRequest) (map[str
 	if !validLaunchPreflightJSON(response.Body) {
 		return nil, fmt.Errorf("AWX returned a non-canonical survey")
 	}
+	// Survey defaults are implicit launch inputs in AWX. The generic catalog
+	// projection intentionally omits them so it never persists a secret, but a
+	// launch preflight cannot omit an execution-affecting value from the
+	// reviewed contract. Until a secret-safe default attestation is introduced,
+	// only an absent, null, or empty-string default is safe to attest.
+	if !launchPreflightSurveyDefaultsEmpty(response.Body) {
+		return nil, fmt.Errorf("AWX returned a survey with an unreviewed default")
+	}
 	survey, ok := projectAWXSurvey(response.Body)
 	if !ok {
 		return nil, fmt.Errorf("AWX returned an invalid survey")
@@ -806,6 +814,34 @@ func fetchLaunchPreflightSurvey(cfg Config, req launchPreflightRequest) (map[str
 		return nil, fmt.Errorf("AWX returned a non-canonical survey")
 	}
 	return normalizedSurvey, nil
+}
+
+// launchPreflightSurveyDefaultsEmpty verifies every raw survey field before
+// projectAWXSurvey intentionally drops its `default` member. It is called only
+// after validLaunchPreflightJSON, which rejects duplicate keys at all levels.
+// A default of 0, false, an empty collection, or any other non-empty JSON
+// value can still affect an AWX launch, so this deliberately accepts only the
+// same explicit empty representations AWX uses for no default.
+func launchPreflightSurveyDefaultsEmpty(raw []byte) bool {
+	root, ok := rawObject(raw)
+	if !ok {
+		return false
+	}
+	if len(root) == 0 {
+		return true
+	}
+
+	var fields []json.RawMessage
+	if err := json.Unmarshal(root["spec"], &fields); err != nil {
+		return false
+	}
+	for _, rawField := range fields {
+		field, ok := rawObject(rawField)
+		if !ok || !emptyAWXSurveyDefault(field["default"]) {
+			return false
+		}
+	}
+	return true
 }
 
 func launchPreflightJSONWithoutNumbers(value any) (any, bool) {
