@@ -1,0 +1,19 @@
+scripts/vendor.sh
+  s_6f8eb423821667::t_81e36fa14e3383 116-174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "86e90722050d2b408422d18ed291ddf53347d7c8",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
