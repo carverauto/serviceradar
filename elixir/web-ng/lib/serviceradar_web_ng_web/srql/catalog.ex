@@ -740,6 +740,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "severity_text",
         "severity_number",
         "source",
+        "source_ip",
         "message",
         "event_name",
         "trace_id",

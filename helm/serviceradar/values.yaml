@@ -1284,7 +1284,7 @@ logCollector:
     # TCP syslog also publishes into the shared "events" stream.
     streamReplicas: 3
     listen: "0.0.0.0:514"
-    format: "rfc3164"
+    format: "auto"
     framing: "line"
     subject: "logs.syslog"
     service:

@@ -357,6 +357,7 @@ diesel::table! {
         ingest_identity -> Text,
         ingest_agent_id -> Text,
         ingest_partition -> Text,
+        source_ip -> Nullable<Text>,
     }
 }
 

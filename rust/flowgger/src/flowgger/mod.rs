@@ -64,6 +64,8 @@ extern crate time;
 extern crate toml;
 
 use self::config::Config;
+#[cfg(all(feature = "rfc3164", feature = "rfc5424"))]
+use self::decoder::AutoDecoder;
 #[cfg(feature = "gelf")]
 use self::decoder::GelfDecoder;
 #[cfg(feature = "ltsv")]
@@ -108,7 +110,7 @@ use self::output::{DebugOutput, Output};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 
-const DEFAULT_INPUT_FORMAT: &str = "rfc5424";
+const DEFAULT_INPUT_FORMAT: &str = "auto";
 const DEFAULT_INPUT_TYPE: &str = "syslog-tls";
 const DEFAULT_OUTPUT_FORMAT: &str = "gelf";
 const DEFAULT_OUTPUT_FRAMING: &str = "noop";
@@ -317,6 +319,16 @@ fn get_decoder_rfc5424(config: &Config) -> Box<dyn Decoder + Send> {
     Box::new(RFC5424Decoder::new(config)) as Box<dyn Decoder + Send>
 }
 
+#[cfg(all(feature = "rfc3164", feature = "rfc5424"))]
+fn get_decoder_auto(config: &Config) -> Box<dyn Decoder + Send> {
+    Box::new(AutoDecoder::new(config)) as Box<dyn Decoder + Send>
+}
+
+#[cfg(not(all(feature = "rfc3164", feature = "rfc5424")))]
+fn get_decoder_auto(_config: &Config) -> ! {
+    panic!("Support for auto syslog decoding requires rfc3164 and rfc5424")
+}
+
 #[cfg(feature = "rfc5424")]
 fn get_encoder_rfc5424(config: &Config) -> Box<dyn Encoder + Send> {
     Box::new(RFC5424Encoder::new(config)) as Box<dyn Encoder + Send>
@@ -433,6 +445,7 @@ pub fn start(config_file: &str) {
         "ltsv" => get_ltvs_decoder(&config),
         "rfc5424" => get_decoder_rfc5424(&config),
         "rfc3164" => get_decoder_rfc3164(&config),
+        "auto" => get_decoder_auto(&config),
         _ => panic!("Unknown input format: {}", input_format),
     };
 

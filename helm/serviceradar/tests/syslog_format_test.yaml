@@ -1,0 +1,24 @@
+suite: syslog collector format defaults
+templates:
+  - templates/log-collector.yaml
+  - templates/log-collector-tcp.yaml
+tests:
+  - it: defaults the UDP collector to auto format detection
+    asserts:
+      - matchRegex:
+          path: data.flowgger.toml
+          pattern: '(?m)^    format = "auto"$'
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-log-collector-config
+
+  - it: defaults the TCP collector to auto format detection
+    set:
+      logCollector.tcpCollector.enabled: true
+    asserts:
+      - matchRegex:
+          path: data.flowgger.toml
+          pattern: '(?m)^    format = "auto"$'
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-log-collector-tcp-config

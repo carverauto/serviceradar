@@ -1,6 +1,6 @@
 use super::*;
 use crate::flowgger::config::Config;
-use crate::flowgger::decoder::Decoder;
+use crate::flowgger::decoder::{Decoder, RemoteAddrDecoder};
 use crate::flowgger::encoder::Encoder;
 use crate::flowgger::splitter::{
     CapnpSplitter, LineSplitter, NulSplitter, Splitter, SyslenSplitter,
@@ -53,9 +53,17 @@ fn handle_client(
     encoder: Box<Encoder>,
     tcp_config: TcpConfig,
 ) {
-    if let Ok(peer_addr) = client.peer_addr() {
-        println!("Connection over TCP from [{}]", peer_addr);
-    }
+    let remote_addr = match client.peer_addr() {
+        Ok(peer_addr) => {
+            println!("Connection over TCP from [{peer_addr}]");
+            Some(peer_addr.ip().to_string())
+        }
+        Err(_) => None,
+    };
+    let decoder = match remote_addr {
+        Some(remote_addr) => Box::new(RemoteAddrDecoder::new(decoder, remote_addr)) as Box<Decoder>,
+        None => decoder,
+    };
     let reader = BufReader::new(client);
     let splitter = match &tcp_config.framing as &str {
         "capnp" => Box::new(CapnpSplitter) as Box<Splitter<_>>,

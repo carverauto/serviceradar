@@ -222,6 +222,71 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert result.severity_number == 9
     end
 
+    test "promotes partition-qualified syslog peer metadata to source_ip" do
+      result =
+        Logs.parse_message(%{
+          data:
+            Jason.encode!(%{
+              "host" => "switch-1",
+              "short_message" => "interface changed",
+              "_remote_addr" => "default:10.208.254.4",
+              "_syslog_format" => "rfc3164",
+              "attributes" => %{"device" => "switch-1"}
+            }),
+          metadata: %{subject: "logs.syslog"}
+        })
+
+      assert result.source_ip == "10.208.254.4"
+      assert result.attributes["_remote_addr"] == "default:10.208.254.4"
+      assert result.attributes["_syslog_format"] == "rfc3164"
+      assert result.attributes["device"] == "switch-1"
+    end
+
+    test "preserves IPv6 peer metadata without splitting its colons" do
+      result =
+        Logs.parse_message(%{
+          data:
+            Jason.encode!(%{
+              "body" => "ipv6 syslog",
+              "_remote_addr" => "site-a:2001:db8::42"
+            }),
+          metadata: %{subject: "logs.syslog"}
+        })
+
+      assert result.source_ip == "2001:db8::42"
+      assert result.attributes["_remote_addr"] == "site-a:2001:db8::42"
+    end
+
+    test "does not create source_ip from invalid peer metadata" do
+      result =
+        Logs.parse_message(%{
+          data: Jason.encode!(%{"body" => "unknown syslog", "_remote_addr" => "not-an-ip"}),
+          metadata: %{subject: "logs.syslog"}
+        })
+
+      assert result.source_ip == nil
+      assert result.attributes["_remote_addr"] == "not-an-ip"
+    end
+
+    test "preserves source_ip and fallback markers for opaque syslog records" do
+      result =
+        Logs.parse_message(%{
+          data:
+            Jason.encode!(%{
+              "short_message" => "<134>LEEF:2.0|Vendor|Product|1|100|An event|",
+              "_remote_addr" => "default:10.208.254.4",
+              "_syslog_format" => "unknown",
+              "_syslog_parse_fallback" => true
+            }),
+          metadata: %{subject: "logs.syslog"}
+        })
+
+      assert result.source_ip == "10.208.254.4"
+      assert result.attributes["_remote_addr"] == "default:10.208.254.4"
+      assert result.attributes["_syslog_format"] == "unknown"
+      assert result.attributes["_syslog_parse_fallback"]
+    end
+
     test "drops empty nested metadata from unmatched Zen rules" do
       result =
         Logs.parse_message(%{

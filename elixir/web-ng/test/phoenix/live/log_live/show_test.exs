@@ -175,6 +175,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       assert has_element?(lv, "span", "service.version")
     end
 
+    test "renders the collector-observed source IP", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+
+      log_id = "550e8400-e29b-41d4-a716-446655440000"
+      insert_test_log!(log_id)
+
+      {:ok, lv, _html} = live(conn, ~p"/logs/#{log_id}")
+
+      assert has_element?(lv, "#log-source-ip", "Source IP")
+      assert has_element?(lv, "#log-source-ip", "192.0.2.10")
+    end
+
     test "derives resource and scope fields from nested attributes", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -358,6 +371,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
         service_name: "test-service",
         service_version: "1.0.0",
         service_instance: "test-instance",
+        source_ip: "192.0.2.10",
         scope_name: "test-scope",
         scope_version: "1.0.0",
         attributes: Jason.encode!(%{"error" => "connection failed"}),
