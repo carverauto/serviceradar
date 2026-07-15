@@ -127,6 +127,13 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
       %{credentials: [%{"id" => 7, "kind" => "vault"}], machine_credential_id: 5},
       "include the machine credential ID"
     )
+
+    refute_valid(
+      %{
+        credentials: [%{:id => 5, "id" => 999, :kind => "ssh", "kind" => "vault"}]
+      },
+      "only exact {id, kind} references"
+    )
   end
 
   test "typed input contracts cannot contain password/private fields or classification gaps" do
@@ -168,6 +175,17 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
         "secret, magic, transport, or reserved input name"
       )
     end
+
+    refute_valid(
+      %{
+        input_schema: %{
+          :version => %{"type" => "text"},
+          "version" => %{"type" => "password"}
+        },
+        input_classifications: %{"version" => "internal"}
+      },
+      "duplicate normalized input names"
+    )
   end
 
   test "callback actions require the exact reviewed AWX credential contract" do
@@ -202,9 +220,66 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
                callback_credential_type_id: 91,
                callback_credential_organization_id: 2,
                callback_credential_injector_digest: String.duplicate("d", 64),
-               callback_credential_slot: "ssh_ca_callback"
+               callback_credential_slot: "ssh_ca_callback",
+               review_metadata: callback_review_metadata()
              })
            ).valid?
+
+    refute_valid(
+      %{
+        callback_actions: ["remote_access.ssh_ca.bundle.read"],
+        ask_credential_on_launch: true,
+        callback_credential_type_id: 91,
+        callback_credential_organization_id: 2,
+        callback_credential_injector_digest: String.duplicate("d", 64),
+        callback_credential_slot: "ssh_ca_callback"
+      },
+      "registry-backed callback launch contract"
+    )
+
+    refute_valid(
+      %{review_metadata: callback_review_metadata()},
+      "cannot retain a callback launch contract"
+    )
+
+    refute_valid(
+      %{review_metadata: Map.put(valid_review_metadata(), "callback_contract", nil)},
+      "cannot retain a callback launch contract"
+    )
+
+    refute_valid(
+      %{
+        callback_actions: ["remote_access.ssh_ca.bundle.read"],
+        ask_credential_on_launch: true,
+        callback_credential_type_id: 91,
+        callback_credential_organization_id: 2,
+        callback_credential_injector_digest: String.duplicate("d", 64),
+        callback_credential_slot: "ssh_ca_callback",
+        review_metadata:
+          put_in(callback_review_metadata(), ["callback_contract", "operation"], "remove")
+      },
+      "registry-backed callback launch contract"
+    )
+  end
+
+  test "lifecycle updates can revoke an incomplete legacy callback binding" do
+    legacy_binding =
+      struct!(
+        AwxTemplateBinding,
+        valid_attrs(%{
+          id: Ash.UUID.generate(),
+          callback_actions: ["remote_access.ssh_ca.bundle.read"],
+          ask_credential_on_launch: true,
+          callback_credential_type_id: 91,
+          callback_credential_organization_id: 2,
+          callback_credential_injector_digest: String.duplicate("d", 64),
+          callback_credential_slot: "ssh_ca_callback"
+        })
+      )
+
+    changeset = Ash.Changeset.for_update(legacy_binding, :revoke, %{}, actor: @system_actor)
+
+    assert changeset.valid?
   end
 
   test "approved state requires attributable, bounded approval evidence" do
@@ -234,6 +309,14 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
     refute_valid(
       %{review_metadata: %{"review_ticket" => "SEC-1042", "awx_snapshot_digest" => "short"}},
       "reviewed AWX snapshot digest"
+    )
+
+    refute_valid(
+      %{
+        review_metadata:
+          Map.put(valid_review_metadata(), :review_ticket, "duplicate-normalized-key")
+      },
+      "duplicate normalized metadata fields"
     )
   end
 
@@ -314,13 +397,38 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
         reviewed_by_principal_type: :human,
         reviewed_by_principal_id: "user:reviewer",
         reviewed_at: ~U[2026-07-12 20:00:00.000000Z],
-        review_metadata: %{
-          "review_ticket" => "SEC-1042",
-          "awx_snapshot_digest" => String.duplicate("c", 64)
-        }
+        review_metadata: valid_review_metadata()
       },
       overrides
     )
+  end
+
+  defp valid_review_metadata do
+    %{
+      "review_ticket" => "SEC-1042",
+      "awx_snapshot_digest" => String.duplicate("c", 64)
+    }
+  end
+
+  defp callback_review_metadata do
+    %{
+      "review_ticket" => "SEC-1042",
+      "awx_snapshot_digest" => String.duplicate("c", 64),
+      "policy_version" => "ssh-policy-v1",
+      "callback_contract" => %{
+        "schema" => "serviceradar.automation_callback_launch_contract/v1",
+        "action" => "remote_access.ssh_ca.bundle.read",
+        "action_version" => "1.0.0",
+        "request_schema" => "serviceradar.remote_access.ssh_ca_bundle_request/v1",
+        "response_schema" => "serviceradar.remote_access.ssh_ca_bundle/v1",
+        "manifest_sha256" => String.duplicate("a", 64),
+        "phase" => "stage",
+        "operation" => "enroll",
+        "state" => "present",
+        "policy_version" => "ssh-policy-v1",
+        "ttl_seconds" => 120
+      }
+    }
   end
 
   defp identity_attributes(name) do
