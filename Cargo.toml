@@ -63,6 +63,14 @@ tonic-reflection = "0.12"
 [patch.crates-io]
 reqsign-azure-storage = { path = "third_party/rust_patches/reqsign-azure-storage-1.0.0" }
 reqsign-google = { path = "third_party/rust_patches/reqsign-google-1.0.0" }
+# TEMPORARY, remove once arancini-lib > 0.7.2 is published with this fix.
+# Published arancini-lib takes bgpkit-parser with default features, whose "rustls"
+# feature pulls oneio (bgpkit's remote-fetch layer) and with it reqwest, hyper-rustls,
+# rust-s3, aws-creds and rust-ini -- 34 packages arancini never calls, since it only
+# decodes in-memory BMP frames. Features unify across the graph, so this can only be
+# fixed at the arancini declaration. Fork adds default-features = false.
+# Upstream: https://github.com/carverauto/arancini
+arancini-lib = { git = "https://github.com/marvin-hansen/arancini.git", branch = "main" }
 
 [profile.release]
 opt-level = 3

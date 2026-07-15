@@ -27,7 +27,7 @@ pq-sys = { version = "=0.7.5", features = ["bundled"] }
 # Force a from-source (vendored) OpenSSL so bundled libpq static-links it instead of
 # depending on system OpenSSL paths. Makes the build portable (macOS/Alpine/CI) and
 # removes reliance on the OPENSSL_LIB_DIR overrides. See openspec migrate-bazel-rust-crate-vendoring.
-openssl-sys = { version = "0.9", features = ["vendored"] }
+openssl-sys = { version = "=0.9.116", features = ["vendored"] }
 serde = { version = "1.0.214", features = ["derive"] }
 serde_json = "1.0.132"
 sha2 = "0.10.9"
