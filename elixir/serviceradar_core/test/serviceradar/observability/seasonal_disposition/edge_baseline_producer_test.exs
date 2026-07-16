@@ -111,15 +111,14 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
     def device, do: @device
   end
 
-  test "build keys interface baselines by <device_uid>|<metric_name>|<if_index>" do
+  test "build keys interface baselines by edge target identity and if_index" do
     source = Enum.find(Source.defaults(), &(&1.name == "interface_if_in_octets_seasonal"))
 
     assert {:ok, baselines} =
              EdgeBaselineProducer.build(sources: [source], runner: InterfaceProfileRunner)
 
-    device = InterfaceProfileRunner.device()
-    if7_key = "#{device}|ifInOctets|7"
-    if8_key = "#{device}|ifInOctets|8"
+    if7_key = "192.0.2.10|ifInOctets|7"
+    if8_key = "192.0.2.10|ifInOctets|8"
 
     assert baselines |> Map.keys() |> Enum.sort() == Enum.sort([if7_key, if8_key])
 
@@ -211,8 +210,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
              "partition-b"
            ]
 
-    assert Map.keys(delivery.scoped_baselines["partition-a"]) == ["sr:router-1|ifInOctets|1"]
-    assert Map.keys(delivery.scoped_baselines["partition-b"]) == ["sr:router-2|ifInOctets|7"]
+    assert Map.keys(delivery.scoped_baselines["partition-a"]) == ["192.0.2.1|ifInOctets|1"]
+    assert Map.keys(delivery.scoped_baselines["partition-b"]) == ["192.0.2.7|ifInOctets|7"]
     assert delivery.stats.scoped_series == 2
     assert delivery.stats.topk_dropped == 1
     assert delivery.stats.cap_dropped == 1
@@ -270,11 +269,11 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
 
     assert_received {:assignment_updated, "agent-a", agent_a_params}
     assert agent_a_params["metric_feed"] == %{"sources" => ["snmp"]}
-    assert agent_a_params["seasonal"]["min_bucket_samples"] == 4
-    assert Map.has_key?(agent_a_params["seasonal_baselines"], "sr:router-1|ifInOctets|1")
-    assert Map.has_key?(agent_a_params["seasonal_baselines"], "sr:router-1|ifInOctets|2")
-    assert Map.has_key?(agent_a_params["seasonal_baselines"], "sr:router-1|ifInOctets|3")
-    refute Map.has_key?(agent_a_params["seasonal_baselines"], "sr:router-1|ifInOctets|4")
+    refute Map.has_key?(agent_a_params["seasonal"] || %{}, "min_bucket_samples")
+    assert Map.has_key?(agent_a_params["seasonal_baselines"], "192.0.2.1|ifInOctets|1")
+    assert Map.has_key?(agent_a_params["seasonal_baselines"], "192.0.2.2|ifInOctets|2")
+    assert Map.has_key?(agent_a_params["seasonal_baselines"], "192.0.2.3|ifInOctets|3")
+    refute Map.has_key?(agent_a_params["seasonal_baselines"], "192.0.2.4|ifInOctets|4")
 
     assert_received {:assignment_updated, "agent-z", agent_z_params}
     assert agent_z_params["seasonal_baselines"] == %{}

@@ -35,6 +35,7 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjector do
     drift_escalate_after_secs
     min_std_floor
     min_cv
+    abs_effect_floor
     severity_cap
     severity_bands
   ))
@@ -127,6 +128,7 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjector do
         AddonProfile
         |> Ash.Query.for_read(:read, %{}, actor: actor)
         |> Ash.Query.filter(addon_id == ^@addon_id and enabled == true)
+        |> Ash.Query.load(:addon_package)
         |> Ash.read(actor: actor)
     end
   end
@@ -145,7 +147,7 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjector do
        }},
       fn profile, {:ok, stats} ->
         current_params = profile_params(profile)
-        next_params = merge_params(current_params, managed)
+        next_params = merge_params(current_params, managed_for_profile(managed, profile))
 
         if current_params == next_params do
           {:cont, {:ok, %{stats | profiles_unchanged: stats.profiles_unchanged + 1}}}
@@ -190,6 +192,82 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjector do
   end
 
   defp merge_params(_params, managed), do: %{@managed_key => managed}
+
+  # Add-on profile writes are validated against the schema stored with the
+  # assigned package, which can lag the binary during a rolling upgrade. Keep
+  # a 0.2 profile writable by projecting only the managed keys its stored
+  # schema admits. Once the package is upgraded, the next reconciliation adds
+  # the newly supported settings automatically.
+  defp managed_for_profile(managed, profile) do
+    case managed_schema(profile) do
+      nil -> managed
+      schema -> project_schema_value(managed, schema)
+    end
+  end
+
+  defp managed_schema(profile) do
+    package = Map.get(profile, :addon_package) || Map.get(profile, "addon_package")
+
+    schema =
+      if is_map(package) do
+        Map.get(package, :config_schema) || Map.get(package, "config_schema")
+      end
+
+    if is_map(schema) do
+      properties = Map.get(schema, "properties") || Map.get(schema, :properties)
+
+      if is_map(properties) do
+        Map.get(properties, @managed_key) || Map.get(properties, :managed)
+      end
+    end
+  end
+
+  defp project_schema_value(value, schema) when is_map(value) and is_map(schema) do
+    properties = Map.get(schema, "properties") || Map.get(schema, :properties)
+    additional = additional_properties(schema)
+
+    cond do
+      is_map(properties) ->
+        Enum.reduce(value, %{}, fn {key, child_value}, acc ->
+          key = to_string(key)
+
+          child_schema =
+            Map.get(properties, key) ||
+              case additional do
+                %{} = schema -> schema
+                true -> %{}
+                _ -> nil
+              end
+
+          if is_nil(child_schema) do
+            acc
+          else
+            Map.put(acc, key, project_schema_value(child_value, child_schema))
+          end
+        end)
+
+      is_map(additional) ->
+        Map.new(value, fn {key, child_value} ->
+          {to_string(key), project_schema_value(child_value, additional)}
+        end)
+
+      additional == false ->
+        %{}
+
+      true ->
+        value
+    end
+  end
+
+  defp project_schema_value(value, _schema), do: value
+
+  defp additional_properties(schema) do
+    cond do
+      Map.has_key?(schema, "additionalProperties") -> Map.fetch!(schema, "additionalProperties")
+      Map.has_key?(schema, :additionalProperties) -> Map.fetch!(schema, :additionalProperties)
+      true -> true
+    end
+  end
 
   defp profile_params(%AddonProfile{params: params}) when is_map(params),
     do: stringify_keys(params)

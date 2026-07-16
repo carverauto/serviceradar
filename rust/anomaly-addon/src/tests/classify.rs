@@ -92,6 +92,16 @@ fn counter_profile_uses_a_larger_byte_rate_floor() {
 }
 
 #[test]
+fn counter_profile_keeps_error_and_discard_rates_sensitive() {
+    for name in ["ifInErrors", "ifOutDiscards", "tcpRetransSegs"] {
+        let profile = counter_series_profile(&metric_named(name, "snmp"));
+        assert_eq!(profile.min_std_floor, 0.0, "{name}");
+        assert_eq!(profile.min_cv, 0.0, "{name}");
+        assert_eq!(profile.abs_effect_floor, 0.0, "{name}");
+    }
+}
+
+#[test]
 fn cpu_frequency_under_sysmon_cpu_is_not_a_saturation_gauge() {
     // The agent emits `cpu.frequency_hz` / `cpu.cluster.frequency_hz` under
     // metric_type `sysmon.cpu` (unit Hz, ~GHz) — NOT a 0-100% utilization

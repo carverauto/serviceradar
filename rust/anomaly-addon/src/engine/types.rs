@@ -238,7 +238,10 @@ impl SeverityPolicy {
 
         match (medium_at, high_at) {
             (Some(medium), Some(high)) if high > medium => (medium, high),
-            (Some(medium), _) => (medium, 8.0),
+            // A medium override may be above the default high threshold. Keep
+            // bands ordered rather than accidentally classifying sub-medium
+            // scores as High.
+            (Some(medium), _) => (medium, (medium + 4.0).max(8.0)),
             (_, Some(high)) if high > 4.0 => (4.0, high),
             _ => (4.0, 8.0),
         }
@@ -257,6 +260,7 @@ pub struct MetricClassOverride {
     /// profile floor, preserving safe gauge defaults.
     pub min_std_floor: Option<f64>,
     pub min_cv: Option<f64>,
+    pub abs_effect_floor: Option<f64>,
     pub spike_adopt_after_samples: Option<u64>,
     pub severity_policy: SeverityPolicy,
 }

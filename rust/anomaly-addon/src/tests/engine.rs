@@ -465,6 +465,141 @@ fn rolling_spike_adopts_a_stable_regime_and_rebuilds_the_baseline() {
             >= 6,
         "adoption replaces the winsorized tail with recent raw observations"
     );
+
+    let new_breach = engine
+        .evaluate_transition("regime", 3_000.0, 21, profile)
+        .expect("post-adoption verdict");
+    assert_eq!(
+        new_breach.transition,
+        AnomalyTransition::Open,
+        "a new breach after adoption must not reuse the prior flap episode"
+    );
+}
+
+#[test]
+fn rolling_spike_adopts_when_short_clean_dips_do_not_clear_the_episode() {
+    let cfg = EngineConfig {
+        window_size: 10,
+        min_samples: 5,
+        n_sigma: 3.0,
+        confirm_slots: 2,
+        max_series: 10,
+        spike_adopt_after_samples: 4,
+        ..EngineConfig::default()
+    };
+    let profile = SeriesProfile {
+        spike_adopt_after_samples: Some(4),
+        ..SeriesProfile::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+
+    for sample in 0..10 {
+        engine
+            .evaluate_transition("oscillating", 100.0, sample, profile)
+            .expect("warm-up verdict");
+    }
+
+    assert_eq!(
+        engine
+            .evaluate_transition("oscillating", 10_000.0, 10, profile)
+            .expect("pending verdict")
+            .transition,
+        AnomalyTransition::None
+    );
+    assert_eq!(
+        engine
+            .evaluate_transition("oscillating", 10_000.0, 11, profile)
+            .expect("open verdict")
+            .transition,
+        AnomalyTransition::Open
+    );
+
+    let mut adopted = None;
+    for (sample, value) in [
+        (12, 100.0),
+        (13, 10_000.0),
+        (14, 100.0),
+        (15, 10_000.0),
+        (16, 100.0),
+        (17, 10_000.0),
+    ] {
+        let verdict = engine
+            .evaluate_transition("oscillating", value, sample, profile)
+            .expect("oscillating verdict");
+
+        if verdict.transition == AnomalyTransition::Clear {
+            adopted = Some(verdict);
+            break;
+        }
+    }
+
+    assert_eq!(
+        adopted.and_then(|verdict| verdict.clear_reason),
+        Some(SpikeClearReason::Adopted),
+        "short clean dips below clear_slots must not make adoption unreachable"
+    );
+}
+
+#[test]
+fn saturated_utilization_does_not_self_clear_after_winsorization() {
+    let cfg = EngineConfig {
+        window_size: 6,
+        min_samples: 5,
+        n_sigma: 3.0,
+        confirm_slots: 1,
+        max_series: 10,
+        spike_adopt_after_samples: 100,
+        ..EngineConfig::default()
+    };
+    let profile = SeriesProfile {
+        min_std_floor: 1.0,
+        min_cv: 0.01,
+        saturation_gate: Some(SaturationGate {
+            min_value: 85.0,
+            directional: true,
+        }),
+        spike_adopt_after_samples: Some(100),
+        ..SeriesProfile::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+
+    for sample in 0..10 {
+        engine
+            .evaluate_transition("cpu", 50.0, sample, profile)
+            .expect("warm-up verdict");
+    }
+
+    assert_eq!(
+        engine
+            .evaluate_transition("cpu", 100.0, 10, profile)
+            .expect("open verdict")
+            .transition,
+        AnomalyTransition::Open
+    );
+
+    for sample in 11..40 {
+        let verdict = engine
+            .evaluate_transition("cpu", 100.0, sample, profile)
+            .expect("saturated verdict");
+        assert_ne!(
+            verdict.transition,
+            AnomalyTransition::Clear,
+            "a sustained 100% utilization episode must not self-clear at sample {sample}"
+        );
+    }
+}
+
+#[test]
+fn medium_only_severity_band_keeps_high_threshold_above_medium() {
+    assert_eq!(
+        SeverityPolicy {
+            medium_at: Some(10.0),
+            high_at: None,
+            ..SeverityPolicy::default()
+        }
+        .bands(),
+        (10.0, 14.0)
+    );
 }
 
 #[test]

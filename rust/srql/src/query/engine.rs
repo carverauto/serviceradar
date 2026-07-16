@@ -148,7 +148,20 @@ impl QueryEngine {
 
     fn build_pagination(&self, plan: &QueryPlan, fetched: i64) -> Result<PaginationMeta> {
         let next_offset = plan.offset.saturating_add(plan.limit);
-        let next_cursor = if fetched >= plan.limit && next_offset <= self.config.max_cursor_offset {
+        let next_cursor = if fetched >= plan.limit {
+            // Full hour-of-week profiles are consumed by the edge baseline
+            // producer in deterministic pages. A normal fleet needs 168 rows
+            // per series, so the generic offset cap previously turned a
+            // large-but-valid delivery into an empty failed run after 150k
+            // rows. Keep the public-query guard, but let this bounded,
+            // server-side profile aggregation paginate to completion.
+            if next_offset > self.config.max_cursor_offset && !is_full_profile_query(plan) {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "query pagination reached the configured cursor limit of {} rows; narrow the query or raise srql_max_cursor_offset",
+                    self.config.max_cursor_offset
+                )));
+            }
+
             Some(encode_cursor(next_offset, &self.config.cursor_secret)?)
         } else {
             None
@@ -166,5 +179,55 @@ impl QueryEngine {
             prev_cursor,
             limit: Some(plan.limit),
         })
+    }
+}
+
+fn is_full_profile_query(plan: &QueryPlan) -> bool {
+    plan.stats
+        .as_ref()
+        .map(|stats| {
+            stats
+                .as_raw()
+                .trim_start()
+                .to_ascii_lowercase()
+                .starts_with("profile_hour_of_week_full(")
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        parser::{Entity, StatsSpec},
+        query::QueryPlan,
+    };
+
+    fn plan(stats: &str) -> QueryPlan {
+        QueryPlan {
+            entity: Entity::TimeseriesMetrics,
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 50_000,
+            offset: 100_000,
+            time_range: None,
+            stats: Some(StatsSpec::from_raw(stats)),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        }
+    }
+
+    #[test]
+    fn full_hour_of_week_profiles_are_exempt_from_the_generic_cursor_cap() {
+        assert!(is_full_profile_query(&plan(
+            "profile_hour_of_week_full(value)"
+        )));
+    }
+
+    #[test]
+    fn ordinary_queries_remain_cursor_capped() {
+        assert!(!is_full_profile_query(&plan("profile_hour_of_week(value)")));
     }
 }

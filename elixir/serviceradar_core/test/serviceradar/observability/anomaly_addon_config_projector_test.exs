@@ -155,6 +155,55 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjectorTest do
     assert summary.profiles_unchanged == 1
   end
 
+  test "reconcile withholds managed keys unknown to the stored package schema" do
+    test_pid = self()
+
+    settings = %AnomalyDetectionConfig{
+      metric_class_overrides: %{
+        "interface" => %{"min_cv" => 0.2, "abs_effect_floor" => 1_000.0}
+      }
+    }
+
+    schema = %{
+      "type" => "object",
+      "additionalProperties" => false,
+      "properties" => %{
+        "managed" => %{
+          "type" => "object",
+          "additionalProperties" => false,
+          "properties" => %{
+            "metric_classes" => %{
+              "type" => "object",
+              "additionalProperties" => %{
+                "type" => "object",
+                "additionalProperties" => false,
+                "properties" => %{"min_cv" => %{"type" => "number"}}
+              }
+            }
+          }
+        }
+      }
+    }
+
+    profiles = [
+      %{id: "profile-0.2", params: %{}, addon_package: %{config_schema: schema}}
+    ]
+
+    assert {:ok, _summary} =
+             AnomalyAddonConfigProjector.reconcile(
+               settings_fetcher: fn _actor -> {:ok, settings} end,
+               profiles_loader: fn _actor -> {:ok, profiles} end,
+               profile_updater: fn _profile, params, _actor ->
+                 send(test_pid, {:updated, params})
+                 {:ok, %{}}
+               end
+             )
+
+    assert_received {:updated, params}
+    assert params == %{"managed" => %{"metric_classes" => %{"interface" => %{"min_cv" => 0.2}}}}
+    assert :ok = ConfigSchema.validate_params(schema, params)
+  end
+
   defp load_addon_schema do
     path =
       Path.expand("../../../../../addons/anomaly-addon/config.schema.json", __DIR__)

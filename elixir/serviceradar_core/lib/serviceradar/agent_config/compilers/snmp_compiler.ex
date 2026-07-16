@@ -886,12 +886,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       |> Enum.filter(&(is_binary(&1) and &1 != ""))
       |> Enum.uniq()
 
-    if length(agent_uids) > 1 and target_uids != [] do
+    # `agent_ids: []` means every enrolled agent, so it is the broadest
+    # duplicate-polling scope. Treat it as a hygiene warning even though the
+    # profile does not enumerate those agent ids. Avoid emitting the full
+    # target list on every compile; the counts are enough for an operator to
+    # identify the profile without leaking large inventory payloads to logs.
+    if target_uids != [] and (agent_uids == [] or length(agent_uids) > 1) do
       %{
         profile_id: Map.get(profile, :id, Map.get(profile, "id")),
         profile_name: Map.get(profile, :name, Map.get(profile, "name")),
+        agent_scope: if(agent_uids == [], do: :all_agents, else: :pinned_agents),
         agent_uids: agent_uids,
-        target_uids: target_uids
+        target_count: length(target_uids)
       }
     end
   end
@@ -907,7 +913,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         :telemetry.execute(
           [:serviceradar, :snmp, :config_hygiene],
           %{
-            duplicate_targets: length(warning.target_uids),
+            duplicate_targets: warning.target_count,
             duplicate_agents: length(warning.agent_uids)
           },
           warning
@@ -916,8 +922,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         Logger.warning("SNMP profile assigns the same targets to multiple agents",
           profile_id: warning.profile_id,
           profile_name: warning.profile_name,
+          agent_scope: warning.agent_scope,
           agent_uids: warning.agent_uids,
-          target_uids: warning.target_uids
+          target_count: warning.target_count
         )
 
         :ok

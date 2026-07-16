@@ -125,11 +125,15 @@
                 "type": "number",
                 "exclusiveMinimum": 0
               },
-              "min_cv": {
-                "type": "number",
-                "exclusiveMinimum": 0
-              },
-              "severity_cap": {
+          "min_cv": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "abs_effect_floor": {
+            "type": "number",
+            "minimum": 0
+          },
+          "severity_cap": {
                 "type": "string",
                 "enum": ["low", "medium", "high", "critical"]
               },
@@ -400,6 +404,10 @@
           "min_cv": {
             "type": "number",
             "exclusiveMinimum": 0
+          },
+          "abs_effect_floor": {
+            "type": "number",
+            "minimum": 0
           },
           "severity_cap": {
             "type": "string",

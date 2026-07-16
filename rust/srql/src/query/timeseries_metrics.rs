@@ -1060,22 +1060,38 @@ profile_rows AS (
   FROM local_hourly
   ORDER BY series, if_index, metric_name, dow, hod, bucket DESC
 ),
+profile_keys AS (
+  SELECT DISTINCT series, if_index, metric_name, dow, hod
+  FROM {selected_rows}
+),
 mean_profile AS (
   SELECT
-    series,
-    if_index,
-    metric_name,
-    dow,
-    hod,
+    h.series,
+    h.if_index,
+    h.metric_name,
+    h.dow,
+    h.hod,
     COUNT(*)::bigint AS bucket_count,
     SUM(sample_value)::float8 AS bucket_sum,
     SUM(sample_value * sample_value)::float8 AS bucket_sum_sq
-  FROM local_hourly
+  FROM local_hourly h
+  JOIN profile_keys k
+    ON k.series = h.series
+   AND k.if_index = h.if_index
+   AND k.metric_name = h.metric_name
+   AND k.dow = h.dow
+   AND k.hod = h.hod
   GROUP BY 1, 2, 3, 4, 5
 ),
 robust_values AS (
   SELECT h.*
   FROM local_hourly h
+  JOIN profile_keys k
+    ON k.series = h.series
+   AND k.if_index = h.if_index
+   AND k.metric_name = h.metric_name
+   AND k.dow = h.dow
+   AND k.hod = h.hod
   LEFT JOIN latest l
     ON l.series = h.series
    AND l.if_index = h.if_index
@@ -1168,10 +1184,6 @@ fn build_interface_profile_filter_clause(
 }
 
 fn build_interface_profile_order_clause(plan: &QueryPlan) -> String {
-    if plan.order.is_empty() {
-        return "\nORDER BY l.series ASC, l.if_index ASC, l.metric_name ASC".to_string();
-    }
-
     let mut parts = Vec::new();
     for clause in &plan.order {
         let column = match clause.field.as_str() {
@@ -1193,11 +1205,26 @@ fn build_interface_profile_order_clause(plan: &QueryPlan) -> String {
         parts.push(format!("{column} {dir}"));
     }
 
-    if parts.is_empty() {
-        "\nORDER BY l.series ASC, l.if_index ASC, l.metric_name ASC".to_string()
-    } else {
-        format!("\nORDER BY {}", parts.join(", "))
+    // `profile_hour_of_week_full` is paged with OFFSET.  The requested sort
+    // normally prioritizes the presentation order (for example dow/hod), but
+    // it must end in the complete profile-row identity or pages can duplicate
+    // and skip buckets when several interfaces share the same hour.
+    for (field, column) in [
+        ("series", "l.series"),
+        ("if_index", "l.if_index"),
+        ("metric_name", "l.metric_name"),
+        ("dow", "l.dow"),
+        ("hod", "l.hod"),
+    ] {
+        if !plan.order.iter().any(|clause| {
+            matches!(field, "series") && matches!(clause.field.as_str(), "series" | "series_key")
+                || clause.field == field
+        }) {
+            parts.push(format!("{column} ASC"));
+        }
     }
+
+    format!("\nORDER BY {}", parts.join(", "))
 }
 
 fn build_stats_query_with_source(
@@ -1479,20 +1506,32 @@ profile_rows AS (
   FROM local_hourly
   ORDER BY series, dow, hod, bucket DESC
 ),
+profile_keys AS (
+  SELECT DISTINCT series, dow, hod
+  FROM {selected_rows}
+),
 mean_profile AS (
   SELECT
-    series,
-    dow,
-    hod,
+    h.series,
+    h.dow,
+    h.hod,
     COUNT(*)::bigint AS bucket_count,
     SUM(sample_value)::float8 AS bucket_sum,
     SUM(sample_value * sample_value)::float8 AS bucket_sum_sq
-  FROM local_hourly
+  FROM local_hourly h
+  JOIN profile_keys k
+    ON k.series = h.series
+   AND k.dow = h.dow
+   AND k.hod = h.hod
   GROUP BY 1, 2, 3
 ),
 robust_values AS (
   SELECT h.*
   FROM local_hourly h
+  JOIN profile_keys k
+    ON k.series = h.series
+   AND k.dow = h.dow
+   AND k.hod = h.hod
   LEFT JOIN latest l
     ON l.series = h.series
    AND l.bucket = h.bucket
@@ -1789,10 +1828,6 @@ fn build_timeseries_stats_order_parts(
 }
 
 fn build_profile_order_clause(plan: &QueryPlan, bucket_count_alias: &str) -> String {
-    if plan.order.is_empty() {
-        return "\nORDER BY l.series ASC".to_string();
-    }
-
     let mut parts = Vec::new();
     for clause in &plan.order {
         let column = match clause.field.as_str() {
@@ -1818,11 +1853,19 @@ fn build_profile_order_clause(plan: &QueryPlan, bucket_count_alias: &str) -> Str
         parts.push(format!("{column} {dir}"));
     }
 
-    if parts.is_empty() {
-        "\nORDER BY l.series ASC".to_string()
-    } else {
-        format!("\nORDER BY {}", parts.join(", "))
+    // Complete the order with the unique profile-row identity.  This is a
+    // correctness property for OFFSET pagination, not merely a performance
+    // preference: without it two pages can overlap or leave gaps.
+    for (field, column) in [("series", "l.series"), ("dow", "l.dow"), ("hod", "l.hod")] {
+        if !plan.order.iter().any(|clause| {
+            matches!(field, "series") && matches!(clause.field.as_str(), "series" | "series_key")
+                || clause.field == field
+        }) {
+            parts.push(format!("{column} ASC"));
+        }
     }
+
+    format!("\nORDER BY {}", parts.join(", "))
 }
 
 fn profile_timezone(plan: &QueryPlan) -> Result<String> {
@@ -2555,6 +2598,8 @@ mod tests {
             sql.sql.contains("FROM timeseries_metrics_hourly")
                 && sql.sql.contains("EXTRACT(DOW FROM timezone")
                 && sql.sql.contains("robust_profile")
+                && sql.sql.contains("profile_keys AS")
+                && sql.sql.contains("JOIN profile_keys k")
                 && sql.sql.contains("ORDER BY l.dow ASC, l.hod ASC"),
             "unexpected profile SQL: {}",
             sql.sql
@@ -2628,11 +2673,13 @@ mod tests {
                 && sql
                     .sql
                     .contains("SELECT DISTINCT ON (series, if_index, metric_name)")
+                && sql.sql.contains("profile_keys AS")
+                && sql.sql.contains("JOIN profile_keys k")
                 && sql.sql.contains("'if_index', l.if_index")
                 && sql.sql.contains("'target_device_ip', l.target_device_ip")
-                && sql
-                    .sql
-                    .contains("ORDER BY l.series ASC, l.if_index ASC, l.dow ASC, l.hod ASC"),
+                && sql.sql.contains(
+                    "ORDER BY l.series ASC, l.if_index ASC, l.dow ASC, l.hod ASC, l.metric_name ASC"
+                ),
             "unexpected interface profile SQL: {}",
             sql.sql
         );

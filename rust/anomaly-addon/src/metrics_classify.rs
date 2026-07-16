@@ -175,20 +175,30 @@ const INTERFACE_BYTE_ABS_EFFECT_FLOOR: f64 = 128.0 * 1024.0;
 /// baseline lock-in. Packet and byte rates use different physical units, so the
 /// floors must be family-specific rather than a single magic number.
 pub(crate) fn counter_series_profile(metric: &Metric) -> SeriesProfile {
-    let packet_rate = metric.name.to_ascii_lowercase().contains("pkt")
-        || metric.name.to_ascii_lowercase().contains("packet");
+    let name = metric.name.to_ascii_lowercase();
+    let packet_rate = name.contains("pkt") || name.contains("packet");
+    let byte_rate = name.contains("octet") || name.contains("byte");
+
+    // Dispersion/effect floors are meaningful for traffic *rates* only. Applying
+    // the byte-rate floor to every non-packet SNMP counter would blind error,
+    // discard, and retransmission counters whose useful rates are often small.
     let (min_std_floor, abs_effect_floor) = if packet_rate {
         (
             INTERFACE_PACKET_STD_FLOOR,
             INTERFACE_PACKET_ABS_EFFECT_FLOOR,
         )
-    } else {
+    } else if byte_rate {
         (INTERFACE_BYTE_STD_FLOOR, INTERFACE_BYTE_ABS_EFFECT_FLOOR)
+    } else {
+        return SeriesProfile {
+            spike_adopt_after_samples: Some(300),
+            ..SeriesProfile::default()
+        };
     };
 
     SeriesProfile {
         min_std_floor,
-        min_cv: 0.50,
+        min_cv: 0.20,
         abs_effect_floor,
         drift_mode: DriftMode::DeseasonalizedOnly,
         drift_min_cv: 0.05,

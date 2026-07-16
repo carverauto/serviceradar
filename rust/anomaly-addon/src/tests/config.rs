@@ -187,6 +187,7 @@ fn config_wires_interface_spike_and_severity_overrides_into_the_engine() {
         "metric_classes": {
             "interface": {
                 "spike_adopt_after_samples": 300,
+                "abs_effect_floor": 1_000.0,
                 "severity_cap": "medium",
                 "severity_bands": {"medium": 2.0, "high": 4.0}
             }
@@ -201,6 +202,7 @@ fn config_wires_interface_spike_and_severity_overrides_into_the_engine() {
         .expect("interface override");
 
     assert_eq!(interface.spike_adopt_after_samples, Some(300));
+    assert_eq!(interface.abs_effect_floor, Some(1_000.0));
     assert_eq!(interface.severity_policy.cap, Some(3));
     assert_eq!(interface.severity_policy.bands(), (2.0, 4.0));
 }

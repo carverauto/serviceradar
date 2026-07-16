@@ -856,6 +856,12 @@ impl DetectorEngine {
         {
             profile.min_cv = profile.min_cv.max(min_cv);
         }
+        if let Some(abs_effect_floor) = class_override
+            .abs_effect_floor
+            .filter(|value| value.is_finite() && *value > 0.0)
+        {
+            profile.abs_effect_floor = profile.abs_effect_floor.max(abs_effect_floor);
+        }
         if let Some(spike_adopt_after_samples) = class_override.spike_adopt_after_samples {
             profile.spike_adopt_after_samples = Some(spike_adopt_after_samples.max(1));
         }
@@ -994,8 +1000,13 @@ impl DetectorEngine {
             .or_insert_with(|| SeriesState::new(observed_at_unix_nano));
 
         state.raw_tail.push(value);
-        if state.raw_tail.len() > self.config.window_size {
-            state.raw_tail.remove(0);
+        // Keep the raw adoption history in a small amortized ring. Removing
+        // index zero on every sample is O(window_size); compact once it grows
+        // past two windows, retaining the newest complete window for adoption.
+        let raw_tail_limit = self.config.window_size.saturating_mul(2).max(1);
+        if state.raw_tail.len() > raw_tail_limit {
+            let keep_from = state.raw_tail.len().saturating_sub(self.config.window_size);
+            state.raw_tail.drain(0..keep_from);
         }
 
         // A global operator floor override (fix #2) only ever RAISES the floor:
@@ -1324,16 +1335,18 @@ impl DetectorEngine {
                 AnomalyTransition::Open
             }
         } else if state.active_anomalous {
-            if verdict.anomalous {
+            // Once an episode is open, count every material re-breach toward
+            // stable-regime adoption. A brief clean dip resets the detector's
+            // confirmation latch, but must not make a still-open oscillatory
+            // condition incapable of ever adopting.
+            if verdict.breached {
                 state.spike_active_samples = state.spike_active_samples.saturating_add(1);
-            } else {
-                state.spike_active_samples = 0;
             }
 
             let adoption_blocked = profile.saturation_gate.is_some_and(|gate| {
                 rolling_center.is_some_and(|center| gate.allows_breach(value, center))
             });
-            if verdict.anomalous
+            if verdict.breached
                 && state.spike_active_samples >= spike_adopt_after_samples
                 && !adoption_blocked
             {
@@ -1344,14 +1357,29 @@ impl DetectorEngine {
                 state.active_anomalous = false;
                 state.consecutive_clean = 0;
                 state.consecutive_anomalous = 0;
-                state.window_tail = state.raw_tail.clone();
+                let raw_tail_start = state.raw_tail.len().saturating_sub(self.config.window_size);
+                state.window_tail = state.raw_tail[raw_tail_start..].to_vec();
                 state.spike_active_samples = 0;
+                // Adoption creates a new rolling regime. It must not retain
+                // flap-reopen metadata from the completed regime: a later
+                // genuine breach is a new episode, not an `anomaly_update`.
+                state.spike_last_cleared_at_unix_nano = None;
+                state.spike_last_episode_started_at_unix_nano = None;
+                state.spike_reopen_count = 0;
                 reset_active_episode(state);
                 verdict.next_consecutive_anomalous = 0;
                 verdict.reason = "rolling baseline adopted after sustained spike".to_string();
                 clear_reason = Some(SpikeClearReason::Adopted);
                 AnomalyTransition::Clear
-            } else if is_clean_verdict(&verdict) {
+            // A bounded utilization series can cease to z-breach after its
+            // winsorized rolling window moves toward the ceiling. That is not
+            // recovery: while it remains inside the saturation band, retain the
+            // episode and keep its clean confirmation counter at zero.
+            } else if is_clean_verdict(&verdict)
+                && !profile
+                    .saturation_gate
+                    .is_some_and(|gate| value > gate.min_value)
+            {
                 state.consecutive_clean = state.consecutive_clean.saturating_add(1);
 
                 if state.consecutive_clean >= clear_slots {

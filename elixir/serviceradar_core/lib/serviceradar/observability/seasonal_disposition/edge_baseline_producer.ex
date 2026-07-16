@@ -101,7 +101,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
     build_delivery(opts)
   end
 
-  defp build_delivery(opts) do
+  defp build_delivery(opts, emit_telemetry? \\ true) do
     opts
     |> sources()
     |> Enum.reduce_while({:ok, empty_delivery()}, fn source, {:ok, acc} ->
@@ -113,7 +113,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
     |> case do
       {:ok, delivery} ->
         governed = govern_interface_candidates(delivery, opts)
-        emit_delivery_telemetry(governed)
+
+        if emit_telemetry?, do: emit_delivery_telemetry(governed)
+
         {:ok, governed}
 
       other ->
@@ -136,10 +138,11 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
   def reconcile(opts \\ []) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:seasonal_edge_baseline_producer))
 
-    with {:ok, delivery} <- build_delivery(opts),
+    with {:ok, delivery} <- build_delivery(opts, false),
          {:ok, profiles} <- load_profiles(opts, actor),
          {:ok, assignments} <- load_scoped_assignments(profiles, delivery, opts, actor),
          delivery = resolve_assignment_scopes(delivery, assignments, opts, actor),
+         :ok <- emit_delivery_telemetry(delivery),
          {:ok, {refreshed, changed}} <-
            update_profiles(profiles, delivery.global_baselines, opts, actor),
          :ok <- maybe_reconcile(changed, opts, actor),
@@ -254,15 +257,19 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
   end
 
   defp seasonal_series_key(%Source{} = source, row) do
-    device_uid = Map.get(row, :series_key)
     metric_name = source.wire_metric_name
 
     case {source.resource_type, Map.get(row, :if_index)} do
       {"interface", if_index} when is_integer(if_index) and if_index > 0 ->
-        "#{device_uid}|#{metric_name}|#{if_index}"
+        # SNMP add-ons derive their seasonal key from target_device_ip, while
+        # the CAGG `series` is the canonical sr: device uid. Preserve the
+        # latter for polling-agent resolution, but deliver under the identity
+        # the edge will actually look up.
+        edge_device_uid = string_value(row, [:target_device_ip]) || Map.get(row, :series_key)
+        "#{edge_device_uid}|#{metric_name}|#{if_index}"
 
       _ ->
-        "#{device_uid}|#{metric_name}"
+        "#{Map.get(row, :series_key)}|#{metric_name}"
     end
   end
 
@@ -536,22 +543,12 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
 
   # An empty payload still writes `seasonal_baselines: %{}`, clearing any stale
   # delivered baselines so the edge reverts to the rolling-only path (back-compat).
-  # The declared `seasonal.min_bucket_samples` companion carries the exact core
-  # eligibility gate to the edge. Run liveness remains a health-event heartbeat
-  # (`record_heartbeat/2`), not ad hoc params metadata.
-  defp merge_params(params, baselines, opts) when is_map(params) do
-    seasonal =
-      params
-      |> Map.get("seasonal", %{})
-      |> normalize_map()
-      |> Map.put(
-        "min_bucket_samples",
-        int_opt(opts, :min_bucket_samples, @default_min_bucket_samples)
-      )
-
-    params
-    |> Map.put(@params_key, baselines)
-    |> Map.put("seasonal", seasonal)
+  # Do not unconditionally add new seasonal keys here: profile and assignment
+  # params are validated against the package schema currently stored in CNPG,
+  # which may still be the prior add-on version during a rollout. The edge's
+  # default remains in lockstep with this producer's eligibility gate.
+  defp merge_params(params, baselines, _opts) when is_map(params) do
+    Map.put(params, @params_key, baselines)
   end
 
   defp merge_params(_params, baselines, opts), do: merge_params(%{}, baselines, opts)
@@ -580,10 +577,18 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
       |> Enum.filter(&(is_binary(&1) and &1 != ""))
       |> Enum.uniq()
 
+    agents_by_device =
+      delivery.interface_candidates
+      |> Enum.map(& &1.device_uid)
+      |> Enum.uniq()
+      |> Map.new(fn device_uid ->
+        {device_uid, polling_agents(device_uid, assignment_agent_uids, opts, actor)}
+      end)
+
     candidates =
       Enum.flat_map(delivery.interface_candidates, fn candidate ->
-        candidate.device_uid
-        |> polling_agents(assignment_agent_uids, opts, actor)
+        agents_by_device
+        |> Map.get(candidate.device_uid, [])
         |> Enum.map(&Map.put(candidate, :scope, &1))
       end)
 
@@ -594,7 +599,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
     resolver =
       Keyword.get(opts, :polling_agents_resolver, fn device_uid, agent_uids, actor ->
         Enum.filter(agent_uids, fn agent_uid ->
-          match?(%{}, SNMPCompiler.resolve_profile(device_uid, agent_uid, actor))
+          match?(%{enabled: true}, SNMPCompiler.resolve_profile(device_uid, agent_uid, actor))
         end)
       end)
 
@@ -862,7 +867,4 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
   defp get(row, key) when is_map(row) do
     Map.get(row, key, Map.get(row, to_string(key)))
   end
-
-  defp normalize_map(value) when is_map(value), do: value
-  defp normalize_map(_value), do: %{}
 end

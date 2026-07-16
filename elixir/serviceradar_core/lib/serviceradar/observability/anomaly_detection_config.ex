@@ -27,8 +27,7 @@ defmodule ServiceRadar.Observability.AnomalyDetectionConfig do
     "cpu" => %{"drift_mode" => "deseasonalized_only"},
     "memory" => %{"drift_mode" => "deseasonalized_only"},
     "interface" => %{
-      "drift_mode" => "deseasonalized_only",
-      "spike_adopt_after_samples" => 300
+      "drift_mode" => "deseasonalized_only"
     },
     "disk" => %{"drift_mode" => "off"},
     "icmp" => %{"drift_mode" => "off"},

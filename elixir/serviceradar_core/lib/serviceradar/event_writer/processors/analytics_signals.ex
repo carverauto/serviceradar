@@ -48,7 +48,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   # finding) versus its resolution (surface the clear so downstream alert state
   # machines can close it). Every other anomaly.state value (pending_anomaly, clean,
   # none, insufficient_baseline) is an unconfirmed breadcrumb and is withheld.
-  @anomaly_open_states ["anomalous", "anomaly_open", "anomaly_drift", "anomaly_drift_open"]
+  @anomaly_open_states [
+    "anomalous",
+    "anomaly_open",
+    "anomaly_update",
+    "anomaly_drift",
+    "anomaly_drift_open"
+  ]
   @anomaly_clear_states [
     "anomaly_clear",
     "anomaly_drift_clear",
