@@ -15,13 +15,13 @@ env_logger = { workspace = true }
 log = { workspace = true }
 pem = { workspace = true }
 prost = { workspace = true }
-rustls = { workspace = true }
+rustls = { workspace = true, features = ["aws-lc-rs"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 serviceradar-metric-proto = { path = "../metric-proto" }
 spiffe = { workspace = true, features = ["x509-source"] }
-tokio = { workspace = true}
-tonic = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "signal", "io-util", "time"] }
+tonic = { workspace = true, features = ["tls"] }
 tonic-health ={ workspace = true }
 tonic-reflection =  { workspace = true }
 

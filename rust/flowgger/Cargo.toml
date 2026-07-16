@@ -35,7 +35,7 @@ time = { workspace = true, features = ["parsing", "formatting"] }
 time-tz = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
 toml = { workspace = true }
-tonic = { workspace = true, features = ["transport", "tls"] }
+tonic = { workspace = true, features = ["tls"] }
 tonic-health = { workspace = true }
 
 [dev-dependencies]

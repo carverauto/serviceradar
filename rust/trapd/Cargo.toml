@@ -16,13 +16,13 @@ futures = { workspace = true }
 log = { workspace = true }
 pem = { workspace = true }
 prost = { workspace = true }
-rustls = { workspace = true }
+rustls = { workspace = true, features = ["aws-lc-rs"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 snmp2 = { workspace = true, features = ["tokio"] }
 spiffe = { workspace = true, features = ["x509-source"] }
 tokio = { workspace = true }
-tonic = { workspace = true }
+tonic = { workspace = true, features = ["tls"] }
 tonic-health = { workspace = true }
 tonic-reflection = { workspace = true }
 

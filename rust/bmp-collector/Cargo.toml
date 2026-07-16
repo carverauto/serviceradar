@@ -21,7 +21,7 @@ clap = {  workspace = true , features = ["derive"] }
 env_logger = { workspace = true }
 hex ={ workspace = true }
 log ={ workspace = true }
-rustls = { workspace = true }
+rustls = { workspace = true, features = ["aws-lc-rs"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }

@@ -29,7 +29,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "sync", "io-util"] }
 tokio-rustls = { workspace = true, features = ["aws-lc-rs"] }
 tokio-stream = { workspace = true, features = ["net", "sync"] }
-tonic = { workspace = true, features = ["transport", "tls", "gzip", "zstd"] }
+tonic = { workspace = true, features = ["tls", "gzip", "zstd"] }
 tonic-health = { workspace = true }
 
 [dev-dependencies]
