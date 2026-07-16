@@ -348,6 +348,7 @@ _NORMAL_DEPENDENCIES = {
             "async-nats": Label("//third_party/crates/async-nats-0.49.1:async_nats"),
             "bgpkit-parser": Label("//third_party/crates/bgpkit-parser-0.15.0:bgpkit_parser"),
             "bytes": Label("//third_party/crates/bytes-1.11.1:bytes"),
+            "chrono": Label("//third_party/crates/chrono-0.4.44:chrono"),
             "clap": Label("//third_party/crates/clap-4.6.1:clap"),
             "env_logger": Label("//third_party/crates/env_logger-0.11.10:env_logger"),
             "hex": Label("//third_party/crates/hex-0.4.3:hex"),

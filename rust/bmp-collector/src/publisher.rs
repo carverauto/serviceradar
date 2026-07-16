@@ -82,8 +82,8 @@ impl Publisher {
     }
 
     async fn publish_update_once(&self, update: &Update) -> Result<()> {
-        let subject = subject_for_update(&self.config.subject_prefix, &update);
-        let payload = serde_json::to_vec(&model::to_payload(&update))?;
+        let subject = subject_for_update(&self.config.subject_prefix, update);
+        let payload = serde_json::to_vec(&model::to_payload(update))?;
         let ack = self
             .js
             .publish(subject.clone(), payload.into())
