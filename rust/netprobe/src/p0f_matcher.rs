@@ -84,14 +84,13 @@ impl P0fMatcher {
         observed: &TcpSignature,
         exact_key: Option<&str>,
     ) -> Option<P0fMatch> {
-        if let Some(index) = exact_key.and_then(|key| self.exact_lookup.get(key)) {
-            if let Some((candidate, label)) = self.signatures.get(index) {
-                if signature_matches(candidate, observed) {
-                    return Some(P0fMatch {
-                        label: label.clone(),
-                    });
-                }
-            }
+        if let Some(index) = exact_key.and_then(|key| self.exact_lookup.get(key))
+            && let Some((candidate, label)) = self.signatures.get(index)
+            && signature_matches(candidate, observed)
+        {
+            return Some(P0fMatch {
+                label: label.clone(),
+            });
         }
 
         self.fallback_indices

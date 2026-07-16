@@ -128,10 +128,10 @@ pub fn bind_plugin_socket() -> Result<PluginListener, HandshakeError> {
     // Match go-plugin: when a group is configured, make the socket group-owned
     // and group-writable (0660). Best-effort: a chown failure should not abort
     // the handshake on systems where the agent did not request a group.
-    if let Ok(group) = std::env::var(ENV_UNIX_SOCKET_GROUP) {
-        if !group.is_empty() {
-            apply_socket_group(&path, &group)?;
-        }
+    if let Ok(group) = std::env::var(ENV_UNIX_SOCKET_GROUP)
+        && !group.is_empty()
+    {
+        apply_socket_group(&path, &group)?;
     }
 
     Ok(PluginListener { listener, path })

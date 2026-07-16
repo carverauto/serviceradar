@@ -335,6 +335,7 @@ async fn insert_chunk(client: &tokio_postgres::Client, rows: &[MetricRow]) -> an
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn print_report(
     config: &BenchConfig,
     paths: &[PathBuf],

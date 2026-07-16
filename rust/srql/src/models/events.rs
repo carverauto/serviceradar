@@ -172,10 +172,10 @@ fn first_non_blank(values: impl IntoIterator<Item = Option<String>>) -> Option<S
 fn extract_device_host(device: &serde_json::Value) -> Option<String> {
     let obj = device.as_object()?;
     for key in ["hostname", "name", "host"] {
-        if let Some(value) = obj.get(key).and_then(|v| v.as_str()) {
-            if !value.is_empty() {
-                return Some(value.to_string());
-            }
+        if let Some(value) = obj.get(key).and_then(|v| v.as_str())
+            && !value.is_empty()
+        {
+            return Some(value.to_string());
         }
     }
     None
@@ -192,10 +192,10 @@ fn derive_event_source_from_raw(raw: &Value) -> Option<String> {
 }
 
 fn derive_event_message_from_raw(raw: &Value) -> Option<String> {
-    if let Some(message) = json_path_string(raw, &["message"]) {
-        if !message.trim().is_empty() {
-            return Some(message);
-        }
+    if let Some(message) = json_path_string(raw, &["message"])
+        && !message.trim().is_empty()
+    {
+        return Some(message);
     }
 
     let hostname = json_path_string(raw, &["query", "hostname"])?;

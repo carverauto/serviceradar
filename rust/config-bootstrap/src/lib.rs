@@ -131,15 +131,15 @@ impl Bootstrap {
         let mut config = self.load_from_disk::<T>().await?;
 
         // Step 2: Overlay pinned file last so it wins over defaults.
-        if let Some(ref pinned) = self.opts.pinned_path {
-            if !pinned.is_empty() {
-                tracing::info!(
-                    service = %self.opts.service_name,
-                    pinned = %pinned,
-                    "applying pinned config"
-                );
-                self.overlay_pinned(&mut config, pinned)?;
-            }
+        if let Some(ref pinned) = self.opts.pinned_path
+            && !pinned.is_empty()
+        {
+            tracing::info!(
+                service = %self.opts.service_name,
+                pinned = %pinned,
+                "applying pinned config"
+            );
+            self.overlay_pinned(&mut config, pinned)?;
         }
 
         Ok(config)

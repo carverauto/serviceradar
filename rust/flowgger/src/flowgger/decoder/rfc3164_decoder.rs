@@ -123,13 +123,13 @@ fn parse_clearpass_timestamp(
     let timestamp = PrimitiveDateTime::parse(&format!("{date} {time}"), &format_item)
         .map_err(|_| "Invalid ClearPass timestamp format")?;
 
-    if let Some(default_timezone) = default_timezone {
-        if let Some(timezone) = get_by_name(default_timezone) {
-            return Ok(utils::PreciseTimestamp::from_offset_datetime(
-                timestamp.assume_timezone(timezone),
-            )
-            .as_f64());
-        }
+    if let Some(default_timezone) = default_timezone
+        && let Some(timezone) = get_by_name(default_timezone)
+    {
+        return Ok(utils::PreciseTimestamp::from_offset_datetime(
+            timestamp.assume_timezone(timezone),
+        )
+        .as_f64());
     }
 
     Ok(utils::PreciseTimestamp::from_primitive_datetime(timestamp).as_f64())
@@ -253,10 +253,10 @@ fn parse_date_token<'a>(
     ts_tokens: &'a [&str],
     default_timezone: Option<&str>,
 ) -> Result<(f64, Vec<&'a str>), &'static str> {
-    if let Some(ts_token) = ts_tokens.first() {
-        if let Ok(ts) = rfc3339_to_unix(ts_token) {
-            return Ok((ts, ts_tokens[1..].to_vec()));
-        }
+    if let Some(ts_token) = ts_tokens.first()
+        && let Ok(ts) = rfc3339_to_unix(ts_token)
+    {
+        return Ok((ts, ts_tokens[1..].to_vec()));
     }
 
     // If we don't have at least 3 tokens, don't even try, parsing will fail
@@ -301,21 +301,20 @@ fn parse_date<'a>(
         Ok(primitive_date) => {
             // See if the next token is a timezone
             let mut ts: Option<f64> = None;
-            if ts_tokens.len() > idx {
-                if let Some(tz) = get_by_name(ts_tokens[idx]) {
-                    let dt = primitive_date.assume_timezone(tz);
-                    ts = Some(utils::PreciseTimestamp::from_offset_datetime(dt).as_f64());
-                    idx += 1;
-                }
+            if ts_tokens.len() > idx
+                && let Some(tz) = get_by_name(ts_tokens[idx])
+            {
+                let dt = primitive_date.assume_timezone(tz);
+                ts = Some(utils::PreciseTimestamp::from_offset_datetime(dt).as_f64());
+                idx += 1;
             }
 
-            if ts.is_none() {
-                if let Some(default_tz) = default_timezone {
-                    if let Some(tz) = get_by_name(default_tz) {
-                        let dt = primitive_date.assume_timezone(tz);
-                        ts = Some(utils::PreciseTimestamp::from_offset_datetime(dt).as_f64());
-                    }
-                }
+            if ts.is_none()
+                && let Some(default_tz) = default_timezone
+                && let Some(tz) = get_by_name(default_tz)
+            {
+                let dt = primitive_date.assume_timezone(tz);
+                ts = Some(utils::PreciseTimestamp::from_offset_datetime(dt).as_f64());
             }
 
             let ts = ts.unwrap_or_else(|| {

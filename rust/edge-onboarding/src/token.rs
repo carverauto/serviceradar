@@ -95,10 +95,10 @@ fn parse_structured_token(
     let mut payload: TokenPayload = serde_json::from_slice(&data)?;
 
     // Apply fallbacks only when the signed token omitted the value.
-    if payload.package_id.is_empty() {
-        if let Some(fallback) = fallback_package_id {
-            payload.package_id = fallback.to_string();
-        }
+    if payload.package_id.is_empty()
+        && let Some(fallback) = fallback_package_id
+    {
+        payload.package_id = fallback.to_string();
     }
     if payload
         .core_url

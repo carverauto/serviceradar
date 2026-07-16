@@ -114,19 +114,19 @@ impl DpiPipeline {
         let Some((flow, payload)) = parse_flow(packet) else {
             return Vec::new();
         };
-        if let Some(accumulator) = fingerprint_accumulator {
-            if let Some(flow_key) = flow_key(&flow) {
-                accumulator.observe_dpi_payload_with_context(
-                    DpiPayloadContext {
-                        flow_key,
-                        source_port: flow.source_port,
-                        destination_port: flow.destination_port,
-                        transport_protocol: flow.transport_protocol,
-                    },
-                    payload,
-                    observed_at_unix_nano,
-                );
-            }
+        if let Some(accumulator) = fingerprint_accumulator
+            && let Some(flow_key) = flow_key(&flow)
+        {
+            accumulator.observe_dpi_payload_with_context(
+                DpiPayloadContext {
+                    flow_key,
+                    source_port: flow.source_port,
+                    destination_port: flow.destination_port,
+                    transport_protocol: flow.transport_protocol,
+                },
+                payload,
+                observed_at_unix_nano,
+            );
         }
 
         self.dissectors

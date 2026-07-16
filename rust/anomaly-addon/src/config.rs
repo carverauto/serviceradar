@@ -363,7 +363,7 @@ impl AddonConfig {
             .and_then(|seasonal| seasonal.max_baselines)
             .unwrap_or(usize::MAX);
         let mut entries: Vec<_> = baselines.iter().collect();
-        entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+        entries.sort_by_key(|(left, _)| *left);
 
         entries
             .into_iter()

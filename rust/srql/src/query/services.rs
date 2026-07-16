@@ -322,19 +322,17 @@ FROM services_availability_5m"#,
 
     // Add service_name filter if present
     for filter in &plan.filters {
-        if filter.field == "service_name" || filter.field == "name" {
-            if let Some(clause) =
+        if (filter.field == "service_name" || filter.field == "name")
+            && let Some(clause) =
                 build_rollup_text_clause("service_name", filter, &mut binds, &mut bind_idx)?
-            {
-                where_clauses.push(clause);
-            }
+        {
+            where_clauses.push(clause);
         }
-        if filter.field == "service_type" || filter.field == "type" {
-            if let Some(clause) =
+        if (filter.field == "service_type" || filter.field == "type")
+            && let Some(clause) =
                 build_rollup_text_clause("service_type", filter, &mut binds, &mut bind_idx)?
-            {
-                where_clauses.push(clause);
-            }
+        {
+            where_clauses.push(clause);
         }
     }
 

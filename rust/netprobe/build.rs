@@ -170,16 +170,25 @@ fn parse_recog_file(
                     let attr = attr?;
                     if attr.key.as_ref() == b"pattern" {
                         pattern = Some(
-                            attr.decode_and_unescape_value(reader.decoder())?
-                                .into_owned(),
+                            attr.decoded_and_normalized_value(
+                                quick_xml::XmlVersion::Implicit1_0,
+                                reader.decoder(),
+                            )?
+                            .into_owned(),
                         );
                     } else if attr.key.as_ref() == b"flags" {
                         flags = Some(
-                            attr.decode_and_unescape_value(reader.decoder())?
-                                .into_owned(),
+                            attr.decoded_and_normalized_value(
+                                quick_xml::XmlVersion::Implicit1_0,
+                                reader.decoder(),
+                            )?
+                            .into_owned(),
                         );
                     } else if attr.key.as_ref() == b"service" {
-                        let value = attr.decode_and_unescape_value(reader.decoder())?;
+                        let value = attr.decoded_and_normalized_value(
+                            quick_xml::XmlVersion::Implicit1_0,
+                            reader.decoder(),
+                        )?;
                         service = Some(recog_service_for_addition(&value).ok_or_else(|| {
                             format!(
                                 "unknown Recog additions service {value:?} in {}",
@@ -271,7 +280,7 @@ fn parse_recog_param(
     for attr in element.attributes() {
         let attr = attr?;
         let attr_value = attr
-            .decode_and_unescape_value(reader.decoder())?
+            .decoded_and_normalized_value(quick_xml::XmlVersion::Implicit1_0, reader.decoder())?
             .into_owned();
         match attr.key.as_ref() {
             b"name" => name = Some(attr_value),
@@ -317,10 +326,10 @@ fn generate_p0f_tables(out_dir: &str) -> Result<(), Box<dyn std::error::Error>> 
     let mut fallback_indices = Vec::new();
 
     for (index, entry) in corpus.tcp_signatures.iter().enumerate() {
-        if let Some(key) = entry.signature.exact_lookup_key() {
-            if seen.insert(key.clone()) {
-                map.entry(key, &index.to_string());
-            }
+        if let Some(key) = entry.signature.exact_lookup_key()
+            && seen.insert(key.clone())
+        {
+            map.entry(key, &index.to_string());
         }
         if entry.signature.requires_fallback_match() {
             fallback_indices.push(index);

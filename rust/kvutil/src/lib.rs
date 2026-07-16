@@ -191,10 +191,10 @@ async fn load_spiffe_tls(workload_socket: &str, trust_domain: &str) -> Result<Cl
         match guard.tls_materials() {
             Ok((identity, ca)) => {
                 let mut tls = ClientTlsConfig::new().ca_certificate(ca).identity(identity);
-                if let Ok(server_name) = std::env::var("KV_SERVER_NAME") {
-                    if !server_name.trim().is_empty() {
-                        tls = tls.domain_name(server_name);
-                    }
+                if let Ok(server_name) = std::env::var("KV_SERVER_NAME")
+                    && !server_name.trim().is_empty()
+                {
+                    tls = tls.domain_name(server_name);
                 }
                 return Ok(tls);
             }

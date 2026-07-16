@@ -136,10 +136,10 @@ pub fn parse_time_value(raw: &str) -> Result<TimeFilterSpec> {
         return Ok(spec);
     }
 
-    if value.contains("day") || value.contains("hour") || value.contains("min") {
-        if let Some(spec) = parse_spelled_duration(&value) {
-            return Ok(spec);
-        }
+    if (value.contains("day") || value.contains("hour") || value.contains("min"))
+        && let Some(spec) = parse_spelled_duration(&value)
+    {
+        return Ok(spec);
     }
 
     Err(ServiceError::InvalidRequest(format!(
@@ -156,10 +156,10 @@ fn parse_relative_keyword(value: &str) -> Option<TimeFilterSpec> {
     }
 
     let normalized = value.replace(['_', '-'], "");
-    if let Some(stripped) = normalized.strip_prefix("last") {
-        if let Some(spec) = parse_numeric_suffix(stripped) {
-            return Some(spec);
-        }
+    if let Some(stripped) = normalized.strip_prefix("last")
+        && let Some(spec) = parse_numeric_suffix(stripped)
+    {
+        return Some(spec);
     }
     if let Some(spec) = parse_numeric_suffix(&normalized) {
         return Some(spec);

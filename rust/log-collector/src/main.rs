@@ -117,7 +117,7 @@ async fn run() -> Result<()> {
 
     // --- Unified gRPC health check ---
     let health_addr: SocketAddr = cfg.health.listen_addr.parse()?;
-    let (mut reporter, health_service) = health_reporter();
+    let (reporter, health_service) = health_reporter();
 
     reporter
         .set_service_status("", ServingStatus::Serving)

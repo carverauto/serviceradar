@@ -135,7 +135,7 @@ impl RPerfTestOrchestrator {
             target_pollers: self.target_pollers.clone(),
         });
 
-        let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
+        let (health_reporter, health_service) = tonic_health::server::health_reporter();
         health_reporter
             .set_serving::<RPerfServiceServer<RPerfServiceImpl>>()
             .await;
@@ -592,13 +592,13 @@ impl AgentService for RPerfServiceImpl {
 
         let mut metric_samples = Vec::new();
         for poller in pollers.iter() {
-            if poller_matches_request(poller, &req) {
-                if let Some(last_result) = &poller.last_result {
-                    metric_samples.push(RPerfMetricSample {
-                        target: poller.target_name(),
-                        result: last_result,
-                    });
-                }
+            if poller_matches_request(poller, &req)
+                && let Some(last_result) = &poller.last_result
+            {
+                metric_samples.push(RPerfMetricSample {
+                    target: poller.target_name(),
+                    result: last_result,
+                });
             }
         }
 
@@ -618,26 +618,26 @@ impl AgentService for RPerfServiceImpl {
 
         let mut results = Vec::new();
         for poller in pollers.iter() {
-            if poller_matches_request(poller, &req) {
-                if let Some(last_result) = &poller.last_result {
-                    let result_json = serde_json::json!({
-                        "target": poller.target_name(),
-                        "success": last_result.success,
-                        "error": last_result.error,
-                        "status": {
-                            "bits_per_second": last_result.summary.bits_per_second,
-                            "bytes_received": last_result.summary.bytes_received,
-                            "bytes_sent": last_result.summary.bytes_sent,
-                            "duration": last_result.summary.duration,
-                            "jitter_ms": last_result.summary.jitter_ms,
-                            "loss_percent": last_result.summary.loss_percent,
-                            "packets_lost": last_result.summary.packets_lost,
-                            "packets_received": last_result.summary.packets_received,
-                            "packets_sent": last_result.summary.packets_sent,
-                        }
-                    });
-                    results.push(result_json);
-                }
+            if poller_matches_request(poller, &req)
+                && let Some(last_result) = &poller.last_result
+            {
+                let result_json = serde_json::json!({
+                    "target": poller.target_name(),
+                    "success": last_result.success,
+                    "error": last_result.error,
+                    "status": {
+                        "bits_per_second": last_result.summary.bits_per_second,
+                        "bytes_received": last_result.summary.bytes_received,
+                        "bytes_sent": last_result.summary.bytes_sent,
+                        "duration": last_result.summary.duration,
+                        "jitter_ms": last_result.summary.jitter_ms,
+                        "loss_percent": last_result.summary.loss_percent,
+                        "packets_lost": last_result.summary.packets_lost,
+                        "packets_received": last_result.summary.packets_received,
+                        "packets_sent": last_result.summary.packets_sent,
+                    }
+                });
+                results.push(result_json);
             }
         }
 

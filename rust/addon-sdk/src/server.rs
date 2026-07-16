@@ -114,7 +114,7 @@ pub async fn serve_on_listener<A: Addon>(
 
     // The go-plugin client confirms liveness via grpc.health.v1.Health/Check for
     // the "plugin" service before dispensing. Report SERVING for that name.
-    let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
+    let (health_reporter, health_service) = tonic_health::server::health_reporter();
     health_reporter
         .set_service_status(GRPC_SERVICE_NAME, tonic_health::ServingStatus::Serving)
         .await;

@@ -197,7 +197,7 @@ impl TlsSettings {
 }
 
 async fn serve_with_tls(addr: SocketAddr, tls: ServerTlsConfig) -> Result<()> {
-    let (mut reporter, health_service) = health_reporter();
+    let (reporter, health_service) = health_reporter();
 
     reporter
         .set_service_status("", ServingStatus::Serving)
@@ -221,7 +221,7 @@ async fn serve_with_spiffe(addr: SocketAddr, cfg: SpiffeSettings) -> Result<()> 
     let mut updates = credentials.watch_updates();
 
     loop {
-        let (mut reporter, health_service) = health_reporter();
+        let (reporter, health_service) = health_reporter();
         reporter
             .set_service_status("", ServingStatus::Serving)
             .await;

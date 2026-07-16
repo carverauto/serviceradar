@@ -149,10 +149,10 @@ fn normalize_device_aliases(
         .collect();
 
     let downsample = downsample.map(|mut spec| {
-        if let Some(series) = spec.series.as_mut() {
-            if let Some(mapped) = normalize_device_field(entity, series) {
-                *series = mapped;
-            }
+        if let Some(series) = spec.series.as_mut()
+            && let Some(mapped) = normalize_device_field(entity, series)
+        {
+            *series = mapped;
         }
         spec
     });

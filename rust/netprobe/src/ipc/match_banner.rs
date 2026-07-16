@@ -31,16 +31,16 @@ fn match_observation(
     let banner = normalized_banner(&protocol, &banner);
     let mut candidates = Vec::new();
 
-    if let Some(service) = recog_service(&protocol) {
-        if let Some(label) = recog::match_recog(service, banner.as_ref()) {
-            candidates.push(recog_match(observation.observation_id, label));
-        }
+    if let Some(service) = recog_service(&protocol)
+        && let Some(label) = recog::match_recog(service, banner.as_ref())
+    {
+        candidates.push(recog_match(observation.observation_id, label));
     }
 
-    if let Some(corpus) = satori {
-        if let Some(label) = satori_match(&protocol, banner.as_ref(), corpus) {
-            candidates.push(satori_banner_match(observation.observation_id, label));
-        }
+    if let Some(corpus) = satori
+        && let Some(label) = satori_match(&protocol, banner.as_ref(), corpus)
+    {
+        candidates.push(satori_banner_match(observation.observation_id, label));
     }
 
     candidates

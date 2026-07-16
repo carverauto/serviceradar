@@ -56,6 +56,7 @@ pub struct IpcServer {
 }
 
 impl IpcServer {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         socket_path: impl Into<PathBuf>,
         fingerprint_event_rx: EventReceiver<FingerprintEvent>,
@@ -169,6 +170,7 @@ async fn reject_concurrent_client(mut stream: UnixStream) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_client(
     stream: UnixStream,
     fingerprint_events: Arc<Mutex<EventReceiver<FingerprintEvent>>>,
@@ -1097,7 +1099,7 @@ mod tests {
         let entries = (0..10)
             .map(|idx| ProcessSnapshotEntry {
                 local_ip: "10.42.221.137".to_string(),
-                local_port: 10_000 + (idx % 50) as u32,
+                local_port: 10_000 + (idx % 50),
                 transport_protocol: "tcp".to_string(),
                 pid: 100_000 + idx,
                 tgid: 100_000 + idx,
@@ -1281,6 +1283,8 @@ mod tests {
         panic!("expected TLS fingerprint event");
     }
 
+    // Exercises the deprecated-but-still-supported tcp evidence path.
+    #[allow(deprecated)]
     fn fingerprint_event() -> FingerprintEvent {
         FingerprintEvent {
             ip: "192.0.2.10".to_string(),

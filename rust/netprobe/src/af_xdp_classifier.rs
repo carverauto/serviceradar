@@ -283,10 +283,10 @@ impl AfXdpClassifierRuntime {
 impl Drop for AfXdpClassifierRuntime {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
-        if let Some(thread) = self.classifier_thread.take() {
-            if thread.join().is_err() {
-                log::warn!("AF_XDP classifier thread panicked during shutdown");
-            }
+        if let Some(thread) = self.classifier_thread.take()
+            && thread.join().is_err()
+        {
+            log::warn!("AF_XDP classifier thread panicked during shutdown");
         }
     }
 }

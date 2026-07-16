@@ -402,17 +402,17 @@ fn auxiliary_observations(
 ) -> Vec<AuxiliaryObservation> {
     let mut observations = Vec::new();
 
-    if input.p0f.is_some() {
-        if let Some(muonfp) = &input.muonfp {
-            observations.push(AuxiliaryObservation {
-                signal: FingerprintSignal::MuonFp,
-                signature: muonfp.signature.clone(),
-                family: normalized_family(&muonfp.os_family),
-                name: muonfp.name.clone(),
-                version_range: muonfp.version_range.clone(),
-                multiplier: multiplier(FingerprintSignal::MuonFp),
-            });
-        }
+    if input.p0f.is_some()
+        && let Some(muonfp) = &input.muonfp
+    {
+        observations.push(AuxiliaryObservation {
+            signal: FingerprintSignal::MuonFp,
+            signature: muonfp.signature.clone(),
+            family: normalized_family(&muonfp.os_family),
+            name: muonfp.name.clone(),
+            version_range: muonfp.version_range.clone(),
+            multiplier: multiplier(FingerprintSignal::MuonFp),
+        });
     }
 
     for observation in [&input.ja4, &input.hassh]
