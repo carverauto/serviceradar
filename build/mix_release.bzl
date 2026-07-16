@@ -10,9 +10,11 @@ def _mix_release_impl(ctx):
     rustc = rust_toolchain.rustc
     bun = ctx.file.bun
     sfw = ctx.file.sfw
+    workspace_cargo_toml = ctx.file.workspace_cargo_toml
 
     erlang_home = otp.erlang_home
     otp_tar = getattr(otp, "release_dir_tar", None)
+
     # Use short_path for tree artifacts so the symlink forest in the sandbox
     # can find the binaries reliably.
     elixir_home = elixir.elixir_home or elixir.release_dir.short_path
@@ -42,7 +44,7 @@ def _mix_release_impl(ctx):
         transitive_inputs.append(rust_toolchain.rust_std)
 
     hex_cache = ctx.file.hex_cache
-    direct_inputs = toolchain_inputs + ctx.files.srcs + ctx.files.bootstrap_srcs + ctx.files.data + ctx.files.extra_dir_srcs + ctx.files.precompiled_os_deps
+    direct_inputs = toolchain_inputs + ctx.files.srcs + ctx.files.bootstrap_srcs + ctx.files.data + ctx.files.extra_dir_srcs + ctx.files.precompiled_os_deps + [workspace_cargo_toml]
     if hex_cache:
         direct_inputs.append(hex_cache)
     if bun:
@@ -82,7 +84,9 @@ def _mix_release_impl(ctx):
     ) if precompiled_stage_cmds else ""
 
     run_assets = "true" if ctx.attr.run_assets else "false"
-    bootstrap_inputs = "\\n".join(sorted([f.short_path for f in ctx.files.bootstrap_srcs]))
+    bootstrap_inputs = "\\n".join(sorted(
+        [f.short_path for f in ctx.files.bootstrap_srcs] + [workspace_cargo_toml.short_path],
+    ))
     patch_script = """python3 - <<'PY'
 from pathlib import Path
 
@@ -616,28 +620,41 @@ if [ -d "$EXECROOT/rust/srql" ] || [ -d "$EXECROOT/rust/kvutil" ]; then
   fi
 
   if [ -d "$WORKDIR/rust" ]; then
+    if [ ! -f "$EXECROOT/{workspace_cargo_toml}" ]; then
+      echo "missing root Cargo.toml workspace dependency input" >&2
+      exit 1
+    fi
+
+    workspace_manifest="$EXECROOT/{workspace_cargo_toml}"
+
+    # Copy a complete TOML section without copying the root workspace's member
+    # list. The release sandbox intentionally stages only srql and kvutil, so
+    # a verbatim root manifest would refer to crates that are unavailable here.
+    extract_toml_section() {{
+      section="$1"
+      awk -v section="$section" '
+        $0 == section {{ in_section = 1 }}
+        in_section && $0 ~ /^\\[/ && $0 != section {{ exit }}
+        in_section {{ print }}
+      ' "$workspace_manifest"
+    }}
+
     cat > "$WORKDIR/Cargo.toml" <<'EOF'
 [workspace]
 resolver = "2"
 members = ["rust/srql", "rust/kvutil"]
-
-[workspace.dependencies]
-tonic = {{ version = "0.12", features = ["tls"] }}
-prost = "0.13"
-tonic-build = "0.12"
-tokio = {{ version = "1" }}
-tokio-stream = "0.1"
-tonic-health = "0.12"
-tonic-reflection = "0.12"
-
-[profile.release]
-opt-level = 3
-debug = false
-rpath = false
-lto = true
-debug-assertions = false
-panic = "abort"
 EOF
+
+    # SRQL and kvutil use workspace-inherited metadata and dependencies. Keep
+    # the reduced release workspace synchronized with the authoritative root
+    # manifest rather than duplicating a table that can silently become stale.
+    # Do not copy [patch.crates-io]: its local patch paths are not staged into
+    # the Rustler release sandbox.
+    extract_toml_section "[workspace.package]" >> "$WORKDIR/Cargo.toml"
+    printf '\\n' >> "$WORKDIR/Cargo.toml"
+    extract_toml_section "[workspace.dependencies]" >> "$WORKDIR/Cargo.toml"
+    printf '\\n' >> "$WORKDIR/Cargo.toml"
+    extract_toml_section "[profile.release]" >> "$WORKDIR/Cargo.toml"
 
     NIF_LOCK="$WORKDIR/elixir/serviceradar_srql/native/srql_nif/Cargo.lock"
     if [ -f "$NIF_LOCK" ]; then
@@ -819,6 +836,7 @@ tar -czf "$EXECROOT/{tar_out}" -C "$PACKAGED_RELEASE_DIR" .
             bun_path = bun.path if bun else "",
             sfw_path = sfw.path if sfw else "",
             app_name = ctx.attr.workdir_name,
+            workspace_cargo_toml = workspace_cargo_toml.short_path,
         ).replace(patch_script_placeholder, patch_script),
         use_default_shell_env = False,
     )
@@ -850,6 +868,11 @@ mix_release = rule(
         ),
         "bun": attr.label(allow_single_file = True, doc = "Optional bun binary for SSR asset builds"),
         "sfw": attr.label(allow_single_file = True, doc = "Optional Socket Firewall binary for supported package manager commands"),
+        "workspace_cargo_toml": attr.label(
+            allow_single_file = True,
+            default = Label("//:Cargo.toml"),
+            doc = "Authoritative root Cargo workspace manifest used by Rustler path dependencies",
+        ),
         "workdir_name": attr.string(doc = "Legacy stable workdir/cache name for compatibility"),
     },
     toolchains = [

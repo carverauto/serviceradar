@@ -142,9 +142,9 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "arancini-lib"
-version = "0.7.4"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4af231d07fd6c2d1fb2b24355ed708311d7fc2edabf56c914f09dca8b4115e5c"
+checksum = "cfa1d93f62e8fe460d28c08cb79c63dcb7da0a27225c32333ec5d43fd7cf4a64"
 dependencies = [
  "ahash",
  "anyhow",
@@ -152,7 +152,7 @@ dependencies = [
  "bytes",
  "chrono",
  "metrics",
- "rand 0.10.1",
+ "rand 0.9.4",
  "serde",
  "tokio",
  "tracing",
@@ -4830,7 +4830,7 @@ dependencies = [
 
 [[package]]
 name = "serviceradar-netprobe"
-version = "0.2.23"
+version = "0.2.24"
 dependencies = [
  "anyhow",
  "aya 0.13.1",
@@ -4881,7 +4881,7 @@ dependencies = [
 
 [[package]]
 name = "serviceradar-rdp-adapter"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64",
  "serde",
@@ -4944,7 +4944,7 @@ dependencies = [
 
 [[package]]
 name = "serviceradar-workload-identity"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "clap 4.6.1",

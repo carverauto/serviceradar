@@ -56,7 +56,9 @@ rust-version = "1.93.0"
 # the features it uses; `std` is hoisted since nothing in this workspace is no_std.
 # Small crates are a bare version. Keep alphabetical.
 anyhow = "1.0"
-arancini-lib = "0.7"
+# 0.7.4 requires Rust 1.95; keep the supported Bazel Rust 1.93 baseline until
+# the toolchain upgrade is reviewed independently.
+arancini-lib = "=0.7.3"
 arrow-array = "59"
 arrow-ipc = "59"
 arrow-schema = "59"

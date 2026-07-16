@@ -18,7 +18,7 @@ authors = [
     "Steve Klabnik <steve@steveklabnik.com>",
     "Rain <rain@sunshowers.io>",
 ]
-edition = "2024"
+edition = "2021"
 exclude = [".cargo/**/*", ".github/**/*"]
 
 [package.metadata.docs.rs]

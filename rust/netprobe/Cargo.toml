@@ -1,6 +1,6 @@
 [package]
 name = "serviceradar-netprobe"
-version = "0.2.23"
+version = "0.2.24"
 description = "Host network visibility sidecar for ServiceRadar agents"
 authors = ["ServiceRadar Team"]
 edition = "2024"
@@ -31,7 +31,7 @@ phf = { workspace = true }
 prometheus = { workspace = true }
 prost = { workspace = true }
 quick-xml = { workspace = true }
-regex-automata = { workspace = true }
+regex-automata = { workspace = true, features = ["meta", "unicode"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

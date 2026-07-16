@@ -1,0 +1,4 @@
+# Vendored Cargo archives are checksum-verified byte-for-byte. Preserve their
+# upstream line endings instead of allowing Git text normalization to rewrite
+# them on checkout or commit.
+third_party/crates/** -text
