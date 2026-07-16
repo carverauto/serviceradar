@@ -1,0 +1,27 @@
+rust/fieldsurvey-sidekick/src/api/streams.rs
+  s_6f8eb423821667::t_212aeeb16ba3fd 55,71,102,159,175,199,247,257
+  s_6f8eb423821667::t_12a0b4a42f42b2 110,207,272
+  s_6f8eb423821667::t_fc687e3594ede0 278
+integration_tests/srql/Cargo.toml
+  s_6f8eb423821667::t_5491d6cf92adbb 17-25,27-30
+Cargo.toml
+  s_6f8eb423821667::t_d9cf3d919187d7 67
+Cargo.lock
+  s_6f8eb423821667::t_3910e70897b318 439-465,469,477,482,514-531,537,539,2772-2777,4821,5277,5314,5692,5694,5795,6035,6037,6044,6046
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "e734f6f43a4c98364285566ae553753e7254068c",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
