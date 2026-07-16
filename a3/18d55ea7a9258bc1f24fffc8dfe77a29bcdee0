@@ -1,0 +1,45 @@
+rust/trapd/Cargo.toml
+  s_6f8eb423821667::t_742c774df8dc09 19
+  s_6f8eb423821667::t_3f88f15b499798 25
+rust/metrics-delta-writer/Cargo.toml
+  s_6f8eb423821667::t_bb22541554857e 29
+rust/otel-addon/Cargo.toml
+  s_6f8eb423821667::t_3f88f15b499798 24
+rust/kvutil/Cargo.toml
+  s_6f8eb423821667::t_3f88f15b499798 22
+Cargo.toml
+  s_6f8eb423821667::t_bb22541554857e 87
+  s_6f8eb423821667::t_60f2d3aa12002b 73
+  s_6f8eb423821667::t_62f6d5e2ffec8e 86,144,149
+rust/flowgger/Cargo.toml
+  s_6f8eb423821667::t_3f88f15b499798 38
+rust/bmp-collector/Cargo.toml
+  s_6f8eb423821667::t_bb22541554857e 24
+rust/workload-identity/Cargo.toml
+  s_6f8eb423821667::t_3f88f15b499798 30
+rust/rperf-client/Cargo.toml
+  s_6f8eb423821667::t_3f88f15b499798 24
+  s_6f8eb423821667::t_742c774df8dc09 18,23
+rust/addon-sdk/Cargo.toml
+  s_6f8eb423821667::t_3f88f15b499798 32
+rust/otel/Cargo.toml
+  s_6f8eb423821667::t_3f88f15b499798 34
+rust/flow-collector/Cargo.toml
+  s_6f8eb423821667::t_bb22541554857e 19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "a318d55ea7a9258bc1f24fffc8dfe77a29bcdee0",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
