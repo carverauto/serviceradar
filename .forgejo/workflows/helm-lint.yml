@@ -27,6 +27,7 @@ on:
       - 'scripts/check-core-analytics-helm-defaults.sh'
       - 'scripts/check-tenant-chart-hook-order.sh'
       - 'scripts/check-hosted-runtime-cert-boundary.sh'
+      - 'scripts/check-web-ng-extra-env-value-from.sh'
   pull_request:
     branches: [ staging ]
     paths:
@@ -36,6 +37,7 @@ on:
       - 'scripts/check-core-analytics-helm-defaults.sh'
       - 'scripts/check-tenant-chart-hook-order.sh'
       - 'scripts/check-hosted-runtime-cert-boundary.sh'
+      - 'scripts/check-web-ng-extra-env-value-from.sh'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
@@ -59,6 +61,9 @@ jobs:
           ./scripts/run-helm.sh template serviceradar helm/serviceradar \
             --set global.imageTag="v1.0.0" \
             --debug > /dev/null
+
+      - name: Verify web-ng secret-backed environment values
+        run: HELM_BIN=./scripts/run-helm.sh ./scripts/check-web-ng-extra-env-value-from.sh
 
       - name: Verify core analytics defaults
         run: HELM_BIN=./scripts/run-helm.sh ./scripts/check-core-analytics-helm-defaults.sh

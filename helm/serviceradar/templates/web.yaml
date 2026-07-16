@@ -605,6 +605,13 @@ spec:
           value: {{ $value | quote }}
         {{- end }}
         {{- end }}
+        {{- with .Values.webNg.extraEnvValueFrom }}
+        {{- range $name, $valueFrom := . }}
+        - name: {{ $name | quote }}
+          valueFrom:
+{{- toYaml $valueFrom | nindent 12 }}
+        {{- end }}
+        {{- end }}
         - name: DEVICE_ENRICHMENT_RULES_DIR
           value: {{ $deviceEnrichmentRulesDir | quote }}
         - name: CNPG_HOST
