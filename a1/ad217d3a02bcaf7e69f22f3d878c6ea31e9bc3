@@ -1,0 +1,21 @@
+Cargo.lock
+  s_6f8eb423821667::t_e5a0a39dbd978c 6363,6365,6367
+Cargo.toml
+  s_6f8eb423821667::t_386386d697a59b 160,163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "a1ad217d3a02bcaf7e69f22f3d878c6ea31e9bc3",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
