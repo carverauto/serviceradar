@@ -1212,14 +1212,13 @@ impl DetectorEngine {
                 state.consecutive_anomalous = verdict.next_consecutive_anomalous;
                 state.last_observed_at_unix_nano = observed_at_unix_nano;
 
-                if let Some(reason) = seasonal_unavailable_reason {
-                    if let Some(signal) = verdict
+                if let Some(reason) = seasonal_unavailable_reason
+                    && let Some(signal) = verdict
                         .signals
                         .iter_mut()
                         .find(|signal| signal.name == "seasonal")
-                    {
-                        signal.reason = reason.to_string();
-                    }
+                {
+                    signal.reason = reason.to_string();
                 }
 
                 // Additive but de-duplicated: a CUSUM drift finding reports exactly
