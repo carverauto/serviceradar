@@ -19,4 +19,4 @@ serviceradar-causal-mitigation = { path = "../causal-mitigation" }
 serviceradar-causal-model = { path = "../causal-model" }
 serviceradar-causal-ports = { path = "../causal-ports" }
 serviceradar-causal-reasoning = { path = "../causal-reasoning" }
-uuid = "1"
+uuid = { workspace = true }

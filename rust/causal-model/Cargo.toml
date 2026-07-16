@@ -12,5 +12,5 @@ path = "src/lib.rs"
 [dependencies]
 # The lawful bounded-lattice Verdict trait SecVerdict implements. Sourced from crates.io (in sync
 # with the ctx working tree); never a path dep.
-deep_causality_algebra = "0.2.0"
-uuid = "1"
+deep_causality_algebra = { workspace = true }
+uuid = { workspace = true }

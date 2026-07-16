@@ -16,16 +16,16 @@ path = "src/bin/serviceradar-powerdns-addon.rs"
 
 [dependencies]
 addon-sdk = { path = "../addon-sdk" }
-anyhow = "1.0"
-async-trait = "0.1"
-hex = "0.4"
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+hex = { workspace = true }
 prost = { workspace = true }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sha2 = "0.11"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-stream = { workspace = true, features = ["sync"] }
 tonic = { workspace = true }
 
 [build-dependencies]
-prost-build = "0.13"
+prost-build = { workspace = true }

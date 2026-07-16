@@ -10,32 +10,32 @@ doctest = false
 
 [dependencies]
 addon-sdk = { path = "../addon-sdk" }
-anyhow = "1.0"
-async-nats = "0.49"
-chrono = { version = "0.4", features = ["serde"] }
-clap = { version = "4.0", features = ["derive"] }
-env_logger = "0.11"
-flate2 = "1"
-hex = "0.4"
-http-body-util = "0.1"
-hyper = { version = "1.0", features = ["full"] }
-hyper-util = { version = "0.1", features = ["full"] }
-lazy_static = "1.4"
-log = "0.4"
-prometheus = { version = "0.14", features = ["process"] }
+anyhow = { workspace = true }
+async-nats = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+clap = { workspace = true, features = ["derive"] }
+env_logger = { workspace = true }
+flate2 = { workspace = true }
+hex = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true, features = ["full"] }
+hyper-util = { workspace = true, features = ["full"] }
+lazy_static = { workspace = true }
+log = { workspace = true }
+prometheus = { workspace = true, features = ["process"] }
 prost = { workspace = true }
-rustls = "0.23"
-rustls-pemfile = "2"
-serde = { version = "1.0", features = ["derive"] }
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serviceradar-metric-proto = { path = "../metric-proto" }
 tokio = { workspace = true, features = ["full"] }
-tokio-rustls = "0.26"
-toml = "1"
+tokio-rustls = { workspace = true }
+toml = { workspace = true }
 tonic = { workspace = true }
-uuid = { version = "1", features = ["v4"] }
+uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
-tempfile = "3.0"
+tempfile = { workspace = true }
 
 [build-dependencies]
 tonic-build = { workspace = true }

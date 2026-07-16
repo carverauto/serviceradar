@@ -10,6 +10,6 @@ name = "serviceradar_causal_reasoning"
 path = "src/lib.rs"
 
 [dependencies]
-deep_causality_uncertain = "0.5.0"
+deep_causality_uncertain = { workspace = true }
 serviceradar-causal-model = { path = "../causal-model" }
 serviceradar-causal-ports = { path = "../causal-ports" }

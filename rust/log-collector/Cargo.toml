@@ -9,17 +9,17 @@ name = "serviceradar-log-collector"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1"
-clap = { version = "4", features = ["derive"] }
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
 config-bootstrap = { path = "../config-bootstrap" }
-env_logger = "0.11"
+env_logger = { workspace = true }
 flowgger = { package = "serviceradar-flowgger", path = "../flowgger", default-features = false }
-log = "0.4"
+log = { workspace = true }
 otel = { path = "../otel", optional = true }
-rustls = "0.23"
-serde = { version = "1", features = ["derive"] }
+rustls = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
-toml = "1"
+toml = { workspace = true }
 tonic = { workspace = true }
 tonic-health = { workspace = true }
 

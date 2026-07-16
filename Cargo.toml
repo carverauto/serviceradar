@@ -52,50 +52,117 @@ rust-version = "1.93.0"
 
 
 [workspace.dependencies]
-arancini-lib = "0.7.1"
+# Large crates take default-features = false here and each consuming crate opts in to
+# the features it uses; `std` is hoisted since nothing in this workspace is no_std.
+# Small crates are a bare version. Keep alphabetical.
+anyhow = "1.0"
+arancini-lib = "0.7"
+arrow-array = "59"
+arrow-ipc = "59"
+arrow-schema = "59"
 async-nats = "0.49"
 async-trait = "0.1"
-anyhow = "1.0"
-
+# Defaults (query, form, tokio, http1, matched-path, ...) are needed by every consumer;
+# they opt in only to extras like "ws" / "macros".
+axum = "0.7"
+aya-build = "0.1.3"
+base64 = "0.22"
+bb8 = "0.8"
 bgpkit-parser = { version = "0.15", default-features = false }
-
-clap = { version = "4",  default-features = false}
-
+bytes = "1"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+clap = { version = "4", default-features = false, features = ["std"] }
+cri-api = "0.2"
+crossbeam-channel = "0.5"
+deep_causality = "0.13"
+deep_causality_algebra = "0.2"
 deep_causality_core = "0.11"
 deep_causality_data_structures = "0.10"
-
+deep_causality_uncertain = "0.5"
+diesel = { version = "2.2", default-features = false }
+diesel-async = { version = "0.7.1", default-features = false }
+ed25519-dalek = { version = "3", default-features = false }
+# default = auto-color/humantime/regex. All three are expected logging behaviour
+# (humantime is timestamp_seconds; dropping regex silently breaks RUST_LOG filters).
 env_logger = "0.11"
+envy = "0.4"
+etherparse = "0.20"
 flate2 = "1"
-thiserror = "2"
-base64 = "0.22"
-rcgen = "0.12"
-sha2 = "0.11"
+flowparser-sflow = "0.3"
+futures = { version = "0.3", default-features = false, features = ["std"] }
+glob = "0.3"
 hex = "0.4"
-
+hmac = "0.12"
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1.0", default-features = false }
 hyper-util = "0.1"
-
+kafka = { version = "0.10", default-features = false }
+lazy_static = "1.4"
+libc = "0.2"
 log = "0.4"
-
+may = { version = "~0.3", default-features = false }
+netflow_parser = { version = "1.0", default-features = false }
+nix = "0.31"
+notify = { version = "8", default-features = false }
+once_cell = "1.20"
+# Exact-pinned: anchors the from-source C builds that scripts/vendor.sh patches.
+openssl-sys = "=0.9.116"
+parking_lot = "0.12"
+pcap = "2.4.0"
+pem = "3"
+phf = "0.14"
+phf_codegen = "0.11"
+# Exact-pinned: see openssl-sys above.
+pq-sys = "=0.7.5"
+pretty_assertions = "1"
+# default = ["protobuf"] is load-bearing: without it prometheus swaps in its own
+# proto types and netprobe's get_counter().value() stops compiling. Consumers add
+# only extras ("process").
+prometheus = "0.14"
 prost = "0.13"
-
-rustls = {version = "0.23" , default-features = false}
+prost-build = "0.13"
+quick-xml = "0.41"
+quickcheck = "1"
+rand = "0.8"
+rcgen = "0.12"
+redis = { version = "1.4", default-features = false }
+regex-automata = { version = "0.4", default-features = false, features = ["std"] }
+rustler = { version = "0.38", default-features = false }
+rustls = { version = "0.23", default-features = false, features = ["std"] }
 rustls-pemfile = "2"
-rustler = { version = "0.38",default-features = false }
-
-serde = { version = "1", default-features = false}
+serde = { version = "1.0", default-features = false, features = ["std"] }
 serde_json = "1.0"
-
-tokio  = "1"
-tokio-stream = "0.1"
+serial_test = "3.2"
+sha2 = "0.11"
+snmp2 = { version = "0.5", default-features = false }
+spiffe = { version = "0.16", default-features = false }
+tempfile = "3"
+thiserror = "2"
+time = { version = ">=0.3.36, <0.3.47", default-features = false, features = ["std"] }
+time-tz = "0.3"
+tokio = "1"
+tokio-postgres = { version = "0.7", default-features = false }
+tokio-postgres-rustls = "0.13"
 tokio-rustls = { version = "0.26", default-features = false }
-
+tokio-stream = "0.1"
+# default = std/serde/parse/display -- effectively the whole crate, and all six
+# consumers need it (`toml::from_str` is "parse").
+toml = "1"
 tonic = { version = "0.12", default-features = false }
 tonic-build = "0.12"
 tonic-health = "0.12"
 tonic-reflection = "0.12"
-
-tempfile = "3"
 tower = "0.5"
+tower-http = { version = "0.6.1", default-features = false }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["std"] }
+ultragraph = "0.9"
+ureq = { version = "2", default-features = false }
+urlencoding = "2"
+uuid = { version = "1", default-features = false, features = ["std"] }
+which = "7.0"
+zeroize = { version = "1", default-features = false }
 
 [patch.crates-io]
 reqsign-azure-storage = { path = "third_party/rust_patches/reqsign-azure-storage-1.0.0" }

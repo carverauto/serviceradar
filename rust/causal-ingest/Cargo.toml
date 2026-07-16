@@ -13,7 +13,7 @@ path = "src/lib.rs"
 serviceradar-causal-config = { path = "../causal-config" }
 serviceradar-causal-model = { path = "../causal-model" }
 serviceradar-causal-ports = { path = "../causal-ports" }
-uuid = "1"
+uuid = { workspace = true }
 
 [features]
 # Live backends are gated so non-ingest builds/tests never pull SRQL/NATS/CNPG. Wired in later work.

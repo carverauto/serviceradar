@@ -9,16 +9,16 @@ name = "kvutil"
 path = "src/lib.rs"
 
 [dependencies]
-anyhow = "1"
-pem = "3"
+anyhow = { workspace = true }
+pem = { workspace = true }
 prost = { workspace = true }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-spiffe = { version = "0.16", default-features = false, features = ["x509-source"] }
-thiserror = "2"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+spiffe = { workspace = true, features = ["x509-source"] }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tokio-stream = { workspace = true }
-toml = "1"
+toml = { workspace = true }
 tonic = { workspace = true }
 
 [build-dependencies]

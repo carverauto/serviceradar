@@ -11,18 +11,18 @@ path = "src/main.rs"
 
 [dependencies]
 addon-sdk = { path = "../addon-sdk" }
-anyhow = "1.0"
-async-trait = "0.1"
-env_logger = "0.11"
-hex = "0.4"
-log = "0.4"
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+env_logger = { workspace = true }
+hex = { workspace = true }
+log = { workspace = true }
 otel = { path = "../otel" }
-serde_json = "1.0"
-sha2 = "0.11"
+serde_json = { workspace = true }
+sha2 = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time", "io-util"] }
 tokio-stream = { workspace = true, features = ["sync"] }
 tonic = { workspace = true }
-uuid = { version = "1", features = ["v4"] }
+uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
-tempfile = "3.0"
+tempfile = { workspace = true }
