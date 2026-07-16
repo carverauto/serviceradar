@@ -21,7 +21,6 @@ rust_library(
     ),
     crate_name = "serviceradar_metrics_delta_writer",
     crate_root = "src/lib.rs",
-    edition = "2024",
     deps = all_crate_deps(normal = True) + [
         "//rust/metric-proto:serviceradar_metric_proto",
     ],
@@ -33,7 +32,6 @@ rust_binary(
     name = "metrics_delta_writer_bin",
     srcs = ["src/main.rs"],
     crate_name = "serviceradar_metrics_delta_writer",
-    edition = "2024",
     deps = [
         ":metrics_delta_writer_lib",
         "//rust/metric-proto:serviceradar_metric_proto",
@@ -46,7 +44,6 @@ rust_binary(
     name = "metrics_protobuf_bench_bin",
     srcs = ["src/bin/metrics_protobuf_bench.rs"],
     crate_name = "metrics_protobuf_bench",
-    edition = "2024",
     deps = [
         ":metrics_delta_writer_lib",
         "//rust/metric-proto:serviceradar_metric_proto",

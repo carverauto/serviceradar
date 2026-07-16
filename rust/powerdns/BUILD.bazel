@@ -12,7 +12,6 @@ cargo_build_script(
     },
     crate_root = "build.rs",
     data = ["proto/dnsmessage.proto"],
-    edition = "2021",
     tools = ["@bazel_tools//tools/proto:protoc"],
     deps = crate_deps(["prost-build"]),
 )
@@ -39,7 +38,6 @@ rust_library(
     srcs = glob(["src/**/*.rs"], exclude = ["src/bin/**"]),
     crate_root = "src/lib.rs",
     crate_name = "serviceradar_powerdns_addon",
-    edition = "2021",
     deps = POWERDNS_DEPS,
     proc_macro_deps = POWERDNS_PROC_MACROS,
 )
@@ -48,13 +46,11 @@ rust_binary(
     name = "serviceradar-powerdns-addon",
     srcs = ["src/bin/serviceradar-powerdns-addon.rs"],
     crate_root = "src/bin/serviceradar-powerdns-addon.rs",
-    edition = "2021",
     deps = POWERDNS_DEPS + [":powerdns_addon"],
     proc_macro_deps = POWERDNS_PROC_MACROS,
 )
 
-# Unit tests: `crate` inherits the library's srcs/deps/edition/crate_root, so they
-# cannot drift from //rust/powerdns:powerdns_addon.
+
 rust_test(
     name = "powerdns_addon_test",
     crate = ":powerdns_addon",

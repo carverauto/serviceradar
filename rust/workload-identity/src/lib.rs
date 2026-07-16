@@ -1,5 +1,16 @@
 //! Node-local workload identity collection and runtime metadata enrichment.
 
+/// Kubernetes CRI runtime API, generated from `//proto/cri/v1.proto` by `build.rs`.
+///
+/// Generated in-tree rather than taken from the `cri-api` crate: that crate is built against
+/// tonic 0.12, so depending on it forced a second gRPC stack (tonic 0.12, tonic-build 0.12,
+/// prost-build 0.13, axum 0.7) alongside the workspace's tonic 0.14.
+pub mod cri {
+    pub mod v1 {
+        tonic::include_proto!("runtime.v1");
+    }
+}
+
 use std::{
     collections::{BTreeMap, HashMap},
     fs,
@@ -17,7 +28,7 @@ use std::os::unix::fs::FileTypeExt;
 #[cfg(unix)]
 use anyhow::{Context, Result};
 #[cfg(unix)]
-use cri_api::v1::{
+use crate::cri::v1::{
     Container, ContainerFilter, ContainerState, ContainerStateValue, ContainerStatusRequest,
     ContainerStatusResponse, ListContainersRequest, PodSandboxStatusRequest,
     PodSandboxStatusResponse, runtime_service_client::RuntimeServiceClient,
@@ -1184,7 +1195,7 @@ mod tests {
     use std::{fs, os::unix::net::UnixListener};
 
     #[cfg(unix)]
-    use cri_api::v1::{
+    use crate::cri::v1::{
         Container, ContainerMetadata, ContainerStatus, ContainerStatusResponse, ImageSpec,
         PodSandboxMetadata, PodSandboxStatus, PodSandboxStatusResponse,
     };

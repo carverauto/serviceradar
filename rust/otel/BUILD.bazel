@@ -8,8 +8,7 @@ cargo_build_script(
     name = "build_script",
     srcs = ["build.rs"],
     crate_root = "build.rs",
-    edition = "2024",
-    deps = crate_deps(["tonic-build"]),
+    deps = crate_deps(["tonic-prost-build"]),
     data = [
         "//rust/otel:otel_proto_srcs",
         "//proto:kv_proto_src",
@@ -24,7 +23,6 @@ rust_library(
     name = "otel_lib",
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/lib.rs",
-    edition = "2024",
     crate_name = "otel",
     # addon-sdk is a path dep (the agent_forward spool stores the shared
     # OtlpRelayFrame/TelemetryBatch wire types), so it is a bazel label
@@ -48,7 +46,6 @@ rust_test(
     name = "otel_nats_chunking_test",
     srcs = ["tests/nats_chunking.rs"],
     crate_root = "tests/nats_chunking.rs",
-    edition = "2024",
     deps = [":otel_lib"] + crate_deps(["prost"]),
 )
 

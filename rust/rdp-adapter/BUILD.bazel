@@ -26,7 +26,6 @@ rust_library(
     ),
     crate_name = "serviceradar_rdp_adapter",
     crate_root = "src/lib.rs",
-    edition = "2021",
     deps = [
         "//third_party/crates:serde",
         "//third_party/crates:serde_json-1.0.150",
@@ -43,7 +42,6 @@ rust_library(
     crate_features = ["ironrdp-backend"],
     crate_name = "serviceradar_rdp_adapter",
     crate_root = "src/lib.rs",
-    edition = "2021",
     deps = [
         "//third_party/crates:serde",
         "//third_party/crates:serde_json-1.0.150",
@@ -60,7 +58,6 @@ rust_library(
     crate_features = ["ironrdp-backend"],
     crate_name = "serviceradar_rdp_adapter",
     crate_root = "src/lib.rs",
-    edition = "2021",
     rustc_flags = ["--cfg=serviceradar_rdp_connector_link_probe"],
     deps = RDP_CONNECTOR_DEPS,
 )
@@ -74,7 +71,6 @@ rust_library(
     crate_features = ["ironrdp-backend"],
     crate_name = "serviceradar_rdp_adapter",
     crate_root = "src/lib.rs",
-    edition = "2021",
     rustc_flags = ["--cfg=serviceradar_rdp_connector_link_probe"],
     deps = RDP_CONNECTOR_DEPS,
 )
@@ -83,7 +79,6 @@ rust_binary(
     name = "rdp_adapter",
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
-    edition = "2021",
     deps = [":rdp_adapter_lib"],
 )
 
@@ -91,7 +86,6 @@ rust_binary(
     name = "rdp_adapter_ironrdp",
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
-    edition = "2021",
     deps = [":rdp_adapter_ironrdp_lib"],
 )
 
@@ -99,7 +93,6 @@ rust_binary(
     name = "rdp_adapter_ironrdp_connector_experimental",
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
-    edition = "2021",
     deps = [":rdp_adapter_ironrdp_connector_experimental_lib"],
 )
 
@@ -127,6 +120,5 @@ rust_test(
     name = "rdp_adapter_live_connector_probe_test",
     srcs = ["tests/connector_live_probe.rs"],
     crate_root = "tests/connector_live_probe.rs",
-    edition = "2021",
     deps = [":rdp_adapter_ironrdp_connector_experimental_lib"],
 )

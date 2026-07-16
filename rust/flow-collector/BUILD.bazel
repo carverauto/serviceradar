@@ -13,8 +13,7 @@ cargo_build_script(
     name = "build_script",
     srcs = ["build.rs"],
     crate_root = "build.rs",
-    edition = "2024",
-    deps = crate_deps(["tonic-build"]),
+    deps = crate_deps(["tonic-prost-build"]),
     data = [
         "//proto/flow:flow_proto_src",
     ],
@@ -28,7 +27,6 @@ rust_binary(
     name = "flow-collector",
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/main.rs",
-    edition = "2024",
     deps = all_crate_deps(normal = True) + [
         ":build_script",
         "//rust/config-bootstrap:config_bootstrap",

@@ -6,7 +6,6 @@ cargo_build_script(
     name = "build_script",
     srcs = ["build.rs"],
     crate_root = "build.rs",
-    edition = "2021",
     build_script_env = {
         "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
     },
@@ -14,7 +13,7 @@ cargo_build_script(
         "//proto/metric/v1:metric_proto_src",
     ],
     tools = ["@bazel_tools//tools/proto:protoc"],
-    deps = crate_deps(["tonic-build"]),
+    deps = crate_deps(["tonic-prost-build"]),
 )
 
 rust_library(
@@ -22,7 +21,6 @@ rust_library(
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/lib.rs",
     crate_name = "serviceradar_metric_proto",
-    edition = "2021",
     deps = crate_deps(["prost"]) + [":build_script"],
     visibility = ["//visibility:public"],
 )

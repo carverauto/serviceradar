@@ -7,7 +7,6 @@ rust_binary(
     name = "log-collector",
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/main.rs",
-    edition = "2024",
     crate_features = [
         "syslog",
         "otel",

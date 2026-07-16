@@ -21,7 +21,6 @@ rust_library(
     ),
     crate_name = "correlation_engine",
     crate_root = "src/lib.rs",
-    edition = "2024",
     deps = all_crate_deps(normal = True) + [
         "//rust/metric-proto:serviceradar_metric_proto",
         "//rust/srql:srql_lib",
@@ -34,7 +33,6 @@ rust_binary(
     name = "correlation_engine_bin",
     srcs = ["src/main.rs"],
     crate_name = "correlation_engine",
-    edition = "2024",
     deps = [
         ":correlation_engine_lib",
         "//rust/metric-proto:serviceradar_metric_proto",

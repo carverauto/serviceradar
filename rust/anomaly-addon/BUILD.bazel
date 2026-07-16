@@ -14,7 +14,6 @@ rust_library(
     ),
     crate_name = "serviceradar_anomaly_addon",
     crate_root = "src/lib.rs",
-    edition = "2024",
     deps = all_crate_deps(normal = True) + [
         "//rust/addon-sdk:addon_sdk",
         "//rust/anomaly-core:serviceradar_anomaly_core",
@@ -26,7 +25,6 @@ rust_binary(
     name = "serviceradar-anomaly-addon",
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
-    edition = "2024",
     deps = [":serviceradar_anomaly_addon"] + all_crate_deps(normal = True) + [
         "//rust/addon-sdk:addon_sdk",
     ],

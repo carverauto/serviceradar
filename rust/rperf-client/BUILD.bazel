@@ -13,9 +13,8 @@ cargo_build_script(
     name = "build_script",
     srcs = ["build.rs"],
     crate_root = "build.rs",
-    edition = "2021",
     deps = crate_deps([
-        "tonic-build",
+        "tonic-prost-build",
         "which",
     ]),
     data = genrule_proto_srcs,
@@ -30,7 +29,6 @@ rust_library(
     srcs = glob(["src/**/*.rs"], exclude = ["src/main.rs"]),
     crate_root = "src/lib.rs",
     crate_name = "serviceradar_rperf_checker",
-    edition = "2021",
     compile_data = [
         "config/default_template.json",
     ],
@@ -44,7 +42,6 @@ rust_library(
 rust_binary(
     name = "rperf_checker",
     srcs = ["src/main.rs"],
-    edition = "2021",
     deps = [":rperf_checker_lib", "//rust/config-bootstrap:config_bootstrap"] + all_crate_deps(normal = True),
 )
 

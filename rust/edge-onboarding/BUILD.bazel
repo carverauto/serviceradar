@@ -5,7 +5,6 @@ rust_library(
     name = "edge_onboarding",
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/lib.rs",
-    edition = "2021",
     deps = all_crate_deps(normal = True),
     visibility = ["//visibility:public"],
 )
@@ -13,7 +12,6 @@ rust_library(
 rust_test(
     name = "edge_onboarding_test",
     crate = ":edge_onboarding",
-    edition = "2021",
     deps = [
         "//third_party/crates:tempfile",
     ],

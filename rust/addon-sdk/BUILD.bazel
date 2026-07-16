@@ -9,7 +9,6 @@ cargo_build_script(
     name = "build_script",
     srcs = ["build.rs"],
     crate_root = "build.rs",
-    edition = "2021",
     build_script_env = {
         "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
     },
@@ -17,7 +16,7 @@ cargo_build_script(
         "proto/agent/addon/v1/addon.proto",
     ],
     tools = ["@bazel_tools//tools/proto:protoc"],
-    deps = crate_deps(["tonic-build"]),
+    deps = crate_deps(["tonic-prost-build"]),
 )
 
 ADDON_SDK_DEPS = crate_deps([
@@ -34,6 +33,7 @@ ADDON_SDK_DEPS = crate_deps([
     "tokio-rustls",
     "tokio-stream",
     "tonic",
+    "tonic-prost",
     "tonic-health",
 ]) + [
     ":build_script",
@@ -49,7 +49,6 @@ rust_library(
     srcs = glob(["src/**/*.rs"], exclude = ["src/bin/**"]),
     crate_root = "src/lib.rs",
     crate_name = "addon_sdk",
-    edition = "2021",
     deps = ADDON_SDK_DEPS,
     proc_macro_deps = ADDON_SDK_PROC_MACROS,
     visibility = ["//visibility:public"],
@@ -61,7 +60,6 @@ rust_binary(
     name = "serviceradar-rust-sample-addon",
     srcs = ["src/bin/rust_sample_addon.rs"],
     crate_root = "src/bin/rust_sample_addon.rs",
-    edition = "2021",
     deps = ADDON_SDK_DEPS + [":addon_sdk"],
     proc_macro_deps = ADDON_SDK_PROC_MACROS,
     visibility = ["//visibility:public"],
@@ -71,7 +69,6 @@ rust_test(
     name = "addon_sdk_handshake_mtls_test",
     srcs = ["tests/handshake_mtls.rs"],
     crate_root = "tests/handshake_mtls.rs",
-    edition = "2021",
     # rcgen is already in ADDON_SDK_DEPS; adding it again duplicates the dep label
     # and puts the package in error. Only test-only crates belong here.
     deps = ADDON_SDK_DEPS + [":addon_sdk"] + crate_deps([

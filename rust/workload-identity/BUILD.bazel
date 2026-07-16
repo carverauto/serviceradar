@@ -1,3 +1,4 @@
+load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 load("//third_party/crates:defs.bzl", "crate_deps")
 
@@ -6,30 +7,47 @@ package(default_visibility = ["//visibility:public"])
 WORKLOAD_IDENTITY_DEPS = crate_deps([
     "anyhow",
     "clap",
-    "cri-api",
     "hyper-util",
     "log",
+    "prost",
     "serde",
     "serde_json",
     "tokio",
     "tonic",
+    "tonic-prost",
     "tower",
 ])
+
+# Generates the CRI runtime client from //proto/cri/v1.proto. This replaces the cri-api
+# crate, which is unmaintained (its repo is gone) and was built against tonic 0.12 --
+# depending on it forced a whole second gRPC stack into the build.
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    crate_root = "build.rs",
+    deps = crate_deps(["tonic-prost-build"]),
+    data = [
+        "//proto:cri_proto_src",
+    ],
+    build_script_env = {
+        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
+    },
+    tools = ["@bazel_tools//tools/proto:protoc"],
+)
 
 rust_library(
     name = "workload_identity",
     srcs = ["src/lib.rs"],
     crate_root = "src/lib.rs",
     crate_name = "serviceradar_workload_identity",
-    edition = "2021",
-    deps = WORKLOAD_IDENTITY_DEPS,
+    deps = WORKLOAD_IDENTITY_DEPS + [":build_script"],
+    data = ["//proto:cri_proto_src"],
 )
 
 rust_binary(
     name = "workload_identity_check",
     srcs = ["src/bin/workload-identity-check.rs"],
     crate_root = "src/bin/workload-identity-check.rs",
-    edition = "2021",
     deps = WORKLOAD_IDENTITY_DEPS + [":workload_identity"],
 )
 
@@ -37,7 +55,6 @@ rust_binary(
     name = "workload_identity_daemon",
     srcs = ["src/bin/workload-identity.rs"],
     crate_root = "src/bin/workload-identity.rs",
-    edition = "2021",
     deps = WORKLOAD_IDENTITY_DEPS + [":workload_identity"],
 )
 
@@ -46,8 +63,8 @@ rust_test(
     srcs = ["src/lib.rs"],
     crate_root = "src/lib.rs",
     crate_name = "serviceradar_workload_identity",
-    edition = "2021",
-    deps = WORKLOAD_IDENTITY_DEPS + crate_deps(["tempfile"]),
+    deps = WORKLOAD_IDENTITY_DEPS + crate_deps(["tempfile"]) + [":build_script"],
+    data = ["//proto:cri_proto_src"],
 )
 
 # fj#4383: the daemon's config decoder (Config/load_config) lives in the bin
@@ -59,6 +76,5 @@ rust_test(
     srcs = ["src/bin/workload-identity.rs"],
     compile_data = ["//go/pkg/agent:addonconfig_contract_fixtures"],
     crate_root = "src/bin/workload-identity.rs",
-    edition = "2021",
     deps = WORKLOAD_IDENTITY_DEPS + [":workload_identity"],
 )

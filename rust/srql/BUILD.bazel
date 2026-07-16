@@ -18,7 +18,6 @@ rust_library(
     srcs = glob(["src/**/*.rs"]),
     crate_name = "srql",
     crate_root = "src/lib.rs",
-    edition = "2021",
     deps = all_crate_deps(normal = True) + [
         "//rust/kvutil:kvutil",
     ],
@@ -30,7 +29,6 @@ rust_binary(
     name = "srql_bin",
     srcs = ["src/main.rs"],
     crate_name = "srql",
-    edition = "2021",
     deps = [
         ":srql_lib",
         "//rust/kvutil:kvutil",
@@ -42,7 +40,6 @@ rust_binary(
 # NOTE: srql_api_test / srql_comprehensive_test moved to //integration_tests/srql.
 # They wire the CNPG Postgres image (heavy, Linux-only) and must not be reachable from
 # //rust/... — see integration_tests/srql/BUILD.bazel.
-
 rust_test(
     name = "srql_lib_test",
     crate = ":srql_lib",
