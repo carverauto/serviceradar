@@ -1,0 +1,46 @@
+elixir/serviceradar_core/priv/repo/migrations/20260715130000_backfill_canonical_bmp_routing_addresses.exs
+  s_6f8eb423821667::t_d272adcfee7f92 1-378
+elixir/serviceradar_core/lib/serviceradar/event_writer/processors/analytics_signals.ex
+  s_6f8eb423821667::t_d272adcfee7f92 32-38,166-167,170,760-820,1046-1048,1051,1057
+  s_6f8eb423821667::t_f140bc5c5b3146 1058
+rust/bmp-collector/src/publisher.rs
+  s_6f8eb423821667::t_d272adcfee7f92 85-86
+integration_tests/srql/tests/fixtures/schema.sql
+  s_6f8eb423821667::t_d272adcfee7f92 310
+rust/bmp-collector/Cargo.toml
+  s_6f8eb423821667::t_3617e90ed68b6d 16-17
+  s_6f8eb423821667::t_38919e61e362e7 20
+elixir/serviceradar_core/test/serviceradar/event_writer/processors/analytics_signals_test.exs
+  s_6f8eb423821667::t_d272adcfee7f92 791-945
+integration_tests/srql/tests/fixtures/seed.sql
+  s_6f8eb423821667::t_d272adcfee7f92 1161,1179,1198
+rust/bmp-collector/src/model.rs
+  s_6f8eb423821667::t_d272adcfee7f92 3,49,51,54,63,82-172
+CLAUDE.md
+  s_6f8eb423821667::t_07ce8d19abea43 1
+integration_tests/srql/tests/comprehensive_queries.rs
+  s_6f8eb423821667::t_d272adcfee7f92 61-67
+  s_6f8eb423821667::t_8030a6e1e57a72 60
+rust/bmp-collector/src/bmp.rs
+  s_6f8eb423821667::t_d272adcfee7f92 221
+elixir/serviceradar_core/test/serviceradar/event_writer/bmp_routing_address_backfill_migration_test.exs
+  s_6f8eb423821667::t_d272adcfee7f92 1-472
+third_party/crates/.serviceradar-vendor-inputs
+  s_6f8eb423821667::t_bd1ca424c807a8 1,8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "1597ad5178959acc898333bc94588b3697d9e42a",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
