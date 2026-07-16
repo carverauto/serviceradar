@@ -95,7 +95,7 @@ rust_library(
     version = "0.14.6",
     deps = [
         "//third_party/crates/bytes-1.11.1:bytes",
-        "//third_party/crates/prost-0.14.3:prost",
+        "//third_party/crates/prost-0.14.4:prost",
         "//third_party/crates/tonic-0.14.6:tonic",
     ],
 )

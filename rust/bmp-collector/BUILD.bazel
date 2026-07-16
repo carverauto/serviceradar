@@ -1,4 +1,4 @@
-load("@rules_rust//rust:defs.bzl", "rust_binary")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
 load("//third_party/crates:defs.bzl", "all_crate_deps")
 
 package(default_visibility = ["//visibility:public"])
@@ -10,7 +10,6 @@ rust_binary(
     name = "serviceradar-bmp-collector",
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/main.rs",
-    edition = "2024",
     deps = all_crate_deps(normal = True),
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )
@@ -20,4 +19,9 @@ rust_binary(
 alias(
     name = "bmp-collector",
     actual = ":serviceradar-bmp-collector",
+)
+
+rust_test(
+    name = "bmp_collector_test",
+    crate = ":serviceradar-bmp-collector",
 )

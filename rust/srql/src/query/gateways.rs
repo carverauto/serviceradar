@@ -14,13 +14,13 @@ use crate::{
     time::TimeRange,
 };
 use chrono::{DateTime, Utc};
+use diesel::PgTextExpressionMethods;
 use diesel::deserialize::QueryableByName;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
 use diesel::sql_query;
 use diesel::sql_types::{Array, BigInt, Bool, Float8, Int4, Jsonb, Nullable, Text, Timestamptz};
-use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 
@@ -214,7 +214,7 @@ fn apply_filter<'a>(mut query: GatewaysQuery<'a>, filter: &Filter) -> Result<Gat
                 _ => {
                     return Err(ServiceError::InvalidRequest(
                         "is_healthy filter only supports equality".into(),
-                    ))
+                    ));
                 }
             }
         }

@@ -75,11 +75,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use tokio::io::duplex;
     use tokio::io::AsyncWriteExt;
+    use tokio::io::duplex;
 
-    use super::{read_frame, write_frame, FramingError, MAX_FRAME_SIZE};
-    use crate::proto::netprobe::{netprobe_frame, NetprobeFrame, Ping};
+    use super::{FramingError, MAX_FRAME_SIZE, read_frame, write_frame};
+    use crate::proto::netprobe::{NetprobeFrame, Ping, netprobe_frame};
 
     #[tokio::test]
     async fn round_trips_frame() {

@@ -60,7 +60,7 @@ pub(super) fn build_grouped_stats_filter_clause(
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for device stats: '{other}'"
-            )))
+            )));
         }
     };
 

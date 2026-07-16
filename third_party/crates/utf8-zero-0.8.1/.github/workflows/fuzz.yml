@@ -1,0 +1,35 @@
+name: Nightly Cargo Fuzz
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # Runs every day at midnight
+  workflow_dispatch:
+
+jobs:
+  cargo-fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      # Run each fuzz target for 10 minutes
+      FUZZ_TIMEOUT: 600 # Seconds
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install Rust and cargo-fuzz
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: rust-src
+      - run: rustup install nightly
+      - run: rustup default nightly
+      - run: cargo install cargo-fuzz
+
+      - name: Build fuzz targets
+        run: cargo fuzz build
+
+      - name: Run Cargo Fuzz
+        run: |
+          cargo fuzz list | while read target; do
+            cargo fuzz run "$target" --jobs $(nproc) -- -max_total_time=$FUZZ_TIMEOUT --stop-after-first-failure -max_len=200000
+          done

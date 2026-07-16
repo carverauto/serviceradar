@@ -112,32 +112,23 @@ pub(in crate::query) const FLOW_OUTPUT_SNMP_EXPR: &str = r#"(CASE
   ELSE NULL
 END)"#;
 
-pub(in crate::query) const FLOW_EXPORTER_NAME_GROUP_EXPR: &str =
-    "COALESCE((SELECT ec.exporter_name FROM netflow_exporter_cache ec WHERE ec.sampler_address = sampler_address LIMIT 1), 'Unknown')";
+pub(in crate::query) const FLOW_EXPORTER_NAME_GROUP_EXPR: &str = "COALESCE((SELECT ec.exporter_name FROM netflow_exporter_cache ec WHERE ec.sampler_address = sampler_address LIMIT 1), 'Unknown')";
 
-pub(in crate::query) const FLOW_IN_IF_NAME_GROUP_EXPR: &str =
-    "COALESCE((SELECT ic.if_name FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,input_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
+pub(in crate::query) const FLOW_IN_IF_NAME_GROUP_EXPR: &str = "COALESCE((SELECT ic.if_name FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,input_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
 
-pub(in crate::query) const FLOW_OUT_IF_NAME_GROUP_EXPR: &str =
-    "COALESCE((SELECT ic.if_name FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,output_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
+pub(in crate::query) const FLOW_OUT_IF_NAME_GROUP_EXPR: &str = "COALESCE((SELECT ic.if_name FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,output_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
 
-pub(in crate::query) const FLOW_IN_IF_SPEED_BPS_GROUP_EXPR: &str =
-    "COALESCE((SELECT ic.if_speed_bps::text FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,input_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
+pub(in crate::query) const FLOW_IN_IF_SPEED_BPS_GROUP_EXPR: &str = "COALESCE((SELECT ic.if_speed_bps::text FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,input_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
 
-pub(in crate::query) const FLOW_OUT_IF_SPEED_BPS_GROUP_EXPR: &str =
-    "COALESCE((SELECT ic.if_speed_bps::text FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,output_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
+pub(in crate::query) const FLOW_OUT_IF_SPEED_BPS_GROUP_EXPR: &str = "COALESCE((SELECT ic.if_speed_bps::text FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,output_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
 
-pub(in crate::query) const FLOW_CONVERSATION_A_IP_EXPR: &str =
-    "CASE WHEN COALESCE(NULLIF(src_endpoint_ip, ''), 'Unknown') <= COALESCE(NULLIF(dst_endpoint_ip, ''), 'Unknown') THEN COALESCE(NULLIF(src_endpoint_ip, ''), 'Unknown') ELSE COALESCE(NULLIF(dst_endpoint_ip, ''), 'Unknown') END";
+pub(in crate::query) const FLOW_CONVERSATION_A_IP_EXPR: &str = "CASE WHEN COALESCE(NULLIF(src_endpoint_ip, ''), 'Unknown') <= COALESCE(NULLIF(dst_endpoint_ip, ''), 'Unknown') THEN COALESCE(NULLIF(src_endpoint_ip, ''), 'Unknown') ELSE COALESCE(NULLIF(dst_endpoint_ip, ''), 'Unknown') END";
 
-pub(in crate::query) const FLOW_CONVERSATION_B_IP_EXPR: &str =
-    "CASE WHEN COALESCE(NULLIF(src_endpoint_ip, ''), 'Unknown') <= COALESCE(NULLIF(dst_endpoint_ip, ''), 'Unknown') THEN COALESCE(NULLIF(dst_endpoint_ip, ''), 'Unknown') ELSE COALESCE(NULLIF(src_endpoint_ip, ''), 'Unknown') END";
+pub(in crate::query) const FLOW_CONVERSATION_B_IP_EXPR: &str = "CASE WHEN COALESCE(NULLIF(src_endpoint_ip, ''), 'Unknown') <= COALESCE(NULLIF(dst_endpoint_ip, ''), 'Unknown') THEN COALESCE(NULLIF(dst_endpoint_ip, ''), 'Unknown') ELSE COALESCE(NULLIF(src_endpoint_ip, ''), 'Unknown') END";
 
-pub(in crate::query) const FLOW_INPUT_SNMP_GROUP_EXPR: &str =
-    "COALESCE((CASE WHEN (ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,input_snmp}')::bigint ELSE NULL END)::text, 'Unknown')";
+pub(in crate::query) const FLOW_INPUT_SNMP_GROUP_EXPR: &str = "COALESCE((CASE WHEN (ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,input_snmp}')::bigint ELSE NULL END)::text, 'Unknown')";
 
-pub(in crate::query) const FLOW_OUTPUT_SNMP_GROUP_EXPR: &str =
-    "COALESCE((CASE WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,output_snmp}')::bigint ELSE NULL END)::text, 'Unknown')";
+pub(in crate::query) const FLOW_OUTPUT_SNMP_GROUP_EXPR: &str = "COALESCE((CASE WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,output_snmp}')::bigint ELSE NULL END)::text, 'Unknown')";
 
 pub(in crate::query) const FLOW_TCP_FLAGS_LABEL_EXPR: &str =
     "COALESCE(array_to_string(tcp_flags_labels, ','), 'Unknown')";

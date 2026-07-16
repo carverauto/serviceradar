@@ -266,7 +266,7 @@ fn build_filters_clause_raw(plan: &QueryPlan) -> Result<(Vec<String>, Vec<SqlBin
             other => {
                 return Err(ServiceError::InvalidRequest(format!(
                     "unsupported filter field '{other}'"
-                )))
+                )));
             }
         }
     }
@@ -338,7 +338,7 @@ fn add_text_condition(
             return Err(ServiceError::InvalidRequest(format!(
                 "text filter {column} does not support operator {:?}",
                 filter.op
-            )))
+            )));
         }
     }
 
@@ -378,7 +378,7 @@ fn numeric_comparison_sql(column: &str, op: &FilterOp) -> Result<String> {
         _ => {
             return Err(ServiceError::InvalidRequest(format!(
                 "{column} filter only supports equality or numeric comparisons"
-            )))
+            )));
         }
     };
     Ok(format!("{column} {operator} ?"))
@@ -709,7 +709,7 @@ fn parse_condition(raw: &str) -> Result<StatsExprKind> {
                         _ => {
                             return Err(ServiceError::InvalidRequest(
                                 "status_code comparisons only support '=' or '!='".into(),
-                            ))
+                            ));
                         }
                     };
                     Ok(StatsExprKind::StatusCompare {
@@ -728,7 +728,7 @@ fn parse_condition(raw: &str) -> Result<StatsExprKind> {
                         _ => {
                             return Err(ServiceError::InvalidRequest(
                                 "duration_ms comparisons only support '>'".into(),
-                            ))
+                            ));
                         }
                     };
                     Ok(StatsExprKind::DurationCompare {

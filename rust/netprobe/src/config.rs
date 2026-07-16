@@ -157,10 +157,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        effective_flow_table_max_entries, validate_capture_interfaces, validate_interface,
         AllowlistError, Config, DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS,
         DEFAULT_FLOW_ATTRIBUTION_IPC_BATCH, DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S,
         DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S, FLOW_TABLE_ENTRIES_PER_INTERFACE,
+        effective_flow_table_max_entries, validate_capture_interfaces, validate_interface,
     };
 
     #[test]

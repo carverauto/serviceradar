@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::str::Utf8Error;
 
-use serde::{de, Deserialize};
+use serde::{Deserialize, de};
 use zeroize::Zeroize;
 
 use super::constants::MAX_TLS_CA_BUNDLE_PEM_BYTES;

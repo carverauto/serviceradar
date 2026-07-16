@@ -599,7 +599,7 @@ fn numeric_condition(
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported operator for numeric WiFi map filter: {:?}",
                 filter.op
-            )))
+            )));
         }
     };
 
@@ -622,7 +622,7 @@ fn text_array_condition(
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "WiFi map array filters only support equality and list filters".into(),
-            ))
+            ));
         }
     };
 
@@ -701,7 +701,7 @@ fn date_condition(field_sql: &str, filter: &Filter, binds: &mut Vec<BindParam>) 
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported operator for date WiFi map filter: {:?}",
                 filter.op
-            )))
+            )));
         }
     };
     binds.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
@@ -794,7 +794,7 @@ fn parse_f64(raw: &str) -> Result<f64> {
 mod tests {
     use crate::{
         config::AppConfig,
-        query::{translate_request, QueryRequest},
+        query::{QueryRequest, translate_request},
     };
 
     fn translate(query: &str) -> String {
@@ -852,8 +852,12 @@ mod tests {
             "in:wifi_sites ap_family:(6xx,7xx) wlc_model:7030 aos_version:%8.11% limit:10",
         );
 
-        assert!(sql.contains("jsonb_exists_any(COALESCE(latest.model_breakdown, '{}'::jsonb), $1)"));
-        assert!(sql.contains("jsonb_exists(COALESCE(latest.wlc_model_breakdown, '{}'::jsonb), $2)"));
+        assert!(
+            sql.contains("jsonb_exists_any(COALESCE(latest.model_breakdown, '{}'::jsonb), $1)")
+        );
+        assert!(
+            sql.contains("jsonb_exists(COALESCE(latest.wlc_model_breakdown, '{}'::jsonb), $2)")
+        );
         assert!(
             sql.contains("jsonb_object_keys(COALESCE(latest.aos_version_breakdown, '{}'::jsonb))")
         );
@@ -864,10 +868,16 @@ mod tests {
     fn wifi_site_jsonb_breakdown_filters_support_negation() {
         let sql = translate("in:wifi_sites !ap_family:(2xx,3xx) !wlc_model:7205");
 
-        assert!(sql
-            .contains("NOT (jsonb_exists_any(COALESCE(latest.model_breakdown, '{}'::jsonb), $1))"));
-        assert!(sql
-            .contains("NOT (jsonb_exists(COALESCE(latest.wlc_model_breakdown, '{}'::jsonb), $2))"));
+        assert!(
+            sql.contains(
+                "NOT (jsonb_exists_any(COALESCE(latest.model_breakdown, '{}'::jsonb), $1))"
+            )
+        );
+        assert!(
+            sql.contains(
+                "NOT (jsonb_exists(COALESCE(latest.wlc_model_breakdown, '{}'::jsonb), $2))"
+            )
+        );
     }
 
     #[test]

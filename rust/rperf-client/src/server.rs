@@ -27,7 +27,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder as ReflectionBuilder;
@@ -53,8 +53,8 @@ pub mod monitoring {
 }
 
 use rperf_service::{
-    r_perf_service_server::{RPerfService, RPerfServiceServer},
     StatusRequest, StatusResponse, TestRequest, TestResponse, TestSummary,
+    r_perf_service_server::{RPerfService, RPerfServiceServer},
 };
 
 #[derive(Debug)]
@@ -390,11 +390,7 @@ fn push_point(metric: &mut Metric, value: f64, observed_at: u64, attrs: &[String
 }
 
 fn bool_value(value: bool) -> f64 {
-    if value {
-        1.0
-    } else {
-        0.0
-    }
+    if value { 1.0 } else { 0.0 }
 }
 
 fn rperf_attrs(target: &str, result: &RPerfResult) -> Vec<StringMapEntry> {
@@ -725,11 +721,13 @@ mod tests {
             batch.ingest_identity.as_ref().unwrap().source,
             "rperf-metrics"
         );
-        assert!(batch
-            .metrics
-            .iter()
-            .any(|metric| metric.name == "rperf.bits_per_second"
-                && metric.points[0].value == 1_600.0));
+        assert!(
+            batch
+                .metrics
+                .iter()
+                .any(|metric| metric.name == "rperf.bits_per_second"
+                    && metric.points[0].value == 1_600.0)
+        );
 
         let decoded = MetricBatch::decode(batch.encode_to_vec().as_slice()).expect("decode batch");
         assert_eq!(decoded.metrics.len(), batch.metrics.len());

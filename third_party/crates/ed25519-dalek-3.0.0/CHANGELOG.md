@@ -1,0 +1,80 @@
+# Changelog
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+Entries are listed in reverse chronological order per undeprecated major series.
+
+# 3.x series
+
+## 3.0.0 - 2026-07-06
+
+### Breaking Changes
+
+* Update edition to 2024
+* Update the MSRV from 1.60 to 1.85
+* Remove `std` feature now that `error::Error` is in `core`
+* Make signing and verifying keys use `pkcs8::spki::SignatureAlgorithmIdentifier` instead of `DynSignatureAlgorithmIdentifier` ([#779](https://github.com/dalek-cryptography/curve25519-dalek/pull/779))
+* Upgrade `ed25519` dependency to v3.0.0
+* Upgrade `signature` dependency to v3.0.0
+* Upgrade `sha2` and `sha3` dependencies to v0.11
+* Upgrade `getrandom` dependency to v0.4
+* Upgrade `chacha20` dependency to v0.10
+* Upgrade `rand_core` dependency to v0.10.0
+
+### Other Changes
+
+* Re-export `rand_core` ([#908](https://github.com/dalek-cryptography/curve25519-dalek/pull/908))
+* Add allocation-free `EdwardsPoint::compress_batch` ([#832](https://github.com/dalek-cryptography/curve25519-dalek/pull/832))
+* Add `strobe-rs` dependency and delete vendored STROBE impl ([#895](https://github.com/dalek-cryptography/curve25519-dalek/pull/895))
+* Impl `MultipartSigner` and `MultipartVerifier` for `SigningKey` and `VerifyingKey` ([#764](https://github.com/dalek-cryptography/curve25519-dalek/pull/764))
+* Impl `KeySizeUser`, `TryKeyInit`, and `Generate` for `SigningKey`. Also impl `KeySizeUser` for `VerifyingKey` [#733](https://github.com/dalek-cryptography/curve25519-dalek/pull/733)
+
+# 2.x series
+
+## 2.2.0 - 2025-07-08
+
+* Add `hazmat`-gated methods `SigningKey::verify_stream()` and `VerifyingKey::verify_stream()`
+* Add `Debug` and `Eq` traits for `hazmat::ExpandedSecretKey`
+
+## 2.1.1 - 2024-02-06
+
+* Fix nightly SIMD build
+
+## 2.1.0
+
+* Add `SigningKey::to_scalar_bytes` for getting the unclamped scalar from a signing key
+* Loosened `signature` dependency to allow version 2.2
+
+##  2.0.0
+
+### Breaking changes
+
+* Bump MSRV from 1.41 to 1.60.0
+* Bump Rust edition
+* Bump `signature` dependency to 2.0
+* Make `digest` an optional dependency
+* Make `zeroize` an optional dependency
+* Make `rand_core` an optional dependency
+* [curve25519 backends] are now automatically selected
+* [curve25519 backends] are now overridable via cfg instead of using additive features
+* Make all batch verification deterministic remove `batch_deterministic` (PR [#256](https://github.com/dalek-cryptography/ed25519-dalek/pull/256))
+* Rename `Keypair` → `SigningKey` and `PublicKey` → `VerifyingKey`
+* Remove default-public `ExpandedSecretKey` API (PR [#205](https://github.com/dalek-cryptography/ed25519-dalek/pull/205))
+* Make `hazmat` feature to expose `ExpandedSecretKey`, `raw_sign()`, `raw_sign_prehashed()`, `raw_verify()`, and `raw_verify_prehashed()`
+
+[curve25519 backends]: https://github.com/dalek-cryptography/curve25519-dalek/#backends
+
+### Other changes
+
+* Add `Context` type for prehashed signing
+* Add `VerifyingKey::{verify_prehash_strict, is_weak}`
+* Add `pkcs` feature to support PKCS #8 (de)serialization of `SigningKey` and `VerifyingKey`
+* Add `fast` feature to include basepoint tables
+* Add tests for validation criteria
+* Impl `DigestSigner`/`DigestVerifier` for `SigningKey`/`VerifyingKey`, respectively
+* Impl `Hash` for `VerifyingKey`
+* Impl `Clone`, `Drop`, and `ZeroizeOnDrop` for `SigningKey`
+* Remove `rand` dependency
+* Improve key deserialization diagnostics

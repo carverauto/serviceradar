@@ -56,7 +56,7 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "downsample is only supported for metric entities and flows".into(),
-            ))
+            ));
         }
     };
 
@@ -341,7 +341,7 @@ fn build_flow_cagg_union_sql(
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "flow CAGG routing does not support {other:?} aggregation"
-            )))
+            )));
         }
     };
 

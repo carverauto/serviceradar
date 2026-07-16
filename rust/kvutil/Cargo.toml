@@ -1,24 +1,26 @@
 [package]
 name = "kvutil"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+
 
 [lib]
 name = "kvutil"
 path = "src/lib.rs"
 
 [dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-tonic = { workspace = true }
+anyhow = { workspace = true }
+pem = { workspace = true }
 prost = { workspace = true }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "1"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+spiffe = { workspace = true, features = ["x509-source"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tokio-stream = { workspace = true }
-toml = "0.8"
-spiffe = { version = "0.16", default-features = false, features = ["x509-source"] }
-anyhow = "1"
-pem = "3"
+toml = { workspace = true }
+tonic = { workspace = true, features = ["tls-ring"] }
+tonic-prost = { workspace = true }
 
 [build-dependencies]
-tonic-build = { workspace = true }
+tonic-prost-build = { workspace = true }

@@ -1,5 +1,5 @@
 load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
-load("@rules_rust//rust:defs.bzl", "rust_binary")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
 load("//third_party/crates:defs.bzl", "all_crate_deps", "crate_deps")
 
 package(default_visibility = ["//visibility:public"])
@@ -8,8 +8,7 @@ cargo_build_script(
     name = "build_script",
     srcs = ["build.rs"],
     crate_root = "build.rs",
-    edition = "2021",
-    deps = crate_deps(["tonic-build"]),
+    deps = crate_deps(["tonic-prost-build"]),
     data = [
         "//proto:kv_proto_src",
         "//proto:monitoring_proto_src",
@@ -24,11 +23,16 @@ rust_binary(
     name = "trapd",
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/main.rs",
-    edition = "2021",
     deps = all_crate_deps(normal = True) + [
         ":build_script",
         "//rust/config-bootstrap:config_bootstrap",
         "//rust/kvutil:kvutil",
     ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
+)
+
+rust_test(
+    name = "trapd_test",
+    crate = ":trapd",
+    deps = all_crate_deps(normal_dev = True),
 )

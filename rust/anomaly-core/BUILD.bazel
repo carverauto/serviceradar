@@ -61,7 +61,6 @@ rust_test(
         "testdata/scorecard/samples.jsonl.gz",
         "testdata/scorecard/truth.csv.gz",
     ],
-    edition = "2024",
     deps = all_crate_deps(
         normal = True,
         normal_dev = True,

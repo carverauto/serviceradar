@@ -1,7 +1,7 @@
 use super::Splitter;
 use crate::flowgger::decoder::Decoder;
 use crate::flowgger::encoder::Encoder;
-use std::io::{stderr, BufRead, BufReader, ErrorKind, Read, Write};
+use std::io::{BufRead, BufReader, ErrorKind, Read, Write, stderr};
 use std::str;
 use std::sync::mpsc::SyncSender;
 

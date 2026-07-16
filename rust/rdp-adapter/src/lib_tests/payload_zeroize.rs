@@ -3,9 +3,11 @@ use super::*;
 #[test]
 fn parse_and_clear_open_payload_zeroizes_raw_credential_frame() {
     let mut payload = protocol::tests::valid_open_payload().into_bytes();
-    assert!(payload
-        .windows(b"secret".len())
-        .any(|window| window == b"secret"));
+    assert!(
+        payload
+            .windows(b"secret".len())
+            .any(|window| window == b"secret")
+    );
 
     let parsed = parse_and_clear_open_payload(&mut payload).expect("valid payload");
 
@@ -33,9 +35,11 @@ fn parse_and_clear_open_payload_zeroizes_invalid_raw_frame() {
 fn parse_and_clear_input_payload_zeroizes_raw_input_frame() {
     let policy = input_test_policy();
     let mut payload = valid_input_payload().into_bytes();
-    assert!(payload
-        .windows(b"Enter".len())
-        .any(|window| window == b"Enter"));
+    assert!(
+        payload
+            .windows(b"Enter".len())
+            .any(|window| window == b"Enter")
+    );
 
     let frame =
         parse_and_clear_input_payload(&mut payload, "session-1", &policy).expect("valid input");
@@ -61,9 +65,11 @@ fn parse_and_clear_input_payload_zeroizes_invalid_raw_input_frame() {
 #[test]
 fn parse_and_clear_ack_payload_zeroizes_raw_ack_frame() {
     let mut payload = valid_ack_payload().into_bytes();
-    assert!(payload
-        .windows(b"browser close".len())
-        .any(|window| window == b"browser close"));
+    assert!(
+        payload
+            .windows(b"browser close".len())
+            .any(|window| window == b"browser close")
+    );
 
     let ack = parse_and_clear_ack_payload(&mut payload, "session-1").expect("valid ack");
 
@@ -98,9 +104,11 @@ fn parse_and_clear_ack_payload_normalizes_close_reason_before_backend() {
 #[test]
 fn parse_and_clear_close_payload_zeroizes_raw_close_frame() {
     let mut payload = br#"{"reason":"operator close"}"#.to_vec();
-    assert!(payload
-        .windows(b"operator close".len())
-        .any(|window| window == b"operator close"));
+    assert!(
+        payload
+            .windows(b"operator close".len())
+            .any(|window| window == b"operator close")
+    );
 
     let close = parse_and_clear_close_payload(&mut payload).expect("valid close");
 

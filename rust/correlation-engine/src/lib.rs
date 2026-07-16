@@ -18,7 +18,6 @@
 //! The crate is scaffolded incrementally; modules carry `TODO(<task>)` markers
 //! referencing `openspec/changes/add-causal-engine/tasks.md`.
 
-pub mod signal_evidence;
 pub mod config;
 pub mod context_hydrator;
 pub mod delta;
@@ -29,6 +28,7 @@ pub mod god_view;
 pub mod graph;
 pub mod nats;
 pub mod reasoner;
+pub mod signal_evidence;
 pub mod snapshot;
 pub mod subscriber;
 

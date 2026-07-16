@@ -1,9 +1,8 @@
 [package]
 name = "serviceradar-causal-context"
 version = "0.1.0"
-edition = "2024"
-rust-version = "1.90"
 description = "Causal security engine — L2 Context (the DeepCausality world model). Scaffold only in Phase 0; the Contextoid hypergraph (asset criticality, IOC Symboids, topology reachability) is filled by add-causal-security-detections. (OpenSpec: add-causal-security-foundation)."
+edition = "2024"
 license = "Apache-2.0"
 
 [lib]

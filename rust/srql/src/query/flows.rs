@@ -33,12 +33,12 @@ use crate::{
     schema::ocsf_network_activity::dsl::*,
     time::TimeRange,
 };
+use diesel::PgTextExpressionMethods;
 use diesel::dsl::{not, sql};
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
 use diesel::sql_types::{Bool, Text};
-use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 

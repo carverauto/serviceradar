@@ -1,6 +1,6 @@
 use super::{
-    bind::DeviceSqlBindValue, fields::DeviceGroupField, filters::build_grouped_stats_filter_clause,
-    spec::DeviceStatsSpec, DeviceGroupedStatsSql,
+    DeviceGroupedStatsSql, bind::DeviceSqlBindValue, fields::DeviceGroupField,
+    filters::build_grouped_stats_filter_clause, spec::DeviceStatsSpec,
 };
 use crate::{
     error::{Result, ServiceError},

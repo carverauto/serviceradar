@@ -37,7 +37,6 @@ rust_library(
     crate_features = [
         "aws-lc-rs",
         "aws_lc_rs",
-        "default",
         "logging",
         "ring",
         "tls12",

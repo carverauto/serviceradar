@@ -200,19 +200,21 @@ impl Output for FileOutput {
             }
         }
 
-        thread::spawn(move || loop {
-            let mut bytes = match { arx.lock().unwrap().recv() } {
-                Ok(line) => line,
-                Err(_) => return,
-            };
+        thread::spawn(move || {
+            loop {
+                let mut bytes = match { arx.lock().unwrap().recv() } {
+                    Ok(line) => line,
+                    Err(_) => return,
+                };
 
-            if let Some(ref merger) = merger {
-                merger.frame(&mut bytes);
+                if let Some(ref merger) = merger {
+                    merger.frame(&mut bytes);
+                }
+
+                writer
+                    .write_all(&bytes)
+                    .expect("Cannot write bytes to output file");
             }
-
-            writer
-                .write_all(&bytes)
-                .expect("Cannot write bytes to output file");
         });
     }
 }
@@ -225,7 +227,7 @@ mod tests {
     use crate::flowgger::merger::LineMerger;
     use std::fs;
     use std::io::Result;
-    use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+    use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
     use std::sync::{Arc, Mutex};
     use std::{thread, time};
     use tempfile::TempDir;

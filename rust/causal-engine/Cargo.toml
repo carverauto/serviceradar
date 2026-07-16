@@ -1,9 +1,8 @@
 [package]
 name = "serviceradar-causal-engine"
 version = "0.1.0"
-edition = "2024"
-rust-version = "1.90"
 description = "Causal security engine — the fused single-pod binary (composition root / DI + tick loop). Scaffold only in Phase 0: it composes the crate family; the runtime loop is wired by later milestones. (OpenSpec: add-causal-security-foundation)."
+edition = "2024"
 license = "Apache-2.0"
 
 [[bin]]
@@ -11,13 +10,13 @@ name = "serviceradar-causal-engine"
 path = "src/main.rs"
 
 [dependencies]
-serviceradar-causal-model = { path = "../causal-model" }
-serviceradar-causal-ports = { path = "../causal-ports" }
+serviceradar-causal-causaloids = { path = "../causal-causaloids" }
 serviceradar-causal-config = { path = "../causal-config" }
 serviceradar-causal-context = { path = "../causal-context" }
-serviceradar-causal-ingest = { path = "../causal-ingest" }
-serviceradar-causal-causaloids = { path = "../causal-causaloids" }
-serviceradar-causal-reasoning = { path = "../causal-reasoning" }
-serviceradar-causal-mitigation = { path = "../causal-mitigation" }
 serviceradar-causal-emit = { path = "../causal-emit" }
-uuid = "1"
+serviceradar-causal-ingest = { path = "../causal-ingest" }
+serviceradar-causal-mitigation = { path = "../causal-mitigation" }
+serviceradar-causal-model = { path = "../causal-model" }
+serviceradar-causal-ports = { path = "../causal-ports" }
+serviceradar-causal-reasoning = { path = "../causal-reasoning" }
+uuid = { workspace = true }

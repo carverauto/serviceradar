@@ -1,0 +1,59 @@
+[package]
+authors = ["Patrick Fernie <patrick.fernie@gmail.com>"]
+description = "Implementation of Cookie storage and retrieval"
+name = "cookie_store"
+version = "0.22.0" # managed by release.sh
+edition = "2021"
+rust-version = "1.63.0"
+repository = "https://github.com/pfernie/cookie_store"
+documentation = "https://docs.rs/cookie_store"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+keywords = ["cookie", "jar", "store", "http"]  # free text
+categories = ["web-programming::http-client", "web-programming"]  # https://crates.io/category_slugs
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["public_suffix", "serde_json"]
+
+## uses `indexmap::IndexMap` in lieu of HashMap internally, so cookies are maintained in insertion/creation order
+preserve_order = ["dep:indexmap"]
+## Add support for public suffix lists, as provided by [publicsuffix](https://crates.io/crates/publicsuffix).
+public_suffix = ["dep:publicsuffix"]
+## Enables transitive feature `time/wasm-bindgen`; necessary in `wasm` contexts.
+wasm-bindgen = ["time/wasm-bindgen"]
+
+## Enable logging the values of cookies marked 'secure', off by default as values may be sensitive
+log_secure_cookie_values = []
+
+#! ### Serialization
+## Supports generic (format-agnostic) de/serialization for a `CookieStore`. Adds dependencies `serde` and `serde_derive`.
+serde = ["dep:serde", "dep:serde_derive"]
+## Supports de/serialization for a `CookieStore` via the JSON format. Enables feature `serde` and adds depenency `serde_json`.
+serde_json = ["serde", "dep:serde_json"]
+## Supports de/serialization for a `CookieStore` via the RON format. Enables feature `serde` and adds depenency `ron`.
+serde_ron = ["serde", "dep:ron"]
+
+[dependencies]
+document-features = "0.2.10"
+idna = "1.0"
+log = "0.4.17"
+time = "0.3.16"
+url = "2.3.1"
+
+indexmap = { version = "2.6.0", optional = true }
+
+publicsuffix = { version = "2.2.3", optional = true }
+
+# serialization dependencies
+serde = { version = "1.0.147", optional = true }
+serde_derive = { version = "1.0.147", optional = true }
+serde_json = { version = "1.0.87", optional = true }
+ron = { version = "0.10.1", optional = true }
+
+[dependencies.cookie]
+features = ["percent-encode"]
+version = "0.18.0"

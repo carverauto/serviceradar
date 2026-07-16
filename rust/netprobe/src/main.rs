@@ -64,7 +64,7 @@ use crate::{
     config::Config,
     external_flow::SharedExternalFlowMatcher,
     lifecycle::{StartupOps, SystemStartupOps},
-    metrics::{serve_metrics, Metrics},
+    metrics::{Metrics, serve_metrics},
     runtime_config::{DpiEventGate, FingerprintEventGate, RuntimeConfig},
     server::IpcServer,
 };
@@ -342,7 +342,7 @@ async fn wait_for_shutdown() {
 
 #[cfg(test)]
 mod tests {
-    use super::{select_visibility_startup, VisibilityStartupMode};
+    use super::{VisibilityStartupMode, select_visibility_startup};
     use crate::config::Config;
 
     #[test]
@@ -378,8 +378,9 @@ mod tests {
 
         let err = select_visibility_startup(&config, false).expect_err("missing object must fail");
 
-        assert!(err
-            .to_string()
-            .contains("netprobe continuous capture requires --ebpf-object"));
+        assert!(
+            err.to_string()
+                .contains("netprobe continuous capture requires --ebpf-object")
+        );
     }
 }

@@ -1,7 +1,7 @@
 //! Viz metadata builders for service monitoring entities: service checks,
 //! availability, SLO evaluations, dashboards, and alerts.
 
-use super::{col, ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion};
+use super::{ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion, col};
 
 pub(super) fn services() -> VizMeta {
     VizMeta {

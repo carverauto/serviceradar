@@ -85,7 +85,6 @@ cargo_build_script(
         "recog-corpus/serviceradar-recog-additions.xml",
         "//proto/agent/netprobe/v1:netprobe_proto_src",
     ] + glob(["recog-corpus/xml/*.xml"]),
-    edition = "2021",
     tools = ["@bazel_tools//tools/proto:protoc"],
     deps = crate_deps([
         "aya-build",
@@ -105,7 +104,6 @@ rust_binary(
     ] + glob(["recog-corpus/xml/*.xml"]),
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",
-    edition = "2021",
     rustc_flags = NETPROBE_RUSTC_FLAGS,
     version = NETPROBE_VERSION,
     deps = NETPROBE_DEPS,

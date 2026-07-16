@@ -16,10 +16,10 @@
 
 //! Tests for token parsing functionality.
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::{Signer, SigningKey};
-use edge_onboarding::{encode_token, parse_token, Error, TokenPayload};
+use edge_onboarding::{Error, TokenPayload, encode_token, parse_token};
 use std::sync::{Mutex, OnceLock};
 
 const TOKEN_PREFIX: &str = "edgepkg-v2:";
@@ -44,25 +44,45 @@ fn encode_signed_token(payload: &TokenPayload) -> String {
     format!("{}{}.{}", TOKEN_PREFIX, encoded_payload, encoded_signature)
 }
 
+/// # Safety
+///
+/// Callers must hold the `env_lock` guard: every test in this binary that reads or writes
+/// the token key variables takes it, so no other thread can observe the environment while
+/// these writes land.
 fn set_verification_key_env() {
     let signing_key = test_signing_key();
     let verifying_key = signing_key.verifying_key();
-    std::env::set_var(
-        PUBLIC_KEY_ENV,
-        base64::engine::general_purpose::STANDARD.encode(verifying_key.to_bytes()),
-    );
+    // SAFETY: caller holds `env_lock`; see the contract above.
+    unsafe {
+        std::env::set_var(
+            PUBLIC_KEY_ENV,
+            base64::engine::general_purpose::STANDARD.encode(verifying_key.to_bytes()),
+        );
+    }
 }
 
+/// # Safety
+///
+/// Callers must hold the `env_lock` guard; see [`set_verification_key_env`].
 fn set_signing_key_env() {
-    std::env::set_var(
-        PRIVATE_KEY_ENV,
-        base64::engine::general_purpose::STANDARD.encode(test_signing_key().to_bytes()),
-    );
+    // SAFETY: caller holds `env_lock`; see the contract above.
+    unsafe {
+        std::env::set_var(
+            PRIVATE_KEY_ENV,
+            base64::engine::general_purpose::STANDARD.encode(test_signing_key().to_bytes()),
+        );
+    }
 }
 
+/// # Safety
+///
+/// Callers must hold the `env_lock` guard; see [`set_verification_key_env`].
 fn clear_token_key_env() {
-    std::env::remove_var(PRIVATE_KEY_ENV);
-    std::env::remove_var(PUBLIC_KEY_ENV);
+    // SAFETY: caller holds `env_lock`; see the contract above.
+    unsafe {
+        std::env::remove_var(PRIVATE_KEY_ENV);
+        std::env::remove_var(PUBLIC_KEY_ENV);
+    }
 }
 
 #[test]
@@ -144,6 +164,7 @@ fn test_parse_token_rejects_invalid_signature() {
 
 #[test]
 fn test_empty_token_error() {
+    let _guard = env_lock().lock().unwrap();
     let result = parse_token("", None, None);
     assert!(matches!(result, Err(Error::TokenRequired)));
 }
@@ -189,6 +210,7 @@ fn test_fallback_core_url_does_not_override_token_api_url() {
 
 #[test]
 fn test_whitespace_only_token() {
+    let _guard = env_lock().lock().unwrap();
     let result = parse_token("   ", None, None);
     assert!(matches!(result, Err(Error::TokenRequired)));
 }

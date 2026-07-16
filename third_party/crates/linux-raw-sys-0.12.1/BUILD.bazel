@@ -41,6 +41,8 @@ rust_library(
         "general",
         "ioctl",
         "no_std",
+        "prctl",
+        "system",
     ],
     crate_root = "src/lib.rs",
     edition = "2021",

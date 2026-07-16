@@ -1,0 +1,27 @@
+[package]
+name = "signature"
+version = "3.0.0"
+authors = ["RustCrypto Developers"]
+edition = "2024"
+rust-version = "1.85"
+documentation = "https://docs.rs/signature"
+readme = "README.md"
+repository = "https://github.com/RustCrypto/traits"
+license = "Apache-2.0 OR MIT"
+keywords = ["crypto", "ecdsa", "ed25519", "signature", "signing"]
+categories = ["cryptography", "no-std"]
+description = "Traits for cryptographic signature algorithms (e.g. ECDSA, Ed25519)"
+
+[dependencies]
+digest = { version = "0.11", optional = true, default-features = false }
+rand_core = { version = "0.10", optional = true, default-features = false }
+
+[features]
+alloc = []
+rand_core = ["dep:rand_core"]
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

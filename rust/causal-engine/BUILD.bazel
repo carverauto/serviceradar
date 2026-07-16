@@ -17,7 +17,6 @@ rust_binary(
     name = "serviceradar-causal-engine",
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/main.rs",
-    edition = "2024",
     deps = all_crate_deps(normal = True) + [
         "//rust/causal-model:serviceradar_causal_model",
         "//rust/causal-ports:serviceradar_causal_ports",

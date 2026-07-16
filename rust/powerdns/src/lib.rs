@@ -21,20 +21,21 @@ use std::time::{Duration, Instant};
 
 use addon_sdk::pb;
 use addon_sdk::{
-    attach_signal_schema_ref, ocsf_event_record, Addon, ConfigureResult, Health, HealthStatus,
-    Info, SignalSchemaRef, TelemetryBatchBuilder, TelemetryStream, CAPABILITY_NATIVE_TELEMETRY_V1,
+    Addon, CAPABILITY_NATIVE_TELEMETRY_V1, ConfigureResult, Health, HealthStatus, Info,
+    SignalSchemaRef, TelemetryBatchBuilder, TelemetryStream, attach_signal_schema_ref,
+    ocsf_event_record,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use prost::Message;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{broadcast, Mutex};
-use tokio_stream::wrappers::BroadcastStream;
+use tokio::sync::{Mutex, broadcast};
 use tokio_stream::StreamExt as _;
+use tokio_stream::wrappers::BroadcastStream;
 
 pub mod dnsmessage {
     include!(concat!(env!("OUT_DIR"), "/_.rs"));

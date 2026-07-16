@@ -18,7 +18,6 @@ rust_library(
     srcs = glob(["src/**/*.rs"]),
     crate_name = "serviceradar_causal_mitigation",
     crate_root = "src/lib.rs",
-    edition = "2024",
     deps = all_crate_deps(normal = True) + [
         "//rust/causal-model:serviceradar_causal_model",
         "//rust/causal-ports:serviceradar_causal_ports",

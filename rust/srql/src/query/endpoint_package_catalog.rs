@@ -14,12 +14,12 @@ use crate::{
     },
     time::TimeRange,
 };
+use diesel::PgArrayExpressionMethods;
+use diesel::PgTextExpressionMethods;
 use diesel::dsl::not;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
-use diesel::PgArrayExpressionMethods;
-use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
 type EndpointPackageCatalogTable = crate::schema::endpoint_packages::table;

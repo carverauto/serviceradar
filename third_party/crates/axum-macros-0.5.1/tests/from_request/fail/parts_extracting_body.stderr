@@ -1,0 +1,18 @@
+error[E0277]: the trait bound `String: FromRequestParts<_>` is not satisfied
+ --> tests/from_request/fail/parts_extracting_body.rs:5:11
+  |
+5 |     body: String,
+  |           ^^^^^^ the trait `FromRequestParts<_>` is not implemented for `String`
+  |
+  = note: Function argument is not a valid axum extractor.
+          See `https://docs.rs/axum/0.8/axum/extract/index.html` for details
+  = help: the following other types implement trait `FromRequestParts<S>`:
+            `ConnectInfo<T>` implements `FromRequestParts<S>`
+            `Extension<T>` implements `FromRequestParts<S>`
+            `Extractor` implements `FromRequestParts<S>`
+            `HeaderMap` implements `FromRequestParts<S>`
+            `MatchedPath` implements `FromRequestParts<S>`
+            `Method` implements `FromRequestParts<S>`
+            `OriginalUri` implements `FromRequestParts<S>`
+            `Query<T>` implements `FromRequestParts<S>`
+          and $N others

@@ -19,7 +19,7 @@ use crate::{
         type_uid as col_type_uid,
     },
 };
-use diesel::{dsl::sql, prelude::*, sql_types::Bool, PgTextExpressionMethods};
+use diesel::{PgTextExpressionMethods, dsl::sql, prelude::*, sql_types::Bool};
 
 const EVENT_DEVICE_IDENTITY_KEYS: &[&str] = &[
     "service_radar.device_uid",
@@ -243,7 +243,7 @@ fn apply_metadata_source_filter<'a>(
             return Err(ServiceError::InvalidRequest(format!(
                 "{} filter only supports equality and IN/NOT IN comparisons",
                 filter.field
-            )))
+            )));
         }
     };
 
@@ -303,7 +303,7 @@ fn apply_event_type_filter<'a>(query: EventsQuery<'a>, filter: &Filter) -> Resul
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "event_type filter only supports equality and IN/NOT IN comparisons".into(),
-            ))
+            ));
         }
     };
 
@@ -358,7 +358,7 @@ fn apply_finding_rollup_filter<'a>(
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "finding_rollup filter only supports equality and IN/NOT IN comparisons".into(),
-            ))
+            ));
         }
     };
 
@@ -491,7 +491,7 @@ fn apply_metadata_exact_filter<'a>(
         _ => {
             return Err(ServiceError::InvalidRequest(format!(
                 "{label} filter only supports equality and IN/NOT IN comparisons"
-            )))
+            )));
         }
     };
 
@@ -548,7 +548,7 @@ fn apply_metadata_identity_filter<'a>(
             return Err(ServiceError::InvalidRequest(format!(
                 "{} filter only supports equality and IN/NOT IN comparisons",
                 filter.field
-            )))
+            )));
         }
     };
 
@@ -637,7 +637,7 @@ fn apply_finding_uid_filter<'a>(
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "finding_uid filter only supports equality and IN/NOT IN comparisons".into(),
-            ))
+            ));
         }
     };
 
@@ -773,7 +773,7 @@ fn apply_json_coordinate_filter<'a>(
             return Err(ServiceError::InvalidRequest(format!(
                 "{} filter only supports equality and IN/NOT IN comparisons",
                 filter.field
-            )))
+            )));
         }
     };
 

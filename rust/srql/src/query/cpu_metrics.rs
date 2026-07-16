@@ -13,6 +13,8 @@ use crate::{
     time::TimeRange,
 };
 use chrono::{DateTime, Utc};
+use diesel::PgTextExpressionMethods;
+use diesel::QueryDsl;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{
@@ -20,8 +22,6 @@ use diesel::query_builder::{
 };
 use diesel::sql_query;
 use diesel::sql_types::{Array, Float8, Int4, Jsonb, Nullable, Text, Timestamptz};
-use diesel::PgTextExpressionMethods;
-use diesel::QueryDsl;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 
@@ -259,7 +259,7 @@ fn apply_filter<'a>(mut query: CpuQuery<'a>, filter: &Filter) -> Result<CpuQuery
                 _ => {
                     return Err(ServiceError::InvalidRequest(
                         "usage_percent filter does not support this operator".into(),
-                    ))
+                    ));
                 }
             }
         }
@@ -618,7 +618,7 @@ fn build_text_clause(column: &str, filter: &Filter) -> Result<(String, Vec<SqlBi
             return Err(ServiceError::InvalidRequest(format!(
                 "text filter {column} does not support operator {:?}",
                 filter.op
-            )))
+            )));
         }
     };
     Ok((clause, binds))
@@ -682,7 +682,7 @@ fn build_numeric_clause(
         _ => {
             return Err(ServiceError::InvalidRequest(format!(
                 "{column} filter only supports equality and range comparisons"
-            )))
+            )));
         }
     };
 

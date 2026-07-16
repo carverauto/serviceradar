@@ -14,17 +14,17 @@ publish = false
 path = "src/lib.rs"
 
 [dev-dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true, features = ["macros"] }
+http = { workspace = true }
+pretty_assertions = { workspace = true }
+rustls = { workspace = true, features = ["ring"] }
+rustls-pemfile = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serial_test = { workspace = true }
 srql = { path = "../../rust/srql" }
-anyhow = "1.0.89"
-axum = { version = "0.7.5", features = ["macros"] }
-http = "1.1.0"
-pretty_assertions = "1.4.1"
-rustls = { version = "0.23", default-features = false, features = ["ring"] }
-rustls-pemfile = "2.2"
-serde = { version = "1.0.214", features = ["derive"] }
-serde_json = "1.0.132"
-serial_test = "3.2"
-tokio = { version = "1.41.0", features = ["full"] }
-tokio-postgres = "0.7.15"
-tower = "0.5.1"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter", "fmt"] }
+tokio = { workspace = true, features = ["full"] }
+tokio-postgres = { workspace = true }
+tower = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }

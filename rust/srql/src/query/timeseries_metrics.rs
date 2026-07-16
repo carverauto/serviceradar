@@ -1,6 +1,6 @@
 //! SRQL support for timeseries-backed metrics (generic, SNMP, and rperf).
 
-use super::{build_other_rollup_sql, BindParam, QueryPlan};
+use super::{BindParam, QueryPlan, build_other_rollup_sql};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -15,6 +15,7 @@ use crate::{
     time::TimeRange,
 };
 use chrono::{DateTime, Utc};
+use diesel::PgTextExpressionMethods;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{
@@ -22,7 +23,6 @@ use diesel::query_builder::{
 };
 use diesel::sql_query;
 use diesel::sql_types::{Array, BigInt, Float8, Jsonb, Nullable, Text, Timestamptz};
-use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 use std::path::Path;
@@ -732,7 +732,7 @@ fn apply_value_filter<'a>(
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "value filter does not support this operator".into(),
-            ))
+            ));
         }
     };
 
@@ -981,7 +981,7 @@ fn build_interface_profile_hour_of_week_query(
                 return Err(ServiceError::InvalidRequest(format!(
                     "unsupported filter field for interface profile_hour_of_week: '{}'",
                     filter.field
-                )))
+                )));
             }
         }
     }
@@ -1396,7 +1396,7 @@ fn build_profile_hour_of_week_query(
                 return Err(ServiceError::InvalidRequest(format!(
                     "unsupported filter field for profile_hour_of_week: '{}'",
                     filter.field
-                )))
+                )));
             }
         }
     }
@@ -1570,7 +1570,7 @@ fn build_profile_hour_of_week_peak_query(
                 return Err(ServiceError::InvalidRequest(format!(
                     "unsupported filter field for profile_hour_of_week_peak: '{}'",
                     filter.field
-                )))
+                )));
             }
         }
     }
@@ -1902,7 +1902,7 @@ fn build_text_clause(column: &str, filter: &Filter) -> Result<(String, Vec<SqlBi
             return Err(ServiceError::InvalidRequest(format!(
                 "text filter {column} does not support operator {:?}",
                 filter.op
-            )))
+            )));
         }
     };
     Ok((clause, binds))
@@ -2080,7 +2080,7 @@ fn parse_timeseries_stats_aggregation(segment: &str) -> Result<TimeseriesAggrega
         _ => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported timeseries aggregation function '{func_raw}'"
-            )))
+            )));
         }
     };
 
@@ -2089,7 +2089,7 @@ fn parse_timeseries_stats_aggregation(segment: &str) -> Result<TimeseriesAggrega
         TimeseriesAggFunc::Count => {
             return Err(ServiceError::InvalidRequest(
                 "timeseries count aggregation only supports count(*)".into(),
-            ))
+            ));
         }
         TimeseriesAggFunc::Avg | TimeseriesAggFunc::Sum => {
             if field_raw != "value" {

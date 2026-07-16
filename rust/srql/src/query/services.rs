@@ -13,13 +13,13 @@ use crate::{
     time::TimeRange,
 };
 use chrono::{DateTime, Utc};
+use diesel::PgTextExpressionMethods;
+use diesel::QueryableByName;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
 use diesel::sql_query;
 use diesel::sql_types::{BigInt, Jsonb};
-use diesel::PgTextExpressionMethods;
-use diesel::QueryableByName;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -404,7 +404,7 @@ fn apply_filter<'a>(mut query: ServicesQuery<'a>, filter: &Filter) -> Result<Ser
                 _ => {
                     return Err(ServiceError::InvalidRequest(
                         "service_id filter only supports equality comparisons".into(),
-                    ))
+                    ));
                 }
             };
         }

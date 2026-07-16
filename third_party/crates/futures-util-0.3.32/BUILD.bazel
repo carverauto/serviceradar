@@ -36,41 +36,18 @@ rust_library(
     ),
     crate_features = [
         "alloc",
-        "async-await",
-        "async-await-macro",
         "channel",
         "futures-channel",
         "futures-io",
-        "futures-macro",
         "futures-sink",
         "io",
         "memchr",
         "sink",
         "slab",
         "std",
-    ] + select({
-        "@rules_rust//rust/platform:wasm32-unknown-emscripten": [
-            "default",  # wasm32-unknown-emscripten
-        ],
-        "@rules_rust//rust/platform:wasm32-unknown-unknown": [
-            "default",  # wasm32-unknown-unknown
-        ],
-        "@rules_rust//rust/platform:wasm32-wasip1": [
-            "default",  # wasm32-wasip1
-        ],
-        "@rules_rust//rust/platform:wasm32-wasip1-threads": [
-            "default",  # wasm32-wasip1-threads
-        ],
-        "@rules_rust//rust/platform:wasm32-wasip2": [
-            "default",  # wasm32-wasip2
-        ],
-        "//conditions:default": [],
-    }),
+    ],
     crate_root = "src/lib.rs",
     edition = "2018",
-    proc_macro_deps = [
-        "//third_party/crates/futures-macro-0.3.32:futures_macro",
-    ],
     rustc_env_files = [
         ":cargo_toml_env_vars",
     ],

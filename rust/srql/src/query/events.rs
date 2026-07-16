@@ -8,7 +8,7 @@ use self::{
     filters::collect_filter_params,
     query::{build_count_query, build_query},
     rollup::{
-        bind_param_from_rollup, build_rollup_stats_query, rewrite_placeholders, EventsRollupPayload,
+        EventsRollupPayload, bind_param_from_rollup, build_rollup_stats_query, rewrite_placeholders,
     },
 };
 use super::{BindParam, QueryPlan};

@@ -5,7 +5,7 @@ use crate::flowgger::encoder::Encoder;
 #[cfg(feature = "capnp-recompile")]
 use crate::flowgger::splitter::CapnpSplitter;
 use crate::flowgger::splitter::{LineSplitter, NulSplitter, Splitter, SyslenSplitter};
-use std::io::{stdin, BufReader};
+use std::io::{BufReader, stdin};
 use std::sync::mpsc::SyncSender;
 
 const DEFAULT_FRAMING: &str = "line";

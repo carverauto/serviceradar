@@ -1,0 +1,14 @@
+[package]
+name = "utf8-zero"
+version = "0.8.1"
+edition = "2021"
+authors = ["Simon Sapin <simon.sapin@exyr.org>", "Martin Algesten <martin@algesten.se>"]
+description = "Zero-copy, incremental UTF-8 decoding with error handling"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/algesten/utf8-zero"
+keywords = ["utf-8", "decode", "incremental", "streaming", "no_std"]
+categories = ["encoding", "no-std", "parsing"]
+
+[features]
+default = ["std"]
+std = []

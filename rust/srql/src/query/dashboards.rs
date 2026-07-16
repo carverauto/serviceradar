@@ -246,7 +246,7 @@ fn panel_query_filter(filter: &Filter) -> Result<(String, Vec<BindValue>)> {
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "dashboard srql_query filter supports equality or like comparisons".into(),
-            ))
+            ));
         }
     };
 

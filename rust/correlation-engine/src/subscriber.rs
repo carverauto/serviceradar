@@ -15,9 +15,9 @@ use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
-use crate::signal_evidence::{apply_signal_evidence, parse_prediction_signal};
 use crate::delta::{apply_delta, parse_state_change};
 use crate::domain_model::Context;
+use crate::signal_evidence::{apply_signal_evidence, parse_prediction_signal};
 
 /// Wildcard subject for all app-level state-change tables.
 const STATE_SUBJECT: &str = "signals.state.>";

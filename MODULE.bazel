@@ -545,9 +545,9 @@ use_repo(
 )
 
 # --- Rust toolchain bootstrap -----------------------------------------------
-RUST_DEFAULT_VERSION = "1.93.0"
+RUST_DEFAULT_VERSION = "1.97.0"
 
-RUST_EDITION = "2021"
+RUST_EDITION = "2024"
 
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(

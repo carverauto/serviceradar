@@ -1,11 +1,10 @@
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, SyncSender};
+use std::sync::mpsc::{Receiver, SyncSender, channel};
 use std::thread;
-use std::time::Duration;
 
-use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
-use glob::{glob, Pattern};
+use glob::{Pattern, glob};
 
 use crate::flowgger::decoder::Decoder;
 use crate::flowgger::encoder::Encoder;
@@ -13,7 +12,7 @@ use crate::flowgger::input::file::worker::FileWorker;
 
 pub struct FileDiscovery {
     watcher: RecommendedWatcher,
-    event_rx: Receiver<DebouncedEvent>,
+    event_rx: Receiver<notify::Result<Event>>,
     path_match: Pattern,
     log_tx: SyncSender<Vec<u8>>,
     decoder: Box<dyn Decoder + Send>,
@@ -29,7 +28,7 @@ impl FileDiscovery {
     ) -> FileDiscovery {
         let (tx, rx) = channel();
         let watcher =
-            Watcher::new(tx, Duration::from_secs(1)).expect("Cannot initialize fs watcher");
+            RecommendedWatcher::new(tx, Config::default()).expect("Cannot initialize fs watcher");
 
         FileDiscovery {
             watcher,
@@ -48,23 +47,38 @@ impl FileDiscovery {
 
         loop {
             match self.event_rx.recv() {
-                Ok(event) => match event {
-                    DebouncedEvent::Create(event_path) => {
-                        if event_path.metadata().unwrap().is_dir() {
-                            if should_be_watched(&self.path_match, &event_path) {
-                                self.add_directory_watch(&event_path)
+                // notify used to deliver one debounced variant carrying a single path; it now
+                // delivers a kind plus every affected path. Create maps to the old Create, and
+                // Modify covers what NoticeWrite reported. Other kinds (Access in particular)
+                // now fire constantly, so they are dropped silently rather than logged.
+                Ok(Ok(event)) => {
+                    for event_path in &event.paths {
+                        match event.kind {
+                            EventKind::Create(_) => {
+                                // The path can already be gone by the time we look, and losing
+                                // this thread would stop all discovery, so skip rather than
+                                // unwrap a missing file.
+                                let Ok(metadata) = event_path.metadata() else {
+                                    continue;
+                                };
+                                if metadata.is_dir() {
+                                    if should_be_watched(&self.path_match, event_path) {
+                                        self.add_directory_watch(event_path)
+                                    }
+                                } else if self.path_match.matches_path(event_path) {
+                                    self.start_worker(event_path, false);
+                                }
                             }
-                        } else if self.path_match.matches_path(&event_path) {
-                            self.start_worker(&event_path, false);
+                            EventKind::Modify(_) => {
+                                if self.path_match.matches_path(event_path) {
+                                    self.start_worker(event_path, false);
+                                }
+                            }
+                            _ => {}
                         }
                     }
-                    DebouncedEvent::NoticeWrite(event_path) => {
-                        if self.path_match.matches_path(&event_path) {
-                            self.start_worker(&event_path, false);
-                        }
-                    }
-                    _ => println!("Unknown DebouncedEvent {:?}", event),
-                },
+                }
+                Ok(Err(e)) => println!("Error watching files: {}", e),
                 Err(e) => println!("Error receiving event: {}", e),
             }
         }

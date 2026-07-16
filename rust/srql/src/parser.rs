@@ -22,9 +22,9 @@ use crate::{
 
 use duration::{normalize_optional_string, parse_bucket_seconds, parse_downsample_agg};
 use entity::parse_entity;
-use filters::{build_filter, MAX_FILTER_LIST_VALUES};
+use filters::{MAX_FILTER_LIST_VALUES, build_filter};
 use order::parse_order;
-use stats::{merge_stats_exprs, parse_stats_expr, MAX_STATS_EXPR_LEN};
+use stats::{MAX_STATS_EXPR_LEN, merge_stats_exprs, parse_stats_expr};
 use tokens::{parse_value, split_token, tokenize};
 
 pub fn parse(input: &str) -> Result<QueryAst> {

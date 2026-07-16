@@ -100,23 +100,30 @@ pub fn download_package(payload: &TokenPayload) -> Result<PackageResponse> {
 
     tracing::debug!(url = %url, package_id = %payload.package_id, "Downloading package from Core API");
 
-    let response = ureq::post(&url)
-        .set("Content-Type", "application/json")
-        .set("Accept", "application/json")
+    // ureq's `Error::StatusCode` carries only the code, not the response, so a 4xx/5xx body
+    // would be unreachable under the default status-as-error behaviour. Turn it off and check
+    // the status here, which keeps the Core API's error body in `CoreApiError::message`.
+    let agent = ureq::config::Config::builder()
+        .http_status_as_error(false)
+        .build()
+        .new_agent();
+
+    let mut response = agent
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json")
         .send_json(&request_body)
-        .map_err(|e| match e {
-            ureq::Error::Status(status, resp) => {
-                let body = resp.into_string().unwrap_or_default();
-                Error::CoreApiError {
-                    status,
-                    message: body,
-                }
-            }
-            ureq::Error::Transport(t) => Error::Http(t.to_string()),
-        })?;
+        .map_err(|e| Error::Http(e.to_string()))?;
+
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let message = response.body_mut().read_to_string().unwrap_or_default();
+        return Err(Error::CoreApiError { status, message });
+    }
 
     let package: PackageResponse = response
-        .into_json()
+        .body_mut()
+        .read_json()
         .map_err(|e| Error::Http(e.to_string()))?;
 
     // Ensure package_id is set

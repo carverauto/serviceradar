@@ -1,6 +1,6 @@
 use super::{
     filters::{build_filter_clause, extract_latest_filter, filters_need_interface_settings},
-    sql::{interface_settings_join, SqlBuildResult},
+    sql::{SqlBuildResult, interface_settings_join},
 };
 use crate::{
     error::{Result, ServiceError},

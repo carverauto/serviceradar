@@ -35,13 +35,8 @@ rust_library(
         ],
     ),
     crate_features = [
-        "color",
         "env",
-        "error-context",
-        "help",
         "std",
-        "suggestions",
-        "usage",
     ],
     crate_root = "src/lib.rs",
     edition = "2024",
@@ -103,9 +98,7 @@ rust_library(
     }),
     version = "4.6.0",
     deps = [
-        "//third_party/crates/anstream-1.0.0:anstream",
         "//third_party/crates/anstyle-1.0.14:anstyle",
         "//third_party/crates/clap_lex-1.1.0:clap_lex",
-        "//third_party/crates/strsim-0.11.1:strsim",
     ],
 )

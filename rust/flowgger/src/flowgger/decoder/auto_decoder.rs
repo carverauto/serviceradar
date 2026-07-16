@@ -124,14 +124,16 @@ mod tests {
 
         assert_eq!(record.hostname, "CPPM-HOST-01.example.com");
         assert_eq!(record.msg.as_deref(), Some("ClearPass event"));
-        assert!(record
-            .sd
-            .unwrap()
-            .iter()
-            .any(|sd| sd.pairs.iter().any(|(key, value)| {
-                key == "_syslog_format"
-                    && matches!(value, SDValue::String(format) if format == "rfc5424")
-            })));
+        assert!(
+            record
+                .sd
+                .unwrap()
+                .iter()
+                .any(|sd| sd.pairs.iter().any(|(key, value)| {
+                    key == "_syslog_format"
+                        && matches!(value, SDValue::String(format) if format == "rfc5424")
+                }))
+        );
     }
 
     #[test]
@@ -160,11 +162,13 @@ mod tests {
         let record = decoder.decode(line).unwrap();
 
         assert_eq!(record.appname.as_deref(), Some("CPPM_Alert"));
-        assert!(record
-            .msg
-            .as_deref()
-            .unwrap()
-            .contains(r#"\nTLS Handshake"#));
+        assert!(
+            record
+                .msg
+                .as_deref()
+                .unwrap()
+                .contains(r#"\nTLS Handshake"#)
+        );
     }
 
     #[test]
@@ -187,13 +191,15 @@ mod tests {
         let record = decoder.decode(line).unwrap();
 
         assert_eq!(record.msg.as_deref(), Some(line));
-        assert!(record
-            .sd
-            .unwrap()
-            .iter()
-            .any(|sd| sd.pairs.iter().any(|(key, value)| {
-                key == "_syslog_parse_fallback" && matches!(value, SDValue::Bool(true))
-            })));
+        assert!(
+            record
+                .sd
+                .unwrap()
+                .iter()
+                .any(|sd| sd.pairs.iter().any(|(key, value)| {
+                    key == "_syslog_parse_fallback" && matches!(value, SDValue::Bool(true))
+                }))
+        );
     }
 
     #[test]

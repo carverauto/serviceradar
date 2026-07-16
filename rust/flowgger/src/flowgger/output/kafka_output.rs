@@ -2,7 +2,7 @@ use super::Output;
 use crate::flowgger::config::Config;
 use crate::flowgger::merger::Merger;
 use kafka::producer::{Compression, Producer, Record, RequiredAcks};
-use std::io::{stderr, Write};
+use std::io::{Write, stderr};
 use std::process::exit;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};

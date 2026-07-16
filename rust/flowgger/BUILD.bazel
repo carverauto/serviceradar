@@ -1,5 +1,5 @@
 load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
-load("@rules_rust//rust:defs.bzl", "rust_library")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 load("//third_party/crates:defs.bzl", "all_crate_deps", "crate_deps")
 
 package(default_visibility = ["//visibility:public"])
@@ -8,8 +8,7 @@ cargo_build_script(
     name = "build_script",
     srcs = ["build.rs"],
     crate_root = "build.rs",
-    edition = "2018",
-    deps = crate_deps(["tonic-build"]),
+    deps = crate_deps(["tonic-prost-build"]),
     data = [
         "//proto:kv_proto_src",
     ],
@@ -23,7 +22,6 @@ rust_library(
     name = "flowgger_lib",
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/lib.rs",
-    edition = "2018",
     crate_name = "flowgger",
     crate_features = [
         "gelf",
@@ -40,4 +38,23 @@ rust_library(
     ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
     visibility = ["//visibility:public"],
+)
+
+rust_test(
+    name = "flowgger_lib_test",
+    crate = ":flowgger_lib",
+    # Config::from_path tests read these fixtures by relative path.
+    data = glob(["tests/resources/*.toml"]),
+    # crate_features are NOT inherited from `crate`; they must mirror flowgger_lib or the
+    # test compiles a different crate than the one that ships.
+    crate_features = [
+        "gelf",
+        "nats-output",
+        "passthrough",
+        "rfc3164",
+        "rfc5424",
+        "syslog",
+        "tls",
+    ],
+    deps = all_crate_deps(normal_dev = True),
 )

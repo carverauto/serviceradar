@@ -17,7 +17,7 @@
 //! Tests for configuration generation.
 
 use edge_onboarding::{
-    generate_checker_config, DeploymentType, PackageResponse, SecurityConfig, SecurityMode,
+    DeploymentType, PackageResponse, SecurityConfig, SecurityMode, generate_checker_config,
 };
 
 #[test]

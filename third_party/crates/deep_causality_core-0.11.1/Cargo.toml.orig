@@ -1,0 +1,35 @@
+[package]
+name = "deep_causality_core"
+version = "0.11.1"
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+repository = "https://github.com/deepcausality/deep_causality.rs"
+authors = ["Marvin Hansen <marvin.hansen@gmail.com>"]
+description = "Core types for deep_causality crate."
+documentation = "https://docs.rs/deep_causality"
+categories = ["development-tools"]
+keywords = ["causality", "core"]
+exclude = [
+    "*.bazel",
+    "*/*.bazel",
+    "*.bazel.*",
+    "BUILD",
+    "BUILD.bazel",
+    "MODULE.bazel",
+    ".bazelignore",
+    ".bazelrc",
+    "tests/**/*",
+    "papers/*",
+]
+
+[features]
+default = ["std"]
+std = ["alloc", "deep_causality_haft/std"]
+alloc = []
+
+[dependencies]
+deep_causality_haft = { path = "../deep_causality_haft", version = "0.4" }
+
+[lints]
+workspace = true

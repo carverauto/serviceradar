@@ -1,8 +1,8 @@
 use std::{
     net::{IpAddr, Ipv4Addr},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -504,8 +504,8 @@ mod tests {
     use crossbeam_channel::bounded;
 
     use super::{
-        classified_as, classify_streams_once, AfXdpClassifier, FlowTableEntry, FlowTableKey,
-        FlowTableWriter, AF_INET, IPPROTO_TCP,
+        AF_INET, AfXdpClassifier, FlowTableEntry, FlowTableKey, FlowTableWriter, IPPROTO_TCP,
+        classified_as, classify_streams_once,
     };
     use crate::af_xdp::{AfXdpConsumerConfig, AfXdpPacket, AfXdpStream};
     use crate::{
@@ -616,10 +616,12 @@ mod tests {
 
         let events = events.expect("expected one AF_XDP packet");
         assert_eq!(events[0].protocol, "ssh");
-        assert!(classifier
-            .classify_next_from_stream(&stream, 789)
-            .unwrap()
-            .is_none());
+        assert!(
+            classifier
+                .classify_next_from_stream(&stream, 789)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

@@ -175,16 +175,12 @@ impl Writer<'_> {
 }
 
 fn min_usize(left: usize, right: usize) -> usize {
-    if left < right {
-        left
-    } else {
-        right
-    }
+    if left < right { left } else { right }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{encode, P0F_SIGNATURE_MAX_LEN};
+    use super::{P0F_SIGNATURE_MAX_LEN, encode};
 
     // Quirk bits mirrored from the eBPF TCP_SYN_QUIRK_* constants.
     const QUIRK_DF: u32 = 1 << 1;

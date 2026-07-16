@@ -18,8 +18,7 @@ cargo_build_script(
     name = "build_script",
     srcs = ["build.rs"],
     crate_root = "build.rs",
-    edition = "2021",
-    deps = crate_deps(["tonic-build"]),
+    deps = crate_deps(["tonic-prost-build"]),
     data = [
         "//proto:kv_proto_src",
     ],
@@ -33,7 +32,6 @@ rust_library(
     name = "kvutil",
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/lib.rs",
-    edition = "2021",
     deps = all_crate_deps(normal = True) + [":build_script"],
     data = ["//proto:kv_proto_src"],
     visibility = ["//visibility:public"],
@@ -42,5 +40,4 @@ rust_library(
 rust_test(
     name = "kvutil_test",
     crate = ":kvutil",
-    edition = "2021",
 )

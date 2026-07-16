@@ -24,9 +24,11 @@ fn parse_open_payload_accepts_verify_ca_bundle_material() {
     let payload = parse_open_payload(raw.as_bytes()).expect("valid payload");
 
     assert_eq!(payload.target.tls.ca_bundle_id, "corp-rdp-ca");
-    assert!(payload
-        .target
-        .tls
-        .ca_bundle_pem
-        .starts_with("-----BEGIN CERTIFICATE-----"));
+    assert!(
+        payload
+            .target
+            .tls
+            .ca_bundle_pem
+            .starts_with("-----BEGIN CERTIFICATE-----")
+    );
 }

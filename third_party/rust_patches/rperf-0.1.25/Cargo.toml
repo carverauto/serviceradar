@@ -10,21 +10,17 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2021"
 name = "rperf"
 version = "0.1.25"
+description = "validates network throughput capacity and reliability"
 authors = [
     "Neil Tallim <neiltallim@3d-p.com>",
     "Michael Freeman <mfreeman451@gmail.com>",
 ]
-build = false
-autolib = false
-autobins = false
-autoexamples = false
-autotests = false
-autobenches = false
-description = "validates network throughput capacity and reliability"
+edition = "2021"
+license = "GPL-3.0-only"
 readme = "README.md"
+repository = "https://github.com/mfreeman451/rperf"
 keywords = [
     "network",
     "performance",
@@ -32,8 +28,12 @@ keywords = [
     "udp",
 ]
 categories = ["network-programming"]
-license = "GPL-3.0-only"
-repository = "https://github.com/mfreeman451/rperf"
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+build = false
 
 [package.metadata.deb]
 copyright = "(C) 2022 Evtech Solutions, Ltd., dba 3D-P"
@@ -60,45 +60,17 @@ path = "src/lib.rs"
 name = "rperf"
 path = "src/main.rs"
 
-[dependencies.anyhow]
-version = "1.0"
-
-[dependencies.chrono]
-version = "0.4"
-
-[dependencies.clap]
-version = "2.34.0"
-default-features = false
-
-[dependencies.core_affinity]
-version = "0.5"
-
-[dependencies.ctrlc]
-version = "3.1"
-
-[dependencies.env_logger]
-version = "0.11"
-
-[dependencies.log]
-version = "0.4"
-features = ["std"]
-
-[dependencies.mio]
-version = "0.6"
-
-[dependencies.nix]
-version = "0.20"
-
-[dependencies.serde]
-version = "1.0"
-features = ["derive"]
-
-[dependencies.serde_json]
-version = "1.0"
-
-[dependencies.simple-error]
-version = "0.2"
-
-[dependencies.uuid]
-version = "0.8"
-features = ["v4"]
+[dependencies]
+anyhow= { version = "1.0"}
+chrono= { version = "0.4"}
+clap= { version = "2.34.0", default-features = false}
+core_affinity= { version = "0.5"}
+ctrlc= { version = "3.1"}
+env_logger= { version = "0.11"}
+log= { version = "0.4", features = ["std"]}
+mio= { version = "0.6"}
+nix= { version = "0.20"}
+serde= { version = "1.0", features = ["derive"]}
+serde_json= { version = "1.0"}
+simple-error= { version = "0.2"}
+uuid= { version = "0.8", features = ["v4"]}

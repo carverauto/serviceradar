@@ -1,4 +1,4 @@
-load("@rules_rust//rust:defs.bzl", "rust_binary")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
 load("//third_party/crates:defs.bzl", "all_crate_deps")
 
 package(default_visibility = ["//visibility:public"])
@@ -7,7 +7,6 @@ rust_binary(
     name = "log-collector",
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/main.rs",
-    edition = "2024",
     crate_features = [
         "syslog",
         "otel",
@@ -18,4 +17,13 @@ rust_binary(
         "//rust/config-bootstrap:config_bootstrap",
     ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
+)
+
+rust_test(
+    name = "log_collector_test",
+    crate = ":log-collector",
+    crate_features = [
+        "syslog",
+        "otel",
+    ],
 )

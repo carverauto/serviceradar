@@ -1,6 +1,6 @@
 use super::Encoder;
 use crate::flowgger::config::Config;
-use crate::flowgger::record::{Record, SDValue, FACILITY_MISSING, SEVERITY_MISSING};
+use crate::flowgger::record::{FACILITY_MISSING, Record, SDValue, SEVERITY_MISSING};
 use crate::record_capnp;
 use capnp;
 use capnp::message::{Allocator, Builder};

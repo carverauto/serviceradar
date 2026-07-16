@@ -108,7 +108,7 @@ mod tests {
 
     use anyhow::Result;
 
-    use super::{open_allowlisted_interfaces, CaptureOpener};
+    use super::{CaptureOpener, open_allowlisted_interfaces};
     use crate::config::Config;
 
     #[derive(Default)]

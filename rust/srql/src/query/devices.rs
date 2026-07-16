@@ -9,8 +9,8 @@ use self::{
     },
     order::apply_ordering,
     stats::{
-        bind_param_from_device_stats, build_grouped_stats_query, build_rollup_stats_query,
-        build_stats_query, parse_stats_spec, rewrite_placeholders, DeviceStatsPayload,
+        DeviceStatsPayload, bind_param_from_device_stats, build_grouped_stats_query,
+        build_rollup_stats_query, build_stats_query, parse_stats_spec, rewrite_placeholders,
     },
 };
 use super::{BindParam, QueryPlan};

@@ -694,7 +694,7 @@ pub mod pair {
     }
 
     pub mod value {
-        pub use self::Which::{Bool, Null, String, F64, I64, U64};
+        pub use self::Which::{Bool, F64, I64, Null, String, U64};
 
         #[derive(Copy, Clone)]
         pub struct Owned;

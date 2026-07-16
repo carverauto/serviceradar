@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use aya::{
-    maps::{HashMap as AyaHashMap, ProgramArray},
-    programs::{tc, KProbe, SchedClassifier, TcAttachType, TracePoint, Xdp, XdpFlags},
     Ebpf,
+    maps::{HashMap as AyaHashMap, ProgramArray},
+    programs::{KProbe, SchedClassifier, TcAttachType, TracePoint, Xdp, XdpFlags, tc},
 };
 use nix::libc;
 use tokio::sync::broadcast;
@@ -12,8 +12,8 @@ use std::{
     io,
     path::Path,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -412,11 +412,7 @@ fn ticks_per_second() -> f64 {
         // SAFETY: sysconf is thread-safe; _SC_CLK_TCK has no pointer arguments.
         libc::sysconf(libc::_SC_CLK_TCK)
     };
-    if value > 0 {
-        value as f64
-    } else {
-        100.0
-    }
+    if value > 0 { value as f64 } else { 100.0 }
 }
 
 fn process_cpu_ticks() -> Result<u64> {

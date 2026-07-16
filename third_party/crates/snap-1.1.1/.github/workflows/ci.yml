@@ -1,0 +1,171 @@
+name: ci
+on:
+  pull_request:
+    branches:
+    - master
+  push:
+    branches:
+    - master
+  schedule:
+  - cron: '00 01 * * *'
+
+# The section is needed to drop write-all permissions that are granted on
+# `schedule` event. By specifying any permission explicitly all others are set
+# to none. By using the principle of least privilege the damage a compromised
+# workflow can do (because of an injection or compromised third party tool or
+# action) is restricted. Currently the worklow doesn't need any additional
+# permission except for pulling the code. Adding labels to issues, commenting
+# on pull-requests, etc. may need additional permissions:
+#
+# Syntax for this section:
+# https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#permissions
+#
+# Reference for how to assign permissions on a job-by-job basis:
+# https://docs.github.com/en/actions/using-jobs/assigning-permissions-to-jobs
+#
+# Reference for available permissions that we can enable if needed:
+# https://docs.github.com/en/actions/security-guides/automatic-token-authentication#permissions-for-the-github_token
+permissions:
+  # to fetch code (actions/checkout)
+  contents: read
+
+jobs:
+  test:
+    name: test
+    env:
+      # For some builds, we use cross to test on 32-bit and big-endian
+      # systems.
+      CARGO: cargo
+      # When CARGO is set to CROSS, TARGET is set to `--target matrix.target`.
+      # Note that we only use cross on Linux, so setting a target on a
+      # different OS will just use normal cargo.
+      TARGET:
+      # Bump this as appropriate. We pin to a version to make sure CI
+      # continues to work as cross releases in the past have broken things
+      # in subtle ways.
+      CROSS_VERSION: v0.2.5
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - build: pinned
+          os: ubuntu-latest
+          rust: 1.70.0
+        - build: stable
+          os: ubuntu-latest
+          rust: stable
+        - build: beta
+          os: ubuntu-latest
+          rust: beta
+        - build: nightly
+          os: ubuntu-latest
+          rust: nightly
+        - build: macos
+          os: macos-latest
+          rust: stable
+        - build: win-msvc
+          os: windows-latest
+          rust: stable
+        - build: win-gnu
+          os: windows-latest
+          rust: stable-x86_64-gnu
+        - build: stable-x86
+          os: ubuntu-latest
+          rust: stable
+          target: i686-unknown-linux-gnu
+        - build: stable-aarch64
+          os: ubuntu-latest
+          rust: stable
+          target: aarch64-unknown-linux-gnu
+        - build: stable-powerpc64
+          os: ubuntu-latest
+          rust: stable
+          target: powerpc64-unknown-linux-gnu
+        - build: stable-s390x
+          os: ubuntu-latest
+          rust: stable
+          target: s390x-unknown-linux-gnu
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust }}
+
+    - name: Use Cross
+      if: matrix.os == 'ubuntu-latest' && matrix.target != ''
+      run: |
+        # In the past, new releases of 'cross' have broken CI. So for now, we
+        # pin it. We also use their pre-compiled binary releases because cross
+        # has over 100 dependencies and takes a bit to compile.
+        dir="$RUNNER_TEMP/cross-download"
+        mkdir "$dir"
+        echo "$dir" >> $GITHUB_PATH
+        cd "$dir"
+        curl -LO "https://github.com/cross-rs/cross/releases/download/$CROSS_VERSION/cross-x86_64-unknown-linux-musl.tar.gz"
+        tar xf cross-x86_64-unknown-linux-musl.tar.gz
+        echo "CARGO=cross" >> $GITHUB_ENV
+        echo "TARGET=--target ${{ matrix.target }}" >> $GITHUB_ENV
+
+    - name: Show command used for Cargo
+      run: |
+        echo "cargo command is: ${{ env.CARGO }}"
+        echo "target flag is: ${{ env.TARGET }}"
+
+    - name: Build snap library
+      run: ${{ env.CARGO }} build --verbose ${{ env.TARGET }}
+
+    - name: Build docs
+      run: ${{ env.CARGO }} doc --verbose ${{ env.TARGET }}
+
+    - name: Run tests for snap
+      run: ${{ env.CARGO }} test --verbose --all ${{ env.TARGET }}
+
+    - name: Build szip CLI tool
+      run: ${{ env.CARGO }} build --verbose --manifest-path szip/Cargo.toml ${{ env.TARGET }}
+
+    - name: Compile benchmarks
+      run: ${{ env.CARGO }} bench --manifest-path bench/Cargo.toml --verbose ${{ env.TARGET }} -- --test
+
+    # Only worry about snappy-cpp when not using cross, since it's a pain
+    # otherwise to deal with cross compiling with a C++ library. Similarly,
+    # skip CPP testing on Windows.
+    - name: Install snappy C++ library (Ubuntu)
+      if: env.CARGO == 'cargo' && matrix.os == 'ubuntu-latest'
+      run: sudo apt-get install libsnappy-dev
+
+    - name: Install snappy C++ library (macOS)
+      if: env.CARGO == 'cargo' && matrix.os == 'macos-latest'
+      run: brew install snappy
+
+    - name: Build snappy-cpp library
+      if: env.CARGO == 'cargo' && matrix.os != 'windows-latest'
+      run: cargo build --verbose --manifest-path snappy-cpp/Cargo.toml
+
+    - name: Run tests with snappy-cpp
+      if: env.CARGO == 'cargo' && matrix.os != 'windows-latest' && matrix.os != 'macos-latest'
+      run: cargo test --verbose --manifest-path test/Cargo.toml --features cpp
+
+    - name: Compile benchmarks with snappy-cpp
+      if: env.CARGO == 'cargo' && matrix.os != 'windows-latest'
+      run: cargo bench --manifest-path bench/Cargo.toml --verbose --features cpp -- --test
+
+  rustfmt:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: stable
+        components: rustfmt
+    - name: Check formatting
+      run: |
+        cargo fmt --all -- --check
+    - name: Check formatting of snappy-cpp
+      run: |
+        cargo fmt --manifest-path snappy-cpp/Cargo.toml -- --check

@@ -19,7 +19,7 @@
 //! Note: The `ensure_scheme` function is internal to the download module.
 //! These tests focus on the public API behavior.
 
-use edge_onboarding::{download_package, Error, TokenPayload};
+use edge_onboarding::{Error, TokenPayload, download_package};
 
 #[test]
 fn test_download_package_requires_core_url() {

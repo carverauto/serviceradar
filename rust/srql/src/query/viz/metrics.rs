@@ -1,7 +1,7 @@
 //! Viz metadata builders for system/poller metric entities: generic
 //! timeseries metrics and CPU/memory/disk/process metrics.
 
-use super::{col, ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion};
+use super::{ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion, col};
 
 pub(super) fn timeseries_metrics() -> VizMeta {
     VizMeta {

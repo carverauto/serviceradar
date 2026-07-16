@@ -6,9 +6,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "../../proto/kv.proto"
     };
     let kv_proto_dir = std::path::Path::new(kv_proto_path).parent().unwrap();
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .build_server(false)
         .build_client(true)
-        .compile_protos(&[kv_proto_path], &[kv_proto_dir])?;
+        .compile_protos(&[std::path::Path::new(kv_proto_path)], &[kv_proto_dir])?;
     Ok(())
 }

@@ -4,8 +4,8 @@ use crate::{
     models::LogRow,
     parser::{Filter, FilterOp, FilterValue, OrderDirection},
     query::{
-        bind_sql_param, max_dollar_placeholder, reconcile_limit_offset_binds,
-        shift_dollar_placeholders, BindParam, QueryPlan,
+        BindParam, QueryPlan, bind_sql_param, max_dollar_placeholder, reconcile_limit_offset_binds,
+        shift_dollar_placeholders,
     },
     schema::logs::dsl::id as col_id,
 };
@@ -208,10 +208,10 @@ fn outer_order_sql(plan: &QueryPlan) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{build, MAX_TOPN_CANDIDATE_ROWS, MAX_TOPN_SEVERITY_VALUES};
+    use super::{MAX_TOPN_CANDIDATE_ROWS, MAX_TOPN_SEVERITY_VALUES, build};
     use crate::{
         parser::{Filter, FilterOp, FilterValue, OrderClause, OrderDirection},
-        query::{logs::test_support::data_plan, max_dollar_placeholder, BindParam},
+        query::{BindParam, logs::test_support::data_plan, max_dollar_placeholder},
     };
 
     fn severity_filter(values: &[&str]) -> Filter {

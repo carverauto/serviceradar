@@ -7,7 +7,7 @@ use crate::flowgger::splitter::{
 };
 use may::net::{TcpListener, TcpStream};
 use rustls::{ServerConnection, StreamOwned};
-use std::io::{stderr, BufReader, Write};
+use std::io::{BufReader, Write, stderr};
 use std::net::SocketAddr;
 use std::sync::mpsc::SyncSender;
 

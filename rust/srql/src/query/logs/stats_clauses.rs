@@ -49,7 +49,7 @@ pub(super) fn build_text_clause(
             return Err(ServiceError::InvalidRequest(format!(
                 "text filter {column} does not support operator {:?}",
                 filter.op
-            )))
+            )));
         }
     };
 
@@ -104,7 +104,7 @@ pub(super) fn build_lowered_text_clause(
             return Err(ServiceError::InvalidRequest(format!(
                 "text filter {column} does not support operator {:?}",
                 filter.op
-            )))
+            )));
         }
     };
 
@@ -154,7 +154,7 @@ pub(super) fn build_numeric_clause(
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "severity_number only supports equality or IN comparisons".into(),
-            ))
+            ));
         }
     };
 

@@ -1,0 +1,32 @@
+[package]
+name = "snap"
+version = "1.1.1"  #:version
+authors = ["Andrew Gallant <jamslam@gmail.com>"]
+description = """
+A pure Rust implementation of the Snappy compression algorithm. Includes
+streaming compression and decompression.
+"""
+documentation = "https://docs.rs/snap"
+homepage = "https://github.com/BurntSushi/rust-snappy"
+repository = "https://github.com/BurntSushi/rust-snappy"
+readme = "README.md"
+keywords = ["snappy", "compress", "compression", "decompress", "decompression"]
+license = "BSD-3-Clause"
+edition = "2018"
+exclude = ["data/*"]
+
+[workspace]
+exclude = ["snappy-cpp"]
+members = ["bench", "test", "szip"]
+
+[lib]
+bench = false
+
+[profile.release]
+debug = true
+
+[profile.test]
+opt-level = 3
+
+[dev-dependencies]
+doc-comment = "0.3.1"

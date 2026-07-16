@@ -163,7 +163,105 @@ rust_library(
         "default",
         "fs",
         "std",
-    ],
+    ] + select({
+        "@rules_rust//rust/platform:aarch64-apple-darwin": [
+            "param",  # aarch64-apple-darwin
+            "process",  # aarch64-apple-darwin
+            "system",  # aarch64-apple-darwin
+            "thread",  # aarch64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
+            "param",  # aarch64-pc-windows-msvc
+            "process",  # aarch64-pc-windows-msvc
+            "system",  # aarch64-pc-windows-msvc
+            "thread",  # aarch64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
+            "param",  # aarch64-unknown-linux-gnu
+            "process",  # aarch64-unknown-linux-gnu
+            "system",  # aarch64-unknown-linux-gnu
+            "thread",  # aarch64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
+            "param",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "process",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "system",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "thread",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
+            "param",  # arm-unknown-linux-gnueabi
+            "process",  # arm-unknown-linux-gnueabi
+            "system",  # arm-unknown-linux-gnueabi
+            "thread",  # arm-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
+            "param",  # armv7-unknown-linux-gnueabi
+            "process",  # armv7-unknown-linux-gnueabi
+            "system",  # armv7-unknown-linux-gnueabi
+            "thread",  # armv7-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:i686-pc-windows-msvc": [
+            "param",  # i686-pc-windows-msvc
+            "process",  # i686-pc-windows-msvc
+            "system",  # i686-pc-windows-msvc
+            "thread",  # i686-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
+            "param",  # i686-unknown-linux-gnu
+            "process",  # i686-unknown-linux-gnu
+            "system",  # i686-unknown-linux-gnu
+            "thread",  # i686-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
+            "param",  # powerpc-unknown-linux-gnu
+            "process",  # powerpc-unknown-linux-gnu
+            "system",  # powerpc-unknown-linux-gnu
+            "thread",  # powerpc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
+            "param",  # riscv64gc-unknown-linux-gnu
+            "process",  # riscv64gc-unknown-linux-gnu
+            "system",  # riscv64gc-unknown-linux-gnu
+            "thread",  # riscv64gc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
+            "param",  # s390x-unknown-linux-gnu
+            "process",  # s390x-unknown-linux-gnu
+            "system",  # s390x-unknown-linux-gnu
+            "thread",  # s390x-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-darwin": [
+            "param",  # x86_64-apple-darwin
+            "process",  # x86_64-apple-darwin
+            "system",  # x86_64-apple-darwin
+            "thread",  # x86_64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
+            "param",  # x86_64-pc-windows-msvc
+            "process",  # x86_64-pc-windows-msvc
+            "system",  # x86_64-pc-windows-msvc
+            "thread",  # x86_64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
+            "param",  # x86_64-unknown-freebsd
+            "process",  # x86_64-unknown-freebsd
+            "system",  # x86_64-unknown-freebsd
+            "thread",  # x86_64-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
+            "param",  # x86_64-unknown-linux-gnu
+            "process",  # x86_64-unknown-linux-gnu
+            "system",  # x86_64-unknown-linux-gnu
+            "thread",  # x86_64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
+            "param",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "process",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "system",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "thread",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+        ],
+        "//conditions:default": [],
+    }),
     crate_root = "src/lib.rs",
     edition = "2021",
     rustc_env_files = [
@@ -430,7 +528,105 @@ cargo_build_script(
         "default",
         "fs",
         "std",
-    ],
+    ] + select({
+        "@rules_rust//rust/platform:aarch64-apple-darwin": [
+            "param",  # aarch64-apple-darwin
+            "process",  # aarch64-apple-darwin
+            "system",  # aarch64-apple-darwin
+            "thread",  # aarch64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
+            "param",  # aarch64-pc-windows-msvc
+            "process",  # aarch64-pc-windows-msvc
+            "system",  # aarch64-pc-windows-msvc
+            "thread",  # aarch64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
+            "param",  # aarch64-unknown-linux-gnu
+            "process",  # aarch64-unknown-linux-gnu
+            "system",  # aarch64-unknown-linux-gnu
+            "thread",  # aarch64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
+            "param",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "process",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "system",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "thread",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
+            "param",  # arm-unknown-linux-gnueabi
+            "process",  # arm-unknown-linux-gnueabi
+            "system",  # arm-unknown-linux-gnueabi
+            "thread",  # arm-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
+            "param",  # armv7-unknown-linux-gnueabi
+            "process",  # armv7-unknown-linux-gnueabi
+            "system",  # armv7-unknown-linux-gnueabi
+            "thread",  # armv7-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:i686-pc-windows-msvc": [
+            "param",  # i686-pc-windows-msvc
+            "process",  # i686-pc-windows-msvc
+            "system",  # i686-pc-windows-msvc
+            "thread",  # i686-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
+            "param",  # i686-unknown-linux-gnu
+            "process",  # i686-unknown-linux-gnu
+            "system",  # i686-unknown-linux-gnu
+            "thread",  # i686-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
+            "param",  # powerpc-unknown-linux-gnu
+            "process",  # powerpc-unknown-linux-gnu
+            "system",  # powerpc-unknown-linux-gnu
+            "thread",  # powerpc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
+            "param",  # riscv64gc-unknown-linux-gnu
+            "process",  # riscv64gc-unknown-linux-gnu
+            "system",  # riscv64gc-unknown-linux-gnu
+            "thread",  # riscv64gc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
+            "param",  # s390x-unknown-linux-gnu
+            "process",  # s390x-unknown-linux-gnu
+            "system",  # s390x-unknown-linux-gnu
+            "thread",  # s390x-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-darwin": [
+            "param",  # x86_64-apple-darwin
+            "process",  # x86_64-apple-darwin
+            "system",  # x86_64-apple-darwin
+            "thread",  # x86_64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
+            "param",  # x86_64-pc-windows-msvc
+            "process",  # x86_64-pc-windows-msvc
+            "system",  # x86_64-pc-windows-msvc
+            "thread",  # x86_64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
+            "param",  # x86_64-unknown-freebsd
+            "process",  # x86_64-unknown-freebsd
+            "system",  # x86_64-unknown-freebsd
+            "thread",  # x86_64-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
+            "param",  # x86_64-unknown-linux-gnu
+            "process",  # x86_64-unknown-linux-gnu
+            "system",  # x86_64-unknown-linux-gnu
+            "thread",  # x86_64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
+            "param",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "process",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "system",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "thread",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+        ],
+        "//conditions:default": [],
+    }),
     crate_name = "build_script_build",
     crate_root = "build.rs",
     data = glob(

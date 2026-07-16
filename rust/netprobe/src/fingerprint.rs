@@ -23,8 +23,8 @@ use etherparse::{NetHeaders, PacketHeaders, TcpHeader, TcpOptionElement, Transpo
 use crate::event_queue::EventSender;
 use crate::hassh;
 use crate::proto::netprobe::{
-    fingerprint_event, FingerprintDisagreement, FingerprintEvent, FingerprintMatch,
-    LicenseCleanFingerprint, OsMatch as ProtoOsMatch, P0fFingerprintMatch, RecogFingerprintMatch,
+    FingerprintDisagreement, FingerprintEvent, FingerprintMatch, LicenseCleanFingerprint,
+    OsMatch as ProtoOsMatch, P0fFingerprintMatch, RecogFingerprintMatch, fingerprint_event,
 };
 #[cfg(feature = "remote-capture")]
 use crate::proto::netprobe::{HttpFingerprint, TcpFingerprint, TlsFingerprint};
@@ -44,16 +44,11 @@ const FINGERPRINT_ACCUMULATOR_TTL_NS: u64 = 30_000_000_000;
 pub const FINGERPRINT_ENGINE_VERSION: &str = "serviceradar-license-clean/1";
 pub const P0F_CORPUS_REVISION: &str =
     "p0f-3.09b:p0f.fp:sha256:45f27bcc65de0f64bc69356dc0662e3366e05e67a0e98fd2251808e253b6be40";
-pub const SERVICERADAR_ADDITIONS_REVISION: &str =
-    "serviceradar-additions.fp:sha256:2ab43ef6a172ec7329f77a5b8d01779c7c9b33e1f8e887981dbdb59e3debf68e";
-pub const JA4_BASE_SPEC_REVISION: &str =
-    "foxio-ja4-base:LICENSE-JA4:sha256:094300333d31ef3da914a2e8894dc933a39fc1c538bf1b58f9b37d08701ab29f";
-pub const MUONFP_CORPUS_REVISION: &str =
-    "muonfp:fa507cc944ebbf63d6748cbdeda9f4c4b0680791:spec-sha256:955be749c4010bdc8bf52a3b4e3e95d062225c6d20fa222de2fe5b509f47363c";
-pub const RECOG_CORPUS_REVISION: &str =
-    "recog:v3.1.25:2d99f217e70aeca8f1c9a1fb298f88a2211292a3:xml-sha256:0e334bf22024b0490e75c9e0f4c7019ce2adee1789cd00cb986387c3d842ef29";
-pub const SATORI_CORPUS_REVISION: &str =
-    "satori:73fa88fe6549995c68760be10631382df4ec1d1c:xml-sha256:71f053ec3623b7aed65a18ee81980ff42872032b97141a808cf74044fc45b30b";
+pub const SERVICERADAR_ADDITIONS_REVISION: &str = "serviceradar-additions.fp:sha256:2ab43ef6a172ec7329f77a5b8d01779c7c9b33e1f8e887981dbdb59e3debf68e";
+pub const JA4_BASE_SPEC_REVISION: &str = "foxio-ja4-base:LICENSE-JA4:sha256:094300333d31ef3da914a2e8894dc933a39fc1c538bf1b58f9b37d08701ab29f";
+pub const MUONFP_CORPUS_REVISION: &str = "muonfp:fa507cc944ebbf63d6748cbdeda9f4c4b0680791:spec-sha256:955be749c4010bdc8bf52a3b4e3e95d062225c6d20fa222de2fe5b509f47363c";
+pub const RECOG_CORPUS_REVISION: &str = "recog:v3.1.25:2d99f217e70aeca8f1c9a1fb298f88a2211292a3:xml-sha256:0e334bf22024b0490e75c9e0f4c7019ce2adee1789cd00cb986387c3d842ef29";
+pub const SATORI_CORPUS_REVISION: &str = "satori:73fa88fe6549995c68760be10631382df4ec1d1c:xml-sha256:71f053ec3623b7aed65a18ee81980ff42872032b97141a808cf74044fc45b30b";
 pub const SERVICERADAR_RECOG_ADDITIONS_REVISION: &str = "serviceradar-recog-additions:none";
 #[allow(dead_code)]
 const EVENT_VERSION: u16 = 1;
@@ -838,11 +833,7 @@ fn tls_event(
 
 #[cfg(feature = "remote-capture")]
 fn redact_sni_presence(has_sni: bool) -> &'static str {
-    if has_sni {
-        "<present>"
-    } else {
-        ""
-    }
+    if has_sni { "<present>" } else { "" }
 }
 
 #[allow(dead_code)]
@@ -1585,9 +1576,9 @@ fn source_ip(headers: &NetHeaders) -> Option<IpAddr> {
 #[cfg(test)]
 mod p0f_ring_tests {
     use super::{
-        parse_tcp_syn_ring_record, source_ip_from_flow_key, DpiPayloadContext,
-        FingerprintAccumulator, P0fSignatureEngine, AF_INET, EVENT_VERSION, FLOW_ENDPOINT_A,
-        FLOW_ENDPOINT_B, TCP_SYN_RING_RECORD_LEN,
+        AF_INET, DpiPayloadContext, EVENT_VERSION, FLOW_ENDPOINT_A, FLOW_ENDPOINT_B,
+        FingerprintAccumulator, P0fSignatureEngine, TCP_SYN_RING_RECORD_LEN,
+        parse_tcp_syn_ring_record, source_ip_from_flow_key,
     };
     use crate::af_xdp_classifier::FlowKey;
     use crate::proto::netprobe::fingerprint_event;
@@ -2108,7 +2099,7 @@ mod p0f_ring_tests {
 
 #[cfg(all(test, feature = "remote-capture"))]
 mod tests {
-    use super::{header_value, redact_sni_presence, FingerprintEngine};
+    use super::{FingerprintEngine, header_value, redact_sni_presence};
     use crate::proto::netprobe::fingerprint_event;
     use std::io::Write;
 

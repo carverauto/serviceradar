@@ -1,7 +1,7 @@
 //! Viz metadata builders for field-survey entities: sessions, rasters,
 //! artifacts, RF/pose/spectrum observations, and RF-pose matches.
 
-use super::{col, ColumnMeta, ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion};
+use super::{ColumnMeta, ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion, col};
 
 pub(super) fn sessions() -> VizMeta {
     fieldsurvey_table_meta(vec![

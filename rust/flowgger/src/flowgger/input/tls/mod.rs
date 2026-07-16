@@ -1,7 +1,7 @@
 use crate::flowgger::config::Config;
 use crate::flowgger::tls_utils::{load_certs, load_private_key, load_root_store, provider};
-use rustls::server::WebPkiClientVerifier;
 use rustls::ServerConfig;
+use rustls::server::WebPkiClientVerifier;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 

@@ -16,7 +16,7 @@
 
 //! Tests for mTLS bundle handling.
 
-use edge_onboarding::{install_mtls_bundle, load_bundle_from_path, Error, MtlsBundle};
+use edge_onboarding::{Error, MtlsBundle, install_mtls_bundle, load_bundle_from_path};
 use std::collections::HashMap;
 use std::fs;
 use tempfile::TempDir;

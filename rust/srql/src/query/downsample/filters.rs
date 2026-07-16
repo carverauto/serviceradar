@@ -1,8 +1,8 @@
 use super::bind::SqlBindValue;
 use crate::query::flows::{
-    FLOW_APP_EXPR, FLOW_DIRECTION_EXPR, FLOW_EXPORTER_NAME_EXPR, FLOW_INPUT_SNMP_EXPR,
-    FLOW_IN_IF_NAME_EXPR, FLOW_IN_IF_SPEED_BPS_EXPR, FLOW_OUTPUT_SNMP_EXPR, FLOW_OUT_IF_NAME_EXPR,
-    FLOW_OUT_IF_SPEED_BPS_EXPR, FLOW_PROTOCOL_GROUP_EXPR,
+    FLOW_APP_EXPR, FLOW_DIRECTION_EXPR, FLOW_EXPORTER_NAME_EXPR, FLOW_IN_IF_NAME_EXPR,
+    FLOW_IN_IF_SPEED_BPS_EXPR, FLOW_INPUT_SNMP_EXPR, FLOW_OUT_IF_NAME_EXPR,
+    FLOW_OUT_IF_SPEED_BPS_EXPR, FLOW_OUTPUT_SNMP_EXPR, FLOW_PROTOCOL_GROUP_EXPR,
 };
 use crate::{
     error::{Result, ServiceError},
@@ -97,7 +97,7 @@ fn text_clause(column: &str, filter: &Filter) -> Result<(String, Vec<SqlBindValu
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported operator for {column}: {:?}",
                 filter.op
-            )))
+            )));
         }
     };
     Ok((clause, binds))
@@ -143,7 +143,7 @@ fn float_clause(
             return Err(ServiceError::InvalidRequest(format!(
                 "{column} filter does not support operator {:?}",
                 filter.op
-            )))
+            )));
         }
     };
     Ok((clause, binds))
@@ -190,7 +190,7 @@ fn int_clause(
             return Err(ServiceError::InvalidRequest(format!(
                 "{column} filter does not support operator {:?}",
                 filter.op
-            )))
+            )));
         }
     };
 

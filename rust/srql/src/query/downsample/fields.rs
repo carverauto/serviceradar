@@ -161,7 +161,7 @@ pub(super) fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
                 other => {
                     return Err(ServiceError::InvalidRequest(format!(
                         "unsupported series field '{other}' for {table}"
-                    )))
+                    )));
                 }
             }
         }
@@ -177,7 +177,7 @@ pub(super) fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
             other => {
                 return Err(ServiceError::InvalidRequest(format!(
                     "unsupported series field '{other}' for {table}"
-                )))
+                )));
             }
         },
         Entity::MemoryMetrics => match series.as_str() {
@@ -189,7 +189,7 @@ pub(super) fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
             other => {
                 return Err(ServiceError::InvalidRequest(format!(
                     "unsupported series field '{other}' for {table}"
-                )))
+                )));
             }
         },
         Entity::DiskMetrics => match series.as_str() {
@@ -203,7 +203,7 @@ pub(super) fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
             other => {
                 return Err(ServiceError::InvalidRequest(format!(
                     "unsupported series field '{other}' for {table}"
-                )))
+                )));
             }
         },
         Entity::ProcessMetrics => match series.as_str() {
@@ -218,7 +218,7 @@ pub(super) fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
             other => {
                 return Err(ServiceError::InvalidRequest(format!(
                     "unsupported series field '{other}' for {table}"
-                )))
+                )));
             }
         },
         Entity::Flows => match series.as_str() {
@@ -239,13 +239,13 @@ pub(super) fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
             other => {
                 return Err(ServiceError::InvalidRequest(format!(
                     "unsupported series field '{other}' for {table}"
-                )))
+                )));
             }
         },
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "downsample is only supported for metric entities and flows".into(),
-            ))
+            ));
         }
     };
 

@@ -10,7 +10,7 @@ mod topn;
 use self::{
     filters::{apply_filter, collect_filter_params},
     rollup::build_rollup_stats_query,
-    stats::{bind_param_from_stats, build_stats_query, rewrite_placeholders, LogsStatsPayload},
+    stats::{LogsStatsPayload, bind_param_from_stats, build_stats_query, rewrite_placeholders},
     time::{apply_ordering, effective_timestamp_expr},
 };
 use super::{BindParam, QueryPlan};

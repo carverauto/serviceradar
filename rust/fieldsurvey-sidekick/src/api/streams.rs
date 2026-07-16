@@ -52,7 +52,7 @@ pub(super) async fn stream_observations(
                         let _ = send_observation_batch(&mut socket, &mut pending).await;
                         let _ = socket
                             .send(Message::Text(
-                                serde_json::json!({ "error": error }).to_string(),
+                                serde_json::json!({ "error": error }).to_string().into(),
                             ))
                             .await;
                         break;
@@ -68,7 +68,7 @@ pub(super) async fn stream_observations(
                 let _ = stop_result;
                 let _ = send_observation_batch(&mut socket, &mut pending).await;
                 let _ = socket
-                    .send(Message::Text(r#"{"event":"capture_stopped"}"#.to_string()))
+                    .send(Message::Text(r#"{"event":"capture_stopped"}"#.into()))
                     .await;
                 break;
             }
@@ -99,7 +99,7 @@ async fn send_observation_batch(
             pending.clear();
             return socket
                 .send(Message::Text(
-                    serde_json::json!({ "error": error }).to_string(),
+                    serde_json::json!({ "error": error }).to_string().into(),
                 ))
                 .await
                 .is_ok();
@@ -107,7 +107,7 @@ async fn send_observation_batch(
     };
 
     pending.clear();
-    socket.send(Message::Binary(payload)).await.is_ok()
+    socket.send(Message::Binary(payload.into())).await.is_ok()
 }
 
 pub(super) async fn stream_spectrum(
@@ -156,7 +156,7 @@ pub(super) async fn stream_spectrum(
                         let _ = send_spectrum_batch(&mut socket, &mut pending).await;
                         let _ = socket
                             .send(Message::Text(
-                                serde_json::json!({ "error": error }).to_string(),
+                                serde_json::json!({ "error": error }).to_string().into(),
                             ))
                             .await;
                         break;
@@ -172,7 +172,7 @@ pub(super) async fn stream_spectrum(
                 let _ = stop_result;
                 let _ = send_spectrum_batch(&mut socket, &mut pending).await;
                 let _ = socket
-                    .send(Message::Text(r#"{"event":"capture_stopped"}"#.to_string()))
+                    .send(Message::Text(r#"{"event":"capture_stopped"}"#.into()))
                     .await;
                 break;
             }
@@ -196,7 +196,7 @@ async fn send_spectrum_batch(socket: &mut WebSocket, pending: &mut Vec<SpectrumS
             pending.clear();
             return socket
                 .send(Message::Text(
-                    serde_json::json!({ "error": error }).to_string(),
+                    serde_json::json!({ "error": error }).to_string().into(),
                 ))
                 .await
                 .is_ok();
@@ -204,7 +204,7 @@ async fn send_spectrum_batch(socket: &mut WebSocket, pending: &mut Vec<SpectrumS
     };
 
     pending.clear();
-    socket.send(Message::Binary(payload)).await.is_ok()
+    socket.send(Message::Binary(payload.into())).await.is_ok()
 }
 
 pub(super) async fn stream_spectrum_summaries(
@@ -244,7 +244,7 @@ pub(super) async fn stream_spectrum_summaries(
                     Err(error) => {
                         let _ = socket
                             .send(Message::Text(
-                                serde_json::json!({ "error": error }).to_string(),
+                                serde_json::json!({ "error": error }).to_string().into(),
                             ))
                             .await;
                         break;
@@ -254,7 +254,7 @@ pub(super) async fn stream_spectrum_summaries(
             stop_result = stop_rx.changed() => {
                 let _ = stop_result;
                 let _ = socket
-                    .send(Message::Text(r#"{"event":"capture_stopped"}"#.to_string()))
+                    .send(Message::Text(r#"{"event":"capture_stopped"}"#.into()))
                     .await;
                 break;
             }
@@ -269,13 +269,13 @@ pub(super) async fn stream_spectrum_summaries(
 
 async fn send_spectrum_summary(socket: &mut WebSocket, summary: &SpectrumSummary) -> bool {
     match serde_json::to_string(summary) {
-        Ok(payload) => socket.send(Message::Text(payload)).await.is_ok(),
+        Ok(payload) => socket.send(Message::Text(payload.into())).await.is_ok(),
         Err(error) => {
             let payload = serde_json::json!({
                 "error": error.to_string(),
             });
             socket
-                .send(Message::Text(payload.to_string()))
+                .send(Message::Text(payload.to_string().into()))
                 .await
                 .is_ok()
         }

@@ -8,15 +8,15 @@ mod linux {
         path::Path,
         ptr::{self, NonNull},
         sync::{
-            atomic::{fence, AtomicBool, Ordering},
             Arc, Mutex,
+            atomic::{AtomicBool, Ordering, fence},
         },
         thread::{self, JoinHandle},
         time::Duration,
     };
 
-    use anyhow::{bail, Context, Result};
-    use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
+    use anyhow::{Context, Result, bail};
+    use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
     use nix::libc;
 
     const CHANNEL_CAPACITY: usize = 4096;
@@ -968,10 +968,10 @@ mod linux {
         use crossbeam_channel::bounded;
 
         use super::{
-            consumer_configs_for_interfaces, first_cpu_from_affinity_mask, parse_interface_irqs,
-            poll_once, register_xsk_socket, AfXdpConsumerConfig, AfXdpInterface, BackoffState,
-            PacketSource, PollOutcome, XskSocketRegistry, BUSY_POLL_SPIN, DEFAULT_REDIRECT_BUDGET,
-            IDLE_SLEEP, IDLE_SLEEP_AFTER,
+            AfXdpConsumerConfig, AfXdpInterface, BUSY_POLL_SPIN, BackoffState,
+            DEFAULT_REDIRECT_BUDGET, IDLE_SLEEP, IDLE_SLEEP_AFTER, PacketSource, PollOutcome,
+            XskSocketRegistry, consumer_configs_for_interfaces, first_cpu_from_affinity_mask,
+            parse_interface_irqs, poll_once, register_xsk_socket,
         };
 
         struct FakeSource {
@@ -1220,13 +1220,13 @@ mod non_linux {
 
 #[cfg(target_os = "linux")]
 pub use linux::{
-    resolve_interfaces, AfXdpConsumerConfig, AfXdpConsumers, AfXdpInterface, AfXdpPacket,
-    AfXdpStream, AyaXskSocketRegistry, NoopXskSocketRegistry, XskSocketRegistry,
-    DEFAULT_REDIRECT_BUDGET,
+    AfXdpConsumerConfig, AfXdpConsumers, AfXdpInterface, AfXdpPacket, AfXdpStream,
+    AyaXskSocketRegistry, DEFAULT_REDIRECT_BUDGET, NoopXskSocketRegistry, XskSocketRegistry,
+    resolve_interfaces,
 };
 
 #[cfg(not(target_os = "linux"))]
 pub use non_linux::{
-    resolve_interfaces, AfXdpConsumerConfig, AfXdpConsumers, AfXdpInterface, AfXdpPacket,
-    AfXdpStream, NoopXskSocketRegistry, XskSocketRegistry, DEFAULT_REDIRECT_BUDGET,
+    AfXdpConsumerConfig, AfXdpConsumers, AfXdpInterface, AfXdpPacket, AfXdpStream,
+    DEFAULT_REDIRECT_BUDGET, NoopXskSocketRegistry, XskSocketRegistry, resolve_interfaces,
 };

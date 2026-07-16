@@ -1,8 +1,8 @@
 use std::{
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -12,8 +12,8 @@ use prost::Message;
 use tokio::{
     net::{UnixListener, UnixStream},
     sync::mpsc::error::{TryRecvError, TrySendError},
-    sync::{broadcast, watch, Mutex},
-    time::{timeout, Instant},
+    sync::{Mutex, broadcast, watch},
+    time::{Instant, timeout},
 };
 
 use crate::{
@@ -25,13 +25,13 @@ use crate::{
         P0F_CORPUS_REVISION, RECOG_CORPUS_REVISION, SATORI_CORPUS_REVISION,
         SERVICERADAR_ADDITIONS_REVISION, SERVICERADAR_RECOG_ADDITIONS_REVISION,
     },
-    framing::{read_frame, write_frame, write_frame_with_buffer, MAX_FRAME_SIZE},
+    framing::{MAX_FRAME_SIZE, read_frame, write_frame, write_frame_with_buffer},
     ipc::match_banner,
     metrics::Metrics,
     proto::netprobe::{
-        netprobe_frame, ConfigAck, DpiEvent, ErrorFrame, ExternalFlowAck, ExternalFlowRecord,
-        FingerprintEvent, FlowAttributionEvent, FlowAttributionEventBatch, NetprobeFrame, PingAck,
-        ProcessSnapshot, ProcessSnapshotEntry,
+        ConfigAck, DpiEvent, ErrorFrame, ExternalFlowAck, ExternalFlowRecord, FingerprintEvent,
+        FlowAttributionEvent, FlowAttributionEventBatch, NetprobeFrame, PingAck, ProcessSnapshot,
+        ProcessSnapshotEntry, netprobe_frame,
     },
     runtime_config::RuntimeConfig,
 };
@@ -629,8 +629,8 @@ mod tests {
     };
 
     use super::{
-        ingest_external_flow_record, process_snapshot_frame_len, write_process_snapshot_frames,
-        IpcServer,
+        IpcServer, ingest_external_flow_record, process_snapshot_frame_len,
+        write_process_snapshot_frames,
     };
     use crate::external_flow::SharedExternalFlowMatcher;
     use crate::{
@@ -640,12 +640,12 @@ mod tests {
             RECOG_CORPUS_REVISION, SATORI_CORPUS_REVISION, SERVICERADAR_ADDITIONS_REVISION,
             SERVICERADAR_RECOG_ADDITIONS_REVISION,
         },
-        framing::{read_frame, write_frame, MAX_FRAME_SIZE},
+        framing::{MAX_FRAME_SIZE, read_frame, write_frame},
         metrics::Metrics,
         proto::netprobe::{
-            fingerprint_event, netprobe_frame, ApplyConfig, DpiEvent, ExternalFlowRecord,
-            FingerprintEvent, FlowAttributionEvent, NetprobeFrame, Ping, ProcessSnapshot,
-            ProcessSnapshotEntry, TcpFingerprint, VisibilityAgentConfig,
+            ApplyConfig, DpiEvent, ExternalFlowRecord, FingerprintEvent, FlowAttributionEvent,
+            NetprobeFrame, Ping, ProcessSnapshot, ProcessSnapshotEntry, TcpFingerprint,
+            VisibilityAgentConfig, fingerprint_event, netprobe_frame,
         },
         runtime_config::RuntimeConfig,
     };

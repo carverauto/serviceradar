@@ -33,23 +33,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => None,
     };
 
-    if let Some(protoc) = resolved_protoc {
-        env::set_var("PROTOC", protoc);
-    } else if let Ok(protoc) = which::which("protoc") {
-        env::set_var("PROTOC", protoc);
-    } else if !cfg!(target_os = "macos") {
-        env::set_var("PROTOC", "/usr/bin/protoc");
-    }
-
-    if cfg!(target_os = "macos") {
-        // For macOS with Homebrew
-        if Path::new("/opt/homebrew/opt/protobuf/include").exists() {
-            env::set_var("PROTOC_INCLUDE", "/opt/homebrew/opt/protobuf/include");
-        } else if Path::new("/usr/local/opt/protobuf/include").exists() {
-            env::set_var("PROTOC_INCLUDE", "/usr/local/opt/protobuf/include");
+    // SAFETY: this runs at the top of a build script's `main`, before any thread is
+    // spawned, so no other thread can read the environment concurrently.
+    unsafe {
+        if let Some(protoc) = resolved_protoc {
+            env::set_var("PROTOC", protoc);
+        } else if let Ok(protoc) = which::which("protoc") {
+            env::set_var("PROTOC", protoc);
+        } else if !cfg!(target_os = "macos") {
+            env::set_var("PROTOC", "/usr/bin/protoc");
         }
-    } else {
-        env::set_var("PROTOC_INCLUDE", "/usr/include");
+
+        if cfg!(target_os = "macos") {
+            // For macOS with Homebrew
+            if Path::new("/opt/homebrew/opt/protobuf/include").exists() {
+                env::set_var("PROTOC_INCLUDE", "/opt/homebrew/opt/protobuf/include");
+            } else if Path::new("/usr/local/opt/protobuf/include").exists() {
+                env::set_var("PROTOC_INCLUDE", "/usr/local/opt/protobuf/include");
+            }
+        } else {
+            env::set_var("PROTOC_INCLUDE", "/usr/include");
+        }
     }
 
     if let Ok(protoc) = env::var("PROTOC") {
@@ -58,13 +62,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .build_server(true)
         .build_client(false)
         .file_descriptor_set_path(&rperf_descriptor_path)
         .compile_protos(&["src/proto/rperf.proto"], &["src/proto"])?;
 
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .build_server(true)
         .build_client(false)
         .file_descriptor_set_path(&monitoring_descriptor_path)
@@ -93,7 +97,7 @@ fn resolve_in_runfiles(path: &str) -> Result<std::path::PathBuf, std::io::Error>
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 "RUNFILES_DIR unset",
-            ))
+            ));
         }
     };
     std::fs::canonicalize(Path::new(&runfiles).join(path))

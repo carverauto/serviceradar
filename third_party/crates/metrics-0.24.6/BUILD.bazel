@@ -94,7 +94,7 @@ rust_library(
     }),
     version = "0.24.6",
     deps = [
-        "//third_party/crates/rapidhash-4.4.1:rapidhash",
+        "//third_party/crates/rapidhash-4.5.1:rapidhash",
     ] + select({
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
             "//third_party/crates/portable-atomic-1.13.1:portable_atomic",  # cfg(target_pointer_width = "32")

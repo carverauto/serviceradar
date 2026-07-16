@@ -11,7 +11,6 @@ rust_binary(
     name = "serviceradar-otel-addon",
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/main.rs",
-    edition = "2024",
     deps = all_crate_deps(normal = True) + [
         "//rust/addon-sdk:addon_sdk",
         "//rust/otel:otel_lib",
@@ -19,9 +18,7 @@ rust_binary(
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )
 
-# Unit tests: `crate` inherits the binary's srcs/deps/edition/crate_root, so they
-# cannot drift from //rust/otel-addon:serviceradar-otel-addon. Only test-only extras
-# are declared here.
+
 rust_test(
     name = "otel_addon_test",
     crate = ":serviceradar-otel-addon",

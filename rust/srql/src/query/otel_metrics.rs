@@ -17,12 +17,12 @@ use crate::{
     time::TimeRange,
 };
 use chrono::{DateTime, Utc};
+use diesel::PgTextExpressionMethods;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
 use diesel::sql_query;
 use diesel::sql_types::{Array, Bool, Jsonb, Nullable, Text, Timestamptz};
-use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 
@@ -223,7 +223,7 @@ fn apply_filter<'a>(mut query: MetricsQuery<'a>, filter: &Filter) -> Result<Metr
                 _ => {
                     return Err(ServiceError::InvalidRequest(
                         "is_slow filter only supports equality".into(),
-                    ))
+                    ));
                 }
             }
         }
@@ -481,7 +481,7 @@ fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<SqlB
                 _ => {
                     return Err(ServiceError::InvalidRequest(
                         "is_slow filter only supports equality".into(),
-                    ))
+                    ));
                 }
             }
         }

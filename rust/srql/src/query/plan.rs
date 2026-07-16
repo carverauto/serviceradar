@@ -1,4 +1,4 @@
-use super::{max_time_range_days_for_ast, QueryPlan, QueryRequest};
+use super::{QueryPlan, QueryRequest, max_time_range_days_for_ast};
 use crate::{
     config::AppConfig,
     error::{Result, ServiceError},
@@ -115,11 +115,7 @@ fn determine_limit(config: &AppConfig, candidate: Option<i64>) -> i64 {
     let default = config.default_limit;
     let max = config.max_limit;
     let limit = candidate.unwrap_or(default).max(1);
-    if max <= 0 {
-        limit
-    } else {
-        limit.min(max)
-    }
+    if max <= 0 { limit } else { limit.min(max) }
 }
 
 fn normalize_device_aliases(

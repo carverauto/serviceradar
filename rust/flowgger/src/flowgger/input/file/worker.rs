@@ -4,10 +4,9 @@ use std::io::prelude::*;
 use std::io::stderr;
 use std::io::{BufReader, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, SyncSender};
-use std::time::Duration;
+use std::sync::mpsc::{SyncSender, channel};
 
-use notify::{watcher, RecursiveMode, Watcher};
+use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 
 use crate::flowgger::decoder::Decoder;
 use crate::flowgger::encoder::Encoder;
@@ -36,7 +35,12 @@ impl FileWorker {
 
     pub fn run(&mut self, from_tail: bool) {
         let (tx, rx) = channel();
-        let mut watcher = watcher(tx, Duration::from_secs(2)).expect("Cannot create file watcher");
+        // notify dropped the debouncing constructor (it lives in notify-debouncer-* now), so
+        // this watcher fires on every change rather than once per 2s. The event itself is
+        // ignored below -- it only wakes the reader, which then drains to EOF -- so the extra
+        // wakeups cost a read that returns 0 bytes.
+        let mut watcher =
+            RecommendedWatcher::new(tx, Config::default()).expect("Cannot create file watcher");
         watcher
             .watch(&self.path, RecursiveMode::NonRecursive)
             .unwrap();

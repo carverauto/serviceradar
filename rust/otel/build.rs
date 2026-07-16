@@ -1,7 +1,7 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .protoc_arg("--experimental_allow_proto3_optional")
-        .disable_comments(".") // Disable comments to avoid doctest issues
+        .disable_comments(["."]) // Disable comments to avoid doctest issues
         .compile_protos(
             &[
                 "proto/opentelemetry/proto/collector/trace/v1/trace_service.proto",
@@ -22,10 +22,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "../../proto/kv.proto"
     };
     let kv_proto_dir = std::path::Path::new(kv_proto_path).parent().unwrap();
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .protoc_arg("--experimental_allow_proto3_optional")
         .build_server(false)
         .build_client(true)
-        .compile_protos(&[kv_proto_path], &[kv_proto_dir])?;
+        .compile_protos(&[std::path::Path::new(kv_proto_path)], &[kv_proto_dir])?;
     Ok(())
 }

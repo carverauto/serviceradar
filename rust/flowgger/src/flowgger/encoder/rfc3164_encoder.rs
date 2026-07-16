@@ -1,7 +1,7 @@
-use super::{build_prepend_ts, config_get_prepend_ts, Encoder};
+use super::{Encoder, build_prepend_ts, config_get_prepend_ts};
 use crate::flowgger::config::Config;
 use crate::flowgger::record::Record;
-use time::{format_description, OffsetDateTime};
+use time::{OffsetDateTime, format_description};
 
 #[derive(Clone)]
 pub struct RFC3164Encoder {
@@ -33,7 +33,9 @@ impl Encoder for RFC3164Encoder {
             let ts = match build_prepend_ts(header_time_format) {
                 Ok(ts) => ts,
                 Err(_) => {
-                    return Err("Failed to format date when building prepend timestamp for header while encoding RFC3164")
+                    return Err(
+                        "Failed to format date when building prepend timestamp for header while encoding RFC3164",
+                    );
                 }
             };
             res.push_str(&ts);

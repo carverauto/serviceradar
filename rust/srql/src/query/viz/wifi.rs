@@ -1,7 +1,7 @@
 //! Viz metadata builders for wifi-map entities: sites, snapshots, access
 //! points, controllers, RADIUS groups, fleet history, and site references.
 
-use super::{col, ColumnMeta, ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion};
+use super::{ColumnMeta, ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion, col};
 
 pub(super) fn sites() -> VizMeta {
     wifi_map_table_meta(vec![

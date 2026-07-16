@@ -1,12 +1,12 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use pem::Pem;
+use spiffe::X509SourceError;
 use spiffe::bundle::BundleSource;
 use spiffe::cert::Certificate as SpiffeCertificate;
 use spiffe::workload_api::WorkloadApiError;
-use spiffe::X509SourceError;
 use spiffe::{TrustDomain, X509Source, X509SourceBuilder};
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use tonic::transport::{Certificate, Identity};
 
 const CERT_TAG: &str = "CERTIFICATE";

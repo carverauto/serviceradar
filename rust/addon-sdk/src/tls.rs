@@ -50,8 +50,8 @@ use rcgen::{
     ExtendedKeyUsagePurpose, IsCa, KeyUsagePurpose, SanType,
 };
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, UnixTime};
-use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
 use rustls::server::WebPkiClientVerifier;
+use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
 use rustls::{DigitallySignedStruct, DistinguishedName as RustlsDn, ServerConfig, SignatureScheme};
 
 /// The AutoMTLS material the server needs to build its rustls `ServerConfig`.

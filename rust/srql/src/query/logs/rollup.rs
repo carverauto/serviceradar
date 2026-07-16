@@ -121,7 +121,7 @@ fn build_rollup_text_clause(
             return Err(ServiceError::InvalidRequest(format!(
                 "rollup_stats filter {column} does not support operator {:?}",
                 filter.op
-            )))
+            )));
         }
     };
 

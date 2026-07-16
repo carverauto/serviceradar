@@ -455,7 +455,7 @@ fn exact_optional_u8(field: &MuonField, name: &str) -> Result<Option<u8>, MuonPa
 
 #[cfg(test)]
 mod tests {
-    use super::{encode_tcp_header, MuonFingerprint, MuonMatcher, MuonRule, MuonTcpObservation};
+    use super::{MuonFingerprint, MuonMatcher, MuonRule, MuonTcpObservation, encode_tcp_header};
 
     #[test]
     fn parses_upstream_spec_vectors() {

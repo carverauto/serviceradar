@@ -235,7 +235,7 @@ fn first_param<'a>(params: &'a BTreeMap<String, String>, keys: &[&str]) -> Optio
 
 #[cfg(test)]
 mod tests {
-    use super::{match_recog_result, RecogService};
+    use super::{RecogService, match_recog_result};
 
     #[test]
     fn matches_http_server_banner() {

@@ -1,0 +1,8 @@
+# Taplo TOML formatter configuration
+[formatting]
+# Set column width to 150 before line breaking
+column_width = 150
+# Prevent automatic array expansion - keep arrays compact unless they exceed column_width
+array_auto_expand = false
+# Keep arrays on single line if they fit within column_width
+array_auto_collapse = true

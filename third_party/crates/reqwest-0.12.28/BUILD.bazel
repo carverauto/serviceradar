@@ -34,20 +34,6 @@ rust_library(
             "WORKSPACE.bazel",
         ],
     ),
-    crate_features = [
-        "__rustls",
-        "__rustls-ring",
-        "__tls",
-        "blocking",
-        "charset",
-        "h2",
-        "http2",
-        "rustls-tls-native-roots",
-        "rustls-tls-native-roots-no-provider",
-        "rustls-tls-webpki-roots",
-        "rustls-tls-webpki-roots-no-provider",
-        "stream",
-    ],
     crate_root = "src/lib.rs",
     edition = "2021",
     rustc_env_files = [
@@ -111,7 +97,6 @@ rust_library(
         "//third_party/crates/base64-0.22.1:base64",
         "//third_party/crates/bytes-1.11.1:bytes",
         "//third_party/crates/futures-core-0.3.32:futures_core",
-        "//third_party/crates/futures-util-0.3.32:futures_util",
         "//third_party/crates/http-1.4.0:http",
         "//third_party/crates/serde-1.0.228:serde",
         "//third_party/crates/serde_urlencoded-0.7.1:serde_urlencoded",
@@ -119,611 +104,335 @@ rust_library(
         "//third_party/crates/url-2.5.8:url",
     ] + select({
         "@rules_rust//rust/platform:aarch64-apple-darwin": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # aarch64-apple-darwin
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # aarch64-apple-darwin
-            "//third_party/crates/h2-0.4.14:h2",  # aarch64-apple-darwin
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # aarch64-apple-darwin
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # aarch64-apple-darwin
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # aarch64-apple-darwin
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # aarch64-apple-darwin
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # aarch64-apple-darwin
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # aarch64-apple-darwin
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # aarch64-apple-darwin
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # aarch64-apple-darwin
         ],
         "@rules_rust//rust/platform:aarch64-apple-ios": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # aarch64-apple-ios
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # aarch64-apple-ios
-            "//third_party/crates/h2-0.4.14:h2",  # aarch64-apple-ios
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # aarch64-apple-ios
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # aarch64-apple-ios
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # aarch64-apple-ios
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # aarch64-apple-ios
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # aarch64-apple-ios
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # aarch64-apple-ios
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # aarch64-apple-ios
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # aarch64-apple-ios
         ],
         "@rules_rust//rust/platform:aarch64-apple-ios-sim": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # aarch64-apple-ios-sim
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # aarch64-apple-ios-sim
-            "//third_party/crates/h2-0.4.14:h2",  # aarch64-apple-ios-sim
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # aarch64-apple-ios-sim
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # aarch64-apple-ios-sim
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # aarch64-apple-ios-sim
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # aarch64-apple-ios-sim
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # aarch64-apple-ios-sim
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # aarch64-apple-ios-sim
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # aarch64-apple-ios-sim
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # aarch64-apple-ios-sim
         ],
         "@rules_rust//rust/platform:aarch64-linux-android": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # aarch64-linux-android
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # aarch64-linux-android
-            "//third_party/crates/h2-0.4.14:h2",  # aarch64-linux-android
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # aarch64-linux-android
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # aarch64-linux-android
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # aarch64-linux-android
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # aarch64-linux-android
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # aarch64-linux-android
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # aarch64-linux-android
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # aarch64-linux-android
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # aarch64-linux-android
         ],
         "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # aarch64-pc-windows-msvc
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # aarch64-pc-windows-msvc
-            "//third_party/crates/h2-0.4.14:h2",  # aarch64-pc-windows-msvc
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # aarch64-pc-windows-msvc
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # aarch64-pc-windows-msvc
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # aarch64-pc-windows-msvc
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # aarch64-pc-windows-msvc
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # aarch64-pc-windows-msvc
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # aarch64-pc-windows-msvc
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # aarch64-pc-windows-msvc
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # aarch64-pc-windows-msvc
         ],
         "@rules_rust//rust/platform:aarch64-unknown-fuchsia": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # aarch64-unknown-fuchsia
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # aarch64-unknown-fuchsia
-            "//third_party/crates/h2-0.4.14:h2",  # aarch64-unknown-fuchsia
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # aarch64-unknown-fuchsia
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # aarch64-unknown-fuchsia
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # aarch64-unknown-fuchsia
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # aarch64-unknown-fuchsia
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # aarch64-unknown-fuchsia
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # aarch64-unknown-fuchsia
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # aarch64-unknown-fuchsia
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # aarch64-unknown-fuchsia
         ],
         "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # aarch64-unknown-linux-gnu
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # aarch64-unknown-linux-gnu
-            "//third_party/crates/h2-0.4.14:h2",  # aarch64-unknown-linux-gnu
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # aarch64-unknown-linux-gnu
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # aarch64-unknown-linux-gnu
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # aarch64-unknown-linux-gnu
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # aarch64-unknown-linux-gnu
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # aarch64-unknown-linux-gnu
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # aarch64-unknown-linux-gnu
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # aarch64-unknown-linux-gnu
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # aarch64-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
-            "//third_party/crates/h2-0.4.14:h2",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
         ],
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # aarch64-unknown-nto-qnx710
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # aarch64-unknown-nto-qnx710
-            "//third_party/crates/h2-0.4.14:h2",  # aarch64-unknown-nto-qnx710
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # aarch64-unknown-nto-qnx710
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # aarch64-unknown-nto-qnx710
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # aarch64-unknown-nto-qnx710
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # aarch64-unknown-nto-qnx710
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # aarch64-unknown-nto-qnx710
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # aarch64-unknown-nto-qnx710
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # aarch64-unknown-nto-qnx710
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # aarch64-unknown-nto-qnx710
         ],
         "@rules_rust//rust/platform:aarch64-unknown-uefi": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # aarch64-unknown-uefi
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # aarch64-unknown-uefi
-            "//third_party/crates/h2-0.4.14:h2",  # aarch64-unknown-uefi
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # aarch64-unknown-uefi
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # aarch64-unknown-uefi
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # aarch64-unknown-uefi
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # aarch64-unknown-uefi
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # aarch64-unknown-uefi
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # aarch64-unknown-uefi
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # aarch64-unknown-uefi
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # aarch64-unknown-uefi
         ],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # arm-unknown-linux-gnueabi
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # arm-unknown-linux-gnueabi
-            "//third_party/crates/h2-0.4.14:h2",  # arm-unknown-linux-gnueabi
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # arm-unknown-linux-gnueabi
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # arm-unknown-linux-gnueabi
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # arm-unknown-linux-gnueabi
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # arm-unknown-linux-gnueabi
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # arm-unknown-linux-gnueabi
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # arm-unknown-linux-gnueabi
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # arm-unknown-linux-gnueabi
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # arm-unknown-linux-gnueabi
         ],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # armv7-linux-androideabi
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # armv7-linux-androideabi
-            "//third_party/crates/h2-0.4.14:h2",  # armv7-linux-androideabi
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # armv7-linux-androideabi
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # armv7-linux-androideabi
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # armv7-linux-androideabi
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # armv7-linux-androideabi
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # armv7-linux-androideabi
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # armv7-linux-androideabi
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # armv7-linux-androideabi
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # armv7-linux-androideabi
         ],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # armv7-unknown-linux-gnueabi
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # armv7-unknown-linux-gnueabi
-            "//third_party/crates/h2-0.4.14:h2",  # armv7-unknown-linux-gnueabi
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # armv7-unknown-linux-gnueabi
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # armv7-unknown-linux-gnueabi
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # armv7-unknown-linux-gnueabi
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # armv7-unknown-linux-gnueabi
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # armv7-unknown-linux-gnueabi
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # armv7-unknown-linux-gnueabi
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # armv7-unknown-linux-gnueabi
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # armv7-unknown-linux-gnueabi
         ],
         "@rules_rust//rust/platform:i686-apple-darwin": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # i686-apple-darwin
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # i686-apple-darwin
-            "//third_party/crates/h2-0.4.14:h2",  # i686-apple-darwin
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # i686-apple-darwin
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # i686-apple-darwin
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # i686-apple-darwin
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # i686-apple-darwin
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # i686-apple-darwin
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # i686-apple-darwin
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # i686-apple-darwin
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # i686-apple-darwin
         ],
         "@rules_rust//rust/platform:i686-linux-android": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # i686-linux-android
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # i686-linux-android
-            "//third_party/crates/h2-0.4.14:h2",  # i686-linux-android
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # i686-linux-android
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # i686-linux-android
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # i686-linux-android
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # i686-linux-android
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # i686-linux-android
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # i686-linux-android
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # i686-linux-android
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # i686-linux-android
         ],
         "@rules_rust//rust/platform:i686-pc-windows-msvc": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # i686-pc-windows-msvc
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # i686-pc-windows-msvc
-            "//third_party/crates/h2-0.4.14:h2",  # i686-pc-windows-msvc
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # i686-pc-windows-msvc
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # i686-pc-windows-msvc
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # i686-pc-windows-msvc
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # i686-pc-windows-msvc
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # i686-pc-windows-msvc
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # i686-pc-windows-msvc
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # i686-pc-windows-msvc
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # i686-pc-windows-msvc
         ],
         "@rules_rust//rust/platform:i686-unknown-freebsd": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # i686-unknown-freebsd
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # i686-unknown-freebsd
-            "//third_party/crates/h2-0.4.14:h2",  # i686-unknown-freebsd
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # i686-unknown-freebsd
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # i686-unknown-freebsd
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # i686-unknown-freebsd
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # i686-unknown-freebsd
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # i686-unknown-freebsd
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # i686-unknown-freebsd
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # i686-unknown-freebsd
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # i686-unknown-freebsd
         ],
         "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # i686-unknown-linux-gnu
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # i686-unknown-linux-gnu
-            "//third_party/crates/h2-0.4.14:h2",  # i686-unknown-linux-gnu
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # i686-unknown-linux-gnu
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # i686-unknown-linux-gnu
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # i686-unknown-linux-gnu
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # i686-unknown-linux-gnu
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # i686-unknown-linux-gnu
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # i686-unknown-linux-gnu
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # i686-unknown-linux-gnu
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # i686-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # powerpc-unknown-linux-gnu
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # powerpc-unknown-linux-gnu
-            "//third_party/crates/h2-0.4.14:h2",  # powerpc-unknown-linux-gnu
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # powerpc-unknown-linux-gnu
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # powerpc-unknown-linux-gnu
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # powerpc-unknown-linux-gnu
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # powerpc-unknown-linux-gnu
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # powerpc-unknown-linux-gnu
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # powerpc-unknown-linux-gnu
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # powerpc-unknown-linux-gnu
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # powerpc-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:riscv32imc-unknown-none-elf": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # riscv32imc-unknown-none-elf
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # riscv32imc-unknown-none-elf
-            "//third_party/crates/h2-0.4.14:h2",  # riscv32imc-unknown-none-elf
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # riscv32imc-unknown-none-elf
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # riscv32imc-unknown-none-elf
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # riscv32imc-unknown-none-elf
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # riscv32imc-unknown-none-elf
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # riscv32imc-unknown-none-elf
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # riscv32imc-unknown-none-elf
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # riscv32imc-unknown-none-elf
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # riscv32imc-unknown-none-elf
         ],
         "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # riscv64gc-unknown-linux-gnu
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # riscv64gc-unknown-linux-gnu
-            "//third_party/crates/h2-0.4.14:h2",  # riscv64gc-unknown-linux-gnu
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # riscv64gc-unknown-linux-gnu
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # riscv64gc-unknown-linux-gnu
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # riscv64gc-unknown-linux-gnu
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # riscv64gc-unknown-linux-gnu
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # riscv64gc-unknown-linux-gnu
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # riscv64gc-unknown-linux-gnu
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # riscv64gc-unknown-linux-gnu
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # riscv64gc-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:riscv64gc-unknown-none-elf": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # riscv64gc-unknown-none-elf
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # riscv64gc-unknown-none-elf
-            "//third_party/crates/h2-0.4.14:h2",  # riscv64gc-unknown-none-elf
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # riscv64gc-unknown-none-elf
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # riscv64gc-unknown-none-elf
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # riscv64gc-unknown-none-elf
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # riscv64gc-unknown-none-elf
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # riscv64gc-unknown-none-elf
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # riscv64gc-unknown-none-elf
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # riscv64gc-unknown-none-elf
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # riscv64gc-unknown-none-elf
         ],
         "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # s390x-unknown-linux-gnu
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # s390x-unknown-linux-gnu
-            "//third_party/crates/h2-0.4.14:h2",  # s390x-unknown-linux-gnu
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # s390x-unknown-linux-gnu
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # s390x-unknown-linux-gnu
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # s390x-unknown-linux-gnu
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # s390x-unknown-linux-gnu
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # s390x-unknown-linux-gnu
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # s390x-unknown-linux-gnu
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # s390x-unknown-linux-gnu
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # s390x-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:thumbv7em-none-eabi": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # thumbv7em-none-eabi
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # thumbv7em-none-eabi
-            "//third_party/crates/h2-0.4.14:h2",  # thumbv7em-none-eabi
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # thumbv7em-none-eabi
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # thumbv7em-none-eabi
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # thumbv7em-none-eabi
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # thumbv7em-none-eabi
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # thumbv7em-none-eabi
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # thumbv7em-none-eabi
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # thumbv7em-none-eabi
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # thumbv7em-none-eabi
         ],
         "@rules_rust//rust/platform:thumbv8m.main-none-eabi": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # thumbv8m.main-none-eabi
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # thumbv8m.main-none-eabi
-            "//third_party/crates/h2-0.4.14:h2",  # thumbv8m.main-none-eabi
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # thumbv8m.main-none-eabi
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # thumbv8m.main-none-eabi
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # thumbv8m.main-none-eabi
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # thumbv8m.main-none-eabi
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # thumbv8m.main-none-eabi
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # thumbv8m.main-none-eabi
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # thumbv8m.main-none-eabi
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # thumbv8m.main-none-eabi
         ],
         "@rules_rust//rust/platform:wasm32-unknown-emscripten": [
             "//third_party/crates/js-sys-0.3.98:js_sys",  # cfg(target_arch = "wasm32")
             "//third_party/crates/serde_json-1.0.150:serde_json",  # cfg(target_arch = "wasm32")
             "//third_party/crates/wasm-bindgen-0.2.121:wasm_bindgen",  # cfg(target_arch = "wasm32")
             "//third_party/crates/wasm-bindgen-futures-0.4.71:wasm_bindgen_futures",  # cfg(target_arch = "wasm32")
-            "//third_party/crates/wasm-streams-0.4.2:wasm_streams",  # wasm32-unknown-emscripten
             "//third_party/crates/web-sys-0.3.98:web_sys",  # cfg(target_arch = "wasm32")
         ],
         "@rules_rust//rust/platform:wasm32-unknown-unknown": [
@@ -731,7 +440,6 @@ rust_library(
             "//third_party/crates/serde_json-1.0.150:serde_json",  # cfg(target_arch = "wasm32")
             "//third_party/crates/wasm-bindgen-0.2.121:wasm_bindgen",  # cfg(target_arch = "wasm32")
             "//third_party/crates/wasm-bindgen-futures-0.4.71:wasm_bindgen_futures",  # cfg(target_arch = "wasm32")
-            "//third_party/crates/wasm-streams-0.4.2:wasm_streams",  # wasm32-unknown-unknown
             "//third_party/crates/web-sys-0.3.98:web_sys",  # cfg(target_arch = "wasm32")
         ],
         "@rules_rust//rust/platform:wasm32-wasip1": [
@@ -739,7 +447,6 @@ rust_library(
             "//third_party/crates/serde_json-1.0.150:serde_json",  # cfg(target_arch = "wasm32")
             "//third_party/crates/wasm-bindgen-0.2.121:wasm_bindgen",  # cfg(target_arch = "wasm32")
             "//third_party/crates/wasm-bindgen-futures-0.4.71:wasm_bindgen_futures",  # cfg(target_arch = "wasm32")
-            "//third_party/crates/wasm-streams-0.4.2:wasm_streams",  # wasm32-wasip1
             "//third_party/crates/web-sys-0.3.98:web_sys",  # cfg(target_arch = "wasm32")
         ],
         "@rules_rust//rust/platform:wasm32-wasip1-threads": [
@@ -747,7 +454,6 @@ rust_library(
             "//third_party/crates/serde_json-1.0.150:serde_json",  # cfg(target_arch = "wasm32")
             "//third_party/crates/wasm-bindgen-0.2.121:wasm_bindgen",  # cfg(target_arch = "wasm32")
             "//third_party/crates/wasm-bindgen-futures-0.4.71:wasm_bindgen_futures",  # cfg(target_arch = "wasm32")
-            "//third_party/crates/wasm-streams-0.4.2:wasm_streams",  # wasm32-wasip1-threads
             "//third_party/crates/web-sys-0.3.98:web_sys",  # cfg(target_arch = "wasm32")
         ],
         "@rules_rust//rust/platform:wasm32-wasip2": [
@@ -755,248 +461,137 @@ rust_library(
             "//third_party/crates/serde_json-1.0.150:serde_json",  # cfg(target_arch = "wasm32")
             "//third_party/crates/wasm-bindgen-0.2.121:wasm_bindgen",  # cfg(target_arch = "wasm32")
             "//third_party/crates/wasm-bindgen-futures-0.4.71:wasm_bindgen_futures",  # cfg(target_arch = "wasm32")
-            "//third_party/crates/wasm-streams-0.4.2:wasm_streams",  # wasm32-wasip2
             "//third_party/crates/web-sys-0.3.98:web_sys",  # cfg(target_arch = "wasm32")
         ],
         "@rules_rust//rust/platform:x86_64-apple-darwin": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # x86_64-apple-darwin
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # x86_64-apple-darwin
-            "//third_party/crates/h2-0.4.14:h2",  # x86_64-apple-darwin
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # x86_64-apple-darwin
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # x86_64-apple-darwin
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # x86_64-apple-darwin
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # x86_64-apple-darwin
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # x86_64-apple-darwin
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # x86_64-apple-darwin
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # x86_64-apple-darwin
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # x86_64-apple-darwin
         ],
         "@rules_rust//rust/platform:x86_64-apple-ios": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # x86_64-apple-ios
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # x86_64-apple-ios
-            "//third_party/crates/h2-0.4.14:h2",  # x86_64-apple-ios
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # x86_64-apple-ios
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # x86_64-apple-ios
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # x86_64-apple-ios
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # x86_64-apple-ios
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # x86_64-apple-ios
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # x86_64-apple-ios
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # x86_64-apple-ios
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # x86_64-apple-ios
         ],
         "@rules_rust//rust/platform:x86_64-linux-android": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # x86_64-linux-android
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # x86_64-linux-android
-            "//third_party/crates/h2-0.4.14:h2",  # x86_64-linux-android
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # x86_64-linux-android
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # x86_64-linux-android
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # x86_64-linux-android
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # x86_64-linux-android
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # x86_64-linux-android
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # x86_64-linux-android
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # x86_64-linux-android
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # x86_64-linux-android
         ],
         "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # x86_64-pc-windows-msvc
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # x86_64-pc-windows-msvc
-            "//third_party/crates/h2-0.4.14:h2",  # x86_64-pc-windows-msvc
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # x86_64-pc-windows-msvc
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # x86_64-pc-windows-msvc
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # x86_64-pc-windows-msvc
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # x86_64-pc-windows-msvc
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # x86_64-pc-windows-msvc
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # x86_64-pc-windows-msvc
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # x86_64-pc-windows-msvc
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # x86_64-pc-windows-msvc
         ],
         "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # x86_64-unknown-freebsd
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # x86_64-unknown-freebsd
-            "//third_party/crates/h2-0.4.14:h2",  # x86_64-unknown-freebsd
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # x86_64-unknown-freebsd
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # x86_64-unknown-freebsd
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # x86_64-unknown-freebsd
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # x86_64-unknown-freebsd
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # x86_64-unknown-freebsd
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # x86_64-unknown-freebsd
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # x86_64-unknown-freebsd
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # x86_64-unknown-freebsd
         ],
         "@rules_rust//rust/platform:x86_64-unknown-fuchsia": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # x86_64-unknown-fuchsia
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # x86_64-unknown-fuchsia
-            "//third_party/crates/h2-0.4.14:h2",  # x86_64-unknown-fuchsia
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # x86_64-unknown-fuchsia
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # x86_64-unknown-fuchsia
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # x86_64-unknown-fuchsia
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # x86_64-unknown-fuchsia
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # x86_64-unknown-fuchsia
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # x86_64-unknown-fuchsia
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # x86_64-unknown-fuchsia
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # x86_64-unknown-fuchsia
         ],
         "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # x86_64-unknown-linux-gnu
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # x86_64-unknown-linux-gnu
-            "//third_party/crates/h2-0.4.14:h2",  # x86_64-unknown-linux-gnu
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # x86_64-unknown-linux-gnu
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # x86_64-unknown-linux-gnu
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # x86_64-unknown-linux-gnu
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # x86_64-unknown-linux-gnu
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # x86_64-unknown-linux-gnu
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # x86_64-unknown-linux-gnu
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # x86_64-unknown-linux-gnu
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # x86_64-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
-            "//third_party/crates/h2-0.4.14:h2",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
         ],
         "@rules_rust//rust/platform:x86_64-unknown-none": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # x86_64-unknown-none
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # x86_64-unknown-none
-            "//third_party/crates/h2-0.4.14:h2",  # x86_64-unknown-none
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # x86_64-unknown-none
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # x86_64-unknown-none
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # x86_64-unknown-none
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # x86_64-unknown-none
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # x86_64-unknown-none
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # x86_64-unknown-none
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # x86_64-unknown-none
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # x86_64-unknown-none
         ],
         "@rules_rust//rust/platform:x86_64-unknown-uefi": [
-            "//third_party/crates/encoding_rs-0.8.35:encoding_rs",  # x86_64-unknown-uefi
-            "//third_party/crates/futures-channel-0.3.32:futures_channel",  # x86_64-unknown-uefi
-            "//third_party/crates/h2-0.4.14:h2",  # x86_64-unknown-uefi
             "//third_party/crates/http-body-1.0.1:http_body",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/http-body-util-0.1.3:http_body_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/hyper-1.9.0:hyper",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/hyper-rustls-0.27.9:hyper_rustls",  # x86_64-unknown-uefi
             "//third_party/crates/hyper-util-0.1.20:hyper_util",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/log-0.4.30:log",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/mime-0.3.17:mime",  # x86_64-unknown-uefi
             "//third_party/crates/percent-encoding-2.3.2:percent_encoding",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/rustls-0.23.40:rustls",  # x86_64-unknown-uefi
-            "//third_party/crates/rustls-native-certs-0.8.3:rustls_native_certs",  # x86_64-unknown-uefi
-            "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",  # x86_64-unknown-uefi
             "//third_party/crates/tokio-1.52.3:tokio",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",  # x86_64-unknown-uefi
-            "//third_party/crates/tokio-util-0.7.18:tokio_util",  # x86_64-unknown-uefi
             "//third_party/crates/tower-0.5.3:tower",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-http-0.6.11:tower_http",  # cfg(not(target_arch = "wasm32"))
             "//third_party/crates/tower-service-0.3.3:tower_service",  # cfg(not(target_arch = "wasm32"))
-            "//third_party/crates/webpki-roots-1.0.7:webpki_roots",  # x86_64-unknown-uefi
         ],
         "//conditions:default": [],
     }),

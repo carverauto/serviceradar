@@ -36,10 +36,6 @@ rust_library(
     ),
     crate_features = [
         "alloc",
-        "async-await",
-        "default",
-        "executor",
-        "futures-executor",
         "std",
     ],
     crate_root = "src/lib.rs",
@@ -104,7 +100,6 @@ rust_library(
     deps = [
         "//third_party/crates/futures-channel-0.3.32:futures_channel",
         "//third_party/crates/futures-core-0.3.32:futures_core",
-        "//third_party/crates/futures-executor-0.3.32:futures_executor",
         "//third_party/crates/futures-io-0.3.32:futures_io",
         "//third_party/crates/futures-sink-0.3.32:futures_sink",
         "//third_party/crates/futures-task-0.3.32:futures_task",

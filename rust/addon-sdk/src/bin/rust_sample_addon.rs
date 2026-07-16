@@ -21,7 +21,7 @@
 //! end to end. It proves the Go agent's go-plugin client launches and supervises
 //! a Rust add-on with no host-side changes.
 
-use addon_sdk::{serve, Addon, ConfigureResult, Health, HealthStatus, Info};
+use addon_sdk::{Addon, ConfigureResult, Health, HealthStatus, Info, serve};
 use async_trait::async_trait;
 use sha2::{Digest as _, Sha256};
 

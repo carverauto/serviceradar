@@ -157,12 +157,10 @@ impl ContextHydrator {
             mode: None,
         };
 
-        let response = self
-            .srql
-            .query
-            .execute_query(request)
-            .await
-            .map_err(|e| CorrelationEngineError::Hydration(format!("query '{srql_query}': {e}")))?;
+        let response =
+            self.srql.query.execute_query(request).await.map_err(|e| {
+                CorrelationEngineError::Hydration(format!("query '{srql_query}': {e}"))
+            })?;
 
         if let Some(error) = response.error {
             return Err(CorrelationEngineError::Hydration(format!(

@@ -1,10 +1,13 @@
 [package]
 name = "serviceradar-metrics-delta-writer"
 version = "0.1.0"
-edition = "2024"
-rust-version = "1.90"
 description = "ServiceRadar metrics Delta lakehouse writer (OpenSpec: add-delta-metrics-lakehouse). Consumes the metrics JetStream durable, decodes MetricBatch protobuf, and batch-writes raw points to a Delta table on object storage."
+edition = "2024"
 license = "Apache-2.0"
+
+[lib]
+name = "serviceradar_metrics_delta_writer"
+path = "src/lib.rs"
 
 [[bin]]
 name = "metrics-delta-writer"
@@ -14,23 +17,19 @@ path = "src/main.rs"
 name = "metrics-protobuf-bench"
 path = "src/bin/metrics_protobuf_bench.rs"
 
-[lib]
-name = "serviceradar_metrics_delta_writer"
-path = "src/lib.rs"
-
 [dependencies]
-anyhow = "1"
-async-nats = "0.48"
-envy = "0.4"
-futures = "0.3"
+anyhow = { workspace = true }
+async-nats = { workspace = true }
+envy = { workspace = true }
+futures = { workspace = true }
 prost = { workspace = true }
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 serviceradar-metric-proto = { path = "../metric-proto" }
-thiserror = "1"
-tokio = { version = "1", features = ["full"] }
-tokio-postgres = "0.7"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }
+tokio-postgres = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 
 # TODO(add-delta-metrics-lakehouse task 3.1): wire the real Delta sink. The
 # `deltalake` crate pulls in arrow + object_store and must be added to the
@@ -40,4 +39,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 # deltalake = { version = "0.x", features = ["s3", "datafusion"] }
 
 [dev-dependencies]
-pretty_assertions = "1"
+pretty_assertions = { workspace = true }
