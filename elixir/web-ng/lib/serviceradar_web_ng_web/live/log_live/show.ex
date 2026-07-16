@@ -322,6 +322,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
           <span class="text-sm">{Map.get(@log, "service_name")}</span>
         </div>
 
+        <div :if={has_value?(@log, "source_ip")} id="log-source-ip" class="flex flex-col gap-1">
+          <span class="text-xs text-base-content/50 uppercase tracking-wider">Source IP</span>
+          <span class="text-sm font-mono">{Map.get(@log, "source_ip")}</span>
+        </div>
+
         <div :if={has_value?(@log, "scope_name")} class="flex flex-col gap-1">
           <span class="text-xs text-base-content/50 uppercase tracking-wider">Scope</span>
           <span class="text-sm font-mono">{Map.get(@log, "scope_name")}</span>
@@ -389,7 +394,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     # columns are rendered as dedicated rows below, so they are excluded from
     # the generic field loop.
     summary_fields =
-      ~w(id log_id severity_text severity_number timestamp service_name scope_name trace_id span_id body message) ++
+      ~w(id log_id severity_text severity_number timestamp service_name source_ip scope_name trace_id span_id body message) ++
         ingest_fields()
 
     # Get remaining fields

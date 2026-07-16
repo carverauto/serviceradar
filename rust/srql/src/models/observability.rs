@@ -101,6 +101,7 @@ pub struct LogRow {
     pub ingest_identity: String,
     pub ingest_agent_id: String,
     pub ingest_partition: String,
+    pub source_ip: Option<String>,
 }
 
 impl LogRow {
@@ -134,6 +135,7 @@ impl LogRow {
             "ingest_identity": self.ingest_identity,
             "ingest_agent_id": self.ingest_agent_id,
             "ingest_partition": self.ingest_partition,
+            "source_ip": self.source_ip,
             "raw_data": self.attributes.unwrap_or_default(),
         })
     }

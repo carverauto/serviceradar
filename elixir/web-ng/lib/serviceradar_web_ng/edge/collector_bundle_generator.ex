@@ -170,7 +170,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
     # Apply any config overrides
     input_listen = get_in(package.config_overrides, ["input", "listen"]) || "0.0.0.0:514"
-    input_format = get_in(package.config_overrides, ["input", "format"]) || "rfc3164"
+    input_format = get_in(package.config_overrides, ["input", "format"]) || "auto"
 
     input_timezone =
       get_in(package.config_overrides, ["input", "rfc3164_timezone"]) ||

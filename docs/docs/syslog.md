@@ -15,7 +15,7 @@ onboarding new platforms.
 
 1. Expose `serviceradar-log-collector` on UDP 514. In Kubernetes, prefer a shared Gateway API UDP listener plus `gatewayApi.syslog.enabled` when the cluster already has a shared Envoy Gateway. Use `logCollector.externalService.enabled` only when you need a dedicated LoadBalancer or NodePort.
 2. Allocate dedicated volumes if you need to buffer bursts; CNPG ingests events in near real time, but disk headroom protects against traffic spikes.
-3. Attach `site`, `account`, or other metadata using **Settings → Integrations** so logs stay filterable in SRQL and dashboards.
+3. Attach `site`, `account`, or other metadata using **Settings -> Integrations** so logs stay filterable in SRQL and dashboards.
 
 ### TCP Syslog
 
@@ -26,7 +26,7 @@ logCollector:
   tcpCollector:
     enabled: true
     listen: "0.0.0.0:514"   # TCP
-    format: "rfc3164"        # or rfc5424
+    format: "auto"            # RFC3164, RFC5424, or ClearPass standard
     framing: "line"
 ```
 
@@ -58,6 +58,35 @@ Network devices should send syslog to `<SYSLOG_GATEWAY_ADDRESS>:514/UDP`. Keep t
 - Prefer TCP or TLS transports where supported (see [TCP Syslog](#tcp-syslog)). The log-collector's flowgger input supports `udp`, `tcp`, and `tls`; it does not support RELP. When restricted to UDP, enforce ACLs and use an out-of-band management network.
 - Normalize time zones to UTC to keep SRQL queries aligned with SNMP and OTEL data.
 - Leverage structured data fields (RFC 5424) for network appliances that support it; ServiceRadar stores them as JSON for easier filtering.
+
+## Accepted Formats
+
+The default collector input format is `auto`. It tries RFC 5424, RFC 3164, and
+the ClearPass standard header format for each message. ClearPass standard
+messages use a full year and comma-separated milliseconds, for example
+`2026-07-15 14:24:44,270 192.0.2.34 CPPM_Session_Detail ...`.
+
+CEF, LEEF, and other opaque payloads are accepted and retained as the log body
+even when ServiceRadar does not yet extract their vendor-specific fields. A
+message that does not match a known header is still published with its raw
+body, receive timestamp, and fallback metadata so ingestion does not silently
+drop it. Explicit `rfc3164` or `rfc5424` modes remain strict and are useful
+when a sender is known to emit only one format.
+
+For ClearPass and RADIUS integrations, select RFC 5424 when available. The
+ClearPass standard format is also supported when that is the format required by
+the deployment.
+
+## Source IP Preservation
+
+For network transports, `source_ip` is the address observed by the collector.
+The log detail view displays it as **Source IP**, SRQL can filter it with
+`source_ip:"10.208.254.4"`, and the original Flowgger `_remote_addr` value is
+also retained in the log attributes for troubleshooting. If a Kubernetes
+load balancer or Gateway performs source NAT, the observed value may be the
+load balancer or Gateway address rather than the device address. Preserve the
+source address at the load balancer and Gateway layer when device-level
+attribution is required.
 
 ## Event Pipeline
 
@@ -108,4 +137,5 @@ templates.
   ORDER BY timestamp DESC
   LIMIT 20;
   ```
+- Verify the collector-observed address with `SELECT timestamp, source_ip, body FROM logs WHERE source = 'syslog' ORDER BY timestamp DESC LIMIT 20;`.
 - Cross-link syslog and SNMP data in dashboards to highlight correlation during incidents.

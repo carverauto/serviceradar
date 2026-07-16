@@ -30,6 +30,44 @@ Use a private deployment address map like this in your site runbook:
 
 Keep the actual addresses in private operations material. "External" means traffic originates outside the Kubernetes pod network; it does not mean the port should be reachable from the internet.
 
+### Preserve Device Source Addresses
+
+ServiceRadar records the source address observed by the collector in
+`logs.source_ip`. A direct `LoadBalancer` or `NodePort` path should use
+`externalTrafficPolicy: Local` when the Kubernetes provider supports it and
+when the service has a local endpoint on the receiving node. This asks the
+service proxy to preserve the client address, but it can reduce failover
+options and requires health-aware scheduling.
+
+Gateway API and external load balancers can still rewrite the source address.
+If syslog records show the Gateway or load balancer address instead of the
+router address, ask the Tanzu or load balancer administrators to preserve the
+client source address and to disable source NAT for the syslog listener where
+supported. NetworkPolicy cannot restore an address that was already rewritten.
+The collector preserves the address it actually receives and cannot infer the
+original device address from the syslog payload.
+
+For source-fidelity-sensitive syslog, use the dedicated collector Service
+instead of a Gateway UDPRoute:
+
+```yaml
+logCollector:
+  externalService:
+    enabled: true
+    type: LoadBalancer
+    externalTrafficPolicy: Local
+    annotations:
+      metallb.universe.tf/address-pool: <ADDRESS_POOL>
+    loadBalancerIP: "<SYSLOG_COLLECTOR_ADDRESS>"
+```
+
+Configure the device to send to that Service address on UDP/514. Do not use a
+shared Envoy Gateway UDP address when the collector must display the device's
+transport source address: the standard Envoy Gateway UDP path is not
+transparent and the backend observes the proxy address. A transparent proxy
+requires separate network and proxy support; it cannot be enabled by changing
+the ServiceRadar collector or NetworkPolicy.
+
 ## Syslog Through Shared Gateway
 
 Syslog no longer needs a dedicated collector address when a shared Envoy Gateway can expose UDP 514 on the trusted network. The shared Gateway must have a UDP listener, and the ServiceRadar chart attaches a `UDPRoute` to that listener.

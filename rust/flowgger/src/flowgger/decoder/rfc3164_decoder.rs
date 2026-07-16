@@ -1,12 +1,9 @@
 use super::Decoder;
-#[cfg(feature = "rfc5424")]
-use super::RFC5424Decoder;
 use crate::flowgger::config::Config;
 use crate::flowgger::record::Record;
 use crate::flowgger::utils;
 use std::env;
 use std::fs;
-use std::io::{stderr, Write};
 use time::format_description::well_known::Rfc3339;
 use time::{format_description, OffsetDateTime, PrimitiveDateTime};
 use time_tz::timezones::get_by_name;
@@ -52,17 +49,90 @@ impl Decoder for RFC3164Decoder {
             return Ok(record);
         }
 
-        #[cfg(feature = "rfc5424")]
-        {
-            let res = RFC5424Decoder.decode(line);
-            if let Ok(record) = res {
-                return Ok(record);
-            }
-        }
-
-        let _ = writeln!(stderr(), "Unable to parse the rfc3164 input: '{line}'");
         res
     }
+}
+
+#[derive(Clone)]
+pub struct ClearPassDecoder {
+    default_timezone: Option<String>,
+}
+
+impl ClearPassDecoder {
+    pub fn new(config: &Config) -> ClearPassDecoder {
+        ClearPassDecoder {
+            default_timezone: resolve_default_timezone(config),
+        }
+    }
+}
+
+impl Decoder for ClearPassDecoder {
+    fn decode(&self, line: &str) -> Result<Record, &'static str> {
+        let (pri, message) = parse_strip_pri(line)?;
+        let (date, message) = take_token(message).ok_or("Missing ClearPass date")?;
+        let (time, message) = take_token(message).ok_or("Missing ClearPass time")?;
+        let (hostname, message) = take_token(message).ok_or("Missing ClearPass hostname")?;
+        let (appname, message) = take_token(message).ok_or("Missing ClearPass application")?;
+        let (procid, message) = take_token(message).ok_or("Missing ClearPass process id")?;
+        let (msgid, message) = take_token(message).ok_or("Missing ClearPass message id")?;
+        let timestamp = parse_clearpass_timestamp(date, time, self.default_timezone.as_deref())?;
+        let body = message.trim_start();
+
+        Ok(Record {
+            ts: timestamp,
+            hostname: hostname.to_owned(),
+            remote_addr: None,
+            facility: pri.facility,
+            severity: pri.severity,
+            appname: Some(appname.to_owned()),
+            procid: Some(procid.to_owned()),
+            msgid: Some(msgid.to_owned()),
+            msg: if body.is_empty() {
+                None
+            } else {
+                Some(body.to_owned())
+            },
+            full_msg: Some(line.trim_end().to_owned()),
+            sd: None,
+        })
+    }
+}
+
+fn take_token(input: &str) -> Option<(&str, &str)> {
+    let input = input.trim_start();
+    if input.is_empty() {
+        return None;
+    }
+
+    let end = input
+        .char_indices()
+        .find_map(|(index, character)| character.is_whitespace().then_some(index))
+        .unwrap_or(input.len());
+    Some((&input[..end], &input[end..]))
+}
+
+fn parse_clearpass_timestamp(
+    date: &str,
+    time: &str,
+    default_timezone: Option<&str>,
+) -> Result<f64, &'static str> {
+    let format_item = format_description::parse(
+        "[year]-[month]-[day] [hour]:[minute]:[second],[subsecond digits:3]",
+    )
+    .map_err(|_| "Invalid ClearPass timestamp format")?;
+    let timestamp = PrimitiveDateTime::parse(&format!("{date} {time}"), &format_item)
+        .map_err(|_| "Invalid ClearPass timestamp format")?;
+
+    if let Some(default_timezone) = default_timezone {
+        if let Some(timezone) = get_by_name(default_timezone) {
+            return Ok(utils::PreciseTimestamp::from_offset_datetime(
+                timestamp.assume_timezone(timezone),
+            )
+            .as_f64());
+        }
+    }
+
+    Ok(utils::PreciseTimestamp::from_primitive_datetime(timestamp).as_f64())
 }
 
 struct Pri {
@@ -265,7 +335,7 @@ fn rfc3339_to_unix(rfc3339: &str) -> Result<f64, &'static str> {
     }
 }
 
-fn resolve_default_timezone(config: &Config) -> Option<String> {
+pub(crate) fn resolve_default_timezone(config: &Config) -> Option<String> {
     let tz_value = config
         .lookup("input.rfc3164_timezone")
         .and_then(|value| value.as_str())
@@ -590,9 +660,8 @@ fn test_rfc3164_decode_rfc3339_timestamp_prefix() {
     assert!(res.sd.is_none());
 }
 
-#[cfg(feature = "rfc5424")]
 #[test]
-fn test_rfc3164_decode_strict_rfc5424_fallback() {
+fn test_rfc3164_does_not_decode_rfc5424_in_strict_mode() {
     let msg = r#"<23>1 2015-08-05T15:53:45.637824Z testhostname appname 69 42 [origin@123 software="te\st sc\"ript" swVersion="0.0.1"] test message"#;
     let cfg = Config::from_string(
         "[input]\nrfc3164_timezone = \"UTC\"\n[input.ltsv_schema]\nformat = \"rfc3164\"\n",
@@ -600,15 +669,5 @@ fn test_rfc3164_decode_strict_rfc5424_fallback() {
     .unwrap();
 
     let decoder = RFC3164Decoder::new(&cfg);
-    let res = decoder.decode(msg).unwrap();
-    assert_eq!(res.facility, Some(2));
-    assert_eq!(res.severity, Some(7));
-    assert_eq!(res.ts, 1438790025.637824);
-    assert_eq!(res.hostname, "testhostname");
-    assert_eq!(res.appname, Some("appname".to_string()));
-    assert_eq!(res.procid, Some("69".to_string()));
-    assert_eq!(res.msgid, Some("42".to_string()));
-    assert_eq!(res.msg, Some("test message".to_string()));
-    assert_eq!(res.full_msg, Some(msg.to_string()));
-    assert!(res.sd.is_some());
+    assert!(decoder.decode(msg).is_err());
 }

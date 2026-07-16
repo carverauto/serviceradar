@@ -35,6 +35,7 @@ defmodule ServiceRadar.Observability.Log do
     :body,
     :event_name,
     :source,
+    :source_ip,
     :service_name,
     :service_version,
     :service_instance,
@@ -174,6 +175,11 @@ defmodule ServiceRadar.Observability.Log do
     attribute :source, :string do
       public? true
       description "Log source (syslog, otel, snmp, internal, etc)"
+    end
+
+    attribute :source_ip, :string do
+      public? true
+      description "IP address observed by the collector for the log"
     end
 
     # Service identification (from Resource)

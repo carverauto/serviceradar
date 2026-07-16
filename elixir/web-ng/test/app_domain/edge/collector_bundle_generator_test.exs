@@ -83,6 +83,23 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
     end
   end
 
+  describe "create_tarball/4 for flowgger" do
+    test "defaults syslog input to auto detection and keeps timezone configuration" do
+      {:ok, tarball} =
+        CollectorBundleGenerator.create_tarball(
+          sample_flowgger_package(),
+          sample_nats_creds(),
+          sample_tls_key(),
+          nats_url: "nats://serviceradar-nats:4222"
+        )
+
+      flowgger_toml = tarball |> extract_files() |> find_file("flowgger.toml")
+
+      assert flowgger_toml =~ ~s(format = "auto")
+      assert flowgger_toml =~ ~s(rfc3164_timezone = "local")
+    end
+  end
+
   describe "update_command/3" do
     test "uses the public collector bundle path for standard collectors" do
       command =
@@ -176,6 +193,16 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
       site: "demo",
       inserted_at: ~U[2026-03-08 12:00:00Z],
       config_overrides: config_overrides
+    }
+  end
+
+  defp sample_flowgger_package do
+    %CollectorPackage{
+      id: "abcdef12-3456-7890-abcd-ef1234567890",
+      collector_type: :flowgger,
+      site: "demo",
+      inserted_at: ~U[2026-03-08 12:00:00Z],
+      config_overrides: %{}
     }
   end
 

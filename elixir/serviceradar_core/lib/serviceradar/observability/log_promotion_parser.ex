@@ -50,6 +50,8 @@ defmodule ServiceRadar.Observability.LogPromotionParser do
                    "resource",
                    "resource_attributes",
                    "resourceAttributes",
+                   "source_ip",
+                   "sourceIp",
                    "scope",
                    "scope_attributes",
                    "scopeAttributes",

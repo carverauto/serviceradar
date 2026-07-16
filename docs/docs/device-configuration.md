@@ -196,6 +196,11 @@ rouser serviceradar-user priv
 
 ServiceRadar collects syslog messages on UDP port 514. Configure devices to forward logs:
 
+ServiceRadar accepts RFC 3164, RFC 5424, and ClearPass standard syslog headers
+automatically. Use RFC 5424 when the sender supports it. CEF and LEEF payloads
+are retained as opaque log bodies for now; vendor-specific CEF/LEEF field
+extraction is not required for delivery.
+
 ### Cisco IOS/IOS-XE Syslog
 
 ```cisco
@@ -562,7 +567,7 @@ docker compose logs log-collector
 docker compose logs trapd
 ```
 
-To inspect collected device data, query it through SRQL in the web-ng UI — for
+To inspect collected device data, query it through SRQL in the web-ng UI - for
 example `in:devices` or a scoped `show devices` query. See the
 [SRQL Language Reference](./srql-language-reference.md) for the full query syntax.
 
@@ -584,12 +589,17 @@ For custom monitoring, define additional OIDs in ServiceRadar:
 
 ### Syslog Message Parsing
 
-The unified log collector receives raw syslog on UDP/TCP 514 and forwards messages
-to NATS JetStream; its `flowgger.toml` only configures the listener and the NATS
-output, not message parsing. Structured parsing and field extraction are handled
-downstream by the Zen pipeline, which normalizes syslog into OCSF before storage.
-Add or adjust vendor parsing rules in the Zen ruleset rather than in the collector
-config.
+The unified log collector receives raw syslog on UDP/TCP 514 and forwards
+messages to NATS JetStream. Its default Flowgger input format is `auto`, which
+detects RFC 3164, RFC 5424, and ClearPass standard headers. Unknown payloads are
+still retained as raw log bodies with fallback metadata. The collector-observed
+transport address is stored as `logs.source_ip` and shown in the log detail
+view; the address may be a load balancer or Gateway address if Kubernetes
+source NAT is enabled.
+
+Structured vendor fields are normalized downstream by the Zen pipeline. Add or
+adjust vendor normalization rules there rather than assuming a CEF or LEEF
+payload will be parsed into fields by Flowgger.
 
 ### Integration with External Systems
 

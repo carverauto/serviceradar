@@ -117,6 +117,7 @@ fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<SqlB
         "service_version" => build_text_clause("service_version", filter),
         "service_instance" => build_text_clause("service_instance", filter),
         "source" => build_text_clause("source", filter),
+        "source_ip" => build_text_clause("source_ip", filter),
         "scope_name" => build_text_clause("scope_name", filter),
         "scope_version" => build_text_clause("scope_version", filter),
         "severity_text" | "severity" | "level" => {
@@ -183,6 +184,19 @@ mod tests {
             3,
             "time range + filter binds expected"
         );
+    }
+
+    #[test]
+    fn stats_query_accepts_source_ip_filter() {
+        let plan = stats_plan("count() as total", "10.208.254.4");
+        let mut plan = plan;
+        plan.filters[0].field = "source_ip".into();
+
+        let stats_sql = build_stats_query(&plan)
+            .expect("stats query should parse")
+            .expect("stats SQL expected");
+
+        assert!(stats_sql.sql.contains("source_ip = ?"), "{}", stats_sql.sql);
     }
 
     fn stats_plan(stats: &str, service_name: &str) -> QueryPlan {

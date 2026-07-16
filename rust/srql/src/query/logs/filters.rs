@@ -11,7 +11,8 @@ use crate::{
         scope_version as col_scope_version, service_instance as col_service_instance,
         service_name as col_service_name, service_version as col_service_version,
         severity_number as col_severity_number, severity_text as col_severity_text,
-        source as col_source, span_id as col_span_id, trace_id as col_trace_id,
+        source as col_source, source_ip as col_source_ip, span_id as col_span_id,
+        trace_id as col_trace_id,
     },
 };
 use diesel::prelude::*;
@@ -59,6 +60,9 @@ pub(super) fn apply_filter<'a>(mut query: LogsQuery<'a>, filter: &Filter) -> Res
         }
         "source" => {
             query = apply_text_filter!(query, filter, col_source)?;
+        }
+        "source_ip" => {
+            query = apply_text_filter!(query, filter, col_source_ip)?;
         }
         "scope_name" => {
             query = apply_text_filter!(query, filter, col_scope_name)?;
@@ -259,8 +263,8 @@ pub(super) fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter
             Ok(())
         }
         "trace_id" | "span_id" | "service_name" | "service_version" | "service_instance"
-        | "source" | "scope_name" | "scope_version" | "event_name" | "body" | "message"
-        | "ingest_identity" | "ingest_agent_id" | "ingest_partition" => {
+        | "source" | "source_ip" | "scope_name" | "scope_version" | "event_name" | "body"
+        | "message" | "ingest_identity" | "ingest_agent_id" | "ingest_partition" => {
             collect_text_params(params, filter)
         }
         "severity_text" | "severity" | "level" => collect_severity_params(params, filter),
@@ -358,6 +362,23 @@ mod tests {
         assert!(
             matches!(&params[2], BindParam::TextArray(values)
                 if values == &vec!["device.reboot".to_string(), "device.shutdown".to_string()]),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn source_ip_eq_filter_targets_source_ip_column() {
+        let plan = data_plan(vec![scalar_filter(
+            "source_ip",
+            FilterOp::Eq,
+            "10.208.254.4",
+        )]);
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(sql.contains("\"logs\".\"source_ip\" = $3"), "{sql}");
+        assert!(
+            matches!(&params[2], BindParam::Text(value) if value == "10.208.254.4"),
             "params: {params:?}"
         );
     }

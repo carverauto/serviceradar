@@ -48,6 +48,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     body: :logs_body,
     event_name: :logs_event_name,
     source: :logs_source,
+    source_ip: :logs_source_ip,
     service_name: :logs_service_name,
     service_version: :logs_service_version,
     service_instance: :logs_service_instance,
@@ -158,13 +159,20 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp parse_json_log(json, metadata) when is_map(json) do
     log_id = generated_uuid()
-    attributes = json["attributes"] |> FieldParser.encode_jsonb() |> prune_empty_metadata() || %{}
+
+    attributes =
+      json
+      |> log_attributes()
+      |> attach_syslog_metadata(json)
+      |> prune_empty_metadata()
+
     attributes = attach_ingest_metadata(attributes, metadata)
     resource_attributes = normalize_resource_attributes(json)
     {scope_name, scope_version} = parse_scope_fields(json)
     source = FieldParser.get_field(json, "source", "source") || source_kind(metadata[:subject])
     scope_attributes = parse_scope_attributes(json)
     {severity_text, severity_number} = log_severity(json)
+    source_ip = normalize_source_ip(json)
 
     observed_timestamp = parse_observed_timestamp(json) || metadata[:received_at]
 
@@ -180,6 +188,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       body: extract_body(json),
       event_name: FieldParser.get_field(json, "event_name", "eventName"),
       source: source,
+      source_ip: source_ip,
       service_name:
         service_field(json, resource_attributes, "service_name", "serviceName", "service.name") ||
           default_service_name(json, resource_attributes),
@@ -209,6 +218,80 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp parse_json_log(_json, _metadata), do: nil
+
+  defp log_attributes(json) when is_map(json) do
+    json["attributes"]
+    |> FieldParser.encode_jsonb()
+    |> prune_empty_metadata()
+    |> case do
+      attributes when is_map(attributes) -> attributes
+      _ -> %{}
+    end
+  end
+
+  defp attach_syslog_metadata(attributes, json) when is_map(attributes) and is_map(json) do
+    Enum.reduce(["_remote_addr", "_syslog_format", "_syslog_parse_fallback"], attributes, fn key,
+                                                                                             acc ->
+      case Map.get(json, key) do
+        nil -> acc
+        value -> Map.put(acc, key, value)
+      end
+    end)
+  end
+
+  defp normalize_source_ip(json) when is_map(json) do
+    json
+    |> source_ip_values()
+    |> Enum.find_value(fn value ->
+      value
+      |> source_ip_candidates()
+      |> Enum.find_value(&valid_source_ip/1)
+    end)
+  end
+
+  defp normalize_source_ip(_json), do: nil
+
+  defp source_ip_values(json) do
+    Enum.reject(
+      [FieldParser.get_field(json, "source_ip", "sourceIp"), json["_remote_addr"]],
+      &is_nil/1
+    )
+  end
+
+  defp source_ip_candidates(value) when is_binary(value) do
+    value = String.trim(value)
+    bracketless = bracketless_ip(value)
+
+    [value, bracketless]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.flat_map(fn candidate ->
+      case String.split(candidate, ":", parts: 2) do
+        [prefix, address] -> [candidate, prefix, address, bracketless_ip(address)]
+        _ -> [candidate]
+      end
+    end)
+    |> Enum.uniq()
+  end
+
+  defp source_ip_candidates(_value), do: []
+
+  defp bracketless_ip(value) when is_binary(value) do
+    case Regex.run(~r/^\[([^\]]+)\](?::\d+)?$/, value, capture: :all_but_first) do
+      [ip] -> ip
+      _ -> value
+    end
+  end
+
+  defp bracketless_ip(_value), do: nil
+
+  defp valid_source_ip(value) when is_binary(value) do
+    case :inet.parse_address(String.to_charlist(value)) do
+      {:ok, _address} -> value
+      _ -> nil
+    end
+  end
+
+  defp valid_source_ip(_value), do: nil
 
   # Resolves {severity_text, severity_number}. When an explicit severity_text /
   # severity is present it wins. Otherwise a numeric GELF/syslog `level` is mapped
@@ -625,6 +708,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     |> maybe_stringify_text(:body)
     |> maybe_stringify_text(:event_name)
     |> maybe_stringify_text(:source)
+    |> maybe_stringify_text(:source_ip)
     |> maybe_stringify_text(:service_name)
     |> maybe_stringify_text(:service_version)
     |> maybe_stringify_text(:service_instance)

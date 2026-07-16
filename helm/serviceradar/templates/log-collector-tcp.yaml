@@ -27,7 +27,7 @@ data:
     [input]
     type = "tcp"
     listen = {{ default "0.0.0.0:514" $tcpCollector.listen | quote }}
-    format = {{ default "rfc3164" $tcpCollector.format | quote }}
+    format = {{ default "auto" $tcpCollector.format | quote }}
     framing = {{ default "line" $tcpCollector.framing | quote }}
 
     [output]

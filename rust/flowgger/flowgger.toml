@@ -3,7 +3,7 @@
 [input]
 type = "udp"
 listen = "0.0.0.0:514"
-format = "rfc3164"
+format = "auto"
 # RFC3164 timestamps do not include a timezone. Use an IANA name or "local".
 rfc3164_timezone = "local"
 

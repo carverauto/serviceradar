@@ -3,7 +3,7 @@
 [input]
 type = "udp"
 listen = "0.0.0.0:514"
-format = "rfc3164"
+format = "auto"
 rfc3164_timezone = "local"
 
 [output]

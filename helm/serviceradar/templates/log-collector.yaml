@@ -29,7 +29,7 @@ data:
     [input]
     type = "udp"
     listen = "0.0.0.0:514"
-    format = "rfc3164"
+    format = "auto"
 
     [output]
     type = "nats"
