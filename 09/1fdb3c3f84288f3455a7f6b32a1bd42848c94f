@@ -1,0 +1,43 @@
+rust/workload-identity/Cargo.toml
+  s_6f8eb423821667::t_c825afb52a2b97 29
+  s_6f8eb423821667::t_4bcba8801a5121 30-31,36-38
+rust/addon-sdk/BUILD.bazel
+  s_6f8eb423821667::t_645bfc26e17477 19
+  s_6f8eb423821667::t_50c0dc1b25cc78 36
+rust/otel/BUILD.bazel
+  s_6f8eb423821667::t_645bfc26e17477 11
+rust/metric-proto/BUILD.bazel
+  s_6f8eb423821667::t_645bfc26e17477 16
+rust/kvutil/BUILD.bazel
+  s_6f8eb423821667::t_645bfc26e17477 21
+rust/flowgger/BUILD.bazel
+  s_6f8eb423821667::t_645bfc26e17477 11
+rust/rperf-client/BUILD.bazel
+  s_6f8eb423821667::t_645bfc26e17477 17
+rust/workload-identity/src/lib.rs
+  s_6f8eb423821667::t_9998800528c52e 3-13
+  s_6f8eb423821667::t_e69ff500261cb5 31,1198
+rust/flow-collector/BUILD.bazel
+  s_6f8eb423821667::t_645bfc26e17477 16
+rust/workload-identity/BUILD.bazel
+  s_6f8eb423821667::t_7281a3f476e653 1,12,17,21-37,43-44
+  s_6f8eb423821667::t_c0e3fbc61a9639 66-67
+rust/trapd/BUILD.bazel
+  s_6f8eb423821667::t_645bfc26e17477 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "091fdb3c3f84288f3455a7f6b32a1bd42848c94f",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
