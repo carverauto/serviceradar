@@ -1,0 +1,50 @@
+Cargo.toml
+  s_6f8eb423821667::t_05bb3077611200 121
+  s_6f8eb423821667::t_a3c91b405decf9 119-120
+rust/flow-collector/BUILD.bazel
+  s_6f8eb423821667::t_84c695f6f0695c 39-42
+  s_6f8eb423821667::t_055ec939d74a29 2
+  s_6f8eb423821667::t_dea55cd5263ce1 43
+rust/srql/BUILD.bazel
+  s_6f8eb423821667::t_d033641ac70576 45-50
+rust/log-collector/BUILD.bazel
+  s_6f8eb423821667::t_84c695f6f0695c 22-25
+  s_6f8eb423821667::t_05bb3077611200 26-29
+  s_6f8eb423821667::t_055ec939d74a29 1
+  s_6f8eb423821667::t_78b32612986828 30
+rust/trapd/BUILD.bazel
+  s_6f8eb423821667::t_d033641ac70576 2,35-39
+  s_6f8eb423821667::t_8c04d1ae69c1e6 40
+rust/flowgger/src/flowgger/config.rs
+  s_6f8eb423821667::t_05d1af1b8b9faa 115-140
+  s_6f8eb423821667::t_07afa73ca7c708 74-78
+  s_6f8eb423821667::t_74f7c4daba5308 173,201,214
+  s_6f8eb423821667::t_8ea4221e4bb9f6 80,83
+rust/bmp-collector/BUILD.bazel
+  s_6f8eb423821667::t_055ec939d74a29 1
+  s_6f8eb423821667::t_84c695f6f0695c 24-27
+  s_6f8eb423821667::t_0f62f96205209e 28
+rust/flowgger/BUILD.bazel
+  s_6f8eb423821667::t_2b9c0ce0cb6e59 48-49
+  s_6f8eb423821667::t_99125d9fca18cf 2,44-47,50-61
+  s_6f8eb423821667::t_87d649f1d00bdf 62
+rust/rperf-client/BUILD.bazel
+  s_6f8eb423821667::t_d033641ac70576 2,50-53
+  s_6f8eb423821667::t_203d58388d2f30 54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "ec138cf9402b9351b0748869b80b11be13a14299",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
