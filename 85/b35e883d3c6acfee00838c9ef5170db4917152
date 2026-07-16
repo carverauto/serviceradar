@@ -1,0 +1,70 @@
+rust/flow-collector/Cargo.toml
+  s_6f8eb423821667::t_a49bbd04572a7e 25
+rust/flow-collector/build.rs
+  s_6f8eb423821667::t_a49bbd04572a7e 5
+rust/flowgger/build.rs
+  s_6f8eb423821667::t_a49bbd04572a7e 9
+  s_6f8eb423821667::t_65668e9e0623ce 12
+rust/metric-proto/build.rs
+  s_6f8eb423821667::t_25d3f40c288f43 7
+  s_6f8eb423821667::t_b875beae209390 4
+rust/flowgger/Cargo.toml
+  s_6f8eb423821667::t_a49bbd04572a7e 47
+  s_6f8eb423821667::t_6b8f439f66de2d 38
+rust/otel/Cargo.toml
+  s_6f8eb423821667::t_a49bbd04572a7e 42
+  s_6f8eb423821667::t_c89bc08db1bd44 35
+  s_6f8eb423821667::t_6b8f439f66de2d 34
+rust/rperf-client/build.rs
+  s_6f8eb423821667::t_a49bbd04572a7e 65,71
+rust/trapd/build.rs
+  s_6f8eb423821667::t_a49bbd04572a7e 15,34
+  s_6f8eb423821667::t_65668e9e0623ce 20,37
+rust/otel/build.rs
+  s_6f8eb423821667::t_65668e9e0623ce 29
+  s_6f8eb423821667::t_a49bbd04572a7e 2,4,25
+rust/otel-addon/Cargo.toml
+  s_6f8eb423821667::t_6b8f439f66de2d 24
+rust/trapd/Cargo.toml
+  s_6f8eb423821667::t_6b8f439f66de2d 25
+  s_6f8eb423821667::t_a49bbd04572a7e 34
+rust/workload-identity/Cargo.toml
+  s_6f8eb423821667::t_6435c8b595a1c7 30-34
+rust/metric-proto/Cargo.toml
+  s_6f8eb423821667::t_b875beae209390 17
+rust/kvutil/Cargo.toml
+  s_6f8eb423821667::t_c89bc08db1bd44 23
+  s_6f8eb423821667::t_a49bbd04572a7e 26
+  s_6f8eb423821667::t_6b8f439f66de2d 22
+rust/addon-sdk/build.rs
+  s_6f8eb423821667::t_a49bbd04572a7e 7,11
+rust/rperf-client/Cargo.toml
+  s_6f8eb423821667::t_a49bbd04572a7e 30
+  s_6f8eb423821667::t_6b8f439f66de2d 24
+rust/kvutil/build.rs
+  s_6f8eb423821667::t_65668e9e0623ce 16
+  s_6f8eb423821667::t_a49bbd04572a7e 13
+rust/addon-sdk/Cargo.toml
+  s_6f8eb423821667::t_6b8f439f66de2d 32
+  s_6f8eb423821667::t_a49bbd04572a7e 42
+Cargo.lock
+  s_6f8eb423821667::t_5b2c223737a233 14,25,27-28,1196,2636,2644-2646,3332,3342-3344,3364,3460-3470,3880,3889-3909,3974-3993,4733,4740,4905,4910,4941,4943-4944,4962,4970-4971,4983,5014-5015,5034-5035,5041,5065,5072,5074-5075,5092,5100,5102-5103,5889,5892,5905,5911,5922,5928-5939,5942,5944,5946,5949-5950,5964-5979,5982,5984,5986-5987,5990-5991,6182-6187
+Cargo.toml
+  s_6f8eb423821667::t_dd7365ad9e3712 122-123,149-154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "85b35e883d3c6acfee00838c9ef5170db4917152",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
