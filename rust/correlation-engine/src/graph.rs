@@ -37,9 +37,46 @@ fn topology_signal(signal: bool) -> PropagatingEffect<bool> {
 /// payload and edge weight are both `()` — structure is all the graph causaloids
 /// need; the canonical ids live in the side maps.
 pub struct TopologyGraph {
+    /// Undirected: both directions are wired so articulation points / bridges / centrality /
+    /// reachability treat a physical link symmetrically. That makes it cyclic by construction,
+    /// so it must never be handed to the causal evaluator.
     graph: CausaloidGraph<TopologyCausaloid>,
+    /// The same nodes and indices, wired only in the declared `src -> dst` direction and frozen
+    /// via `freeze_dag`, which certifies the acyclicity the reconvergence-join evaluator requires.
+    /// `None` when the physical topology has no DAG projection (a ring), in which case causal
+    /// evaluation is genuinely unavailable rather than silently wrong.
+    causal_dag: Option<CausaloidGraph<TopologyCausaloid>>,
     index_of: HashMap<EntityId, usize>,
     ids: Vec<EntityId>,
+}
+
+/// Build an unfrozen causaloid graph over `ids`. `symmetric` wires each link in both directions
+/// (structural view); otherwise only as declared (causal view).
+fn build_graph(
+    ids: &[EntityId],
+    links: &[(usize, usize)],
+    symmetric: bool,
+) -> Option<CausaloidGraph<TopologyCausaloid>> {
+    let mut graph: CausaloidGraph<TopologyCausaloid> =
+        CausaloidGraph::new_with_capacity(0, ids.len().max(1));
+    // Nodes are added in 0..ids.len() order, so `add_node` assigns index i
+    // to ids[i] — the same indices `intern` handed out for the edge list.
+    for (index, id) in ids.iter().enumerate() {
+        let causaloid = Causaloid::new(index as u64, topology_signal, id.as_str());
+
+        if index == 0 {
+            graph.add_root_causaloid(causaloid).ok()?;
+        } else {
+            graph.add_causaloid(causaloid).ok()?;
+        }
+    }
+    for &(a, b) in links {
+        graph.add_edg_with_weight(a, b, 1).ok()?;
+        if symmetric {
+            graph.add_edg_with_weight(b, a, 1).ok()?;
+        }
+    }
+    Some(graph)
 }
 
 /// Intern an entity id, returning its dense node index (assigned in insertion
@@ -75,29 +112,17 @@ impl TopologyGraph {
             return None;
         }
 
-        let mut graph: CausaloidGraph<TopologyCausaloid> =
-            CausaloidGraph::new_with_capacity(0, ids.len().max(1));
-        // Nodes are added in 0..ids.len() order, so `add_node` assigns index i
-        // to ids[i] — the same indices `intern` handed out for the edge list.
-        for (index, id) in ids.iter().enumerate() {
-            let causaloid = Causaloid::new(index as u64, topology_signal, id.as_str());
-
-            if index == 0 {
-                graph.add_root_causaloid(causaloid).ok()?;
-            } else {
-                graph.add_causaloid(causaloid).ok()?;
-            }
-        }
-        for (a, b) in links {
-            // Undirected: add both directions so reachability/centrality treat
-            // the physical link symmetrically.
-            graph.add_edg_with_weight(a, b, 1).ok()?;
-            graph.add_edg_with_weight(b, a, 1).ok()?;
-        }
+        let mut graph = build_graph(&ids, &links, true)?;
         graph.freeze();
+
+        // Certify the evaluator's precondition here, at construction, rather than discovering a
+        // cycle mid-evaluation. On failure the graph is rolled back unfrozen and dropped.
+        let mut dag = build_graph(&ids, &links, false)?;
+        let causal_dag = dag.freeze_dag().ok().map(|()| dag);
 
         Some(Self {
             graph,
+            causal_dag,
             index_of,
             ids,
         })
@@ -181,16 +206,14 @@ impl TopologyGraph {
     /// Structural C5/C5b/C9/C10 still use graph algorithms, but this gives the
     /// causal engine a direct monadic graph path for model-level checks.
     pub fn evaluate_signal_from(&self, source: &str, signal: bool) -> Option<bool> {
+        // The directed projection, not `self.graph`: the undirected graph is cyclic by design.
+        let dag = self.causal_dag.as_ref()?;
         let start = *self.index_of.get(source)?;
-        let effect = self
-            .graph
-            .evaluate_subgraph_from_cause(start, &PropagatingEffect::pure(signal));
+        let effect = dag.evaluate_subgraph_from_cause(start, &PropagatingEffect::pure(signal));
 
-        if effect.is_err() {
-            None
-        } else {
-            effect.value.into_value()
-        }
+        // `into_value` is the terminal accessor: Some only for a carried value effect, None for
+        // an errored process, a None effect, or a command -- so it already covers the is_err case.
+        effect.into_value()
     }
 }
 
@@ -272,5 +295,23 @@ mod tests {
         assert_eq!(g.evaluate_signal_from("a", true), Some(true));
         assert_eq!(g.evaluate_signal_from("a", false), Some(false));
         assert_eq!(g.evaluate_signal_from("missing", true), None);
+    }
+
+    #[test]
+    fn ring_topology_has_no_causal_dag_but_stays_structurally_usable() {
+        // A ring has no acyclic projection, so `freeze_dag` rejects it and causal evaluation is
+        // unavailable. The structural algorithms still work: they want the undirected graph.
+        let ring = Context {
+            edges: vec![connects("a", "b"), connects("b", "c"), connects("c", "a")],
+            ..Default::default()
+        };
+        let g = TopologyGraph::from_connects_to(&ring).expect("graph");
+
+        assert!(g.causal_dag.is_none(), "a ring must not certify as a DAG");
+        assert_eq!(g.evaluate_signal_from("a", true), None);
+
+        let mut reach = g.reachable_from("a");
+        reach.sort();
+        assert_eq!(reach, vec!["b".to_string(), "c".to_string()]);
     }
 }
