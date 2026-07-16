@@ -111,7 +111,11 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
              contiguous_verified_through(repo, table_name, retention_cutoff) do
         point = Enum.min([retention_cutoff, boundary, verified_through], DateTime)
 
-        {:ok, point}
+        # Drop-time re-verification (spec: "Retention is offload-gated with
+        # drop-time re-verification"): count-check every verified chunk about
+        # to be dropped against its manifest row; clamp to the first drifted
+        # chunk so it is held for the exporter's re-export instead of dropped.
+        {:ok, drift_clamp(repo, table_name, point)}
       else
         _ -> :hold
       end
@@ -119,6 +123,53 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
       {:ok, retention_cutoff}
     end
   end
+
+  defp drift_clamp(repo, table_name, point) do
+    time_column =
+      case Registry.fetch(table_name) do
+        {:ok, entry} -> entry.time_column
+        :error -> "timestamp"
+      end
+
+    sql = """
+    SELECT min(c.range_start)
+    FROM timescaledb_information.chunks c
+    JOIN platform.cold_chunk_exports m
+      ON m.table_name = $1 AND m.chunk_name = c.chunk_name AND m.status = 'verified'
+    WHERE c.hypertable_schema = 'platform'
+      AND c.hypertable_name = $1
+      AND c.range_end <= $2
+      AND m.row_count IS DISTINCT FROM (
+        SELECT count(*) FROM platform.#{quoted(table_name)} t
+        WHERE t.#{quoted(time_column)} >= c.range_start
+          AND t.#{quoted(time_column)} < c.range_end
+      )
+    """
+
+    case SQL.query(repo, sql, [table_name, point], timeout: @query_timeout_ms) do
+      {:ok, %{rows: [[nil]]}} ->
+        point
+
+      {:ok, %{rows: [[first_drifted_start]]}} ->
+        Logger.info(
+          "Cold tier: drop-time re-verification found drift; clamping drop point for re-export",
+          table: table_name,
+          clamped_to: inspect(first_drifted_start)
+        )
+
+        first_drifted_start
+
+      {:error, error} ->
+        Logger.warning("Cold tier: drop-time re-verification failed; holding drop point",
+          table: table_name,
+          reason: Exception.message(error)
+        )
+
+        point
+    end
+  end
+
+  defp quoted(name), do: ~s("#{name}")
 
   # The acked query boundary B for the table, or nil.
   defp acked_boundary(repo, table_name) do

@@ -21,10 +21,10 @@
 
 ## 2. M1 — Export pipeline + gated retention
 - [x] 2.1 Manifest table `platform.cold_chunk_exports` on the primary (migration) + Ash resource (migrate? false)
-- [ ] 2.2 ColdTierExporter (Oban): chunk enumeration (older than now − export_lag), COPY-through-head export, count+checksum verification, manifest commit, deterministic object keys (idempotent re-export), paced backfill mode (one chunk at a time, off-peak, xmin-age abort)
-- [ ] 2.3 Frontier bookkeeping: contiguous-verification advance; head boundary `B` write + ack ordering (drop point ≤ B ≤ F invariant); overlap-zone daily refresh (count/aggregate drift re-export); update-prone tables re-export at drop time
+- [x] 2.2 ColdTierExporter (Oban): chunk enumeration (older than now − export_lag), COPY-through-head export, count+checksum verification, manifest commit, deterministic object keys (idempotent re-export), paced backfill mode (one chunk at a time, off-peak, xmin-age abort)
+- [x] 2.3 Frontier bookkeeping: contiguous-verification advance; head boundary `B` write + ack ordering (drop point ≤ B ≤ F invariant); overlap-zone daily refresh (count/aggregate drift re-export); update-prone tables re-export at drop time
 - [ ] 2.4 Shared retention-policy fence helper consumed by DataRetentionWorker AND all retention-policy migrations; cold-enabled ⇒ remove in-DB policies for registry tables; exporter asserts no policy reappears (alert); CI check that registry-table retention DDL goes through the helper
-- [ ] 2.5 Drop gate in DataRetentionWorker: chunk entirely below B + manifest verified + drop-time re-verification (re-export on mismatch) before drop_chunks
+- [x] 2.5 Drop gate in DataRetentionWorker: chunk entirely below B + manifest verified + drop-time re-verification (re-export on mismatch) before drop_chunks
 - [ ] 2.6 Pressure relief: headroom budget computation + escalating alerts; poison-chunk quarantine (N failures ⇒ skip + alert, blocks frontier); operator-acknowledged emergency drop at hard disk watermark; two-phase disable (drain-or-waive, then re-arm policies)
 - [ ] 2.7 Cold pruning: per-table cold windows; objects-before-manifest delete order; manifest↔bucket reconciliation sweep; S3 client dependency in core-elx
 - [x] 2.8 CAGG window alignment migration (ocsf_events_hourly_stats, traces_stats_5m, flow 5m/proto/talkers/ports) to match plan-facing lookback ambitions

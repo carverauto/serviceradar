@@ -66,8 +66,9 @@ defmodule ServiceRadar.ColdTier.Exporter do
 
         Enum.reduce(Registry.tables(), budget, fn entry, remaining ->
           exported = export_table(entry, remaining)
+          refreshed = predrop_reverify(entry, remaining - exported)
           advance_frontier(entry)
-          remaining - exported
+          remaining - exported - refreshed
         end)
 
         :ok
@@ -95,6 +96,108 @@ defmodule ServiceRadar.ColdTier.Exporter do
         :error -> count
       end
     end)
+  end
+
+  # --- pre-drop re-verification (design D4; tasks 2.3/2.5 remainder) ---
+  #
+  # Timescale chunks are never closed: late-arriving rows and upserts mutate
+  # already-exported chunks. For verified chunks approaching their drop point
+  # (within the pre-drop window), re-check the primary row count against the
+  # manifest and re-export on drift. Update-prone tables (ocsf_events —
+  # ON CONFLICT DO UPDATE leaves counts unchanged) are re-exported
+  # unconditionally, throttled to once per @update_prone_reexport_interval.
+  @predrop_window_hours 26
+  @update_prone_reexport_interval_hours 6
+
+  defp predrop_reverify(_entry, remaining) when remaining <= 0, do: 0
+
+  defp predrop_reverify(entry, remaining) do
+    horizon_hours = max(Registry.hot_retention_days(entry) * 24 - @predrop_window_hours, 0)
+
+    sql = """
+    SELECT c.chunk_name, c.range_start, c.range_end, m.attempts, m.row_count, m.exported_at
+    FROM timescaledb_information.chunks c
+    JOIN platform.cold_chunk_exports m
+      ON m.table_name = $1 AND m.chunk_name = c.chunk_name AND m.status = 'verified'
+    WHERE c.hypertable_schema = 'platform'
+      AND c.hypertable_name = $1
+      AND c.range_end < now() - ($2 * INTERVAL '1 hour')
+    ORDER BY c.range_start ASC
+    LIMIT $3
+    """
+
+    case SQL.query(Repo, sql, [entry.table, horizon_hours, remaining], timeout: @query_timeout_ms) do
+      {:ok, %{rows: rows}} ->
+        Enum.reduce(rows, 0, fn [
+                                  chunk_name,
+                                  range_start,
+                                  range_end,
+                                  attempts,
+                                  row_count,
+                                  exported_at
+                                ],
+                                count ->
+          chunk = %{
+            chunk_name: chunk_name,
+            range_start: range_start,
+            range_end: range_end,
+            attempts: attempts || 0,
+            row_count: row_count
+          }
+
+          if needs_reexport?(entry, chunk, exported_at) do
+            case attempt_export(entry, chunk) do
+              :ok -> count + 1
+              _ -> count
+            end
+          else
+            count
+          end
+        end)
+
+      {:error, error} ->
+        Logger.warning("Cold tier: pre-drop re-verification enumeration failed",
+          table: entry.table,
+          reason: Exception.message(error)
+        )
+
+        0
+    end
+  end
+
+  defp needs_reexport?(%{update_prone: true}, _chunk, exported_at) do
+    # Upserts don't change counts — re-export unconditionally, throttled.
+    is_nil(exported_at) or
+      DateTime.diff(DateTime.utc_now(), exported_at, :hour) >=
+        @update_prone_reexport_interval_hours
+  end
+
+  defp needs_reexport?(entry, chunk, _exported_at) do
+    time = ~s("#{entry.time_column}")
+
+    sql = """
+    SELECT count(*)::bigint FROM #{Registry.qualified_table(entry)}
+    WHERE #{time} >= $1 AND #{time} < $2
+    """
+
+    case SQL.query(Repo, sql, [chunk.range_start, chunk.range_end], timeout: @query_timeout_ms) do
+      {:ok, %{rows: [[live_count]]}} ->
+        drifted = live_count != chunk.row_count
+
+        if drifted do
+          Logger.info("Cold tier: late-write drift detected; re-exporting chunk",
+            table: entry.table,
+            chunk: chunk.chunk_name,
+            manifest_rows: chunk.row_count,
+            live_rows: live_count
+          )
+        end
+
+        drifted
+
+      {:error, _} ->
+        false
+    end
   end
 
   defp eligible_chunks(entry, limit) do
