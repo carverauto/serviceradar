@@ -1,0 +1,30 @@
+rust/correlation-engine/src/graph.rs
+  s_6f8eb423821667::t_3699411fefa166 122
+  s_6f8eb423821667::t_d09c6b5fe9d6c7 115,118-121,125
+  s_6f8eb423821667::t_75270894eb5c8d 209-210,212
+  s_6f8eb423821667::t_761483e614f797 40-42,44-48,53-79
+  s_6f8eb423821667::t_9468180c81e22f 214-216
+  s_6f8eb423821667::t_6336c7cf5f3a1a 299-316
+  s_6f8eb423821667::t_f0fd9f4a7d0667 80-81
+Cargo.toml
+  s_6f8eb423821667::t_20978886689920 108
+  s_6f8eb423821667::t_2b9b3fe3fe9f50 77
+Cargo.lock
+  s_6f8eb423821667::t_e8aaa73e7ff587 1344,1346,1348,1350,1352-1353,1363,1378,1409,1420-1421,4648,4659,4768
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "2cd6c0dc02b271983d0db0a8872dad0fa8fceda7",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
