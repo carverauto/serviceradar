@@ -1,11 +1,11 @@
-FILE:@@//Cargo.lock d3bcd51947f0a871fb5da327052e2faf50ad2a4a012a4b39e6e65141d4b8b4d1
+FILE:@@//Cargo.lock c3818a6792a9f1e563bb2b4a710ca9a1e0b8c060a30da66bf5400ff6518e0e3d
 FILE:@@//Cargo.toml 63193e72c1200eec714c04c96e5caa92cd7e52b5d31c98b65062d17074c76569
 FILE:@@//integration_tests/srql/Cargo.toml 585efb3bf3a3694e4291511a22d2f41beb7dd1ee3cc4fb5aca49e0c737e3dcd3
 FILE:@@//rust/addon-sdk/Cargo.toml 059282b2ef26ce014f12ca26dd7d62634460810d51c5ca5995b3b01c8f65daf1
 FILE:@@//rust/anomaly-addon/Cargo.toml 1a0211bc98c9dba514e5f3fbf37a95556f46330ef28e9f4233177cc03a3f4b3b
 FILE:@@//rust/anomaly-core/Cargo.toml b8f5d7cc841544ae64aada82222bd8baf081cae6bd24f958daa261554d1f5d63
 FILE:@@//rust/anomaly-disposition/Cargo.toml 4c62ef9a097ede776d0da1324a84d4bf59d7317f0437035b8249395660c72ee8
-FILE:@@//rust/bmp-collector/Cargo.toml ce013a2fcaac20816be5dfeb8d0bd33c35025dc848e6089f0f4236328b65bfea
+FILE:@@//rust/bmp-collector/Cargo.toml e44e3f1d4e2f0ba65d7d3ef281d2687fc2da0cf739c445ddd213831a00962b0f
 FILE:@@//rust/causal-causaloids/Cargo.toml 27688906ed11786d1cc51f88258dfdc81c6ea5546f9bc572f695f7466187af9d
 FILE:@@//rust/causal-config/Cargo.toml 19f796917421e1967b76ca5012daa731d224159d8b3e253e3bbd6999643136c7
 FILE:@@//rust/causal-context/Cargo.toml 14025862c140a4f0440dc1b4f4036f41e80b038f8cfac53af3618e1d3c80dfae

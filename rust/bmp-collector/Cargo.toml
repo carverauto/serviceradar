@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1"
-arancini-lib = "0.7.1"
+arancini-lib = "=0.7.3"
 async-nats = "0.48"
 bgpkit-parser = "0.15"
 bytes = "1"

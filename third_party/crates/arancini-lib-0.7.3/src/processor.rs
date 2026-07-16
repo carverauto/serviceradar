@@ -11,7 +11,7 @@ use crate::sender::UpdateSender;
 use crate::state::AsyncState;
 use crate::state::{peer_up_withdraws_handler, process_updates, synthesize_withdraw_update};
 use crate::state_store::store::StateStore;
-use crate::update::{decode_updates, UpdateMetadata};
+use crate::update::{UpdateMetadata, decode_updates};
 
 pub fn decode_bmp_message(bytes: &mut Bytes) -> Result<BmpMessage> {
     let message = match parse_bmp_msg(bytes) {
@@ -120,15 +120,15 @@ pub async fn peer_down_notification<T: StateStore, S: UpdateSender>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{new_state, State};
+    use crate::state::{State, new_state};
     use crate::state_store::memory::MemoryStore;
-    use crate::update::{map_to_ipv6, Update, UpdateAttributes};
+    use crate::update::{Update, UpdateAttributes, map_to_ipv6};
     use chrono::Utc;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::{Notify, Semaphore};
-    use tokio::time::{timeout, Duration};
+    use tokio::time::{Duration, timeout};
 
     #[derive(Clone)]
     struct BlockingSender {

@@ -12,7 +12,7 @@ use tracing::{debug, trace};
 
 use crate::sender::UpdateSender;
 use crate::state_store::store::StateStore;
-use crate::update::{map_to_ipv6, Update, UpdateAttributes, UpdateMetadata};
+use crate::update::{Update, UpdateAttributes, UpdateMetadata, map_to_ipv6};
 
 pub type AsyncState<T> = Arc<Mutex<State<T>>>;
 pub type RouterPeerUpdate = (IpAddr, IpAddr, TimedPrefix);
@@ -243,7 +243,7 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::{Notify, Semaphore};
-    use tokio::time::{sleep, timeout, Duration};
+    use tokio::time::{Duration, sleep, timeout};
 
     #[derive(Clone)]
     struct BlockingSender {

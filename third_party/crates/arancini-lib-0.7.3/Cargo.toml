@@ -10,9 +10,9 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2021"
+edition = "2024"
 name = "arancini-lib"
-version = "0.7.2"
+version = "0.7.3"
 build = false
 exclude = [
     ".github/*",
@@ -34,6 +34,7 @@ keywords = [
 ]
 license = "MIT"
 repository = "https://github.com/carverauto/arancini"
+resolver = "2"
 
 [lib]
 name = "arancini_lib"
@@ -48,34 +49,45 @@ name = "tests"
 path = "tests/tests.rs"
 
 [dependencies.ahash]
-version = "0.8.11"
+version = "0.8"
 
 [dependencies.anyhow]
-version = "1.0.95"
+version = "1.0"
 
 [dependencies.bgpkit-parser]
-version = "0.15.0"
-features = ["serde"]
+version = "0.15"
+features = [
+    "parser",
+    "serde",
+]
+default-features = false
 
 [dependencies.bytes]
 version = "1.9.0"
 
 [dependencies.chrono]
-version = "0.4.39"
+version = "0.4"
 
 [dependencies.metrics]
-version = "0.24.2"
+version = "0.24"
 
 [dependencies.rand]
-version = "0.9.0"
+version = "0.9"
 
 [dependencies.serde]
-version = "1.0.217"
+version = "1"
 features = ["derive"]
+default-features = false
 
 [dependencies.tokio]
-version = "1.42.0"
-features = ["macros"]
+version = "1"
+features = [
+    "macros",
+    "rt",
+    "sync",
+    "time",
+]
+default-features = false
 
 [dependencies.tracing]
-version = "0.1.41"
+version = "0.1"

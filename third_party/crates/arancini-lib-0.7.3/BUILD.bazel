@@ -35,7 +35,7 @@ rust_library(
         ],
     ),
     crate_root = "src/lib.rs",
-    edition = "2021",
+    edition = "2024",
     rustc_env_files = [
         ":cargo_toml_env_vars",
     ],
@@ -92,7 +92,7 @@ rust_library(
         "@rules_rust//rust/platform:x86_64-unknown-uefi": [],
         "//conditions:default": ["@platforms//:incompatible"],
     }),
-    version = "0.7.2",
+    version = "0.7.3",
     deps = [
         "//third_party/crates/ahash-0.8.12:ahash",
         "//third_party/crates/anyhow-1.0.102:anyhow",

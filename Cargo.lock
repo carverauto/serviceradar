@@ -150,9 +150,9 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "arancini-lib"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56188ec735be0e872025c0d634d901ec55ab48977be299e561ec74ef1a889f6b"
+checksum = "cfa1d93f62e8fe460d28c08cb79c63dcb7da0a27225c32333ec5d43fd7cf4a64"
 dependencies = [
  "ahash",
  "anyhow",
