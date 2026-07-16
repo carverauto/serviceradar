@@ -31,14 +31,15 @@ serviceradar-metric-proto = { path = "../metric-proto" }
 tokio = { workspace = true, features = ["full"] }
 tokio-rustls = { workspace = true }
 toml = { workspace = true }
-tonic = { workspace = true, features = ["tls"] }
+tonic = { workspace = true, features = ["tls-ring"] }
+tonic-prost = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
 
 [build-dependencies]
-tonic-build = { workspace = true }
+tonic-prost-build = { workspace = true }
 
 # Free-disk floor for the relay spool: statvfs without unsafe. rustix is
 # already in the workspace dependency graph (tempfile et al.), so this pins

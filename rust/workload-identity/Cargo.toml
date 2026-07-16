@@ -27,7 +27,11 @@ log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
-tonic = { workspace = true, features = ["tls"] }
+# PINNED to 0.12, deliberately not the workspace version: cri-api 0.2 (the newest
+# published) is built against tonic 0.12, so its RuntimeServiceClient<Channel> only
+# accepts tonic 0.12's Channel. This crate shares no gRPC types with the rest of the
+# workspace, so the pin stays contained. Drop it when cri-api ships a tonic 0.14 build.
+tonic = { version = "0.12", default-features = false, features = ["transport", "codegen", "prost", "tls"] }
 tower = { workspace = true }
 
 [dev-dependencies]

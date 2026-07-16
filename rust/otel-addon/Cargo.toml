@@ -21,7 +21,7 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time", "io-util"] }
 tokio-stream = { workspace = true, features = ["sync"] }
-tonic = { workspace = true, features = ["tls"] }
+tonic = { workspace = true, features = ["tls-ring"] }
 uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]

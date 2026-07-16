@@ -10,10 +10,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         panic!("kv.proto not found relative to crate");
     };
     let inc = Path::new(kv_proto).parent().unwrap();
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .build_server(false)
         .build_client(true)
-        .compile_protos(&[kv_proto], &[inc])?;
+        .compile_protos(&[Path::new(kv_proto)], &[inc])?;
     println!("cargo:rerun-if-changed={kv_proto}");
     Ok(())
 }

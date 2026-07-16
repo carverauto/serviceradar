@@ -35,15 +35,16 @@ time = { workspace = true, features = ["parsing", "formatting"] }
 time-tz = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
 toml = { workspace = true }
-tonic = { workspace = true, features = ["tls"] }
+tonic = { workspace = true, features = ["tls-ring"] }
 tonic-health = { workspace = true }
+tonic-prost = { workspace = true }
 
 [dev-dependencies]
 quickcheck = { workspace = true }
 rcgen = { workspace = true }
 
 [build-dependencies]
-tonic-build = { workspace = true }
+tonic-prost-build = { workspace = true }
 
 [features]
 capnp-recompile = []

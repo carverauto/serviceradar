@@ -22,12 +22,13 @@ serde_json = { workspace = true }
 snmp2 = { workspace = true, features = ["tokio"] }
 spiffe = { workspace = true, features = ["x509-source"] }
 tokio = { workspace = true }
-tonic = { workspace = true, features = ["tls"] }
+tonic = { workspace = true, features = ["tls-ring"] }
 tonic-health = { workspace = true }
+tonic-prost = { workspace = true }
 tonic-reflection = { workspace = true }
 
 [dev-dependencies]
 rcgen = { workspace = true }
 
 [build-dependencies]
-tonic-build = { workspace = true }
+tonic-prost-build = { workspace = true }

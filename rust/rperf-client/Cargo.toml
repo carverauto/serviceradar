@@ -21,10 +21,11 @@ serde_json = { workspace = true }
 serviceradar-metric-proto = { path = "../metric-proto" }
 spiffe = { workspace = true, features = ["x509-source"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "signal", "io-util", "time"] }
-tonic = { workspace = true, features = ["tls"] }
+tonic = { workspace = true, features = ["tls-ring"] }
 tonic-health ={ workspace = true }
+tonic-prost = { workspace = true }
 tonic-reflection =  { workspace = true }
 
 [build-dependencies]
-tonic-build = { workspace = true }
+tonic-prost-build = { workspace = true }
 which = { workspace = true }
