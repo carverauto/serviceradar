@@ -16,7 +16,7 @@ flowparser-sflow = { workspace = true }
 log = { workspace = true }
 netflow_parser = { workspace = true, features = ["parse_unknown_fields"] }
 prost = { workspace = true }
-rustls = { workspace = true, features = ["aws-lc-rs"] }
+rustls = { workspace = true, features = ["aws-lc-rs", "tls12"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "sync", "time"] }

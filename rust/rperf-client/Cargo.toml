@@ -15,7 +15,7 @@ env_logger = { workspace = true }
 log = { workspace = true }
 pem = { workspace = true }
 prost = { workspace = true }
-rustls = { workspace = true, features = ["aws-lc-rs"] }
+rustls = { workspace = true, features = ["aws-lc-rs", "tls12"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 serviceradar-metric-proto = { path = "../metric-proto" }
