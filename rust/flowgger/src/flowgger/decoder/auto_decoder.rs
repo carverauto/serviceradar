@@ -1,4 +1,4 @@
-use super::{ClearPassDecoder, Decoder, RFC3164Decoder, RFC5424Decoder, RemoteAddrDecoder};
+use super::{ClearPassDecoder, Decoder, RFC3164Decoder, RFC5424Decoder};
 use crate::flowgger::config::Config;
 use crate::flowgger::record::{Record, SDValue, StructuredData};
 use crate::flowgger::utils;
@@ -107,6 +107,7 @@ fn parse_priority(line: &str) -> (Option<u8>, Option<u8>) {
 mod tests {
     use super::*;
     use crate::flowgger::decoder::Decoder;
+    use crate::flowgger::decoder::RemoteAddrDecoder;
 
     fn config() -> Config {
         Config::from_string("[input]\nrfc3164_timezone = \"UTC\"").unwrap()
