@@ -1,11 +1,18 @@
 [package]
 name = "serviceradar-powerdns-addon"
 version = "0.1.2"
-edition = "2024"
-
-authors = ["ServiceRadar Team"]
 description = "PowerDNS protobuf telemetry native add-on for ServiceRadar"
+authors = ["ServiceRadar Team"]
+edition = "2024"
 license = "Apache-2.0"
+
+[lib]
+name = "serviceradar_powerdns_addon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "serviceradar-powerdns-addon"
+path = "src/bin/serviceradar-powerdns-addon.rs"
 
 [dependencies]
 addon-sdk = { path = "../addon-sdk" }
@@ -22,11 +29,3 @@ tonic = { workspace = true }
 
 [build-dependencies]
 prost-build = "0.13"
-
-[lib]
-name = "serviceradar_powerdns_addon"
-path = "src/lib.rs"
-
-[[bin]]
-name = "serviceradar-powerdns-addon"
-path = "src/bin/serviceradar-powerdns-addon.rs"

@@ -1,9 +1,8 @@
 [package]
 name = "serviceradar-causal-ingest"
 version = "0.1.0"
-edition = "2024"
-
 description = "Causal security engine — L1 data integration. Phase 0 fills the central score->ConfidenceSummary construction (via causal-config) and the ObservationSource seam; live SRQL/NATS/signals.state backends are feature-gated and land in later work. The ONLY crate that touches CNPG/NATS/SRQL. (OpenSpec: add-causal-security-foundation)."
+edition = "2024"
 license = "Apache-2.0"
 
 [lib]
@@ -11,9 +10,9 @@ name = "serviceradar_causal_ingest"
 path = "src/lib.rs"
 
 [dependencies]
+serviceradar-causal-config = { path = "../causal-config" }
 serviceradar-causal-model = { path = "../causal-model" }
 serviceradar-causal-ports = { path = "../causal-ports" }
-serviceradar-causal-config = { path = "../causal-config" }
 uuid = "1"
 
 [features]

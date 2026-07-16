@@ -1,9 +1,8 @@
 [package]
 name = "serviceradar-fieldsurvey-sidekick"
 version = "0.1.0"
-edition = "2024"
-
 description = "Raspberry Pi RF sidekick daemon for ServiceRadar FieldSurvey"
+edition = "2024"
 license = "Apache-2.0"
 
 [[bin]]

@@ -1,11 +1,22 @@
 [package]
 name = "serviceradar-workload-identity"
 version = "0.1.5"
-edition = "2024"
-
-authors = ["ServiceRadar Team"]
 description = "Node-local workload identity enrichment for ServiceRadar"
+authors = ["ServiceRadar Team"]
+edition = "2024"
 license = "Apache-2.0"
+
+[lib]
+name = "serviceradar_workload_identity"
+path = "src/lib.rs"
+
+[[bin]]
+name = "serviceradar-workload-identity-check"
+path = "src/bin/workload-identity-check.rs"
+
+[[bin]]
+name = "serviceradar-workload-identity"
+path = "src/bin/workload-identity.rs"
 
 [dependencies]
 anyhow = "1.0"
@@ -21,15 +32,3 @@ tower = "0.5"
 
 [dev-dependencies]
 tempfile = "3"
-
-[lib]
-name = "serviceradar_workload_identity"
-path = "src/lib.rs"
-
-[[bin]]
-name = "serviceradar-workload-identity-check"
-path = "src/bin/workload-identity-check.rs"
-
-[[bin]]
-name = "serviceradar-workload-identity"
-path = "src/bin/workload-identity.rs"

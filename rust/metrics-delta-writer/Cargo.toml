@@ -1,10 +1,13 @@
 [package]
 name = "serviceradar-metrics-delta-writer"
 version = "0.1.0"
-edition = "2024"
-
 description = "ServiceRadar metrics Delta lakehouse writer (OpenSpec: add-delta-metrics-lakehouse). Consumes the metrics JetStream durable, decodes MetricBatch protobuf, and batch-writes raw points to a Delta table on object storage."
+edition = "2024"
 license = "Apache-2.0"
+
+[lib]
+name = "serviceradar_metrics_delta_writer"
+path = "src/lib.rs"
 
 [[bin]]
 name = "metrics-delta-writer"
@@ -13,10 +16,6 @@ path = "src/main.rs"
 [[bin]]
 name = "metrics-protobuf-bench"
 path = "src/bin/metrics_protobuf_bench.rs"
-
-[lib]
-name = "serviceradar_metrics_delta_writer"
-path = "src/lib.rs"
 
 [dependencies]
 anyhow = "1"

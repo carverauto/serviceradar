@@ -10,86 +10,50 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2021"
 name = "reqsign-azure-storage"
 version = "1.0.0"
-build = false
+description = "Signing API requests without effort."
+edition = "2021"
+license = "Apache-2.0"
+readme = "README.md"
+documentation = "https://docs.rs/reqsign"
+repository = "https://github.com/Xuanwo/reqsign"
+categories = [
+    "command-line-utilities",
+    "web-programming",
+]
 autolib = false
 autobins = false
 autoexamples = false
 autotests = false
 autobenches = false
-description = "Signing API requests without effort."
-documentation = "https://docs.rs/reqsign"
-readme = "README.md"
-categories = [
-    "command-line-utilities",
-    "web-programming",
-]
-license = "Apache-2.0"
-repository = "https://github.com/Xuanwo/reqsign"
+build = false
 
 [lib]
 name = "reqsign_azure_storage"
 path = "src/lib.rs"
 
-[dependencies.anyhow]
-version = "1"
+[dependencies]
+anyhow= { version = "1"}
+async-trait= { version = "0.1"}
+base64= { version = "0.22"}
+bytes= { version = "1"}
+chrono= { version = "0.4.35"}
+form_urlencoded= { version = "1"}
+http= { version = "1"}
+log= { version = "0.4"}
+percent-encoding= { version = "2"}
+reqsign-core= { version = "1.0.0"}
+reqwest= { version = "0.12", default-features = false}
+serde= { version = "1", features = ["derive"]}
+serde_json= { version = "1"}
+sha1= { version = "0.10"}
+sha2= { version = "0.10", features = ["oid"]}
 
-[dependencies.async-trait]
-version = "0.1"
-
-[dependencies.base64]
-version = "0.22"
-
-[dependencies.bytes]
-version = "1"
-
-[dependencies.chrono]
-version = "0.4.35"
-
-[dependencies.form_urlencoded]
-version = "1"
-
-[dependencies.http]
-version = "1"
-
-[dependencies.log]
-version = "0.4"
-
-[dependencies.percent-encoding]
-version = "2"
-
-[dependencies.reqsign-core]
-version = "1.0.0"
-
-[dependencies.reqwest]
-version = "0.12"
-default-features = false
-
-[dependencies.serde]
-version = "1"
-features = ["derive"]
-
-[dependencies.serde_json]
-version = "1"
-
-[dependencies.sha1]
-version = "0.10"
-
-[dependencies.sha2]
-version = "0.10"
-features = ["oid"]
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies.jsonwebtoken]
-version = "10.3.0"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies.pem]
-version = "3.0"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies.rsa]
-version = "0.9.2"
-features = [
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+jsonwebtoken= { version = "10.3.0"}
+pem= { version = "3.0"}
+rsa= { version = "0.9.2", features = [
     "pkcs5",
     "sha2",
-]
+]}

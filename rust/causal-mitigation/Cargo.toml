@@ -1,8 +1,7 @@
 [package]
 name = "serviceradar-causal-mitigation"
-edition = "2024"
-
 description = "Causal security engine — mitigation authority policy engine (causal_mitigation_policies, shadow/enforce, blast-radius gate). Scaffold only in Phase 0; authored by add-causal-mitigation. (OpenSpec: add-causal-security-foundation)."
+edition = "2024"
 license = "Apache-2.0"
 
 [lib]

@@ -1,17 +1,49 @@
 [package]
 name = "serviceradar-flowgger"
-edition = "2024"
-
-authors = ["Frank Denis <github@pureftpd.org>", "Matteo Bigoi <bigo@crisidev.org>", "Vivien Chene <viv.chene@gmail.com>", "Francesco Berni <kurojishi@kurojishi.me>"]
-build = "build.rs"
-repository = "https://github.com/awslabs/flowgger"
 description = "Flowgger is a fast, simple and lightweight data collector."
+authors = ["Frank Denis <github@pureftpd.org>", "Matteo Bigoi <bigo@crisidev.org>", "Vivien Chene <viv.chene@gmail.com>", "Francesco Berni <kurojishi@kurojishi.me>"]
+edition = "2024"
 license = "ISC"
-documentation="https://github.com/awslabs/flowgger/wiki"
+documentation ="https://github.com/awslabs/flowgger/wiki"
+repository = "https://github.com/awslabs/flowgger"
+build = "build.rs"
 
 [lib]
 name = "flowgger"
 path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1"
+async-nats = { version = "0.49", optional = true }
+clap = "4"
+flate2 = "1"
+glob = { version = "0.3", optional = true }
+kafka = { version = "0.10", features = ["snappy", "gzip", "security"], optional = true }
+log = "0.4"
+may = { version = "~0.3", optional = true }
+notify = { version = "8", optional = true }
+pem = "3"
+rand = "0.8"
+redis = { version = "1.4", optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"], optional = true }
+rustls-pemfile = { version = "2", optional = true }
+serde = { version = "1", optional = true }
+serde_json = { version = "~0.8", optional = true }
+spiffe = { version = "0.16", default-features = false, features = ["x509-source"] }
+tempfile = "3"
+time = { version = ">=0.3.36, <0.3.47", features = ["parsing", "formatting"] }
+time-tz = "0.3"
+tokio = { version = "1.45.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+toml = "1"
+tonic = { workspace = true }
+tonic-health = { workspace = true }
+
+[dev-dependencies]
+quickcheck = "1"
+rcgen = "0.12"
+
+[build-dependencies]
+tonic-build = { workspace = true }
 
 [features]
 capnp-recompile = []
@@ -28,42 +60,3 @@ rfc3164=[]
 rfc5424=[]
 passthrough=[]
 file = ["notify", "glob"]
-
-[build-dependencies]
-tonic-build = { workspace = true }
-
-[dependencies]
-clap = "4"
-flate2 = "1"
-glob = { version = "0.3", optional = true }
-kafka = { version = "0.10", features = ["snappy", "gzip", "security"], optional = true }
-async-nats  = { version = "0.49", optional = true }
-log = "0.4"
-anyhow = "1"
-pem = "3"
-notify = { version = "8", optional = true }
-rand = "0.8"
-redis = { version = "1.4", optional = true }
-serde = { version = "1", optional = true }
-serde_json = { version = "~0.8", optional = true }
-may = { version = "~0.3", optional = true }
-toml = "1"
-# Cap below 0.3.47: time 0.3.47's `parsing` feature adds an `impl From<HourBase>
-# for <HourBase as ModifierValue>::Type` that collides with async-nats's blanket
-# `impl<Kind> From<Kind> for Error<Kind>` under rustc 1.93 coherence (E0119),
-# breaking every async-nats-dependent crate. Nothing here needs >=0.3.47.
-time = { version = ">=0.3.36, <0.3.47", features = ["parsing", "formatting"] }
-time-tz = "0.3"
-tokio       = { version = "1.45.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
-tonic = { workspace = true }
-tempfile = "3"
-tonic-health = { workspace = true }
-spiffe = { version = "0.16", default-features = false, features = ["x509-source"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"], optional = true }
-rustls-pemfile = { version = "2", optional = true }
-
-[dev-dependencies]
-quickcheck = "1"
-rcgen = "0.12"
-
-## Release profile now defined at workspace root to avoid non-root profile warning

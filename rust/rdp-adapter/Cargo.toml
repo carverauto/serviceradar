@@ -1,11 +1,18 @@
 [package]
 name = "serviceradar-rdp-adapter"
 version = "0.1.1"
-edition = "2024"
-
-authors = ["ServiceRadar Team"]
 description = "ServiceRadar RDP helper adapter"
+authors = ["ServiceRadar Team"]
+edition = "2024"
 license = "Apache-2.0"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zeroize = { version = "1", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+base64 = "0.22"
 
 [features]
 default = []
@@ -17,11 +24,3 @@ ironrdp-backend = []
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(serviceradar_rdp_connector_link_probe)'] }
-
-[dependencies]
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-zeroize = { version = "1", default-features = false, features = ["alloc"] }
-
-[dev-dependencies]
-base64 = "0.22"

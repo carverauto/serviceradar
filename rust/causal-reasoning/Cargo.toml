@@ -1,9 +1,8 @@
 [package]
 name = "serviceradar-causal-reasoning"
 version = "0.1.0"
-edition = "2024"
-
 description = "Causal security engine — generic reasoning engine. Phase 0 fills the CSM SPRT step (the single Uncertain materialization) and the per-tick sample-cache discipline; the kill-chain CausaloidGraph + CSM wiring arrive in add-causal-security-detections. Generic over V: Verdict. (OpenSpec: add-causal-security-foundation)."
+edition = "2024"
 license = "Apache-2.0"
 
 [lib]
@@ -11,7 +10,6 @@ name = "serviceradar_causal_reasoning"
 path = "src/lib.rs"
 
 [dependencies]
+deep_causality_uncertain = "0.5.0"
 serviceradar-causal-model = { path = "../causal-model" }
 serviceradar-causal-ports = { path = "../causal-ports" }
-# The ONLY place an Uncertain is materialized/sampled (the CSM SPRT). Sourced from crates.io.
-deep_causality_uncertain = "0.5.0"

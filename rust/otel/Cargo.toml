@@ -3,53 +3,45 @@ name = "otel"
 version = "0.1.0"
 edition = "2024"
 
-
 [lib]
 name = "otel"
 path = "src/lib.rs"
 doctest = false
 
 [dependencies]
-# Agent-forward edge backend: the durable relay spool stores
-# OtlpRelayFrame/TelemetryBatch messages from the shared add-on contract.
-# Depending on the SDK crate (instead of recompiling the vendored proto)
-# guarantees the otel crate and the otel-addon binary use the *same*
-# generated types.
 addon-sdk = { path = "../addon-sdk" }
-uuid = { version = "1", features = ["v4"] }
-tonic = { workspace = true }
-prost = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
-async-nats = "0.49"
 anyhow = "1.0"
-toml = "1"
-serde = { version = "1.0", features = ["derive"] }
+async-nats = "0.49"
+chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.0", features = ["derive"] }
-log = "0.4"
 env_logger = "0.11"
+flate2 = "1"
 hex = "0.4"
-prometheus = { version = "0.14", features = ["process"] }
-lazy_static = "1.4"
+http-body-util = "0.1"
 hyper = { version = "1.0", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
-http-body-util = "0.1"
-chrono = { version = "0.4", features = ["serde"] }
-serviceradar-metric-proto = { path = "../metric-proto" }
+lazy_static = "1.4"
+log = "0.4"
+prometheus = { version = "0.14", features = ["process"] }
+prost = { workspace = true }
 rustls = "0.23"
-# OTLP/HTTP listener: gzip request bodies + TLS termination. All three are
-# already in the workspace dependency graph via tonic's tls/gzip features.
-flate2 = "1"
-tokio-rustls = "0.26"
 rustls-pemfile = "2"
-
-# Free-disk floor for the relay spool: statvfs without unsafe. rustix is
-# already in the workspace dependency graph (tempfile et al.), so this pins
-# no new crate version.
-[target.'cfg(unix)'.dependencies]
-rustix = { version = "1", features = ["fs"] }
+serde = { version = "1.0", features = ["derive"] }
+serviceradar-metric-proto = { path = "../metric-proto" }
+tokio = { workspace = true, features = ["full"] }
+tokio-rustls = "0.26"
+toml = "1"
+tonic = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3.0"
 
 [build-dependencies]
 tonic-build = { workspace = true }
+
+# Free-disk floor for the relay spool: statvfs without unsafe. rustix is
+# already in the workspace dependency graph (tempfile et al.), so this pins
+# no new crate version.
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs"] }

@@ -1,9 +1,8 @@
 [package]
 name = "addon-sdk"
 version = "0.1.0"
-edition = "2024"
-
 description = "Rust helper for ServiceRadar native agent add-ons: HashiCorp go-plugin handshake + AutoMTLS + the agent/addon gRPC contract served over a Unix-domain socket."
+edition = "2024"
 license = "Apache-2.0"
 
 [lib]
@@ -16,36 +15,27 @@ name = "serviceradar-rust-sample-addon"
 path = "src/bin/rust_sample_addon.rs"
 
 [dependencies]
-# Internal deps
-serviceradar-metric-proto = { path = "../metric-proto" }
-
-# External deps
-tonic = { workspace = true, features = ["transport", "tls", "gzip", "zstd"] }
-tonic-health = { workspace = true }
-prost = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "sync", "io-util"] }
-tokio-stream = { workspace = true, features = ["net", "sync"] }
-# aws-lc-rs (not ring): See rustls below. crypto providers must match.
-tokio-rustls = { workspace = true, features = ["aws-lc-rs"] }
-async-trait ={ workspace = true }
 anyhow = { workspace = true }
-thiserror = { workspace = true }
+async-trait ={ workspace = true }
 base64 = { workspace = true }
-rcgen = { workspace = true }
-sha2 ={ workspace = true }
 hex = { workspace = true }
-# aws-lc-rs (not ring): the go-plugin host's AutoMTLS client certificate is
-# ECDSA P-521, and rustls' ring provider does NOT support P-521 signature
-# verification (only P-256/P-384), so client-cert verification fails with
-# "certificate required". aws-lc-rs supports P-521 and lets the unmodified Go
-# go-plugin client complete mutual TLS.
+prost = { workspace = true }
+rcgen = { workspace = true }
 rustls = {workspace = true, features = ["aws-lc-rs", "std"] }
 rustls-pemfile = { workspace = true }
+serviceradar-metric-proto = { path = "../metric-proto" }
+sha2 ={ workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "sync", "io-util"] }
+tokio-rustls = { workspace = true, features = ["aws-lc-rs"] }
+tokio-stream = { workspace = true, features = ["net", "sync"] }
+tonic = { workspace = true, features = ["transport", "tls", "gzip", "zstd"] }
+tonic-health = { workspace = true }
 
 [dev-dependencies]
+hyper-util = { workspace = true, features = ["tokio"] }
 tempfile = { workspace = true }
 tower = { workspace = true }
-hyper-util = { workspace = true, features = ["tokio"] }
 
 [build-dependencies]
 tonic-build = { workspace = true }
