@@ -58,6 +58,14 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            query: "in:logs source_ip:\"198.51.100.42\" time:last_10m",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["body"], "Application started");
+                assert_eq!(body["results"][0]["source_ip"], "198.51.100.42");
+            })),
+        },
+        TestCase {
             query: "in:events device_id:\"device-alpha\" class_uid:4001 time:last_10m",
             expected_count: 1,
             validator: Some(Box::new(|body| {

@@ -307,6 +307,7 @@ CREATE TABLE logs (
     ingest_identity      TEXT NOT NULL DEFAULT '',
     ingest_agent_id      TEXT NOT NULL DEFAULT '',
     ingest_partition     TEXT NOT NULL DEFAULT '',
+    source_ip            TEXT,
     PRIMARY KEY (timestamp, id)
 );
 

@@ -1158,6 +1158,7 @@ INSERT INTO logs (
         source,
         attributes,
         resource_attributes,
+        source_ip,
         created_at
     )
 SELECT base.now_ts - INTERVAL '1 minute',
@@ -1175,6 +1176,7 @@ SELECT base.now_ts - INTERVAL '1 minute',
     'app',
     '{"key":"value"}'::text,
     '{"res":"val","serviceradar.device_id":"device-alpha","serviceradar.gateway_id":"gw-1","serviceradar.agent_id":"agent-1"}'::text,
+    '198.51.100.42',
     base.now_ts
 FROM base
 UNION ALL
@@ -1193,6 +1195,7 @@ SELECT base.now_ts - INTERVAL '2 hours',
     'app',
     '{"error":"timeout"}'::text,
     '{"res":"val"}'::text,
+    NULL,
     base.now_ts
 FROM base;
 WITH base AS (
