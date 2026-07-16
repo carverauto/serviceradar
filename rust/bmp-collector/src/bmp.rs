@@ -218,7 +218,7 @@ fn parse_route_monitoring_with_add_path_retry(
     match parse_bgp_message(&mut without_add_path, false, asn_len) {
         Ok(bgp_message) => {
             *data = without_add_path;
-            return Ok(RouteMonitoring { bgp_message });
+            Ok(RouteMonitoring { bgp_message })
         }
         Err(primary_err) => {
             let mut with_add_path = data.clone();
