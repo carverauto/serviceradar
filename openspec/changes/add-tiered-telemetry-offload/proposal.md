@@ -67,6 +67,17 @@ change is inert and OSS deployments run exactly as today.
   (`ocsf_events_hourly_stats` 24h, `traces_stats_5m` 14d, flow
   5m/proto/talkers/ports 30d) instead of exporting CAGGs; CAGG Parquet export
   is explicitly deferred until a cold window beyond 395 days is required.
+- **CAGG refresh-window clamp (pre-existing data-loss bug, fixed here)**:
+  empirically verified on the production image — `drop_chunks` plants
+  invalidation entries, and any refresh covering a dropped region DELETES the
+  materialized buckets. Several CAGGs refresh past their raw source's
+  retention (metric hourlies 32d over 7d raw; `spans_red_1h`/`traces_stats_5m`
+  over 3d raw), so their long-retention materializations are progressively
+  destroyed today, cold tier or not. This change clamps the shipped refresh
+  windows inside raw retention, adds a data-driven hazard alert to the
+  retention worker (all deployments), and a stale-invalidation "loaded gun"
+  alert on cold-configured ones. Consider cherry-picking the clamp migration
+  as a standalone staging hotfix ahead of this change.
 - **Per-table retention env completion**: `timeseries_metrics` gains its own
   retention environment variable, decoupled from the compile-time
   `:raw_metrics_retention_days` key it currently shares with the sysmon split

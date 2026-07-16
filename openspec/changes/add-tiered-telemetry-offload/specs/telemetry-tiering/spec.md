@@ -129,6 +129,21 @@ Archived objects SHALL be pruned according to per-table cold windows from deploy
 - **WHEN** the sweep finds a manifest row without objects, or objects without manifest rows
 - **THEN** the divergence is repaired (re-export or manifest cleanup) and surfaced in telemetry
 
+### Requirement: Continuous aggregates remain correct across retention and offload
+Materialized continuous-aggregate history SHALL NOT be destroyed by retention or offload activity. Because dropping raw chunks plants invalidation-log entries that any covering refresh consumes by recomputing buckets from now-absent raw (verified on TimescaleDB 2.24), every continuous aggregate's refresh window SHALL be clamped strictly inside its raw source's retention window. The system SHALL detect and alert on any aggregate whose refresh window reaches its source's retention boundary, and on pending invalidation-log entries older than the hot boundary.
+
+#### Scenario: Raw drop leaves aggregates intact
+- **WHEN** retention or offload drops raw chunks for a period with materialized aggregate buckets
+- **THEN** those buckets remain readable and no policy refresh recomputes them from absent raw
+
+#### Scenario: Hazardous refresh window detected
+- **WHEN** a continuous aggregate's refresh window reaches at or past its raw source's retention (from in-database policies or, for offloaded tables, the configured hot window)
+- **THEN** the retention worker raises an alert identifying the aggregate and both windows
+
+#### Scenario: Pending stale invalidations detected
+- **WHEN** invalidation-log entries older than a table's hot boundary exist
+- **THEN** an alert identifies the table so operators know a covering refresh would delete materialized history
+
 ### Requirement: Storage and retention telemetry is exported for external metering
 The runtime SHALL export per-registry-table storage telemetry — hot bytes, ingest bytes/day, and a non-telemetry baseline size — on its existing metrics endpoint regardless of cold-tier state. On cold-configured deployments it SHALL additionally export cold bytes, frontier lag, held/quarantined chunk counts, headroom consumption, and the measured oldest-available timestamp per table.
 

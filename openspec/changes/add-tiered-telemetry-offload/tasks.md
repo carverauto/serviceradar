@@ -29,6 +29,7 @@
 - [ ] 2.7 Cold pruning: per-table cold windows; objects-before-manifest delete order; manifest↔bucket reconciliation sweep; S3 client dependency in core-elx
 - [x] 2.8 CAGG window alignment migration (ocsf_events_hourly_stats, traces_stats_5m, flow 5m/proto/talkers/ports) to match plan-facing lookback ambitions
 - [x] 2.10 Introduce `SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS` consumed by the retention path, decoupled from the shared `:raw_metrics_retention_days` key (which sysmon split tables keep) — `timeseries_metrics` currently has NO per-table env var and projecting one would otherwise be silently ignored
+- [x] 2.11 CAGG refresh-window clamp: migration clamping every shipped refresh policy inside its raw source's retention (fixes the pre-existing 32d-over-7d wipe bug, verified on TS 2.24); data-driven `cagg_refresh_hazards` alert in DataRetentionWorker; `stale_invalidations` loaded-gun alert in the exporter
 - [ ] 2.9 Break-glass export runbook (poison chunks; head-down manual export path)
 
 ## 3. M1 — Storage/retention telemetry

@@ -124,6 +124,128 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
     end
   end
 
+  @doc """
+  CAGGs whose refresh window reaches at or past their raw source's retention
+  boundary — the configuration that DELETES materialized history when the
+  policy refresh covers a dropped-chunk region (verified on TimescaleDB
+  2.24.0: drop_chunks plants invalidations; a covering refresh recomputes
+  those buckets from empty raw). Data-driven from the Timescale catalog plus,
+  for registry tables (whose in-DB retention policy is removed under the
+  fence), the configured hot window. Runs on every deployment — this hazard
+  class is not cold-tier-specific.
+
+  Returns [%{view, source, refresh_start, source_retention}].
+  """
+  @spec cagg_refresh_hazards(keyword()) :: [map()]
+  def cagg_refresh_hazards(opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    registry_windows =
+      Map.new(Registry.tables(), fn entry ->
+        {entry.table, Registry.hot_retention_days(entry)}
+      end)
+
+    sql = """
+    SELECT agg.view_name,
+           agg.hypertable_name AS source,
+           refresh.config->>'start_offset' AS refresh_start,
+           retention.config->>'drop_after' AS source_retention,
+           CASE
+             WHEN retention.config IS NOT NULL
+              AND (refresh.config->>'start_offset')::interval >=
+                  (retention.config->>'drop_after')::interval
+             THEN true
+             ELSE false
+           END AS policy_hazard
+    FROM timescaledb_information.continuous_aggregates agg
+    JOIN timescaledb_information.jobs refresh
+      ON refresh.proc_name = 'policy_refresh_continuous_aggregate'
+     AND refresh.hypertable_schema = agg.view_schema
+     AND refresh.hypertable_name = agg.view_name
+    LEFT JOIN timescaledb_information.jobs retention
+      ON retention.proc_name = 'policy_retention'
+     AND retention.hypertable_schema = agg.hypertable_schema
+     AND retention.hypertable_name = agg.hypertable_name
+    WHERE agg.hypertable_schema = 'platform'
+    """
+
+    case SQL.query(repo, sql, [], timeout: @query_timeout_ms) do
+      {:ok, %{rows: rows}} ->
+        for [view, source, refresh_start, source_retention, policy_hazard] <- rows,
+            hazard?(policy_hazard, refresh_start, Map.get(registry_windows, source)) do
+          %{
+            view: view,
+            source: source,
+            refresh_start: refresh_start,
+            source_retention:
+              source_retention || registry_retention_label(registry_windows, source)
+          }
+        end
+
+      {:error, _} ->
+        []
+    end
+  end
+
+  # In-DB retention policy comparison already decided it.
+  defp hazard?(true, _refresh_start, _registry_days), do: true
+  # No in-DB policy and not a registry table: nothing drops raw -> no hazard.
+  defp hazard?(false, _refresh_start, nil), do: false
+  # Registry table under the fence: compare against the configured hot window.
+  defp hazard?(false, refresh_start, registry_days) do
+    case parse_interval_days(refresh_start) do
+      nil -> false
+      refresh_days -> refresh_days >= registry_days
+    end
+  end
+
+  defp registry_retention_label(windows, source) do
+    case Map.get(windows, source) do
+      nil -> nil
+      days -> "#{days} days (configured hot window)"
+    end
+  end
+
+  # Timescale renders these configs like "32 days" / "10:00:00" / "7 days 00:00:00".
+  defp parse_interval_days(value) when is_binary(value) do
+    case Regex.run(~r/(\d+)\s*day/, value) do
+      [_, days] -> String.to_integer(days)
+      # sub-day intervals can never reach past a >=1 day retention window
+      nil -> 0
+    end
+  end
+
+  defp parse_interval_days(_), do: nil
+
+  @doc """
+  Registry tables carrying invalidation-log entries older than their hot
+  boundary — pending "loaded gun" ranges that a covering refresh would
+  consume by deleting materialized CAGG history. Alert-only signal.
+  """
+  @spec stale_invalidations(keyword()) :: [%{table: String.t(), entries: non_neg_integer()}]
+  def stale_invalidations(opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    Enum.flat_map(Registry.tables(), fn entry ->
+      cutoff = DateTime.add(DateTime.utc_now(), -Registry.hot_retention_days(entry) * 86_400)
+
+      sql = """
+      SELECT count(*)
+      FROM _timescaledb_catalog.continuous_aggs_hypertable_invalidation_log l
+      JOIN _timescaledb_catalog.hypertable h ON h.id = l.hypertable_id
+      WHERE h.schema_name = 'platform'
+        AND h.table_name = $1
+        AND l.lowest_modified_value <
+            (extract(epoch FROM $2::timestamptz) * 1000000)::bigint
+      """
+
+      case SQL.query(repo, sql, [entry.table, cutoff], timeout: @query_timeout_ms) do
+        {:ok, %{rows: [[count]]}} when count > 0 -> [%{table: entry.table, entries: count}]
+        _ -> []
+      end
+    end)
+  end
+
   defp drift_clamp(repo, table_name, point) do
     time_column =
       case Registry.fetch(table_name) do

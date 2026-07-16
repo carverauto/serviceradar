@@ -49,6 +49,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     batch_size = Keyword.get(config, :batch_size, @default_batch_size)
 
     reconcile_timescale_tables(config)
+    alert_on_cagg_refresh_hazards()
 
     results = [
       prune_trace_summaries(config, batch_size),
@@ -124,6 +125,27 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
         drop_expired_chunks(table_name, retention_days)
       end
     )
+  end
+
+  # A CAGG that refreshes past its raw source's retention DELETES its own
+  # materialized history when the policy refresh covers a dropped-chunk
+  # region (drop_chunks plants invalidations; verified on TimescaleDB
+  # 2.24.0). Migration 20260716210000 clamps the shipped policies; this
+  # guard catches per-deployment drift (env-tuned retention windows or
+  # hand-created policies).
+  defp alert_on_cagg_refresh_hazards do
+    case RetentionFence.cagg_refresh_hazards() do
+      [] ->
+        :ok
+
+      hazards ->
+        Logger.error(
+          "Continuous aggregates refresh past their raw source's retention — " <>
+            "policy refreshes will progressively DELETE materialized history " <>
+            "for dropped regions; clamp start_offset below the source retention",
+          hazards: inspect(hazards)
+        )
+    end
   end
 
   defp set_chunk_interval(table_name, chunk_hours) do

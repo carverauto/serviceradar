@@ -444,6 +444,19 @@ defmodule ServiceRadar.ColdTier.Exporter do
           tables: tables
         )
     end
+
+    case RetentionFence.stale_invalidations() do
+      [] ->
+        :ok
+
+      stale ->
+        Logger.warning(
+          "Cold tier: pending CAGG invalidations older than the hot boundary — " <>
+            "a refresh covering these ranges would delete materialized history; " <>
+            "verify refresh windows are clamped (see migration 20260716210000)",
+          stale: inspect(stale)
+        )
+    end
   end
 
   defp object_key(entry, chunk) do

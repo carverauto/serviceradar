@@ -379,6 +379,56 @@ autoinstall off with `httpfs`/`postgres` pre-packaged. CNPG operator v1.24.1
 runs it fine; the head is the ideal canary for the overdue operator upgrade
 (adjacent task, not blocking).
 
+### D13. Continuous aggregates across retention and offload (verified 2026-07-16)
+CAGGs are structurally independent of the cold tier: buckets materialize from
+hot raw within minutes of ingest (refresh policies run every 5–10 minutes),
+live in their own materialization hypertables under their own retention
+(90–395d), and pre-watermark reads NEVER touch raw (verified: identical
+results with real-time aggregation on and off after raw drops). Offload
+happens at drop time, long after materialization — so every CAGG-dependent
+view and SRQL stats route keeps working unchanged, and the cold tier needs
+no CAGG participation for ≤395d stats.
+
+The hazard is refresh, not reads — empirically verified on TimescaleDB
+2.24.0 (the production image):
+- `drop_chunks` itself writes invalidation-log entries covering every
+  dropped chunk (one per chunk); the dropped region is poisoned before any
+  late write.
+- Any refresh whose window covers a poisoned region — manual OR the policy
+  path (`run_job`) — recomputes those buckets from now-empty raw: buckets
+  are DELETED, or replaced by late-row-only aggregates.
+- Clamping refresh windows protects but only defers: pending invalidations
+  persist indefinitely in `continuous_aggs_materialization_invalidation_log`
+  (any refresh sweeps+merges them there, even disjoint no-op refreshes) and
+  detonate on the first covering refresh.
+
+**Pre-existing production bug found by this verification**: the metric
+hourly CAGGs refresh with `start_offset='32 days'` over raw retained 7 days
+(`spans_red_1h`/`otel_metrics_hourly_stats` 32d over 3d/30d raw;
+`traces_stats_5m` 7d over 3d) — the destructive configuration exactly. Their
+395/90-day retention promises are being progressively voided as raw ages
+out, independent of the cold tier.
+
+Decisions:
+1. Migration 20260716210000 clamps every shipped refresh window strictly
+   inside its raw source's retention (hourlies 32d→5d over 7d raw;
+   spans_red_1h/traces_stats_5m→1d over 3d raw; otel_metrics_hourly_stats
+   32d→28d over 30d raw). Wiped history is not resurrectable from raw; on
+   cold-configured deployments it becomes repairable from Parquet
+   (follow-up tooling).
+2. `RetentionFence.cagg_refresh_hazards/1` — data-driven guard joining the
+   Timescale jobs catalog (refresh vs retention policies) plus configured
+   hot windows for fenced registry tables; `DataRetentionWorker` alerts on
+   every run. Runs on ALL deployments (the hazard is not cold-specific) and
+   catches env-tuned drift the static migration can't.
+3. `RetentionFence.stale_invalidations/0` — exporter alerts on pending
+   invalidation entries older than the hot boundary (the standing
+   "loaded gun" signal).
+4. Resurrection chunks from late writes widen invalidations; the clamped
+   windows keep policy refreshes away from them, and the exporter re-exports
+   the late rows to Parquet (D4) — cold captures what the CAGG can no longer
+   safely absorb.
+
 ## Risks / Trade-offs
 
 - pg_duckdb export-statement crash class (#1056 cousin) → contained to the
