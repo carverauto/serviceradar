@@ -3,12 +3,23 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/update-rust-bazel-deps.sh [repin-mode] [verify-target]
+Usage: scripts/update-rust-bazel-deps.sh [update-mode] [verify-target]
 
-Update the root Cargo.lock that feeds the `rust_crates` crate_universe repository,
-then refresh MODULE.bazel.lock and verify a representative Rust target.
+Update the root Cargo.lock -- the single source of dependency versions for BOTH cargo
+and Bazel -- then regenerate the vendored crate tree and verify with a real Bazel build.
 
-repin-mode:
+Every step matters:
+  1. cargo update      moves the lock
+  2. cargo check       catches source breakage early, with --lib --bins --tests
+                       (a plain `cargo check` skips test code, and Bazel compiles tests)
+  3. scripts/vendor.sh regenerates //third_party/crates from the new lock, re-applies the
+                       openssl-src / pq-src source patches, and repairs the generated files
+  4. bazel build       the step that actually decides: a green cargo check does NOT prove
+                       the Bazel build (Cargo.lock keeps optional deps cargo never
+                       resolves; crates_vendor vendors the whole lock, so Bazel compiles
+                       crates cargo prunes)
+
+update-mode:
   workspace                cargo update --workspace (default)
   full | eager | all       cargo update
   package_name             cargo update -p package_name
@@ -16,14 +27,25 @@ repin-mode:
   package@1.2.3=4.5.6      cargo update -p package_name@1.2.3 --precise 4.5.6
 
 verify-target:
-  Bazel label to analyze after repinning.
-  Default: //rust/srql:srql_lib
+  Bazel label to build after vendoring.
+  Default: //rust/...
 
 Examples:
   scripts/update-rust-bazel-deps.sh
   scripts/update-rust-bazel-deps.sh full
   scripts/update-rust-bazel-deps.sh diesel
   scripts/update-rust-bazel-deps.sh diesel@2.3.7 //rust/srql:srql_lib
+
+Notes:
+  - Bump versions in the ROOT Cargo.toml only; crates under /rust/ use { workspace = true }.
+  - openssl-sys / pq-sys are exact-pinned because openssl-src / pq-src carry source patches.
+    The pins do not reach those build deps, so a `full` update can still move them --
+    vendor.sh then FAILS ON PURPOSE. That is not a bug: regenerate the patch, do not skip it.
+  - This does not touch MODULE.bazel.lock. The root crate universe is vendored, not a
+    from_cargo extension; only the separate RDP-connector extension uses MODULE.bazel, and
+    rust/rdp-connector-probe is not a root workspace member, so `cargo update` here cannot
+    affect it.
+  - See rust/README_RUST.md for the full picture.
 EOF
 }
 
@@ -32,8 +54,17 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
-REPIN_MODE="${1:-workspace}"
-VERIFY_TARGET="${2:-//rust/srql:srql_lib}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+UPDATE_MODE="${1:-workspace}"
+VERIFY_TARGET="${2:-//rust/...}"
+
+# Vendored third-party forks under //third_party/rust_patches are workspace members, but
+# their test targets reference dev-dependencies they never declare, so they fail
+# `cargo check --tests` on a clean tree. Pre-existing and unrelated to any dep bump; skip
+# them so this script reports real breakage only. Bazel does not build them either.
+BROKEN_FORKS=(--exclude reqsign-azure-storage --exclude reqsign-google --exclude rperf)
 
 run_cargo_update() {
   local mode="$1"
@@ -61,29 +92,29 @@ run_cargo_update() {
   esac
 }
 
-run_bazel_mod() {
-  local tmp_ob
-  tmp_ob="$(mktemp -d /tmp/sr-bazel-ob-XXXXXX)"
-  bazel --batch --output_base="${tmp_ob}" mod deps --lockfile_mode=update
-}
-
-run_bazel_verify() {
-  local target="$1"
-  local tmp_ob
-  tmp_ob="$(mktemp -d /tmp/sr-bazel-ob-XXXXXX)"
-  bazel --batch --output_base="${tmp_ob}" build --nobuild "${target}"
-}
-
-echo "Updating Cargo.lock with mode: ${REPIN_MODE}"
-run_cargo_update "${REPIN_MODE}"
-
-echo "Refreshing MODULE.bazel.lock"
-run_bazel_mod
-
-echo "Verifying Bazel analysis for ${VERIFY_TARGET}"
-run_bazel_verify "${VERIFY_TARGET}"
+echo "==> 1/4 Updating Cargo.lock (mode: ${UPDATE_MODE})"
+run_cargo_update "${UPDATE_MODE}"
 
 echo
-echo "Updated files:"
-echo "  Cargo.lock"
-echo "  MODULE.bazel.lock"
+echo "==> 2/4 Checking the workspace (lib + bins + tests)"
+cargo check --workspace --lib --bins --tests "${BROKEN_FORKS[@]}"
+
+echo
+echo "==> 3/4 Regenerating the vendored crate tree (this downloads ~1 GB)"
+./scripts/vendor.sh
+
+echo
+echo "==> 4/4 Building ${VERIFY_TARGET} with Bazel"
+bazel build "${VERIFY_TARGET}"
+
+cat <<EOF
+
+Done. Updated:
+  Cargo.lock
+  third_party/crates/                       (regenerated)
+  third_party/crates/.serviceradar-vendor-inputs
+
+Still worth running before you push:
+  cargo test --workspace ${BROKEN_FORKS[*]}
+  bazel test //rust/...
+EOF
