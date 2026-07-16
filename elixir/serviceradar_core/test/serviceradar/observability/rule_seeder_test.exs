@@ -70,7 +70,14 @@ defmodule ServiceRadar.Observability.RuleSeederTest do
     assert rule.match["attribute_equals"] == %{
              "signal_type" => "prediction",
              "event_type" => ["anomaly", "anomaly_detection"],
-             "anomaly.state" => ["anomaly_open", "anomaly_drift_open", "open", "anomalous"]
+             "anomaly.state" => [
+               "anomaly_open",
+               "anomaly_update",
+               "anomaly_drift_open",
+               "anomaly_drift_update",
+               "open",
+               "anomalous"
+             ]
            }
 
     assert rule.match["recovery"]["attribute_equals"]["anomaly.state"] == [
@@ -160,7 +167,7 @@ defmodule ServiceRadar.Observability.RuleSeederTest do
     assert reconciled.match["subject_prefix"] == "signals.analytics.predictions"
     assert reconciled.match["recovery"]["subject_prefix"] == "signals.analytics.predictions"
     assert reconciled.managed
-    assert reconciled.template_version == 1
+    assert reconciled.template_version == 2
     assert is_binary(reconciled.template_fingerprint)
   end
 

@@ -43,6 +43,10 @@ struct TimeseriesStatsSpec {
     aggregations: Vec<TimeseriesAggregationSpec>,
     group_by: Vec<TimeseriesGroupSpec>,
     profile_hour_of_week: Option<String>,
+    /// Full `(dow, hod)` profile for edge baseline delivery.  The established
+    /// `profile_hour_of_week` route deliberately remains latest-bucket-only
+    /// for central disposition compatibility.
+    profile_hour_of_week_full: Option<String>,
     profile_hour_of_week_peak: Option<String>,
 }
 
@@ -935,7 +939,7 @@ fn build_interface_profile_hour_of_week_query(
     plan: &QueryPlan,
     spec: &TimeseriesStatsSpec,
 ) -> Result<TimeseriesStatsSql> {
-    let Some(field) = spec.profile_hour_of_week.as_deref() else {
+    let Some(field) = spec.profile_hour_of_week_field() else {
         return Err(ServiceError::InvalidRequest(
             "interface profile route requires profile_hour_of_week stats".into(),
         ));
@@ -992,6 +996,12 @@ fn build_interface_profile_hour_of_week_query(
         binds.push(SqlBindValue::Text(timezone.clone()));
     }
 
+    let selected_rows = if spec.is_profile_hour_of_week_full() {
+        "profile_rows"
+    } else {
+        "latest"
+    };
+
     let sql = format!(
         r#"WITH hourly AS (
   SELECT
@@ -1035,29 +1045,59 @@ latest AS (
   FROM hourly
   ORDER BY series, if_index, metric_name, bucket DESC
 ),
+profile_rows AS (
+  SELECT DISTINCT ON (series, if_index, metric_name, dow, hod)
+    series,
+    partition,
+    target_device_ip,
+    if_index,
+    metric_type,
+    metric_name,
+    bucket,
+    sample_value,
+    dow,
+    hod
+  FROM local_hourly
+  ORDER BY series, if_index, metric_name, dow, hod, bucket DESC
+),
+profile_keys AS (
+  SELECT DISTINCT series, if_index, metric_name, dow, hod
+  FROM {selected_rows}
+),
 mean_profile AS (
   SELECT
-    series,
-    if_index,
-    metric_name,
-    dow,
-    hod,
+    h.series,
+    h.if_index,
+    h.metric_name,
+    h.dow,
+    h.hod,
     COUNT(*)::bigint AS bucket_count,
     SUM(sample_value)::float8 AS bucket_sum,
     SUM(sample_value * sample_value)::float8 AS bucket_sum_sq
-  FROM local_hourly
+  FROM local_hourly h
+  JOIN profile_keys k
+    ON k.series = h.series
+   AND k.if_index = h.if_index
+   AND k.metric_name = h.metric_name
+   AND k.dow = h.dow
+   AND k.hod = h.hod
   GROUP BY 1, 2, 3, 4, 5
 ),
 robust_values AS (
   SELECT h.*
   FROM local_hourly h
-  JOIN latest l
+  JOIN profile_keys k
+    ON k.series = h.series
+   AND k.if_index = h.if_index
+   AND k.metric_name = h.metric_name
+   AND k.dow = h.dow
+   AND k.hod = h.hod
+  LEFT JOIN latest l
     ON l.series = h.series
    AND l.if_index = h.if_index
    AND l.metric_name = h.metric_name
-   AND l.dow = h.dow
-   AND l.hod = h.hod
-  WHERE h.bucket <> l.bucket
+   AND l.bucket = h.bucket
+  WHERE l.bucket IS NULL
 ),
 robust_base AS (
   SELECT
@@ -1111,7 +1151,7 @@ SELECT jsonb_build_object(
   'p05', r.p05,
   'p95', r.p95
 ) AS payload
-FROM latest l
+FROM {selected_rows} l
 JOIN mean_profile p
   ON p.series = l.series
  AND p.if_index = l.if_index
@@ -1144,10 +1184,6 @@ fn build_interface_profile_filter_clause(
 }
 
 fn build_interface_profile_order_clause(plan: &QueryPlan) -> String {
-    if plan.order.is_empty() {
-        return "\nORDER BY l.series ASC, l.if_index ASC, l.metric_name ASC".to_string();
-    }
-
     let mut parts = Vec::new();
     for clause in &plan.order {
         let column = match clause.field.as_str() {
@@ -1169,11 +1205,26 @@ fn build_interface_profile_order_clause(plan: &QueryPlan) -> String {
         parts.push(format!("{column} {dir}"));
     }
 
-    if parts.is_empty() {
-        "\nORDER BY l.series ASC, l.if_index ASC, l.metric_name ASC".to_string()
-    } else {
-        format!("\nORDER BY {}", parts.join(", "))
+    // `profile_hour_of_week_full` is paged with OFFSET.  The requested sort
+    // normally prioritizes the presentation order (for example dow/hod), but
+    // it must end in the complete profile-row identity or pages can duplicate
+    // and skip buckets when several interfaces share the same hour.
+    for (field, column) in [
+        ("series", "l.series"),
+        ("if_index", "l.if_index"),
+        ("metric_name", "l.metric_name"),
+        ("dow", "l.dow"),
+        ("hod", "l.hod"),
+    ] {
+        if !plan.order.iter().any(|clause| {
+            matches!(field, "series") && matches!(clause.field.as_str(), "series" | "series_key")
+                || clause.field == field
+        }) {
+            parts.push(format!("{column} ASC"));
+        }
     }
+
+    format!("\nORDER BY {}", parts.join(", "))
 }
 
 fn build_stats_query_with_source(
@@ -1349,7 +1400,7 @@ fn build_profile_hour_of_week_query(
     scope: MetricScope<'static>,
     spec: &TimeseriesStatsSpec,
 ) -> Result<TimeseriesStatsSql> {
-    let Some(field) = spec.profile_hour_of_week.as_deref() else {
+    let Some(field) = spec.profile_hour_of_week_field() else {
         return Err(ServiceError::InvalidRequest(
             "profile route requires profile_hour_of_week stats".into(),
         ));
@@ -1411,6 +1462,12 @@ fn build_profile_hour_of_week_query(
         binds.push(SqlBindValue::Text(timezone.clone()));
     }
 
+    let selected_rows = if spec.is_profile_hour_of_week_full() {
+        "profile_rows"
+    } else {
+        "latest"
+    };
+
     let sql = format!(
         r#"WITH hourly AS (
   SELECT
@@ -1439,25 +1496,46 @@ latest AS (
   FROM hourly
   ORDER BY series, bucket DESC
 ),
+profile_rows AS (
+  SELECT DISTINCT ON (series, dow, hod)
+    series,
+    bucket,
+    sample_value,
+    dow,
+    hod
+  FROM local_hourly
+  ORDER BY series, dow, hod, bucket DESC
+),
+profile_keys AS (
+  SELECT DISTINCT series, dow, hod
+  FROM {selected_rows}
+),
 mean_profile AS (
   SELECT
-    series,
-    dow,
-    hod,
+    h.series,
+    h.dow,
+    h.hod,
     COUNT(*)::bigint AS bucket_count,
     SUM(sample_value)::float8 AS bucket_sum,
     SUM(sample_value * sample_value)::float8 AS bucket_sum_sq
-  FROM local_hourly
+  FROM local_hourly h
+  JOIN profile_keys k
+    ON k.series = h.series
+   AND k.dow = h.dow
+   AND k.hod = h.hod
   GROUP BY 1, 2, 3
 ),
 robust_values AS (
   SELECT h.*
   FROM local_hourly h
-  JOIN latest l
+  JOIN profile_keys k
+    ON k.series = h.series
+   AND k.dow = h.dow
+   AND k.hod = h.hod
+  LEFT JOIN latest l
     ON l.series = h.series
-   AND l.dow = h.dow
-   AND l.hod = h.hod
-  WHERE h.bucket <> l.bucket
+   AND l.bucket = h.bucket
+  WHERE l.bucket IS NULL
 ),
 robust_base AS (
   SELECT
@@ -1500,7 +1578,7 @@ SELECT jsonb_build_object(
   'p05', r.p05,
   'p95', r.p95
 ) AS payload
-FROM latest l
+FROM {selected_rows} l
 JOIN mean_profile p
   ON p.series = l.series
  AND p.dow = l.dow
@@ -1750,10 +1828,6 @@ fn build_timeseries_stats_order_parts(
 }
 
 fn build_profile_order_clause(plan: &QueryPlan, bucket_count_alias: &str) -> String {
-    if plan.order.is_empty() {
-        return "\nORDER BY l.series ASC".to_string();
-    }
-
     let mut parts = Vec::new();
     for clause in &plan.order {
         let column = match clause.field.as_str() {
@@ -1779,11 +1853,19 @@ fn build_profile_order_clause(plan: &QueryPlan, bucket_count_alias: &str) -> Str
         parts.push(format!("{column} {dir}"));
     }
 
-    if parts.is_empty() {
-        "\nORDER BY l.series ASC".to_string()
-    } else {
-        format!("\nORDER BY {}", parts.join(", "))
+    // Complete the order with the unique profile-row identity.  This is a
+    // correctness property for OFFSET pagination, not merely a performance
+    // preference: without it two pages can overlap or leave gaps.
+    for (field, column) in [("series", "l.series"), ("dow", "l.dow"), ("hod", "l.hod")] {
+        if !plan.order.iter().any(|clause| {
+            matches!(field, "series") && matches!(clause.field.as_str(), "series" | "series_key")
+                || clause.field == field
+        }) {
+            parts.push(format!("{column} ASC"));
+        }
     }
+
+    format!("\nORDER BY {}", parts.join(", "))
 }
 
 fn profile_timezone(plan: &QueryPlan) -> Result<String> {
@@ -1919,6 +2001,17 @@ fn parse_stats_spec(raw: Option<&str>) -> Result<Option<TimeseriesStatsSpec>> {
             aggregations: Vec::new(),
             group_by: Vec::new(),
             profile_hour_of_week: Some(field),
+            profile_hour_of_week_full: None,
+            profile_hour_of_week_peak: None,
+        }));
+    }
+
+    if let Some(field) = parse_profile_hour_of_week_full(stats_raw)? {
+        return Ok(Some(TimeseriesStatsSpec {
+            aggregations: Vec::new(),
+            group_by: Vec::new(),
+            profile_hour_of_week: None,
+            profile_hour_of_week_full: Some(field),
             profile_hour_of_week_peak: None,
         }));
     }
@@ -1928,6 +2021,7 @@ fn parse_stats_spec(raw: Option<&str>) -> Result<Option<TimeseriesStatsSpec>> {
             aggregations: Vec::new(),
             group_by: Vec::new(),
             profile_hour_of_week: None,
+            profile_hour_of_week_full: None,
             profile_hour_of_week_peak: Some(field),
         }));
     }
@@ -1972,6 +2066,7 @@ fn parse_stats_spec(raw: Option<&str>) -> Result<Option<TimeseriesStatsSpec>> {
         aggregations,
         group_by,
         profile_hour_of_week: None,
+        profile_hour_of_week_full: None,
         profile_hour_of_week_peak: None,
     }))
 }
@@ -1989,6 +2084,25 @@ fn parse_profile_hour_of_week(raw: &str) -> Result<Option<String>> {
     if field != "value" {
         return Err(ServiceError::InvalidRequest(
             "profile_hour_of_week only supports value".into(),
+        ));
+    }
+
+    Ok(Some(field.to_string()))
+}
+
+fn parse_profile_hour_of_week_full(raw: &str) -> Result<Option<String>> {
+    let normalized = raw.trim().to_lowercase();
+    let Some(inner) = normalized
+        .strip_prefix("profile_hour_of_week_full(")
+        .and_then(|value| value.strip_suffix(')'))
+    else {
+        return Ok(None);
+    };
+
+    let field = inner.trim();
+    if field != "value" {
+        return Err(ServiceError::InvalidRequest(
+            "profile_hour_of_week_full only supports value".into(),
         ));
     }
 
@@ -2153,7 +2267,17 @@ fn should_route_stats_to_cagg(plan: &QueryPlan, spec: &TimeseriesStatsSpec) -> b
 
 impl TimeseriesStatsSpec {
     fn is_profile_hour_of_week(&self) -> bool {
-        self.profile_hour_of_week.is_some()
+        self.profile_hour_of_week.is_some() || self.profile_hour_of_week_full.is_some()
+    }
+
+    fn is_profile_hour_of_week_full(&self) -> bool {
+        self.profile_hour_of_week_full.is_some()
+    }
+
+    fn profile_hour_of_week_field(&self) -> Option<&str> {
+        self.profile_hour_of_week
+            .as_deref()
+            .or(self.profile_hour_of_week_full.as_deref())
     }
 
     fn is_profile_hour_of_week_peak(&self) -> bool {
@@ -2474,6 +2598,8 @@ mod tests {
             sql.sql.contains("FROM timeseries_metrics_hourly")
                 && sql.sql.contains("EXTRACT(DOW FROM timezone")
                 && sql.sql.contains("robust_profile")
+                && sql.sql.contains("profile_keys AS")
+                && sql.sql.contains("JOIN profile_keys k")
                 && sql.sql.contains("ORDER BY l.dow ASC, l.hod ASC"),
             "unexpected profile SQL: {}",
             sql.sql
@@ -2547,15 +2673,99 @@ mod tests {
                 && sql
                     .sql
                     .contains("SELECT DISTINCT ON (series, if_index, metric_name)")
+                && sql.sql.contains("profile_keys AS")
+                && sql.sql.contains("JOIN profile_keys k")
                 && sql.sql.contains("'if_index', l.if_index")
                 && sql.sql.contains("'target_device_ip', l.target_device_ip")
-                && sql
-                    .sql
-                    .contains("ORDER BY l.series ASC, l.if_index ASC, l.dow ASC, l.hod ASC"),
+                && sql.sql.contains(
+                    "ORDER BY l.series ASC, l.if_index ASC, l.dow ASC, l.hod ASC, l.metric_name ASC"
+                ),
             "unexpected interface profile SQL: {}",
             sql.sql
         );
         assert_eq!(sql.binds.len(), 7);
+    }
+
+    #[test]
+    fn full_profile_hour_of_week_returns_each_populated_bucket_for_edge_delivery() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::days(30);
+        let plan = QueryPlan {
+            entity: Entity::TimeseriesMetrics,
+            filters: vec![Filter {
+                field: "metric_type".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("sysmon.cpu".to_string()),
+            }],
+            order: vec![
+                OrderClause {
+                    field: "dow".into(),
+                    direction: OrderDirection::Asc,
+                },
+                OrderClause {
+                    field: "hod".into(),
+                    direction: OrderDirection::Asc,
+                },
+            ],
+            limit: 50_000,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "profile_hour_of_week_full(value)",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
+        let sql = build_profile_hour_of_week_query(&plan, MetricScope::Any, &spec)
+            .expect("full profile SQL should build");
+
+        assert!(spec.is_profile_hour_of_week_full());
+        assert!(sql.sql.contains("profile_rows AS"));
+        assert!(sql.sql.contains("FROM profile_rows l"));
+        assert!(sql.sql.contains("WHERE l.bucket IS NULL"));
+        assert!(!sql.sql.contains("FROM latest l\nJOIN mean_profile"));
+    }
+
+    #[test]
+    fn full_interface_profile_hour_of_week_returns_each_populated_bucket() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::days(30);
+        let plan = QueryPlan {
+            entity: Entity::TimeseriesMetricInterfaceHourly,
+            filters: vec![Filter {
+                field: "metric_name".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("ifInOctets".to_string()),
+            }],
+            order: vec![],
+            limit: 50_000,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "profile_hour_of_week_full(value)",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
+        let sql = build_interface_profile_hour_of_week_query(&plan, &spec)
+            .expect("full interface profile SQL should build");
+
+        assert!(spec.is_profile_hour_of_week_full());
+        assert!(sql.sql.contains("profile_rows AS"));
+        assert!(sql.sql.contains("FROM profile_rows l"));
+        assert!(sql.sql.contains("WHERE l.bucket IS NULL"));
     }
 
     #[test]

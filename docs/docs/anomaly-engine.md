@@ -79,10 +79,13 @@ fallback for host baselines.
 
 ## Edge Spike Detection
 
-The spike path uses a rolling robust median/MAD baseline over clean samples.
-Breaching samples are withheld from the baseline so a surge cannot train itself
-away. A slot breaches when the robust z evidence exceeds the configured
-threshold and any class-specific gate passes.
+The spike path uses a rolling robust median/MAD baseline. A breach is admitted
+at the decision boundary (winsorized to `center +/- n_sigma * effective_scale`)
+instead of being withheld, so every sample ages the window while an extreme surge
+cannot train itself in unboundedly. A continuous, non-saturated new regime is
+adopted after `spike_adopt_after_samples`; it emits one `adopted` clear instead
+of alerting indefinitely. A slot breaches when robust-z evidence exceeds the
+configured threshold and any class-specific gate passes.
 
 Important guards:
 
@@ -119,11 +122,13 @@ Core builds hour-of-week baselines from Timescale continuous aggregates and
 delivers them through anomaly add-on params.
 
 - Host baselines are safe to write on the AddonProfile.
-- Interface baselines are scoped to AddonAssignments because they are tied to
-  the agent or partition that polls the target.
+- Interface baselines are scoped to AddonAssignments for every agent that the
+  SNMP polling resolver confirms polls the target. A collection partition is
+  never treated as an agent identity.
 - Interface baselines are keyed by device, metric name, and if_index.
-- Delivery is governed by minimum history, top-K interfaces per device,
-  compact arrays, and a hard per-agent cap.
+- Delivery is governed by at least four samples per delivered bucket, 60 percent
+  hour-of-week coverage, top-K interfaces per device, compact arrays, and a hard
+  per-agent cap.
 
 If payload governance truncates a baseline, that series degrades to no drift.
 It never falls back to raw unseasonalized CUSUM.
@@ -133,7 +138,7 @@ It never falls back to raw unseasonalized CUSUM.
 An OCSF event row represents a lifecycle transition, not a detector evaluation.
 
 - `open`: create the episode.
-- `update`: severity-band escalation only.
+- `update`: severity-band escalation or a flap-window re-open (`flapping`).
 - `clear`: close the episode.
 
 Every emitted row carries deterministic identity:
@@ -144,8 +149,11 @@ Every emitted row carries deterministic identity:
 - `producer_version`: anomaly add-on version.
 
 Still-open heartbeats update the episode row (`last_seen_at`, peak fields,
-occurrence count) and do not create new OCSF rows. Stale close sweeps prevent
-producer crashes from leaving permanent open episodes.
+occurrence count) and do not create new OCSF rows. A re-open inside the flap
+window reuses the prior episode UID and an eventual clear carries `flap_merged`.
+Core also folds independent producers for one canonical finding: it remains open
+while any fresh producer reports open and clears only when all are clean or stale.
+Stale close sweeps prevent producer crashes from leaving permanent open episodes.
 
 Episode folding in the event writer is enabled by default.
 `EVENT_WRITER_ANOMALY_EPISODES` is a kill switch: set it to `false`, `0`, `no`,
@@ -297,9 +305,9 @@ failure:
   `SERVICERADAR_SEASONAL_BASELINE_TRIPWIRE_ENABLED` (default `true`),
   `SERVICERADAR_SEASONAL_BASELINE_TRIPWIRE_CRON` (default `37 * * * *`).
 
-The add-on side `drift_inactive_no_baseline` counter is surfaced on the health
-page so bounded silence (no baseline delivered yet) is visibly different from
-broken delivery.
+The add-on side `drift_inactive_no_baseline` and `clamped_samples_total` counters
+are surfaced on the health page. Seasonal evidence distinguishes no baselines
+configured, no bucket for this hour, and a bucket below the trust threshold.
 
 ## Verification Gates
 
@@ -308,6 +316,8 @@ The proof harness and demo soak gates are part of the contract.
 Harness scenarios include:
 
 - clean diurnal series without delivered baseline: no drift rows.
+- diurnal interface series without a delivered baseline: rolling spikes adopt a
+  stable regime and stay episode-bounded.
 - quiet near-zero interface: no astronomical scores.
 - seasonal interface with delivered baseline: one drift open for a real shift.
 - benign regime change: one open and one clear by adoption.

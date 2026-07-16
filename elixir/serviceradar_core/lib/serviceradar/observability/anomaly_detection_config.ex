@@ -26,7 +26,9 @@ defmodule ServiceRadar.Observability.AnomalyDetectionConfig do
   @default_metric_class_overrides %{
     "cpu" => %{"drift_mode" => "deseasonalized_only"},
     "memory" => %{"drift_mode" => "deseasonalized_only"},
-    "interface" => %{"drift_mode" => "deseasonalized_only"},
+    "interface" => %{
+      "drift_mode" => "deseasonalized_only"
+    },
     "disk" => %{"drift_mode" => "off"},
     "icmp" => %{"drift_mode" => "off"},
     "other" => %{"drift_mode" => "off"},

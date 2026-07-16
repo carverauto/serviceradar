@@ -13,7 +13,10 @@ use serviceradar_anomaly_core::{ReasonVerdict, SignalVerdict};
 use sha2::{Digest as _, Sha256};
 
 use crate::config::{ADDON_ID, ADDON_VERSION};
-use crate::engine::{AnomalyEpisode, AnomalyTransition, CusumDrift};
+use crate::engine::{
+    AnomalyEpisode, AnomalyTransition, CusumDrift, SeverityPolicy, SpikeClearReason,
+    SpikeUpdateReason,
+};
 use crate::identity::{
     anomaly_device_uid, attested_tags, entry_value, metric_class, target_device_ip_for,
 };
@@ -29,6 +32,11 @@ pub(crate) struct VerdictRecordOptions {
     pub(crate) transition: AnomalyTransition,
     pub(crate) episode: Option<AnomalyEpisode>,
     pub(crate) critical_min_duration_secs: u64,
+    pub(crate) abs_effect_floor: f64,
+    pub(crate) severity_policy: SeverityPolicy,
+    pub(crate) clear_reason: Option<SpikeClearReason>,
+    pub(crate) update_reason: Option<SpikeUpdateReason>,
+    pub(crate) reopen_count: u64,
 }
 
 /// Build an OCSF Detection Finding (class_uid 2004) shaped to match the central
@@ -57,6 +65,11 @@ pub(crate) fn verdict_record(
             transition,
             episode,
             critical_min_duration_secs: crate::engine::DEFAULT_CRITICAL_MIN_DURATION_SECS,
+            abs_effect_floor: 0.0,
+            severity_policy: SeverityPolicy::default(),
+            clear_reason: None,
+            update_reason: None,
+            reopen_count: 0,
         },
     )
 }
@@ -86,11 +99,20 @@ pub(crate) fn verdict_record_with_policy(
         options.episode,
         confirmed,
         options.critical_min_duration_secs,
+        options.abs_effect_floor,
+        options.severity_policy,
     );
     let lifecycle_state = anomaly_lifecycle_state(options.transition);
     let transition_name = anomaly_transition_name(options.transition);
     let status = anomaly_lifecycle_status(options.transition);
-    let message = anomaly_lifecycle_message(options.transition, &verdict.reason);
+    let clear_reason = options.clear_reason.map(SpikeClearReason::as_str);
+    let update_reason = options.update_reason.map(SpikeUpdateReason::as_str);
+    let lifecycle_reason = match options.transition {
+        AnomalyTransition::Clear => clear_reason.unwrap_or(&verdict.reason),
+        AnomalyTransition::Update => update_reason.unwrap_or(&verdict.reason),
+        AnomalyTransition::Open | AnomalyTransition::None => &verdict.reason,
+    };
+    let message = anomaly_lifecycle_message(options.transition, lifecycle_reason);
 
     let metric_class = metric_class(metric);
     let device_uid = anomaly_device_uid(resource, metric_class, metric, point);
@@ -168,12 +190,15 @@ pub(crate) fn verdict_record_with_policy(
             "target_device_ip": target_device_ip,
             "detector_state": &verdict.state,
             "reason": &verdict.reason,
+            "clear_reason": clear_reason,
+            "update_reason": update_reason,
             "score": score,
             "producer_id": ADDON_ID,
             "producer_version": ADDON_VERSION,
             "finding_uid": &finding_uid,
             "episode_uid": &episode_uid,
             "transition": transition_name,
+            "reopen_count": options.reopen_count,
             "baseline_count": verdict.baseline_count,
             "consecutive_anomalous": verdict.next_consecutive_anomalous,
             "value": verdict.sample_value,
@@ -216,6 +241,7 @@ pub(crate) fn cusum_drift_record(
         verdict,
         drift,
         crate::engine::DEFAULT_DRIFT_ESCALATE_AFTER_SECS,
+        SeverityPolicy::default(),
     )
 }
 
@@ -227,13 +253,19 @@ pub(crate) fn cusum_drift_record_with_policy(
     verdict: &ReasonVerdict,
     drift: CusumDrift,
     drift_escalate_after_secs: u64,
+    severity_policy: SeverityPolicy,
 ) -> TelemetryRecord {
     let ts_nano = verdict
         .observed_at_unix_nano
         .unwrap_or(point.observed_at_unix_nano);
     let ts_ms = (ts_nano / 1_000_000) as i64;
     let magnitude = bounded_score(drift.magnitude());
-    let severity_id = drift_severity_id(drift, magnitude, ts_nano, drift_escalate_after_secs);
+    let severity_id = severity_policy.capped(drift_severity_id(
+        drift,
+        magnitude,
+        ts_nano,
+        drift_escalate_after_secs,
+    ));
     let direction = drift.direction.as_str();
     let reason = format!("sustained {direction} drift");
     let transition_name = anomaly_transition_name(drift.transition);
@@ -406,33 +438,36 @@ fn spike_severity_id(
     episode: Option<AnomalyEpisode>,
     confirmed: bool,
     critical_min_duration_secs: u64,
+    abs_effect_floor: f64,
+    severity_policy: SeverityPolicy,
 ) -> i64 {
     let score = bounded_score(verdict.score);
-    let base = severity_id_from_score(score, confirmed);
+    let base = severity_id_from_score_with_policy(score, confirmed, severity_policy);
 
     if !confirmed {
-        return base;
+        return severity_policy.capped(base);
     }
 
-    if !practical_significance_passes(metric, verdict) {
-        return 2;
+    if !practical_significance_passes(metric, verdict, abs_effect_floor) {
+        return severity_policy.capped(2);
     }
 
     if base < 4 {
-        return base;
+        return severity_policy.capped(base);
     }
 
     if is_per_core_cpu(metric, point) {
-        return 4;
+        return severity_policy.capped(4);
     }
 
-    if critical_impact_passes(metric, verdict, episode)
+    let severity_id = if critical_impact_passes(metric, verdict, episode)
         && episode_duration_at_least(episode, critical_min_duration_secs)
     {
         5
     } else {
         4
-    }
+    };
+    severity_policy.capped(severity_id)
 }
 
 fn drift_severity_id(
@@ -459,20 +494,34 @@ fn drift_severity_id(
 /// This base band table deliberately stops at High. Critical is not a score
 /// cutpoint: callers must additionally prove class impact and duration.
 pub(crate) fn severity_id_from_score(score: f64, confirmed: bool) -> i64 {
+    severity_id_from_score_with_policy(score, confirmed, SeverityPolicy::default())
+}
+
+fn severity_id_from_score_with_policy(
+    score: f64,
+    confirmed: bool,
+    severity_policy: SeverityPolicy,
+) -> i64 {
     if !confirmed {
         return 2;
     }
 
-    if score >= 8.0 {
+    let (medium_at, high_at) = severity_policy.bands();
+
+    if score >= high_at {
         4
-    } else if score >= 4.0 {
+    } else if score >= medium_at {
         3
     } else {
         2
     }
 }
 
-fn practical_significance_passes(metric: &Metric, verdict: &ReasonVerdict) -> bool {
+fn practical_significance_passes(
+    metric: &Metric,
+    verdict: &ReasonVerdict,
+    abs_effect_floor: f64,
+) -> bool {
     if is_utilization_percent_gauge(metric) {
         return signal_center(verdict)
             .is_none_or(|center| (verdict.sample_value - center).abs() >= 5.0);
@@ -481,11 +530,8 @@ fn practical_significance_passes(metric: &Metric, verdict: &ReasonVerdict) -> bo
     if is_cumulative_counter(metric) {
         return signal_center(verdict).is_none_or(|center| {
             let delta = (verdict.sample_value - center).abs();
-            if center.abs() < f64::EPSILON {
-                delta > f64::EPSILON
-            } else {
-                delta / center.abs() >= 0.30
-            }
+            let relative_floor = 0.30 * center.abs();
+            delta >= relative_floor.max(abs_effect_floor.max(0.0))
         });
     }
 

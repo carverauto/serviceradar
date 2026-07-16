@@ -34,12 +34,52 @@ pub enum AnomalyTransition {
     Clear,
 }
 
+/// Why a rolling-spike episode cleared. Kept distinct from the drift enum so
+/// downstream consumers can distinguish a rolling-baseline adoption from a
+/// CUSUM level adoption without inferring it from free-form text.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SpikeClearReason {
+    Recovered,
+    Adopted,
+    FlapMerged,
+}
+
+impl SpikeClearReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SpikeClearReason::Recovered => "recovered",
+            SpikeClearReason::Adopted => "level adopted as new baseline",
+            SpikeClearReason::FlapMerged => "flap merged",
+        }
+    }
+}
+
+/// Why an existing rolling-spike episode emitted an update rather than a new
+/// open.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SpikeUpdateReason {
+    Flapping,
+    Heartbeat,
+}
+
+impl SpikeUpdateReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SpikeUpdateReason::Flapping => "flapping",
+            SpikeUpdateReason::Heartbeat => "still open",
+        }
+    }
+}
+
 /// A scored verdict plus the edge lifecycle transition it caused.
 #[derive(Debug, PartialEq)]
 pub struct TransitionVerdict {
     pub verdict: ReasonVerdict,
     pub transition: AnomalyTransition,
     pub episode: Option<AnomalyEpisode>,
+    pub clear_reason: Option<SpikeClearReason>,
+    pub update_reason: Option<SpikeUpdateReason>,
+    pub reopen_count: u64,
     /// A sustained-drift alarm from the CUSUM detector for this sample, when the
     /// drift detector is enabled and fired AND the point z-score did NOT itself
     /// breach this sample (so a drift finding captures exactly what the z-score
@@ -152,6 +192,10 @@ pub struct SeriesProfile {
     pub min_std_floor: f64,
     /// Relative (coefficient-of-variation) dispersion floor (fix #2).
     pub min_cv: f64,
+    /// Absolute practical-significance floor in the metric's own units. It is
+    /// used for counter-rate severity calibration; zero preserves the legacy
+    /// relative-only behavior for other classes.
+    pub abs_effect_floor: f64,
     /// Absolute/directional saturation gate (fix #3); `None` = purely z-based
     /// (counters / interface rates — a real flood must still fire on z alone).
     pub saturation_gate: Option<SaturationGate>,
@@ -165,6 +209,45 @@ pub struct SeriesProfile {
     /// Drift-only relative dispersion floor. This lets counter-rate drift use a
     /// safe denominator without changing rolling z-score behavior.
     pub drift_min_cv: f64,
+    /// Class-local rolling-spike adoption horizon. `None` uses the engine-wide
+    /// default; counters set a shorter value because their day/night regimes
+    /// change far faster than a sustained capacity incident.
+    pub spike_adopt_after_samples: Option<u64>,
+}
+
+/// Optional class-level score bands and severity ceiling. Score bands never
+/// create Critical directly; the existing impact/duration gates remain the only
+/// path to Critical. This keeps operator overrides from bypassing safety gates.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SeverityPolicy {
+    pub cap: Option<i64>,
+    pub medium_at: Option<f64>,
+    pub high_at: Option<f64>,
+}
+
+impl SeverityPolicy {
+    pub fn capped(self, severity_id: i64) -> i64 {
+        self.cap.map_or(severity_id, |cap| severity_id.min(cap))
+    }
+
+    pub fn bands(self) -> (f64, f64) {
+        let medium_at = self
+            .medium_at
+            .filter(|value| value.is_finite() && *value > 0.0);
+        let high_at = self
+            .high_at
+            .filter(|value| value.is_finite() && *value > 0.0);
+
+        match (medium_at, high_at) {
+            (Some(medium), Some(high)) if high > medium => (medium, high),
+            // A medium override may be above the default high threshold. Keep
+            // bands ordered rather than accidentally classifying sub-medium
+            // scores as High.
+            (Some(medium), _) => (medium, (medium + 4.0).max(8.0)),
+            (_, Some(high)) if high > 4.0 => (4.0, high),
+            _ => (4.0, 8.0),
+        }
+    }
 }
 
 /// Resolved operator override for one metric class. This is the load-bearing
@@ -179,4 +262,9 @@ pub struct MetricClassOverride {
     /// profile floor, preserving safe gauge defaults.
     pub min_std_floor: Option<f64>,
     pub min_cv: Option<f64>,
+    /// Optional relative dispersion floor applied only to CUSUM drift scoring.
+    pub drift_min_cv: Option<f64>,
+    pub abs_effect_floor: Option<f64>,
+    pub spike_adopt_after_samples: Option<u64>,
+    pub severity_policy: SeverityPolicy,
 }

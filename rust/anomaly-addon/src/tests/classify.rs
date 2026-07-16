@@ -71,13 +71,36 @@ fn non_gauge_metric_gets_default_profile() {
 }
 
 #[test]
-fn counter_profile_is_deseasonalized_only_with_drift_floor() {
-    let profile = counter_series_profile();
+fn counter_profile_is_deseasonalized_only_with_scoring_floors() {
+    let profile = counter_series_profile(&metric_named("ifOutUcastPkts", "snmp"));
     assert!(profile.saturation_gate.is_none());
-    assert_eq!(profile.min_std_floor, 0.0);
-    assert_eq!(profile.min_cv, 0.0);
+    assert!(profile.min_std_floor > 0.0);
+    assert!(profile.min_cv > 0.0);
+    assert!(profile.abs_effect_floor > 0.0);
+    assert_eq!(profile.spike_adopt_after_samples, Some(300));
     assert_eq!(profile.drift_mode, DriftMode::DeseasonalizedOnly);
     assert_eq!(profile.drift_min_cv, 0.05);
+}
+
+#[test]
+fn counter_profile_uses_a_larger_byte_rate_floor() {
+    let packets = counter_series_profile(&metric_named("ifInUcastPkts", "snmp"));
+    let bytes = counter_series_profile(&metric_named("ifInOctets", "snmp"));
+
+    assert!(bytes.min_std_floor > packets.min_std_floor);
+    assert!(bytes.abs_effect_floor > packets.abs_effect_floor);
+}
+
+#[test]
+fn counter_profile_keeps_error_and_discard_rates_sensitive() {
+    for name in ["ifInErrors", "ifOutDiscards", "tcpRetransSegs"] {
+        let profile = counter_series_profile(&metric_named(name, "snmp"));
+        assert_eq!(profile.min_std_floor, 0.0, "{name}");
+        assert_eq!(profile.min_cv, 0.0, "{name}");
+        assert_eq!(profile.abs_effect_floor, 0.0, "{name}");
+        assert_eq!(profile.drift_mode, DriftMode::DeseasonalizedOnly, "{name}");
+        assert!(profile.drift_min_cv > 0.0, "{name}");
+    }
 }
 
 #[test]

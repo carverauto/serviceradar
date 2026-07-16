@@ -528,6 +528,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp episode_to_event_row(episode) do
     payload = episode |> episode_value(:last_payload) |> normalize_payload()
     metadata = payload |> map_value("metadata") |> normalize_payload()
+    anomaly = payload |> map_value("anomaly") |> normalize_payload()
     status = episode_value(episode, :status)
     opened_at = episode_value(episode, :opened_at)
     last_seen_at = episode_value(episode, :last_seen_at)
@@ -538,6 +539,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     metric_class = episode_value(episode, :metric_class)
     detector = episode_value(episode, :detector)
     clear_reason = episode_value(episode, :clear_reason)
+
+    anomaly =
+      Map.merge(
+        anomaly,
+        reject_nil_values(%{
+          "state" => episode_state(status),
+          "status" => status,
+          "score" => episode_value(episode, :peak_score),
+          "reason" => clear_reason || reason(payload),
+          "episode_started_at_unix_nano" => unix_nano(opened_at),
+          "episode_ended_at_unix_nano" => unix_nano(cleared_at),
+          "observed_at_unix_nano" => unix_nano(last_seen_at)
+        })
+      )
 
     base = %{
       "id" => episode_value(episode, :episode_uid),
@@ -569,6 +584,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       "producer_version" => episode_value(episode, :producer_version),
       "last_transition" => episode_value(episode, :last_transition),
       "reason" => clear_reason || reason(payload),
+      "anomaly" => anomaly,
       "anomaly_disposition" => episode_anomaly_disposition(payload),
       "metadata" =>
         metadata
@@ -640,6 +656,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp unix_nano(_), do: nil
 
   defp project_anomaly_row(row) do
+    row = maybe_project_episode_row(row)
+
     projected =
       reject_nil_values(%{
         "id" => map_value(row, "id"),
@@ -693,6 +711,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
 
     if operator_visible_anomaly_row?(projected), do: projected
   end
+
+  # The built-in Ash source already converts an `AnomalyEpisode` into the
+  # display contract. Custom episode sources are allowed to return the raw
+  # record, though, and must receive that same projection; otherwise a stale
+  # last_payload.anomaly lifecycle can override the authoritative DB status.
+  defp maybe_project_episode_row(%{} = row) do
+    if is_binary(map_value(row, "episode_uid")) and is_map(map_value(row, "last_payload")) do
+      episode_to_event_row(row)
+    else
+      row
+    end
+  end
+
+  defp maybe_project_episode_row(row), do: row
 
   defp capacity_field(row, field) do
     first_present(row, [

@@ -530,6 +530,30 @@ fn translate_timeseries_metric_interface_hourly_profile_uses_rate_cagg() {
 }
 
 #[test]
+fn full_profiles_continue_past_the_generic_cursor_cap_in_translation() {
+    let mut config = test_config();
+    config.max_cursor_offset = 100;
+    let cursor = encode_cursor(150, &config.cursor_secret).expect("cursor");
+    let request = QueryRequest {
+        query: "in:timeseries_metric_interface_hourly metric_name:\"ifInOctets\" time:last_180d stats:profile_hour_of_week_full(value) timezone:\"Etc/UTC\" sort:series:asc,if_index:asc,dow:asc,hod:asc limit:50".to_string(),
+        limit: None,
+        cursor: Some(cursor),
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("full-profile page above cap");
+    let next = response
+        .pagination
+        .next_cursor
+        .expect("next cursor remains available");
+    assert_eq!(
+        crate::pagination::decode_cursor(&next, &config.cursor_secret, i64::MAX).unwrap(),
+        200
+    );
+}
+
+#[test]
 fn translate_downsample_respects_value_field() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {

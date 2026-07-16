@@ -10,7 +10,7 @@
 //! causal inference (no SCM, intervention, or counterfactual).
 
 use crate::signal::{SignalGate, evaluate_rolling_signal, evaluate_signal, reason_for_state};
-use crate::stats::{RobustStats, WelfordAcc, clean_threshold};
+use crate::stats::{RobustStats, WelfordAcc, clean_threshold, effective_scoring_scale};
 use crate::types::{ReasonContext, ReasonSample, ReasonVerdict, SaturationGate, SignalVerdict};
 use crate::window::compact_rolling_state;
 use crate::{DEFAULT_CONFIRM_SLOTS, DEFAULT_MIN_SAMPLES, DEFAULT_N_SIGMA, DEFAULT_WINDOW_SIZE};
@@ -62,6 +62,10 @@ struct DetectorState {
     rolling_stats: RobustStats,
     window_size: usize,
     consecutive_anomalous: usize,
+    /// The current sample bounded to the pre-sample rolling decision interval.
+    /// A breach admits this value rather than dropping the sample completely, so
+    /// the fixed-size window continues to age even during a sustained regime.
+    breach_admission_value: f64,
     sample: ReasonSample,
 }
 
@@ -89,7 +93,7 @@ pub fn reason_impl(context: ReasonContext, sample: ReasonSample) -> Result<Reaso
     }
 
     let thresholds = DetectorThresholds::from_context(&context);
-    let state = DetectorState::from_context(context, sample, thresholds.window_size);
+    let state = DetectorState::from_context(context, sample, &thresholds);
 
     CausalFlow::process(state)
         .context(thresholds)
@@ -102,13 +106,14 @@ pub fn reason_impl(context: ReasonContext, sample: ReasonSample) -> Result<Reaso
             |breach| {
                 breach.update_state(|mut state, _value| {
                     state.consecutive_anomalous = state.consecutive_anomalous.saturating_add(1);
+                    state.admit_sample(state.breach_admission_value);
                     state
                 })
             },
             |clean| {
                 clean.update_state(|mut state, _value| {
                     state.consecutive_anomalous = 0;
-                    state.admit_clean_sample();
+                    state.admit_sample(state.sample.value);
                     state
                 })
             },
@@ -177,22 +182,38 @@ impl DetectorThresholds {
 }
 
 impl DetectorState {
-    fn from_context(context: ReasonContext, sample: ReasonSample, window_size: usize) -> Self {
+    fn from_context(
+        context: ReasonContext,
+        sample: ReasonSample,
+        thresholds: &DetectorThresholds,
+    ) -> Self {
         let (window_tail, rolling_acc, rolling_stats) =
-            compact_rolling_state(&context, window_size);
+            compact_rolling_state(&context, thresholds.window_size);
+        let scale =
+            effective_scoring_scale(rolling_stats, thresholds.min_std_floor, thresholds.min_cv);
+        let radius = thresholds.n_sigma * scale;
+        let breach_admission_value =
+            if rolling_stats.center.is_finite() && radius.is_finite() && radius > 0.0 {
+                sample
+                    .value
+                    .clamp(rolling_stats.center - radius, rolling_stats.center + radius)
+            } else {
+                sample.value
+            };
 
         Self {
             window_tail,
             rolling_acc,
             rolling_stats,
-            window_size,
+            window_size: thresholds.window_size,
             consecutive_anomalous: context.consecutive_anomalous.unwrap_or_default(),
+            breach_admission_value,
             sample,
         }
     }
 
-    fn admit_clean_sample(&mut self) {
-        if !self.sample.value.is_finite() {
+    fn admit_sample(&mut self, value: f64) {
+        if !value.is_finite() {
             return;
         }
 
@@ -203,8 +224,8 @@ impl DetectorState {
             self.window_tail.remove(0);
         }
 
-        self.window_tail.push(self.sample.value);
-        self.rolling_acc.add(self.sample.value);
+        self.window_tail.push(value);
+        self.rolling_acc.add(value);
     }
 }
 
@@ -301,15 +322,10 @@ fn finalize_detector_verdict(
 
     let anomalous = evaluation.breached && state.consecutive_anomalous >= thresholds.confirm_slots;
 
-    // Withhold-from-baseline: a breaching sample is *never* folded into the
-    // rolling baseline (it is only admitted on the clean arm of `branch_with`).
-    // This is intentional and copied from the deep_causality
-    // `corrective_ddos_detector` example — keeping the baseline clean is exactly
-    // what lets a real sustained surge keep reading anomalous for its full
-    // duration instead of being absorbed back into the mean. The benign-value
-    // false positives this used to cause are killed by the std/CV floor (fix #2)
-    // and the gauge saturation gate (fix #3), not by re-baselining.
-    let include_in_baseline = !evaluation.breached;
+    // A breach is admitted only at the pre-sample decision boundary. This keeps
+    // a real burst from self-masking while also advancing the bounded window so
+    // a stable new regime cannot freeze a night-level baseline forever.
+    let include_in_baseline = true;
     let verdict_state = if !evaluation.ready {
         "insufficient_baseline"
     } else if anomalous {
@@ -424,5 +440,23 @@ mod tests {
         assert!(!clean.breached);
         assert_eq!(clean.next_consecutive_anomalous, 0);
         assert!(clean.include_in_baseline);
+    }
+
+    #[test]
+    fn breaching_sample_ages_the_window_at_the_decision_boundary() {
+        let breached = reason_impl(context(1, 0), sample(1_000.0)).expect("breaching verdict");
+
+        assert!(breached.breached);
+        assert!(breached.include_in_baseline);
+        assert_eq!(breached.next_window_tail.len(), 21);
+        assert!(
+            breached
+                .next_window_tail
+                .last()
+                .copied()
+                .unwrap_or_default()
+                < 1_000.0,
+            "the raw breach must not enter the baseline unbounded"
+        );
     }
 }

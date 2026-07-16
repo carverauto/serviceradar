@@ -386,6 +386,11 @@ fn transition_state_round_trips_through_checkpoint() {
     assert_eq!(opened.transition, AnomalyTransition::Open);
 
     let checkpoint = engine.export_checkpoint();
+    let snapshot = checkpoint.series.first().expect("series checkpoint");
+    assert!(
+        !snapshot.raw_tail.is_empty(),
+        "raw adoption ring is checkpointed"
+    );
     let mut restored = DetectorEngine::new(cfg);
     assert_eq!(restored.restore_checkpoint(checkpoint, 23, u64::MAX), 1);
 
@@ -404,6 +409,356 @@ fn transition_state_round_trips_through_checkpoint() {
         .expect("clear verdict");
     assert_eq!(cleared.verdict.state, "clean");
     assert_eq!(cleared.transition, AnomalyTransition::Clear);
+}
+
+#[test]
+fn rolling_spike_adopts_a_stable_regime_and_rebuilds_the_baseline() {
+    let cfg = EngineConfig {
+        window_size: 10,
+        min_samples: 5,
+        n_sigma: 3.0,
+        confirm_slots: 1,
+        max_series: 10,
+        spike_adopt_after_samples: 6,
+        ..EngineConfig::default()
+    };
+    let profile = SeriesProfile {
+        spike_adopt_after_samples: Some(6),
+        ..SeriesProfile::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+
+    for sample in 0..10 {
+        engine
+            .evaluate_transition("regime", 100.0, sample, profile)
+            .expect("warm-up verdict");
+    }
+
+    let opened = engine
+        .evaluate_transition("regime", 1_000.0, 10, profile)
+        .expect("open verdict");
+    assert_eq!(opened.transition, AnomalyTransition::Open);
+
+    let mut adopted = None;
+    for sample in 11..20 {
+        let verdict = engine
+            .evaluate_transition("regime", 1_000.0, sample, profile)
+            .expect("sustained verdict");
+        if verdict.transition == AnomalyTransition::Clear {
+            adopted = Some(verdict);
+            break;
+        }
+    }
+
+    let adopted = adopted.expect("stable regime must be adopted");
+    assert_eq!(adopted.clear_reason, Some(SpikeClearReason::Adopted));
+    assert_eq!(adopted.verdict.next_consecutive_anomalous, 0);
+    assert!(
+        engine
+            .series
+            .get("regime")
+            .expect("series state")
+            .window_tail
+            .iter()
+            .filter(|value| **value >= 1_000.0)
+            .count()
+            >= 6,
+        "adoption replaces the winsorized tail with recent raw observations"
+    );
+
+    let new_breach = engine
+        .evaluate_transition("regime", 3_000.0, 21, profile)
+        .expect("post-adoption verdict");
+    assert_eq!(
+        new_breach.transition,
+        AnomalyTransition::Open,
+        "a new breach after adoption must not reuse the prior flap episode"
+    );
+}
+
+#[test]
+fn rolling_spike_does_not_adopt_across_alternating_rebreaches() {
+    let cfg = EngineConfig {
+        window_size: 10,
+        min_samples: 5,
+        n_sigma: 3.0,
+        confirm_slots: 2,
+        max_series: 10,
+        spike_adopt_after_samples: 4,
+        ..EngineConfig::default()
+    };
+    let profile = SeriesProfile {
+        spike_adopt_after_samples: Some(4),
+        ..SeriesProfile::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+
+    for sample in 0..10 {
+        engine
+            .evaluate_transition("oscillating", 100.0, sample, profile)
+            .expect("warm-up verdict");
+    }
+
+    assert_eq!(
+        engine
+            .evaluate_transition("oscillating", 10_000.0, 10, profile)
+            .expect("pending verdict")
+            .transition,
+        AnomalyTransition::None
+    );
+    assert_eq!(
+        engine
+            .evaluate_transition("oscillating", 10_000.0, 11, profile)
+            .expect("open verdict")
+            .transition,
+        AnomalyTransition::Open
+    );
+
+    let mut adopted = false;
+    for (sample, value) in [
+        (12, 100.0),
+        (13, 10_000.0),
+        (14, 100.0),
+        (15, 10_000.0),
+        (16, 100.0),
+        (17, 10_000.0),
+    ] {
+        let verdict = engine
+            .evaluate_transition("oscillating", value, sample, profile)
+            .expect("oscillating verdict");
+
+        if verdict.transition == AnomalyTransition::Clear {
+            adopted = verdict.clear_reason == Some(SpikeClearReason::Adopted);
+            break;
+        }
+    }
+
+    assert!(
+        !adopted,
+        "alternating breach/clean samples must not accumulate into a false baseline adoption"
+    );
+}
+
+#[test]
+fn saturated_utilization_does_not_self_clear_after_winsorization() {
+    let cfg = EngineConfig {
+        window_size: 6,
+        min_samples: 5,
+        n_sigma: 3.0,
+        confirm_slots: 1,
+        max_series: 10,
+        spike_adopt_after_samples: 100,
+        ..EngineConfig::default()
+    };
+    let profile = SeriesProfile {
+        min_std_floor: 1.0,
+        min_cv: 0.01,
+        saturation_gate: Some(SaturationGate {
+            min_value: 85.0,
+            directional: true,
+        }),
+        spike_adopt_after_samples: Some(100),
+        ..SeriesProfile::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+
+    for sample in 0..10 {
+        engine
+            .evaluate_transition("cpu", 50.0, sample, profile)
+            .expect("warm-up verdict");
+    }
+
+    assert_eq!(
+        engine
+            .evaluate_transition("cpu", 100.0, 10, profile)
+            .expect("open verdict")
+            .transition,
+        AnomalyTransition::Open
+    );
+
+    for sample in 11..40 {
+        let verdict = engine
+            .evaluate_transition("cpu", 100.0, sample, profile)
+            .expect("saturated verdict");
+        assert_ne!(
+            verdict.transition,
+            AnomalyTransition::Clear,
+            "a sustained 100% utilization episode must not self-clear at sample {sample}"
+        );
+    }
+}
+
+#[test]
+fn high_normal_utilization_recovers_when_it_returns_to_its_rolling_center() {
+    let cfg = EngineConfig {
+        window_size: 6,
+        min_samples: 5,
+        n_sigma: 3.0,
+        confirm_slots: 1,
+        max_series: 10,
+        spike_adopt_after_samples: 100,
+        ..EngineConfig::default()
+    };
+    let profile = SeriesProfile {
+        min_std_floor: 1.0,
+        min_cv: 0.01,
+        saturation_gate: Some(SaturationGate {
+            min_value: 80.0,
+            directional: true,
+        }),
+        spike_adopt_after_samples: Some(100),
+        ..SeriesProfile::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+
+    for sample in 0..10 {
+        engine
+            .evaluate_transition("high-normal", 85.0, sample, profile)
+            .expect("warm-up verdict");
+    }
+
+    assert_eq!(
+        engine
+            .evaluate_transition("high-normal", 98.0, 10, profile)
+            .expect("open verdict")
+            .transition,
+        AnomalyTransition::Open
+    );
+
+    let recovered = engine
+        .evaluate_transition("high-normal", 85.0, 11, profile)
+        .expect("recovery verdict");
+    assert_eq!(recovered.transition, AnomalyTransition::Clear);
+    assert_eq!(recovered.clear_reason, Some(SpikeClearReason::Recovered));
+}
+
+#[test]
+fn saturated_spike_episode_emits_heartbeat_updates() {
+    const SEC: u64 = 1_000_000_000;
+    let cfg = EngineConfig {
+        window_size: 6,
+        min_samples: 5,
+        n_sigma: 3.0,
+        confirm_slots: 1,
+        max_series: 10,
+        spike_adopt_after_samples: 100,
+        episode_update_interval_secs: 1,
+        ..EngineConfig::default()
+    };
+    let profile = SeriesProfile {
+        min_std_floor: 1.0,
+        min_cv: 0.01,
+        saturation_gate: Some(SaturationGate {
+            min_value: 85.0,
+            directional: true,
+        }),
+        spike_adopt_after_samples: Some(100),
+        ..SeriesProfile::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+
+    for sample in 0..10 {
+        engine
+            .evaluate_transition("heartbeat", 50.0, sample * SEC, profile)
+            .expect("warm-up verdict");
+    }
+
+    assert_eq!(
+        engine
+            .evaluate_transition("heartbeat", 100.0, 10 * SEC, profile)
+            .expect("open verdict")
+            .transition,
+        AnomalyTransition::Open
+    );
+
+    let heartbeat = engine
+        .evaluate_transition("heartbeat", 100.0, 12 * SEC, profile)
+        .expect("heartbeat verdict");
+    assert_eq!(heartbeat.transition, AnomalyTransition::Update);
+    assert_eq!(heartbeat.update_reason, Some(SpikeUpdateReason::Heartbeat));
+    assert!(heartbeat.episode.is_some());
+}
+
+#[test]
+fn medium_only_severity_band_keeps_high_threshold_above_medium() {
+    assert_eq!(
+        SeverityPolicy {
+            medium_at: Some(10.0),
+            high_at: None,
+            ..SeverityPolicy::default()
+        }
+        .bands(),
+        (10.0, 14.0)
+    );
+}
+
+#[test]
+fn rolling_spike_reopen_reuses_episode_and_merges_clear_churn() {
+    const SEC: u64 = 1_000_000_000;
+    let cfg = EngineConfig {
+        window_size: 10,
+        min_samples: 5,
+        n_sigma: 3.0,
+        confirm_slots: 1,
+        max_series: 10,
+        reopen_cooldown_secs: 10,
+        spike_adopt_after_samples: 100,
+        ..EngineConfig::default()
+    };
+    let profile = SeriesProfile {
+        spike_adopt_after_samples: Some(100),
+        ..SeriesProfile::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+
+    for sample in 0..10 {
+        engine
+            .evaluate_transition("flap", 100.0, sample * SEC, profile)
+            .expect("warm-up verdict");
+    }
+
+    let opened = engine
+        .evaluate_transition("flap", 1_000.0, 10 * SEC, profile)
+        .expect("open verdict");
+    let started_at = opened.episode.expect("open episode").started_at_unix_nano;
+    assert_eq!(opened.transition, AnomalyTransition::Open);
+
+    let cleared = engine
+        .evaluate_transition("flap", 100.0, 11 * SEC, profile)
+        .expect("clear verdict");
+    assert_eq!(cleared.transition, AnomalyTransition::Clear);
+
+    let reopened = engine
+        .evaluate_transition("flap", 1_000.0, 12 * SEC, profile)
+        .expect("reopen verdict");
+    assert_eq!(reopened.transition, AnomalyTransition::Update);
+    assert_eq!(reopened.update_reason, Some(SpikeUpdateReason::Flapping));
+    assert_eq!(reopened.reopen_count, 1);
+    assert_eq!(
+        reopened
+            .episode
+            .expect("reopen episode")
+            .started_at_unix_nano,
+        started_at
+    );
+
+    let swallowed = engine
+        .evaluate_transition("flap", 100.0, 13 * SEC, profile)
+        .expect("inside-window clear verdict");
+    assert_eq!(swallowed.transition, AnomalyTransition::None);
+
+    let flap_merged = engine
+        .evaluate_transition("flap", 100.0, 23 * SEC, profile)
+        .expect("post-window clear verdict");
+    assert_eq!(flap_merged.transition, AnomalyTransition::Clear);
+    assert_eq!(flap_merged.clear_reason, Some(SpikeClearReason::FlapMerged));
+    assert_eq!(
+        flap_merged
+            .episode
+            .expect("merged episode")
+            .started_at_unix_nano,
+        started_at
+    );
 }
 
 #[test]
@@ -509,6 +864,12 @@ fn restore_checkpoint_caps_series_state_by_freshness() {
                 active_episode_started_at_unix_nano: None,
                 active_episode_peak_value: None,
                 active_episode_peak_at_unix_nano: None,
+                raw_tail: Vec::new(),
+                spike_active_samples: 0,
+                spike_last_emitted_at_unix_nano: None,
+                spike_last_cleared_at_unix_nano: None,
+                spike_last_episode_started_at_unix_nano: None,
+                spike_reopen_count: 0,
                 aggregation_slot_start_unix_nano: None,
                 aggregation_slot_value: None,
                 aggregation_slot_peak_at_unix_nano: None,
@@ -548,6 +909,12 @@ fn restore_checkpoint_caps_series_state_by_freshness() {
                 active_episode_started_at_unix_nano: None,
                 active_episode_peak_value: None,
                 active_episode_peak_at_unix_nano: None,
+                raw_tail: Vec::new(),
+                spike_active_samples: 0,
+                spike_last_emitted_at_unix_nano: None,
+                spike_last_cleared_at_unix_nano: None,
+                spike_last_episode_started_at_unix_nano: None,
+                spike_reopen_count: 0,
                 aggregation_slot_start_unix_nano: None,
                 aggregation_slot_value: None,
                 aggregation_slot_peak_at_unix_nano: None,
@@ -587,6 +954,12 @@ fn restore_checkpoint_caps_series_state_by_freshness() {
                 active_episode_started_at_unix_nano: None,
                 active_episode_peak_value: None,
                 active_episode_peak_at_unix_nano: None,
+                raw_tail: Vec::new(),
+                spike_active_samples: 0,
+                spike_last_emitted_at_unix_nano: None,
+                spike_last_cleared_at_unix_nano: None,
+                spike_last_episode_started_at_unix_nano: None,
+                spike_reopen_count: 0,
                 aggregation_slot_start_unix_nano: None,
                 aggregation_slot_value: None,
                 aggregation_slot_peak_at_unix_nano: None,

@@ -99,6 +99,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
     if profile && profile.enabled do
       config = compile_profile(profile, actor)
+      publish_duplicate_polling_warning(profile, config)
       {:ok, config}
     else
       # Return disabled config if no profile found or profile is disabled
@@ -858,6 +859,76 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       "profile_name" => nil,
       "targets" => []
     }
+  end
+
+  @doc """
+  Returns the concrete target/agent overlap that would make one SNMP profile
+  poll the same target from more than one agent, or `nil` when it is safe.
+
+  This is deliberately a warning surface rather than a validation failure: an
+  operator may be performing a controlled handoff, but continuous overlap
+  creates duplicate metric and anomaly producers.
+  """
+  @spec duplicate_polling_warning(map(), map()) :: map() | nil
+  def duplicate_polling_warning(profile, config) when is_map(profile) and is_map(config) do
+    agent_uids =
+      profile
+      |> Map.get(:agent_ids, Map.get(profile, "agent_ids", []))
+      |> List.wrap()
+      |> Enum.filter(&(is_binary(&1) and &1 != ""))
+      |> Enum.uniq()
+
+    target_uids =
+      config
+      |> Map.get("targets", [])
+      |> List.wrap()
+      |> Enum.map(&Map.get(&1, "id"))
+      |> Enum.filter(&(is_binary(&1) and &1 != ""))
+      |> Enum.uniq()
+
+    # A compiler invocation only knows this profile's declared assignments.
+    # An empty list means "all agents", but it does not prove more than one
+    # agent is enrolled; warning in that case produces a false duplicate alarm
+    # for a single-agent deployment. Emit only for a concrete multi-agent
+    # overlap, which this function can establish from its inputs.
+    if target_uids != [] and length(agent_uids) > 1 do
+      %{
+        profile_id: Map.get(profile, :id, Map.get(profile, "id")),
+        profile_name: Map.get(profile, :name, Map.get(profile, "name")),
+        agent_scope: if(agent_uids == [], do: :all_agents, else: :pinned_agents),
+        agent_uids: agent_uids,
+        target_count: length(target_uids)
+      }
+    end
+  end
+
+  def duplicate_polling_warning(_profile, _config), do: nil
+
+  defp publish_duplicate_polling_warning(profile, config) do
+    case duplicate_polling_warning(profile, config) do
+      nil ->
+        :ok
+
+      warning ->
+        :telemetry.execute(
+          [:serviceradar, :snmp, :config_hygiene],
+          %{
+            duplicate_targets: warning.target_count,
+            duplicate_agents: length(warning.agent_uids)
+          },
+          warning
+        )
+
+        Logger.warning("SNMP profile assigns the same targets to multiple agents",
+          profile_id: warning.profile_id,
+          profile_name: warning.profile_name,
+          agent_scope: warning.agent_scope,
+          agent_uids: warning.agent_uids,
+          target_count: warning.target_count
+        )
+
+        :ok
+    end
   end
 
   # Get the default profile, gated by agent_ids.

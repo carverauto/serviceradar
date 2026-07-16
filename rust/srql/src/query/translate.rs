@@ -3,9 +3,9 @@ use super::{
     build_query_plan, capacity_forecasts, cpu_metrics, dashboard_service_views, dashboards,
     device_graph, devices, disk_metrics, downsample, endpoint_inventory_scans,
     endpoint_package_catalog, endpoint_packages, events, field_survey, flows, gateways,
-    graph_cypher, interfaces, logs, memory_metrics, otel_metric_points, otel_metrics,
-    process_metrics, services, timeseries_metrics, trace_summaries, traces, virtualization, viz,
-    wifi_map,
+    graph_cypher, interfaces, is_full_profile_query, logs, memory_metrics, otel_metric_points,
+    otel_metrics, process_metrics, services, timeseries_metrics, trace_summaries, traces,
+    virtualization, viz, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -101,7 +101,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
     };
 
     let next_offset = plan.offset.saturating_add(plan.limit);
-    let next_cursor = if next_offset <= config.max_cursor_offset {
+    let next_cursor = if next_offset <= config.max_cursor_offset || is_full_profile_query(&plan) {
         Some(encode_cursor(next_offset, &config.cursor_secret)?)
     } else {
         None

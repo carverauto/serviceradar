@@ -3,9 +3,9 @@ use super::{
     addon_statuses, agents, alerts, bmp_events, build_query_plan, capacity_forecasts, cpu_metrics,
     dashboard_service_views, dashboards, device_graph, devices, disk_metrics, downsample,
     endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages, events, field_survey,
-    flows, gateways, graph_cypher, interfaces, logs, memory_metrics, otel_metric_points,
-    otel_metrics, process_metrics, services, timeseries_metrics, trace_summaries, traces,
-    translate_request, virtualization, wifi_map,
+    flows, gateways, graph_cypher, interfaces, is_full_profile_query, logs, memory_metrics,
+    otel_metric_points, otel_metrics, process_metrics, services, timeseries_metrics,
+    trace_summaries, traces, translate_request, virtualization, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -148,7 +148,20 @@ impl QueryEngine {
 
     fn build_pagination(&self, plan: &QueryPlan, fetched: i64) -> Result<PaginationMeta> {
         let next_offset = plan.offset.saturating_add(plan.limit);
-        let next_cursor = if fetched >= plan.limit && next_offset <= self.config.max_cursor_offset {
+        let next_cursor = if fetched >= plan.limit {
+            // Full hour-of-week profiles are consumed by the edge baseline
+            // producer in deterministic pages. A normal fleet needs 168 rows
+            // per series, so the generic offset cap previously turned a
+            // large-but-valid delivery into an empty failed run after 150k
+            // rows. Keep the public-query guard, but let this bounded,
+            // server-side profile aggregation paginate to completion.
+            if next_offset > self.config.max_cursor_offset && !is_full_profile_query(plan) {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "query pagination reached the configured cursor limit of {} rows; narrow the query or raise srql_max_cursor_offset",
+                    self.config.max_cursor_offset
+                )));
+            }
+
             Some(encode_cursor(next_offset, &self.config.cursor_secret)?)
         } else {
             None
@@ -166,5 +179,42 @@ impl QueryEngine {
             prev_cursor,
             limit: Some(plan.limit),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        parser::{Entity, StatsSpec},
+        query::QueryPlan,
+    };
+
+    fn plan(stats: &str) -> QueryPlan {
+        QueryPlan {
+            entity: Entity::TimeseriesMetrics,
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 50_000,
+            offset: 100_000,
+            time_range: None,
+            stats: Some(StatsSpec::from_raw(stats)),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        }
+    }
+
+    #[test]
+    fn full_hour_of_week_profiles_are_exempt_from_the_generic_cursor_cap() {
+        assert!(is_full_profile_query(&plan(
+            "profile_hour_of_week_full(value)"
+        )));
+    }
+
+    #[test]
+    fn ordinary_queries_remain_cursor_capped() {
+        assert!(!is_full_profile_query(&plan("profile_hour_of_week(value)")));
     }
 }

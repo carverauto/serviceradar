@@ -79,6 +79,38 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     end
   end
 
+  describe "duplicate_polling_warning/2" do
+    test "surfaces the count of targets assigned to more than one pinned agent" do
+      warning =
+        SNMPCompiler.duplicate_polling_warning(
+          %{id: "profile-1", name: "Default SNMP", agent_ids: ["agent-a", "agent-b"]},
+          %{"targets" => [%{"id" => "sr:router-1"}, %{"id" => "sr:router-2"}]}
+        )
+
+      assert warning.profile_id == "profile-1"
+      assert warning.agent_scope == :pinned_agents
+      assert warning.agent_uids == ["agent-a", "agent-b"]
+      assert warning.target_count == 2
+      refute Map.has_key?(warning, :target_uids)
+    end
+
+    test "does not infer duplicate polling from an all-agent profile alone" do
+      assert nil ==
+               SNMPCompiler.duplicate_polling_warning(
+                 %{id: "profile-all", agent_ids: []},
+                 %{"targets" => [%{"id" => "sr:router-1"}]}
+               )
+    end
+
+    test "does not warn for a single assigned agent" do
+      assert nil ==
+               SNMPCompiler.duplicate_polling_warning(
+                 %{agent_ids: ["agent-a"]},
+                 %{"targets" => [%{"id" => "sr:router-1"}]}
+               )
+    end
+  end
+
   describe "compile/3" do
     @tag :integration
     setup do
