@@ -2,7 +2,7 @@
 name = "wit-bindgen"
 authors = ["Alex Crichton <alex@alexcrichton.com>"]
 version = { workspace = true }
-edition = "2024"
+edition = { workspace = true }
 repository = { workspace = true }
 license = { workspace = true }
 homepage = 'https://github.com/bytecodealliance/wit-bindgen'

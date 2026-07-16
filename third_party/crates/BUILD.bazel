@@ -55,14 +55,14 @@ alias(
 )
 
 alias(
-    name = "arancini-lib-0.7.4",
-    actual = "//third_party/crates/arancini-lib-0.7.4:arancini_lib",
+    name = "arancini-lib-0.7.3",
+    actual = "//third_party/crates/arancini-lib-0.7.3:arancini_lib",
     tags = ["manual"],
 )
 
 alias(
     name = "arancini-lib",
-    actual = "//third_party/crates/arancini-lib-0.7.4:arancini_lib",
+    actual = "//third_party/crates/arancini-lib-0.7.3:arancini_lib",
     tags = ["manual"],
 )
 
@@ -1003,14 +1003,14 @@ alias(
 )
 
 alias(
-    name = "serviceradar-netprobe-0.2.23",
-    actual = "//third_party/crates/serviceradar-netprobe-0.2.23:serviceradar_netprobe",
+    name = "serviceradar-netprobe-0.2.24",
+    actual = "//third_party/crates/serviceradar-netprobe-0.2.24:serviceradar_netprobe",
     tags = ["manual"],
 )
 
 alias(
     name = "serviceradar-netprobe",
-    actual = "//third_party/crates/serviceradar-netprobe-0.2.23:serviceradar_netprobe",
+    actual = "//third_party/crates/serviceradar-netprobe-0.2.24:serviceradar_netprobe",
     tags = ["manual"],
 )
 
@@ -1039,14 +1039,14 @@ alias(
 )
 
 alias(
-    name = "serviceradar-workload-identity-0.1.5",
-    actual = "//third_party/crates/serviceradar-workload-identity-0.1.5:serviceradar_workload_identity",
+    name = "serviceradar-workload-identity-0.1.6",
+    actual = "//third_party/crates/serviceradar-workload-identity-0.1.6:serviceradar_workload_identity",
     tags = ["manual"],
 )
 
 alias(
     name = "serviceradar-workload-identity",
-    actual = "//third_party/crates/serviceradar-workload-identity-0.1.5:serviceradar_workload_identity",
+    actual = "//third_party/crates/serviceradar-workload-identity-0.1.6:serviceradar_workload_identity",
     tags = ["manual"],
 )
 

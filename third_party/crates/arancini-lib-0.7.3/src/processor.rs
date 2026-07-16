@@ -4,7 +4,7 @@ use bgpkit_parser::parse_bmp_msg;
 use bgpkit_parser::parser::bmp::messages::BmpMessage;
 use bytes::Bytes;
 use metrics::{counter, gauge};
-use rand::RngExt;
+use rand::Rng;
 use tracing::{error, trace};
 
 use crate::sender::UpdateSender;

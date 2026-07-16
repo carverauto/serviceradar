@@ -1,7 +1,6 @@
 [package]
 name = "arancini-lib"
-edition.workspace = true
-rust-version.workspace = true
+edition = "2024"
 
 version.workspace = true
 license.workspace = true
@@ -19,7 +18,7 @@ bgpkit-parser = { version = "0.15", default-features = false, features = ["parse
 bytes = "1.9.0"
 chrono = "0.4"
 metrics = "0.24"
-rand = "0.10"
+rand = "0.9"
 serde = { version = "1", default-features = false,features = ["derive"] }
 tokio = { version = "1", default-features = false, features = ["macros", "rt", "sync", "time"] }
 tracing = "0.1"
