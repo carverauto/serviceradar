@@ -1,0 +1,30 @@
+rust/edge-onboarding/src/download.rs
+  s_6f8eb423821667::t_6a9ebcf36a7957 103-114,116-122,125-126
+Cargo.toml
+  s_6f8eb423821667::t_ff5f4abe31670f 158-161
+  s_6f8eb423821667::t_f6e9b383ea0c5c 82,154
+rust/rperf-client/Cargo.toml
+  s_6f8eb423821667::t_0cab44099bf252 18
+rust/trapd/Cargo.toml
+  s_6f8eb423821667::t_0cab44099bf252 19
+rust/flow-collector/Cargo.toml
+  s_6f8eb423821667::t_0cab44099bf252 19
+Cargo.lock
+  s_6f8eb423821667::t_ec3ad1a5ede0ce 144-146,154,1035-1063,1608-1616,2721-2726,4233,5308,5962-5978,6140,6142,6145-6146,6148-6150,6153-6167,6188-6193
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "44910286566894245bad1c020ed2c54d536f8eed",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
