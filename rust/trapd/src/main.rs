@@ -27,8 +27,8 @@ use std::{fs, net::SocketAddr, path::PathBuf};
 use tokio::net::UdpSocket;
 
 use tonic::{
-    transport::{Certificate, Identity, Server, ServerTlsConfig},
     Request, Response, Status,
+    transport::{Certificate, Identity, Server, ServerTlsConfig},
 };
 use tonic_health::server::health_reporter;
 use tonic_reflection::server::Builder as ReflectionBuilder;
@@ -200,8 +200,7 @@ fn subject_covers(pattern: &str, subject: &str) -> bool {
                 subject_index += 1;
             }
             literal => {
-                if subject_index >= subject_tokens.len()
-                    || subject_tokens[subject_index] != literal
+                if subject_index >= subject_tokens.len() || subject_tokens[subject_index] != literal
                 {
                     return false;
                 }

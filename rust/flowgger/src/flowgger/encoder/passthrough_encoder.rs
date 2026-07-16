@@ -1,4 +1,4 @@
-use super::{build_prepend_ts, config_get_prepend_ts, Encoder};
+use super::{Encoder, build_prepend_ts, config_get_prepend_ts};
 use crate::flowgger::config::Config;
 use crate::flowgger::record::Record;
 
@@ -31,7 +31,7 @@ impl Encoder for PassthroughEncoder {
                     Err(_) => {
                         return Err(
                             "Failed to format date when building prepend timestamp for header while encoding Passthrough",
-                        )
+                        );
                     }
                 };
                 res.push_str(&ts);
@@ -47,7 +47,7 @@ impl Encoder for PassthroughEncoder {
 }
 
 #[cfg(test)]
-use time::{format_description, OffsetDateTime};
+use time::{OffsetDateTime, format_description};
 
 #[test]
 fn test_passthrough_encode() {

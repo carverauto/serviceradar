@@ -1,9 +1,11 @@
 use crate::flowgger::config::Config;
 use crate::flowgger::merger::Merger;
-use crate::flowgger::tls_utils::{load_certs, load_private_key, load_root_store, provider, AcceptAnyServerCert};
+use crate::flowgger::tls_utils::{
+    AcceptAnyServerCert, load_certs, load_private_key, load_root_store, provider,
+};
 use rand;
-use rand::prelude::SliceRandom;
 use rand::Rng;
+use rand::prelude::SliceRandom;
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, ClientConnection, StreamOwned};
 use time;
@@ -11,7 +13,7 @@ use time;
 use super::Output;
 use std::convert::TryFrom;
 use std::io;
-use std::io::{stderr, BufWriter, ErrorKind, Write};
+use std::io::{BufWriter, ErrorKind, Write, stderr};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
@@ -295,7 +297,10 @@ fn config_parse(config: &Config) -> (TlsConfig, u32) {
     // Optional client certificate for mutual TLS.
     let client_config = match (cert, key) {
         (Some(cert), Some(key)) => builder
-            .with_client_auth_cert(load_certs(Path::new(&cert)), load_private_key(Path::new(&key)))
+            .with_client_auth_cert(
+                load_certs(Path::new(&cert)),
+                load_private_key(Path::new(&key)),
+            )
             .expect("Unable to configure the client TLS certificate and key"),
         _ => builder.with_no_client_auth(),
     };

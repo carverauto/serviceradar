@@ -1,6 +1,6 @@
 use super::Decoder;
 use crate::flowgger::config::Config;
-use crate::flowgger::record::{Record, SDValue, StructuredData, SEVERITY_MAX};
+use crate::flowgger::record::{Record, SDValue, SEVERITY_MAX, StructuredData};
 use crate::flowgger::utils;
 use serde_json::de;
 use serde_json::value::Value;

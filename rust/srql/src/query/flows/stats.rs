@@ -9,15 +9,15 @@ mod query;
 mod spec;
 
 use super::*;
+use diesel::QueryableByName;
 use diesel::pg::Pg;
 use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
 use diesel::sql_types::{Array, BigInt, Jsonb, Nullable, Text, Timestamptz};
-use diesel::QueryableByName;
 
 pub(super) use aggregation::{FlowAggField, FlowAggFunc};
 pub(super) use bind::{
-    bind_param_from_flow_stats, rewrite_placeholders, FlowGroupedStatsSql, FlowSqlBindValue,
-    FlowStatsPayload,
+    FlowGroupedStatsSql, FlowSqlBindValue, FlowStatsPayload, bind_param_from_flow_stats,
+    rewrite_placeholders,
 };
 pub(super) use cagg::should_route_flow_stats_to_cagg;
 pub(super) use filters::build_stats_filter_clause;

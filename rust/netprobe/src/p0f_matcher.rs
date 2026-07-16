@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 
 use crate::p0f_corpus::{
-    parse, parse_tcp_signature, IpVersionPattern, NumericPattern, P0fLabel, PayloadClassPattern,
-    TcpOptionPattern, TcpSignature, WindowSizePattern,
+    IpVersionPattern, NumericPattern, P0fLabel, PayloadClassPattern, TcpOptionPattern,
+    TcpSignature, WindowSizePattern, parse, parse_tcp_signature,
 };
 
 mod generated {

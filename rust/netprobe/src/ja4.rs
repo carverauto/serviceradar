@@ -335,7 +335,7 @@ fn strip_length_prefix(data: &[u8], length_prefix_bytes: usize) -> Option<&[u8]>
 
 #[cfg(test)]
 mod tests {
-    use super::{fingerprint, fingerprint_tls_client_hello, Ja4ClientHello, Ja4Transport};
+    use super::{Ja4ClientHello, Ja4Transport, fingerprint, fingerprint_tls_client_hello};
 
     #[test]
     fn matches_foxio_reference_vector() {

@@ -214,7 +214,7 @@ fn build_int_clause(
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "numeric filters only support equality".into(),
-            ))
+            ));
         }
     };
 
@@ -247,7 +247,7 @@ fn build_bool_clause(
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "boolean filters only support equality".into(),
-            ))
+            ));
         }
     };
 

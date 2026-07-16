@@ -18,9 +18,9 @@ use std::os::unix::fs::FileTypeExt;
 use anyhow::{Context, Result};
 #[cfg(unix)]
 use cri_api::v1::{
-    runtime_service_client::RuntimeServiceClient, Container, ContainerFilter, ContainerState,
-    ContainerStateValue, ContainerStatusRequest, ContainerStatusResponse, ListContainersRequest,
-    PodSandboxStatusRequest, PodSandboxStatusResponse,
+    Container, ContainerFilter, ContainerState, ContainerStateValue, ContainerStatusRequest,
+    ContainerStatusResponse, ListContainersRequest, PodSandboxStatusRequest,
+    PodSandboxStatusResponse, runtime_service_client::RuntimeServiceClient,
 };
 #[cfg(unix)]
 use hyper_util::rt::TokioIo;

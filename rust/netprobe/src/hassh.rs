@@ -252,8 +252,8 @@ fn read_name_list(payload: &[u8], cursor: &mut usize) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        canonical_client_string, canonical_server_string, fingerprint_client, fingerprint_server,
-        fingerprint_ssh_kexinit, parse_ssh_kexinit, SshKexInit,
+        SshKexInit, canonical_client_string, canonical_server_string, fingerprint_client,
+        fingerprint_server, fingerprint_ssh_kexinit, parse_ssh_kexinit,
     };
 
     const CYBERDUCK_KEX: &str = "curve25519-sha256@libssh.org,diffie-hellman-group-exchange-sha256,ecdh-sha2-nistp521,ecdh-sha2-nistp384,ecdh-sha2-nistp256,diffie-hellman-group-exchange-sha1,diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group14-sha256,diffie-hellman-group15-sha512,diffie-hellman-group16-sha512,diffie-hellman-group17-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256@ssh.com,diffie-hellman-group15-sha256,diffie-hellman-group15-sha256@ssh.com,diffie-hellman-group15-sha384@ssh.com,diffie-hellman-group16-sha256,diffie-hellman-group16-sha384@ssh.com,diffie-hellman-group16-sha512@ssh.com,diffie-hellman-group18-sha512@ssh.com";
@@ -264,8 +264,7 @@ mod tests {
 
     const OPENSSH_53_SERVER_KEX: &str = "diffie-hellman-group-exchange-sha256,diffie-hellman-group-exchange-sha1,diffie-hellman-group14-sha1,diffie-hellman-group1-sha1";
     const OPENSSH_53_SERVER_ENCRYPTION: &str = "aes128-ctr,aes192-ctr,aes256-ctr,arcfour256,arcfour128,aes128-cbc,3des-cbc,blowfish-cbc,cast128-cbc,aes192-cbc,aes256-cbc,arcfour,rijndael-cbc@lysator.liu.se";
-    const OPENSSH_53_SERVER_MAC: &str =
-        "hmac-md5,hmac-sha1,umac-64@openssh.com,hmac-ripemd160,hmac-ripemd160@openssh.com,hmac-sha1-96,hmac-md5-96";
+    const OPENSSH_53_SERVER_MAC: &str = "hmac-md5,hmac-sha1,umac-64@openssh.com,hmac-ripemd160,hmac-ripemd160@openssh.com,hmac-sha1-96,hmac-md5-96";
     const OPENSSH_53_SERVER_COMPRESSION: &str = "none,zlib@openssh.com";
 
     #[test]
@@ -290,7 +289,9 @@ mod tests {
 
         assert_eq!(
             canonical_server_string(&kexinit),
-            format!("{OPENSSH_53_SERVER_KEX};{OPENSSH_53_SERVER_ENCRYPTION};{OPENSSH_53_SERVER_MAC};{OPENSSH_53_SERVER_COMPRESSION}")
+            format!(
+                "{OPENSSH_53_SERVER_KEX};{OPENSSH_53_SERVER_ENCRYPTION};{OPENSSH_53_SERVER_MAC};{OPENSSH_53_SERVER_COMPRESSION}"
+            )
         );
         assert_eq!(
             fingerprint_server(&kexinit).md5,

@@ -3,7 +3,7 @@ use crate::flowgger::config::Config;
 use crate::flowgger::decoder::Decoder;
 use crate::flowgger::encoder::Encoder;
 use flate2::read::{GzDecoder, ZlibDecoder};
-use std::io::{stderr, Read, Write};
+use std::io::{Read, Write, stderr};
 use std::net::SocketAddr;
 use std::net::UdpSocket;
 use std::str;
@@ -153,9 +153,9 @@ mod test {
     use crate::flowgger::config::Config;
     use crate::flowgger::get_decoder_rfc3164;
     use crate::flowgger::get_encoder_rfc3164;
-    use flate2::write::{GzEncoder, ZlibEncoder};
     use flate2::Compression;
-    use std::sync::mpsc::{sync_channel, Receiver};
+    use flate2::write::{GzEncoder, ZlibEncoder};
+    use std::sync::mpsc::{Receiver, sync_channel};
 
     const DEFAULT_QUEUE_SIZE: usize = 10_000_000;
     type TestSetup = (

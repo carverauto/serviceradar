@@ -13,7 +13,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::crypto::{ring, verify_tls12_signature, verify_tls13_signature, CryptoProvider};
+use rustls::crypto::{CryptoProvider, ring, verify_tls12_signature, verify_tls13_signature};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, RootCertStore, SignatureScheme};
 
@@ -24,9 +24,10 @@ pub(crate) fn provider() -> Arc<CryptoProvider> {
 
 /// Load a PEM certificate chain.
 pub(crate) fn load_certs(path: &Path) -> Vec<CertificateDer<'static>> {
-    let mut reader = BufReader::new(File::open(path).unwrap_or_else(|e| {
-        panic!("Unable to open the TLS certificate {}: {e}", path.display())
-    }));
+    let mut reader =
+        BufReader::new(File::open(path).unwrap_or_else(|e| {
+            panic!("Unable to open the TLS certificate {}: {e}", path.display())
+        }));
     rustls_pemfile::certs(&mut reader)
         .collect::<Result<Vec<_>, _>>()
         .unwrap_or_else(|e| panic!("Unable to read the TLS certificate {}: {e}", path.display()))
@@ -47,9 +48,9 @@ pub(crate) fn load_private_key(path: &Path) -> PrivateKeyDer<'static> {
 pub(crate) fn load_root_store(ca_file: &Path) -> RootCertStore {
     let mut roots = RootCertStore::empty();
     for cert in load_certs(ca_file) {
-        roots.add(cert).unwrap_or_else(|e| {
-            panic!("Invalid CA certificate in {}: {e}", ca_file.display())
-        });
+        roots
+            .add(cert)
+            .unwrap_or_else(|e| panic!("Invalid CA certificate in {}: {e}", ca_file.display()));
     }
     roots
 }

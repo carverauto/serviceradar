@@ -14,6 +14,8 @@ use crate::{
     time::TimeRange,
 };
 use chrono::{DateTime, Utc};
+use diesel::PgTextExpressionMethods;
+use diesel::QueryDsl;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{
@@ -21,8 +23,6 @@ use diesel::query_builder::{
 };
 use diesel::sql_query;
 use diesel::sql_types::{Array, Jsonb, Nullable, Text, Timestamptz};
-use diesel::PgTextExpressionMethods;
-use diesel::QueryDsl;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 
@@ -543,7 +543,7 @@ fn build_text_clause(column: &str, filter: &Filter) -> Result<(String, Vec<SqlBi
             return Err(ServiceError::InvalidRequest(format!(
                 "text filter {column} does not support operator {:?}",
                 filter.op
-            )))
+            )));
         }
     };
     Ok((clause, binds))

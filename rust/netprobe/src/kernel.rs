@@ -64,7 +64,7 @@ fn parse_kernel_release(release: &str) -> Option<KernelVersion> {
 mod tests {
     use std::sync::{Mutex, OnceLock};
 
-    use super::{current_kernel_version, parse_kernel_release, KERNEL_RELEASE_FILE_ENV};
+    use super::{KERNEL_RELEASE_FILE_ENV, current_kernel_version, parse_kernel_release};
 
     fn kernel_env_lock() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();

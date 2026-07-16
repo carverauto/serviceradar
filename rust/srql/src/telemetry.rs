@@ -1,5 +1,5 @@
 use once_cell::sync::OnceCell;
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt};
 
 static INIT: OnceCell<()> = OnceCell::new();
 

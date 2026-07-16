@@ -5,9 +5,9 @@ use crate::flowgger::utils;
 use std::env;
 use std::fs;
 use time::format_description::well_known::Rfc3339;
-use time::{format_description, OffsetDateTime, PrimitiveDateTime};
-use time_tz::timezones::get_by_name;
+use time::{OffsetDateTime, PrimitiveDateTime, format_description};
 use time_tz::PrimitiveDateTimeExt;
+use time_tz::timezones::get_by_name;
 
 #[derive(Clone)]
 pub struct RFC3164Decoder {

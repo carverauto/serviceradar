@@ -88,10 +88,14 @@ pub(in crate::query::flows) fn should_route_flow_stats_to_cagg(
         [FlowGroupSpec::Field(FlowGroupField::DstEndpointPort)] => {
             "ocsf_network_activity_hourly_ports"
         }
-        [FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp), FlowGroupSpec::Field(FlowGroupField::DstEndpointIp)]
-        | [FlowGroupSpec::Field(FlowGroupField::DstEndpointIp), FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp)] => {
-            "ocsf_network_activity_hourly_conversations"
-        }
+        [
+            FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp),
+            FlowGroupSpec::Field(FlowGroupField::DstEndpointIp),
+        ]
+        | [
+            FlowGroupSpec::Field(FlowGroupField::DstEndpointIp),
+            FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp),
+        ] => "ocsf_network_activity_hourly_conversations",
         _ => return None, // Unsupported group-by combination
     };
 

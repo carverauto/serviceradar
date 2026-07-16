@@ -428,11 +428,7 @@ fn classify_quic(flow: &Flow, payload: &[u8]) -> Option<f32> {
         return None;
     }
     let version = u32::from_be_bytes([payload[1], payload[2], payload[3], payload[4]]);
-    if version == 0 {
-        Some(0.98)
-    } else {
-        None
-    }
+    if version == 0 { Some(0.98) } else { None }
 }
 
 fn classify_mqtt(flow: &Flow, payload: &[u8]) -> Option<f32> {
@@ -569,9 +565,11 @@ mod tests {
         assert!(!encoded.contains("internal"));
 
         let encoded = events[0].encode_to_vec();
-        assert!(!encoded
-            .windows(b"top-secret".len())
-            .any(|w| w == b"top-secret"));
+        assert!(
+            !encoded
+                .windows(b"top-secret".len())
+                .any(|w| w == b"top-secret")
+        );
         assert!(!encoded.windows(b"internal".len()).any(|w| w == b"internal"));
     }
 

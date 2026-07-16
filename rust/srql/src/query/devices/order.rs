@@ -1,4 +1,4 @@
-use super::{filters::safe_device_ip_inet_sql, DeviceQuery};
+use super::{DeviceQuery, filters::safe_device_ip_inet_sql};
 use crate::{
     parser::{OrderClause, OrderDirection},
     schema::ocsf_devices::dsl::{

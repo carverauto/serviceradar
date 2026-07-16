@@ -10,7 +10,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_postgres::{tls::MakeTlsConnect, Config as PgConfig, NoTls};
+use tokio_postgres::{Config as PgConfig, NoTls, tls::MakeTlsConnect};
 use tokio_postgres_rustls::MakeRustlsConnect;
 use tracing::{error, info};
 

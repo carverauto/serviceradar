@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt;
 use std::io;
 
-use crate::{protocol, BackendError};
+use crate::{BackendError, protocol};
 
 #[derive(Debug)]
 pub enum ProtocolError {

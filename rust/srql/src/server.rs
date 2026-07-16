@@ -6,10 +6,10 @@ use crate::{
     state::{ApiKeyStore, AppState},
 };
 use axum::{
+    Json, Router,
     extract::State,
     http::HeaderMap,
     routing::{get, post},
-    Json, Router,
 };
 use kvutil::KvClient;
 use serde_json::json;
@@ -23,7 +23,7 @@ use std::{
 use tokio::{
     net::TcpListener,
     sync::{OwnedSemaphorePermit, Semaphore},
-    time::{interval, MissedTickBehavior},
+    time::{MissedTickBehavior, interval},
 };
 use tower::{Layer, Service};
 use tower_http::trace::TraceLayer;

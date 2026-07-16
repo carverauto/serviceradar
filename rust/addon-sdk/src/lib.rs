@@ -64,9 +64,9 @@ use async_trait::async_trait;
 use prost::Message;
 use tokio_stream::Stream;
 
+pub use server::ServeError;
 pub use server::serve;
 pub use server::serve_on_listener;
-pub use server::ServeError;
 
 /// Capability advertised by add-ons that support native telemetry streaming.
 pub const CAPABILITY_NATIVE_TELEMETRY_V1: &str = "native-telemetry:v1";

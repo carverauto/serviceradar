@@ -12,10 +12,10 @@ use crate::{
     },
     time::TimeRange,
 };
+use diesel::PgTextExpressionMethods;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
-use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
 type BmpEventsTable = crate::schema::bmp_routing_events::table;
@@ -142,7 +142,7 @@ fn apply_filter<'a>(mut query: BmpEventsQuery<'a>, filter: &Filter) -> Result<Bm
                 _ => {
                     return Err(ServiceError::InvalidRequest(
                         "severity_id only supports scalar numeric operators".into(),
-                    ))
+                    ));
                 }
             };
         }
@@ -158,7 +158,7 @@ fn apply_filter<'a>(mut query: BmpEventsQuery<'a>, filter: &Filter) -> Result<Bm
                 _ => {
                     return Err(ServiceError::InvalidRequest(
                         "peer_asn only supports scalar numeric operators".into(),
-                    ))
+                    ));
                 }
             };
         }
@@ -174,7 +174,7 @@ fn apply_filter<'a>(mut query: BmpEventsQuery<'a>, filter: &Filter) -> Result<Bm
                 _ => {
                     return Err(ServiceError::InvalidRequest(
                         "local_asn only supports scalar numeric operators".into(),
-                    ))
+                    ));
                 }
             };
         }
@@ -321,9 +321,11 @@ mod tests {
 
         assert!(lower.contains("\"bmp_routing_events\".\"router_ip\""));
         assert!(lower.contains("\"bmp_routing_events\".\"event_type\""));
-        assert!(params
-            .iter()
-            .any(|param| { matches!(param, BindParam::Text(value) if value == "10.42.68.85") }));
+        assert!(
+            params
+                .iter()
+                .any(|param| { matches!(param, BindParam::Text(value) if value == "10.42.68.85") })
+        );
     }
 
     #[test]

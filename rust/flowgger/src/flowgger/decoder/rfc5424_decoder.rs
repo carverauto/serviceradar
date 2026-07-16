@@ -2,8 +2,8 @@ use super::Decoder;
 use crate::flowgger::config::Config;
 use crate::flowgger::record::{Record, SDValue, StructuredData};
 use crate::flowgger::utils;
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 #[derive(Clone)]
 pub struct RFC5424Decoder;

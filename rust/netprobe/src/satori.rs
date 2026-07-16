@@ -4,8 +4,8 @@ use std::{
     path::Path,
 };
 
-use anyhow::{anyhow, Context, Result};
-use quick_xml::{events::BytesStart, events::Event, Reader};
+use anyhow::{Context, Result, anyhow};
+use quick_xml::{Reader, events::BytesStart, events::Event};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 pub enum SatoriAxis {
@@ -612,9 +612,11 @@ mod tests {
             SatoriAxis::Dns
         );
         assert!(corpus.match_sip("3CXPhoneSystem").is_some());
-        assert!(corpus
-            .match_ntp("client;123,0,4,0,unset,0,random,0")
-            .is_some());
+        assert!(
+            corpus
+                .match_ntp("client;123,0,4,0,unset,0,random,0")
+                .is_some()
+        );
         assert!(corpus.match_smb_browser("10.0", "15.1").is_some());
     }
 

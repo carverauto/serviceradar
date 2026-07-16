@@ -1,5 +1,5 @@
 use super::super::stats::{
-    parse_stats_expr, FlowAggField, FlowAggFunc, FlowGroupField, FlowGroupSpec,
+    FlowAggField, FlowAggFunc, FlowGroupField, FlowGroupSpec, parse_stats_expr,
 };
 use super::super::*;
 
@@ -83,8 +83,7 @@ fn parse_stats_expr_supports_app_group_by() {
 
 #[test]
 fn parse_stats_expr_supports_exporter_and_interface_group_by() {
-    let expr =
-        "count(*) as total_flows by exporter_name, input_snmp, output_snmp, in_if_name, out_if_name";
+    let expr = "count(*) as total_flows by exporter_name, input_snmp, output_snmp, in_if_name, out_if_name";
     let spec = parse_stats_expr(expr).unwrap();
     assert_eq!(spec.group_by.len(), 5);
     assert_eq!(
@@ -153,8 +152,7 @@ fn parse_stats_expr_supports_multi_group_by() {
 
 #[test]
 fn parse_stats_expr_supports_canonical_conversation_group_by() {
-    let expr =
-        "sum(bytes_total) as bytes_total, sum(packets_total) as packets_total by conversation_a_ip, conversation_b_ip";
+    let expr = "sum(bytes_total) as bytes_total, sum(packets_total) as packets_total by conversation_a_ip, conversation_b_ip";
     let spec = parse_stats_expr(expr).unwrap();
     assert_eq!(spec.group_by.len(), 2);
     assert_eq!(

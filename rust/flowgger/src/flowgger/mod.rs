@@ -39,7 +39,7 @@ mod utils;
 #[cfg(test)]
 mod test_fuzzer;
 
-use std::io::{stderr, Write};
+use std::io::{Write, stderr};
 
 #[cfg(feature = "capnp-recompile")]
 extern crate capnp;
@@ -51,13 +51,13 @@ extern crate glob;
 extern crate kafka;
 #[cfg(feature = "file")]
 extern crate notify;
+extern crate rand;
+#[cfg(feature = "redis-input")]
+extern crate redis;
 #[cfg(feature = "tls")]
 extern crate rustls;
 #[cfg(feature = "tls")]
 extern crate rustls_pemfile;
-extern crate rand;
-#[cfg(feature = "redis-input")]
-extern crate redis;
 #[cfg(feature = "gelf")]
 extern crate serde_json;
 extern crate time;
@@ -107,7 +107,7 @@ use self::output::KafkaOutput;
 #[cfg(feature = "tls")]
 use self::output::TlsOutput;
 use self::output::{DebugOutput, Output};
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex};
 
 const DEFAULT_INPUT_FORMAT: &str = "auto";

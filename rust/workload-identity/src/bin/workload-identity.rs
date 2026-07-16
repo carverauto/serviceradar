@@ -9,8 +9,8 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use serviceradar_workload_identity::{
-    discover_cri_endpoint, discover_docker_endpoint, CriContainerLookup, CriEndpoint,
-    CriRuntimeClient, DockerEndpoint, DockerRuntimeClient,
+    CriContainerLookup, CriEndpoint, CriRuntimeClient, DockerEndpoint, DockerRuntimeClient,
+    discover_cri_endpoint, discover_docker_endpoint,
 };
 
 const DEFAULT_CONFIG_PATH: &str =

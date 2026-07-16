@@ -15,8 +15,8 @@ use std::{
     os::fd::AsRawFd,
     ptr,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -2660,23 +2660,22 @@ mod tests {
     #[cfg(target_os = "linux")]
     use std::sync::Arc;
 
+    use super::{
+        AF_INET, AttributedFlow, FLOW_ENDPOINT_B, FlowPidRecord, IPPROTO_TCP, IPPROTO_UDP,
+        ProcessDetails, ProcessInfoRecord, ProcfsEnricher, REDACTED_CMDLINE_MAX_BYTES,
+        cap_redacted_cmdline, comm_from_bytes, container_id, flow_attribution_event,
+        likely_service_side_tuple, redacted_cmdline, trim_to_utf8_boundary,
+    };
     #[cfg(target_os = "linux")]
     use super::{
-        attribution_event_fingerprint, attribution_flow_key_from_record, insert_cached_attribution,
-        likely_service_side_record, maybe_emit_cached_attribution, process_details_from_record,
-        process_metadata_complete, prune_attribution_cache, refresh_enriched_attributions,
-        touch_closed_cached_attribution, AttributionExpiryQueue, CachedAttribution,
-        FlowAttributionCache, MetadataEnricher, ProcessAttributionIndex, ProcessDetailsCacheKey,
-        SocketInventory, UdpRoleInventory, EVENT_INET_SOCK_SET_STATE, EVENT_UDP_RECV,
+        AttributionExpiryQueue, CachedAttribution, EVENT_INET_SOCK_SET_STATE, EVENT_UDP_RECV,
         EVENT_UDP_SEND, FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK, FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES,
-        FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL, FLOW_ENDPOINT_A, TCP_CLOSE_STATE,
-        TCP_LISTEN_STATE,
-    };
-    use super::{
-        cap_redacted_cmdline, comm_from_bytes, container_id, flow_attribution_event,
-        likely_service_side_tuple, redacted_cmdline, trim_to_utf8_boundary, AttributedFlow,
-        FlowPidRecord, ProcessDetails, ProcessInfoRecord, ProcfsEnricher, AF_INET, FLOW_ENDPOINT_B,
-        IPPROTO_TCP, IPPROTO_UDP, REDACTED_CMDLINE_MAX_BYTES,
+        FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL, FLOW_ENDPOINT_A, FlowAttributionCache,
+        MetadataEnricher, ProcessAttributionIndex, ProcessDetailsCacheKey, SocketInventory,
+        TCP_CLOSE_STATE, TCP_LISTEN_STATE, UdpRoleInventory, attribution_event_fingerprint,
+        attribution_flow_key_from_record, insert_cached_attribution, likely_service_side_record,
+        maybe_emit_cached_attribution, process_details_from_record, process_metadata_complete,
+        prune_attribution_cache, refresh_enriched_attributions, touch_closed_cached_attribution,
     };
     use crate::af_xdp_classifier::FlowKey;
     #[cfg(target_os = "linux")]
@@ -3458,9 +3457,11 @@ mod tests {
         touch_closed_cached_attribution(&mut cache, &key);
 
         assert!(cache.contains_key(&key));
-        assert!(process_index
-            .get(&process)
-            .is_some_and(|keys| keys.contains(&key)));
+        assert!(
+            process_index
+                .get(&process)
+                .is_some_and(|keys| keys.contains(&key))
+        );
     }
 
     #[test]

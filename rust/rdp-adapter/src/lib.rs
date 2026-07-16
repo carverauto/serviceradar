@@ -13,15 +13,15 @@ mod wire;
 use std::io::{self, Write};
 
 pub use backend::{BackendError, RdpBackend, RdpBackendSession, UnavailableBackend};
-#[cfg(all(feature = "ironrdp-backend", serviceradar_rdp_connector_link_probe))]
-pub use backend_ironrdp::run_live_helper_open_probe_from_env;
 #[cfg(feature = "ironrdp-backend")]
 pub use backend_ironrdp::IronRdpBackend;
+#[cfg(all(feature = "ironrdp-backend", serviceradar_rdp_connector_link_probe))]
+pub use backend_ironrdp::run_live_helper_open_probe_from_env;
 #[cfg(serviceradar_rdp_connector_link_probe)]
 pub use connector_link_probe::connector_link_probe_capabilities;
 pub use error::ProtocolError;
 pub use protocol::{
-    parse_open_payload, DesktopClosePayload, DesktopFrame, DesktopMediaAck, OpenPayload,
+    DesktopClosePayload, DesktopFrame, DesktopMediaAck, OpenPayload, parse_open_payload,
 };
 pub use runtime::{
     run_stdio, run_stdio_pumped, run_stdio_with_backend, run_stdio_with_backend_pump,
@@ -34,8 +34,8 @@ pub(crate) use runtime::{
 };
 #[cfg(test)]
 pub(crate) use wire::{
-    read_frame, write_frame, Frame, MAX_CONTROL_FRAME_LENGTH, MAX_FRAME_LENGTH, MSG_ACK, MSG_CLOSE,
-    MSG_ERROR, MSG_INPUT, MSG_MEDIA_FRAME, MSG_OPEN,
+    Frame, MAX_CONTROL_FRAME_LENGTH, MAX_FRAME_LENGTH, MSG_ACK, MSG_CLOSE, MSG_ERROR, MSG_INPUT,
+    MSG_MEDIA_FRAME, MSG_OPEN, read_frame, write_frame,
 };
 
 pub const HELPER_CAPABILITIES_ARG: &str = "--capabilities";
@@ -62,8 +62,7 @@ where
         return writeln!(
             writer,
             "{{\"schema\":\"{}\",\"protocol\":\"rdp\",\"helper_protocol_version\":{},\"ironrdp_backend_linked\":true,\"connector_ready\":true}}",
-            HELPER_CAPABILITIES_SCHEMA,
-            HELPER_PROTOCOL_VERSION
+            HELPER_CAPABILITIES_SCHEMA, HELPER_PROTOCOL_VERSION
         );
     }
 

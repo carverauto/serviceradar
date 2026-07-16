@@ -34,8 +34,9 @@ impl SnapshotStore {
         }
 
         let tmp = self.path.with_extension("tmp");
-        std::fs::write(&tmp, &json)
-            .map_err(|e| CorrelationEngineError::Snapshot(format!("write {}: {e}", tmp.display())))?;
+        std::fs::write(&tmp, &json).map_err(|e| {
+            CorrelationEngineError::Snapshot(format!("write {}: {e}", tmp.display()))
+        })?;
         std::fs::rename(&tmp, &self.path).map_err(|e| {
             CorrelationEngineError::Snapshot(format!("rename {}: {e}", self.path.display()))
         })?;

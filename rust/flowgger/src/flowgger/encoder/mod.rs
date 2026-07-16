@@ -26,7 +26,7 @@ pub use self::rfc5424_encoder::RFC5424Encoder;
 
 use crate::flowgger::record::Record;
 use crate::flowgger::{config::Config, validate_time_format_input};
-use time::{format_description, OffsetDateTime};
+use time::{OffsetDateTime, format_description};
 
 const SYSLOG_PREPEND_DEFAULT_TIME_FORMAT: &str = "[year][month][day]T[hour][minute][second]Z";
 

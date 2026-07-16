@@ -13,10 +13,10 @@ use crate::{
     },
     time::TimeRange,
 };
+use diesel::PgTextExpressionMethods;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
-use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use uuid::Uuid;
 
@@ -110,7 +110,7 @@ fn apply_filter<'a>(mut query: AlertsQuery<'a>, filter: &Filter) -> Result<Alert
                 _ => {
                     return Err(ServiceError::InvalidRequest(
                         "id filter only supports equality comparisons".into(),
-                    ))
+                    ));
                 }
             };
         }

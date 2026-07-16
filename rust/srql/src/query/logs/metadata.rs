@@ -1,4 +1,4 @@
-use super::{enforce_list_limit, LogsQuery};
+use super::{LogsQuery, enforce_list_limit};
 use crate::{
     error::{Result, ServiceError},
     parser::{Filter, FilterOp},
@@ -62,7 +62,7 @@ pub(super) fn apply_metadata_identity_filter<'a>(
             return Err(ServiceError::InvalidRequest(format!(
                 "{} filter only supports equality and IN/NOT IN comparisons",
                 filter.field
-            )))
+            )));
         }
     };
 

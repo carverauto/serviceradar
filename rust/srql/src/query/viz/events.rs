@@ -1,7 +1,7 @@
 //! Viz metadata builders for OCSF-style event streams: generic events,
 //! security findings, scan activity, and DNS activity.
 
-use super::{col, ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion};
+use super::{ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion, col};
 
 pub(super) fn events() -> VizMeta {
     VizMeta {

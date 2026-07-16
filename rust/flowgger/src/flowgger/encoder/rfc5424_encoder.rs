@@ -1,8 +1,8 @@
 use super::Encoder;
 use crate::flowgger::config::Config;
 use crate::flowgger::record::Record;
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 const DEFAULT_PRIORITY: &str = "<13>";
 const DEFAULT_SYSLOG_VERSION: char = '1';

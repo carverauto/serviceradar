@@ -7,15 +7,15 @@ mod query;
 mod rollup;
 mod spec;
 
-pub(super) use bind::{bind_param_from_device_stats, DeviceSqlBindValue};
+pub(super) use bind::{DeviceSqlBindValue, bind_param_from_device_stats};
 pub(super) use grouped::{build_grouped_stats_query, rewrite_placeholders};
 pub(super) use query::build_stats_query;
 pub(super) use rollup::build_rollup_stats_query;
 pub(super) use spec::parse_stats_spec;
 
 use crate::jsonb::DbJson;
-use diesel::sql_types::{Jsonb, Nullable};
 use diesel::QueryableByName;
+use diesel::sql_types::{Jsonb, Nullable};
 
 #[derive(Debug, QueryableByName)]
 #[diesel(check_for_backend(diesel::pg::Pg))]

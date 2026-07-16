@@ -5,10 +5,10 @@ use std::{
     thread,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use log::{error, info};
 use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
-use tonic_health::{server::health_reporter, ServingStatus};
+use tonic_health::{ServingStatus, server::health_reporter};
 
 use super::config::Config;
 use super::spiffe;

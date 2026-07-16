@@ -26,8 +26,8 @@ mod tests {
     use std::fs;
     use std::io::{BufRead, BufReader};
     use std::ptr::addr_of_mut;
-    use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
     use std::sync::Once;
+    use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
     use std::sync::{Arc, Mutex};
 
     use flowgger::config::Config;

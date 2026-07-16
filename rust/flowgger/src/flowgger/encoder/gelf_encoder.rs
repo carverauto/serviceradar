@@ -113,7 +113,8 @@ impl Encoder for GelfEncoder {
         for (name, value) in self.extra.iter().cloned() {
             map.insert(name, Value::String(value));
         }
-        let json = serde_json::to_vec(&Value::Object(map)).or(Err("Unable to serialize to JSON"))?;
+        let json =
+            serde_json::to_vec(&Value::Object(map)).or(Err("Unable to serialize to JSON"))?;
         Ok(json)
     }
 }

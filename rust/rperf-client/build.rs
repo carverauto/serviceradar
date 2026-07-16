@@ -97,7 +97,7 @@ fn resolve_in_runfiles(path: &str) -> Result<std::path::PathBuf, std::io::Error>
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 "RUNFILES_DIR unset",
-            ))
+            ));
         }
     };
     std::fs::canonicalize(Path::new(&runfiles).join(path))

@@ -160,8 +160,7 @@ fn endpoint_package_catalog_example_purl_and_cpe() {
 
 #[test]
 fn endpoint_inventory_scans_example_freshness_and_hash() {
-    let query =
-        "in:endpoint_inventory_status device_id:device-alpha current:true freshness:fresh package_set_hash:sha256:abc sort:last_scan_at:desc";
+    let query = "in:endpoint_inventory_status device_id:device-alpha current:true freshness:fresh package_set_hash:sha256:abc sort:last_scan_at:desc";
     let plan = plan_for(query);
 
     assert!(matches!(plan.entity, Entity::EndpointInventoryScans));

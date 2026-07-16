@@ -438,10 +438,11 @@ fn auxiliary_observations(
 #[cfg(test)]
 mod tests {
     use super::{
-        evaluate, FingerprintObservation, FingerprintSignal, MuonFpObservation, OsMatchInput,
-        P0fObservation, HASSH_AGREEMENT_MULTIPLIER, JA4_AGREEMENT_MULTIPLIER,
-        MUONFP_AGREEMENT_MULTIPLIER, MUONFP_BASE_CONFIDENCE, P0F_BASE_CONFIDENCE,
+        FingerprintObservation, FingerprintSignal, HASSH_AGREEMENT_MULTIPLIER,
+        JA4_AGREEMENT_MULTIPLIER, MUONFP_AGREEMENT_MULTIPLIER, MUONFP_BASE_CONFIDENCE,
+        MuonFpObservation, OsMatchInput, P0F_BASE_CONFIDENCE, P0fObservation,
         RECOG_AGREEMENT_MULTIPLIER, SATORI_AGREEMENT_MULTIPLIER, SATORI_TCP_BASE_CONFIDENCE,
+        evaluate,
     };
     use crate::p0f_corpus::P0fLabel;
     use crate::p0f_matcher::P0fMatch;
@@ -552,14 +553,16 @@ mod tests {
 
     #[test]
     fn returns_none_without_tcp_match() {
-        assert!(evaluate(OsMatchInput {
-            p0f: None,
-            muonfp: None,
-            ja4: Some(auxiliary(FingerprintSignal::Ja4, "linux")),
-            hassh: None,
-            ..Default::default()
-        })
-        .is_none());
+        assert!(
+            evaluate(OsMatchInput {
+                p0f: None,
+                muonfp: None,
+                ja4: Some(auxiliary(FingerprintSignal::Ja4, "linux")),
+                hassh: None,
+                ..Default::default()
+            })
+            .is_none()
+        );
     }
 
     #[test]

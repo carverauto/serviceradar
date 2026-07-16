@@ -394,7 +394,7 @@ mod tests {
     use crate::{
         config::AppConfig,
         parser,
-        query::{build_query_plan, QueryRequest},
+        query::{QueryRequest, build_query_plan},
     };
 
     fn plan(query: &str) -> QueryPlan {
@@ -445,8 +445,10 @@ mod tests {
         let (sql, params) = to_sql_and_params(&plan).expect("translate exhaustion filter");
 
         assert!(sql.contains("\"capacity_forecasts\".\"projected_exhaustion_at\" IS NOT NULL"));
-        assert!(params
-            .iter()
-            .all(|param| !matches!(param, BindParam::Text(value) if value == "true")));
+        assert!(
+            params
+                .iter()
+                .all(|param| !matches!(param, BindParam::Text(value) if value == "true"))
+        );
     }
 }

@@ -118,7 +118,7 @@ mod tests {
 
     use anyhow::Result;
 
-    use super::{initialize_privileged_resources, StartupOps};
+    use super::{StartupOps, initialize_privileged_resources};
     use crate::config::Config;
 
     #[derive(Default)]

@@ -12,10 +12,10 @@ use crate::{
     },
     time::TimeRange,
 };
+use diesel::PgTextExpressionMethods;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
-use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 

@@ -70,7 +70,9 @@ pub const PROTOCOL_GRPC: &str = "grpc";
 /// Errors raised while completing the handshake.
 #[derive(Debug, thiserror::Error)]
 pub enum HandshakeError {
-    #[error("magic cookie {key} not set or mismatched; this binary is a plugin and is not meant to be executed directly")]
+    #[error(
+        "magic cookie {key} not set or mismatched; this binary is a plugin and is not meant to be executed directly"
+    )]
     MagicCookie { key: String },
     #[error("failed to create plugin unix socket: {0}")]
     Socket(#[from] std::io::Error),
@@ -93,8 +95,7 @@ pub fn check_magic_cookie() -> Result<(), HandshakeError> {
 /// The human-friendly message go-plugin prints when a plugin binary is run
 /// directly (magic cookie missing). Emitted by the reference binary so operators
 /// running the add-on by hand get the same UX as a Go add-on.
-pub const DIRECT_EXECUTION_MESSAGE: &str =
-    "This binary is a plugin. These are not meant to be executed directly.\n\
+pub const DIRECT_EXECUTION_MESSAGE: &str = "This binary is a plugin. These are not meant to be executed directly.\n\
 Please execute the program that consumes these plugins, which will\n\
 load any plugins automatically\n";
 
@@ -186,7 +187,7 @@ fn chown_group(path: &Path, gid: u32) -> Result<(), std::io::Error> {
 unsafe extern "C" {
     #[link_name = "chown"]
     fn libc_chown(path: *const std::os::raw::c_char, owner: u32, group: u32)
-        -> std::os::raw::c_int;
+    -> std::os::raw::c_int;
 }
 
 /// Builds the handshake line the host parses (`client.go` `dialer`/`parseConn`).

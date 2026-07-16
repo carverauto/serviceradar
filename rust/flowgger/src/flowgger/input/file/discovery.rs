@@ -1,10 +1,10 @@
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, SyncSender};
+use std::sync::mpsc::{Receiver, SyncSender, channel};
 use std::thread;
 
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
-use glob::{glob, Pattern};
+use glob::{Pattern, glob};
 
 use crate::flowgger::decoder::Decoder;
 use crate::flowgger::encoder::Encoder;

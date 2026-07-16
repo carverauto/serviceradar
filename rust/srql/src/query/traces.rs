@@ -18,13 +18,13 @@ use crate::{
     time::TimeRange,
 };
 use chrono::{DateTime, Utc};
+use diesel::PgTextExpressionMethods;
 use diesel::deserialize::QueryableByName;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
 use diesel::sql_query;
 use diesel::sql_types::{Int4, Jsonb, Nullable, Text, Timestamptz};
-use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
 type TracesTable = crate::schema::otel_traces::table;
@@ -361,7 +361,7 @@ fn build_rollup_text_clause(
             return Err(ServiceError::InvalidRequest(format!(
                 "rollup_stats filter {column} does not support operator {:?}",
                 filter.op
-            )))
+            )));
         }
     };
 

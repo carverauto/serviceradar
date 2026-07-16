@@ -17,8 +17,8 @@
 //! Integration tests for edge_onboarding crate.
 
 use edge_onboarding::{
-    try_onboard, ComponentType, DeploymentType, MtlsBootstrapConfig, OnboardingResult,
-    SecurityConfig, SecurityMode,
+    ComponentType, DeploymentType, MtlsBootstrapConfig, OnboardingResult, SecurityConfig,
+    SecurityMode, try_onboard,
 };
 use std::sync::{Mutex, OnceLock};
 

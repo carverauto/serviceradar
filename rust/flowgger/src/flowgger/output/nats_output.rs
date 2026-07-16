@@ -8,11 +8,11 @@ use {
     super::Output,
     crate::flowgger::{config::Config, merger::Merger},
     async_nats::jetstream::{context::PublishAckFuture, stream::StorageType},
-    async_nats::{jetstream, Client, ConnectOptions},
+    async_nats::{Client, ConnectOptions, jetstream},
     std::{
         cmp::min,
         path::PathBuf,
-        sync::{mpsc::Receiver, Arc, Mutex},
+        sync::{Arc, Mutex, mpsc::Receiver},
         thread,
         time::Duration,
     },
@@ -43,8 +43,7 @@ fn subject_covers(pattern: &str, subject: &str) -> bool {
                 subject_index += 1;
             }
             literal => {
-                if subject_index >= subject_tokens.len()
-                    || subject_tokens[subject_index] != literal
+                if subject_index >= subject_tokens.len() || subject_tokens[subject_index] != literal
                 {
                     return false;
                 }

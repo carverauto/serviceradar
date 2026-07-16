@@ -63,7 +63,7 @@ pub fn running_as_root() -> bool {
 fn drop_privileges_unix(user: Option<&str>, allow_root: bool) -> Result<()> {
     use std::ffi::CString;
 
-    use nix::unistd::{setgid, setuid, Uid, User};
+    use nix::unistd::{Uid, User, setgid, setuid};
 
     let Some(user) = user else {
         if Uid::current().is_root() && !allow_root {

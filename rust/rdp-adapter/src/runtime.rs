@@ -5,18 +5,18 @@ use std::time::Duration;
 
 use zeroize::Zeroize;
 
+use crate::ProtocolError;
 #[cfg(not(feature = "ironrdp-backend"))]
 use crate::backend::UnavailableBackend;
 use crate::backend::{RdpBackend, RdpBackendSession};
 #[cfg(feature = "ironrdp-backend")]
 use crate::backend_ironrdp::IronRdpBackend;
-use crate::protocol::{self, parse_open_payload, DesktopClosePayload, DesktopFrame};
+use crate::protocol::{self, DesktopClosePayload, DesktopFrame, parse_open_payload};
 use crate::protocol::{DesktopMediaAck, OpenPayload};
 use crate::wire::{
-    read_frame, write_error_frame, write_frame, Frame, MSG_ACK, MSG_CLOSE, MSG_INPUT,
-    MSG_MEDIA_FRAME, MSG_OPEN,
+    Frame, MSG_ACK, MSG_CLOSE, MSG_INPUT, MSG_MEDIA_FRAME, MSG_OPEN, read_frame, write_error_frame,
+    write_frame,
 };
-use crate::ProtocolError;
 
 const DEFAULT_BACKEND_PUMP_INTERVAL: Duration = Duration::from_millis(10);
 const MAX_SESSION_ACK_CREDIT_BYTES: u64 = 64 * 1024 * 1024;

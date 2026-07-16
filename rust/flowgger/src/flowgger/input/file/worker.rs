@@ -4,7 +4,7 @@ use std::io::prelude::*;
 use std::io::stderr;
 use std::io::{BufReader, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, SyncSender};
+use std::sync::mpsc::{SyncSender, channel};
 
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 

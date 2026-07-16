@@ -597,7 +597,7 @@ fn numeric_condition(
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported operator for numeric FieldSurvey filter: {:?}",
                 filter.op
-            )))
+            )));
         }
     };
 
@@ -633,7 +633,7 @@ fn tags_condition(field_sql: &str, filter: &Filter, binds: &mut Vec<BindParam>) 
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "tags filter only supports equality and list filters".into(),
-            ))
+            ));
         }
     };
 
@@ -748,7 +748,7 @@ mod tests {
     use crate::{
         config::AppConfig,
         parser,
-        query::{translate_request, QueryRequest},
+        query::{QueryRequest, translate_request},
     };
 
     fn translate(query: &str) -> String {

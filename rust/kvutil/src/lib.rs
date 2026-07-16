@@ -1,13 +1,13 @@
 use serde::{Deserialize, Serialize};
+use spiffe::X509SourceError;
 use spiffe::bundle::BundleSource;
 use spiffe::cert::Certificate as SpiffeCertificate;
 use spiffe::workload_api::WorkloadApiError;
-use spiffe::X509SourceError;
 use spiffe::{TrustDomain, X509Source, X509SourceBuilder};
 use std::fs;
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use tokio_stream::StreamExt;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 
@@ -334,11 +334,7 @@ fn prune_nulls(value: &mut serde_json::Value) {
                 .iter_mut()
                 .filter_map(|(k, v)| {
                     prune_nulls(v);
-                    if v.is_null() {
-                        Some(k.clone())
-                    } else {
-                        None
-                    }
+                    if v.is_null() { Some(k.clone()) } else { None }
                 })
                 .collect();
             for k in null_keys {

@@ -7,7 +7,7 @@ use std::{
     fs::{self, File},
     io::{self, Write},
 };
-use time::{format_description, Duration, OffsetDateTime};
+use time::{Duration, OffsetDateTime, format_description};
 
 /// Writer providing a file rotating feature when a file reaches the configured size
 pub struct RotatingFile {

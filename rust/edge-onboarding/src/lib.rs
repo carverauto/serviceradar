@@ -48,14 +48,14 @@ mod download;
 mod error;
 mod token;
 
-pub use bundle::{install_mtls_bundle, load_bundle_from_path, MtlsBundle};
+pub use bundle::{MtlsBundle, install_mtls_bundle, load_bundle_from_path};
 pub use config::{
-    generate_checker_config, CheckerConfig, FilesystemConfig, SecurityConfig, SecurityMode,
+    CheckerConfig, FilesystemConfig, SecurityConfig, SecurityMode, generate_checker_config,
 };
-pub use deployment::{detect_deployment, DeploymentType};
-pub use download::{download_package, PackageResponse};
+pub use deployment::{DeploymentType, detect_deployment};
+pub use download::{PackageResponse, download_package};
 pub use error::{Error, Result};
-pub use token::{encode_token, parse_token, TokenPayload};
+pub use token::{TokenPayload, encode_token, parse_token};
 
 use std::env;
 use std::fs;

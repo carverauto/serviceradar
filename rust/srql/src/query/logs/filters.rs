@@ -1,5 +1,5 @@
-use super::metadata::{apply_metadata_identity_filter, LOG_DEVICE_IDENTITY_KEYS};
-use super::{enforce_list_limit, LogsQuery};
+use super::metadata::{LOG_DEVICE_IDENTITY_KEYS, apply_metadata_identity_filter};
+use super::{LogsQuery, enforce_list_limit};
 use crate::{
     error::{Result, ServiceError},
     parser::{Filter, FilterOp},
@@ -15,9 +15,9 @@ use crate::{
         trace_id as col_trace_id,
     },
 };
+use diesel::PgTextExpressionMethods;
 use diesel::prelude::*;
 use diesel::sql_types::{Nullable, Text};
-use diesel::PgTextExpressionMethods;
 use uuid::Uuid;
 
 diesel::define_sql_function! {
@@ -39,7 +39,7 @@ pub(super) fn apply_filter<'a>(mut query: LogsQuery<'a>, filter: &Filter) -> Res
                 _ => {
                     return Err(ServiceError::InvalidRequest(
                         "id filter only supports equality comparisons".into(),
-                    ))
+                    ));
                 }
             };
         }
@@ -141,7 +141,7 @@ pub(super) fn apply_filter<'a>(mut query: LogsQuery<'a>, filter: &Filter) -> Res
             _ => {
                 return Err(ServiceError::InvalidRequest(
                     "severity_number only supports equality and IN/NOT IN comparisons".into(),
-                ))
+                ));
             }
         },
         other => {
@@ -197,7 +197,7 @@ fn apply_severity_filter<'a>(query: LogsQuery<'a>, filter: &Filter) -> Result<Lo
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported operator for text filter: {:?}",
                 filter.op
-            )))
+            )));
         }
     };
     Ok(next)

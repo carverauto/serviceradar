@@ -16,10 +16,10 @@
 
 //! Tests for token parsing functionality.
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::{Signer, SigningKey};
-use edge_onboarding::{encode_token, parse_token, Error, TokenPayload};
+use edge_onboarding::{Error, TokenPayload, encode_token, parse_token};
 use std::sync::{Mutex, OnceLock};
 
 const TOKEN_PREFIX: &str = "edgepkg-v2:";

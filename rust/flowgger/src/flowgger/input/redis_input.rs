@@ -4,7 +4,7 @@ use crate::flowgger::decoder::Decoder;
 use crate::flowgger::encoder::Encoder;
 use redis;
 use redis::{Commands, Connection, RedisResult};
-use std::io::{stderr, Write};
+use std::io::{Write, stderr};
 use std::process::exit;
 use std::sync::mpsc::SyncSender;
 use std::thread;

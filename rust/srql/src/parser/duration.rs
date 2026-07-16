@@ -38,7 +38,7 @@ pub(super) fn parse_bucket_seconds(raw: &str) -> Result<i64> {
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "bucket supports only s|m|h|d suffixes".into(),
-            ))
+            ));
         }
     };
 

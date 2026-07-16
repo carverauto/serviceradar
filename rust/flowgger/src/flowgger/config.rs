@@ -77,7 +77,7 @@ impl Config {
                 return Err(Error::new(
                     ErrorKind::InvalidData,
                     "Syntax error - config file is not valid TOML",
-                ))
+                ));
             }
         };
         Ok(Config { config })

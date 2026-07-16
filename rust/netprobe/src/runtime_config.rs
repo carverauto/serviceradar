@@ -7,11 +7,11 @@ use anyhow::{Context, Result};
 use prost::Message;
 
 use crate::{
-    config::{effective_flow_table_max_entries, validate_capture_interfaces, Config},
+    config::{Config, effective_flow_table_max_entries, validate_capture_interfaces},
     external_flow::default_external_flow_match_window_ms,
     proto::netprobe::{
-        fingerprint_event, DeviceBinding, DpiConfig, DpiEvent, FingerprintConfig, FingerprintEvent,
-        VisibilityAgentConfig,
+        DeviceBinding, DpiConfig, DpiEvent, FingerprintConfig, FingerprintEvent,
+        VisibilityAgentConfig, fingerprint_event,
     },
 };
 
@@ -483,8 +483,8 @@ mod tests {
     use crate::{
         config::Config,
         proto::netprobe::{
-            fingerprint_event, DeviceBinding, DpiConfig, DpiEvent, FingerprintConfig,
-            FingerprintEvent, LicenseCleanFingerprint, TcpFingerprint, VisibilityAgentConfig,
+            DeviceBinding, DpiConfig, DpiEvent, FingerprintConfig, FingerprintEvent,
+            LicenseCleanFingerprint, TcpFingerprint, VisibilityAgentConfig, fingerprint_event,
         },
     };
 
@@ -678,12 +678,14 @@ mod tests {
             .unwrap();
         let gate = DpiEventGate::new(runtime_config);
 
-        assert!(gate
-            .filter(dpi_event_at("192.0.2.10", "dns", 1_000))
-            .is_some());
-        assert!(gate
-            .filter(dpi_event_at("192.0.2.10", "dns", 500_000_000))
-            .is_none());
+        assert!(
+            gate.filter(dpi_event_at("192.0.2.10", "dns", 1_000))
+                .is_some()
+        );
+        assert!(
+            gate.filter(dpi_event_at("192.0.2.10", "dns", 500_000_000))
+                .is_none()
+        );
 
         let mut reverse = dpi_event_at("198.51.100.20", "dns", 600_000_000);
         reverse.destination_ip = "192.0.2.10".to_string();
@@ -691,9 +693,10 @@ mod tests {
         reverse.destination_port = 49_152;
         assert!(gate.filter(reverse).is_none());
 
-        assert!(gate
-            .filter(dpi_event_at("192.0.2.10", "dns", 1_100_000_000))
-            .is_some());
+        assert!(
+            gate.filter(dpi_event_at("192.0.2.10", "dns", 1_100_000_000))
+                .is_some()
+        );
     }
 
     #[test]

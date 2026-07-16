@@ -22,8 +22,8 @@
 use std::sync::Arc;
 
 use tokio::net::UnixListener;
-use tokio_stream::wrappers::UnixListenerStream;
 use tokio_stream::StreamExt as _;
+use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status, Streaming};
 
@@ -179,7 +179,7 @@ pub async fn serve_on_listener<A: Addon>(
 /// plugins with a signal on shutdown; we stop the server gracefully so the
 /// Unix-domain socket is cleaned up.
 async fn shutdown_signal(addon: Arc<dyn Addon>) {
-    use tokio::signal::unix::{signal, SignalKind};
+    use tokio::signal::unix::{SignalKind, signal};
     let mut sigint = signal(SignalKind::interrupt()).expect("install SIGINT handler");
     let mut sigterm = signal(SignalKind::terminate()).expect("install SIGTERM handler");
     tokio::select! {

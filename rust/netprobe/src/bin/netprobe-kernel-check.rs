@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use serviceradar_netprobe::kernel::{current_kernel_version, MIN_KERNEL_MAJOR, MIN_KERNEL_MINOR};
+use serviceradar_netprobe::kernel::{MIN_KERNEL_MAJOR, MIN_KERNEL_MINOR, current_kernel_version};
 
 #[derive(Debug, Parser)]
 #[command(

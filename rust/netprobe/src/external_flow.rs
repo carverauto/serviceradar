@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    af_xdp_classifier::{canonical_flow_key, transport_protocol, FlowKey},
+    af_xdp_classifier::{FlowKey, canonical_flow_key, transport_protocol},
     proto::netprobe::{ExternalFlowRecord, FlowAttributionEvent},
 };
 
@@ -211,8 +211,8 @@ fn external_observed_unix_nano(record: &ExternalFlowRecord) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ExternalFlowIngest, ExternalFlowMatcher, DEFAULT_EXTERNAL_FLOW_MATCH_WINDOW_MS,
-        EXTERNAL_NETFLOW_SOURCE,
+        DEFAULT_EXTERNAL_FLOW_MATCH_WINDOW_MS, EXTERNAL_NETFLOW_SOURCE, ExternalFlowIngest,
+        ExternalFlowMatcher,
     };
     use crate::proto::netprobe::{ExternalFlowRecord, FlowAttributionEvent};
 

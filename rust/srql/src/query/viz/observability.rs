@@ -1,7 +1,7 @@
 //! Viz metadata builders for OTel observability entities: logs, traces,
 //! trace summaries, and OTel metrics/metric points.
 
-use super::{col, ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion};
+use super::{ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion, col};
 
 pub(super) fn logs() -> VizMeta {
     VizMeta {

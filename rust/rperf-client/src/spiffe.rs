@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use pem::Pem;
 use spiffe::bundle::BundleSource;
 use spiffe::cert::Certificate as SpiffeCertificate;

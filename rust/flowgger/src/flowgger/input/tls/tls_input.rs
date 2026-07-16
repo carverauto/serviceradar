@@ -6,7 +6,7 @@ use crate::flowgger::encoder::Encoder;
 use crate::flowgger::splitter::CapnpSplitter;
 use crate::flowgger::splitter::{LineSplitter, NulSplitter, Splitter, SyslenSplitter};
 use rustls::{ServerConnection, StreamOwned};
-use std::io::{stderr, BufReader, Write};
+use std::io::{BufReader, Write, stderr};
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc::SyncSender;
 use std::thread;

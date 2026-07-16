@@ -4,7 +4,7 @@ use crate::flowgger::record::{Record, SDValue, SDValueType, StructuredData};
 use crate::flowgger::utils;
 use std::collections::HashMap;
 use time::format_description::well_known::Rfc3339;
-use time::{format_description, OffsetDateTime};
+use time::{OffsetDateTime, format_description};
 
 #[derive(Clone)]
 struct Suffixes {
@@ -282,38 +282,46 @@ fn test_ltsv_suffixes() {
     let res = ltsv_decoder.decode(msg).unwrap();
     let sd = &res.sd.unwrap()[0];
     let pairs = &sd.pairs;
-    assert!(pairs
-        .iter()
-        .cloned()
-        .any(|(k, v)| if let SDValue::U64(v) = v {
-            k == "_counter_u64" && v == 42
-        } else {
-            false
-        }));
-    assert!(pairs
-        .iter()
-        .cloned()
-        .any(|(k, v)| if let SDValue::I64(v) = v {
-            k == "_score_i64" && v == -1
-        } else {
-            false
-        }));
-    assert!(pairs
-        .iter()
-        .cloned()
-        .any(|(k, v)| if let SDValue::F64(v) = v {
-            k == "_mean_f64" && f64::abs(v - 0.42) < 1e-5
-        } else {
-            false
-        }));
-    assert!(pairs
-        .iter()
-        .cloned()
-        .any(|(k, v)| if let SDValue::Bool(v) = v {
-            k == "_done_bool" && v
-        } else {
-            false
-        }));
+    assert!(
+        pairs
+            .iter()
+            .cloned()
+            .any(|(k, v)| if let SDValue::U64(v) = v {
+                k == "_counter_u64" && v == 42
+            } else {
+                false
+            })
+    );
+    assert!(
+        pairs
+            .iter()
+            .cloned()
+            .any(|(k, v)| if let SDValue::I64(v) = v {
+                k == "_score_i64" && v == -1
+            } else {
+                false
+            })
+    );
+    assert!(
+        pairs
+            .iter()
+            .cloned()
+            .any(|(k, v)| if let SDValue::F64(v) = v {
+                k == "_mean_f64" && f64::abs(v - 0.42) < 1e-5
+            } else {
+                false
+            })
+    );
+    assert!(
+        pairs
+            .iter()
+            .cloned()
+            .any(|(k, v)| if let SDValue::Bool(v) = v {
+                k == "_done_bool" && v
+            } else {
+                false
+            })
+    );
 }
 
 #[test]
@@ -332,38 +340,46 @@ fn test_ltsv_suffixes_2() {
     let res = ltsv_decoder.decode(msg).unwrap();
     let sd = &res.sd.unwrap()[0];
     let pairs = &sd.pairs;
-    assert!(pairs
-        .iter()
-        .cloned()
-        .any(|(k, v)| if let SDValue::U64(v) = v {
-            k == "_counter_u64" && v == 42
-        } else {
-            false
-        }));
-    assert!(pairs
-        .iter()
-        .cloned()
-        .any(|(k, v)| if let SDValue::I64(v) = v {
-            k == "_score_i64" && v == -1
-        } else {
-            false
-        }));
-    assert!(pairs
-        .iter()
-        .cloned()
-        .any(|(k, v)| if let SDValue::F64(v) = v {
-            k == "_mean_f64" && f64::abs(v - 0.42) < 1e-5
-        } else {
-            false
-        }));
-    assert!(pairs
-        .iter()
-        .cloned()
-        .any(|(k, v)| if let SDValue::Bool(v) = v {
-            k == "_done_bool" && v
-        } else {
-            false
-        }));
+    assert!(
+        pairs
+            .iter()
+            .cloned()
+            .any(|(k, v)| if let SDValue::U64(v) = v {
+                k == "_counter_u64" && v == 42
+            } else {
+                false
+            })
+    );
+    assert!(
+        pairs
+            .iter()
+            .cloned()
+            .any(|(k, v)| if let SDValue::I64(v) = v {
+                k == "_score_i64" && v == -1
+            } else {
+                false
+            })
+    );
+    assert!(
+        pairs
+            .iter()
+            .cloned()
+            .any(|(k, v)| if let SDValue::F64(v) = v {
+                k == "_mean_f64" && f64::abs(v - 0.42) < 1e-5
+            } else {
+                false
+            })
+    );
+    assert!(
+        pairs
+            .iter()
+            .cloned()
+            .any(|(k, v)| if let SDValue::Bool(v) = v {
+                k == "_done_bool" && v
+            } else {
+                false
+            })
+    );
 }
 
 #[test]
@@ -414,62 +430,76 @@ fn test_ltsv_3() {
     assert!(sd.len() == 1);
     let pairs = &sd[0].pairs;
 
-    assert!(pairs
-        .iter()
-        .cloned()
-        .any(|(k, v)| if let SDValue::String(v) = v {
-            k == "_name1" && v == "value1"
-        } else {
-            false
-        }));
-    assert!(pairs
-        .iter()
-        .cloned()
-        .any(|(k, v)| if let SDValue::String(v) = v {
-            k == "_name 2" && v == " value 2"
-        } else {
-            false
-        }));
-    assert!(pairs
-        .iter()
-        .cloned()
-        .any(|(k, v)| if let SDValue::String(v) = v {
-            k == "_n3" && v == "v3"
-        } else {
-            false
-        }));
-    assert!(pairs
-        .iter()
-        .cloned()
-        .any(|(k, v)| if let SDValue::U64(v) = v {
-            k == "_counter" && v == 42
-        } else {
-            false
-        }));
-    assert!(pairs
-        .iter()
-        .cloned()
-        .any(|(k, v)| if let SDValue::I64(v) = v {
-            k == "_score" && v == -1
-        } else {
-            false
-        }));
-    assert!(pairs
-        .iter()
-        .cloned()
-        .any(|(k, v)| if let SDValue::F64(v) = v {
-            k == "_mean" && f64::abs(v - 0.42) < 1e-5
-        } else {
-            false
-        }));
-    assert!(pairs
-        .iter()
-        .cloned()
-        .any(|(k, v)| if let SDValue::Bool(v) = v {
-            k == "_done" && v == true
-        } else {
-            false
-        }));
+    assert!(
+        pairs
+            .iter()
+            .cloned()
+            .any(|(k, v)| if let SDValue::String(v) = v {
+                k == "_name1" && v == "value1"
+            } else {
+                false
+            })
+    );
+    assert!(
+        pairs
+            .iter()
+            .cloned()
+            .any(|(k, v)| if let SDValue::String(v) = v {
+                k == "_name 2" && v == " value 2"
+            } else {
+                false
+            })
+    );
+    assert!(
+        pairs
+            .iter()
+            .cloned()
+            .any(|(k, v)| if let SDValue::String(v) = v {
+                k == "_n3" && v == "v3"
+            } else {
+                false
+            })
+    );
+    assert!(
+        pairs
+            .iter()
+            .cloned()
+            .any(|(k, v)| if let SDValue::U64(v) = v {
+                k == "_counter" && v == 42
+            } else {
+                false
+            })
+    );
+    assert!(
+        pairs
+            .iter()
+            .cloned()
+            .any(|(k, v)| if let SDValue::I64(v) = v {
+                k == "_score" && v == -1
+            } else {
+                false
+            })
+    );
+    assert!(
+        pairs
+            .iter()
+            .cloned()
+            .any(|(k, v)| if let SDValue::F64(v) = v {
+                k == "_mean" && f64::abs(v - 0.42) < 1e-5
+            } else {
+                false
+            })
+    );
+    assert!(
+        pairs
+            .iter()
+            .cloned()
+            .any(|(k, v)| if let SDValue::Bool(v) = v {
+                k == "_done" && v == true
+            } else {
+                false
+            })
+    );
 }
 
 #[test]
@@ -479,8 +509,7 @@ fn test_ltsv4() {
          \"i64\"\nmean = \"f64\"\ndone = \"bool\"\n",
     );
     let ltsv_decoder = LTSVDecoder::new(&config.unwrap());
-    let msg =
-        "time:[5/Aug/2015:15:53:45.637824 -0000]\thost:testhostname\tname1:value1\tname 2: value \
+    let msg = "time:[5/Aug/2015:15:53:45.637824 -0000]\thost:testhostname\tname1:value1\tname 2: value \
                2\tn3:v3";
     let res = ltsv_decoder.decode(msg).unwrap();
     println!("{}", res.ts);
