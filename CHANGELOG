@@ -1,3 +1,30 @@
+# ServiceRadar v1.4.16
+
+Secure remote-access recovery, hardened automation, and faithful routing and
+syslog source provenance.
+
+## Whats New
+
+**1.4.16**
+- Plugin assignment recovery: legacy manual assignments can be reapproved only
+  after current mTLS partition proof, while policy-owned assignments reconcile
+  through their authoritative owner and retain a redacted tenant-scoped audit
+  trail. Unsupported legacy owners remain non-actionable rather than being
+  guessed or bulk-enabled.
+- Remote access and automation: SSH/AWX callback authority, target binding,
+  marker handling, credential scoping, and host-key custody are hardened while
+  preserving the reviewed operator workflow. This release does not enable
+  unproven native guest-console or RDP access paths.
+- Proxmox and routing telemetry: IPv4-mapped BMP addresses are normalized to
+  canonical IPv4 projections without modifying raw telemetry. A persistence
+  backfill and database guard cover legacy rows and upgrade overlap; the BMP
+  collector is pinned to the compatible `arancini-lib` 0.7.3 release.
+- Syslog ingestion: observed sender addresses are preserved through the demo
+  collector path, and source-format detection and provenance are improved.
+- Platform reliability: hosted runtime certificate issuers are isolated, rperf
+  startup certificate compatibility is repaired, and Rust/Bazel dependency
+  reproducibility plus external-inventory plugin contracts are improved.
+
 # ServiceRadar v1.4.15
 
 Fixed anomaly episode payload persistence and silent alert-rule load failures
