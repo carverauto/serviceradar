@@ -1,4 +1,4 @@
-FILE:@@//Cargo.lock 67102bc6c60f642d7478ae3ea2759ee00521dc940d0dbf97b8d7ba3d6d271c21
+FILE:@@//Cargo.lock 96adc2bb15c560a9ff184d7188b2816cb04104f867645bc688e374aaf5816b00
 FILE:@@//Cargo.toml 5519ce288bb6871262c9ceb2db46ac3db230cd64679523c3d3fb14b2c225985c
 FILE:@@//integration_tests/srql/Cargo.toml c047a421087d35281c3161a948100f0c082c988ecd5a18a56f21abfddd707c6a
 FILE:@@//rust/addon-sdk/Cargo.toml c672ef640c69fe506f64d9eee8d4d3bb009b18a8832253de50da5fa115e352dc
