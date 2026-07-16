@@ -4,7 +4,7 @@ use crate::flowgger::tls_utils::{
     AcceptAnyServerCert, load_certs, load_private_key, load_root_store, provider,
 };
 use rand;
-use rand::Rng;
+use rand::RngExt;
 use rand::prelude::SliceRandom;
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, ClientConnection, StreamOwned};
@@ -119,7 +119,7 @@ impl TlsWorker {
 
     fn run(self) {
         let tls_config = &self.tls_config;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut recovery_delay = f64::from(tls_config.recovery_delay_init);
         let mut last_recovery;
         loop {
@@ -158,8 +158,8 @@ impl TlsWorker {
             {
                 recovery_delay = f64::from(tls_config.recovery_delay_init);
             } else if recovery_delay < f64::from(tls_config.recovery_delay_max) {
-                let mut rng = rand::thread_rng();
-                recovery_delay += rng.gen_range(0.0..recovery_delay);
+                let mut rng = rand::rng();
+                recovery_delay += rng.random_range(0.0..recovery_delay);
             }
             thread::sleep(Duration::from_millis(recovery_delay.round() as u64));
             let _ = writeln!(stderr(), "Attempting to reconnect");
@@ -304,7 +304,7 @@ fn config_parse(config: &Config) -> (TlsConfig, u32) {
             .expect("Unable to configure the client TLS certificate and key"),
         _ => builder.with_no_client_auth(),
     };
-    connect.shuffle(&mut rand::thread_rng());
+    connect.shuffle(&mut rand::rng());
     let cluster = Cluster { connect, idx: 0 };
     let mx_cluster = Arc::new(Mutex::new(cluster));
     let tls_config = TlsConfig {

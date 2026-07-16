@@ -12,7 +12,7 @@ use super::*;
 use diesel::QueryableByName;
 use diesel::pg::Pg;
 use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
-use diesel::sql_types::{Array, BigInt, Jsonb, Nullable, Text, Timestamptz};
+use diesel::sql_types::{Array, BigInt, Text, Timestamptz};
 
 pub(super) use aggregation::{FlowAggField, FlowAggFunc};
 pub(super) use bind::{

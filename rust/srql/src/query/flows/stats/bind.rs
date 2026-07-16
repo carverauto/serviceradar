@@ -1,5 +1,8 @@
 use super::*;
+// Imported directly rather than via `use super::*`: stats.rs no longer references these
+// itself, so an unused-import cleanup there silently breaks this file.
 use crate::jsonb::DbJson;
+use diesel::sql_types::{Jsonb, Nullable};
 
 #[derive(Debug, Clone)]
 pub(in crate::query::flows) enum FlowSqlBindValue {
