@@ -71,7 +71,8 @@ bb8 = "0.8"
 bgpkit-parser = { version = "0.15", default-features = false }
 bytes = "1"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
-clap = { version = "4", default-features = false, features = ["std"] }
+# default = std/color/help/usage/error-context/suggestions -- all standard CLI UX
+clap = "4"
 crossbeam-channel = "0.5"
 deep_causality = "0.15"
 deep_causality_algebra = "0.2"
