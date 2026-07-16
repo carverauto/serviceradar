@@ -75,3 +75,9 @@ go_library(
         "@org_uber_go_mock//gomock",
     ],
 )
+
+filegroup(
+    name = "cri_proto_src",
+    srcs = ["cri/v1.proto"],
+    visibility = ["//visibility:public"],
+)
