@@ -17,7 +17,7 @@ log = "0.4"
 env_logger = "0.11"
 tonic-health ={ workspace = true }
 tonic-reflection =  { workspace = true }
-tonic = { workspace = true , features = ["tls"] }
+tonic = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 anyhow = "1.0"
 pem = "3"
