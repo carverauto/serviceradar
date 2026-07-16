@@ -1,0 +1,24 @@
+error[E0277]: the trait bound `bool: FromRequest<(), axum_core::extract::private::ViaParts>` is not satisfied
+ --> tests/debug_handler/fail/argument_not_extractor.rs:4:24
+  |
+4 | async fn handler(_foo: bool) {}
+  |                        ^^^^ the trait `FromRequestParts<()>` is not implemented for `bool`, which is required by `bool: FromRequest<(), _>`
+  |
+  = note: Function argument is not a valid axum extractor.
+          See `https://docs.rs/axum/0.8/axum/extract/index.html` for details
+  = help: the following other types implement trait `FromRequestParts<S>`:
+            `ConnectInfo<T>` implements `FromRequestParts<S>`
+            `Extension<T>` implements `FromRequestParts<S>`
+            `HeaderMap` implements `FromRequestParts<S>`
+            `MatchedPath` implements `FromRequestParts<S>`
+            `Method` implements `FromRequestParts<S>`
+            `OriginalUri` implements `FromRequestParts<S>`
+            `Query<T>` implements `FromRequestParts<S>`
+            `RawPathParams` implements `FromRequestParts<S>`
+          and $N others
+  = note: required for `bool` to implement `FromRequest<(), axum_core::extract::private::ViaParts>`
+note: required by a bound in `__axum_macros_check_handler_0_from_request_check`
+ --> tests/debug_handler/fail/argument_not_extractor.rs:4:24
+  |
+4 | async fn handler(_foo: bool) {}
+  |                        ^^^^ required by this bound in `__axum_macros_check_handler_0_from_request_check`

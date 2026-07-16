@@ -1,0 +1,74 @@
+on: [push, pull_request]
+
+name: CI
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - name: Install Rust
+      id: toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+    - name: Run Rustfmt
+      run: cargo +${{steps.toolchain.outputs.name}} fmt --check
+    - name: Run Clippy
+      run: cargo +${{steps.toolchain.outputs.name}} clippy
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        id: toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Test
+        run: cargo +${{steps.toolchain.outputs.name}} test
+
+  no-std:
+    name: no_std
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        id: toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build no_std
+        run: cargo +${{steps.toolchain.outputs.name}} build --no-default-features
+
+  miri:
+    name: Miri
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        id: toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri, rust-src
+      - name: Miri
+        run: cargo +${{steps.toolchain.outputs.name}} miri test

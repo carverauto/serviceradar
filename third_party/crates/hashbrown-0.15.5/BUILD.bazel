@@ -36,75 +36,66 @@ rust_library(
     ),
     crate_features = [
         "default-hasher",
+        "inline-more",
     ] + select({
         "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
             "allocator-api2",  # aarch64-unknown-linux-gnu
             "default",  # aarch64-unknown-linux-gnu
             "equivalent",  # aarch64-unknown-linux-gnu
-            "inline-more",  # aarch64-unknown-linux-gnu
             "raw-entry",  # aarch64-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
             "allocator-api2",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
             "default",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
             "equivalent",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
-            "inline-more",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
             "raw-entry",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
         ],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
             "allocator-api2",  # arm-unknown-linux-gnueabi
             "default",  # arm-unknown-linux-gnueabi
             "equivalent",  # arm-unknown-linux-gnueabi
-            "inline-more",  # arm-unknown-linux-gnueabi
             "raw-entry",  # arm-unknown-linux-gnueabi
         ],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
             "allocator-api2",  # armv7-unknown-linux-gnueabi
             "default",  # armv7-unknown-linux-gnueabi
             "equivalent",  # armv7-unknown-linux-gnueabi
-            "inline-more",  # armv7-unknown-linux-gnueabi
             "raw-entry",  # armv7-unknown-linux-gnueabi
         ],
         "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
             "allocator-api2",  # i686-unknown-linux-gnu
             "default",  # i686-unknown-linux-gnu
             "equivalent",  # i686-unknown-linux-gnu
-            "inline-more",  # i686-unknown-linux-gnu
             "raw-entry",  # i686-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
             "allocator-api2",  # powerpc-unknown-linux-gnu
             "default",  # powerpc-unknown-linux-gnu
             "equivalent",  # powerpc-unknown-linux-gnu
-            "inline-more",  # powerpc-unknown-linux-gnu
             "raw-entry",  # powerpc-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
             "allocator-api2",  # riscv64gc-unknown-linux-gnu
             "default",  # riscv64gc-unknown-linux-gnu
             "equivalent",  # riscv64gc-unknown-linux-gnu
-            "inline-more",  # riscv64gc-unknown-linux-gnu
             "raw-entry",  # riscv64gc-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
             "allocator-api2",  # s390x-unknown-linux-gnu
             "default",  # s390x-unknown-linux-gnu
             "equivalent",  # s390x-unknown-linux-gnu
-            "inline-more",  # s390x-unknown-linux-gnu
             "raw-entry",  # s390x-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
             "allocator-api2",  # x86_64-unknown-linux-gnu
             "default",  # x86_64-unknown-linux-gnu
             "equivalent",  # x86_64-unknown-linux-gnu
-            "inline-more",  # x86_64-unknown-linux-gnu
             "raw-entry",  # x86_64-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
             "allocator-api2",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
             "default",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
             "equivalent",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
-            "inline-more",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
             "raw-entry",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
         ],
         "//conditions:default": [],

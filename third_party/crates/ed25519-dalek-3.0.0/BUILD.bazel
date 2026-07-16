@@ -34,11 +34,6 @@ rust_library(
             "WORKSPACE.bazel",
         ],
     ),
-    crate_features = [
-        "default",
-        "fast",
-        "zeroize",
-    ],
     crate_root = "src/lib.rs",
     edition = "2024",
     rustc_env_files = [
@@ -103,6 +98,5 @@ rust_library(
         "//third_party/crates/ed25519-3.0.0:ed25519",
         "//third_party/crates/sha2-0.11.0:sha2",
         "//third_party/crates/subtle-2.6.1:subtle",
-        "//third_party/crates/zeroize-1.8.2:zeroize",
     ],
 )

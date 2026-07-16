@@ -40,8 +40,6 @@ rust_library(
     ),
     crate_features = [
         "digest",
-        "precomputed-tables",
-        "zeroize",
     ],
     crate_root = "src/lib.rs",
     edition = "2024",
@@ -140,7 +138,6 @@ rust_library(
         "//third_party/crates/curve25519-dalek-5.0.0:build_script_build",
         "//third_party/crates/digest-0.11.3:digest",
         "//third_party/crates/subtle-2.6.1:subtle",
-        "//third_party/crates/zeroize-1.8.2:zeroize",
     ] + select({
         "@rules_rust//rust/platform:x86_64-apple-darwin": [
             "//third_party/crates/cpufeatures-0.3.0:cpufeatures",  # cfg(target_arch = "x86_64")
@@ -197,8 +194,6 @@ cargo_build_script(
     ),
     crate_features = [
         "digest",
-        "precomputed-tables",
-        "zeroize",
     ],
     crate_name = "build_script_build",
     crate_root = "build.rs",

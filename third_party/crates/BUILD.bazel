@@ -55,14 +55,14 @@ alias(
 )
 
 alias(
-    name = "arancini-lib-0.7.2",
-    actual = "//third_party/crates/arancini-lib-0.7.2:arancini_lib",
+    name = "arancini-lib-0.7.4",
+    actual = "//third_party/crates/arancini-lib-0.7.4:arancini_lib",
     tags = ["manual"],
 )
 
 alias(
     name = "arancini-lib",
-    actual = "//third_party/crates/arancini-lib-0.7.2:arancini_lib",
+    actual = "//third_party/crates/arancini-lib-0.7.4:arancini_lib",
     tags = ["manual"],
 )
 
@@ -127,14 +127,14 @@ alias(
 )
 
 alias(
-    name = "axum-0.7.9",
-    actual = "//third_party/crates/axum-0.7.9:axum",
+    name = "axum-0.8.9",
+    actual = "//third_party/crates/axum-0.8.9:axum",
     tags = ["manual"],
 )
 
 alias(
     name = "axum",
-    actual = "//third_party/crates/axum-0.7.9:axum",
+    actual = "//third_party/crates/axum-0.8.9:axum",
     tags = ["manual"],
 )
 
@@ -271,18 +271,6 @@ alias(
 )
 
 alias(
-    name = "cri-api-0.2.0",
-    actual = "//third_party/crates/cri-api-0.2.0:cri_api",
-    tags = ["manual"],
-)
-
-alias(
-    name = "cri-api",
-    actual = "//third_party/crates/cri-api-0.2.0:cri_api",
-    tags = ["manual"],
-)
-
-alias(
     name = "crossbeam-channel-0.5.15",
     actual = "//third_party/crates/crossbeam-channel-0.5.15:crossbeam_channel",
     tags = ["manual"],
@@ -307,14 +295,14 @@ alias(
 )
 
 alias(
-    name = "deep_causality-0.13.10",
-    actual = "//third_party/crates/deep_causality-0.13.10:deep_causality",
+    name = "deep_causality-0.15.0",
+    actual = "//third_party/crates/deep_causality-0.15.0:deep_causality",
     tags = ["manual"],
 )
 
 alias(
     name = "deep_causality",
-    actual = "//third_party/crates/deep_causality-0.13.10:deep_causality",
+    actual = "//third_party/crates/deep_causality-0.15.0:deep_causality",
     tags = ["manual"],
 )
 
@@ -799,37 +787,37 @@ alias(
 )
 
 alias(
-    name = "prost-0.13.5",
-    actual = "//third_party/crates/prost-0.13.5:prost",
+    name = "prost-0.14.4",
+    actual = "//third_party/crates/prost-0.14.4:prost",
     tags = ["manual"],
 )
 
 alias(
     name = "prost",
-    actual = "//third_party/crates/prost-0.13.5:prost",
+    actual = "//third_party/crates/prost-0.14.4:prost",
     tags = ["manual"],
 )
 
 alias(
-    name = "prost-build-0.13.5",
-    actual = "//third_party/crates/prost-build-0.13.5:prost_build",
+    name = "prost-build-0.14.4",
+    actual = "//third_party/crates/prost-build-0.14.4:prost_build",
     tags = ["manual"],
 )
 
 alias(
     name = "prost-build",
-    actual = "//third_party/crates/prost-build-0.13.5:prost_build",
-    tags = ["manual"],
-)
-
-alias(
-    name = "quick-xml-0.38.4",
-    actual = "//third_party/crates/quick-xml-0.38.4:quick_xml",
+    actual = "//third_party/crates/prost-build-0.14.4:prost_build",
     tags = ["manual"],
 )
 
 alias(
     name = "quick-xml-0.41.0",
+    actual = "//third_party/crates/quick-xml-0.41.0:quick_xml",
+    tags = ["manual"],
+)
+
+alias(
+    name = "quick-xml",
     actual = "//third_party/crates/quick-xml-0.41.0:quick_xml",
     tags = ["manual"],
 )
@@ -853,8 +841,8 @@ alias(
 )
 
 alias(
-    name = "rand",
-    actual = "//third_party/crates/rand-0.8.6:rand",
+    name = "rand-0.10.1",
+    actual = "//third_party/crates/rand-0.10.1:rand",
     tags = ["manual"],
 )
 
@@ -967,13 +955,13 @@ alias(
 )
 
 alias(
-    name = "serde_json-0.8.6",
-    actual = "//third_party/crates/serde_json-0.8.6:serde_json",
+    name = "serde_json-1.0.150",
+    actual = "//third_party/crates/serde_json-1.0.150:serde_json",
     tags = ["manual"],
 )
 
 alias(
-    name = "serde_json-1.0.150",
+    name = "serde_json",
     actual = "//third_party/crates/serde_json-1.0.150:serde_json",
     tags = ["manual"],
 )
@@ -1051,6 +1039,18 @@ alias(
 )
 
 alias(
+    name = "serviceradar-workload-identity-0.1.5",
+    actual = "//third_party/crates/serviceradar-workload-identity-0.1.5:serviceradar_workload_identity",
+    tags = ["manual"],
+)
+
+alias(
+    name = "serviceradar-workload-identity",
+    actual = "//third_party/crates/serviceradar-workload-identity-0.1.5:serviceradar_workload_identity",
+    tags = ["manual"],
+)
+
+alias(
     name = "sha1-0.10.6",
     actual = "//third_party/crates/sha1-0.10.6:sha1",
     tags = ["manual"],
@@ -1123,13 +1123,13 @@ alias(
 )
 
 alias(
-    name = "thiserror-1.0.69",
-    actual = "//third_party/crates/thiserror-1.0.69:thiserror",
+    name = "thiserror-2.0.18",
+    actual = "//third_party/crates/thiserror-2.0.18:thiserror",
     tags = ["manual"],
 )
 
 alias(
-    name = "thiserror-2.0.18",
+    name = "thiserror",
     actual = "//third_party/crates/thiserror-2.0.18:thiserror",
     tags = ["manual"],
 )
@@ -1183,14 +1183,14 @@ alias(
 )
 
 alias(
-    name = "tokio-postgres-rustls-0.13.0",
-    actual = "//third_party/crates/tokio-postgres-rustls-0.13.0:tokio_postgres_rustls",
+    name = "tokio-postgres-rustls-0.14.0",
+    actual = "//third_party/crates/tokio-postgres-rustls-0.14.0:tokio_postgres_rustls",
     tags = ["manual"],
 )
 
 alias(
     name = "tokio-postgres-rustls",
-    actual = "//third_party/crates/tokio-postgres-rustls-0.13.0:tokio_postgres_rustls",
+    actual = "//third_party/crates/tokio-postgres-rustls-0.14.0:tokio_postgres_rustls",
     tags = ["manual"],
 )
 
@@ -1231,50 +1231,62 @@ alias(
 )
 
 alias(
-    name = "tonic-0.12.3",
-    actual = "//third_party/crates/tonic-0.12.3:tonic",
+    name = "tonic-0.14.6",
+    actual = "//third_party/crates/tonic-0.14.6:tonic",
     tags = ["manual"],
 )
 
 alias(
     name = "tonic",
-    actual = "//third_party/crates/tonic-0.12.3:tonic",
+    actual = "//third_party/crates/tonic-0.14.6:tonic",
     tags = ["manual"],
 )
 
 alias(
-    name = "tonic-build-0.12.3",
-    actual = "//third_party/crates/tonic-build-0.12.3:tonic_build",
-    tags = ["manual"],
-)
-
-alias(
-    name = "tonic-build",
-    actual = "//third_party/crates/tonic-build-0.12.3:tonic_build",
-    tags = ["manual"],
-)
-
-alias(
-    name = "tonic-health-0.12.3",
-    actual = "//third_party/crates/tonic-health-0.12.3:tonic_health",
+    name = "tonic-health-0.14.6",
+    actual = "//third_party/crates/tonic-health-0.14.6:tonic_health",
     tags = ["manual"],
 )
 
 alias(
     name = "tonic-health",
-    actual = "//third_party/crates/tonic-health-0.12.3:tonic_health",
+    actual = "//third_party/crates/tonic-health-0.14.6:tonic_health",
     tags = ["manual"],
 )
 
 alias(
-    name = "tonic-reflection-0.12.3",
-    actual = "//third_party/crates/tonic-reflection-0.12.3:tonic_reflection",
+    name = "tonic-prost-0.14.6",
+    actual = "//third_party/crates/tonic-prost-0.14.6:tonic_prost",
+    tags = ["manual"],
+)
+
+alias(
+    name = "tonic-prost",
+    actual = "//third_party/crates/tonic-prost-0.14.6:tonic_prost",
+    tags = ["manual"],
+)
+
+alias(
+    name = "tonic-prost-build-0.14.6",
+    actual = "//third_party/crates/tonic-prost-build-0.14.6:tonic_prost_build",
+    tags = ["manual"],
+)
+
+alias(
+    name = "tonic-prost-build",
+    actual = "//third_party/crates/tonic-prost-build-0.14.6:tonic_prost_build",
+    tags = ["manual"],
+)
+
+alias(
+    name = "tonic-reflection-0.14.6",
+    actual = "//third_party/crates/tonic-reflection-0.14.6:tonic_reflection",
     tags = ["manual"],
 )
 
 alias(
     name = "tonic-reflection",
-    actual = "//third_party/crates/tonic-reflection-0.12.3:tonic_reflection",
+    actual = "//third_party/crates/tonic-reflection-0.14.6:tonic_reflection",
     tags = ["manual"],
 )
 
@@ -1291,14 +1303,14 @@ alias(
 )
 
 alias(
-    name = "tower-http-0.6.11",
-    actual = "//third_party/crates/tower-http-0.6.11:tower_http",
+    name = "tower-http-0.7.0",
+    actual = "//third_party/crates/tower-http-0.7.0:tower_http",
     tags = ["manual"],
 )
 
 alias(
     name = "tower-http",
-    actual = "//third_party/crates/tower-http-0.6.11:tower_http",
+    actual = "//third_party/crates/tower-http-0.7.0:tower_http",
     tags = ["manual"],
 )
 
@@ -1339,14 +1351,14 @@ alias(
 )
 
 alias(
-    name = "ureq-2.12.1",
-    actual = "//third_party/crates/ureq-2.12.1:ureq",
+    name = "ureq-3.3.0",
+    actual = "//third_party/crates/ureq-3.3.0:ureq",
     tags = ["manual"],
 )
 
 alias(
     name = "ureq",
-    actual = "//third_party/crates/ureq-2.12.1:ureq",
+    actual = "//third_party/crates/ureq-3.3.0:ureq",
     tags = ["manual"],
 )
 
@@ -1375,14 +1387,14 @@ alias(
 )
 
 alias(
-    name = "which-7.0.3",
-    actual = "//third_party/crates/which-7.0.3:which",
+    name = "which-8.0.5",
+    actual = "//third_party/crates/which-8.0.5:which",
     tags = ["manual"],
 )
 
 alias(
     name = "which",
-    actual = "//third_party/crates/which-7.0.3:which",
+    actual = "//third_party/crates/which-8.0.5:which",
     tags = ["manual"],
 )
 

@@ -1,0 +1,56 @@
+name: CI
+
+on: [push, pull_request]
+
+env:
+  CARGO_TERM_COLOR: always
+  MSRV: "1.56"
+
+jobs:
+  test:
+    name: "${{ matrix.os.name }} (${{ matrix.toolchain }})"
+    continue-on-error: false
+    runs-on: ${{ matrix.os.distro }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - { name: Linux, distro: ubuntu-latest }
+          - { name: Windows, distro: windows-latest }
+        toolchain: [stable, beta, nightly]
+
+    steps:
+      - name: Checkout Sources
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+
+      - name: Run Tests
+        run: "cargo update && ./scripts/test.sh"
+        shell: bash
+
+  msrv:
+    name: Check MSRV
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Sources
+        uses: actions/checkout@v4
+
+      - name: Install Rust Nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Downgrade Dependencies to Minimal Versions
+        run: cargo update -Z minimal-versions
+
+      - name: Install MSRV (${{ env.MSRV }})
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.MSRV }}
+
+      - name: Run Tests
+        run: ./scripts/test.sh

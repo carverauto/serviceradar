@@ -105,7 +105,7 @@ rust_library(
     version = "7.2.4",
     deps = [
         "//third_party/crates/zstd-safe-7.2.4:build_script_build",
-        "//third_party/crates/zstd-sys-2.0.15-zstd.1.5.7:zstd_sys",
+        "//third_party/crates/zstd-sys-2.0.16-zstd.1.5.7:zstd_sys",
     ],
 )
 
@@ -150,7 +150,7 @@ cargo_build_script(
     ),
     edition = "2018",
     link_deps = [
-        "//third_party/crates/zstd-sys-2.0.15-zstd.1.5.7:zstd_sys",
+        "//third_party/crates/zstd-sys-2.0.16-zstd.1.5.7:zstd_sys",
     ],
     pkg_name = "zstd-safe",
     rustc_env_files = [
