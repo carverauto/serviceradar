@@ -1,0 +1,133 @@
+rust/workload-identity/src/lib.rs
+  s_6f8eb423821667::t_2605a074b03a11 35
+  s_6f8eb423821667::t_34043b11cf5ce0 432-433,437,516-517,521
+  s_6f8eb423821667::t_f72b35b33af99f 67,538
+  s_6f8eb423821667::t_d282f8be8164c4 65,436,520,539-542,624-628
+  s_6f8eb423821667::t_edd3a0e3cc5f31 36
+rust/netprobe/src/p0f_encode.rs
+  s_6f8eb423821667::t_2089df3393b071 190
+rust/rperf-client/build.rs
+  s_6f8eb423821667::t_f72b35b33af99f 59
+  s_6f8eb423821667::t_d282f8be8164c4 60-62
+rust/metrics-delta-writer/src/bin/metrics_protobuf_bench.rs
+  s_6f8eb423821667::t_2089df3393b071 338
+rust/flow-collector/src/host_slice.rs
+  s_6f8eb423821667::t_42905fb6cdfb90 42-44
+rust/edge-onboarding/src/deployment.rs
+  s_6f8eb423821667::t_f72b35b33af99f 87
+  s_6f8eb423821667::t_d282f8be8164c4 88-90
+rust/edge-onboarding/src/config.rs
+  s_6f8eb423821667::t_f72b35b33af99f 145
+  s_6f8eb423821667::t_d282f8be8164c4 146-172
+rust/flowgger/src/flowgger/decoder/rfc3164_decoder.rs
+  s_6f8eb423821667::t_f72b35b33af99f 126,256,304,312-313
+  s_6f8eb423821667::t_d282f8be8164c4 127-132,257-259,305-309,314-317
+rust/powerdns/src/lib.rs
+  s_6f8eb423821667::t_f72b35b33af99f 266,527,690
+  s_6f8eb423821667::t_d282f8be8164c4 267-271,528-535,691-693
+rust/log-collector/src/main.rs
+  s_6f8eb423821667::t_f72b35b33af99f 120
+rust/anomaly-addon/src/engine/checkpoint.rs
+  s_6f8eb423821667::t_b0455850149104 310
+rust/rdp-adapter/src/runtime.rs
+  s_6f8eb423821667::t_f72b35b33af99f 273
+  s_6f8eb423821667::t_d282f8be8164c4 274-277
+rust/flow-collector/src/sflow/converter.rs
+  s_6f8eb423821667::t_d282f8be8164c4 188-190
+  s_6f8eb423821667::t_f72b35b33af99f 187
+rust/srql/src/query/plan.rs
+  s_6f8eb423821667::t_f72b35b33af99f 152
+  s_6f8eb423821667::t_d282f8be8164c4 153-155
+rust/flowgger/src/flowgger/grpc.rs
+  s_6f8eb423821667::t_f72b35b33af99f 200,224
+rust/netprobe/src/runtime_config.rs
+  s_6f8eb423821667::t_4b96b23be6881e 317-320,742-743
+  s_6f8eb423821667::t_f72b35b33af99f 403,425
+  s_6f8eb423821667::t_d282f8be8164c4 404-406,426-428
+rust/kvutil/src/lib.rs
+  s_6f8eb423821667::t_d282f8be8164c4 195-197
+  s_6f8eb423821667::t_f72b35b33af99f 194
+rust/trapd/src/main.rs
+  s_6f8eb423821667::t_f72b35b33af99f 454,485
+rust/rperf-client/src/server.rs
+  s_6f8eb423821667::t_f72b35b33af99f 138,595,621
+  s_6f8eb423821667::t_d282f8be8164c4 596-601,622-640
+rust/netprobe/src/af_xdp_classifier.rs
+  s_6f8eb423821667::t_f72b35b33af99f 286
+  s_6f8eb423821667::t_d282f8be8164c4 287-289
+rust/netprobe/src/p0f_matcher.rs
+  s_6f8eb423821667::t_d282f8be8164c4 89-93
+  s_6f8eb423821667::t_f72b35b33af99f 87-88
+rust/netprobe/build.rs
+  s_6f8eb423821667::t_d282f8be8164c4 173-177,181-185,188-191,330-332
+  s_6f8eb423821667::t_ed7cffd6f873db 283
+  s_6f8eb423821667::t_f72b35b33af99f 329
+rust/netprobe/src/os_matcher.rs
+  s_6f8eb423821667::t_f72b35b33af99f 405
+  s_6f8eb423821667::t_d282f8be8164c4 406-415
+rust/netprobe/src/dpi.rs
+  s_6f8eb423821667::t_d282f8be8164c4 118-129
+  s_6f8eb423821667::t_f72b35b33af99f 117
+rust/netprobe/src/external_flow.rs
+  s_6f8eb423821667::t_2089df3393b071 22-24
+rust/netprobe/src/satori.rs
+  s_6f8eb423821667::t_f72b35b33af99f 364
+  s_6f8eb423821667::t_d282f8be8164c4 365-367
+  s_6f8eb423821667::t_ed7cffd6f873db 437
+rust/edge-onboarding/src/token.rs
+  s_6f8eb423821667::t_d282f8be8164c4 99-101
+  s_6f8eb423821667::t_f72b35b33af99f 98
+rust/config-bootstrap/src/lib.rs
+  s_6f8eb423821667::t_d282f8be8164c4 135-142
+  s_6f8eb423821667::t_f72b35b33af99f 134
+rust/netprobe/src/ipc/match_banner.rs
+  s_6f8eb423821667::t_d282f8be8164c4 35-37,41-43
+  s_6f8eb423821667::t_f72b35b33af99f 34,40
+rust/srql/src/time.rs
+  s_6f8eb423821667::t_f72b35b33af99f 139,159
+  s_6f8eb423821667::t_d282f8be8164c4 140-142,160-162
+rust/anomaly-addon/src/config.rs
+  s_6f8eb423821667::t_f72b35b33af99f 366
+rust/netprobe/src/fingerprint.rs
+  s_6f8eb423821667::t_d282f8be8164c4 184-188,192,194,196-200,202-204,206,208-212,215-217,219-223,226-228
+  s_6f8eb423821667::t_f72b35b33af99f 214,225
+rust/trapd/src/config.rs
+  s_6f8eb423821667::t_d282f8be8164c4 117-119
+  s_6f8eb423821667::t_f72b35b33af99f 116
+rust/flowgger/src/flowgger/output/nats_output.rs
+  s_6f8eb423821667::t_d282f8be8164c4 308-313,315
+  s_6f8eb423821667::t_f72b35b33af99f 307
+rust/addon-sdk/src/server.rs
+  s_6f8eb423821667::t_f72b35b33af99f 117
+rust/netprobe/src/server.rs
+  s_6f8eb423821667::t_2089df3393b071 59,173
+  s_6f8eb423821667::t_4b96b23be6881e 1286-1287
+  s_6f8eb423821667::t_f72b35b33af99f 1102
+Cargo.toml
+  s_6f8eb423821667::t_1fc119cd96b4e7 51
+rust/srql/src/models/events.rs
+  s_6f8eb423821667::t_d282f8be8164c4 176-178,196-198
+  s_6f8eb423821667::t_f72b35b33af99f 175,195
+rust/addon-sdk/src/handshake.rs
+  s_6f8eb423821667::t_f72b35b33af99f 131
+  s_6f8eb423821667::t_d282f8be8164c4 132-134
+rust/srql/src/query/services.rs
+  s_6f8eb423821667::t_f72b35b33af99f 325-326,331-332
+  s_6f8eb423821667::t_d282f8be8164c4 328-329,334-335
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "ed90f8ef2c3f7813c238f54222379d09b94b4b1f",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
