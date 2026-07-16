@@ -13,34 +13,34 @@ name = "flowgger"
 path = "src/lib.rs"
 
 [dependencies]
-anyhow = "1"
-async-nats = { version = "0.49", optional = true }
-clap = "4"
-flate2 = "1"
-glob = { version = "0.3", optional = true }
-kafka = { version = "0.10", features = ["snappy", "gzip", "security"], optional = true }
-log = "0.4"
-may = { version = "~0.3", optional = true }
-notify = { version = "8", optional = true }
-pem = "3"
-rand = "0.8"
-redis = { version = "1.4", optional = true }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"], optional = true }
-rustls-pemfile = { version = "2", optional = true }
-serde = { version = "1", optional = true }
-serde_json = { version = "~0.8", optional = true }
-spiffe = { version = "0.16", default-features = false, features = ["x509-source"] }
-tempfile = "3"
-time = { version = ">=0.3.36, <0.3.47", features = ["parsing", "formatting"] }
-time-tz = "0.3"
-tokio = { version = "1.45.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
-toml = "1"
-tonic = { workspace = true }
+anyhow = { workspace = true }
+async-nats = { workspace = true, optional = true }
+clap = { workspace = true }
+flate2 = { workspace = true }
+glob = { workspace = true, optional = true }
+kafka = { workspace = true, features = ["snappy", "gzip", "security"], optional = true }
+log = { workspace = true }
+may = { workspace = true, optional = true }
+notify = { workspace = true, features = ["macos_fsevent"], optional = true }
+pem = { workspace = true }
+rand = { workspace = true }
+redis = { workspace = true, optional = true }
+rustls = { workspace = true, features = ["ring", "std", "tls12", "logging"], optional = true }
+rustls-pemfile = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+spiffe = { workspace = true, features = ["x509-source"] }
+tempfile = { workspace = true }
+time = { workspace = true, features = ["parsing", "formatting"] }
+time-tz = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
+toml = { workspace = true }
+tonic = { workspace = true, features = ["transport", "tls"] }
 tonic-health = { workspace = true }
 
 [dev-dependencies]
-quickcheck = "1"
-rcgen = "0.12"
+quickcheck = { workspace = true }
+rcgen = { workspace = true }
 
 [build-dependencies]
 tonic-build = { workspace = true }

@@ -2,7 +2,7 @@ use super::Encoder;
 use crate::flowgger::config::Config;
 use crate::flowgger::record::{Record, SDValue};
 use serde_json;
-use serde_json::builder::ObjectBuilder;
+use serde_json::map::Map;
 use serde_json::value::Value;
 
 #[derive(Clone)]
@@ -57,35 +57,35 @@ impl Encoder for GelfEncoder {
     /// - `Ok` Containing a byte vector rapresenting a valid GELF JSON
     /// - `Err` if the Record could not be serialized to a valid JSON
     fn encode(&self, record: Record) -> Result<Vec<u8>, &'static str> {
-        let mut map = ObjectBuilder::new()
-            .insert("version".to_owned(), Value::String("1.1".to_owned()))
-            .insert(
-                "host".to_owned(),
-                Value::String(if record.hostname.is_empty() {
-                    "unknown".to_owned()
-                } else {
-                    record.hostname
-                }),
-            )
-            .insert(
-                "short_message".to_owned(),
-                Value::String(record.msg.unwrap_or_else(|| "-".to_owned())),
-            )
-            .insert("timestamp".to_owned(), Value::F64(record.ts));
+        let mut map = Map::new();
+        map.insert("version".to_owned(), Value::String("1.1".to_owned()));
+        map.insert(
+            "host".to_owned(),
+            Value::String(if record.hostname.is_empty() {
+                "unknown".to_owned()
+            } else {
+                record.hostname
+            }),
+        );
+        map.insert(
+            "short_message".to_owned(),
+            Value::String(record.msg.unwrap_or_else(|| "-".to_owned())),
+        );
+        map.insert("timestamp".to_owned(), Value::from(record.ts));
         if let Some(severity) = record.severity {
-            map = map.insert("level".to_owned(), Value::U64(u64::from(severity)));
+            map.insert("level".to_owned(), Value::from(u64::from(severity)));
         }
         if let Some(full_msg) = record.full_msg {
-            map = map.insert("full_message".to_owned(), Value::String(full_msg));
+            map.insert("full_message".to_owned(), Value::String(full_msg));
         }
         if let Some(appname) = record.appname {
-            map = map.insert("application_name".to_owned(), Value::String(appname));
+            map.insert("application_name".to_owned(), Value::String(appname));
         }
         if let Some(procid) = record.procid {
-            map = map.insert("process_id".to_owned(), Value::String(procid));
+            map.insert("process_id".to_owned(), Value::String(procid));
         }
         if let Some(addr) = record.remote_addr {
-            map = map.insert("_remote_addr".to_owned(), Value::String(addr));
+            map.insert("_remote_addr".to_owned(), Value::String(addr));
         }
         if let Some(sd_vec) = record.sd {
             for sd in &sd_vec {
@@ -95,25 +95,25 @@ impl Encoder for GelfEncoder {
                 // others. We could use the sd_id to prefix the field to sove this but this is a
                 // breaking change.
                 if let Some(sd_id) = &sd.sd_id {
-                    map = map.insert("sd_id".to_owned(), Value::String(sd_id.to_string()));
+                    map.insert("sd_id".to_owned(), Value::String(sd_id.to_string()));
                 }
                 for (name, value) in &sd.pairs {
                     let value = match value {
                         SDValue::String(value) => Value::String(value.to_string()),
                         SDValue::Bool(value) => Value::Bool(*value),
-                        SDValue::F64(value) => Value::F64(*value),
-                        SDValue::I64(value) => Value::I64(*value),
-                        SDValue::U64(value) => Value::U64(*value),
+                        SDValue::F64(value) => Value::from(*value),
+                        SDValue::I64(value) => Value::from(*value),
+                        SDValue::U64(value) => Value::from(*value),
                         SDValue::Null => Value::Null,
                     };
-                    map = map.insert(name, value);
+                    map.insert(name.clone(), value);
                 }
             }
         }
         for (name, value) in self.extra.iter().cloned() {
-            map = map.insert(name, Value::String(value));
+            map.insert(name, Value::String(value));
         }
-        let json = serde_json::to_vec(&map.build()).or(Err("Unable to serialize to JSON"))?;
+        let json = serde_json::to_vec(&Value::Object(map)).or(Err("Unable to serialize to JSON"))?;
         Ok(json)
     }
 }

@@ -3,8 +3,6 @@ use crate::flowgger::config::Config;
 use crate::flowgger::record::{Record, SDValue, StructuredData, SEVERITY_MAX};
 use crate::flowgger::utils;
 use serde_json::de;
-use serde_json::error::Error::Syntax;
-use serde_json::error::ErrorCode;
 use serde_json::value::Value;
 
 #[derive(Clone)]
@@ -39,12 +37,14 @@ impl Decoder for GelfDecoder {
         let mut full_msg = None;
         let mut severity = None;
 
-        let obj = match de::from_str(line) {
-            x @ Ok(_) => x,
-            Err(Syntax(ErrorCode::InvalidUnicodeCodePoint, ..)) => {
-                de::from_str(&line.replace('\n', r"\n"))
-            }
-            x => x,
+        // A raw newline inside a JSON string is a syntax error, so retry once with them
+        // escaped. serde_json no longer exposes the specific error code (it reported
+        // InvalidUnicodeCodePoint for this), so this keys off the syntax category instead:
+        // slightly broader, but the retry either parses or surfaces the original failure.
+        let obj = match de::from_str::<Value>(line) {
+            Ok(obj) => Ok(obj),
+            Err(ref e) if e.is_syntax() => de::from_str::<Value>(&line.replace('\n', r"\n")),
+            Err(e) => Err(e),
         };
         let obj: Value = obj.or(Err("Invalid GELF input, unable to parse as a JSON object"))?;
         let obj = obj.as_object().ok_or("Empty GELF input")?;
@@ -90,9 +90,20 @@ impl Decoder for GelfDecoder {
                     let sd_value: SDValue = match *value {
                         Value::String(ref value) => SDValue::String(value.to_owned()),
                         Value::Bool(value) => SDValue::Bool(value),
-                        Value::F64(value) => SDValue::F64(value),
-                        Value::I64(value) => SDValue::I64(value),
-                        Value::U64(value) => SDValue::U64(value),
+                        // serde_json used to expose U64/I64/F64 as distinct variants; they are
+                        // now one Number. Probe widest-first so a non-negative integer still
+                        // lands on SDValue::U64 exactly as before.
+                        Value::Number(ref value) => {
+                            if let Some(value) = value.as_u64() {
+                                SDValue::U64(value)
+                            } else if let Some(value) = value.as_i64() {
+                                SDValue::I64(value)
+                            } else if let Some(value) = value.as_f64() {
+                                SDValue::F64(value)
+                            } else {
+                                return Err("Invalid value type in structured data");
+                            }
+                        }
                         Value::Null => SDValue::Null,
                         _ => return Err("Invalid value type in structured data"),
                     };
