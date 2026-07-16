@@ -71,12 +71,16 @@ impl Config {
     ///   string is not valid toml and cannot be parsed
     ///
     pub fn from_string(toml: &str) -> Result<Config, Error> {
-        let config: Value = match toml.parse() {
+        // Must go through the deserializer, not `str::parse::<Value>()`: FromStr parses a
+        // single TOML *value*, so a document starting with `[section]` is read as an array
+        // and everything after it is "unexpected content". `from_str` parses a document.
+        // (`toml` here is the &str parameter, hence the leading `::`.)
+        let config: Value = match ::toml::from_str(toml) {
             Ok(config) => config,
-            Err(_) => {
+            Err(e) => {
                 return Err(Error::new(
                     ErrorKind::InvalidData,
-                    "Syntax error - config file is not valid TOML",
+                    format!("Syntax error - config file is not valid TOML: {e}"),
                 ));
             }
         };
@@ -108,6 +112,32 @@ impl Config {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::path::PathBuf;
+
+    /// `cargo test` runs with the crate root as the working directory, but Bazel runs the
+    /// test binary out of the runfiles tree, where a bare relative path resolves to nothing.
+    /// Resolve against the manifest first, then runfiles, mirroring netprobe's corpus lookup.
+    fn fixture_path(name: &str) -> PathBuf {
+        if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+            let candidate = Path::new(&manifest_dir).join("tests/resources").join(name);
+            if candidate.exists() {
+                return candidate;
+            }
+        }
+        if let Ok(test_srcdir) = std::env::var("TEST_SRCDIR") {
+            let root = PathBuf::from(test_srcdir);
+            for relative in [
+                "serviceradar/rust/flowgger/tests/resources",
+                "_main/rust/flowgger/tests/resources",
+            ] {
+                let candidate = root.join(relative).join(name);
+                if candidate.exists() {
+                    return candidate;
+                }
+            }
+        }
+        PathBuf::from("tests/resources").join(name)
+    }
 
     #[test]
     fn test_config_from_string() {
@@ -140,7 +170,7 @@ mod test {
 
     #[test]
     fn test_config_from_path() {
-        let config = Config::from_path("tests/resources/good_config.toml").unwrap();
+        let config = Config::from_path(fixture_path("good_config.toml")).unwrap();
         assert_eq!(
             config
                 .lookup("this_is_a_valid_section.this_is_valid_field")
@@ -168,7 +198,7 @@ mod test {
     #[test]
     #[should_panic(expected = "Syntax error - config file is not valid TOML")]
     fn test_config_from_path_bad_format() {
-        let _config = Config::from_path("tests/resources/bad_config.toml").unwrap();
+        let _config = Config::from_path(fixture_path("bad_config.toml")).unwrap();
     }
 
     #[test]
@@ -181,7 +211,7 @@ mod test {
 
     #[test]
     fn test_config_clone() {
-        let config = Config::from_path("tests/resources/good_config.toml").unwrap();
+        let config = Config::from_path(fixture_path("good_config.toml")).unwrap();
         let _config_cloned = config.clone();
         assert_eq!(config.config, _config_cloned.config);
     }

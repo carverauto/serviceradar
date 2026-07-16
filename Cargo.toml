@@ -116,10 +116,9 @@ phf_codegen = "0.11"
 # Exact-pinned: see openssl-sys above.
 pq-sys = "=0.7.5"
 pretty_assertions = "1"
-# default = ["protobuf"] is load-bearing: without it prometheus swaps in its own
-# proto types and netprobe's get_counter().value() stops compiling. Consumers add
-# only extras ("process").
-prometheus = "0.14"
+# default = ["protobuf"]: without it prometheus swaps in its own
+# proto types and netprobe's get_counter().value() stops compiling.
+prometheus = { version = "0.14", features = ["protobuf"]}
 prost = "0.13"
 prost-build = "0.13"
 quick-xml = "0.41"
