@@ -177,36 +177,63 @@ already-exported chunks. Contract:
   and retention worker — the drop gate alone enforces it (do not "fix"
   perceived races by coupling the workers).
 
-### D6. Export mechanics through the analytics head
-`duckdb.query($$COPY (SELECT <registry column list with canonical casts> FROM
-postgres_scan(...) WHERE ts >= $lo AND ts < $hi) TO 's3://…' (FORMAT parquet,
-COMPRESSION zstd)$$)` per chunk, driven by core-elx over `ColdRepo`.
-- Primary protection: DuckDB postgres scanner pinned to
-  `pg_connection_limit 1–2`; dedicated read-only role on the primary
-  (registry tables + manifest only) with role-level `statement_timeout`,
-  `idle_in_transaction_session_timeout`, TCP keepalives; backfill paced one
-  chunk at a time, off-peak, with an xmin-age monitor and abort threshold
-  (long snapshots block vacuum on high-churn tables —
-  `flow_process_attribution_current` history says this is real).
-- **Phase-0 spike (approval gate)**: verify predicate pushdown through the
-  hypertable *parent* via postgres scanner (ctid-partitioned scans size by
-  relpages, which is ~0 on the parent). Fallback (also spiked): target chunk
-  relations in `_timescaledb_internal` directly — safe for v1 scope since no
-  registry table is compressed.
-- **Phase-0 spike**: `COPY … TO s3` stability for this exact statement family
-  (open pg_duckdb #1056 is a SEGV in a cousin shape — blast radius is the
-  head only, but export availability matters).
-- Verification: `read_parquet` count vs primary chunk count (+ checksum
-  column aggregate); performed within the same off-peak window to avoid
-  re-scanning at peak.
+### D6. Export mechanics through the analytics head (AMENDED per Phase-0)
+The DuckDB `postgres` extension cannot run inside pg_duckdb ("libpq is
+incorrectly linked to backend functions") — the mechanism is **postgres_fdw**:
+pg_duckdb executes FDW foreign tables inside DuckDB plans
+(`PGDUCKDB_POSTGRES_SCAN`) with absolute-literal predicates pushed down to the
+primary, where TimescaleDB does native chunk exclusion (proven by exact tuple
+accounting, spike 0.1). Export per chunk, driven by core-elx over `ColdRepo`:
+`COPY (SELECT <registry column list with canonical casts> FROM
+fdw.<table> WHERE ts >= $lo AND ts < $hi) TO 's3://…' (FORMAT parquet,
+COMPRESSION zstd)`.
+- **Connection contract (spike 0.2)**: SERVER options `fetch_size '1000'`
+  (measured sweet spot, ~86–112k rows/s; 10000 regresses),
+  `connect_timeout '5'`, `tcp_user_timeout '60000'`, `keepalives_idle '30'`,
+  `keepalives_interval '10'`, `keepalives_count '3'` (libpq option names, not
+  GUC names). Primary role `cold_reader`: SELECT-only on registry tables +
+  manifest, role-level `statement_timeout`/`idle_in_transaction_session_timeout`,
+  `CONNECTION LIMIT 2–4` (exhaustion = typed SQLSTATE 08001 → backoff-retry).
+  Exports are single-connection, cursor-paced — gentle on the primary.
+- **Exports are non-preemptible (spike 0.3 — hard rule)**: interrupting an
+  in-flight `COPY … TO s3` (statement_timeout, pg_cancel, pg_terminate)
+  yields a corrupt COMPLETED object, a poisoned session (including silent
+  loss of the DuckDB S3 secret), or a postmaster SIGABRT on the head.
+  Therefore: exporter sessions run `statement_timeout=0`; nothing ever
+  cancels an exporter COPY; bounding comes from **input sizing** (≤1 chunk /
+  ≈250MB output per COPY, observed seconds-to-tens-of-seconds); a watchdog
+  alerts on overrun but never cancels; every exporter session is short-lived
+  and discarded after any error; the head being dedicated (D1) makes the
+  worst case (postmaster crash-recovery, <1s) product-invisible.
+- **xmin discipline (spike 0.2)**: each COPY pins `backend_xmin` on the
+  primary for its whole runtime — chunk-sized units bound vacuum-horizon
+  holdback; backfills iterate units, never one giant COPY.
+- Data addressing: hypertable **parent + absolute UTC range** only — chunk
+  relations are never targeted directly (slower, DDL churn, unstable names,
+  breaks under future columnstore compression; spike 0.2e).
+- **Verification pair (spike 0.2, gates manifest commit)**: computed
+  identically on the primary and via `read_parquet`:
+  `count(*)`, `min/max` epoch-microseconds, `count(DISTINCT <tiebreaker>)`,
+  `sum(length(text col))`, and a 60-bit-md5 content sum over a stable
+  serialization (epoch_us + key columns + `floor(value*1e6)::bigint` for
+  floats). Bans in checksum serializations: raw float `::text` (PG `1` vs
+  DuckDB `1.0`), `round()` (divergent halfway modes), `hashtext()`
+  (PG-only), timestamp text. Detects both row loss and content mutation
+  (proven). Object existence proves nothing (spikes 0.3/0.4): a "completed"
+  object may be truncated — only the verification pair admits a manifest row
+  to `verified`, and unmanifested objects are garbage-collected.
 
-### D7. Cold query path and SRQL routing (M2)
+### D7. Cold query path and SRQL routing (M2) (AMENDED per Phase-0)
 - Analytics head hosts schema-matched `platform.<table>` views per registry
   entry (generated from the registry; regenerated on schema migration — CI
-  drift check). Referenced dimension tables (`ocsf_devices`, flow-attribution
-  lookup tables) get same-name postgres-scanner views — **not** postgres_fdw:
-  a query mixing an FDW relation with `read_parquet` can execute in neither
-  engine; the DuckDB postgres scanner is the only hot-branch mechanism.
+  drift check): Parquet branch (`read_parquet`, exposing the hive partition
+  column) ∪ **postgres_fdw** foreign table for the hot branch. Spike 0.1
+  proved the whole stitched query executes in one DuckDB plan with the query
+  predicate intersected into BOTH branches and pushed down to the primary
+  (the earlier "FDW can't mix with read_parquet" claim was wrong). Referenced
+  dimension tables (`ocsf_devices`, flow lookup tables) are same-name FDW
+  foreign tables. The staging-table variant remains a documented fallback if
+  FDW-in-DuckDB regresses upstream.
 - SRQL `translate` gains a cold-tier config input (enabled entities, per-table
   `B`/hot windows, cold window caps) and returns route metadata. Routing rule:
   raw-shape queries (row listing, point lookups with an absolute time hint,
@@ -216,16 +243,35 @@ COMPRESSION zstd)$$)` per chunk, driven by core-elx over `ColdRepo`.
   unless the caller supplies an absolute hint — the trace detail view passes
   the summary's start time (summaries outlive raw spans), which fixes the
   `:spans_expired` case *and* gives partition pruning.
-- Cold SQL dialect rules (registry-encoded, fail-closed):
-  - redundant `date=` partition predicates derived from the resolved window;
-  - a unique tiebreaker appended to every ORDER BY + explicit
-    `NULLS FIRST/LAST` matching PG semantics;
-  - construct translation for PG-isms DuckDB lacks (`#>>`,
-    `jsonb_build_object`, `try_inet`/`<<=`/cidr casts, `WITHIN GROUP`
-    percentile shapes, `E''` strings); untranslatable shape ⇒ typed
-    "not available for archived history" error, never a raw DuckDB error;
+- Cold SQL dialect rules (registry-encoded, **allowlist-based** — spike 0.1
+  found PG `~` regex silently returns different results under DuckDB
+  (partial-match vs full-match), so fail-closed cannot be error-catch-based;
+  every allowed construct is certified by a differential PG-vs-DuckDB
+  execution test):
+  - redundant `date=` hive-partition predicates derived from the resolved
+    window — mandatory: timestamp predicates alone prune row groups but
+    never files (spike 0.1c);
+  - ordering contract (spike 0.6): every sort key gets explicit direction
+    AND explicit `NULLS FIRST/LAST` (PG defaults spelled out), every ORDER BY
+    terminates in the registry tiebreaker (DuckDB parallel scans are
+    non-deterministic on ties — 5 runs / 3 orders without one), time
+    predicates are absolute instants with explicit UTC offset;
+  - construct translation for PG-isms (`#>>`, `jsonb_build_object`,
+    `try_inet`/`<<=`/cidr casts, `E''` strings; `WITHIN GROUP` percentiles
+    verified working); unlisted shape ⇒ typed "not available for archived
+    history" error, never a raw DuckDB error;
   - DuckDB-native `time_bucket` is available (no polyfill); JSON operators
-    map to DuckDB JSON functions over the exported JSON-text columns.
+    map to DuckDB JSON functions over the exported JSON-text columns;
+  - cancellation classification matches on error MESSAGE, not SQLSTATE —
+    DuckDB-path timeouts/cancels surface as XX000 "Query cancelled", not
+    57014 (spike 0.3).
+- Collation (spike 0.6): the head database MUST be initdb'd
+  `localeCollate/localeCType: C` (the primary already is, via CNPG operator
+  defaults; the stock pgduckdb image is en_US.utf8). DuckDB always sorts
+  binary/codepoint — C collation matches it exactly; no per-query COLLATE
+  pinning is viable or needed. Startup/CI guard asserts
+  `pg_database.datcollate='C'` on both (query `pg_database`, not
+  `SHOW lc_collate` — removed in PG18).
 - Execution: `ColdRepo` (Ecto, pool_size 2–4, statement_timeout 60s default).
   Head memory request = `pool_size × duckdb.max_memory + PG overhead + spill
   headroom` — sized in chart values, spill on a dedicated ephemeral volume
@@ -235,6 +281,15 @@ COMPRESSION zstd)$$)` per chunk, driven by core-elx over `ColdRepo`.
 - Fail-soft: ColdRepo down / object store down ⇒ execute hot-only and attach
   an explicit truncation notice (the trace UI `:spans_expired` pattern
   generalized). The hot tier never errors because the cold tier is sick.
+  Interactive timeout contract (spike 0.3): all cold SELECT shapes (parquet,
+  FDW, stitched, local) are bounded by `statement_timeout` with ≤0.2s
+  overshoot and by `pg_cancel_backend` within ~35ms; ColdRepo discards a
+  session after any DuckDB error (errored sessions can silently lose their
+  S3 secret and fall back to public endpoints). `duckdb.postgres_role` must
+  be granted to the ColdRepo role (non-superusers are otherwise refused
+  DuckDB execution); memory/threads/spill GUCs are superuser-only and set
+  cluster-wide in the chart; spill can transiently reach ~12× the memory cap
+  — PGDATA headroom and `duckdb.max_temp_directory_size` are sized for it.
 - Pagination: cursors become v3 embedding the resolved absolute window (pages
   must not re-resolve `now`/`B`); deep-offset cold pages re-scan Parquet —
   cold route gets a lower max-offset cap.
@@ -246,27 +301,43 @@ COMPRESSION zstd)$$)` per chunk, driven by core-elx over `ColdRepo`.
   refresh pass (≤24h); rows are never missing from *both* branches (D3
   invariants).
 
-### D8. Secrets and connectivity
-- Object-store credentials: DuckDB `SECRET` on the head, created and
-  continuously re-asserted by a core-elx reconciler from the mounted K8s
-  secret (rotation-safe; nothing depends on a one-shot bootstrap job).
-  Per-provider `url_style`/endpoint quirks (path-style stores, checksum
-  behaviors) are registry config.
-- Primary connectivity: DuckDB postgres-type `SECRET` (or head-local
-  credential object), never DSN literals inside view DDL (no passwords in
-  `pg_views`). Rotation runbook + integration test are deliverables.
+### D8. Secrets and connectivity (AMENDED per Phase-0)
+- Both credential kinds live as PG catalog objects on the head (spike 0.1d):
+  the S3 secret (`duckdb.create_simple_secret` is itself stored as a dummy
+  foreign server + user mapping, re-materialized into each session's DuckDB
+  as a memory-only secret) and the primary connection (postgres_fdw SERVER +
+  USER MAPPING for `cold_reader`). One reconciler story covers both — and it
+  must be a full OWNER, not an asserter (spike 0.5): enumerate
+  `pg_foreign_server`, `DROP SERVER … CASCADE` stale/duplicate secrets before
+  re-creating (`create_simple_secret` accumulates `_1/_2/…` duplicates with
+  ambiguous same-scope resolution and has no delete function), and always
+  scope secrets to the bucket. No DSN literals inside view DDL — views
+  reference FDW tables; passwords stay in user mappings.
+- Scope/endpoint misconfiguration makes DuckDB silently fall back to public
+  AWS endpoints (spike 0.5d) — the head's egress NetworkPolicy is the
+  backstop, and the reconciler alerts on any resolution outside the
+  configured endpoint.
+- Per-provider `url_style`/endpoint quirks (path-style stores, checksum
+  behaviors) are registry config. Rotation runbook + integration test are
+  deliverables.
 - NetworkPolicies: head→primary :5432 (read-only role), head→object-store
   egress, core/web-ng→head; nothing else reaches the head.
 
-### D9. Cold retention & pruning
+### D9. Cold retention & pruning (AMENDED per Phase-0)
 Window-driven: per-table cold windows from deployment config (absent ⇒ no
-pruning beyond manifest hygiene). core-elx prunes objects manifest-first-read,
-**objects before manifest rows** (orphaned manifest rows are harmless;
-orphaned objects leak cost), plus a periodic manifest↔bucket reconciliation
-sweep (handles S3 eventual-consistency and aborted-multipart debris; bucket
-lifecycle rule `AbortIncompleteMultipartUpload` requested at provisioning
-where the provider honors it). Quota-driven eviction (prune-to-bytes with a
-cross-signal eviction order) is a documented follow-up, not v1.
+pruning beyond manifest hygiene). Prune ordering is **tombstone-first**
+(spike 0.5: readers using manifest-driven explicit file lists hard-error on
+missing keys): mark manifest rows `pruned` (readers exclude) → delete objects
+(including noncurrent versions) → GC manifest rows. The periodic
+manifest↔bucket reconciliation sweep OWNS multipart-debris cleanup directly
+via ListMultipartUploads/AbortMultipartUpload — bucket lifecycle rules are
+requested at provisioning but must be verified after PUT and never trusted
+(MinIO silently drops `AbortIncompleteMultipartUpload` from otherwise-valid
+configs). Bucket versioning posture is provisioning-owned: unversioned, or a
+`NoncurrentVersionExpiration` rule — idempotent re-export on a versioned
+bucket otherwise accumulates full noncurrent copies (spike 0.4). Quota-driven
+eviction (prune-to-bytes with a cross-signal eviction order) is a documented
+follow-up, not v1.
 
 ### D10. Storage/retention telemetry
 Always-on (cold tier or not): per-registry-table hot bytes
@@ -333,13 +404,38 @@ runs it fine; the head is the ideal canary for the overdue operator upgrade
 
 ## Migration Plan
 
-- **Phase 0 — decision-gate spikes** (block approval→implementation):
-  postgres-scanner-in-view pushdown both branches; hypertable-parent vs
-  chunk-relation scans; statement-timeout cancellation; COPY-to-S3 stability;
-  object-store compat matrix (Linode Object Storage; MinIO as the reference
-  path-style store); DuckDB NULLS/collation vs PG ordering verification
-  (cluster locale check). Spikes run against the compose stack + MinIO so
-  they need no cloud resources.
+- **Phase 0 — decision-gate spikes: COMPLETE (2026-07-16, all six
+  PASS-with-constraints).** Run against a live stack (real serviceradar-cnpg
+  image + pgduckdb 18-v1.1.1 + MinIO, 5.2M seeded rows across 72 chunks).
+  Verdicts, folded into D6–D9 above:
+  - 0.1 stitching: DuckDB `postgres` extension is unusable inside pg_duckdb
+    (libpq linkage) — **postgres_fdw-in-view is the mechanism** for both
+    query stitching and exports; predicate pushdown + remote chunk exclusion
+    proven by tuple accounting; hive `date=` predicates mandatory for file
+    pruning; PG `~` regex silently diverges ⇒ allowlist dialect.
+  - 0.2 export: fetch_size 1000 (~100k rows/s), libpq-named keepalive SERVER
+    options, engine-stable verification pair (count/epoch-us/distinct/
+    length-sum/60-bit-md5) proven to detect loss AND mutation; whole-COPY
+    xmin pinning ⇒ chunk-sized units; parent+absolute-range only.
+  - 0.3 cancellation: SELECT shapes bounded by statement_timeout (≤0.2s
+    overshoot; XX000 not 57014); **COPY is non-preemptible and interrupts
+    are destructive** (corrupt completed objects, poisoned sessions,
+    SIGABRT) ⇒ exporter never cancels, input-sized units, discard-on-error
+    sessions; upstream issues to file.
+  - 0.4 stability: 15+ COPYs, zero segfaults on happy path; idempotent
+    same-key overwrite holds; verification must be a real parquet read;
+    OOM = fast whole-instance reset (acceptable on the dedicated head only).
+  - 0.5 object store: MinIO silently drops AbortIncompleteMultipartUpload ⇒
+    sweep owns MPU cleanup; tombstone-first pruning; silent public-AWS
+    fallback on scope miss ⇒ egress lockdown; no cross-connection metadata
+    cache ⇒ manifest file lists at scale; Linode recheck checklist recorded
+    in the spike artifacts.
+  - 0.6 ordering: production CNPG is C-collated (operator default) — the
+    head MUST be initdb'd C (stock pgduckdb image is en_US.utf8); explicit
+    NULLS + registry tiebreaker on every ORDER BY; absolute-UTC-offset time
+    literals; `datcollate` guard (not `SHOW lc_collate`, removed in PG18).
+  Full reports in the spike scratchpad (`spike-0.*.md`); infra remains
+  runnable via the coldspike compose project for the M1 integration tests.
 - **Local development and CI**: an opt-in docker-compose profile adds MinIO
   and a local analytics-head container wired to the compose CNPG, so the
   entire export→verify→drop→query-back loop (and later the M2 parity suite)

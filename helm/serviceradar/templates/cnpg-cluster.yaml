@@ -169,6 +169,12 @@ spec:
     storageClass: {{ $cnpgStorageClass | quote }}
     {{- end }}
   bootstrap:
+    # NOTE: no locale/collation keys are set here on purpose — the CNPG
+    # operator default (encoding UTF8, lc_collate/lc_ctype C) is load-bearing
+    # for the tiered-telemetry cold path: DuckDB on the analytics head sorts
+    # in binary/codepoint order, which equals C collation exactly. Adding
+    # ICU/libc locale settings here would silently split hot-vs-cold text
+    # ordering (verified in add-tiered-telemetry-offload Phase-0 spike 0.6).
     initdb:
       database: {{ default "serviceradar" $cnpg.database }}
       owner: {{ $appUser | quote }}

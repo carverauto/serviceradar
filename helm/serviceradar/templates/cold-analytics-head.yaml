@@ -51,6 +51,15 @@ spec:
     initdb:
       database: serviceradar
       owner: serviceradar
+      # C collation is REQUIRED (spike 0.6): the primary CNPG initdb's are
+      # C-collated (operator default), and DuckDB execution always sorts in
+      # binary/codepoint order regardless of the database collation — a
+      # non-C head diverges from the primary AND from its own DuckDB-executed
+      # queries. The stock pgduckdb image defaults to en_US.utf8; never rely
+      # on image defaults here.
+      encoding: UTF8
+      localeCollate: C
+      localeCType: C
       postInitApplicationSQL:
         - CREATE EXTENSION IF NOT EXISTS pg_duckdb;
         - CREATE EXTENSION IF NOT EXISTS postgres_fdw;
