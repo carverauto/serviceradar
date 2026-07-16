@@ -103,6 +103,17 @@ logCollector:
   # reservation so JetStream placement fits within the account budget.
   streamReplicas: 3
   streamMaxBytes: 1073741824
+  # Use the dedicated UDP Service when the collector must record the actual
+  # device address. The shared Envoy UDPRoute remains enabled below for
+  # compatibility, but Envoy Gateway's UDP forwarding path rewrites the
+  # transport peer to the proxy pod address.
+  externalService:
+    enabled: true
+    type: LoadBalancer
+    annotations:
+      metallb.universe.tf/address-pool: k3s-pool
+    loadBalancerIP: "23.138.124.23"
+    externalTrafficPolicy: Local
   tcpCollector:
     enabled: true
     replicaCount: 3
