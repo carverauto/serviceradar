@@ -494,6 +494,9 @@ if config_env() == :prod do
   ocsf_network_activity_retention_days =
     "SERVICERADAR_OCSF_NETWORK_ACTIVITY_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
 
+  timeseries_metrics_retention_days =
+    "SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS" |> parse_int_env.(7) |> max(1)
+
   flow_attribution_retention_minutes =
     "SERVICERADAR_FLOW_ATTRIBUTION_RETENTION_MINUTES" |> parse_int_env.(60) |> max(15)
 
@@ -1079,6 +1082,7 @@ if config_env() == :prod do
     otel_metric_points_retention_days: otel_metric_points_retention_days,
     ocsf_events_retention_days: ocsf_events_retention_days,
     ocsf_network_activity_retention_days: ocsf_network_activity_retention_days,
+    timeseries_metrics_retention_days: timeseries_metrics_retention_days,
     otel_traces_chunk_interval_hours: otel_traces_chunk_interval_hours,
     logs_chunk_interval_hours: logs_chunk_interval_hours,
     otel_metrics_chunk_interval_hours: otel_metrics_chunk_interval_hours,
@@ -1113,6 +1117,23 @@ if config_env() == :prod do
   config :serviceradar_core, RootSpanRatioWorker,
     threshold: root_span_ratio_threshold,
     min_spans: root_span_ratio_min_spans
+
+  # Tiered telemetry cold storage (OpenSpec add-tiered-telemetry-offload).
+  # Deployment-supplied configuration; absent => every cold-tier surface is
+  # inert and behavior is identical to a build without the capability.
+  config :serviceradar_core, ServiceRadar.ColdTier,
+    enabled: System.get_env("SERVICERADAR_COLD_TIER_ENABLED") in ["true", "1"],
+    bucket_url: System.get_env("SERVICERADAR_COLD_TIER_BUCKET_URL"),
+    cold_windows: [
+      logs: "SERVICERADAR_COLD_WINDOW_LOGS_DAYS" |> parse_int_env.(365) |> max(1),
+      traces: "SERVICERADAR_COLD_WINDOW_TRACES_DAYS" |> parse_int_env.(365) |> max(1),
+      otel_metrics: "SERVICERADAR_COLD_WINDOW_OTEL_METRICS_DAYS" |> parse_int_env.(365) |> max(1),
+      otel_metric_points:
+        "SERVICERADAR_COLD_WINDOW_OTEL_METRIC_POINTS_DAYS" |> parse_int_env.(365) |> max(1),
+      timeseries: "SERVICERADAR_COLD_WINDOW_TIMESERIES_DAYS" |> parse_int_env.(365) |> max(1),
+      events: "SERVICERADAR_COLD_WINDOW_EVENTS_DAYS" |> parse_int_env.(365) |> max(1),
+      flows: "SERVICERADAR_COLD_WINDOW_FLOWS_DAYS" |> parse_int_env.(365) |> max(1)
+    ]
 
   # Agent-command history retention. The cleanup worker prunes terminal-state
   # rows (completed/failed/expired/canceled/offline) older than the window using

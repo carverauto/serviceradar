@@ -9,6 +9,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     unique: [period: 3_600, states: :incomplete]
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.ColdTier.RetentionFence
   alias ServiceRadar.Inventory.EndpointInventoryRetention
   alias ServiceRadar.Inventory.EndpointInventorySettingsRuntime
   alias ServiceRadar.Repo
@@ -24,6 +25,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   @default_ocsf_network_activity_retention_days 90
   @default_capacity_forecasts_retention_days 395
   @default_raw_metrics_retention_days 7
+  @default_timeseries_metrics_retention_days 7
   @default_otel_traces_chunk_interval_hours 1
   @default_logs_chunk_interval_hours 6
   @default_otel_metrics_chunk_interval_hours 24
@@ -90,8 +92,9 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
         {"capacity_forecasts", :capacity_forecasts_retention_days,
          @default_capacity_forecasts_retention_days, :capacity_forecasts_chunk_interval_hours,
          @default_capacity_forecasts_chunk_interval_hours},
-        {"timeseries_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
-         :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours},
+        {"timeseries_metrics", :timeseries_metrics_retention_days,
+         @default_timeseries_metrics_retention_days, :raw_metrics_chunk_interval_hours,
+         @default_raw_metrics_chunk_interval_hours},
         {"cpu_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
          :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours},
         {"cpu_cluster_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
@@ -112,65 +115,15 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
         chunk_hours =
           config |> Keyword.get(chunk_key, chunk_default) |> positive_integer(chunk_default)
 
-        replace_retention_policy(table_name, retention_days)
+        # All in-DB policy DDL goes through the cold-tier fence: unfenced
+        # tables keep today's remove+add behavior; fenced (offloaded) tables
+        # get their in-DB policy removed so only the gated drop below can
+        # ever discard data.
+        RetentionFence.reconcile_policy(table_name, retention_days)
         set_chunk_interval(table_name, chunk_hours)
         drop_expired_chunks(table_name, retention_days)
       end
     )
-  end
-
-  defp replace_retention_policy(table_name, retention_days) do
-    sql = """
-    DO $$
-    DECLARE
-      table_ident text;
-      ts_schema text;
-    BEGIN
-      table_ident := format('%I.%I', 'platform', '#{table_name}');
-
-      SELECT n.nspname
-      INTO ts_schema
-      FROM pg_extension e
-      JOIN pg_namespace n ON n.oid = e.extnamespace
-      WHERE e.extname = 'timescaledb';
-
-      IF ts_schema IS NOT NULL
-         AND EXISTS (
-           SELECT 1
-           FROM timescaledb_information.hypertables
-           WHERE hypertable_schema = 'platform'
-             AND hypertable_name = '#{table_name}'
-         ) THEN
-        EXECUTE format(
-          'SELECT %I.remove_retention_policy(%L::regclass, if_exists => true)',
-          ts_schema,
-          table_ident
-        );
-
-        EXECUTE format(
-          'SELECT %I.add_retention_policy(%L::regclass, INTERVAL ''#{retention_days} days'', if_not_exists => true)',
-          ts_schema,
-          table_ident
-        );
-      END IF;
-    EXCEPTION
-      WHEN others THEN
-        RAISE NOTICE 'Could not reconcile retention policy for #{table_name}: %', SQLERRM;
-    END;
-    $$;
-    """
-
-    case SQL.query(Repo, sql, [], timeout: @query_timeout_ms) do
-      {:ok, _result} ->
-        :ok
-
-      {:error, error} ->
-        Logger.warning("Failed to reconcile Timescale retention policy",
-          table: table_name,
-          retention_days: retention_days,
-          reason: Exception.message(error)
-        )
-    end
   end
 
   defp set_chunk_interval(table_name, chunk_hours) do
@@ -222,6 +175,28 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   end
 
   defp drop_expired_chunks(table_name, retention_days) do
+    # Fence-gated: on cold-configured deployments the drop point for registry
+    # tables is bounded by the acked query boundary and the contiguous
+    # verified-export prefix; :hold means data is retained (never silently
+    # lost) until exports catch up. Unfenced tables get the plain retention
+    # cutoff — identical to the previous interval-based behavior.
+    case RetentionFence.safe_drop_point(table_name, retention_days) do
+      {:ok, drop_point} ->
+        drop_chunks_older_than(table_name, drop_point)
+
+      :hold ->
+        Logger.info("Cold tier is holding expired chunks pending verified export",
+          table: table_name,
+          retention_days: retention_days
+        )
+
+        :ok
+    end
+  end
+
+  defp drop_chunks_older_than(table_name, %DateTime{} = drop_point) do
+    cutoff = drop_point |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
     sql = """
     DO $$
     DECLARE
@@ -244,7 +219,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
              AND hypertable_name = '#{table_name}'
          ) THEN
         EXECUTE format(
-          'SELECT %I.drop_chunks(%L::regclass, older_than => INTERVAL ''#{retention_days} days'')',
+          'SELECT %I.drop_chunks(%L::regclass, older_than => TIMESTAMPTZ ''#{cutoff}'')',
           ts_schema,
           table_ident
         );
@@ -263,7 +238,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
       {:error, error} ->
         Logger.warning("Failed to drop expired Timescale chunks",
           table: table_name,
-          retention_days: retention_days,
+          drop_point: cutoff,
           reason: Exception.message(error)
         )
     end

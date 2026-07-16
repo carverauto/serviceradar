@@ -841,6 +841,37 @@ cnpg:
   clientCAFromCerts: false
   requireClientCert: false
 
+# Tiered telemetry cold storage (OpenSpec add-tiered-telemetry-offload).
+# Everything below is DISABLED by default and renders nothing. Activation is a
+# deployment decision made by supplying complete cold-tier configuration
+# (object-store location/credentials + this analytics head); there is no
+# supported OSS enablement path.
+coldTier:
+  analyticsHead:
+    enabled: false
+    # Dedicated analytics image: PostgreSQL 18 + pg_duckdb, WITHOUT
+    # TimescaleDB/AGE/PostGIS (pg_duckdb is structurally incompatible with a
+    # TimescaleDB-loaded instance — never point this at the primary image).
+    imageName: ""
+    clusterName: cnpg-analytics
+    instances: 1
+    storageSize: 20Gi
+    storageClass: ""
+    # ColdRepo pool size drives the memory request:
+    # request = poolSize * duckdb.maxMemoryMb + overheadMb (per-connection
+    # DuckDB memory is NOT accounted inside PostgreSQL's own limits).
+    poolSize: 4
+    overheadMb: 1536
+    duckdb:
+      maxMemoryMb: 1536
+      threads: 2
+      # Spill lives under PGDATA (pg_duckdb default); the cap prevents a
+      # runaway query from filling the volume.
+      maxTempDirectorySize: 10GB
+    # Extra postgresql.parameters merged into the Cluster spec.
+    postgresqlParameters: {}
+    resources: {}
+
 # Shared storage for GeoLite2 MMDB files used by GeoIP/ASN enrichment.
 # This must be mounted wherever enrichment jobs run (core) and anywhere that
 # might need local lookups (web-ng). Enrichment should never do external API calls
