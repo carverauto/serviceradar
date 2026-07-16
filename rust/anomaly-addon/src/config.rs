@@ -20,15 +20,16 @@ use crate::engine::{
     DEFAULT_ANCHOR_MAX_AGE_SECS, DEFAULT_DRIFT_ADOPT_AFTER_SAMPLES, DEFAULT_DRIFT_CLEAR_SLOTS,
     DEFAULT_DRIFT_CONFIRM_WINDOW, DEFAULT_DRIFT_MIN_EFFECT, DEFAULT_EPISODE_UPDATE_INTERVAL_SECS,
     DEFAULT_H_CONFIRM_MULT, DEFAULT_METRIC_DENYLIST, DEFAULT_REOPEN_COOLDOWN_SECS,
+    DEFAULT_SPIKE_ADOPT_AFTER_SAMPLES,
 };
 use crate::engine::{
     DEFAULT_CRITICAL_MIN_DURATION_SECS, DEFAULT_CUSUM_H, DEFAULT_DRIFT_ESCALATE_AFTER_SECS,
     DEFAULT_EMISSION_BUDGET_PER_TICK, DEFAULT_EMISSION_COOLDOWN_SECS, EngineConfig,
-    MetricClassOverride, SeasonalProfile,
+    MetricClassOverride, SeasonalProfile, SeasonalSettings, SeverityPolicy,
 };
 
 pub(crate) const ADDON_ID: &str = "anomaly";
-pub(crate) const ADDON_VERSION: &str = "0.2.0";
+pub(crate) const ADDON_VERSION: &str = "0.3.0";
 pub(crate) const VERDICT_CHANNEL_DEPTH: usize = 256;
 pub(crate) const ACK_CHANNEL_DEPTH: usize = 64;
 pub(crate) const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -95,6 +96,10 @@ pub(crate) struct AddonConfig {
     /// Samples after open before a persistent new level is adopted and cleared.
     #[serde(default, deserialize_with = "deserialize_optional_u64")]
     pub(crate) drift_adopt_after_samples: Option<u64>,
+    /// Samples after a continuously anomalous rolling spike before the stable
+    /// level is adopted into the rolling baseline and the episode clears.
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) spike_adopt_after_samples: Option<u64>,
     /// Seconds between still-open drift heartbeat updates.
     #[serde(default, deserialize_with = "deserialize_optional_u64")]
     pub(crate) episode_update_interval_secs: Option<u64>,
@@ -211,6 +216,8 @@ pub(crate) struct MetricClassConfig {
     #[serde(default, deserialize_with = "deserialize_optional_u64")]
     pub(crate) drift_adopt_after_samples: Option<u64>,
     #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) spike_adopt_after_samples: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
     pub(crate) drift_escalate_after_secs: Option<u64>,
     #[serde(default, deserialize_with = "deserialize_optional_f64")]
     pub(crate) min_std_floor: Option<f64>,
@@ -227,6 +234,10 @@ pub(crate) struct MetricClassConfig {
 pub(crate) struct SeasonalConfig {
     #[serde(default, deserialize_with = "deserialize_optional_usize")]
     pub(crate) max_baselines: Option<usize>,
+    /// Core writes the exact per-bucket history gate alongside the delivered
+    /// payload so edge trust cannot silently drift from delivery eligibility.
+    #[serde(default, deserialize_with = "deserialize_optional_usize")]
+    pub(crate) min_bucket_samples: Option<usize>,
 }
 
 /// Wire form of one series' delivered hour-of-week baseline.
@@ -349,6 +360,21 @@ impl Default for CheckpointSettings {
 }
 
 impl AddonConfig {
+    pub(crate) fn resolve_seasonal_settings(&self) -> SeasonalSettings {
+        let mut settings = SeasonalSettings::default();
+
+        if let Some(min_bucket_samples) = self
+            .seasonal
+            .as_ref()
+            .and_then(|seasonal| seasonal.min_bucket_samples)
+            .filter(|value| *value > 0)
+        {
+            settings.min_bucket_samples = min_bucket_samples;
+        }
+
+        settings
+    }
+
     /// Resolve the delivered wire baselines into the engine's per-series
     /// [`SeasonalProfile`] map. Buckets with an out-of-range `(dow, hod)` or a
     /// non-finite center/scale are dropped. Returns an empty map when nothing was
@@ -508,6 +534,10 @@ impl AddonConfig {
                 .drift_adopt_after_samples
                 .filter(|v| *v > 0)
                 .unwrap_or(DEFAULT_DRIFT_ADOPT_AFTER_SAMPLES),
+            spike_adopt_after_samples: self
+                .spike_adopt_after_samples
+                .filter(|v| *v > 0)
+                .unwrap_or(DEFAULT_SPIKE_ADOPT_AFTER_SAMPLES),
             episode_update_interval_secs: emission
                 .episode_update_interval_secs
                 .or(self.episode_update_interval_secs)
@@ -570,6 +600,11 @@ fn resolve_metric_class_overrides(
                 drift_mode: config.drift_mode.as_deref().and_then(parse_drift_mode),
                 min_std_floor: finite_positive(config.min_std_floor),
                 min_cv: finite_positive(config.min_cv),
+                spike_adopt_after_samples: config.spike_adopt_after_samples.filter(|v| *v > 0),
+                severity_policy: severity_policy_from(
+                    config.severity_cap.as_deref(),
+                    config.severity_bands.as_ref(),
+                ),
             };
 
             Some((class, class_override))
@@ -597,6 +632,36 @@ fn parse_drift_mode(value: &str) -> Option<DriftMode> {
 
 fn finite_positive(value: Option<f64>) -> Option<f64> {
     value.filter(|value| value.is_finite() && *value > 0.0)
+}
+
+fn severity_policy_from(
+    severity_cap: Option<&str>,
+    severity_bands: Option<&serde_json::Value>,
+) -> SeverityPolicy {
+    let cap = severity_cap.and_then(|value| match value.trim().to_ascii_lowercase().as_str() {
+        "low" => Some(2),
+        "medium" => Some(3),
+        "high" => Some(4),
+        "critical" => Some(5),
+        _ => None,
+    });
+    let numeric_band = |key: &str| {
+        severity_bands
+            .and_then(serde_json::Value::as_object)
+            .and_then(|bands| bands.get(key))
+            .and_then(|value| match value {
+                serde_json::Value::Number(value) => value.as_f64(),
+                serde_json::Value::String(value) => value.trim().parse::<f64>().ok(),
+                _ => None,
+            })
+            .filter(|value| value.is_finite() && *value > 0.0)
+    };
+
+    SeverityPolicy {
+        cap,
+        medium_at: numeric_band("medium"),
+        high_at: numeric_band("high"),
+    }
 }
 
 fn default_metric_denylist() -> Vec<String> {

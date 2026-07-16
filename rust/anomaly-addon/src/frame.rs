@@ -21,7 +21,7 @@ use crate::addon::{lock_engine, lock_scoring_health};
 use crate::config::{NativeTelemetryDropCounters, VERDICT_CHANNEL_DEPTH};
 use crate::engine::{
     AnomalyTransition, DetectorEngine, EngineConfig, HostCpuAggregateSample, SeriesProfile,
-    TransitionVerdict,
+    SeverityPolicy, TransitionVerdict,
 };
 use crate::health::{ScoringFrameUpdate, ScoringHealth};
 use crate::identity::{
@@ -62,6 +62,8 @@ struct CandidateContext<'a> {
     point: &'a MetricPoint,
     series_key: &'a str,
     metric_class: &'a str,
+    profile: SeriesProfile,
+    severity_policy: SeverityPolicy,
 }
 
 impl EmissionCandidate {
@@ -177,7 +179,7 @@ fn push_evaluated_candidates(
 ) {
     if matches!(
         evaluated.transition,
-        AnomalyTransition::Open | AnomalyTransition::Clear
+        AnomalyTransition::Open | AnomalyTransition::Update | AnomalyTransition::Clear
     ) {
         let observed_at_unix_nano = evaluated
             .verdict
@@ -193,6 +195,11 @@ fn push_evaluated_candidates(
                 transition: evaluated.transition,
                 episode: evaluated.episode,
                 critical_min_duration_secs: ctx.engine_config.critical_min_duration_secs,
+                abs_effect_floor: ctx.profile.abs_effect_floor,
+                severity_policy: ctx.severity_policy,
+                clear_reason: evaluated.clear_reason,
+                update_reason: evaluated.update_reason,
+                reopen_count: evaluated.reopen_count,
             },
         );
         candidates.push(EmissionCandidate::new(
@@ -222,6 +229,7 @@ fn push_evaluated_candidates(
             &evaluated.verdict,
             drift,
             ctx.engine_config.drift_escalate_after_secs,
+            ctx.severity_policy,
         );
         candidates.push(EmissionCandidate::new(
             record,
@@ -284,13 +292,14 @@ pub(crate) async fn process_frame(
             // absolute-floor gate and the dispersion floors so a benign near-
             // constant level cannot explode into a Critical.
             let profile = if counter {
-                counter_series_profile()
+                counter_series_profile(metric)
             } else {
                 series_profile_for(metric)
             };
             let profile = engine.apply_metric_class_override(profile_class, profile);
             let host_cpu_profile =
                 engine.apply_metric_class_override(profile_class, host_cpu_aggregate_profile());
+            let severity_policy = engine.severity_policy_for(profile_class);
 
             for point in &metric.points {
                 if is_snmp_metric_class(metric_class)
@@ -344,6 +353,8 @@ pub(crate) async fn process_frame(
                             point,
                             series_key: &series_key,
                             metric_class,
+                            profile,
+                            severity_policy,
                         },
                         evaluated,
                     );
@@ -380,6 +391,8 @@ pub(crate) async fn process_frame(
                                 point: &host_point,
                                 series_key: &host_series_key,
                                 metric_class,
+                                profile: host_cpu_profile,
+                                severity_policy,
                             },
                             evaluated,
                         );

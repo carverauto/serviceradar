@@ -67,16 +67,21 @@ pub(crate) fn observe_active_breach(
     );
 }
 
-pub(crate) fn promote_pending_episode(
+/// Promote a confirmed spike while optionally preserving an earlier episode
+/// start. Reopens within the flap window use the original start so the stable
+/// finding UID derives the same episode UID across every flap cycle.
+pub(crate) fn promote_pending_episode_with_start(
     state: &mut SeriesState,
     value: f64,
     observed_at_unix_nano: u64,
+    previous_episode_started_at_unix_nano: Option<u64>,
 ) {
-    state.active_episode_started_at_unix_nano = Some(
-        state
-            .pending_episode_started_at_unix_nano
-            .unwrap_or(observed_at_unix_nano),
-    );
+    state.active_episode_started_at_unix_nano =
+        Some(previous_episode_started_at_unix_nano.unwrap_or_else(|| {
+            state
+                .pending_episode_started_at_unix_nano
+                .unwrap_or(observed_at_unix_nano)
+        }));
     state.active_episode_peak_value = Some(state.pending_episode_peak_value.unwrap_or(value));
     state.active_episode_peak_at_unix_nano = Some(
         state

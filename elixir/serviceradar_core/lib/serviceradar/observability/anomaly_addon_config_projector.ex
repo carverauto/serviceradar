@@ -31,6 +31,7 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjector do
     drift_clear_slots
     drift_min_effect
     drift_adopt_after_samples
+    spike_adopt_after_samples
     drift_escalate_after_secs
     min_std_floor
     min_cv

@@ -33,12 +33,71 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
   @tripwire_table :serviceradar_anomaly_episode_tripwire
   @default_rate_limit_per_hour 12
   @default_flood_threshold_per_minute 100
+  @default_flap_window_seconds 300
+  @default_producer_stale_seconds 900
 
   @upsert_sql """
   WITH existing AS MATERIALIZED (
-    SELECT status, peak_severity_id
+    SELECT episode_uid, status, peak_severity_id, last_payload
     FROM platform.anomaly_episodes
     WHERE episode_uid = $1::text
+       OR (finding_uid = $2::text AND status = 'open')
+       OR (
+         finding_uid = $2::text
+         AND status <> 'open'
+         AND last_seen_at >= $15::timestamp(6) - make_interval(secs => $23::integer)
+       )
+    ORDER BY
+      CASE
+        WHEN episode_uid = $1::text THEN 0
+        WHEN status = 'open' THEN 1
+        ELSE 2
+      END,
+      last_seen_at DESC
+    LIMIT 1
+  ),
+  resolved AS (
+    SELECT
+      COALESCE((SELECT episode_uid FROM existing), $1::text) AS episode_uid,
+      COALESCE((SELECT status FROM existing), '') AS previous_status,
+      COALESCE((SELECT peak_severity_id FROM existing), -1) AS previous_peak_severity_id,
+      COALESCE((SELECT last_payload FROM existing), '{}'::jsonb) AS previous_payload
+  ),
+  producer_state AS (
+    SELECT
+      resolved.*,
+      COALESCE(previous_payload #> '{episode_registry,producer_states}', '{}'::jsonb) ||
+        jsonb_build_object(
+          $22::text,
+          jsonb_build_object(
+            'status', CASE WHEN $9::text = 'open' THEN 'open' ELSE 'cleared' END,
+            'last_seen_at', $15::timestamp(6)
+          )
+        ) AS producer_states
+    FROM resolved
+  ),
+  aggregate AS (
+    SELECT
+      producer_state.*,
+      CASE
+        WHEN EXISTS (
+          SELECT 1
+          FROM jsonb_each(producer_states) AS producer(state)
+          WHERE state ->> 'status' = 'open'
+            AND COALESCE(
+              NULLIF(state ->> 'last_seen_at', '')::timestamp(6),
+              '-infinity'::timestamp
+            ) >= $15::timestamp(6) - make_interval(secs => $24::integer)
+        ) THEN 'open'
+        ELSE 'cleared'
+      END AS aggregate_status,
+      jsonb_set(
+        COALESCE($21::jsonb, '{}'::jsonb),
+        '{episode_registry,producer_states}',
+        producer_states,
+        true
+      ) AS payload
+    FROM producer_state
   ),
   upserted AS (
     INSERT INTO platform.anomaly_episodes (
@@ -66,8 +125,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
       last_payload,
       inserted_at,
       updated_at
-    ) VALUES (
-      $1::text,
+    )
+    SELECT
+      aggregate.episode_uid,
       $2::text,
       $3::text,
       $4::text,
@@ -75,23 +135,26 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
       $6::bigint,
       $7::text,
       $8::text,
-      $9::text,
+      aggregate.aggregate_status,
       $10::bigint,
       GREATEST($10::bigint, $11::bigint),
       $12::double precision,
       $13::double precision,
       $14::timestamp(6),
       $15::timestamp(6),
-      $16::timestamp(6),
-      $17::text,
+      CASE WHEN aggregate.aggregate_status = 'open' THEN NULL ELSE $16::timestamp(6) END,
+      CASE WHEN aggregate.aggregate_status = 'open' THEN NULL ELSE $17::text END,
       1,
       $18::bigint,
       $19::text,
-      $20::text,
-      $21::jsonb,
+      CASE
+        WHEN aggregate.aggregate_status = 'open' AND $20::text = 'clear' THEN 'update'
+        ELSE $20::text
+      END,
+      aggregate.payload,
       (now() AT TIME ZONE 'utc'),
       (now() AT TIME ZONE 'utc')
-    )
+    FROM aggregate
     ON CONFLICT (episode_uid) DO UPDATE SET
       device_uid = EXCLUDED.device_uid,
       series_key = EXCLUDED.series_key,
@@ -131,14 +194,16 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
       last_transition = EXCLUDED.last_transition,
       last_payload = EXCLUDED.last_payload,
       updated_at = (now() AT TIME ZONE 'utc')
-    RETURNING status, severity_id, peak_severity_id
+    RETURNING episode_uid, status, severity_id, peak_severity_id
   )
   SELECT
-    COALESCE((SELECT status FROM existing LIMIT 1), '') AS previous_status,
-    COALESCE((SELECT peak_severity_id FROM existing LIMIT 1), -1) AS previous_peak_severity_id,
-    (SELECT status FROM upserted LIMIT 1) AS current_status,
-    (SELECT severity_id FROM upserted LIMIT 1) AS current_severity_id,
-    (SELECT peak_severity_id FROM upserted LIMIT 1) AS current_peak_severity_id
+    (SELECT previous_status FROM aggregate) AS previous_status,
+    (SELECT previous_peak_severity_id FROM aggregate) AS previous_peak_severity_id,
+    (SELECT status FROM upserted) AS current_status,
+    (SELECT severity_id FROM upserted) AS current_severity_id,
+    (SELECT peak_severity_id FROM upserted) AS current_peak_severity_id,
+    (SELECT episode_uid FROM upserted) AS episode_uid,
+    jsonb_object_length((SELECT producer_states FROM aggregate)) AS producer_count
   """
 
   @type row :: map()
@@ -218,14 +283,25 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
   defp transition_row(row, repo) do
     case episode_projection(row) do
       {:ok, attrs} ->
-        row = stamp_transition_identity(row, attrs)
-
         case upsert_episode(repo, attrs) do
           {:ok, decision} ->
+            attrs = %{attrs | episode_uid: decision.episode_uid}
             record_tripwire(attrs)
 
+            if decision.producer_count > 1 do
+              :telemetry.execute(
+                [:serviceradar, :anomaly, :episode_registry],
+                %{multi_producer_series: 1},
+                %{
+                  finding_uid: attrs.finding_uid,
+                  series_key: attrs.series_key,
+                  producer_count: decision.producer_count
+                }
+              )
+            end
+
             if emit_transition?(attrs, decision) and rate_guard_allows?(attrs) do
-              [row]
+              [stamp_transition_identity(row, attrs)]
             else
               []
             end
@@ -236,7 +312,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
               episode_uid: attrs.episode_uid
             )
 
-            [row]
+            [stamp_transition_identity(row, attrs)]
         end
 
       :skip ->
@@ -363,6 +439,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
              anomaly["producer_version"],
              service_radar["producer_version"]
            ]),
+         producer_uid: producer_uid(payload, anomaly, service_radar, finding_uid, opened_at),
          last_transition: transition,
          last_payload: payload
        }}
@@ -414,6 +491,22 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
       anomaly["anomaly_episode_uid"]
     ]) ||
       deterministic_uuid("anomaly:episode:#{finding_uid}:#{NaiveDateTime.to_iso8601(opened_at)}")
+  end
+
+  # A gateway-attested agent identity lets the canonical episode remain open
+  # while another poller is still anomalous.  Legacy producers lack it, so their
+  # own stable edge episode id is a safe contributor key rather than collapsing
+  # unrelated old payloads into one producer.
+  defp producer_uid(payload, anomaly, service_radar, finding_uid, opened_at) do
+    source_identity = Map.get(payload, "source_identity") || %{}
+
+    first_non_blank([
+      source_identity["agent_id"],
+      payload["producer_agent_uid"],
+      anomaly["producer_agent_uid"],
+      service_radar["agent_uid"]
+    ]) ||
+      "edge:#{episode_uid(payload, anomaly, finding_uid, opened_at)}"
   end
 
   defp episode_detector(payload, anomaly, service_radar, detection) do
@@ -471,7 +564,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
       # Pass the map itself: the $21::jsonb placeholder makes Postgrex use its
       # jsonb encoder, and a pre-encoded binary here gets JSON-encoded AGAIN,
       # storing a jsonb string scalar that Ash cannot load as :map.
-      attrs.last_payload
+      attrs.last_payload,
+      attrs.producer_uid,
+      flap_window_seconds(),
+      producer_stale_seconds()
     ]
 
     case repo.query(@upsert_sql, params) do
@@ -483,7 +579,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
              previous_peak_severity_id,
              current_status,
              current_severity_id,
-             current_peak_severity_id
+             current_peak_severity_id,
+             episode_uid,
+             producer_count
            ]
          ]
        }} ->
@@ -493,7 +591,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
            previous_peak_severity_id: previous_peak_severity_id,
            current_status: current_status,
            current_severity_id: current_severity_id,
-           current_peak_severity_id: current_peak_severity_id
+           current_peak_severity_id: current_peak_severity_id,
+           episode_uid: episode_uid,
+           producer_count: producer_count
          }}
 
       {:ok, other} ->
@@ -504,7 +604,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
     end
   end
 
-  defp emit_transition?(%{last_transition: "clear"}, %{previous_status: "open"}), do: true
+  defp emit_transition?(%{last_transition: "clear"}, %{
+         previous_status: "open",
+         current_status: "cleared"
+       }), do: true
 
   defp emit_transition?(%{status: "open"}, %{
          previous_status: previous_status,
@@ -515,8 +618,6 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
   end
 
   defp emit_transition?(_attrs, _decision), do: false
-
-  defp rate_guard_allows?(%{last_transition: "clear"}), do: true
 
   defp rate_guard_allows?(%{finding_uid: finding_uid} = attrs) do
     limit = rate_limit_per_hour()
@@ -555,6 +656,21 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
     case configured do
       value when is_integer(value) and value >= 0 -> value
       _ -> @default_rate_limit_per_hour
+    end
+  end
+
+  defp flap_window_seconds do
+    positive_env(:anomaly_episode_flap_window_seconds, @default_flap_window_seconds)
+  end
+
+  defp producer_stale_seconds do
+    positive_env(:anomaly_episode_producer_stale_seconds, @default_producer_stale_seconds)
+  end
+
+  defp positive_env(key, default) do
+    case Application.get_env(:serviceradar_core, key) do
+      value when is_integer(value) and value > 0 -> value
+      _ -> default
     end
   end
 

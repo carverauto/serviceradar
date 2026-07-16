@@ -50,8 +50,12 @@ observability read permissions.
 ### Spikes
 
 A spike is a point deviation from the rolling robust baseline. The edge add-on
-maintains a per-series median/MAD window, withholds breaching samples from the
-baseline, and confirms only after `confirm_slots` consecutive breaching slots.
+maintains a per-series median/MAD window and admits a breaching sample at the
+decision boundary (winsorized to the configured sigma band), so the window keeps
+aging without allowing a surge to train itself in unboundedly. A stable,
+non-saturated spike is adopted after `spike_adopt_after_samples` (600 by default;
+300 for interface counters) and clears with `adopted` rather than flapping forever.
+Findings still require `confirm_slots` consecutive breaching slots.
 
 Spike findings use the `spike` detector and follow the same episode lifecycle as
 drift: open, optional escalation update, and clear.
@@ -115,6 +119,9 @@ is noisy. Important edge keys include:
 - `cusum_k`, `cusum_h`, `h_confirm_mult`: CUSUM sensitivity and confirmation.
 - `drift_confirm_window`, `drift_clear_slots`,
   `drift_adopt_after_samples`, `drift_escalate_after_secs`: drift lifecycle.
+- `spike_adopt_after_samples`: rolling-spike adoption horizon.
+- `min_std_floor`, `min_cv`: class dispersion floors. Interface counters also
+  use a family-specific absolute practical-significance floor.
 - `min_std_floor`, `min_cv`: dispersion floors.
 - `severity_cap`: maximum severity for that class.
 - `severity_bands`: class-specific severity band overrides.
@@ -160,9 +167,16 @@ capacity and explicit-threshold paths, not unsupervised edge drift.
 
 An episode has a deterministic `finding_uid` and `episode_uid`.
 
-Open creates the episode. Updates are emitted only for severity-band escalation.
+Open creates the episode. A re-open inside the flap window reuses that episode
+identity and emits `update` with reason `flapping`; the eventual clear is
+`flap_merged`. Updates also carry severity-band escalation.
 Clear closes it. Still-open heartbeats update episode state but do not create a
 new finding row.
+
+Core folds independent producers for the same finding into one canonical episode.
+The episode stays open while any fresh producer reports it open; a clear is
+emitted only after every producer is clean or stale. SNMP profiles that assign
+the same targets to multiple pinned agents emit a config-hygiene warning.
 
 This lifecycle bounds volume. A benign regime change should cost one open and
 one clear, not a finding every poll cycle.

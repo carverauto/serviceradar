@@ -51,6 +51,7 @@ pub(crate) struct EngineHealthSnapshot {
     pub(crate) max_series: usize,
     pub(crate) dropped_total: u64,
     pub(crate) drift_inactive_no_baseline_total: u64,
+    pub(crate) clamped_samples_total: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -107,7 +108,7 @@ impl ScoringHealth {
         HealthSummary {
             status,
             detail: format!(
-                "state={state};frames_seen={};scored_samples={};emitted_verdicts={};last_feed_id={};last_frame_at_unix_nano={};last_scored_at_unix_nano={};last_frame_age_ns={};stale_after_ns={};tracked_series={};tracked_counters={};max_series={};dropped_total={};drift_inactive_no_baseline_total={}",
+                "state={state};frames_seen={};scored_samples={};emitted_verdicts={};last_feed_id={};last_frame_at_unix_nano={};last_scored_at_unix_nano={};last_frame_age_ns={};stale_after_ns={};tracked_series={};tracked_counters={};max_series={};dropped_total={};drift_inactive_no_baseline_total={};clamped_samples_total={}",
                 self.frames_seen,
                 self.scored_samples,
                 self.emitted_verdicts,
@@ -120,7 +121,8 @@ impl ScoringHealth {
                 engine.tracked_counters,
                 engine.max_series,
                 engine.dropped_total,
-                engine.drift_inactive_no_baseline_total
+                engine.drift_inactive_no_baseline_total,
+                engine.clamped_samples_total
             ),
         }
     }

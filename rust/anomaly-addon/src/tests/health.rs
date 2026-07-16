@@ -18,6 +18,7 @@ fn health_summary_reports_no_scored_samples() {
         max_series: 50_000,
         dropped_total: 0,
         drift_inactive_no_baseline_total: 0,
+        clamped_samples_total: 0,
     });
 
     assert_eq!(summary.status, HealthStatus::Degraded);
@@ -42,6 +43,7 @@ fn health_summary_reports_active_scoring_and_capacity_pressure() {
         max_series: 50_000,
         dropped_total: 0,
         drift_inactive_no_baseline_total: 7,
+        clamped_samples_total: 3,
     });
     assert_eq!(active.status, HealthStatus::Healthy);
     assert!(active.detail.contains("state=scoring_active"));
@@ -49,6 +51,7 @@ fn health_summary_reports_active_scoring_and_capacity_pressure() {
     assert!(active.detail.contains("scored_samples=3"));
     assert!(active.detail.contains("emitted_verdicts=1"));
     assert!(active.detail.contains("drift_inactive_no_baseline_total=7"));
+    assert!(active.detail.contains("clamped_samples_total=3"));
     assert!(active.detail.contains("last_feed_id=9"));
     assert!(active.detail.contains("last_scored_at_unix_nano=123"));
 
@@ -58,6 +61,7 @@ fn health_summary_reports_active_scoring_and_capacity_pressure() {
         max_series: 50_000,
         dropped_total: 2,
         drift_inactive_no_baseline_total: 7,
+        clamped_samples_total: 3,
     });
     assert_eq!(recovered_after_shed.status, HealthStatus::Healthy);
     assert!(recovered_after_shed.detail.contains("state=scoring_active"));
@@ -69,6 +73,7 @@ fn health_summary_reports_active_scoring_and_capacity_pressure() {
         max_series: 50_000,
         dropped_total: 2,
         drift_inactive_no_baseline_total: 7,
+        clamped_samples_total: 3,
     });
     assert_eq!(shed.status, HealthStatus::Degraded);
     assert!(shed.detail.contains("state=capacity_shed"));
@@ -93,6 +98,7 @@ fn health_summary_reports_stalled_scoring() {
             max_series: 50_000,
             dropped_total: 0,
             drift_inactive_no_baseline_total: 0,
+            clamped_samples_total: 0,
         },
         1_000 + DEFAULT_SCORING_STALE_AFTER_NS + 1,
     );
@@ -123,6 +129,7 @@ fn health_summary_uses_configured_stale_threshold() {
         max_series: 50_000,
         dropped_total: 0,
         drift_inactive_no_baseline_total: 0,
+        clamped_samples_total: 0,
     };
 
     let active = scoring.health_summary_at(engine, 1_000 + 10_000_000_000);

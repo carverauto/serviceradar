@@ -11,12 +11,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryTest do
       decision =
         Process.get(:episode_decision, %{
           previous_status: "",
-          previous_peak_severity_id: -1
+          previous_peak_severity_id: -1,
+          episode_uid: nil,
+          producer_count: 1
         })
 
       status = Enum.at(params, 8)
       severity_id = Enum.at(params, 9)
       current_peak = max(decision.previous_peak_severity_id, severity_id)
+      current_status = Map.get(decision, :current_status, status)
 
       send(Process.get(:episode_test_pid), {:episode_upsert, params})
 
@@ -26,9 +29,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryTest do
            [
              decision.previous_status,
              decision.previous_peak_severity_id,
-             status,
+             current_status,
              severity_id,
-             current_peak
+             current_peak,
+             Map.get(decision, :episode_uid) || Enum.at(params, 0),
+             Map.get(decision, :producer_count, 1)
            ]
          ]
        }}
@@ -100,6 +105,26 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryTest do
     assert_receive {:episode_upsert, _params}
   end
 
+  test "a duplicate producer folds onto the canonical episode identity" do
+    canonical_episode_uid = Ecto.UUID.generate()
+
+    Process.put(:episode_decision, %{
+      previous_status: "open",
+      previous_peak_severity_id: 3,
+      episode_uid: canonical_episode_uid,
+      producer_count: 2
+    })
+
+    attach_multi_producer_telemetry()
+
+    duplicate = anomaly_row("anomaly_open", severity_id: 4)
+    assert [row] = AnomalyEpisodeRegistry.transition_rows([duplicate], RepoStub)
+    assert row.metadata["service_radar"]["episode_uid"] == canonical_episode_uid
+
+    assert_receive {:multi_producer, [:serviceradar, :anomaly, :episode_registry],
+                    %{multi_producer_series: 1}, %{producer_count: 2}}
+  end
+
   test "drift clear emits only when an episode was previously open" do
     Process.put(:episode_decision, %{previous_status: "open", previous_peak_severity_id: 4})
 
@@ -114,6 +139,21 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryTest do
     Process.put(:episode_decision, %{previous_status: "", previous_peak_severity_id: -1})
 
     assert [] = AnomalyEpisodeRegistry.transition_rows([clear], RepoStub)
+  end
+
+  test "a clear is withheld while another producer keeps the canonical episode open" do
+    Process.put(:episode_decision, %{
+      previous_status: "open",
+      previous_peak_severity_id: 4,
+      current_status: "open",
+      producer_count: 2
+    })
+
+    clear = anomaly_row("anomaly_drift_clear", severity_id: 2)
+
+    assert [] = AnomalyEpisodeRegistry.transition_rows([clear], RepoStub)
+    assert_receive {:episode_upsert, params}
+    assert Enum.at(params, 19) == "clear"
   end
 
   test "rate guard folds over-limit transitions after episode upsert" do
@@ -265,6 +305,22 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryTest do
       [:serviceradar, :anomaly, :governor],
       fn event, measurements, metadata, _config ->
         send(test_pid, {:governor, event, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
+
+  defp attach_multi_producer_telemetry do
+    handler_id = {__MODULE__, :multi_producer, make_ref()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      [:serviceradar, :anomaly, :episode_registry],
+      fn event, measurements, metadata, _config ->
+        send(test_pid, {:multi_producer, event, measurements, metadata})
       end,
       nil
     )

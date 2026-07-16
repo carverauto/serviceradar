@@ -171,6 +171,7 @@ impl Addon for AnomalyAddon {
         // Resolve before `into_engine_config` consumes `parsed`. Empty when no
         // baselines were delivered, leaving the engine rolling-only (back-compat).
         let seasonal_baselines = parsed.resolve_seasonal_baselines();
+        let seasonal_settings = parsed.resolve_seasonal_settings();
 
         let engine_config = match parsed.into_engine_config() {
             Ok(config) => config,
@@ -186,6 +187,7 @@ impl Addon for AnomalyAddon {
         {
             let mut engine = lock_engine(&self.engine);
             engine.set_config(engine_config);
+            engine.set_seasonal_settings(seasonal_settings);
             engine.set_seasonal_baselines(seasonal_baselines);
         }
         lock_scoring_health(&self.scoring_health).set_stale_after_ns(scoring_stale_after_ns);
@@ -214,6 +216,7 @@ impl Addon for AnomalyAddon {
             max_series: engine.max_series(),
             dropped_total: engine.dropped_at_capacity,
             drift_inactive_no_baseline_total: engine.drift_inactive_no_baseline,
+            clamped_samples_total: engine.clamped_samples,
         };
         drop(engine);
 

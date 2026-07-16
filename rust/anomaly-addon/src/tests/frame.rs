@@ -119,6 +119,7 @@ async fn process_frame_reports_capacity_shed_once_per_frame() {
             max_series: 1,
             dropped_total: engine.dropped_at_capacity,
             drift_inactive_no_baseline_total: engine.drift_inactive_no_baseline,
+            clamped_samples_total: engine.clamped_samples,
         }
     };
     let health = scoring_health

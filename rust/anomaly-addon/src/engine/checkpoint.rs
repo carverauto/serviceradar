@@ -36,6 +36,18 @@ pub struct SeriesCheckpoint {
     #[serde(default)]
     pub active_episode_peak_at_unix_nano: Option<u64>,
     #[serde(default)]
+    pub raw_tail: Vec<f64>,
+    #[serde(default)]
+    pub spike_active_samples: u64,
+    #[serde(default)]
+    pub spike_last_emitted_at_unix_nano: Option<u64>,
+    #[serde(default)]
+    pub spike_last_cleared_at_unix_nano: Option<u64>,
+    #[serde(default)]
+    pub spike_last_episode_started_at_unix_nano: Option<u64>,
+    #[serde(default)]
+    pub spike_reopen_count: u64,
+    #[serde(default)]
     pub aggregation_slot_start_unix_nano: Option<u64>,
     #[serde(default)]
     pub aggregation_slot_value: Option<f64>,
@@ -140,6 +152,13 @@ impl DetectorEngine {
                     active_episode_started_at_unix_nano: state.active_episode_started_at_unix_nano,
                     active_episode_peak_value: state.active_episode_peak_value,
                     active_episode_peak_at_unix_nano: state.active_episode_peak_at_unix_nano,
+                    raw_tail: state.raw_tail.clone(),
+                    spike_active_samples: state.spike_active_samples,
+                    spike_last_emitted_at_unix_nano: state.spike_last_emitted_at_unix_nano,
+                    spike_last_cleared_at_unix_nano: state.spike_last_cleared_at_unix_nano,
+                    spike_last_episode_started_at_unix_nano: state
+                        .spike_last_episode_started_at_unix_nano,
+                    spike_reopen_count: state.spike_reopen_count,
                     aggregation_slot_start_unix_nano: state.aggregation_slot_start_unix_nano,
                     aggregation_slot_value: state.aggregation_slot_value,
                     aggregation_slot_peak_at_unix_nano: state.aggregation_slot_peak_at_unix_nano,
@@ -256,6 +275,17 @@ impl DetectorEngine {
             restored_state.active_episode_peak_value = series.active_episode_peak_value;
             restored_state.active_episode_peak_at_unix_nano =
                 series.active_episode_peak_at_unix_nano;
+            restored_state.raw_tail = series.raw_tail;
+            if restored_state.raw_tail.len() > self.config.window_size {
+                let drop = restored_state.raw_tail.len() - self.config.window_size;
+                restored_state.raw_tail.drain(0..drop);
+            }
+            restored_state.spike_active_samples = series.spike_active_samples;
+            restored_state.spike_last_emitted_at_unix_nano = series.spike_last_emitted_at_unix_nano;
+            restored_state.spike_last_cleared_at_unix_nano = series.spike_last_cleared_at_unix_nano;
+            restored_state.spike_last_episode_started_at_unix_nano =
+                series.spike_last_episode_started_at_unix_nano;
+            restored_state.spike_reopen_count = series.spike_reopen_count;
             restored_state.aggregation_slot_start_unix_nano =
                 series.aggregation_slot_start_unix_nano;
             restored_state.aggregation_slot_value = series.aggregation_slot_value;

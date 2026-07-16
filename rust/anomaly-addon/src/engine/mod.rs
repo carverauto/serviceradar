@@ -30,13 +30,14 @@ pub use seasonal_profile::{
 };
 pub use types::{
     AnomalyEpisode, AnomalyTransition, CusumDirection, CusumDrift, DriftClearReason, DriftMode,
-    DriftUpdateReason, MetricClassOverride, SeriesProfile, TransitionVerdict,
+    DriftUpdateReason, MetricClassOverride, SeriesProfile, SeverityPolicy, SpikeClearReason,
+    SpikeUpdateReason, TransitionVerdict,
 };
 
 use episode::{
     active_episode, is_clean_verdict, observe_active_breach, observe_pending_breach,
-    promote_pending_episode, reset_active_episode, reset_pending_episode, store_aggregation_slot,
-    update_aggregation_slot,
+    promote_pending_episode_with_start, reset_active_episode, reset_pending_episode,
+    store_aggregation_slot, update_aggregation_slot,
 };
 use seasonal_profile::SeasonalContext;
 use state::{CounterState, HostCpuSlotState, SeriesState};
@@ -59,6 +60,7 @@ pub const DEFAULT_DRIFT_CONFIRM_WINDOW: u64 = 30;
 pub const DEFAULT_DRIFT_MIN_EFFECT: f64 = 2.0;
 pub const DEFAULT_DRIFT_CLEAR_SLOTS: u64 = 30;
 pub const DEFAULT_DRIFT_ADOPT_AFTER_SAMPLES: u64 = 600;
+pub const DEFAULT_SPIKE_ADOPT_AFTER_SAMPLES: u64 = 600;
 pub const DEFAULT_EPISODE_UPDATE_INTERVAL_SECS: u64 = 1_800;
 pub const DEFAULT_REOPEN_COOLDOWN_SECS: u64 = 600;
 pub const DEFAULT_ANCHOR_MAX_AGE_SECS: u64 = 86_400;
@@ -104,6 +106,9 @@ pub struct EngineConfig {
     pub drift_clear_slots: u64,
     /// Samples after open before a persistent new level is adopted and cleared.
     pub drift_adopt_after_samples: u64,
+    /// Samples after a continuously anomalous rolling-spike episode before a
+    /// stable, non-saturated level is adopted into the rolling baseline.
+    pub spike_adopt_after_samples: u64,
     /// Minimum seconds between still-open drift heartbeat updates.
     pub episode_update_interval_secs: u64,
     /// Seconds after a clear during which a re-open reuses the episode identity.
@@ -142,6 +147,7 @@ impl Default for EngineConfig {
             drift_min_effect: DEFAULT_DRIFT_MIN_EFFECT,
             drift_clear_slots: DEFAULT_DRIFT_CLEAR_SLOTS,
             drift_adopt_after_samples: DEFAULT_DRIFT_ADOPT_AFTER_SAMPLES,
+            spike_adopt_after_samples: DEFAULT_SPIKE_ADOPT_AFTER_SAMPLES,
             episode_update_interval_secs: DEFAULT_EPISODE_UPDATE_INTERVAL_SECS,
             reopen_cooldown_secs: DEFAULT_REOPEN_COOLDOWN_SECS,
             anchor_max_age_secs: DEFAULT_ANCHOR_MAX_AGE_SECS,
@@ -535,6 +541,11 @@ pub struct DetectorEngine {
     /// Number of samples whose seasonal-only drift path stayed inactive because
     /// no usable hour-of-week baseline resolved.
     pub drift_inactive_no_baseline: u64,
+    /// Samples that entered the rolling breach arm and were therefore admitted
+    /// at the shared core's winsorized decision boundary instead of being
+    /// withheld indefinitely. This is deliberately a counter, not an alert: it
+    /// makes baseline-pressure visible without amplifying anomaly traffic.
+    pub clamped_samples: u64,
     emission_storm_active: bool,
     emission_storm_below_exit_frames: u8,
 }
@@ -559,6 +570,7 @@ impl DetectorEngine {
             last_capacity_eviction_at_unix_nano: None,
             dropped_at_capacity: 0,
             drift_inactive_no_baseline: 0,
+            clamped_samples: 0,
             emission_storm_active: false,
             emission_storm_below_exit_frames: 0,
         }
@@ -729,6 +741,29 @@ impl DetectorEngine {
             .or_else(|| self.seasonal_fallback_key(seasonal_key))
     }
 
+    /// Explain why the seasonal signal could not resolve. The detector remains
+    /// rolling-only in all three cases, but collapsing them into "signal
+    /// disabled" made a broken delivery path indistinguishable from an ordinary
+    /// hour-of-week gap.
+    fn seasonal_unavailable_reason(
+        &self,
+        seasonal_key: &str,
+        observed_at_unix_nano: u64,
+    ) -> Option<&'static str> {
+        if self.seasonal.is_empty() || self.config.window_size < 2 {
+            return Some("no baselines configured");
+        }
+        let Some(profile) = self.seasonal_profile(seasonal_key) else {
+            return Some("no baselines configured");
+        };
+        let Some(bucket) = profile.bucket(hour_of_week(observed_at_unix_nano)) else {
+            return Some("no bucket for this hour");
+        };
+
+        (!bucket.usable(self.seasonal_settings.min_bucket_samples))
+            .then_some("bucket below trust threshold")
+    }
+
     fn seasonal_fallback_key(&self, seasonal_key: &str) -> Option<&SeasonalProfile> {
         let (fallback, if_index) = seasonal_key.rsplit_once('|')?;
         if if_index.is_empty() || !if_index.bytes().all(|byte| byte.is_ascii_digit()) {
@@ -789,6 +824,14 @@ impl DetectorEngine {
             .unwrap_or(true)
     }
 
+    pub(crate) fn severity_policy_for(&self, class: &str) -> SeverityPolicy {
+        self.config
+            .metric_class_overrides
+            .get(class)
+            .map(|override_| override_.severity_policy)
+            .unwrap_or_default()
+    }
+
     pub(crate) fn apply_metric_class_override(
         &self,
         class: &str,
@@ -812,6 +855,9 @@ impl DetectorEngine {
             .filter(|value| value.is_finite() && *value > 0.0)
         {
             profile.min_cv = profile.min_cv.max(min_cv);
+        }
+        if let Some(spike_adopt_after_samples) = class_override.spike_adopt_after_samples {
+            profile.spike_adopt_after_samples = Some(spike_adopt_after_samples.max(1));
         }
 
         profile
@@ -911,6 +957,8 @@ impl DetectorEngine {
         // `&self` is borrowed: looking it up after the `state` entry below would
         // conflict with that `&mut self.series` borrow. All-`None` when no usable
         // baseline is delivered (the back-compat rolling-only path).
+        let seasonal_unavailable_reason =
+            self.seasonal_unavailable_reason(seasonal_key, observed_at_unix_nano);
         let (seasonal_baseline, seasonal_enabled, seasonal_min_samples, seasonal_n_sigma) =
             match self.seasonal_context(seasonal_key, observed_at_unix_nano) {
                 Some(ctx) => (
@@ -944,6 +992,11 @@ impl DetectorEngine {
             .series
             .entry(series_key.to_owned())
             .or_insert_with(|| SeriesState::new(observed_at_unix_nano));
+
+        state.raw_tail.push(value);
+        if state.raw_tail.len() > self.config.window_size {
+            state.raw_tail.remove(0);
+        }
 
         // A global operator floor override (fix #2) only ever RAISES the floor:
         // take the max of the series' built-in per-class floor and any configured
@@ -1135,6 +1188,16 @@ impl DetectorEngine {
                 state.consecutive_anomalous = verdict.next_consecutive_anomalous;
                 state.last_observed_at_unix_nano = observed_at_unix_nano;
 
+                if let Some(reason) = seasonal_unavailable_reason {
+                    if let Some(signal) = verdict
+                        .signals
+                        .iter_mut()
+                        .find(|signal| signal.name == "seasonal")
+                    {
+                        signal.reason = reason.to_string();
+                    }
+                }
+
                 // Additive but de-duplicated: a CUSUM drift finding reports exactly
                 // the sustained drift the point z-score MISSES, so suppress it when
                 // the z-score itself breached this sample (already an edge-spike).
@@ -1151,6 +1214,10 @@ impl DetectorEngine {
                     drift_sample,
                     !verdict.breached,
                 );
+
+                if verdict.breached {
+                    self.clamped_samples = self.clamped_samples.saturating_add(1);
+                }
 
                 Some((verdict, cusum_drift))
             }
@@ -1197,16 +1264,28 @@ impl DetectorEngine {
     ) -> Option<TransitionVerdict> {
         let (value, observed_at_unix_nano) =
             self.next_evaluation_sample(series_key, value, observed_at_unix_nano, profile)?;
-        let (verdict, cusum_drift) = self.evaluate_inner(
+        let (mut verdict, cusum_drift) = self.evaluate_inner(
             series_key,
             seasonal_key,
             value,
             observed_at_unix_nano,
             profile,
         )?;
-        let state = self.series.get_mut(series_key)?;
         let clear_slots = self.config.confirm_slots.max(1);
+        let reopen_window_ns = seconds_to_ns(self.config.reopen_cooldown_secs.max(1));
+        let spike_adopt_after_samples = profile
+            .spike_adopt_after_samples
+            .unwrap_or(self.config.spike_adopt_after_samples)
+            .max(1);
+        let rolling_center = verdict
+            .signals
+            .iter()
+            .find(|signal| signal.name == "rolling")
+            .and_then(|signal| signal.mean);
+        let state = self.series.get_mut(series_key)?;
         let mut episode = None;
+        let mut clear_reason = None;
+        let mut update_reason = None;
 
         if verdict.breached {
             if state.active_anomalous {
@@ -1219,20 +1298,91 @@ impl DetectorEngine {
         }
 
         let transition = if verdict.anomalous && !state.active_anomalous {
-            promote_pending_episode(state, value, observed_at_unix_nano);
+            let reuse_previous_episode =
+                elapsed_ns(observed_at_unix_nano, state.spike_last_cleared_at_unix_nano)
+                    <= reopen_window_ns;
+            let previous_started_at = reuse_previous_episode
+                .then_some(state.spike_last_episode_started_at_unix_nano)
+                .flatten();
+            promote_pending_episode_with_start(
+                state,
+                value,
+                observed_at_unix_nano,
+                previous_started_at,
+            );
             episode = active_episode(state, observed_at_unix_nano);
             state.active_anomalous = true;
             state.consecutive_clean = 0;
-            AnomalyTransition::Open
+            state.spike_active_samples = 1;
+            state.spike_last_emitted_at_unix_nano = Some(observed_at_unix_nano);
+            if reuse_previous_episode {
+                state.spike_reopen_count = state.spike_reopen_count.saturating_add(1);
+                update_reason = Some(SpikeUpdateReason::Flapping);
+                AnomalyTransition::Update
+            } else {
+                state.spike_reopen_count = 0;
+                AnomalyTransition::Open
+            }
         } else if state.active_anomalous {
-            if is_clean_verdict(&verdict) {
+            if verdict.anomalous {
+                state.spike_active_samples = state.spike_active_samples.saturating_add(1);
+            } else {
+                state.spike_active_samples = 0;
+            }
+
+            let adoption_blocked = profile.saturation_gate.is_some_and(|gate| {
+                rolling_center.is_some_and(|center| gate.allows_breach(value, center))
+            });
+            if verdict.anomalous
+                && state.spike_active_samples >= spike_adopt_after_samples
+                && !adoption_blocked
+            {
+                episode = active_episode(state, observed_at_unix_nano);
+                state.spike_last_cleared_at_unix_nano = Some(observed_at_unix_nano);
+                state.spike_last_episode_started_at_unix_nano =
+                    episode.map(|current| current.started_at_unix_nano);
+                state.active_anomalous = false;
+                state.consecutive_clean = 0;
+                state.consecutive_anomalous = 0;
+                state.window_tail = state.raw_tail.clone();
+                state.spike_active_samples = 0;
+                reset_active_episode(state);
+                verdict.next_consecutive_anomalous = 0;
+                verdict.reason = "rolling baseline adopted after sustained spike".to_string();
+                clear_reason = Some(SpikeClearReason::Adopted);
+                AnomalyTransition::Clear
+            } else if is_clean_verdict(&verdict) {
                 state.consecutive_clean = state.consecutive_clean.saturating_add(1);
 
                 if state.consecutive_clean >= clear_slots {
+                    let inside_flap_window = state.spike_reopen_count > 0
+                        && elapsed_ns(observed_at_unix_nano, state.spike_last_emitted_at_unix_nano)
+                            <= reopen_window_ns;
+                    if inside_flap_window {
+                        return Some(TransitionVerdict {
+                            verdict,
+                            transition: AnomalyTransition::None,
+                            episode: None,
+                            clear_reason: None,
+                            update_reason: None,
+                            reopen_count: state.spike_reopen_count,
+                            cusum_drift,
+                        });
+                    }
+
                     episode = active_episode(state, observed_at_unix_nano);
+                    state.spike_last_cleared_at_unix_nano = Some(observed_at_unix_nano);
+                    state.spike_last_episode_started_at_unix_nano =
+                        episode.map(|current| current.started_at_unix_nano);
                     state.active_anomalous = false;
                     state.consecutive_clean = 0;
+                    state.spike_active_samples = 0;
                     reset_active_episode(state);
+                    clear_reason = Some(if state.spike_reopen_count > 0 {
+                        SpikeClearReason::FlapMerged
+                    } else {
+                        SpikeClearReason::Recovered
+                    });
                     AnomalyTransition::Clear
                 } else {
                     AnomalyTransition::None
@@ -1250,6 +1400,9 @@ impl DetectorEngine {
             verdict,
             transition,
             episode,
+            clear_reason,
+            update_reason,
+            reopen_count: state.spike_reopen_count,
             cusum_drift,
         })
     }

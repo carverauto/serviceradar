@@ -20,12 +20,12 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
       end
     end
 
-    # Two buckets: a low normal hour and a HIGH recurring peak hour (Mon 09:00).
+    # Complete profile: a low normal hour and a HIGH recurring peak hour (Mon 09:00).
     defp rows(normal_center, peak_center) do
-      [
-        row(0, 3, normal_center),
-        row(1, 9, peak_center)
-      ]
+      for dow <- 0..6, hod <- 0..23 do
+        center = if dow == 1 and hod == 9, do: peak_center, else: normal_center
+        row(dow, hod, center)
+      end
     end
 
     defp row(dow, hod, center) do
@@ -81,21 +81,25 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
 
     def query(query, _opts) do
       if String.contains?(query, "ifInOctets") do
-        {:ok, [row(7, 125.0), row(8, 250.0)]}
+        {:ok, profile_rows(7, 125.0) ++ profile_rows(8, 250.0)}
       else
         {:ok, []}
       end
     end
 
-    defp row(if_index, center) do
+    defp profile_rows(if_index, center) do
+      for dow <- 0..6, hod <- 0..23, do: row(dow, hod, if_index, center)
+    end
+
+    defp row(dow, hod, if_index, center) do
       %{
         "series" => @device,
         "partition" => "edge-a",
         "target_device_ip" => "192.0.2.10",
         "if_index" => if_index,
         "metric_name" => "ifInOctets",
-        "dow" => 1,
-        "hod" => 9,
+        "dow" => dow,
+        "hod" => hod,
         "sample_value" => center,
         "bucket" => "2026-06-22T09:00:00Z",
         "bucket_count" => 8,
@@ -139,28 +143,35 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
 
     def query(query, _opts) do
       if String.contains?(query, "ifInOctets") do
-        {:ok,
-         [
-           row("agent-a", "sr:router-1", 1, 100.0, 8),
-           row("agent-a", "sr:router-1", 2, 50.0, 8),
-           row("agent-a", "sr:router-1", 3, 10.0, 8),
-           row("agent-a", "sr:router-1", 4, 200.0, 2),
-           row("agent-b", "sr:router-2", 7, 80.0, 8)
-         ]}
+        rows = [
+          profile_rows("partition-a", "sr:router-1", 1, 100.0, 8),
+          profile_rows("partition-a", "sr:router-1", 2, 50.0, 8),
+          profile_rows("partition-a", "sr:router-1", 3, 10.0, 8),
+          profile_rows("partition-a", "sr:router-1", 4, 200.0, 2),
+          profile_rows("partition-b", "sr:router-2", 7, 80.0, 8)
+        ]
+
+        {:ok, List.flatten(rows)}
       else
         {:ok, []}
       end
     end
 
-    defp row(agent_uid, device, if_index, center, count) do
+    defp profile_rows(partition, device, if_index, center, count) do
+      for slot <- 0..100 do
+        row(partition, device, if_index, center, count, div(slot, 24), rem(slot, 24))
+      end
+    end
+
+    defp row(partition, device, if_index, center, count, dow, hod) do
       %{
         "series" => device,
-        "partition" => agent_uid,
+        "partition" => partition,
         "target_device_ip" => "192.0.2.#{if_index}",
         "if_index" => if_index,
         "metric_name" => "ifInOctets",
-        "dow" => 1,
-        "hod" => 9,
+        "dow" => dow,
+        "hod" => hod,
         "sample_value" => center,
         "bucket" => "2026-06-22T09:00:00Z",
         "bucket_count" => count,
@@ -195,12 +206,17 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
                max_baselines_per_agent: 1
              )
 
-    assert delivery.scoped_baselines |> Map.keys() |> Enum.sort() == ["agent-a", "agent-b"]
-    assert Map.keys(delivery.scoped_baselines["agent-a"]) == ["sr:router-1|ifInOctets|1"]
-    assert Map.keys(delivery.scoped_baselines["agent-b"]) == ["sr:router-2|ifInOctets|7"]
+    assert delivery.scoped_baselines |> Map.keys() |> Enum.sort() == [
+             "partition-a",
+             "partition-b"
+           ]
+
+    assert Map.keys(delivery.scoped_baselines["partition-a"]) == ["sr:router-1|ifInOctets|1"]
+    assert Map.keys(delivery.scoped_baselines["partition-b"]) == ["sr:router-2|ifInOctets|7"]
     assert delivery.stats.scoped_series == 2
     assert delivery.stats.topk_dropped == 1
     assert delivery.stats.cap_dropped == 1
+    assert delivery.stats.quality_dropped == 1
 
     assert_receive {:telemetry, [:serviceradar, :seasonal_disposition, :edge_baseline, :delivery],
                     measurements, %{result: :ok}}
@@ -240,17 +256,21 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
                profile_updater: profile_updater,
                assignments_loader: fn _profiles, _actor -> {:ok, assignments} end,
                assignment_updater: assignment_updater,
+               polling_agents_resolver: fn device_uid, _agent_uids, _actor ->
+                 if device_uid == "sr:router-1", do: ["agent-a"], else: []
+               end,
                heartbeat_recorder: fn _metadata -> :ok end
              )
 
     assert summary.global_series == 0
-    assert summary.scoped_agents == 2
+    assert summary.scoped_agents == 1
     assert summary.assignments_updated == 2
 
     assert_received {:profile_updated, %{"seasonal_baselines" => %{}}}
 
     assert_received {:assignment_updated, "agent-a", agent_a_params}
     assert agent_a_params["metric_feed"] == %{"sources" => ["snmp"]}
+    assert agent_a_params["seasonal"]["min_bucket_samples"] == 4
     assert Map.has_key?(agent_a_params["seasonal_baselines"], "sr:router-1|ifInOctets|1")
     assert Map.has_key?(agent_a_params["seasonal_baselines"], "sr:router-1|ifInOctets|2")
     assert Map.has_key?(agent_a_params["seasonal_baselines"], "sr:router-1|ifInOctets|3")
@@ -329,6 +349,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
                  send(test_pid, {:assignment_updated, params})
                  {:ok, Map.put(assignment, :params, params)}
                end,
+               polling_agents_resolver: fn _device_uid, _agent_uids, _actor -> ["agent-a"] end,
                heartbeat_recorder: fn metadata ->
                  send(test_pid, {:heartbeat, metadata})
                  :ok
@@ -396,6 +417,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
           send(test_pid, {tag, :assignment_updated, params})
           {:ok, Map.put(assignment, :params, params)}
         end,
+        polling_agents_resolver: fn _device_uid, _agent_uids, _actor -> ["agent-a"] end,
         heartbeat_recorder: fn _metadata ->
           send(test_pid, {tag, :heartbeat})
           :ok

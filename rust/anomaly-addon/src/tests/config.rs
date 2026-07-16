@@ -170,6 +170,7 @@ fn config_defaults_cusum_thresholds() {
     assert_eq!(resolved.drift_min_effect, 2.0);
     assert_eq!(resolved.drift_clear_slots, 30);
     assert_eq!(resolved.drift_adopt_after_samples, 600);
+    assert_eq!(resolved.spike_adopt_after_samples, 600);
     assert_eq!(resolved.episode_update_interval_secs, 1_800);
     assert_eq!(resolved.reopen_cooldown_secs, 600);
     assert_eq!(resolved.anchor_max_age_secs, 86_400);
@@ -178,6 +179,30 @@ fn config_defaults_cusum_thresholds() {
     assert_eq!(resolved.emission_cooldown_secs, 300);
     assert_eq!(resolved.emission_budget_per_tick, 100);
     assert_eq!(resolved.metric_denylist, vec!["cpu.frequency_hz"]);
+}
+
+#[test]
+fn config_wires_interface_spike_and_severity_overrides_into_the_engine() {
+    let config: AddonConfig = serde_json::from_value(serde_json::json!({
+        "metric_classes": {
+            "interface": {
+                "spike_adopt_after_samples": 300,
+                "severity_cap": "medium",
+                "severity_bands": {"medium": 2.0, "high": 4.0}
+            }
+        }
+    }))
+    .expect("interface config");
+
+    let resolved = config.into_engine_config().expect("valid config");
+    let interface = resolved
+        .metric_class_overrides
+        .get("interface")
+        .expect("interface override");
+
+    assert_eq!(interface.spike_adopt_after_samples, Some(300));
+    assert_eq!(interface.severity_policy.cap, Some(3));
+    assert_eq!(interface.severity_policy.bands(), (2.0, 4.0));
 }
 
 #[test]
@@ -414,6 +439,7 @@ fn config_rejects_min_samples_larger_than_window_size() {
 #[test]
 fn config_resolves_delivered_seasonal_baselines() {
     let config: AddonConfig = serde_json::from_value(serde_json::json!({
+        "seasonal": {"min_bucket_samples": 7},
         "seasonal_baselines": {
             "series-a": {
                 "buckets": [
@@ -425,6 +451,8 @@ fn config_resolves_delivered_seasonal_baselines() {
         }
     }))
     .expect("seasonal baselines deserialize");
+
+    assert_eq!(config.resolve_seasonal_settings().min_bucket_samples, 7);
 
     let resolved = config.resolve_seasonal_baselines();
     assert_eq!(resolved.len(), 1);

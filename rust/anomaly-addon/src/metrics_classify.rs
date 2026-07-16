@@ -96,8 +96,8 @@ pub(crate) fn is_utilization_percent_gauge(metric: &Metric) -> bool {
 /// CPU pinned high still clears the floor and fires. Per-core CPU is the most
 /// volatile, so its floor is the highest (one core at 18%, or even a brief 100%
 /// spike on a single core, must not page). These are the edge built-in defaults;
-/// the central metric_class override channel (anomaly_addon_profile_seeder
-/// projecting metric_class config into add-on params) is a documented FOLLOW-UP.
+/// The control-plane `metric_classes` override may further raise those floors
+/// and tune the class severity policy, but never weakens the safe defaults.
 ///
 /// A non-gauge metric returns the default profile (no floors, no gate): purely
 /// z-based, unchanged from prior behavior.
@@ -109,6 +109,7 @@ pub(crate) fn series_profile_for(metric: &Metric) -> SeriesProfile {
         Some(GaugeClass::Disk) => SeriesProfile {
             min_std_floor: 1.0,
             min_cv: 0.05,
+            abs_effect_floor: 0.0,
             saturation_gate: Some(SaturationGate {
                 directional: true,
                 min_value: 80.0,
@@ -116,12 +117,14 @@ pub(crate) fn series_profile_for(metric: &Metric) -> SeriesProfile {
             evaluation_interval_ns: None,
             drift_mode: DriftMode::Off,
             drift_min_cv: 0.0,
+            spike_adopt_after_samples: None,
         },
         // Memory used_percent: commonly runs 60-80% benignly (caches, buffers).
         // Same dispersion floors; only sustained pressure above 80% breaches.
         Some(GaugeClass::Mem) => SeriesProfile {
             min_std_floor: 1.0,
             min_cv: 0.05,
+            abs_effect_floor: 0.0,
             saturation_gate: Some(SaturationGate {
                 directional: true,
                 min_value: 80.0,
@@ -129,6 +132,7 @@ pub(crate) fn series_profile_for(metric: &Metric) -> SeriesProfile {
             evaluation_interval_ns: None,
             drift_mode: DriftMode::DeseasonalizedOnly,
             drift_min_cv: 0.0,
+            spike_adopt_after_samples: None,
         },
         // CPU used_percent (per-core): the noisiest gauge — individual cores spike
         // to 100% constantly and benignly. A higher absolute floor + std/CV floor
@@ -137,6 +141,7 @@ pub(crate) fn series_profile_for(metric: &Metric) -> SeriesProfile {
         Some(GaugeClass::Cpu) => SeriesProfile {
             min_std_floor: 5.0,
             min_cv: 0.10,
+            abs_effect_floor: 0.0,
             saturation_gate: Some(SaturationGate {
                 directional: true,
                 min_value: 85.0,
@@ -144,6 +149,7 @@ pub(crate) fn series_profile_for(metric: &Metric) -> SeriesProfile {
             evaluation_interval_ns: Some(CPU_EVALUATION_INTERVAL_NS),
             drift_mode: DriftMode::DeseasonalizedOnly,
             drift_min_cv: 0.0,
+            spike_adopt_after_samples: None,
         },
         None => SeriesProfile::default(),
     }
@@ -160,10 +166,33 @@ pub(crate) fn metric_profile_class(metric: &Metric, metric_class: &str) -> &'sta
     }
 }
 
-pub(crate) fn counter_series_profile() -> SeriesProfile {
+const INTERFACE_PACKET_STD_FLOOR: f64 = 30.0;
+const INTERFACE_PACKET_ABS_EFFECT_FLOOR: f64 = 100.0;
+const INTERFACE_BYTE_STD_FLOOR: f64 = 32.0 * 1024.0;
+const INTERFACE_BYTE_ABS_EFFECT_FLOOR: f64 = 128.0 * 1024.0;
+
+/// Rate-normalized interface counters are the class most exposed to diurnal
+/// baseline lock-in. Packet and byte rates use different physical units, so the
+/// floors must be family-specific rather than a single magic number.
+pub(crate) fn counter_series_profile(metric: &Metric) -> SeriesProfile {
+    let packet_rate = metric.name.to_ascii_lowercase().contains("pkt")
+        || metric.name.to_ascii_lowercase().contains("packet");
+    let (min_std_floor, abs_effect_floor) = if packet_rate {
+        (
+            INTERFACE_PACKET_STD_FLOOR,
+            INTERFACE_PACKET_ABS_EFFECT_FLOOR,
+        )
+    } else {
+        (INTERFACE_BYTE_STD_FLOOR, INTERFACE_BYTE_ABS_EFFECT_FLOOR)
+    };
+
     SeriesProfile {
+        min_std_floor,
+        min_cv: 0.50,
+        abs_effect_floor,
         drift_mode: DriftMode::DeseasonalizedOnly,
         drift_min_cv: 0.05,
+        spike_adopt_after_samples: Some(300),
         ..SeriesProfile::default()
     }
 }
@@ -172,6 +201,7 @@ pub(crate) fn host_cpu_aggregate_profile() -> SeriesProfile {
     SeriesProfile {
         min_std_floor: 5.0,
         min_cv: 0.10,
+        abs_effect_floor: 0.0,
         saturation_gate: Some(SaturationGate {
             directional: true,
             min_value: 85.0,
@@ -179,6 +209,7 @@ pub(crate) fn host_cpu_aggregate_profile() -> SeriesProfile {
         evaluation_interval_ns: None,
         drift_mode: DriftMode::DeseasonalizedOnly,
         drift_min_cv: 0.0,
+        spike_adopt_after_samples: None,
     }
 }
 

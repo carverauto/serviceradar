@@ -35,6 +35,15 @@ pub(crate) struct SeriesState {
     pub(crate) active_episode_started_at_unix_nano: Option<u64>,
     pub(crate) active_episode_peak_value: Option<f64>,
     pub(crate) active_episode_peak_at_unix_nano: Option<u64>,
+    /// Bounded raw observations, including breaching values. The rolling window
+    /// gets winsorized values while a spike is active; this ring is the trusted
+    /// source used when a stable new regime is explicitly adopted.
+    pub(crate) raw_tail: Vec<f64>,
+    pub(crate) spike_active_samples: u64,
+    pub(crate) spike_last_emitted_at_unix_nano: Option<u64>,
+    pub(crate) spike_last_cleared_at_unix_nano: Option<u64>,
+    pub(crate) spike_last_episode_started_at_unix_nano: Option<u64>,
+    pub(crate) spike_reopen_count: u64,
     pub(crate) aggregation_slot_start_unix_nano: Option<u64>,
     pub(crate) aggregation_slot_value: Option<f64>,
     pub(crate) aggregation_slot_peak_at_unix_nano: Option<u64>,
@@ -94,6 +103,12 @@ impl SeriesState {
             active_episode_started_at_unix_nano: None,
             active_episode_peak_value: None,
             active_episode_peak_at_unix_nano: None,
+            raw_tail: Vec::new(),
+            spike_active_samples: 0,
+            spike_last_emitted_at_unix_nano: None,
+            spike_last_cleared_at_unix_nano: None,
+            spike_last_episode_started_at_unix_nano: None,
+            spike_reopen_count: 0,
             aggregation_slot_start_unix_nano: None,
             aggregation_slot_value: None,
             aggregation_slot_peak_at_unix_nano: None,
