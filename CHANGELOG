@@ -1,3 +1,38 @@
+# ServiceRadar v1.4.19
+
+Secure remote-access recovery, faithful routing and syslog provenance, and
+reproducible Rust release inputs.
+
+## Whats New
+
+**1.4.19**
+- Plugin assignment recovery: legacy manual assignments can be reapproved only
+  after current mTLS partition proof, while policy-owned assignments reconcile
+  through their authoritative owner and retain a redacted tenant-scoped audit
+  trail. Unsupported legacy owners remain non-actionable rather than being
+  guessed or bulk-enabled. (PR #4580)
+- Remote access and automation: SSH/AWX callback authority, target binding,
+  marker handling, credential scoping, and host-key custody are hardened while
+  preserving the reviewed operator workflow. This release does not claim to
+  enable unproven native Proxmox guest-console or RDP access paths.
+  (PRs #4573, #4576-#4578)
+- Proxmox and routing telemetry: IPv4-mapped BMP addresses are normalized to
+  canonical IPv4 projections without modifying raw telemetry. A persistence
+  backfill and database guard cover legacy rows and upgrade overlap; the BMP
+  collector is pinned to compatible `arancini-lib` 0.7.3. (PR #4584)
+- Syslog ingestion: observed sender addresses are preserved through the demo
+  collector path, and source-format detection and provenance are improved.
+  (PRs #4581, #4583)
+- Helm configuration: web-ng SMTP settings can be sourced from Kubernetes
+  Secret or ConfigMap references, with chart rendering rejecting literal SMTP
+  credentials. (PR #4586)
+- Platform and release reliability: hosted runtime certificate issuers are
+  isolated, rperf startup certificate compatibility is repaired, and external
+  inventory plugin contracts are declarative. Rust vendor inputs, Bazel module
+  locks, and the SRQL NIF lock are synchronized after workspace cleanup so
+  release builds use reproducible dependency inputs. (PRs #4571, #4572,
+  #4588-#4590)
+
 # ServiceRadar v1.4.15
 
 Fixed anomaly episode payload persistence and silent alert-rule load failures
