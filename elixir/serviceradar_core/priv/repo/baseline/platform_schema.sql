@@ -5208,7 +5208,6 @@ CREATE TABLE platform.logs (
     ingest_identity text DEFAULT ''::text NOT NULL,
     ingest_agent_id text DEFAULT ''::text NOT NULL,
     ingest_partition text DEFAULT ''::text NOT NULL,
-    source_ip text,
     CONSTRAINT chk_logs_span_id_canonical CHECK (((span_id IS NULL) OR (span_id ~ '^[0-9a-f]{16}$'::text))),
     CONSTRAINT chk_logs_trace_id_canonical CHECK (((trace_id IS NULL) OR (trace_id ~ '^[0-9a-f]{32}$'::text)))
 );
