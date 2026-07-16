@@ -16,32 +16,36 @@ name = "serviceradar-rust-sample-addon"
 path = "src/bin/rust_sample_addon.rs"
 
 [dependencies]
-tonic = { workspace = true }
+# Internal deps
+serviceradar-metric-proto = { path = "../metric-proto" }
+
+# External deps
+tonic = { workspace = true, features = ["transport", "tls", "gzip", "zstd"] }
 tonic-health = { workspace = true }
 prost = { workspace = true }
-serviceradar-metric-proto = { path = "../metric-proto" }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "sync", "io-util"] }
 tokio-stream = { workspace = true, features = ["net", "sync"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["aws-lc-rs"] }
-async-trait = "0.1"
-anyhow = "1.0"
-thiserror = "1.0"
-base64 = "0.22"
-rcgen = "0.12"
-sha2 = "0.11"
-hex = "0.4"
+# aws-lc-rs (not ring): See rustls below. crypto providers must match.
+tokio-rustls = { workspace = true, features = ["aws-lc-rs"] }
+async-trait ={ workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+base64 = { workspace = true }
+rcgen = { workspace = true }
+sha2 ={ workspace = true }
+hex = { workspace = true }
 # aws-lc-rs (not ring): the go-plugin host's AutoMTLS client certificate is
 # ECDSA P-521, and rustls' ring provider does NOT support P-521 signature
 # verification (only P-256/P-384), so client-cert verification fails with
 # "certificate required". aws-lc-rs supports P-521 and lets the unmodified Go
 # go-plugin client complete mutual TLS.
-rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std"] }
-rustls-pemfile = "2"
+rustls = {workspace = true, features = ["aws-lc-rs", "std"] }
+rustls-pemfile = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3.0"
-tower = "0.5"
-hyper-util = { version = "0.1", features = ["tokio"] }
+tempfile = { workspace = true }
+tower = { workspace = true }
+hyper-util = { workspace = true, features = ["tokio"] }
 
 [build-dependencies]
 tonic-build = { workspace = true }
