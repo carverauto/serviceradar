@@ -129,6 +129,10 @@
             "type": "number",
             "exclusiveMinimum": 0
           },
+          "drift_min_cv": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
           "abs_effect_floor": {
             "type": "number",
             "minimum": 0
@@ -402,6 +406,10 @@
             "exclusiveMinimum": 0
           },
           "min_cv": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "drift_min_cv": {
             "type": "number",
             "exclusiveMinimum": 0
           },

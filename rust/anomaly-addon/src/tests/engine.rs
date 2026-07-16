@@ -477,7 +477,7 @@ fn rolling_spike_adopts_a_stable_regime_and_rebuilds_the_baseline() {
 }
 
 #[test]
-fn rolling_spike_adopts_when_short_clean_dips_do_not_clear_the_episode() {
+fn rolling_spike_does_not_adopt_across_alternating_rebreaches() {
     let cfg = EngineConfig {
         window_size: 10,
         min_samples: 5,
@@ -514,7 +514,7 @@ fn rolling_spike_adopts_when_short_clean_dips_do_not_clear_the_episode() {
         AnomalyTransition::Open
     );
 
-    let mut adopted = None;
+    let mut adopted = false;
     for (sample, value) in [
         (12, 100.0),
         (13, 10_000.0),
@@ -528,15 +528,14 @@ fn rolling_spike_adopts_when_short_clean_dips_do_not_clear_the_episode() {
             .expect("oscillating verdict");
 
         if verdict.transition == AnomalyTransition::Clear {
-            adopted = Some(verdict);
+            adopted = verdict.clear_reason == Some(SpikeClearReason::Adopted);
             break;
         }
     }
 
-    assert_eq!(
-        adopted.and_then(|verdict| verdict.clear_reason),
-        Some(SpikeClearReason::Adopted),
-        "short clean dips below clear_slots must not make adoption unreachable"
+    assert!(
+        !adopted,
+        "alternating breach/clean samples must not accumulate into a false baseline adoption"
     );
 }
 
@@ -587,6 +586,97 @@ fn saturated_utilization_does_not_self_clear_after_winsorization() {
             "a sustained 100% utilization episode must not self-clear at sample {sample}"
         );
     }
+}
+
+#[test]
+fn high_normal_utilization_recovers_when_it_returns_to_its_rolling_center() {
+    let cfg = EngineConfig {
+        window_size: 6,
+        min_samples: 5,
+        n_sigma: 3.0,
+        confirm_slots: 1,
+        max_series: 10,
+        spike_adopt_after_samples: 100,
+        ..EngineConfig::default()
+    };
+    let profile = SeriesProfile {
+        min_std_floor: 1.0,
+        min_cv: 0.01,
+        saturation_gate: Some(SaturationGate {
+            min_value: 80.0,
+            directional: true,
+        }),
+        spike_adopt_after_samples: Some(100),
+        ..SeriesProfile::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+
+    for sample in 0..10 {
+        engine
+            .evaluate_transition("high-normal", 85.0, sample, profile)
+            .expect("warm-up verdict");
+    }
+
+    assert_eq!(
+        engine
+            .evaluate_transition("high-normal", 98.0, 10, profile)
+            .expect("open verdict")
+            .transition,
+        AnomalyTransition::Open
+    );
+
+    let recovered = engine
+        .evaluate_transition("high-normal", 85.0, 11, profile)
+        .expect("recovery verdict");
+    assert_eq!(recovered.transition, AnomalyTransition::Clear);
+    assert_eq!(recovered.clear_reason, Some(SpikeClearReason::Recovered));
+}
+
+#[test]
+fn saturated_spike_episode_emits_heartbeat_updates() {
+    const SEC: u64 = 1_000_000_000;
+    let cfg = EngineConfig {
+        window_size: 6,
+        min_samples: 5,
+        n_sigma: 3.0,
+        confirm_slots: 1,
+        max_series: 10,
+        spike_adopt_after_samples: 100,
+        episode_update_interval_secs: 1,
+        ..EngineConfig::default()
+    };
+    let profile = SeriesProfile {
+        min_std_floor: 1.0,
+        min_cv: 0.01,
+        saturation_gate: Some(SaturationGate {
+            min_value: 85.0,
+            directional: true,
+        }),
+        spike_adopt_after_samples: Some(100),
+        ..SeriesProfile::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+
+    for sample in 0..10 {
+        engine
+            .evaluate_transition("heartbeat", 50.0, sample * SEC, profile)
+            .expect("warm-up verdict");
+    }
+
+    assert_eq!(
+        engine
+            .evaluate_transition("heartbeat", 100.0, 10 * SEC, profile)
+            .expect("open verdict")
+            .transition,
+        AnomalyTransition::Open
+    );
+
+    let heartbeat = engine
+        .evaluate_transition("heartbeat", 100.0, 12 * SEC, profile)
+        .expect("heartbeat verdict");
+    assert_eq!(heartbeat.transition, AnomalyTransition::Update);
+    assert_eq!(heartbeat.update_reason, Some(SpikeUpdateReason::Heartbeat));
+    assert!(heartbeat.episode.is_some());
 }
 
 #[test]

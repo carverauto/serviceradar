@@ -35,6 +35,7 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjector do
     drift_escalate_after_secs
     min_std_floor
     min_cv
+    drift_min_cv
     abs_effect_floor
     severity_cap
     severity_bands

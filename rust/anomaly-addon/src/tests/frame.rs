@@ -418,7 +418,7 @@ async fn process_frame_emits_only_anomaly_open_and_clear_transitions() {
 }
 
 #[tokio::test]
-async fn process_frame_cooldown_suppresses_non_clear_and_rolls_up() {
+async fn process_frame_flap_reopen_bypasses_the_open_cooldown() {
     let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
         window_size: 50,
         min_samples: 5,
@@ -445,12 +445,10 @@ async fn process_frame_cooldown_suppresses_non_clear_and_rolls_up() {
     assert_eq!(clear["transition"], "clear");
 
     process_anomaly_value(&engine, &tx, &telemetry_drops, 1_000.0, 11).await;
-    let rollup = recv_single_event(&mut rx);
-    assert_eq!(rollup["status_code"], "anomaly_emission_shed");
-    assert_eq!(rollup["unmapped"]["detected_transitions"], 1);
-    assert_eq!(rollup["unmapped"]["emitted_transitions"], 0);
-    assert_eq!(rollup["unmapped"]["cooldown_suppressed"], 1);
-    assert_eq!(rollup["unmapped"]["accounted_transitions"], 1);
+    let reopened = recv_single_event(&mut rx);
+    assert_eq!(reopened["transition"], "update");
+    assert_eq!(reopened["anomaly"]["state"], "anomaly_update");
+    assert_eq!(reopened["anomaly"]["update_reason"], "flapping");
 }
 
 #[tokio::test]

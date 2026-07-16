@@ -3,9 +3,9 @@ use super::{
     addon_statuses, agents, alerts, bmp_events, build_query_plan, capacity_forecasts, cpu_metrics,
     dashboard_service_views, dashboards, device_graph, devices, disk_metrics, downsample,
     endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages, events, field_survey,
-    flows, gateways, graph_cypher, interfaces, logs, memory_metrics, otel_metric_points,
-    otel_metrics, process_metrics, services, timeseries_metrics, trace_summaries, traces,
-    translate_request, virtualization, wifi_map,
+    flows, gateways, graph_cypher, interfaces, is_full_profile_query, logs, memory_metrics,
+    otel_metric_points, otel_metrics, process_metrics, services, timeseries_metrics,
+    trace_summaries, traces, translate_request, virtualization, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -180,19 +180,6 @@ impl QueryEngine {
             limit: Some(plan.limit),
         })
     }
-}
-
-fn is_full_profile_query(plan: &QueryPlan) -> bool {
-    plan.stats
-        .as_ref()
-        .map(|stats| {
-            stats
-                .as_raw()
-                .trim_start()
-                .to_ascii_lowercase()
-                .starts_with("profile_hour_of_week_full(")
-        })
-        .unwrap_or(false)
 }
 
 #[cfg(test)]

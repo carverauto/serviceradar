@@ -98,6 +98,8 @@ fn counter_profile_keeps_error_and_discard_rates_sensitive() {
         assert_eq!(profile.min_std_floor, 0.0, "{name}");
         assert_eq!(profile.min_cv, 0.0, "{name}");
         assert_eq!(profile.abs_effect_floor, 0.0, "{name}");
+        assert_eq!(profile.drift_mode, DriftMode::DeseasonalizedOnly, "{name}");
+        assert!(profile.drift_min_cv > 0.0, "{name}");
     }
 }
 

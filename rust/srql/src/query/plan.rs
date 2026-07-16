@@ -13,6 +13,13 @@ pub(crate) fn build_query_plan(
     request: &QueryRequest,
     ast: QueryAst,
 ) -> Result<QueryPlan> {
+    // The edge baseline producer is the sole internal consumer of full
+    // hour-of-week profiles. It pages one bounded aggregate row per bucket,
+    // and therefore must not be subject to the public cursor-offset cap.
+    // Apply the same classification while decoding as while minting cursors;
+    // otherwise the first cursor past the cap is signed successfully but the
+    // next request rejects it before the SQL is reached.
+    let full_profile_query = is_full_profile_stats(ast.stats.as_ref());
     let requested_limit = request.limit.or(ast.limit);
     if ast.other {
         validate_other_rollup_request(&ast, requested_limit, request.cursor.as_deref())?;
@@ -22,7 +29,17 @@ pub(crate) fn build_query_plan(
     let offset = request
         .cursor
         .as_deref()
-        .map(|cursor| decode_cursor(cursor, &config.cursor_secret, config.max_cursor_offset))
+        .map(|cursor| {
+            decode_cursor(
+                cursor,
+                &config.cursor_secret,
+                if full_profile_query {
+                    i64::MAX
+                } else {
+                    config.max_cursor_offset
+                },
+            )
+        })
         .transpose()?
         .unwrap_or(0)
         .max(0);
@@ -52,6 +69,22 @@ pub(crate) fn build_query_plan(
         other: ast.other,
         include_deleted,
     })
+}
+
+pub(crate) fn is_full_profile_query(plan: &QueryPlan) -> bool {
+    is_full_profile_stats(plan.stats.as_ref())
+}
+
+fn is_full_profile_stats(stats: Option<&crate::parser::StatsSpec>) -> bool {
+    stats
+        .map(|stats| {
+            stats
+                .as_raw()
+                .trim_start()
+                .to_ascii_lowercase()
+                .starts_with("profile_hour_of_week_full(")
+        })
+        .unwrap_or(false)
 }
 
 fn validate_other_rollup_request(

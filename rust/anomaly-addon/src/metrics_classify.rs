@@ -191,6 +191,10 @@ pub(crate) fn counter_series_profile(metric: &Metric) -> SeriesProfile {
         (INTERFACE_BYTE_STD_FLOOR, INTERFACE_BYTE_ABS_EFFECT_FLOOR)
     } else {
         return SeriesProfile {
+            // Error/discard/retransmission counters are not traffic bytes or
+            // packets, but they still need deseasonalized drift coverage.
+            drift_mode: DriftMode::DeseasonalizedOnly,
+            drift_min_cv: 0.05,
             spike_adopt_after_samples: Some(300),
             ..SeriesProfile::default()
         };

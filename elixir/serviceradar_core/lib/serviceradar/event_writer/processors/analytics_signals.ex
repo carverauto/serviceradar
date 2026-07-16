@@ -53,7 +53,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     "anomaly_open",
     "anomaly_update",
     "anomaly_drift",
-    "anomaly_drift_open"
+    "anomaly_drift_open",
+    "anomaly_drift_update"
   ]
   @anomaly_clear_states [
     "anomaly_clear",

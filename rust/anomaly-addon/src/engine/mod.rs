@@ -591,7 +591,14 @@ impl DetectorEngine {
         observed_at_unix_nano: u64,
         cooldown_secs: u64,
     ) -> bool {
-        if transition == AnomalyTransition::Clear {
+        // Re-open folds and bounded heartbeats carry episode identity/liveness
+        // to core. Suppressing an update behind the generic open cooldown can
+        // strand a cleared finding during a flap, so lifecycle updates share
+        // the clear transition's priority path.
+        if matches!(
+            transition,
+            AnomalyTransition::Clear | AnomalyTransition::Update
+        ) {
             return true;
         }
 
@@ -855,6 +862,12 @@ impl DetectorEngine {
             .filter(|value| value.is_finite() && *value > 0.0)
         {
             profile.min_cv = profile.min_cv.max(min_cv);
+        }
+        if let Some(drift_min_cv) = class_override
+            .drift_min_cv
+            .filter(|value| value.is_finite() && *value > 0.0)
+        {
+            profile.drift_min_cv = profile.drift_min_cv.max(drift_min_cv);
         }
         if let Some(abs_effect_floor) = class_override
             .abs_effect_floor
@@ -1335,12 +1348,14 @@ impl DetectorEngine {
                 AnomalyTransition::Open
             }
         } else if state.active_anomalous {
-            // Once an episode is open, count every material re-breach toward
-            // stable-regime adoption. A brief clean dip resets the detector's
-            // confirmation latch, but must not make a still-open oscillatory
-            // condition incapable of ever adopting.
+            // A single continuing incident can re-breach intermittently as the
+            // rolling window moves. Decay the adoption evidence on every clean
+            // evaluation so alternating breaches cannot accumulate forever and
+            // self-clear a live episode as a new baseline.
             if verdict.breached {
                 state.spike_active_samples = state.spike_active_samples.saturating_add(1);
+            } else {
+                state.spike_active_samples = state.spike_active_samples.saturating_sub(1);
             }
 
             let adoption_blocked = profile.saturation_gate.is_some_and(|gate| {
@@ -1376,9 +1391,21 @@ impl DetectorEngine {
             // recovery: while it remains inside the saturation band, retain the
             // episode and keep its clean confirmation counter at zero.
             } else if is_clean_verdict(&verdict)
-                && !profile
-                    .saturation_gate
-                    .is_some_and(|gate| value > gate.min_value)
+                && !profile.saturation_gate.is_some_and(|gate| {
+                    // A high-normal host must be allowed to recover to its own
+                    // center (85% -> 98% -> 85%), not held merely because 85
+                    // exceeds the absolute floor. Conversely, the rolling
+                    // window is winsorized while an episode is open and can
+                    // eventually reach a sustained 100% plateau. Retain that
+                    // still-at-peak saturation episode even after the scored
+                    // center catches up, otherwise it self-clears without a
+                    // real recovery.
+                    rolling_center.is_some_and(|center| gate.allows_breach(value, center))
+                        || (value > gate.min_value
+                            && state
+                                .active_episode_peak_value
+                                .is_some_and(|peak| value >= peak))
+                })
             {
                 state.consecutive_clean = state.consecutive_clean.saturating_add(1);
 
@@ -1417,7 +1444,18 @@ impl DetectorEngine {
                 }
             } else {
                 state.consecutive_clean = 0;
-                AnomalyTransition::None
+                let heartbeat_interval_ns =
+                    seconds_to_ns(self.config.episode_update_interval_secs.max(1));
+                if elapsed_ns(observed_at_unix_nano, state.spike_last_emitted_at_unix_nano)
+                    >= heartbeat_interval_ns
+                {
+                    episode = active_episode(state, observed_at_unix_nano);
+                    state.spike_last_emitted_at_unix_nano = Some(observed_at_unix_nano);
+                    update_reason = Some(SpikeUpdateReason::Heartbeat);
+                    AnomalyTransition::Update
+                } else {
+                    AnomalyTransition::None
+                }
             }
         } else {
             state.consecutive_clean = 0;

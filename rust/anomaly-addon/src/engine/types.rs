@@ -55,16 +55,18 @@ impl SpikeClearReason {
 }
 
 /// Why an existing rolling-spike episode emitted an update rather than a new
-/// open. At present only re-open folding is an externally visible spike update.
+/// open.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SpikeUpdateReason {
     Flapping,
+    Heartbeat,
 }
 
 impl SpikeUpdateReason {
     pub fn as_str(self) -> &'static str {
         match self {
             SpikeUpdateReason::Flapping => "flapping",
+            SpikeUpdateReason::Heartbeat => "still open",
         }
     }
 }
@@ -260,6 +262,8 @@ pub struct MetricClassOverride {
     /// profile floor, preserving safe gauge defaults.
     pub min_std_floor: Option<f64>,
     pub min_cv: Option<f64>,
+    /// Optional relative dispersion floor applied only to CUSUM drift scoring.
+    pub drift_min_cv: Option<f64>,
     pub abs_effect_floor: Option<f64>,
     pub spike_adopt_after_samples: Option<u64>,
     pub severity_policy: SeverityPolicy,

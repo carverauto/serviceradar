@@ -279,6 +279,77 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
     assert agent_z_params["seasonal_baselines"] == %{}
   end
 
+  defmodule DuplicateIpInterfaceRunner do
+    @moduledoc false
+
+    def query(query, _opts) do
+      if String.contains?(query, "ifInOctets") do
+        {:ok,
+         rows("sr:site-a-router", "site-a", 125.0) ++
+           rows("sr:site-b-router", "site-b", 250.0)}
+      else
+        {:ok, []}
+      end
+    end
+
+    defp rows(device, partition, center) do
+      for slot <- 0..100 do
+        %{
+          "series" => device,
+          "partition" => partition,
+          "target_device_ip" => "10.0.0.10",
+          "if_index" => 7,
+          "metric_name" => "ifInOctets",
+          "dow" => div(slot, 24),
+          "hod" => rem(slot, 24),
+          "sample_value" => center,
+          "bucket" => "2026-06-22T09:00:00Z",
+          "bucket_count" => 8,
+          "center" => center,
+          "mad" => 5.0
+        }
+      end
+    end
+  end
+
+  test "does not blend same private interface IPs from separate sites" do
+    test_pid = self()
+    source = Enum.find(Source.defaults(), &(&1.name == "interface_if_in_octets_seasonal"))
+    profiles = [%{id: Ecto.UUID.generate(), params: %{}}]
+
+    assignments = [
+      %{agent_uid: "agent-site-a", params: %{}},
+      %{agent_uid: "agent-site-b", params: %{}}
+    ]
+
+    assert {:ok, %{scoped_series: 2}} =
+             EdgeBaselineProducer.reconcile(
+               sources: [source],
+               runner: DuplicateIpInterfaceRunner,
+               profiles_loader: fn _actor -> {:ok, profiles} end,
+               assignments_loader: fn _profiles, _actor -> {:ok, assignments} end,
+               polling_agents_resolver: fn
+                 "sr:site-a-router", _agents, _actor -> ["agent-site-a"]
+                 "sr:site-b-router", _agents, _actor -> ["agent-site-b"]
+               end,
+               profile_updater: fn profile, params, _actor ->
+                 {:ok, %{profile | params: params}}
+               end,
+               assignment_updater: fn assignment, params, _actor ->
+                 send(test_pid, {:assignment_params, assignment.agent_uid, params})
+                 {:ok, assignment}
+               end,
+               heartbeat_recorder: fn _metadata -> :ok end
+             )
+
+    assert_receive {:assignment_params, "agent-site-a", site_a}
+    assert_receive {:assignment_params, "agent-site-b", site_b}
+
+    key = "10.0.0.10|ifInOctets|7"
+    assert Enum.at(site_a["seasonal_baselines"][key]["centers"], 0) == 125.0
+    assert Enum.at(site_b["seasonal_baselines"][key]["centers"], 0) == 250.0
+  end
+
   test "the built payload validates against the add-on config schema" do
     {:ok, baselines} = EdgeBaselineProducer.build(sources: sources(), runner: ProfileRunner)
 

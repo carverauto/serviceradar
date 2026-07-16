@@ -224,6 +224,8 @@ pub(crate) struct MetricClassConfig {
     #[serde(default, deserialize_with = "deserialize_optional_f64")]
     pub(crate) min_cv: Option<f64>,
     #[serde(default, deserialize_with = "deserialize_optional_f64")]
+    pub(crate) drift_min_cv: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
     pub(crate) abs_effect_floor: Option<f64>,
     #[serde(default)]
     pub(crate) severity_cap: Option<String>,
@@ -602,6 +604,7 @@ fn resolve_metric_class_overrides(
                 drift_mode: config.drift_mode.as_deref().and_then(parse_drift_mode),
                 min_std_floor: finite_positive(config.min_std_floor),
                 min_cv: finite_positive(config.min_cv),
+                drift_min_cv: finite_positive(config.drift_min_cv),
                 abs_effect_floor: finite_positive(config.abs_effect_floor),
                 spike_adopt_after_samples: config.spike_adopt_after_samples.filter(|v| *v > 0),
                 severity_policy: severity_policy_from(

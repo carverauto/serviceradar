@@ -558,6 +558,44 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     assert cpu.count == 1
   end
 
+  test "episode projection overrides stale payload lifecycle fields" do
+    source = fn _srql_module, _candidate, _scope, _opts ->
+      {:ok,
+       %{
+         query: "in:anomaly_episodes",
+         pagination: %{},
+         rows: [
+           %{
+             "episode_uid" => "episode-stale-payload",
+             "finding_uid" => "finding-stale-payload",
+             "device_uid" => "router-1",
+             "metric_class" => "cpu",
+             "metric_name" => "cpu.usage_percent",
+             "series_key" => "sr:router-1|cpu.usage_percent",
+             "status" => "open",
+             "severity_id" => 4,
+             "peak_severity_id" => 4,
+             "opened_at" => ~U[2026-07-04 12:00:00Z],
+             "last_seen_at" => ~U[2026-07-04 12:10:00Z],
+             "last_payload" => %{
+               "anomaly" => %{
+                 "state" => "anomaly_clear",
+                 "status" => "inactive",
+                 "reason" => "stale clear"
+               }
+             }
+           }
+         ]
+       }}
+    end
+
+    data = AnomalyCapacityData.load(FakeSRQL, %{device_uid: "router-1"}, nil, anomaly_source: source)
+
+    assert [row] = data.anomaly_rows
+    assert row["status"] == "open"
+    assert row["state"] == "confirmed"
+  end
+
   test "SNMP metric subclasses are grouped into the SNMP anomaly status bucket" do
     data = AnomalyCapacityData.load(SNMPSRQL, %{device_uid: "router-1"}, nil)
 

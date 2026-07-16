@@ -342,7 +342,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
       %{
         name: "causal_prediction_health_finding",
         managed: true,
-        template_version: 1,
+        template_version: 2,
         description:
           "Raise one active health incident per canonical anomaly series from confirmed causal anomaly transitions.",
         priority: 44,
@@ -353,7 +353,14 @@ defmodule ServiceRadar.Observability.RuleSeeder do
           "attribute_equals" => %{
             "signal_type" => "prediction",
             "event_type" => ["anomaly", "anomaly_detection"],
-            "anomaly.state" => ["anomaly_open", "anomaly_drift_open", "open", "anomalous"]
+            "anomaly.state" => [
+              "anomaly_open",
+              "anomaly_update",
+              "anomaly_drift_open",
+              "anomaly_drift_update",
+              "open",
+              "anomalous"
+            ]
           },
           "recovery" => %{
             "subject_prefix" => "signals.analytics.predictions",

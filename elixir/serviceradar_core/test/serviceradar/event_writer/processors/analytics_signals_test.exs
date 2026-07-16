@@ -1762,6 +1762,22 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
       assert row.unmapped["anomaly"]["state"] == "anomaly_update"
     end
 
+    test "surfaces a confirmed drift heartbeat update" do
+      message =
+        anomaly_gate_message(%{
+          "state" => "anomaly_drift_update",
+          "detector_state" => "anomalous",
+          "consecutive_anomalous" => 5,
+          "confirm_slots" => 5,
+          "detector_method" => "cusum_drift"
+        })
+
+      row = AnalyticsSignals.parse_message(message)
+
+      assert row.class_uid == 2004
+      assert row.unmapped["anomaly"]["state"] == "anomaly_drift_update"
+    end
+
     test "surfaces anomaly_clear resolutions so confirmed findings can be closed" do
       message =
         anomaly_gate_message(

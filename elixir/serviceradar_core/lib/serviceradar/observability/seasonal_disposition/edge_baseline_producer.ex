@@ -282,9 +282,15 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
       row
       |> Map.put(:device_uid, Map.get(row, :series_key))
       |> Map.put(:series_key, seasonal_series_key(source, row))
+      # The edge lookup key is intentionally IP-based for SNMP, but it is not a
+      # safe aggregation key: two sites can legitimately have the same RFC1918
+      # address. Build each profile from its canonical device identity, then
+      # fan that completed profile to the correct polling-agent scope.
+      |> Map.put(:candidate_key, canonical_interface_candidate_key(source, row))
     end)
-    |> Enum.group_by(&Map.get(&1, :series_key))
-    |> Enum.reduce({[], 0}, fn {series_key, group_rows}, {candidates, dropped} ->
+    |> Enum.group_by(&Map.get(&1, :candidate_key))
+    |> Enum.reduce({[], 0}, fn {_candidate_key, group_rows}, {candidates, dropped} ->
+      series_key = group_value(group_rows, :series_key)
       qualified_rows = qualified_rows(group_rows, opts, min_history_weeks)
 
       if coverage_ready?(qualified_rows, opts) do
@@ -317,6 +323,10 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
       end
     end)
     |> then(fn {candidates, dropped} -> {Enum.reverse(candidates), dropped} end)
+  end
+
+  defp canonical_interface_candidate_key(%Source{} = source, row) do
+    "#{Map.get(row, :series_key)}|#{source.wire_metric_name}|#{Map.get(row, :if_index)}"
   end
 
   defp qualified_rows(rows, opts, min_history_weeks \\ 0) do

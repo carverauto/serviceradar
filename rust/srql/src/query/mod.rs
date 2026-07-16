@@ -56,6 +56,7 @@ pub(crate) use filters_common::{
     build_other_rollup_sql, is_negated_membership_op, normalize_mac_value,
 };
 pub(crate) use plan::build_query_plan;
+pub(crate) use plan::is_full_profile_query;
 #[cfg(any(test, debug_assertions))]
 pub(crate) use sql::diesel_bind_count;
 pub(crate) use sql::{

@@ -94,16 +94,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       refute Map.has_key?(warning, :target_uids)
     end
 
-    test "warns when an all-agent profile compiles targets" do
-      warning =
-        SNMPCompiler.duplicate_polling_warning(
-          %{id: "profile-all", agent_ids: []},
-          %{"targets" => [%{"id" => "sr:router-1"}]}
-        )
-
-      assert warning.agent_scope == :all_agents
-      assert warning.agent_uids == []
-      assert warning.target_count == 1
+    test "does not infer duplicate polling from an all-agent profile alone" do
+      assert nil ==
+               SNMPCompiler.duplicate_polling_warning(
+                 %{id: "profile-all", agent_ids: []},
+                 %{"targets" => [%{"id" => "sr:router-1"}]}
+               )
     end
 
     test "does not warn for a single assigned agent" do

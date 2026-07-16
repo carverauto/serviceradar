@@ -49,8 +49,12 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
        )
     ORDER BY
       CASE
-        WHEN episode_uid = $1::text THEN 0
-        WHEN status = 'open' THEN 1
+        -- Never resurrect an exact-but-cleared row while another producer has
+        -- the finding open. The edge flap window is intentionally longer than
+        -- this registry's fold window, so exact-id priority created dual opens
+        -- in that gap.
+        WHEN status = 'open' THEN 0
+        WHEN episode_uid = $1::text THEN 1
         ELSE 2
       END,
       last_seen_at DESC
@@ -61,7 +65,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
       COALESCE((SELECT episode_uid FROM existing), $1::text) AS episode_uid,
       COALESCE((SELECT status FROM existing), '') AS previous_status,
       COALESCE((SELECT peak_severity_id FROM existing), -1) AS previous_peak_severity_id,
-      COALESCE((SELECT last_payload FROM existing), '{}'::jsonb) AS previous_payload
+      CASE jsonb_typeof((SELECT last_payload FROM existing))
+        WHEN 'object' THEN (SELECT last_payload FROM existing)
+        ELSE '{}'::jsonb
+      END AS previous_payload
   ),
   producer_state AS (
     SELECT
@@ -71,8 +78,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
         FROM jsonb_each(
           COALESCE(previous_payload #> '{episode_registry,producer_states}', '{}'::jsonb)
         ) AS producer(key, state)
-        WHERE state ->> 'status' = 'open'
-          OR COALESCE(
+        WHERE COALESCE(
             NULLIF(state ->> 'last_seen_at', '')::timestamp(6),
             '-infinity'::timestamp
           ) >= $15::timestamp(6) - make_interval(secs => $24::integer)

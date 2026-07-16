@@ -289,7 +289,8 @@ fn config_accepts_additive_nested_profile_sections() {
             },
             "interface": {
                 "drift_mode": "deseasonalized_only",
-                "drift_min_effect": "2.5"
+                "drift_min_effect": "2.5",
+                "drift_min_cv": "0.15"
             }
         },
         "seasonal": {
@@ -335,6 +336,7 @@ fn config_accepts_additive_nested_profile_sections() {
         .get("interface")
         .expect("interface class override");
     assert_eq!(interface.drift_mode, Some(DriftMode::DeseasonalizedOnly));
+    assert_eq!(interface.drift_min_cv, Some(0.15));
 }
 
 #[test]

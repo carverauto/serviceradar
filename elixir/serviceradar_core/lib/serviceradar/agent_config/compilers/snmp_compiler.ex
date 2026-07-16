@@ -886,12 +886,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       |> Enum.filter(&(is_binary(&1) and &1 != ""))
       |> Enum.uniq()
 
-    # `agent_ids: []` means every enrolled agent, so it is the broadest
-    # duplicate-polling scope. Treat it as a hygiene warning even though the
-    # profile does not enumerate those agent ids. Avoid emitting the full
-    # target list on every compile; the counts are enough for an operator to
-    # identify the profile without leaking large inventory payloads to logs.
-    if target_uids != [] and (agent_uids == [] or length(agent_uids) > 1) do
+    # A compiler invocation only knows this profile's declared assignments.
+    # An empty list means "all agents", but it does not prove more than one
+    # agent is enrolled; warning in that case produces a false duplicate alarm
+    # for a single-agent deployment. Emit only for a concrete multi-agent
+    # overlap, which this function can establish from its inputs.
+    if target_uids != [] and length(agent_uids) > 1 do
       %{
         profile_id: Map.get(profile, :id, Map.get(profile, "id")),
         profile_name: Map.get(profile, :name, Map.get(profile, "name")),
