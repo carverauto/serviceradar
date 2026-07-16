@@ -10,8 +10,8 @@ name = "serviceradar_anomaly_disposition"
 path = "src/lib.rs"
 
 [dependencies]
-deep_causality_core = "0.11"
-rustler = { version = "0.38", optional = true, default-features = false }
+deep_causality_core = { workspace = true }
+rustler = { workspace = true, optional = true, default-features = false }
 serviceradar-anomaly-core = { path = "../anomaly-core" }
 
 [features]
