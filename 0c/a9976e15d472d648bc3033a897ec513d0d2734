@@ -1,0 +1,36 @@
+Cargo.toml
+  s_6f8eb423821667::t_c39688cd08c9df 151
+rust/flowgger/Cargo.toml
+  s_6f8eb423821667::t_c39688cd08c9df 16-23,25-38,42-43
+  s_6f8eb423821667::t_4a3a68cd8f30af 24
+rust/flowgger/src/flowgger/input/file/worker.rs
+  s_6f8eb423821667::t_00bee209e4289f 38-43
+  s_6f8eb423821667::t_e0d4f07e53850a 9
+rust/flowgger/src/flowgger/input/file/discovery.rs
+  s_6f8eb423821667::t_7ec9c0ef9067bb 5
+  s_6f8eb423821667::t_9e274eb889d7a3 15
+  s_6f8eb423821667::t_6a0d4de4e0c3a0 31
+  s_6f8eb423821667::t_a10fae0bb13161 50-70,72-77,80-81
+rust/flowgger/src/flowgger/decoder/gelf_decoder.rs
+  s_6f8eb423821667::t_c39688cd08c9df 40-47,93-106
+rust/srql/Cargo.toml
+  s_6f8eb423821667::t_4cdb7ebac35d5c 28-31
+rust/flowgger/src/flowgger/encoder/gelf_encoder.rs
+  s_6f8eb423821667::t_c39688cd08c9df 5,60-74,76,79,82,85,88,98,104-106,109,114,116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "0ca9976e15d472d648bc3033a897ec513d0d2734",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
