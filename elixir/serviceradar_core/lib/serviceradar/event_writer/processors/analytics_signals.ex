@@ -29,6 +29,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   @schema_version "1.0"
   @max_grouped_contexts 32
   @routing_table "bmp_routing_events"
+  @bmp_projection_ip_fields ~w(
+    router_addr peer_addr prefix_addr
+    router_id routerId router_ip routerIp device_ip source_ip
+    peer_ip peerIp src_ip
+    prefix nlri announced_prefix
+  )
+  @bmp_mapped_ipv4_pattern ~r/^::ffff:(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\/(?:3[0-2]|[12]?[0-9]))?$/i
   @ocsf_vulnerability_finding_class_uid 2002
   @ocsf_detection_finding_class_uid 2004
   @ocsf_findings_category_uid 2
@@ -156,10 +163,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
   defp parse_components(%{data: data, metadata: metadata}) do
     with {:ok, payload} <- decode_payload(data, metadata),
-         {:ok, normalized} <- normalize_payload(payload, metadata, data) do
+         projection_payload = canonicalize_bmp_projection_payload(payload, metadata[:subject]),
+         {:ok, normalized} <- normalize_payload(projection_payload, metadata, data) do
       %{
         normalized: normalized,
-        payload: payload,
+        payload: projection_payload,
         raw_data: data,
         metadata: metadata
       }
@@ -749,6 +757,67 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
   defp arancini_subject?(_), do: false
 
+  defp bmp_subject?(subject) when is_binary(subject),
+    do: String.starts_with?(subject, "bmp.events.") or arancini_subject?(subject)
+
+  defp bmp_subject?(_), do: false
+
+  # The migration repairs existing routing projections, but the Helm migration
+  # hook runs before the BMP collector rollout. Keep this projection-side guard
+  # until every collector is known to publish canonical IPv4 strings. `raw_data`
+  # still receives the original producer bytes for replay and forensics.
+  defp canonicalize_bmp_projection_payload(payload, subject) when is_map(payload) do
+    if infer_signal_type(subject, payload) == "bmp" do
+      payload
+      |> canonicalize_bmp_ip_fields(@bmp_projection_ip_fields)
+      |> canonicalize_bmp_attrs()
+    else
+      payload
+    end
+  end
+
+  defp canonicalize_bmp_projection_payload(payload, _subject), do: payload
+
+  defp canonicalize_bmp_attrs(%{"attrs" => attrs} = payload) when is_map(attrs) do
+    Map.put(payload, "attrs", canonicalize_bmp_ip_fields(attrs, ["next_hop"]))
+  end
+
+  defp canonicalize_bmp_attrs(payload), do: payload
+
+  defp canonicalize_bmp_ip_fields(payload, fields) do
+    Enum.reduce(fields, payload, fn field, projected ->
+      case Map.fetch(projected, field) do
+        {:ok, value} -> Map.put(projected, field, canonical_bmp_ip(value))
+        :error -> projected
+      end
+    end)
+  end
+
+  defp canonical_bmp_ip(value) when is_binary(value) do
+    if Regex.match?(@bmp_mapped_ipv4_pattern, value) do
+      {address, suffix} = split_bmp_ip_suffix(value)
+
+      case :inet.parse_address(String.to_charlist(address)) do
+        {:ok, {0, 0, 0, 0, 0, 65_535, high, low}} ->
+          "#{div(high, 256)}.#{rem(high, 256)}.#{div(low, 256)}.#{rem(low, 256)}#{suffix}"
+
+        _ ->
+          value
+      end
+    else
+      value
+    end
+  end
+
+  defp canonical_bmp_ip(value), do: value
+
+  defp split_bmp_ip_suffix(value) do
+    case String.split(value, "/", parts: 2) do
+      [address] -> {address, ""}
+      [address, prefix_len] -> {address, "/#{prefix_len}"}
+    end
+  end
+
   defp valid_arancini_payload?(payload) when is_map(payload) do
     required_string_keys_present? =
       Enum.all?(["router_addr", "peer_addr", "prefix_addr"], fn key ->
@@ -974,15 +1043,18 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     }
   end
 
-  defp infer_signal_type(subject, payload) do
+  defp infer_signal_type(subject, payload) when is_map(payload) do
+    subject = if is_binary(subject), do: subject, else: ""
+
     cond do
       is_binary(payload["signal_type"]) -> String.downcase(payload["signal_type"])
-      String.starts_with?(subject, "bmp.events.") -> "bmp"
-      arancini_subject?(subject) -> "bmp"
+      bmp_subject?(subject) -> "bmp"
       String.starts_with?(subject, "siem.events.") -> "siem"
       true -> "unknown"
     end
   end
+
+  defp infer_signal_type(_subject, _payload), do: "unknown"
 
   defp normalize_source(payload, subject) do
     %{

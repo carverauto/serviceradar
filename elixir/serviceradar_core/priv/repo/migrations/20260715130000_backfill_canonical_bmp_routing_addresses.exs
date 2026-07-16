@@ -18,30 +18,36 @@ defmodule ServiceRadar.Repo.Migrations.BackfillCanonicalBmpRoutingAddresses do
 
   @batch_size 10_000
   @table "bmp_routing_events"
+  @trigger "serviceradar_canonical_bmp_routing_addresses"
 
   def up do
     schema = schema()
 
     Enum.each(helper_statements(schema), &execute/1)
+    # The Helm schema job runs before the new core Deployment rolls out, so old
+    # EventWriter pods can still write mapped projections while this migration
+    # is running. Install this database barrier before the batch repair so a
+    # legacy write cannot slip past a completed batch during the rollout.
+    Enum.each(trigger_statements(schema), &execute/1)
     flush()
 
-    try do
-      backfill_batches(
-        repo(),
-        backfill_batch_sql(schema, @table, @batch_size, :skip_locked),
-        backfill_batch_sql(schema, @table, @batch_size, :wait),
-        @batch_size
-      )
-    after
-      Enum.each(drop_helper_statements(schema), &execute/1)
-      flush()
-    end
+    backfill_batches(
+      repo(),
+      backfill_batch_sql(schema, @table, @batch_size, :skip_locked),
+      backfill_batch_sql(schema, @table, @batch_size, :wait),
+      @batch_size
+    )
   end
 
   def down do
     # The forward repair is deliberately idempotent but not reversible: the old
     # mapped representation is a lossy UI defect, not authoritative raw data.
-    :ok
+    schema = schema()
+
+    Enum.each(drop_trigger_statements(schema), &execute/1)
+    flush()
+    Enum.each(drop_helper_statements(schema), &execute/1)
+    flush()
   end
 
   @doc false
@@ -55,7 +61,7 @@ defmodule ServiceRadar.Repo.Migrations.BackfillCanonicalBmpRoutingAddresses do
       PARALLEL SAFE
       AS $$
         SELECT CASE
-          WHEN value ~* '^::ffff:([0-9]{1,3}[.]){3}[0-9]{1,3}(/[0-9]{1,3})?$'
+          WHEN value ~* '^::ffff:((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])[.]){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(/(3[0-2]|[12]?[0-9]))?$'
             THEN substring(value FROM 8)
           ELSE value
         END
@@ -162,8 +168,14 @@ defmodule ServiceRadar.Repo.Migrations.BackfillCanonicalBmpRoutingAddresses do
       IMMUTABLE
       AS $$
       DECLARE
-        normalized jsonb := COALESCE(value, '{}'::jsonb);
+        normalized jsonb;
       BEGIN
+        IF value IS NULL THEN
+          RETURN NULL;
+        END IF;
+
+        normalized := value;
+
         normalized := #{schema}.serviceradar_canonical_bmp_json_path(
           normalized,
           ARRAY['source_identity', 'router_ip']
@@ -211,6 +223,51 @@ defmodule ServiceRadar.Repo.Migrations.BackfillCanonicalBmpRoutingAddresses do
       "DROP FUNCTION IF EXISTS #{schema}.serviceradar_canonical_bmp_json_array(jsonb, text[])",
       "DROP FUNCTION IF EXISTS #{schema}.serviceradar_canonical_bmp_json_path(jsonb, text[])",
       "DROP FUNCTION IF EXISTS #{schema}.serviceradar_canonical_bmp_value(text)"
+    ]
+  end
+
+  @doc false
+  def trigger_statements(schema, table \\ @table) do
+    [
+      """
+      CREATE OR REPLACE FUNCTION #{schema}.serviceradar_canonical_bmp_routing_projection()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        NEW.router_id := #{schema}.serviceradar_canonical_bmp_value(NEW.router_id);
+        NEW.router_ip := #{schema}.serviceradar_canonical_bmp_value(NEW.router_ip);
+        NEW.peer_ip := #{schema}.serviceradar_canonical_bmp_value(NEW.peer_ip);
+        NEW.prefix := #{schema}.serviceradar_canonical_bmp_value(NEW.prefix);
+
+        -- Avoid allocating/re-writing JSONB when it cannot contain a mapped value.
+        IF NEW.metadata IS NOT NULL AND NEW.metadata::text ~* '::ffff:' THEN
+          NEW.metadata := #{schema}.serviceradar_canonical_bmp_metadata(NEW.metadata);
+        END IF;
+
+        RETURN NEW;
+      END
+      $$
+      """,
+      """
+      DO $$
+      BEGIN
+        DROP TRIGGER IF EXISTS #{@trigger} ON #{schema}.#{table};
+        CREATE TRIGGER #{@trigger}
+        BEFORE INSERT OR UPDATE ON #{schema}.#{table}
+        FOR EACH ROW
+        EXECUTE FUNCTION #{schema}.serviceradar_canonical_bmp_routing_projection();
+      END
+      $$
+      """
+    ]
+  end
+
+  @doc false
+  def drop_trigger_statements(schema, table \\ @table) do
+    [
+      "DROP TRIGGER IF EXISTS #{@trigger} ON #{schema}.#{table}",
+      "DROP FUNCTION IF EXISTS #{schema}.serviceradar_canonical_bmp_routing_projection()"
     ]
   end
 
