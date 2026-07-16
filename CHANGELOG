@@ -1,3 +1,25 @@
+# ServiceRadar v1.4.16
+
+Secure remote-access recovery, hardened automation, and more faithful syslog
+ingestion.
+
+## Whats New
+
+**1.4.16**
+- Plugin assignment recovery: safely reapprove quarantined manual assignments
+  only after current mTLS partition proof, reconcile policy-owned assignments
+  through their authoritative owner, and keep a redacted tenant-scoped audit
+  trail. Unsupported legacy owners remain non-actionable rather than being
+  guessed or bulk-enabled.
+- Remote access and automation: harden SSH/AWX callback authority, binding,
+  target validation, marker handling, and credential scoping while preserving
+  the reviewed operator workflow.
+- Syslog ingestion: preserve the observed sender address through the demo
+  collector path and improve format detection and source provenance.
+- Platform reliability: isolate hosted runtime certificate issuers, repair
+  rperf startup certificate compatibility, and improve Rust/Bazel dependency
+  reproducibility and external inventory plugin contracts.
+
 # ServiceRadar v1.4.15
 
 Fixed anomaly episode payload persistence and silent alert-rule load failures
