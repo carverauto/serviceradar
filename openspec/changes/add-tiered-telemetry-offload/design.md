@@ -336,8 +336,16 @@ runs it fine; the head is the ideal canary for the overdue operator upgrade
 - **Phase 0 — decision-gate spikes** (block approval→implementation):
   postgres-scanner-in-view pushdown both branches; hypertable-parent vs
   chunk-relation scans; statement-timeout cancellation; COPY-to-S3 stability;
-  object-store compat matrix (Linode/Ceph-RGW; path-style stores);
-  DuckDB NULLS/collation vs PG ordering verification (cluster locale check).
+  object-store compat matrix (Linode Object Storage; MinIO as the reference
+  path-style store); DuckDB NULLS/collation vs PG ordering verification
+  (cluster locale check). Spikes run against the compose stack + MinIO so
+  they need no cloud resources.
+- **Local development and CI**: an opt-in docker-compose profile adds MinIO
+  and a local analytics-head container wired to the compose CNPG, so the
+  entire export→verify→drop→query-back loop (and later the M2 parity suite)
+  is exercisable and CI-testable without cloud object storage. This is dev
+  tooling, not an OSS enablement path — the profile is opt-in and
+  undocumented in user-facing install docs, consistent with D11.
 - **M1 — offload + gated retention + telemetry** (shippable alone; no SRQL/NIF
   changes): registry, image, head chart component, exporter, manifest,
   frontier, fence (worker + migrations), pressure relief, pruning, gauges,

@@ -94,8 +94,9 @@ change is inert and OSS deployments run exactly as today.
   (cold-tier config input, routing, cold SQL dialect, cursor v3),
   `docker/images` + `MODULE.bazel` (new `serviceradar-cnpg-analytics` image),
   `helm/serviceradar` (analytics-head component, default off; network
-  policies), migrations (retention-policy fence helper, CAGG window
-  alignment).
+  policies), `docker-compose.yml` (opt-in MinIO + local analytics-head
+  profile for cold-tier development and CI), migrations (retention-policy
+  fence helper, CAGG window alignment).
 - New dependency: an S3 client in core-elx (object pruning, manifest↔bucket
   reconciliation); pg_duckdb (MIT) baked only into the new analytics image.
 - Sibling change: `add-tenant-cold-telemetry-tier` in the `serviceradar-control`

@@ -5,7 +5,7 @@
 - [ ] 0.2 Spike: DuckDB postgres scanner against a TimescaleDB hypertable parent — measure pushdown/scan behavior; validate the `_timescaledb_internal` chunk-relation fallback; pin `pg_connection_limit`
 - [ ] 0.3 Spike: PG `statement_timeout` cancellation of in-flight DuckDB executions on the head; define client-side cancellation fallback if needed
 - [ ] 0.4 Spike: `COPY (SELECT … FROM postgres_scan(…)) TO 's3://…' (FORMAT parquet)` stability at chunk scale (pg_duckdb #1056 family); document crash/retry envelope
-- [ ] 0.5 Spike: object-store compatibility matrix (Linode Object Storage; one path-style S3 store) — multipart, ListObjectsV2 paging, `url_style`, checksum env quirks; `AbortIncompleteMultipartUpload` lifecycle support
+- [ ] 0.5 Spike: object-store compatibility matrix (Linode Object Storage; MinIO as the reference path-style store, doubling as the local-dev/CI target) — multipart, ListObjectsV2 paging, `url_style`, checksum env quirks; `AbortIncompleteMultipartUpload` lifecycle support
 - [ ] 0.6 Spike: ordering parity — DuckDB `default_null_order`/collation vs PG on tenant cluster locale; confirm explicit NULLS + tiebreaker strategy closes the gap
 - [ ] 0.7 Record go/no-go + fallbacks in design.md; re-validate proposal if any spike forces a design change
 
@@ -17,6 +17,7 @@
 - [ ] 1.5 Helm: analytics-head component (CNPG Cluster CRD, default disabled) — GUC posture (duckdb.postgres_role, max_memory, threads, disabled_filesystems, temp on dedicated ephemeral volume with max_temp_directory_size), resource requests derived from pool_size × max_memory formula; chart-owned posture defaults with named values keys for externally projected facts (cold-tier credentials secret name, sizing profile)
 - [ ] 1.6 Helm: NetworkPolicies (head→primary :5432; head→object-store egress; core/web-ng→head); dedicated read-only export role on the primary with role-level timeouts + keepalives (migration)
 - [ ] 1.7 core-elx secrets reconciler: idempotently (re)assert DuckDB S3 SECRET and postgres-type SECRET on the head from mounted K8s secrets; rotation integration test + runbook
+- [ ] 1.8 Local dev: opt-in docker-compose profile with MinIO + a local analytics-head container (analytics image) + cold-tier env wiring, so the full export→verify→drop→query-back loop runs against the compose CNPG without any cloud object storage
 
 ## 2. M1 — Export pipeline + gated retention
 - [ ] 2.1 Manifest table `platform.cold_chunk_exports` on the primary (migration) + Ash resource (migrate? false)
@@ -43,7 +44,7 @@
 - [ ] 4.5 web-ng ColdRepo (pool 2–4, 60s timeout) + route-based execution in srql.ex; fail-soft to hot-only with truncation notice component (generalize :spans_expired pattern)
 - [ ] 4.6 Analytics-head view generation from the registry (platform.<table> stitched views; same-name postgres-scanner views for dimension tables); regeneration on schema migration + drift check
 - [ ] 4.7 Trace detail absolute-time hint from trace summaries; :spans_expired path reads cold
-- [ ] 4.8 Golden hot/cold parity suite: same SRQL both paths, row-level + Arrow-layer assertions (query_arrow frames), type-fidelity cases (json text, timestamptz UTC, numeric bounds, NULL ordering, ILIKE/regex); runs in CI against fixture data
+- [ ] 4.8 Golden hot/cold parity suite: same SRQL both paths, row-level + Arrow-layer assertions (query_arrow frames), type-fidelity cases (json text, timestamptz UTC, numeric bounds, NULL ordering, ILIKE/regex); runs in CI against fixture data on a MinIO-backed bucket (same compose profile as task 1.8)
 - [ ] 4.9 Per-entity-family rollout flags (logs → traces → flows → events → metric points)
 
 ## 5. Supersession + validation
