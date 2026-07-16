@@ -157,10 +157,10 @@ tower-http = { version = "0.6.1", default-features = false }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["std"] }
 ultragraph = "0.9"
-ureq = { version = "2", default-features = false }
+ureq = { version = "2.12", default-features = false }
 urlencoding = "2"
 uuid = { version = "1", default-features = false, features = ["std"] }
-which = "7.0"
+which = "8.0"
 zeroize = { version = "1", default-features = false }
 
 [patch.crates-io]
