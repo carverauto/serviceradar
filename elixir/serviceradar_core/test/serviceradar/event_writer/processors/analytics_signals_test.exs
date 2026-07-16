@@ -788,6 +788,161 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
       assert row.device["uid"] == "10.0.0.1"
     end
 
+    test "canonicalizes mapped IPv4 BMP projections while retaining raw payload bytes" do
+      payload = %{
+        "time_received_ns" => "2026-07-15T18:00:01Z",
+        "time_bmp_header_ns" => "2026-07-15T18:00:00Z",
+        "router_addr" => "::ffff:10.42.57.39",
+        "peer_addr" => "::ffff:169.254.0.179",
+        "peer_asn" => 64_512,
+        "prefix_addr" => "::ffff:10.43.73.194",
+        "prefix_len" => 24,
+        "announced" => true,
+        "attrs" => %{"next_hop" => "::ffff:10.42.57.1"}
+      }
+
+      raw_data = Jason.encode!(payload)
+
+      row =
+        AnalyticsSignals.parse_message(%{
+          data: raw_data,
+          metadata: %{
+            subject: "arancini.updates.v4_10_42_57_39.64512.1_1",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      assert row.metadata["source_identity"]["router_ip"] == "10.42.57.39"
+      assert row.metadata["source_identity"]["peer_ip"] == "169.254.0.179"
+      assert row.metadata["routing_correlation"]["router_id"] == "10.42.57.39"
+      assert row.metadata["routing_correlation"]["router_ip"] == "10.42.57.39"
+      assert row.metadata["routing_correlation"]["peer_ip"] == "169.254.0.179"
+      assert row.metadata["routing_correlation"]["prefix"] == "10.43.73.194/24"
+      assert row.src_endpoint["ip"] == "169.254.0.179"
+      assert row.device["uid"] == "10.42.57.39"
+      assert row.unmapped["router_addr"] == "10.42.57.39"
+      assert row.unmapped["attrs"]["next_hop"] == "10.42.57.1"
+      assert row.raw_data == raw_data
+    end
+
+    test "canonicalizes mapped IPv4 alternate fields on bmp.events subjects" do
+      payload = %{
+        "timestamp" => "2026-07-15T18:00:00Z",
+        "routerId" => "::ffff:10.42.57.39",
+        "routerIp" => "::ffff:10.42.57.39",
+        "peerIp" => "::ffff:169.254.0.179",
+        "peer_asn" => 64_512,
+        "prefix" => "::ffff:10.43.73.194/24",
+        "announced" => true
+      }
+
+      raw_data = Jason.encode!(payload)
+
+      row =
+        AnalyticsSignals.parse_message(%{
+          data: raw_data,
+          metadata: %{subject: "bmp.events.route_update", received_at: DateTime.utc_now()}
+        })
+
+      assert row.metadata["signal_type"] == "bmp"
+      assert row.metadata["source_identity"]["router_id"] == "10.42.57.39"
+      assert row.metadata["source_identity"]["router_ip"] == "10.42.57.39"
+      assert row.metadata["source_identity"]["peer_ip"] == "169.254.0.179"
+      assert row.metadata["routing_correlation"]["prefix"] == "10.43.73.194/24"
+      assert row.raw_data == raw_data
+    end
+
+    test "canonicalizes mapped IPv4 for explicit BMP signal types on custom subjects" do
+      payload = %{
+        "signal_type" => "BMP",
+        "timestamp" => "2026-07-15T18:00:00Z",
+        "router_addr" => "::ffff:10.42.57.39",
+        "peer_addr" => "::ffff:169.254.0.179",
+        "peer_asn" => 64_512,
+        "prefix_addr" => "::ffff:10.43.73.194",
+        "prefix_len" => 24,
+        "announced" => true
+      }
+
+      row =
+        AnalyticsSignals.parse_message(%{
+          data: Jason.encode!(payload),
+          metadata: %{subject: "vendor.routing.events", received_at: DateTime.utc_now()}
+        })
+
+      assert row.metadata["signal_type"] == "bmp"
+      assert row.metadata["routing_correlation"]["router_ip"] == "10.42.57.39"
+      assert row.metadata["routing_correlation"]["peer_ip"] == "169.254.0.179"
+      assert row.metadata["routing_correlation"]["prefix"] == "10.43.73.194/24"
+    end
+
+    test "preserves genuine IPv6 BMP projections" do
+      payload = %{
+        "time_received_ns" => "2026-07-15T18:00:01Z",
+        "time_bmp_header_ns" => "2026-07-15T18:00:00Z",
+        "router_addr" => "2001:db8:1::39",
+        "peer_addr" => "2001:db8:2::179",
+        "peer_asn" => 64_512,
+        "prefix_addr" => "2001:db8:3::",
+        "prefix_len" => 64,
+        "announced" => true,
+        "attrs" => %{"next_hop" => "2001:db8:4::1"}
+      }
+
+      raw_data = Jason.encode!(payload)
+
+      row =
+        AnalyticsSignals.parse_message(%{
+          data: raw_data,
+          metadata: %{
+            subject: "arancini.updates.v6_2001_db8_1_0_0_0_0_39.64512.2_1",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      assert row.metadata["source_identity"]["router_ip"] == "2001:db8:1::39"
+      assert row.metadata["source_identity"]["peer_ip"] == "2001:db8:2::179"
+      assert row.metadata["routing_correlation"]["router_id"] == "2001:db8:1::39"
+      assert row.metadata["routing_correlation"]["prefix"] == "2001:db8:3::/64"
+      assert row.src_endpoint["ip"] == "2001:db8:2::179"
+      assert row.device["uid"] == "2001:db8:1::39"
+      assert row.unmapped["attrs"]["next_hop"] == "2001:db8:4::1"
+      assert row.raw_data == raw_data
+    end
+
+    test "preserves mapped-looking BMP values outside the canonical IPv4 contract" do
+      invalid_ipv4 = "::ffff:999.999.999.999"
+      invalid_cidr = "::ffff:10.42.57.39/64"
+
+      payload = %{
+        "time_received_ns" => "2026-07-15T18:00:01Z",
+        "time_bmp_header_ns" => "2026-07-15T18:00:00Z",
+        "router_addr" => invalid_ipv4,
+        "peer_addr" => invalid_cidr,
+        "peer_asn" => 64_512,
+        "prefix_addr" => "::ffff:10.43.73.194",
+        "prefix_len" => 24,
+        "announced" => true,
+        "attrs" => %{"next_hop" => invalid_cidr}
+      }
+
+      raw_data = Jason.encode!(payload)
+
+      row =
+        AnalyticsSignals.parse_message(%{
+          data: raw_data,
+          metadata: %{
+            subject: "arancini.updates.v4_10_42_57_39.64512.1_1",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      assert row.unmapped["router_addr"] == invalid_ipv4
+      assert row.unmapped["peer_addr"] == invalid_cidr
+      assert row.unmapped["attrs"]["next_hop"] == invalid_cidr
+      assert row.raw_data == raw_data
+    end
+
     test "normalizes arancini withdraw payload to route_withdraw event type" do
       payload = load_event_writer_fixture!("arancini_update_route_withdraw.json")
       assert_arancini_contract_keys!(payload)
