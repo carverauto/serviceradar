@@ -1,0 +1,19 @@
+rust/rdp-connector-probe/src/probe/connector.rs
+  s_59023af038bf95::t_6512fc56569fe9 104-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "0c83b83a133e536be2f198d3e70b857fbc4734c5",
+  "prompts": {},
+  "sessions": {
+    "s_59023af038bf95": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "984ccd93-7b2c-4fbe-b33a-edd0212c8717",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
