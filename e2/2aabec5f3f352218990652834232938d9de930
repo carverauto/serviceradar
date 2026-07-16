@@ -1,0 +1,25 @@
+rust/workload-identity/build.rs
+  s_6f8eb423821667::t_d501fe0410f957 1-24
+proto/cri/v1.proto
+  s_6f8eb423821667::t_65e2cbe45ebe79 1-1601
+third_party/crates/.serviceradar-vendor-inputs
+  s_6f8eb423821667::t_608a2f17942ee7 1-40
+third_party/crates/defs.bzl
+  s_6f8eb423821667::t_16091599e250ab 301,306,310-312,320,326,347,409,431,441,462,477,481,488-490,497,505-506,519-520,525,534,554,588,595-596,613,621,627,645,651-654,660,681,683,698,705-708,717,721-722,937,1550,1591,1596,1601,1608,1617-1618,1623,1630,1637-1638,1645,1649-1651,1751-1752
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "e22aabec5f3f352218990652834232938d9de930",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
