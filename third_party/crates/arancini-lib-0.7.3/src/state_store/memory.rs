@@ -20,8 +20,7 @@ impl MemoryStore {
     }
 
     fn _get_router(&mut self, router_addr: &IpAddr) -> &mut Router {
-        let router = self.routers.entry(*router_addr).or_insert(Router::new());
-        router
+        self.routers.entry(*router_addr).or_insert(Router::new())
     }
 }
 

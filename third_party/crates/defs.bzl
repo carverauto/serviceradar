@@ -343,7 +343,7 @@ _NORMAL_DEPENDENCIES = {
     "rust/bmp-collector": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
-            "arancini-lib": Label("//third_party/crates/arancini-lib-0.7.2:arancini_lib"),
+            "arancini-lib": Label("//third_party/crates/arancini-lib-0.7.3:arancini_lib"),
             "async-nats": Label("//third_party/crates/async-nats-0.48.0:async_nats"),
             "bgpkit-parser": Label("//third_party/crates/bgpkit-parser-0.15.0:bgpkit_parser"),
             "bytes": Label("//third_party/crates/bytes-1.11.1:bytes"),
