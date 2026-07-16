@@ -1,0 +1,29 @@
+rust/srql/src/query/flows/stats/bind.rs
+  s_6f8eb423821667::t_d432cba8c028a4 2-3,5
+Cargo.toml
+  s_6f8eb423821667::t_ef81011faa40db 145
+  s_6f8eb423821667::t_a911e7b07931df 126
+rust/srql/src/query/flows/stats.rs
+  s_6f8eb423821667::t_760bc1b8165670 15
+rust/flowgger/src/flowgger/output/tls_output.rs
+  s_6f8eb423821667::t_fbf89989a4a8e9 7
+  s_6f8eb423821667::t_0136382546ca3b 122,161-162,307
+Cargo.lock
+  s_6f8eb423821667::t_0a3defa16a33ed 4827,5615,5617,5620
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "aa06369c54c8bc3bfb4893c9525bc28c11a94a6c",
+  "prompts": {},
+  "sessions": {
+    "s_6f8eb423821667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd434123-3896-4d43-b435-e9e8ffb86d99",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
