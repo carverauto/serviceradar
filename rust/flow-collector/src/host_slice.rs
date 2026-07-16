@@ -39,6 +39,9 @@ impl HostSliceRouter {
         Self { targets_by_ip }
     }
 
+    /// Subjects only, for tests that assert on routing without the rest of the target.
+    /// Production goes through [`Self::targets_for_flow`], which carries the full target.
+    #[cfg(test)]
     pub fn subjects_for_flow(&self, flow: &FlowMessage) -> Vec<String> {
         self.targets_for_flow(flow)
             .into_iter()

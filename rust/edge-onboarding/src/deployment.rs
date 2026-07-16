@@ -84,10 +84,10 @@ fn is_docker() -> bool {
     }
 
     // Check cgroup for docker/containerd
-    if let Ok(data) = fs::read_to_string("/proc/1/cgroup") {
-        if data.contains("docker") || data.contains("containerd") {
-            return true;
-        }
+    if let Ok(data) = fs::read_to_string("/proc/1/cgroup")
+        && (data.contains("docker") || data.contains("containerd"))
+    {
+        return true;
     }
 
     // Check for container environment variable

@@ -16,7 +16,7 @@ cd "$REPO_ROOT"
 # there is no way to vendor a subset (no exclude attr, and a second crates_vendor
 # target would duplicate rather than isolate). The four system crates -- openssl-src,
 # openssl-sys, pq-src, pq-sys -- are instead held still by two mechanisms:
-#   1. exact-version pins on openssl-sys/pq-sys in rust/srql/Cargo.toml, and
+#   1. exact-version pins on openssl-sys/pq-sys in the root Cargo.toml, and
 #   2. the version-derived asserts below, which fail this script if any of the four
 #      moves, since both source patches are keyed to an exact upstream version.
 # So a system-crate bump is always a deliberate, reviewable act: re-pin, regenerate the

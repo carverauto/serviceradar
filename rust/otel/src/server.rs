@@ -233,7 +233,6 @@ mod tests {
         let config = crate::config::Config {
             output: crate::config::OutputConfig {
                 backend: crate::config::OutputBackend::Agent,
-                ..Default::default()
             },
             agent_forward: Some(crate::config::AgentForwardConfig {
                 spool_dir: dir.path().to_string_lossy().into_owned(),
@@ -263,7 +262,6 @@ mod tests {
         let config = crate::config::Config {
             output: crate::config::OutputConfig {
                 backend: crate::config::OutputBackend::Otlp,
-                ..Default::default()
             },
             ..Default::default()
         };

@@ -187,6 +187,7 @@ mod tests {
     const QUIRK_ID_PLUS: u32 = 1 << 2;
     const QUIRK_MALFORMED_OPTIONS: u32 = 1 << 0;
 
+    #[allow(clippy::too_many_arguments)]
     fn encode_to_string(
         ip_version: u16,
         ttl: u8,

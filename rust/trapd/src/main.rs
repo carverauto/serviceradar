@@ -451,7 +451,7 @@ fn resolve_grpc_server_transport(cfg: &Config) -> Result<GrpcServerTransport> {
 
 async fn serve_with_tls(addr: SocketAddr, tls: ServerTlsConfig) -> Result<()> {
     let service = TrapdAgentService;
-    let (mut health_reporter, health_service) = health_reporter();
+    let (health_reporter, health_service) = health_reporter();
     health_reporter
         .set_serving::<AgentServiceServer<TrapdAgentService>>()
         .await;
@@ -482,7 +482,7 @@ async fn serve_with_spiffe(
 
     loop {
         let service = TrapdAgentService;
-        let (mut health_reporter, health_service) = health_reporter();
+        let (health_reporter, health_service) = health_reporter();
         health_reporter
             .set_serving::<AgentServiceServer<TrapdAgentService>>()
             .await;

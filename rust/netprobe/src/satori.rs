@@ -361,10 +361,10 @@ fn parse_satori_file(path: &Path) -> Result<Vec<SatoriEntry>> {
                 }
             }
             Ok(Event::End(end)) if end.name().as_ref() == b"fingerprint" => {
-                if let Some(entry) = current.take() {
-                    if !entry.tests.is_empty() {
-                        entries.push(entry);
-                    }
+                if let Some(entry) = current.take()
+                    && !entry.tests.is_empty()
+                {
+                    entries.push(entry);
                 }
             }
             Ok(Event::Eof) => break,
@@ -434,7 +434,7 @@ fn attributes(reader: &Reader<&[u8]>, start: &BytesStart<'_>) -> Result<BTreeMap
             .context("Satori XML attribute key is not UTF-8")?
             .to_owned();
         let value = attr
-            .decode_and_unescape_value(reader.decoder())
+            .decoded_and_normalized_value(quick_xml::XmlVersion::Implicit1_0, reader.decoder())
             .context("failed to decode Satori XML attribute value")?
             .trim()
             .to_owned();

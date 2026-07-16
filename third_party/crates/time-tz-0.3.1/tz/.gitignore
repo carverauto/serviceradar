@@ -1,0 +1,26 @@
+# Files intentionally not tracked by Git.
+# This file is in the public domain.
+*.a
+*.asc
+*.diff
+*.i
+*.o
+*.orig
+*.patch
+*.rej
+*.tar
+*.tar.*
+*.txt
+*.tzs
+*.zi
+*~
+ChangeLog
+check_*
+date
+leapseconds
+tzselect
+version
+version.h
+yearistype
+zdump
+zic

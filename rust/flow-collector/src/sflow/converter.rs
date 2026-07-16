@@ -184,10 +184,10 @@ struct RawHeaderTuple {
 fn parse_raw_packet_header(raw: &RawPacketHeader) -> Option<RawHeaderTuple> {
     let header = raw.header.as_slice();
 
-    if raw.header_protocol == 1 {
-        if let Some(tuple) = parse_ethernet_header(header) {
-            return Some(tuple);
-        }
+    if raw.header_protocol == 1
+        && let Some(tuple) = parse_ethernet_header(header)
+    {
+        return Some(tuple);
     }
 
     match header.first().map(|byte| byte >> 4) {

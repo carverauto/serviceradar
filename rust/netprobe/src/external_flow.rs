@@ -19,6 +19,9 @@ pub struct ExternalFlowMatcher {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+// Matched is the common ingest path; boxing it to shrink the empty variants
+// would add an allocation on the hot path.
+#[allow(clippy::large_enum_variant)]
 pub enum ExternalFlowIngest {
     Matched(FlowAttributionEvent),
     Unmatched,

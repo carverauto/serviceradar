@@ -314,6 +314,10 @@ fn bindings_by_ip(bindings: &[DeviceBinding]) -> HashMap<String, BindingState> {
 }
 
 #[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
+// The proto deliberately keeps tcp/tls/http deprecated-but-populated while agents
+// migrate to license_clean, so this must still read them. Remove the allow (and the
+// arms) once the migration window closes.
+#[allow(deprecated)]
 fn protocol_for(event: &FingerprintEvent) -> Option<FingerprintProtocol> {
     match event.evidence.as_ref()? {
         fingerprint_event::Evidence::Tcp(_) => Some(FingerprintProtocol::Tcp),
@@ -396,10 +400,10 @@ fn should_emit(
 
     let key = (ip.to_string(), protocol);
     let minimum_interval_nanos = i64::from(sample_interval_ms) * 1_000_000;
-    if let Some(last_seen) = last_emitted.get(&key) {
-        if observed_at_unix_nano.saturating_sub(*last_seen) < minimum_interval_nanos {
-            return false;
-        }
+    if let Some(last_seen) = last_emitted.get(&key)
+        && observed_at_unix_nano.saturating_sub(*last_seen) < minimum_interval_nanos
+    {
+        return false;
     }
 
     last_emitted.insert(key, observed_at_unix_nano);
@@ -418,10 +422,10 @@ fn should_emit_dpi(
 
     let key = dpi_event_key(event);
     let minimum_interval_nanos = i64::from(sample_interval_ms) * 1_000_000;
-    if let Some(last_seen) = last_emitted.get(&key) {
-        if event.observed_at_unix_nano.saturating_sub(*last_seen) < minimum_interval_nanos {
-            return false;
-        }
+    if let Some(last_seen) = last_emitted.get(&key)
+        && event.observed_at_unix_nano.saturating_sub(*last_seen) < minimum_interval_nanos
+    {
+        return false;
     }
 
     last_emitted.insert(key, event.observed_at_unix_nano);
@@ -735,6 +739,8 @@ mod tests {
             .unwrap();
     }
 
+    // Exercises the deprecated-but-still-supported tcp evidence path.
+    #[allow(deprecated)]
     fn tcp_event(ip: &str, observed_at_unix_nano: i64) -> FingerprintEvent {
         FingerprintEvent {
             ip: ip.to_string(),

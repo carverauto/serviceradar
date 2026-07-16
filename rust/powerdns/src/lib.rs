@@ -263,12 +263,12 @@ async fn run_listener(
 
             let mut state_guard = state.lock().await;
             unregister_producer_connection(&mut state_guard, generation, Instant::now());
-            if let Err(err) = result {
-                if state_guard.generation == generation {
-                    state_guard.counters.listener_errors =
-                        state_guard.counters.listener_errors.saturating_add(1);
-                    state_guard.degradations.producer = Some(err.to_string());
-                }
+            if let Err(err) = result
+                && state_guard.generation == generation
+            {
+                state_guard.counters.listener_errors =
+                    state_guard.counters.listener_errors.saturating_add(1);
+                state_guard.degradations.producer = Some(err.to_string());
             }
         });
     }
@@ -524,15 +524,15 @@ fn dns_event_message(
         .map(trim_dns_name)
         .unwrap_or_else(|| "<unknown>".to_owned());
 
-    if let Some(response) = response {
-        if has_policy_hit(Some(response)) {
-            let policy = non_blank(response.applied_policy.as_deref()).unwrap_or("unknown-policy");
-            let kind = response
-                .applied_policy_kind
-                .and_then(policy_kind_name)
-                .unwrap_or("policy");
-            return format!("PowerDNS RPZ {kind} match for {hostname} via {policy}");
-        }
+    if let Some(response) = response
+        && has_policy_hit(Some(response))
+    {
+        let policy = non_blank(response.applied_policy.as_deref()).unwrap_or("unknown-policy");
+        let kind = response
+            .applied_policy_kind
+            .and_then(policy_kind_name)
+            .unwrap_or("policy");
+        return format!("PowerDNS RPZ {kind} match for {hostname} via {policy}");
     }
 
     if activity_id == 1 {
@@ -687,10 +687,10 @@ fn stable_uuid(message: &dnsmessage::PbdnsMessage, event_time_unix_nano: i64) ->
     hasher.update(message.message_id.as_deref().unwrap_or_default());
     hasher.update(message.id.unwrap_or_default().to_be_bytes());
     hasher.update(event_time_unix_nano.to_be_bytes());
-    if let Some(question) = &message.question {
-        if let Some(qname) = &question.q_name {
-            hasher.update(qname.as_bytes());
-        }
+    if let Some(question) = &message.question
+        && let Some(qname) = &question.q_name
+    {
+        hasher.update(qname.as_bytes());
     }
     let digest = hasher.finalize();
     let mut bytes = [0_u8; 16];

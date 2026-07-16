@@ -304,15 +304,15 @@ impl NATSWorker {
 
             #[cfg(feature = "gelf")]
             {
-                if let Ok(mut v) = serde_json::from_slice::<Value>(&bytes) {
-                    if let Some(obj) = v.as_object_mut() {
-                        if let Some(addr_val) = obj.get_mut("_remote_addr") {
-                            if let Some(s) = addr_val.as_str() {
-                                *addr_val = Value::String(format!("{}:{}", self.cfg.partition, s));
-                            }
-                        }
-                        bytes = serde_json::to_vec(&v).unwrap_or(bytes);
+                if let Ok(mut v) = serde_json::from_slice::<Value>(&bytes)
+                    && let Some(obj) = v.as_object_mut()
+                {
+                    if let Some(addr_val) = obj.get_mut("_remote_addr")
+                        && let Some(s) = addr_val.as_str()
+                    {
+                        *addr_val = Value::String(format!("{}:{}", self.cfg.partition, s));
                     }
+                    bytes = serde_json::to_vec(&v).unwrap_or(bytes);
                 }
             }
 

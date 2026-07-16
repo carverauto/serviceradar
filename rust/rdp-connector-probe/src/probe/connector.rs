@@ -101,10 +101,11 @@ fn validate_service_radar_open_request(
 }
 
 fn split_domain_username(username: String) -> (Option<String>, String) {
-    if let Some((domain, login)) = username.split_once('\\') {
-        if !domain.is_empty() && !login.is_empty() {
-            return (Some(domain.to_owned()), login.to_owned());
-        }
+    if let Some((domain, login)) = username.split_once('\\')
+        && !domain.is_empty()
+        && !login.is_empty()
+    {
+        return (Some(domain.to_owned()), login.to_owned());
     }
 
     (None, username)

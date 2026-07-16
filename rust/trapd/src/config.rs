@@ -113,10 +113,10 @@ impl Config {
         if self.subject.is_empty() {
             anyhow::bail!("subject is required");
         }
-        if let Some(creds_file) = &self.nats_creds_file {
-            if creds_file.trim().is_empty() {
-                anyhow::bail!("nats_creds_file cannot be empty");
-            }
+        if let Some(creds_file) = &self.nats_creds_file
+            && creds_file.trim().is_empty()
+        {
+            anyhow::bail!("nats_creds_file cannot be empty");
         }
         if let Some(sec) = &self.nats_security {
             match sec.mode {

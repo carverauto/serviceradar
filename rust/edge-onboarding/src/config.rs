@@ -142,36 +142,34 @@ pub fn generate_checker_config(
     };
 
     // If the package contains checker-specific config, merge it
-    if let Some(ref checker_config_json) = package.checker_config_json {
-        if !checker_config_json.is_empty() {
-            // Parse and overlay the checker config
-            if let Ok(overlay) = serde_json::from_str::<serde_json::Value>(checker_config_json) {
-                if let Some(listen_addr) = overlay.get("listen_addr").and_then(|v| v.as_str()) {
-                    config.listen_addr = listen_addr.to_string();
-                }
-                if let Some(poll_interval) = overlay.get("poll_interval").and_then(|v| v.as_u64()) {
-                    config.poll_interval = poll_interval;
-                }
-                if let Some(partition) = overlay.get("partition").and_then(|v| v.as_str()) {
-                    config.partition = Some(partition.to_string());
-                }
-                if let Some(filesystems) = overlay.get("filesystems") {
-                    if let Ok(fs) =
-                        serde_json::from_value::<Vec<FilesystemConfig>>(filesystems.clone())
-                    {
-                        config.filesystems = fs;
-                    }
-                }
-                if let Some(zfs) = overlay.get("zfs") {
-                    if let Ok(z) = serde_json::from_value::<ZfsConfig>(zfs.clone()) {
-                        config.zfs = Some(z);
-                    }
-                }
-                if let Some(process) = overlay.get("process_monitoring") {
-                    if let Ok(p) = serde_json::from_value::<ProcessConfig>(process.clone()) {
-                        config.process_monitoring = Some(p);
-                    }
-                }
+    if let Some(ref checker_config_json) = package.checker_config_json
+        && !checker_config_json.is_empty()
+    {
+        // Parse and overlay the checker config
+        if let Ok(overlay) = serde_json::from_str::<serde_json::Value>(checker_config_json) {
+            if let Some(listen_addr) = overlay.get("listen_addr").and_then(|v| v.as_str()) {
+                config.listen_addr = listen_addr.to_string();
+            }
+            if let Some(poll_interval) = overlay.get("poll_interval").and_then(|v| v.as_u64()) {
+                config.poll_interval = poll_interval;
+            }
+            if let Some(partition) = overlay.get("partition").and_then(|v| v.as_str()) {
+                config.partition = Some(partition.to_string());
+            }
+            if let Some(filesystems) = overlay.get("filesystems")
+                && let Ok(fs) = serde_json::from_value::<Vec<FilesystemConfig>>(filesystems.clone())
+            {
+                config.filesystems = fs;
+            }
+            if let Some(zfs) = overlay.get("zfs")
+                && let Ok(z) = serde_json::from_value::<ZfsConfig>(zfs.clone())
+            {
+                config.zfs = Some(z);
+            }
+            if let Some(process) = overlay.get("process_monitoring")
+                && let Ok(p) = serde_json::from_value::<ProcessConfig>(process.clone())
+            {
+                config.process_monitoring = Some(p);
             }
         }
     }

@@ -181,48 +181,51 @@ fn recog_observations(payload: &[u8], context: DpiPayloadContext) -> Vec<RecogOb
     if let Some(ssh) = ssh_banner(payload) {
         push_recog_match(&mut observations, RecogService::SshBanner, ssh);
     }
-    if context.transport_protocol == "tcp" && has_port(context, 21) {
-        if let Some(ftp) = status_line_banner(payload) {
-            push_recog_match(&mut observations, RecogService::FtpBanner, ftp);
-        }
+    if context.transport_protocol == "tcp"
+        && has_port(context, 21)
+        && let Some(ftp) = status_line_banner(payload)
+    {
+        push_recog_match(&mut observations, RecogService::FtpBanner, ftp);
     }
     if context.transport_protocol == "tcp"
         && [25, 465, 587].iter().any(|port| has_port(context, *port))
+        && let Some(smtp) = status_line_banner(payload)
     {
-        if let Some(smtp) = status_line_banner(payload) {
-            push_recog_match(&mut observations, RecogService::SmtpBanner, smtp);
-        }
+        push_recog_match(&mut observations, RecogService::SmtpBanner, smtp);
     }
-    if context.transport_protocol == "tcp" && has_port(context, 23) {
-        if let Some(telnet) = first_text_line(payload) {
-            push_recog_match(&mut observations, RecogService::TelnetBanner, telnet);
-        }
-    }
-    if context.transport_protocol == "tcp" && [139, 445].iter().any(|port| has_port(context, *port))
+    if context.transport_protocol == "tcp"
+        && has_port(context, 23)
+        && let Some(telnet) = first_text_line(payload)
     {
-        if let Some(smb) = first_text_line(payload) {
-            push_recog_match(&mut observations, RecogService::SmbVersion, smb);
-        }
+        push_recog_match(&mut observations, RecogService::TelnetBanner, telnet);
     }
-    if context.transport_protocol == "udp" && has_port(context, 161) {
-        if let Some(snmp) = first_text_line(payload) {
-            push_recog_match(&mut observations, RecogService::SnmpBanner, snmp);
-        }
+    if context.transport_protocol == "tcp"
+        && [139, 445].iter().any(|port| has_port(context, *port))
+        && let Some(smb) = first_text_line(payload)
+    {
+        push_recog_match(&mut observations, RecogService::SmbVersion, smb);
     }
-    if has_port(context, 5060) {
-        if let Some(sip) = sip_banner(payload) {
-            push_recog_match(&mut observations, RecogService::SipBanner, sip);
-        }
+    if context.transport_protocol == "udp"
+        && has_port(context, 161)
+        && let Some(snmp) = first_text_line(payload)
+    {
+        push_recog_match(&mut observations, RecogService::SnmpBanner, snmp);
     }
-    if context.transport_protocol == "tcp" && has_port(context, 3389) {
-        if let Some(rdp) = first_text_line(payload) {
-            push_recog_match(&mut observations, RecogService::RdpBanner, rdp);
-        }
+    if has_port(context, 5060)
+        && let Some(sip) = sip_banner(payload)
+    {
+        push_recog_match(&mut observations, RecogService::SipBanner, sip);
     }
-    if has_port(context, 53) {
-        if let Some(dns_version) = dns_version_bind_banner(payload) {
-            push_recog_match(&mut observations, RecogService::DnsVersion, dns_version);
-        }
+    if context.transport_protocol == "tcp"
+        && has_port(context, 3389)
+        && let Some(rdp) = first_text_line(payload)
+    {
+        push_recog_match(&mut observations, RecogService::RdpBanner, rdp);
+    }
+    if has_port(context, 53)
+        && let Some(dns_version) = dns_version_bind_banner(payload)
+    {
+        push_recog_match(&mut observations, RecogService::DnsVersion, dns_version);
     }
 
     observations

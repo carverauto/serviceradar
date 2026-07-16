@@ -307,7 +307,7 @@ impl DetectorEngine {
         }
 
         let mut counter_entries = checkpoint.counters;
-        counter_entries.sort_by(|left, right| right.timestamp.cmp(&left.timestamp));
+        counter_entries.sort_by_key(|entry| std::cmp::Reverse(entry.timestamp));
 
         for counter in counter_entries {
             if !fresh(counter.timestamp) {

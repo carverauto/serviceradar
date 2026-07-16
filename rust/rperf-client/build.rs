@@ -56,10 +56,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    if let Ok(protoc) = env::var("PROTOC") {
-        if !Path::new(&protoc).exists() {
-            return Err(format!("protoc not found at {}", protoc).into());
-        }
+    if let Ok(protoc) = env::var("PROTOC")
+        && !Path::new(&protoc).exists()
+    {
+        return Err(format!("protoc not found at {}", protoc).into());
     }
 
     tonic_prost_build::configure()

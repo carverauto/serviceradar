@@ -270,11 +270,11 @@ where
                 }
             };
 
-            if let Some(mut active) = active_session.take() {
-                if let Err(err) = active.session.close(&close) {
-                    write_error_frame(writer, err.safe_message())?;
-                    return Err(err.into());
-                }
+            if let Some(mut active) = active_session.take()
+                && let Err(err) = active.session.close(&close)
+            {
+                write_error_frame(writer, err.safe_message())?;
+                return Err(err.into());
             }
 
             return Ok(FrameAction::Close);

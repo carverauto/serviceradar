@@ -26,13 +26,13 @@ use serde::{Deserialize, Serialize};
 use std::os::unix::fs::FileTypeExt;
 
 #[cfg(unix)]
-use anyhow::{Context, Result};
-#[cfg(unix)]
 use crate::cri::v1::{
     Container, ContainerFilter, ContainerState, ContainerStateValue, ContainerStatusRequest,
     ContainerStatusResponse, ListContainersRequest, PodSandboxStatusRequest,
     PodSandboxStatusResponse, runtime_service_client::RuntimeServiceClient,
 };
+#[cfg(unix)]
+use anyhow::{Context, Result};
 #[cfg(unix)]
 use hyper_util::rt::TokioIo;
 #[cfg(unix)]
@@ -62,8 +62,9 @@ const CRI_CONFIG_FILES: &[&str] = &[
     "/var/lib/rancher/k3s/agent/etc/crictl.yaml",
 ];
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Default)]
 pub enum RuntimeSource {
+    #[default]
     Containerd,
     Crio,
     Docker,
@@ -76,12 +77,6 @@ impl RuntimeSource {
             Self::Crio => "crio",
             Self::Docker => "docker",
         }
-    }
-}
-
-impl Default for RuntimeSource {
-    fn default() -> Self {
-        Self::Containerd
     }
 }
 
@@ -434,17 +429,12 @@ impl WorkloadIdentityBackend for CriRuntimeClient {
         self.runtime_source.as_str()
     }
 
-    fn list_container_identities(
-        &mut self,
-    ) -> impl Future<Output = Result<Vec<CriContainerLookup>>> + Send + '_ {
-        async move { CriRuntimeClient::list_container_identities(self).await }
+    async fn list_container_identities(&mut self) -> Result<Vec<CriContainerLookup>> {
+        CriRuntimeClient::list_container_identities(self).await
     }
 
-    fn container_identity<'a>(
-        &'a mut self,
-        container_id: &'a str,
-    ) -> impl Future<Output = Result<Option<WorkloadIdentity>>> + Send + 'a {
-        async move { CriRuntimeClient::container_identity(self, container_id).await }
+    async fn container_identity(&mut self, container_id: &str) -> Result<Option<WorkloadIdentity>> {
+        CriRuntimeClient::container_identity(self, container_id).await
     }
 }
 
@@ -523,17 +513,12 @@ impl WorkloadIdentityBackend for DockerRuntimeClient {
         RuntimeSource::Docker.as_str()
     }
 
-    fn list_container_identities(
-        &mut self,
-    ) -> impl Future<Output = Result<Vec<CriContainerLookup>>> + Send + '_ {
-        async move { DockerRuntimeClient::list_container_identities(self).await }
+    async fn list_container_identities(&mut self) -> Result<Vec<CriContainerLookup>> {
+        DockerRuntimeClient::list_container_identities(self).await
     }
 
-    fn container_identity<'a>(
-        &'a mut self,
-        container_id: &'a str,
-    ) -> impl Future<Output = Result<Option<WorkloadIdentity>>> + Send + 'a {
-        async move { DockerRuntimeClient::container_identity(self, container_id).await }
+    async fn container_identity(&mut self, container_id: &str) -> Result<Option<WorkloadIdentity>> {
+        DockerRuntimeClient::container_identity(self, container_id).await
     }
 }
 
@@ -550,11 +535,11 @@ pub fn parse_cgroup_identity(cgroup_payload: &str) -> CgroupIdentity {
             identity.pod_uid = extract_pod_uid(path);
         }
 
-        if identity.container_id.is_none() {
-            if let Some((runtime, container_id)) = extract_container_id(path) {
-                identity.runtime_source = Some(runtime);
-                identity.container_id = Some(container_id);
-            }
+        if identity.container_id.is_none()
+            && let Some((runtime, container_id)) = extract_container_id(path)
+        {
+            identity.runtime_source = Some(runtime);
+            identity.container_id = Some(container_id);
         }
 
         if identity.pod_uid.is_some() && identity.container_id.is_some() {
@@ -636,10 +621,11 @@ fn cgroup_path_from_record(record: &str) -> &str {
     let second = parts.next();
     let third = parts.next();
 
-    if !first.is_empty() && first.bytes().all(|b| b.is_ascii_digit()) {
-        if let (Some(_controllers), Some(path)) = (second, third) {
-            return path.trim();
-        }
+    if !first.is_empty()
+        && first.bytes().all(|b| b.is_ascii_digit())
+        && let (Some(_controllers), Some(path)) = (second, third)
+    {
+        return path.trim();
     }
 
     record
