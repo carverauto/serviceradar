@@ -384,6 +384,23 @@ cold_secret_env = fn name ->
   end
 end
 
+# nil when unset: a cold window must be an explicit deployment decision (D9).
+cold_window = fn name ->
+  case System.get_env(name) do
+    nil ->
+      nil
+
+    "" ->
+      nil
+
+    value ->
+      case Integer.parse(value) do
+        {days, _} -> max(days, 1)
+        :error -> nil
+      end
+  end
+end
+
 config :serviceradar_core, ServiceRadar.ColdTier,
   enabled: System.get_env("SERVICERADAR_COLD_TIER_ENABLED") in ["true", "1"],
   bucket_url: System.get_env("SERVICERADAR_COLD_TIER_BUCKET_URL"),
@@ -407,16 +424,23 @@ config :serviceradar_core, ServiceRadar.ColdTier,
   export_lag_hours: max(cold_parse_int.("SERVICERADAR_COLD_EXPORT_LAG_HOURS", 48), 1),
   quarantine_attempts: max(cold_parse_int.("SERVICERADAR_COLD_QUARANTINE_ATTEMPTS", 5), 1),
   run_chunk_budget: max(cold_parse_int.("SERVICERADAR_COLD_RUN_CHUNK_BUDGET", 24), 1),
-  cold_windows: [
-    logs: max(cold_parse_int.("SERVICERADAR_COLD_WINDOW_LOGS_DAYS", 365), 1),
-    traces: max(cold_parse_int.("SERVICERADAR_COLD_WINDOW_TRACES_DAYS", 365), 1),
-    otel_metrics: max(cold_parse_int.("SERVICERADAR_COLD_WINDOW_OTEL_METRICS_DAYS", 365), 1),
-    otel_metric_points:
-      max(cold_parse_int.("SERVICERADAR_COLD_WINDOW_OTEL_METRIC_POINTS_DAYS", 365), 1),
-    timeseries: max(cold_parse_int.("SERVICERADAR_COLD_WINDOW_TIMESERIES_DAYS", 365), 1),
-    events: max(cold_parse_int.("SERVICERADAR_COLD_WINDOW_EVENTS_DAYS", 365), 1),
-    flows: max(cold_parse_int.("SERVICERADAR_COLD_WINDOW_FLOWS_DAYS", 365), 1)
-  ]
+  # Cold windows are what the pruner DELETES archived data by, so an absent
+  # value must never materialize a default: design D9 says absent means no
+  # expiry pruning at all (manifest hygiene only). nil = keep forever until a
+  # deployment states a window explicitly.
+  cold_windows:
+    Enum.reject(
+      [
+        logs: cold_window.("SERVICERADAR_COLD_WINDOW_LOGS_DAYS"),
+        traces: cold_window.("SERVICERADAR_COLD_WINDOW_TRACES_DAYS"),
+        otel_metrics: cold_window.("SERVICERADAR_COLD_WINDOW_OTEL_METRICS_DAYS"),
+        otel_metric_points: cold_window.("SERVICERADAR_COLD_WINDOW_OTEL_METRIC_POINTS_DAYS"),
+        timeseries: cold_window.("SERVICERADAR_COLD_WINDOW_TIMESERIES_DAYS"),
+        events: cold_window.("SERVICERADAR_COLD_WINDOW_EVENTS_DAYS"),
+        flows: cold_window.("SERVICERADAR_COLD_WINDOW_FLOWS_DAYS")
+      ],
+      fn {_class, days} -> is_nil(days) end
+    )
 
 if config_env() == :prod do
   read_secret_env = fn env_name, file_env_name ->

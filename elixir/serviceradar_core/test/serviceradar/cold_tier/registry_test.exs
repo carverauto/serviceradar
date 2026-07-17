@@ -134,13 +134,16 @@ defmodule ServiceRadar.ColdTier.RegistryTest do
     end
   end
 
-  test "cold_window_days defaults and honors per-class config" do
+  test "cold_window_days is nil without explicit config and honors per-class config" do
     logs = Registry.fetch!("logs")
     original = Application.get_env(:serviceradar_core, ServiceRadar.ColdTier)
 
     try do
       Application.delete_env(:serviceradar_core, ServiceRadar.ColdTier)
-      assert Registry.cold_window_days(logs) == 365
+
+      # No default: this value is what the pruner DELETES archives by, so an
+      # absent window must mean "no expiry pruning" (design D9), never 365.
+      assert Registry.cold_window_days(logs) == nil
 
       Application.put_env(:serviceradar_core, ServiceRadar.ColdTier, cold_windows: [logs: 180])
       assert Registry.cold_window_days(logs) == 180

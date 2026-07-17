@@ -137,33 +137,45 @@ defmodule ServiceRadar.ColdTier.Head do
   end
 
   @doc """
-  Write + ack the query boundary B for a table on the head, and rebuild that
-  table's stitched view at the new split point.
+  Write + ack the query boundary B for a table on the head, rebuild that
+  table's stitched view at the effective split point, and return the
+  effective boundary so the caller records the SAME value on the primary.
 
-  The view is regenerated in the SAME step as the ack so the boundary the
-  views read can never disagree with the boundary the primary's drop gate
-  keys on: the ack is only reported to the caller once the view reflects it
-  (design D3, invariant "drop point <= B <= F").
+  B is monotonic on both sides. A late or recreated old chunk can produce a
+  candidate BELOW the stored boundary; if the head moved backward while the
+  primary's boundary stayed high, the stitched view would expect hot rows in
+  a range the primary had already dropped while excluding the Parquet copy —
+  a silent query gap. So the head clamps with `GREATEST`, and the value it
+  actually stored (not the candidate) is what builds the view and what the
+  caller acknowledges (design D3, invariant "drop point <= B <= F").
+
+  The view is regenerated in the SAME step as the ack, so the boundary the
+  views read can never disagree with the one the drop gate keys on.
   """
-  @spec ack_boundary(pid(), String.t(), DateTime.t()) :: :ok
+  @spec ack_boundary(pid(), String.t(), DateTime.t()) :: {:ok, DateTime.t()}
   def ack_boundary(conn, table_name, %DateTime{} = boundary) do
-    query!(
-      conn,
-      """
-      INSERT INTO platform.cold_tier_boundaries (table_name, query_boundary, updated_at)
-      VALUES ($1, $2, now())
-      ON CONFLICT (table_name)
-      DO UPDATE SET query_boundary = EXCLUDED.query_boundary, updated_at = now()
-      """,
-      [table_name, boundary]
-    )
+    %Postgrex.Result{rows: [[effective]]} =
+      query!(
+        conn,
+        """
+        INSERT INTO platform.cold_tier_boundaries (table_name, query_boundary, updated_at)
+        VALUES ($1, $2, now())
+        ON CONFLICT (table_name)
+        DO UPDATE SET
+          query_boundary =
+            GREATEST(platform.cold_tier_boundaries.query_boundary, EXCLUDED.query_boundary),
+          updated_at = now()
+        RETURNING query_boundary
+        """,
+        [table_name, boundary]
+      )
 
     case Registry.fetch(table_name) do
-      {:ok, entry} -> ServiceRadar.ColdTier.Views.ensure_view(conn, entry, boundary)
+      {:ok, entry} -> ServiceRadar.ColdTier.Views.ensure_view(conn, entry, effective)
       :error -> :ok
     end
 
-    :ok
+    {:ok, effective}
   end
 
   @doc """

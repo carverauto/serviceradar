@@ -98,9 +98,6 @@ defmodule ServiceRadar.Repo.Migrations.ClampCaggRefreshWindows do
           'platform.#{view}'
         );
       END IF;
-    EXCEPTION
-      WHEN others THEN
-        RAISE NOTICE 'Could not clamp refresh window for #{view}: %', SQLERRM;
     END;
     $$;
     """

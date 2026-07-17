@@ -20,7 +20,6 @@ defmodule ServiceRadar.ColdTier.Registry do
 
   @schema "platform"
   @layout_version "v1"
-  @default_cold_window_days 365
 
   # Column tuples are {name, postgres_type, export_cast}. Casts are canonical
   # per design D2/R7: uuid and jsonb are exported as text (parquet has neither;
@@ -378,14 +377,25 @@ defmodule ServiceRadar.ColdTier.Registry do
     |> positive_integer(entry.default_hot_days)
   end
 
-  @doc "Cold retention window in days for a registry table (default #{@default_cold_window_days})."
-  @spec cold_window_days(Table.t()) :: pos_integer()
+  @doc """
+  Cold retention window in days for a registry table, or `nil` when the
+  deployment has not stated one.
+
+  There is deliberately NO default: this value is what the pruner deletes
+  archived data by, and design D9 says an absent window means no expiry
+  pruning at all (manifest hygiene only). Inventing 365 here would silently
+  destroy archives on any deployment that never configured a window.
+  """
+  @spec cold_window_days(Table.t()) :: pos_integer() | nil
   def cold_window_days(%Table{} = entry) do
     :serviceradar_core
     |> Application.get_env(ServiceRadar.ColdTier, [])
     |> Keyword.get(:cold_windows, [])
-    |> Keyword.get(entry.signal_class, @default_cold_window_days)
-    |> positive_integer(@default_cold_window_days)
+    |> Keyword.get(entry.signal_class)
+    |> case do
+      days when is_integer(days) and days > 0 -> days
+      _ -> nil
+    end
   end
 
   @doc """

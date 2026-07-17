@@ -148,7 +148,11 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
         # drop-time re-verification"): count-check every verified chunk about
         # to be dropped against its manifest row; clamp to the first drifted
         # chunk so it is held for the exporter's re-export instead of dropped.
-        {:ok, drift_clamp(repo, table_name, point)}
+        #
+        # Fails CLOSED: if the check itself cannot complete, we do not know
+        # whether the archive matches the source, and an unverifiable state
+        # must never authorize deletion.
+        drift_clamp(repo, table_name, point)
       else
         _ -> :hold
       end
@@ -303,7 +307,7 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
 
     case SQL.query(repo, sql, [table_name, point], timeout: @query_timeout_ms) do
       {:ok, %{rows: [[nil]]}} ->
-        point
+        {:ok, point}
 
       {:ok, %{rows: [[first_drifted_start]]}} ->
         Logger.info(
@@ -312,15 +316,17 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
           clamped_to: inspect(first_drifted_start)
         )
 
-        first_drifted_start
+        {:ok, first_drifted_start}
 
       {:error, error} ->
-        Logger.warning("Cold tier: drop-time re-verification failed; holding drop point",
+        Logger.error(
+          "Cold tier: drop-time re-verification could not complete; HOLDING all chunks " <>
+            "(an unverifiable archive must never authorize deletion)",
           table: table_name,
           reason: Exception.message(error)
         )
 
-        point
+        :hold
     end
   end
 

@@ -55,9 +55,20 @@ pub struct ColdTierConfig {
 pub struct ColdEntity {
     /// Physical table name, matching the cold schema registry.
     pub table: String,
-    /// The head-acknowledged query boundary B: rows below it are served from
-    /// Parquet, rows at/above it from the primary through postgres_fdw.
+    /// The head-acknowledged stitching seam B: on the analytics head, rows
+    /// below it are served from Parquet and rows at/above it from the primary
+    /// through postgres_fdw.
+    ///
+    /// B is NOT the routing decision. It trails `now()` by roughly the export
+    /// lag (~48h), so routing on it would send an entirely-hot query (say
+    /// `last_7d` against 30-day logs) to the cold head and break the
+    /// byte-identical hot-path invariant. B only describes how the head
+    /// stitches once a query is already going there.
     pub boundary: DateTime<Utc>,
+    /// Absolute instant where the primary's retention actually ends for this
+    /// table: data older than this only exists in the cold tier. This — not B
+    /// — is what decides routing.
+    pub hot_cutoff: DateTime<Utc>,
     /// Oldest data the cold tier still holds, i.e. the lookback cap for this
     /// entity. Queries beyond it are rejected exactly like today's cap
     /// violations.
@@ -91,12 +102,48 @@ pub(crate) fn cold_table_for_entity(entity: &Entity) -> Option<&'static str> {
     }
 }
 
+/// Everything about a query's shape that makes it ineligible for the cold
+/// tier. One classifier so a new aggregate field cannot be forgotten in one
+/// call site and silently cold-route a CAGG-reading query.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct QueryShape {
+    pub has_stats: bool,
+    pub has_downsample: bool,
+    /// `rollup_stats` reads a CAGG (e.g. `logs_severity_stats_5m`) that does
+    /// NOT exist on the analytics head — cold-routing it would fail with a
+    /// missing relation, and lifting its cap would promise history the CAGG
+    /// cannot serve.
+    pub has_rollup_stats: bool,
+}
+
+impl QueryShape {
+    fn is_raw(&self) -> bool {
+        !self.has_stats && !self.has_downsample && !self.has_rollup_stats
+    }
+
+    fn from_plan(plan: &QueryPlan) -> Self {
+        Self {
+            has_stats: plan.stats.is_some(),
+            has_downsample: plan.downsample.is_some(),
+            has_rollup_stats: plan.rollup_stats.is_some(),
+        }
+    }
+
+    fn from_ast(ast: &QueryAst) -> Self {
+        Self {
+            has_stats: ast.stats.is_some(),
+            has_downsample: ast.downsample.is_some(),
+            has_rollup_stats: ast.rollup_stats.is_some(),
+        }
+    }
+}
+
 /// Whether this query *shape* may be served from the cold tier.
 ///
-/// Raw shapes only: a stats/downsample query stays on the CAGG path so the
-/// same window keeps returning the same numbers regardless of tier.
-fn is_cold_eligible_shape(entity: &Entity, has_stats: bool, has_downsample: bool) -> bool {
-    cold_table_for_entity(entity).is_some() && !has_stats && !has_downsample
+/// Raw shapes only: every aggregate shape stays on the CAGG path so the same
+/// window keeps returning the same numbers regardless of tier.
+fn is_cold_eligible_shape(entity: &Entity, shape: QueryShape) -> bool {
+    cold_table_for_entity(entity).is_some() && shape.is_raw()
 }
 
 /// Whether the query should execute against the cold tier.
@@ -104,10 +151,9 @@ pub(crate) fn should_route_to_cold(
     config: &ColdTierConfig,
     entity: &Entity,
     time_range: Option<&TimeRange>,
-    has_stats: bool,
-    has_downsample: bool,
+    shape: QueryShape,
 ) -> bool {
-    if config.is_empty() || !is_cold_eligible_shape(entity, has_stats, has_downsample) {
+    if config.is_empty() || !is_cold_eligible_shape(entity, shape) {
         return false;
     }
 
@@ -116,14 +162,16 @@ pub(crate) fn should_route_to_cold(
     };
 
     // No resolved window: hot only (an unbounded archive scan is never the
-    // right answer, and there is nothing to compare against the boundary).
+    // right answer, and there is nothing to compare against).
     let Some(time_range) = time_range else {
         return false;
     };
 
-    // The window must actually reach below the boundary. Queries entirely at
-    // or above it are hot-path queries and must stay byte-identical.
-    time_range.start < cold.boundary
+    // Route on the HOT CUTOFF, not the stitching seam B: only a window that
+    // actually reaches data the primary no longer has needs the cold tier.
+    // Anything at/above the cutoff is a hot query and must keep its
+    // byte-identical primary plan.
+    time_range.start < cold.hot_cutoff
 }
 
 pub(crate) fn should_route_plan_to_cold(config: &ColdTierConfig, plan: &QueryPlan) -> bool {
@@ -131,8 +179,7 @@ pub(crate) fn should_route_plan_to_cold(config: &ColdTierConfig, plan: &QueryPla
         config,
         &plan.entity,
         plan.time_range.as_ref(),
-        plan.stats.is_some(),
-        plan.downsample.is_some(),
+        QueryShape::from_plan(plan),
     )
 }
 
@@ -141,15 +188,12 @@ pub(crate) fn should_route_plan_to_cold(config: &ColdTierConfig, plan: &QueryPla
 /// Cold-eligible raw shapes may look back to the entity's cold window instead
 /// of the default raw cap; everything else keeps today's caps (which
 /// `cagg::max_time_range_days_for_ast` still decides).
-pub(crate) fn max_time_range_days_for_ast(
-    config: &ColdTierConfig,
-    ast: &QueryAst,
-) -> Option<i64> {
+pub(crate) fn max_time_range_days_for_ast(config: &ColdTierConfig, ast: &QueryAst) -> Option<i64> {
     if config.is_empty() {
         return None;
     }
 
-    if !is_cold_eligible_shape(&ast.entity, ast.stats.is_some(), ast.downsample.is_some()) {
+    if !is_cold_eligible_shape(&ast.entity, QueryShape::from_ast(ast)) {
         return None;
     }
 
@@ -169,114 +213,143 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
 
+    fn ts(y: i32, m: u32, d: u32) -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(y, m, d, 0, 0, 0).unwrap()
+    }
+
+    /// Deliberately models the real relationship: B trails now by the export
+    /// lag (2026-07-14) while the hot cutoff is 30 days back (2026-06-16).
+    /// Routing must use the cutoff, never B.
     fn config() -> ColdTierConfig {
         ColdTierConfig {
             entities: vec![ColdEntity {
                 table: "logs".to_string(),
-                boundary: Utc.with_ymd_and_hms(2026, 7, 14, 0, 0, 0).unwrap(),
+                boundary: ts(2026, 7, 14),
+                hot_cutoff: ts(2026, 6, 16),
                 cold_window_days: 365,
             }],
         }
     }
 
-    fn range(start: (i32, u32, u32), end: (i32, u32, u32)) -> TimeRange {
-        TimeRange {
-            start: Utc
-                .with_ymd_and_hms(start.0, start.1, start.2, 0, 0, 0)
-                .unwrap(),
-            end: Utc.with_ymd_and_hms(end.0, end.1, end.2, 0, 0, 0).unwrap(),
-        }
+    fn range(start: DateTime<Utc>, end: DateTime<Utc>) -> TimeRange {
+        TimeRange { start, end }
+    }
+
+    fn raw() -> QueryShape {
+        QueryShape::default()
     }
 
     #[test]
     fn absent_config_never_routes_cold() {
-        let empty = ColdTierConfig::default();
-        let r = range((2026, 1, 1), (2026, 7, 16));
+        let r = range(ts(2026, 1, 1), ts(2026, 7, 16));
         assert!(!should_route_to_cold(
-            &empty,
+            &ColdTierConfig::default(),
             &Entity::Logs,
             Some(&r),
-            false,
-            false
+            raw()
         ));
     }
 
     #[test]
-    fn window_below_boundary_routes_cold() {
-        let r = range((2026, 7, 1), (2026, 7, 16));
+    fn window_below_hot_cutoff_routes_cold() {
+        let r = range(ts(2026, 6, 1), ts(2026, 7, 16));
         assert!(should_route_to_cold(
             &config(),
             &Entity::Logs,
             Some(&r),
-            false,
-            false
+            raw()
         ));
     }
 
     #[test]
-    fn window_inside_hot_stays_hot() {
-        let r = range((2026, 7, 15), (2026, 7, 16));
+    fn window_inside_hot_stays_hot_even_though_it_predates_b() {
+        // The regression F27 describes: last-7d style window starts well
+        // below B (2026-07-14) but is entirely inside the 30-day hot window,
+        // so the primary can answer it and MUST.
+        let r = range(ts(2026, 7, 9), ts(2026, 7, 16));
         assert!(!should_route_to_cold(
             &config(),
             &Entity::Logs,
             Some(&r),
-            false,
-            false
+            raw()
         ));
     }
 
     #[test]
-    fn stats_and_downsample_stay_on_caggs() {
-        let r = range((2026, 7, 1), (2026, 7, 16));
+    fn window_exactly_at_hot_cutoff_stays_hot() {
+        let r = range(ts(2026, 6, 16), ts(2026, 7, 16));
         assert!(!should_route_to_cold(
             &config(),
             &Entity::Logs,
             Some(&r),
-            true,
-            false
+            raw()
         ));
-        assert!(!should_route_to_cold(
-            &config(),
-            &Entity::Logs,
-            Some(&r),
-            false,
-            true
-        ));
+    }
+
+    #[test]
+    fn aggregate_shapes_stay_on_caggs() {
+        let r = range(ts(2026, 1, 1), ts(2026, 7, 16));
+
+        for shape in [
+            QueryShape {
+                has_stats: true,
+                ..Default::default()
+            },
+            QueryShape {
+                has_downsample: true,
+                ..Default::default()
+            },
+            // rollup_stats reads a CAGG that does not exist on the head.
+            QueryShape {
+                has_rollup_stats: true,
+                ..Default::default()
+            },
+        ] {
+            assert!(!should_route_to_cold(
+                &config(),
+                &Entity::Logs,
+                Some(&r),
+                shape
+            ));
+        }
     }
 
     #[test]
     fn no_time_range_stays_hot() {
-        assert!(!should_route_to_cold(
-            &config(),
-            &Entity::Logs,
-            None,
-            false,
-            false
-        ));
+        assert!(!should_route_to_cold(&config(), &Entity::Logs, None, raw()));
     }
 
     #[test]
     fn non_registry_entity_never_routes_cold() {
-        let r = range((2026, 1, 1), (2026, 7, 16));
+        let r = range(ts(2026, 1, 1), ts(2026, 7, 16));
         assert!(!should_route_to_cold(
             &config(),
             &Entity::Devices,
             Some(&r),
-            false,
-            false
+            raw()
         ));
     }
 
     #[test]
     fn unconfigured_entity_never_routes_cold() {
-        // Registry-eligible shape, but this deployment only configured logs.
-        let r = range((2026, 1, 1), (2026, 7, 16));
+        let r = range(ts(2026, 1, 1), ts(2026, 7, 16));
         assert!(!should_route_to_cold(
             &config(),
             &Entity::Traces,
             Some(&r),
-            false,
-            false
+            raw()
         ));
+    }
+
+    #[test]
+    fn cap_lift_only_applies_to_raw_cold_eligible_shapes() {
+        assert!(!is_cold_eligible_shape(
+            &Entity::Logs,
+            QueryShape {
+                has_rollup_stats: true,
+                ..Default::default()
+            }
+        ));
+        assert!(is_cold_eligible_shape(&Entity::Logs, raw()));
     }
 }

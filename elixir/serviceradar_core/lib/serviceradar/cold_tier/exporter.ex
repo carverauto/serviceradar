@@ -37,6 +37,7 @@ defmodule ServiceRadar.ColdTier.Exporter do
   alias ServiceRadar.ColdTier.ChunkExport
   alias ServiceRadar.ColdTier.Config
   alias ServiceRadar.ColdTier.Head
+  alias ServiceRadar.ColdTier.ObjectStore
   alias ServiceRadar.ColdTier.Registry
   alias ServiceRadar.ColdTier.RetentionFence
   alias ServiceRadar.ColdTier.Verification
@@ -308,11 +309,35 @@ defmodule ServiceRadar.ColdTier.Exporter do
     |> Ash.Changeset.for_update(:update, %{
       status: :verified,
       row_count: verification.row_count,
+      bytes: object_bytes(record.object_keys),
       content_checksum: verification.checksum,
       last_error: nil,
       verified_at: DateTime.utc_now()
     })
     |> Ash.update!(authorize?: false)
+  end
+
+  # Actual on-disk size of the verified objects, so `cold_bytes` telemetry and
+  # the control plane's storage projection reflect reality rather than 0.
+  # Best-effort: a listing failure must not fail an otherwise-verified export
+  # (the size is reporting, not correctness), so it records nil and the next
+  # reconciliation pass can fill it.
+  defp object_bytes([]), do: nil
+
+  defp object_bytes(object_keys) do
+    Enum.reduce(object_keys, 0, fn key, acc ->
+      case ObjectStore.list_objects(key) do
+        {:ok, objects} ->
+          acc + (objects |> Enum.filter(&(&1.key == key)) |> Enum.map(& &1.size) |> Enum.sum())
+
+        {:error, _} ->
+          acc
+      end
+    end)
+    |> case do
+      0 -> nil
+      bytes -> bytes
+    end
   end
 
   defp record_failure(record, reason) do
@@ -361,9 +386,11 @@ defmodule ServiceRadar.ColdTier.Exporter do
   defp advance_frontier(entry) do
     with {:ok, frontier} when not is_nil(frontier) <- compute_frontier(entry),
          :ok <- persist_frontier(entry.table, frontier),
-         {:ok, :ok} <- Head.session(&Head.ack_boundary(&1, entry.table, frontier)) do
-      # Head has acked B — only now may the primary-side gate see it.
-      persist_acked_boundary(entry.table, frontier)
+         {:ok, {:ok, effective}} <- Head.session(&Head.ack_boundary(&1, entry.table, frontier)) do
+      # The head clamps B monotonically and returns what it actually stored;
+      # the primary must record that SAME effective value, never the raw
+      # candidate, or the two sides can disagree about the split point.
+      persist_acked_boundary(entry.table, effective)
     else
       {:ok, nil} ->
         :ok

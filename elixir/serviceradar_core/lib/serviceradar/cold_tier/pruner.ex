@@ -62,8 +62,18 @@ defmodule ServiceRadar.ColdTier.Pruner do
   # --- phase 1: tombstone ---
 
   defp tombstone_expired(entry) do
-    cold_days = Registry.cold_window_days(entry)
+    case Registry.cold_window_days(entry) do
+      nil ->
+        # No configured window ⇒ no expiry pruning (design D9). Reconciliation
+        # (orphans, multipart debris) still runs; archives are kept.
+        :ok
 
+      cold_days ->
+        do_tombstone_expired(entry, cold_days)
+    end
+  end
+
+  defp do_tombstone_expired(entry, cold_days) do
     sql = """
     UPDATE platform.cold_chunk_exports
     SET status = 'pruned', pruned_at = now(), updated_at = now()
@@ -176,12 +186,40 @@ defmodule ServiceRadar.ColdTier.Pruner do
         for {key, "verified"} <- manifested, not MapSet.member?(object_keys, key), do: key
 
       if missing != [] do
+        # Demote BEFORE alerting: while the row says `verified` the retention
+        # gate treats the range as durable and can drop the still-hot source
+        # into a hole. Demoting to `pending` both blocks the gate (the
+        # contiguous-verified prefix stops here) and re-queues the chunk for
+        # export while the source may still exist.
+        demoted =
+          case SQL.query(
+                 Repo,
+                 """
+                 UPDATE platform.cold_chunk_exports
+                 SET status = 'pending',
+                     verified_at = NULL,
+                     last_error = 'archive object missing at reconciliation',
+                     updated_at = now()
+                 WHERE table_name = $1
+                   AND status = 'verified'
+                   AND object_keys && $2
+                 """,
+                 [entry.table, missing],
+                 timeout: @query_timeout_ms
+               ) do
+            {:ok, %{num_rows: n}} -> n
+            {:error, _} -> 0
+          end
+
         Logger.error(
           "Cold tier: verified manifest rows reference MISSING archive objects — " <>
-            "possible external deletion or bucket corruption; archived history for " <>
-            "these ranges is unreadable",
+            "possible external deletion or bucket corruption. Demoted to pending so " <>
+            "retention cannot drop the source into a hole and the exporter re-exports " <>
+            "while the source exists; ranges whose source is already gone are " <>
+            "UNRECOVERABLE and need operator attention (docs/cold-tier-runbook.md)",
           table: entry.table,
           missing_objects: length(missing),
+          demoted_manifest_rows: demoted,
           sample: Enum.take(missing, 5)
         )
       end

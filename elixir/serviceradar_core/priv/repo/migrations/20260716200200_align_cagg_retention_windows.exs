@@ -60,9 +60,6 @@ defmodule ServiceRadar.Repo.Migrations.AlignCaggRetentionWindows do
             'platform.#{cagg}'
           );
         END IF;
-      EXCEPTION
-        WHEN others THEN
-          RAISE NOTICE 'Could not align retention for #{cagg}: %', SQLERRM;
       END;
       $$;
       """
@@ -108,9 +105,6 @@ defmodule ServiceRadar.Repo.Migrations.AlignCaggRetentionWindows do
             'platform.#{cagg}'
           );
         END IF;
-      EXCEPTION
-        WHEN others THEN
-          RAISE NOTICE 'Could not restore retention for #{cagg}: %', SQLERRM;
       END;
       $$;
       """

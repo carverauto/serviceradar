@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.TelemetryTest do
   describe "storage/retention gauges (add-tiered-telemetry-offload D10)" do
     @per_table_storage_gauges [
       :hot_bytes,
+      :ingest_bytes_per_day,
       :cold_bytes,
       :cold_rows,
       :cold_oldest_available_seconds,
