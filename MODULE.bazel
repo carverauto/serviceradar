@@ -705,12 +705,13 @@ http_file(
     ],
 )
 
+# curl.se's undated cacert.pem is intentionally mutable; pin a dated bundle.
 http_file(
     name = "mozilla_ca_bundle",
     downloaded_file_path = "ca-certificates.crt",
-    sha256 = "86a1f3366afac7c6f8ae9f3c779ac221129328c43f0ab2b8817eb2f362a5025c",
+    sha256 = "3ff344e30b9b1ed2971044eabb438a08f2e2245ddb5f8ab1a3ad8b63ab4eaf91",
     urls = [
-        "https://curl.se/ca/cacert.pem",
+        "https://curl.se/ca/cacert-2026-07-16.pem",
     ],
 )
 
@@ -1133,19 +1134,20 @@ http_file(
     ],
 )
 
+# Debian's live security pool is pruned; retain the release input in Snapshot.
 http_file(
     name = "debian_openssl_amd64_deb",
-    sha256 = "c19e67a0f6d6891df6094ea2bb6a09b85f3c9981f35c1940d4e7e68346a96d2d",
+    sha256 = "4d218561dc838de081de97f54584c4a29e77e26c7ed9fe3440d776d8e6071bf9",
     urls = [
-        "https://deb.debian.org/debian/pool/main/o/openssl/openssl_3.0.20-1~deb12u1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian-security/20260609T214505Z/pool/updates/main/o/openssl/openssl_3.0.20-1~deb12u2_amd64.deb",
     ],
 )
 
 http_file(
     name = "debian_libssl3_amd64_deb",
-    sha256 = "4fae7e5825e1bb9eaeb6c2679c3d4fce93431d1105426af6de7469f000d3b7f2",
+    sha256 = "89be24b41bff568ee6e7caf5680a3d808e80315ed92e407056ce0fa7a5bda025",
     urls = [
-        "https://deb.debian.org/debian/pool/main/o/openssl/libssl3_3.0.20-1~deb12u1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian-security/20260609T214505Z/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_amd64.deb",
     ],
 )
 
