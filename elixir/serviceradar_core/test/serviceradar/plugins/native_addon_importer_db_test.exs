@@ -58,7 +58,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
         "addon_id" => addon_id,
         "version" => "0.1.0",
         "oci_ref" => "registry.carverauto.dev/serviceradar/#{addon_id}:sha-#{uid}",
-        "oci_digest" => "sha256:#{String.pad_leading(Integer.to_string(uid, 16), 64, "0")}"
+        "oci_digest" => "sha256:#{String.pad_leading(Integer.to_string(uid, 16), 64, "0")}",
+        "bundle_digest" => "sha256:#{String.pad_leading(Integer.to_string(uid + 1, 16), 64, "0")}"
       },
       overrides
     )
@@ -152,6 +153,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
     assert reread.status == :staged
     assert map_size(reread.artifacts) == 2
     assert reread.source_release_tag == "sha-#{uid}"
+    assert reread.source_metadata["bundle_digest"] == entry["bundle_digest"]
   end
 
   test "restages an approved package when replacing its verified artifacts",
@@ -440,6 +442,210 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
     assert reused.source_oci_digest == source_entry["oci_digest"]
   end
 
+  test "reuses verified package content from a later OCI envelope and preserves provenance", %{
+    actor: actor,
+    uid: uid
+  } do
+    {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
+    addon_id = "repackaged-content-#{uid}"
+    original_entry = entry(addon_id, uid)
+    artifacts = signed_artifacts(priv, uid)
+
+    assert {:ok, package, :created} =
+             Importer.import_entry_with_disposition(
+               manifest(addon_id, uid),
+               original_entry,
+               artifacts,
+               public_key: pub,
+               mirror: mirror(addon_id),
+               actor: actor,
+               release_tag: "v1.0.0"
+             )
+
+    assert {:ok, approved} =
+             package
+             |> Ash.Changeset.for_update(
+               :approve,
+               %{approved_capabilities: package.capabilities, approved_by: "envelope-review"},
+               actor: actor
+             )
+             |> Ash.update()
+
+    later_entry =
+      entry(addon_id, uid, %{
+        "oci_ref" => "registry.carverauto.dev/serviceradar/#{addon_id}:v1.0.1",
+        "oci_digest" => "sha256:#{String.duplicate("f", 64)}"
+      })
+
+    assert {:ok, reused, :reused} =
+             Importer.import_entry_with_disposition(
+               manifest(addon_id, uid),
+               later_entry,
+               artifacts,
+               public_key: pub,
+               mirror: mirror(addon_id),
+               actor: actor,
+               release_tag: "v1.0.1"
+             )
+
+    assert reused.id == package.id
+    assert reused.status == :approved
+    assert reused.approved_by == "envelope-review"
+    assert reused.approved_at == approved.approved_at
+    assert reused.source_oci_ref == original_entry["oci_ref"]
+    assert reused.source_oci_digest == original_entry["oci_digest"]
+    assert reused.source_release_tag == "v1.0.0"
+    assert reused.source_metadata == package.source_metadata
+    assert reused.artifacts == package.artifacts
+  end
+
+  test "rejects a changed bundle digest under a later OCI envelope without mutating the package",
+       %{
+         actor: actor,
+         uid: uid
+       } do
+    {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
+    addon_id = "changed-bundle-digest-#{uid}"
+    original_entry = entry(addon_id, uid)
+    artifacts = signed_artifacts(priv, uid)
+
+    assert {:ok, package, :created} =
+             Importer.import_entry_with_disposition(
+               manifest(addon_id, uid),
+               original_entry,
+               artifacts,
+               public_key: pub,
+               mirror: mirror(addon_id),
+               actor: actor,
+               release_tag: "v1.0.0"
+             )
+
+    changed_entry =
+      entry(addon_id, uid, %{
+        "oci_ref" => "registry.carverauto.dev/serviceradar/#{addon_id}:v1.0.1",
+        "oci_digest" => "sha256:#{String.duplicate("e", 64)}",
+        "bundle_digest" => "sha256:#{String.duplicate("d", 64)}"
+      })
+
+    assert {:error,
+            {:native_addon_version_source_conflict,
+             %{reason: :oci_source_mismatch, existing_source_type: :first_party}}} =
+             Importer.import_entry_with_disposition(
+               manifest(addon_id, uid),
+               changed_entry,
+               artifacts,
+               public_key: pub,
+               mirror: mirror(addon_id),
+               actor: actor,
+               release_tag: "v1.0.1"
+             )
+
+    {:ok, persisted} = Ash.get(AddonPackage, package.id, actor: actor)
+    assert persisted.source_metadata == package.source_metadata
+    assert persisted.source_oci_ref == original_entry["oci_ref"]
+    assert persisted.source_oci_digest == original_entry["oci_digest"]
+  end
+
+  test "rejects a later OCI envelope for a legacy package without bundle provenance", %{
+    actor: actor,
+    uid: uid
+  } do
+    {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
+    addon_id = "missing-bundle-provenance-#{uid}"
+    original_entry = entry(addon_id, uid)
+    artifacts = signed_artifacts(priv, uid)
+
+    assert {:ok, package, :created} =
+             Importer.import_entry_with_disposition(
+               manifest(addon_id, uid),
+               original_entry,
+               artifacts,
+               public_key: pub,
+               mirror: mirror(addon_id),
+               actor: actor,
+               release_tag: "v1.0.0"
+             )
+
+    assert {:ok, legacy} =
+             package
+             |> Ash.Changeset.for_update(:update, %{source_metadata: %{}}, actor: actor)
+             |> Ash.update()
+
+    later_entry =
+      entry(addon_id, uid, %{
+        "oci_ref" => "registry.carverauto.dev/serviceradar/#{addon_id}:v1.0.1",
+        "oci_digest" => "sha256:#{String.duplicate("f", 64)}"
+      })
+
+    assert {:error,
+            {:native_addon_version_source_conflict,
+             %{reason: :oci_source_mismatch, existing_source_type: :first_party}}} =
+             Importer.import_entry_with_disposition(
+               manifest(addon_id, uid),
+               later_entry,
+               artifacts,
+               public_key: pub,
+               mirror: mirror(addon_id),
+               actor: actor,
+               release_tag: "v1.0.1"
+             )
+
+    {:ok, persisted} = Ash.get(AddonPackage, package.id, actor: actor)
+    assert persisted.source_metadata == legacy.source_metadata
+    assert persisted.source_oci_ref == original_entry["oci_ref"]
+    assert persisted.source_oci_digest == original_entry["oci_digest"]
+  end
+
+  test "rejects changed immutable content under a new OCI envelope without mutating the package",
+       %{
+         actor: actor,
+         uid: uid
+       } do
+    {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
+    addon_id = "changed-content-#{uid}"
+    original_entry = entry(addon_id, uid)
+    artifacts = signed_artifacts(priv, uid)
+
+    assert {:ok, package, :created} =
+             Importer.import_entry_with_disposition(
+               manifest(addon_id, uid),
+               original_entry,
+               artifacts,
+               public_key: pub,
+               mirror: mirror(addon_id),
+               actor: actor,
+               release_tag: "v1.0.0"
+             )
+
+    changed_manifest = Map.put(manifest(addon_id, uid), "name", "Changed Netprobe #{uid}")
+
+    changed_entry =
+      entry(addon_id, uid, %{
+        "oci_ref" => "registry.carverauto.dev/serviceradar/#{addon_id}:v1.0.1",
+        "oci_digest" => "sha256:#{String.duplicate("e", 64)}"
+      })
+
+    assert {:error,
+            {:native_addon_version_source_conflict,
+             %{reason: :oci_source_mismatch, existing_source_type: :first_party}}} =
+             Importer.import_entry_with_disposition(
+               changed_manifest,
+               changed_entry,
+               artifacts,
+               public_key: pub,
+               mirror: mirror(addon_id),
+               actor: actor,
+               release_tag: "v1.0.1"
+             )
+
+    {:ok, persisted} = Ash.get(AddonPackage, package.id, actor: actor)
+    assert persisted.name == package.name
+    assert persisted.source_oci_ref == original_entry["oci_ref"]
+    assert persisted.source_oci_digest == original_entry["oci_digest"]
+    assert persisted.source_release_tag == "v1.0.0"
+    assert persisted.artifacts == package.artifacts
+  end
+
   test "concurrent imports of one source converge on one package", %{
     actor: actor,
     uid: uid
@@ -487,7 +693,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
     assert package_count(addon_id, actor) == 1
   end
 
-  test "concurrent imports with different immutable sources return one conflict", %{
+  test "concurrent imports with different immutable content return one conflict", %{
     actor: actor,
     uid: uid
   } do
@@ -506,8 +712,14 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
     end
 
     import = fn source_suffix ->
+      manifest =
+        case source_suffix do
+          "a" -> manifest(addon_id, uid)
+          "b" -> Map.put(manifest(addon_id, uid), "name", "Changed Netprobe #{uid}")
+        end
+
       Importer.import_entry(
-        manifest(addon_id, uid),
+        manifest,
         entry(addon_id, uid, %{
           "oci_ref" => "registry.carverauto.dev/serviceradar/#{addon_id}:#{source_suffix}",
           "oci_digest" => "sha256:#{String.duplicate(source_suffix, 64)}"

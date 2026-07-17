@@ -688,7 +688,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert sample_packages() == []
   end
 
-  test "sync worker reports an immutable source conflict instead of skipping or overwriting", %{
+  test "sync worker reports an immutable source conflict after verifying the discovered envelope", %{
     private_key: private_key
   } do
     install_fixtures(private_key)
@@ -715,7 +715,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
       end)
 
     assert log =~ "import_ready=1 imported=0 skipped=0 failed=1"
-    assert Process.get(:native_addon_manifest_requests) == 0
+    assert Process.get(:native_addon_manifest_requests) == 1
 
     [persisted] = sample_packages()
     assert persisted.id == original.id
@@ -772,7 +772,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert reused.source_oci_digest == @oci_digest
   end
 
-  test "sync worker treats one missing stored source field and one mismatch as a conflict", %{
+  test "sync worker preserves a partial mismatched provenance conflict after verification", %{
     private_key: private_key
   } do
     install_fixtures(private_key)
@@ -799,7 +799,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert log =~ "native_addon_version_source_conflict"
     assert log =~ "addon_id=sample-addon"
     assert byte_size(log) < 1_500
-    assert Process.get(:native_addon_manifest_requests) == 0
+    assert Process.get(:native_addon_manifest_requests) == 1
 
     [persisted] = sample_packages()
     assert is_nil(persisted.source_oci_ref)
@@ -1090,7 +1090,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
              )
   end
 
-  test "sync_first_party_addons reports immutable OCI source drift without fetching it", %{
+  test "sync_first_party_addons reuses verified content from a later OCI envelope", %{
     private_key: private_key
   } do
     install_fixtures(private_key)
@@ -1102,8 +1102,69 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
                limit: 10
              )
 
-    changed_digest = "sha256:" <> String.duplicate("f", 64)
-    Process.put(:native_addon_index_body, Jason.encode!(index_map(oci_digest: changed_digest)))
+    later_ref = "registry.carverauto.dev/#{@oci_repository}:v1.0.1"
+    later_digest = "sha256:" <> String.duplicate("f", 64)
+
+    Process.put(:native_addon_oci_digest, later_digest)
+
+    Process.put(
+      :native_addon_index_body,
+      Jason.encode!(index_map(oci_ref: later_ref, oci_digest: later_digest))
+    )
+
+    Process.put(:native_addon_manifest_requests, 0)
+
+    assert {:ok, summary} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    assert summary.imported == 0
+    assert summary.skipped == 1
+    assert summary.failed == []
+    assert Process.get(:native_addon_manifest_requests) == 1
+    assert Process.get(:native_addon_cosign_verified) == {later_ref, later_digest}
+
+    [persisted] = sample_packages()
+    assert persisted.source_oci_ref == @oci_ref
+    assert persisted.source_oci_digest == @oci_digest
+    assert persisted.source_metadata["bundle_digest"] == bundle_digest()
+  end
+
+  test "sync_first_party_addons rejects changed bundle content under a later OCI envelope", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+
+    assert {:ok, %{imported: 1}} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    changed_bundle =
+      bundle_with_manifest(String.replace(@manifest_yaml, "name: Sample Addon", "name: Changed Addon"))
+
+    later_ref = "registry.carverauto.dev/#{@oci_repository}:v1.0.1"
+    later_digest = "sha256:" <> String.duplicate("e", 64)
+
+    Process.put(:native_addon_bundle, changed_bundle)
+    Process.put(:native_addon_manifest, oci_manifest())
+    Process.put(:native_addon_oci_digest, later_digest)
+
+    Process.put(
+      :native_addon_blobs,
+      Map.put(Process.get(:native_addon_blobs), digest(changed_bundle), changed_bundle)
+    )
+
+    Process.put(
+      :native_addon_index_body,
+      Jason.encode!(index_map(oci_ref: later_ref, oci_digest: later_digest))
+    )
+
     Process.put(:native_addon_manifest_requests, 0)
 
     assert {:ok, summary} =
@@ -1124,8 +1185,10 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
              }
            ] = summary.failed
 
-    assert Process.get(:native_addon_manifest_requests) == 0
+    assert Process.get(:native_addon_manifest_requests) == 1
     [persisted] = sample_packages()
+    assert persisted.name == "Sample Addon"
+    assert persisted.source_oci_ref == @oci_ref
     assert persisted.source_oci_digest == @oci_digest
   end
 
@@ -1365,6 +1428,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     private_key = Process.get(:native_addon_private_key)
     platforms = Keyword.get(opts, :platforms, Process.get(:native_addon_platforms, ["amd64"]))
     oci_digest = Keyword.get(opts, :oci_digest, @oci_digest)
+    oci_ref = Keyword.get(opts, :oci_ref, @oci_ref)
 
     artifacts =
       Enum.map(platforms, fn arch ->
@@ -1390,7 +1454,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
         %{
           "addon_id" => "sample-addon",
           "version" => "1.0.0",
-          "oci_ref" => @oci_ref,
+          "oci_ref" => oci_ref,
           "oci_digest" => oci_digest,
           "bundle_digest" => bundle_digest(),
           "artifacts" => artifacts

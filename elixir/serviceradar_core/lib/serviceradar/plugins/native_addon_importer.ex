@@ -46,6 +46,22 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
     "systemd-timer" => :systemd_timer,
     "ephemeral-helper" => :ephemeral_helper
   }
+  @immutable_package_content_fields [
+    :name,
+    :description,
+    :kind,
+    :delivery,
+    :supervision,
+    :binary,
+    :install_path,
+    :capabilities,
+    :config_schema,
+    :signal_schemas,
+    :producer_schedules,
+    :artifacts,
+    :requires,
+    :resources
+  ]
 
   @doc "The OCI layer media types the per-arch artifact + its signature are carried under."
   def artifact_media_type, do: @artifact_media_type
@@ -149,11 +165,13 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
       package.source_type != :first_party ->
         {:error, source_conflict(package, attrs, :source_type_owned)}
 
+      verified_package_content_matches?(package, attrs) and
+        source_provenance_complete?(package) and source_provenance_complete?(attrs) and
+          source_bundle_digests_match?(package, attrs) ->
+        {:ok, package, :reused}
+
       source_disagrees?(package, attrs) ->
         {:error, source_conflict(package, attrs, :oci_source_mismatch)}
-
-      exact_verified_package?(package, attrs) ->
-        {:ok, package, :reused}
 
       true ->
         with {:ok, updated} <-
@@ -168,19 +186,55 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
     end
   end
 
-  defp exact_verified_package?(package, attrs) do
+  # OCI manifest references are release provenance, not package content. A later
+  # signed release can re-wrap the exact same bundle and artifact layers under a
+  # new manifest digest. We retain the original provenance row in that case, but
+  # only after every manifest-derived field and verified artifact contract agrees.
+  defp verified_package_content_matches?(package, attrs) do
     package.verification_status == "verified" and is_nil(package.verification_error) and
-      source_matches?(package, attrs) and package.artifacts == attrs.artifacts
+      Map.take(Map.from_struct(package), @immutable_package_content_fields) ==
+        Map.take(attrs, @immutable_package_content_fields)
   end
 
-  defp source_matches?(package, attrs) do
-    existing_ref = normalize_source(package.source_oci_ref)
-    existing_digest = normalize_digest(package.source_oci_digest)
-
-    not is_nil(existing_ref) and not is_nil(existing_digest) and
-      existing_ref == normalize_source(attrs.source_oci_ref) and
-      existing_digest == normalize_digest(attrs.source_oci_digest)
+  defp source_provenance_complete?(source) do
+    is_binary(normalize_source(source.source_oci_ref)) and
+      is_binary(normalize_digest(source.source_oci_digest))
   end
+
+  # The OCI manifest digest names an envelope, while the bundle digest names the
+  # actual signed add-on payload. Both must be present and equal before a package
+  # can survive a later OCI envelope change without a new package version.
+  # Legacy rows without a recorded bundle digest deliberately fail this check: a
+  # release must publish a new version rather than retroactively asserting which
+  # bytes an already-approved package contained.
+  defp source_bundle_digests_match?(package, attrs) do
+    with digest when is_binary(digest) <- source_bundle_digest(package),
+         ^digest <- source_bundle_digest(attrs) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp source_bundle_digest(%{source_metadata: metadata}) when is_map(metadata) do
+    metadata
+    |> Map.get("bundle_digest", Map.get(metadata, :bundle_digest))
+    |> normalize_bundle_digest()
+  end
+
+  defp source_bundle_digest(_source), do: nil
+
+  defp normalize_bundle_digest(value) when is_binary(value) do
+    case value |> String.downcase() |> String.trim() do
+      "sha256:" <> hash = digest when byte_size(hash) == 64 ->
+        if String.match?(hash, ~r/\A[0-9a-f]{64}\z/), do: digest
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_bundle_digest(_value), do: nil
 
   defp source_disagrees?(package, attrs) do
     populated_source_disagrees?(
@@ -212,7 +266,9 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
        existing_oci_ref: package.source_oci_ref,
        existing_oci_digest: package.source_oci_digest,
        discovered_oci_ref: attrs.source_oci_ref,
-       discovered_oci_digest: attrs.source_oci_digest
+       discovered_oci_digest: attrs.source_oci_digest,
+       existing_bundle_digest: source_bundle_digest(package),
+       discovered_bundle_digest: source_bundle_digest(attrs)
      }}
   end
 
@@ -446,6 +502,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
          source_type: :first_party,
          source_oci_ref: string_value(entry, "oci_ref"),
          source_oci_digest: string_value(entry, "oci_digest"),
+         source_metadata: source_metadata(entry),
          source_release_tag: Keyword.get(opts, :release_tag),
          imported_at: DateTime.truncate(now, :second),
          verification_status: "verified",
@@ -473,6 +530,13 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
 
       _ ->
         nil
+    end
+  end
+
+  defp source_metadata(entry) do
+    case string_value(entry, "bundle_digest") do
+      nil -> %{}
+      bundle_digest -> %{"bundle_digest" => bundle_digest}
     end
   end
 
