@@ -21,8 +21,8 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to publish (defaults to the event tag or v-prefixed VERSION)."
-        required: false
+        description: "Existing release tag to retry (for example, v1.4.22)."
+        required: true
         type: string
       dry_run:
         description: "Run publish_packages in --dry_run mode."
@@ -127,31 +127,34 @@ jobs:
 
           git fetch --no-tags origin +refs/heads/staging:refs/remotes/origin/staging
 
-          tag="${INPUT_TAG}"
-          if [[ -z "${tag}" && "${GITHUB_REF}" == refs/tags/* ]]; then
-            tag="${GITHUB_REF#refs/tags/}"
-          fi
-          if [[ -z "${tag}" ]]; then
-            version="$(tr -d '\r\n' < VERSION)"
-            tag="v${version}"
-          fi
-          ./scripts/validate-release-tag.sh "${tag}"
-
-          if git rev-parse -q --verify "refs/tags/${tag}^{commit}" >/dev/null; then
-            release_commit="$(git rev-list -n1 "refs/tags/${tag}^{commit}")"
-          else
-            if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ]]; then
-              echo "Release tag ${tag} is not available in this checkout" >&2
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${INPUT_TAG}"
+            if [[ -z "${tag}" ]]; then
+              echo "Manual release dispatch requires an existing release tag." >&2
               exit 1
             fi
-            release_commit="$(git rev-parse HEAD)"
+            ./scripts/validate-release-tag.sh "${tag}"
+            git fetch --no-tags origin "refs/tags/${tag}:refs/tags/${tag}"
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+            ./scripts/validate-release-tag.sh "${tag}"
+          else
+            echo "Release publication requires a tag-push event or an explicit manual tag." >&2
+            exit 1
           fi
+
+          if ! git rev-parse -q --verify "refs/tags/${tag}^{commit}" >/dev/null; then
+            echo "Release tag ${tag} is not available in this checkout." >&2
+            exit 1
+          fi
+          release_commit="$(git rev-list -n1 "refs/tags/${tag}^{commit}")"
 
           if ! git merge-base --is-ancestor "${release_commit}" "${RELEASE_BASE_REF}"; then
             echo "Release commit ${release_commit} is not reachable from ${RELEASE_BASE_REF}" >&2
             exit 1
           fi
 
+          ./scripts/validate-release-metadata.sh "${tag}" "${release_commit}"
           printf 'tag=%s\ncommit=%s\n' "${tag}" "${release_commit}" >> "${GITHUB_OUTPUT}"
 
       - name: Cache Bazel artifacts
@@ -246,13 +249,8 @@ jobs:
             exit 1
           fi
 
+          ./scripts/validate-release-metadata.sh "${tag}" "${release_commit}" >/dev/null
           version="${tag#v}"
-          file_version="$(git show "${release_commit}:VERSION")"
-          file_version="${file_version%%[$'\r\n']*}"
-          if [[ -n "$file_version" && "$file_version" != "$version" ]]; then
-            echo "VERSION file ($file_version) does not match release tag ($version)" >&2
-            exit 1
-          fi
 
           # Auto-detect pre-release from version pattern
           is_prerelease="${INPUT_PRERELEASE}"
@@ -456,7 +454,11 @@ jobs:
 
       - name: Publish Helm chart to OCI registry
         env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
           VERSION: ${{ steps.release.outputs.version }}
+          CHART_OCI_USERNAME: ${{ secrets.HARBOR_CHART_ROBOT_USERNAME }}
+          CHART_OCI_TOKEN: ${{ secrets.HARBOR_CHART_ROBOT_SECRET }}
         run: |
           set -euo pipefail
           export HELM_STATE_DIR="${PWD}/.helm-home"
@@ -473,12 +475,15 @@ jobs:
             echo "${token}" | ./scripts/run-helm.sh registry login "${OCI_REGISTRY}" -u "${user}" --password-stdin
           }
 
-          if [[ -z "${OCI_USERNAME:-}" || -z "${OCI_TOKEN:-}" ]]; then
-            echo "Missing Harbor robot credentials. Set HARBOR_ROBOT_USERNAME and HARBOR_ROBOT_SECRET." >&2
+          if [[ -z "${CHART_OCI_USERNAME:-}" || -z "${CHART_OCI_TOKEN:-}" ]]; then
+            echo "Missing protected chart publisher credentials. Configure HARBOR_CHART_ROBOT_USERNAME and HARBOR_CHART_ROBOT_SECRET in the release environment." >&2
             exit 1
           fi
 
-          login_registry "${OCI_USERNAME}" "${OCI_TOKEN}"
+          login_registry "${CHART_OCI_USERNAME}" "${CHART_OCI_TOKEN}"
+
+          ./scripts/validate-release-metadata.sh "${RELEASE_TAG}" "${RELEASE_COMMIT}" >/dev/null
+          ./scripts/check-oci-chart-version-available.sh "${VERSION}"
 
           # Package and push chart
           ./scripts/run-helm.sh package helm/serviceradar

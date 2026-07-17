@@ -17,6 +17,8 @@ image_security_workflow="${repo_root}/.forgejo/workflows/image-security.yml"
 upload_release_asset="${repo_root}/scripts/upload-forgejo-release-asset.sh"
 cut_release="${repo_root}/scripts/cut-release.sh"
 validate_release_tag="${repo_root}/scripts/validate-release-tag.sh"
+validate_release_metadata="${repo_root}/scripts/validate-release-metadata.sh"
+check_oci_chart_version_available="${repo_root}/scripts/check-oci-chart-version-available.sh"
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
@@ -117,6 +119,136 @@ if "${validate_release_tag}" v1.4.10 unexpected >/dev/null 2>&1; then
   exit 1
 fi
 
+metadata_repo="${tmp_dir}/metadata-repo"
+mkdir -p "${metadata_repo}/helm/serviceradar"
+git -C "${metadata_repo}" init -q
+git -C "${metadata_repo}" config user.name "Release Contract Test"
+git -C "${metadata_repo}" config user.email "release-contract@example.invalid"
+printf '9.8.7\n' > "${metadata_repo}/VERSION"
+cat > "${metadata_repo}/helm/serviceradar/Chart.yaml" <<'EOF'
+apiVersion: v2
+name: serviceradar
+version: 9.8.7
+appVersion: "9.8.7"
+EOF
+git -C "${metadata_repo}" add VERSION helm/serviceradar/Chart.yaml
+git -C "${metadata_repo}" commit -qm "matching release metadata"
+git -C "${metadata_repo}" update-ref refs/tags/v9.8.7 HEAD
+
+(
+  cd "${metadata_repo}"
+  "${validate_release_metadata}" v9.8.7 >/dev/null
+)
+
+if (
+  cd "${metadata_repo}"
+  "${validate_release_metadata}" v9.8.8 >/dev/null 2>&1
+); then
+  echo "release metadata validator accepted a missing tag" >&2
+  exit 1
+fi
+
+git -C "${metadata_repo}" update-ref refs/tags/v9.8.8 HEAD
+if (
+  cd "${metadata_repo}"
+  "${validate_release_metadata}" v9.8.8 >/dev/null 2>&1
+); then
+  echo "release metadata validator accepted VERSION/tag disagreement" >&2
+  exit 1
+fi
+git -C "${metadata_repo}" update-ref -d refs/tags/v9.8.8
+
+sed 's/version: 9.8.7/version: 9.8.8/' \
+  "${metadata_repo}/helm/serviceradar/Chart.yaml" > "${tmp_dir}/Chart.yaml"
+mv "${tmp_dir}/Chart.yaml" "${metadata_repo}/helm/serviceradar/Chart.yaml"
+git -C "${metadata_repo}" add helm/serviceradar/Chart.yaml
+git -C "${metadata_repo}" commit -qm "mismatched chart metadata"
+if (
+  cd "${metadata_repo}"
+  "${validate_release_metadata}" v9.8.7 HEAD >/dev/null 2>&1
+); then
+  echo "release metadata validator accepted a source other than the tag target" >&2
+  exit 1
+fi
+git -C "${metadata_repo}" update-ref refs/tags/v9.8.7 HEAD
+if (
+  cd "${metadata_repo}"
+  "${validate_release_metadata}" v9.8.7 >/dev/null 2>&1
+); then
+  echo "release metadata validator accepted Helm chart/tag disagreement" >&2
+  exit 1
+fi
+
+cat > "${metadata_repo}/helm/serviceradar/Chart.yaml" <<'EOF'
+apiVersion: v2
+name: serviceradar
+version: 9.8.7
+appVersion: "9.8.8"
+EOF
+git -C "${metadata_repo}" add helm/serviceradar/Chart.yaml
+git -C "${metadata_repo}" commit -qm "mismatched application metadata"
+git -C "${metadata_repo}" update-ref refs/tags/v9.8.7 HEAD
+if (
+  cd "${metadata_repo}"
+  "${validate_release_metadata}" v9.8.7 >/dev/null 2>&1
+); then
+  echo "release metadata validator accepted Helm appVersion/tag disagreement" >&2
+  exit 1
+fi
+
+fake_helm="${tmp_dir}/fake-helm.sh"
+cat > "${fake_helm}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${FAKE_CHART_PROBE_MODE:-}" in
+  available)
+    echo 'Error: registry response: MANIFEST_UNKNOWN' >&2
+    exit 1
+    ;;
+  occupied)
+    echo 'apiVersion: v2'
+    exit 0
+    ;;
+  unavailable)
+    echo 'Error: dial tcp: registry unavailable' >&2
+    exit 1
+    ;;
+  *)
+    echo 'unexpected fake Helm mode' >&2
+    exit 3
+    ;;
+esac
+EOF
+chmod +x "${fake_helm}"
+
+FAKE_CHART_PROBE_MODE=available \
+  SERVICERADAR_HELM_RUNNER="${fake_helm}" \
+  "${check_oci_chart_version_available}" 9.8.7 >/dev/null
+
+if FAKE_CHART_PROBE_MODE=occupied \
+  SERVICERADAR_HELM_RUNNER="${fake_helm}" \
+  "${check_oci_chart_version_available}" 9.8.7 \
+  >"${tmp_dir}/occupied.out" 2>&1; then
+  echo "OCI chart occupancy guard accepted an occupied version" >&2
+  exit 1
+fi
+if ! grep -q "select a new product version" "${tmp_dir}/occupied.out"; then
+  echo "OCI chart occupancy guard did not explain immutable version recovery" >&2
+  exit 1
+fi
+
+if FAKE_CHART_PROBE_MODE=unavailable \
+  SERVICERADAR_HELM_RUNNER="${fake_helm}" \
+  "${check_oci_chart_version_available}" 9.8.7 \
+  >"${tmp_dir}/unavailable.out" 2>&1; then
+  echo "OCI chart occupancy guard did not fail closed on registry errors" >&2
+  exit 1
+fi
+if ! grep -q "Unable to verify OCI Helm chart occupancy" "${tmp_dir}/unavailable.out"; then
+  echo "OCI chart occupancy guard did not report an unverifiable registry" >&2
+  exit 1
+fi
+
 for version in \
   1 \
   1.4 \
@@ -162,7 +294,11 @@ cut_release = Path(sys.argv[7]).read_text()
 
 required_workflow_fragments = [
     "id: source",
-    'tag="v${version}"',
+    'required: true',
+    'if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]',
+    'git fetch --no-tags origin "refs/tags/${tag}:refs/tags/${tag}"',
+    'elif [[ "${GITHUB_REF}" == refs/tags/* ]]',
+    './scripts/validate-release-metadata.sh "${tag}" "${release_commit}"',
     "GATED_TAG: ${{ steps.source.outputs.tag }}",
     "GATED_COMMIT: ${{ steps.source.outputs.commit }}",
     'tag="${GATED_TAG}"',
@@ -180,8 +316,15 @@ for fragment in required_workflow_fragments:
     if fragment not in workflow:
         raise SystemExit(f"release workflow is missing contract fragment: {fragment}")
 
-if 'tag="$(< VERSION)"' in workflow:
-    raise SystemExit("release workflow still derives an unprefixed dispatch tag from VERSION")
+for forbidden in (
+    'tag="$(< VERSION)"',
+    'version="$(tr -d \'\\r\\n\' < VERSION)"',
+    'release_commit="$(git rev-parse HEAD)"',
+):
+    if forbidden in workflow:
+        raise SystemExit(
+            f"release workflow still permits an untagged release-source fallback: {forbidden}"
+        )
 
 source_step = workflow[
     workflow.index("- name: Enforce release source"):
@@ -192,6 +335,37 @@ if 'echo "tag=${tag}"' in source_step:
 
 if '"${script_dir}/validate-release-tag.sh" "${tag}"' not in cut_release:
     raise SystemExit("cut-release does not use the canonical release tag validator")
+
+remote_tag_check = cut_release.index('git ls-remote --exit-code --tags origin')
+oci_occupancy_check = cut_release.index(
+    '"${script_dir}/check-oci-chart-version-available.sh" "$version"'
+)
+first_release_mutation = cut_release.index("printf '%s\\n' \"$version\" > VERSION")
+if not remote_tag_check < oci_occupancy_check < first_release_mutation:
+    raise SystemExit(
+        "cut-release must verify remote Git and OCI occupancy before changing metadata"
+    )
+
+chart_step_start = workflow.index("- name: Publish Helm chart to OCI registry")
+chart_step_end = workflow.index("# Wasm plugins are published", chart_step_start)
+chart_step = workflow[chart_step_start:chart_step_end]
+for fragment in (
+    "HARBOR_CHART_ROBOT_USERNAME",
+    "HARBOR_CHART_ROBOT_SECRET",
+    './scripts/validate-release-metadata.sh "${RELEASE_TAG}" "${RELEASE_COMMIT}"',
+    './scripts/check-oci-chart-version-available.sh "${VERSION}"',
+):
+    if fragment not in chart_step:
+        raise SystemExit(f"Helm publication is missing protected contract: {fragment}")
+if "\n          OCI_USERNAME:" in chart_step or "\n          OCI_TOKEN:" in chart_step:
+    raise SystemExit("Helm publication still consumes general image-publisher credentials")
+if not (
+    chart_step.index("validate-release-metadata.sh")
+    < chart_step.index("check-oci-chart-version-available.sh")
+    < chart_step.index("run-helm.sh package")
+    < chart_step.index("run-helm.sh push")
+):
+    raise SystemExit("Helm publication guards must run immediately before package and push")
 
 digest_check = '"${tag_check_script}" "${release_sha_tag}" "${RELEASE_TAG}" latest'
 if workflow.count(digest_check) != 2:
