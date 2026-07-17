@@ -1,3 +1,47 @@
+# ServiceRadar v1.4.19
+
+Secure remote-access recovery, reliable anomaly delivery, and reproducible
+release inputs across the ServiceRadar control plane.
+
+## Whats New
+
+**1.4.19**
+- Plugin assignment recovery: legacy manual assignments can be reapproved only
+  after current mTLS partition proof, while policy-owned assignments reconcile
+  through their authoritative owner and retain an immutable, redacted recovery
+  record. Unsupported legacy owners remain non-actionable rather than being
+  guessed or bulk-enabled. (PR #4580)
+- Remote access and automation: SSH/AWX callback authority, target binding,
+  marker handling, credential scoping, and host-key verification are hardened
+  while preserving the reviewed operator workflow. This release does not claim to
+  enable native PVE VM/LXC consoles, which remain a follow-up; graphical RDP
+  remains experimental.
+  (PRs #4573, #4576-#4578)
+- Anomaly delivery: schema-compatible configuration projection now survives
+  rolling upgrades; stale and multi-producer episode signals are coalesced, and
+  qualified seasonal baselines reach the actual polling agents. The first-party
+  anomaly add-on advances to v0.3.0. (PR #4587)
+- BMP routing telemetry: IPv4-mapped BMP addresses are normalized to
+  canonical IPv4 projections without modifying raw telemetry. A persistence
+  backfill and database guard cover legacy rows and upgrade overlap; the BMP
+  collector is pinned to compatible `arancini-lib` 0.7.3. (PRs #4583, #4584)
+- External Wasm inventory packages can declaratively provide credential
+  profiles, schedules, source metadata, documentation, and schema-validated
+  integration contracts without loading provider code into core. (PR #4571)
+- Hosted-runtime hardening scopes workloads to their required runtime
+  certificate material, suppresses in-cluster issuer paths in hosted mode, and
+  fixes rperf certificate projection. (PR #4572)
+- Syslog ingestion: observed sender addresses are preserved through the demo
+  collector path, and source-format detection and provenance are improved.
+  (PRs #4581, #4583)
+- Helm and release reliability: web-ng SMTP settings can be sourced from
+  Kubernetes Secret or ConfigMap references, while Rust vendor inputs, Bazel
+  module locks, and native NIF locks are synchronized for reproducible release
+  builds. (PRs #4586, #4588-#4590)
+- HTTP client security: all shipped Elixir components now resolve Mint 1.9.3,
+  fixing the sign-tolerant HTTP/1 chunk-size parser response-smuggling advisory
+  (EEF-CVE-2026-59249 / GHSA-x3x7-96vm-6h2w).
+
 # ServiceRadar v1.4.15
 
 Fixed anomaly episode payload persistence and silent alert-rule load failures
