@@ -7,3 +7,8 @@ import Config
 # + collector self-telemetry denylist), not by silencing logs. The hot-path
 # debug lines stay runtime-tunable via SERVICERADAR_LOG_LEVEL (see runtime.exs).
 config :logger, level: :info
+
+# Swoosh defaults to its Hackney API client, but core-elx intentionally does not
+# ship Hackney because its h2 modules conflict with grpcbox's chatterbox. Req is
+# already a direct production dependency and is Swoosh's supported API client.
+config :swoosh, :api_client, Swoosh.ApiClient.Req

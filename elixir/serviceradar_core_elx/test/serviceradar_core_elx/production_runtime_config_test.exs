@@ -10,6 +10,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   alias ServiceRadar.EventWriter.Config, as: EventWriterConfig
   alias ServiceRadar.Observability.CapacityForecasting.Worker
 
+  @prod_config Path.expand("../../config/prod.exs", __DIR__)
   @runtime_config Path.expand("../../config/runtime.exs", __DIR__)
 
   @required_production_workers [
@@ -66,6 +67,27 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     for worker <- @required_production_workers do
       assert worker in scheduled, "missing production cron entry for #{inspect(worker)}"
     end
+  end
+
+  test "prod config uses the shipped Req client for Swoosh API adapters" do
+    swoosh_config = Config.Reader.read!(@prod_config, env: :prod)[:swoosh]
+
+    assert swoosh_config[:api_client] == Swoosh.ApiClient.Req
+    assert Code.ensure_loaded?(Req)
+    refute Code.ensure_loaded?(:hackney)
+  end
+
+  test "local mailer runtime retains the production Req API client" do
+    with_env("SERVICERADAR_LOCAL_MAILER", "true")
+
+    swoosh_config =
+      @prod_config
+      |> Config.Reader.read!(env: :prod)
+      |> Config.Reader.merge(read_prod_config())
+      |> Keyword.fetch!(:swoosh)
+
+    assert swoosh_config[:api_client] == Swoosh.ApiClient.Req
+    assert swoosh_config[:local] == true
   end
 
   test "prod config carries the seasonal disposition worker options" do

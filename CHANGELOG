@@ -1,3 +1,18 @@
+# ServiceRadar v1.4.22
+
+Restored hosted core startup for tenant environments that use the private
+first-sign-in mail flow.
+
+## Whats New
+
+**1.4.22**
+- Hosted first sign-in: core now uses Swoosh's supported Req API client, which
+  is already included in the production image. This prevents startup from
+  aborting when local mail delivery is enabled and Hackney is intentionally
+  absent.
+- Release configuration coverage verifies that the local-mailer production
+  overlay retains Req and that the conflicting Hackney client is not loaded.
+
 # ServiceRadar v1.4.21
 
 Corrected hosted SMTP rendering so tenant upgrades can apply the private
