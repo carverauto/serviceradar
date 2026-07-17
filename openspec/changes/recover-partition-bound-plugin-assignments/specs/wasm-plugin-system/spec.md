@@ -22,55 +22,121 @@ The control plane SHALL derive the partition of every enabled plugin assignment 
 - **THEN** the caller-supplied value SHALL NOT control the assignment partition
 - **AND** the action SHALL use fresh authenticated evidence or fail closed
 
-### Requirement: Legacy manual assignment reapproval
-The control plane SHALL provide an explicit, idempotent reapproval path for a disabled plugin assignment with no partition that is manually owned. Reapproval SHALL create a new partition-bound assignment only after current authenticated evidence, package approval, configuration validation, authorization, and conflict checks succeed. The legacy row SHALL remain disabled and unbound as historical evidence.
+### Requirement: Logical legacy recovery orchestration
+The control plane SHALL reconcile legacy assignments as idempotent logical
+desired-state items keyed by tenant, ownership source, agent UID, and logical
+plugin rather than as independent user tasks for every historical database row.
+It SHALL deduplicate equivalent history, run a bounded scan after upgrade, retry
+when relevant current state changes, and preserve every historical row disabled
+and unbound as audit evidence.
 
-#### Scenario: Manual legacy assignment is reapproved
-- **GIVEN** a manually owned legacy assignment is disabled with no partition
-- **AND** its package remains approved and its saved non-secret configuration and secret references validate against the current package schema
-- **AND** an authorized operator confirms reapproval while the exact agent has authenticated partition `default`
-- **WHEN** the reapproval action completes
-- **THEN** a new assignment is created for that agent in partition `default`
-- **AND** the old assignment remains disabled with no partition
-- **AND** an audit record links the operator, old assignment, new assignment, and authenticated principal tuple
-- **AND** the replacement configuration is dispatched only after that recovery transaction commits
+#### Scenario: Duplicate historical rows produce one recovery item
+- **GIVEN** a tenant has multiple disabled unbound rows for the same owner, agent UID, and logical plugin
+- **WHEN** the recovery planner scans the tenant
+- **THEN** it creates or updates one stable logical recovery item
+- **AND** concurrent scans and retries do not create duplicate replacement assignments or duplicate operator tasks
 
-#### Scenario: Reapproval conflicts with a current assignment
-- **GIVEN** a manually owned legacy assignment is eligible for reapproval
+#### Scenario: Offline agent waits without operator action
+- **GIVEN** a logical recovery item otherwise passes current owner, package, and schema checks
+- **AND** the exact agent has no current authenticated control session
+- **WHEN** the planner evaluates the item
+- **THEN** it records a non-actionable waiting state without creating or enabling an assignment
+- **AND** agent reconnection schedules an idempotent retry automatically
+
+#### Scenario: Current state change retries a blocked item safely
+- **GIVEN** a logical recovery item is blocked by package approval, schema compatibility, credential policy, or owner state
+- **WHEN** the relevant current package, configuration, credential rule, or owner changes
+- **THEN** the planner re-evaluates the item using fresh state
+- **AND** it does not copy stale authority, credentials, partition data, or configuration from the historical row
+
+### Requirement: Tenant-scoped legacy manual assignment adoption
+The control plane SHALL recover compatible manually owned legacy assignments
+through one immutable, tenant-scoped adoption plan unless an allowlisted
+immutable principal-continuity proof independently authorizes automatic
+recovery. A plan SHALL require one authorized confirmation for all eligible
+items, not one confirmation per assignment. Every item SHALL create a new
+partition-bound assignment only after fresh authenticated evidence, package
+approval, current-schema validation, initiating-principal reauthorization, plan
+fingerprint, expiry, and conflict checks succeed. Historical rows SHALL remain
+disabled and unbound.
+
+#### Scenario: One plan adopts multiple compatible manual assignments
+- **GIVEN** an authorized operator previews a tenant plan containing multiple compatible manual assignments
+- **AND** the plan has immutable membership and fingerprints for its legacy source, package schema, configuration references, and target agent
+- **WHEN** the operator confirms the plan once
+- **THEN** each eligible item is scheduled under that initiating principal and tenant scope
+- **AND** the browser is not required to confirm each item separately
+- **AND** each successful item creates one fresh assignment in its exact current mTLS-derived partition
+
+#### Scenario: Waiting plan item completes on reconnect
+- **GIVEN** an approved unexpired adoption plan contains an item whose exact agent is offline
+- **WHEN** that agent establishes a current authenticated control session
+- **THEN** the executor reauthorizes the initiating principal and rechecks the item fingerprint and all current safety conditions
+- **AND** it completes the item automatically if the checks pass
+- **AND** it requires no second per-agent confirmation
+
+#### Scenario: Stale, expired, or unauthorized plan item fails closed
+- **GIVEN** a plan expires, its item fingerprint changes, its initiating principal loses assignment authority, or its authenticated principal changes before commit
+- **WHEN** the executor attempts fulfillment
+- **THEN** it does not create, enable, or dispatch an assignment
+- **AND** it records only a redacted actionable outcome
+
+#### Scenario: Manual adoption conflicts with a current assignment
+- **GIVEN** an adoption-plan item is otherwise eligible
 - **AND** an enabled assignment already exists for the resolved partition, agent, and logical plugin
-- **WHEN** an authorized operator confirms reapproval
-- **THEN** the control plane does not overwrite or disable the current assignment
-- **AND** it returns an actionable conflict result
-- **AND** a retry after a completed recovery returns the recorded replacement rather than creating a duplicate
+- **WHEN** the executor evaluates the item
+- **THEN** it does not overwrite or disable the current assignment
+- **AND** it records an actionable conflict
+- **AND** a retry after successful recovery converges on the recorded replacement rather than creating a duplicate
 
-#### Scenario: Reapproval identity race rolls back before config delivery
-- **GIVEN** manual reapproval has preflight evidence for the selected agent
-- **AND** the authenticated control-session partition changes before the replacement can be committed
-- **WHEN** the recovery action detects the changed identity
-- **THEN** it rolls back the replacement assignment and any related recovery writes
-- **AND** it records only the redacted identity-change outcome
-- **AND** it does not dispatch configuration to an edge agent
+#### Scenario: Automatic manual recovery requires immutable continuity
+- **GIVEN** a manual legacy assignment has an allowlisted immutable record that binds its historical principal to the exact current authenticated principal
+- **WHEN** the recovery planner verifies that proof and all ordinary plan-item safety checks
+- **THEN** it may create the replacement without operator confirmation
+- **AND** a matching agent UID, current inventory row, cached partition, or connection alone SHALL NOT satisfy the continuity requirement
 
-#### Scenario: Reapproval preserves only secret references
-- **GIVEN** a manually owned legacy assignment contains configuration backed by a secret reference
-- **WHEN** the assignment is reapproved
-- **THEN** the replacement may retain the secret reference
-- **AND** raw secret values SHALL NOT be read into the recovery response, audit record, logs, or UI payload
+#### Scenario: Manual adoption preserves only secret references
+- **GIVEN** a manual legacy assignment contains configuration backed by a secret reference
+- **WHEN** an adoption item is planned or fulfilled
+- **THEN** the replacement may retain the authorized secret reference
+- **AND** raw secret values SHALL NOT be read into the plan, recovery response, audit record, logs, or UI payload
 
-### Requirement: Policy-owned legacy assignment reconciliation
-The control plane SHALL recover a disabled, unbound policy-owned plugin assignment only by re-evaluating its current authoritative policy or credential-rule materializer. It SHALL NOT allow an operator to manually clone the historical policy assignment. Credential-rule recovery SHALL require both current plugin-assignment and credential-management authority. The durable recovery outcome MAY be projected to an authorized legacy-row reader only as a redacted state and replacement count.
+#### Scenario: Fresh manual intent is independent of quarantined history
+- **GIVEN** an agent has one or more disabled unbound historical assignments for a logical plugin
+- **AND** no current bound assignment or authoritative policy conflicts with a new manual assignment
+- **WHEN** an authorized operator creates a new assignment with current configuration
+- **THEN** the control plane evaluates it through the ordinary create path using fresh mTLS-derived partition evidence
+- **AND** the historical rows neither block the create nor become update targets
+- **AND** the historical rows remain disabled and unbound without supplying configuration or authority
 
-#### Scenario: Current policy recreates an eligible assignment
-- **GIVEN** a disabled unbound policy-owned assignment has an enabled, authorized source policy or credential rule
+### Requirement: Automatic policy-owned legacy assignment reconciliation
+The control plane SHALL recover a disabled, unbound policy-owned plugin
+assignment automatically by re-evaluating its current authoritative policy or
+credential-rule materializer under narrow controller authority. It SHALL NOT
+require a browser event, use a historical row as authority, or allow an operator
+to clone historical policy configuration. The durable outcome MAY be projected
+to an authorized tenant reader only as aggregate progress or a normalized
+exception reason.
+
+#### Scenario: Current policy recreates an eligible assignment automatically
+- **GIVEN** a disabled unbound policy-owned assignment has an enabled current authoritative policy or credential rule
 - **AND** the source currently resolves the target agent and current authenticated partition
-- **WHEN** an authorized operator or the permitted reconciler requests recovery
-- **THEN** the materializer creates a fresh partition-bound policy assignment only if current policy, package, schema, and identity checks pass
-- **AND** the legacy policy row remains disabled and unbound
+- **WHEN** deployment scan, agent connection, owner change, package change, or periodic reconciliation schedules the logical item
+- **THEN** the materializer creates a fresh partition-bound policy assignment only if current owner, package, schema, credential, and identity checks pass
+- **AND** no operator request or confirmation is required
+- **AND** the legacy policy rows remain disabled and unbound
+
+#### Scenario: Controller authority is limited to current desired state
+- **GIVEN** automatic recovery is evaluating a policy-owned item
+- **WHEN** the restricted controller materializes it
+- **THEN** its authority derives from the enabled current policy or credential rule and the ordinary reconciler action
+- **AND** it may create only the targets, configuration, credential references, and plugin produced by that current owner
+- **AND** the existence or contents of a historical row cannot expand that authority
 
 #### Scenario: Policy recovery does not alter another partition sharing an agent UID
 - **GIVEN** the authenticated recovery agent is in partition `farm01`
 - **AND** policy rows for the same agent UID exist in another partition
-- **WHEN** the policy-owned legacy assignment is reconciled
+- **WHEN** the policy-owned logical item is reconciled
 - **THEN** creation, update, and stale-row retraction are limited to partition `farm01`
 - **AND** rows in the other partition remain unchanged
 
@@ -81,22 +147,15 @@ The control plane SHALL recover a disabled, unbound policy-owned plugin assignme
 - **THEN** the placeholder uses partition `farm01` from the immutable assignment
 - **AND** mutable agent metadata does not override or redirect that service identity
 
-#### Scenario: Policy is no longer authoritative
-- **GIVEN** a disabled unbound policy-owned assignment has a missing, disabled, or no-longer-matching source policy or credential rule
-- **WHEN** recovery is requested
+#### Scenario: Current owner cannot materialize the assignment
+- **GIVEN** a historical policy row has a missing, disabled, unsupported, no-longer-matching, schema-incompatible, or credential-policy-invalid current owner
+- **WHEN** automatic reconciliation evaluates the logical item
 - **THEN** no assignment is created
-- **AND** the result identifies that the historical policy is no longer authoritative
+- **AND** the item becomes a normalized current-owner exception or remains non-actionably absent when the owner no longer expresses desired state
+- **AND** the UI does not offer a policy-reconcile button or permit a forged recovery event
 
-#### Scenario: Historical policy owner is not supported by the recovery boundary
-- **GIVEN** a disabled unbound policy-owned assignment has an integration-specific owner identifier that is neither a current plugin target policy nor a supported credential rule
-- **WHEN** an authorized operator views the legacy assignment or candidate list
-- **THEN** the control plane marks it unavailable for automatic reconciliation
-- **AND** the UI does not offer a policy-reconcile action
-- **AND** a forged recovery event is rejected without creating a durable request or enabling the historical row
-- **AND** the operator is directed to recreate it through a supported current owner
-
-#### Scenario: Durable policy status is safe to refresh
-- **GIVEN** an authorized operator has requested policy recovery for an exact legacy assignment in the current tenant
-- **WHEN** the operator refreshes the assignment detail while the materializer is queued, running, or terminal
-- **THEN** the control plane returns only a normalized status and replacement count for that legacy row
-- **AND** it does not return recovery-request parameters, owner or principal metadata, replacement identifiers, or credential data
+#### Scenario: Aggregate policy status is safe to read
+- **GIVEN** automatic policy recovery has restored, waiting, or actionable logical items in the current tenant
+- **WHEN** an authorized tenant reader requests the recovery overview
+- **THEN** the control plane returns only allowlisted aggregate counts and normalized exception groups
+- **AND** it does not return request parameters, owner or principal metadata, replacement identifiers, credential data, or raw audit payloads
