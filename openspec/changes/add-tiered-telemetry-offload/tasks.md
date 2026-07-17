@@ -43,7 +43,7 @@
 - [ ] 4.3 Cold SQL dialect: partition predicates from resolved window; unique tiebreaker + explicit NULLS on every ORDER BY; registry-driven construct translations; fail-closed typed error for untranslatable shapes
 - [ ] 4.4 Cursor v3 embedding resolved absolute window; lower cold max-offset cap
 - [ ] 4.5 web-ng ColdRepo (pool 2–4, 60s timeout) + route-based execution in srql.ex; fail-soft to hot-only with truncation notice component (generalize :spans_expired pattern)
-- [ ] 4.6 Analytics-head view generation from the registry (platform.<table> stitched views; same-name postgres-scanner views for dimension tables); regeneration on schema migration + drift check
+- [x] 4.6 Analytics-head view generation from the registry (platform.<table> stitched views; same-name postgres-scanner views for dimension tables); regeneration on schema migration + drift check
 - [ ] 4.7 Trace detail absolute-time hint from trace summaries; :spans_expired path reads cold
 - [ ] 4.8 Golden hot/cold parity suite: same SRQL both paths, row-level + Arrow-layer assertions (query_arrow frames), type-fidelity cases (json text, timestamptz UTC, numeric bounds, NULL ordering, ILIKE/regex); runs in CI against fixture data on a MinIO-backed bucket (same compose profile as task 1.8)
 - [ ] 4.9 Per-entity-family rollout flags (logs → traces → flows → events → metric points)

@@ -136,7 +136,15 @@ defmodule ServiceRadar.ColdTier.Head do
     :ok
   end
 
-  @doc "Write + ack the query boundary B for a table on the head."
+  @doc """
+  Write + ack the query boundary B for a table on the head, and rebuild that
+  table's stitched view at the new split point.
+
+  The view is regenerated in the SAME step as the ack so the boundary the
+  views read can never disagree with the boundary the primary's drop gate
+  keys on: the ack is only reported to the caller once the view reflects it
+  (design D3, invariant "drop point <= B <= F").
+  """
   @spec ack_boundary(pid(), String.t(), DateTime.t()) :: :ok
   def ack_boundary(conn, table_name, %DateTime{} = boundary) do
     query!(
@@ -149,6 +157,11 @@ defmodule ServiceRadar.ColdTier.Head do
       """,
       [table_name, boundary]
     )
+
+    case Registry.fetch(table_name) do
+      {:ok, entry} -> ServiceRadar.ColdTier.Views.ensure_view(conn, entry, boundary)
+      :error -> :ok
+    end
 
     :ok
   end
