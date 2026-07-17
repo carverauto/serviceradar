@@ -22,6 +22,7 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   """
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.ColdTier.Config
   alias ServiceRadar.ColdTier.Registry
   alias ServiceRadar.Repo
 
@@ -32,21 +33,27 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   @doc """
   Whether in-database retention policies are fenced off for this table.
 
-  True when the cold tier is enabled for a registry table — and ALSO when it
-  has been disabled but un-drained cold-tier state remains (two-phase
-  disable, task 2.6): flipping the env off must never silently re-arm drops
-  while un-exported chunks are held. The operator completes the disable with
-  `ServiceRadar.ColdTier.Admin.waive/2`, which clears the residue.
+  Keys off the SAME activation state as the exporter (`Config.enabled?/0`,
+  i.e. state == :enabled) — NOT mere cold-tier intent. A partial config that
+  fenced retention while the exporter could not run would hold data hot
+  forever and fill the primary (review F09); a misconfigured deployment
+  therefore does not fence, and normal retention proceeds.
+
+  Also fenced when the cold tier has been disabled but un-drained state
+  remains (two-phase disable, task 2.6): flipping the env off must never
+  silently re-arm drops while un-exported chunks are held. The operator
+  completes the disable with `ServiceRadar.ColdTier.Admin.waive/2`, which
+  clears the residue.
   """
   @spec fenced?(String.t()) :: boolean()
   def fenced?(table_name) do
-    Registry.member?(table_name) and (Registry.enabled?() or residue?(table_name))
+    Registry.member?(table_name) and (Config.enabled?() or residue?(table_name))
   end
 
-  @doc "Registry tables still fenced by residue while the cold tier is disabled."
+  @doc "Registry tables still fenced by residue while the cold tier is not enabled."
   @spec undrained_tables(keyword()) :: [String.t()]
   def undrained_tables(opts \\ []) do
-    if Registry.enabled?() do
+    if Config.enabled?() do
       []
     else
       Enum.filter(Registry.table_names(), &residue?(&1, opts))
@@ -100,7 +107,7 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   def policy_violations(opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
 
-    if Registry.enabled?() do
+    if Config.enabled?() do
       fenced_tables = Registry.table_names()
 
       case SQL.query(

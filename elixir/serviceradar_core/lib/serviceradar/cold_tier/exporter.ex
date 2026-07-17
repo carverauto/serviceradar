@@ -37,7 +37,9 @@ defmodule ServiceRadar.ColdTier.Exporter do
   alias ServiceRadar.ColdTier.ChunkExport
   alias ServiceRadar.ColdTier.Config
   alias ServiceRadar.ColdTier.Head
+  alias ServiceRadar.ColdTier.Health
   alias ServiceRadar.ColdTier.ObjectStore
+  alias ServiceRadar.ColdTier.PressureMonitor
   alias ServiceRadar.ColdTier.Registry
   alias ServiceRadar.ColdTier.RetentionFence
   alias ServiceRadar.ColdTier.Verification
@@ -63,7 +65,7 @@ defmodule ServiceRadar.ColdTier.Exporter do
     case Head.session(&Head.ensure_setup/1) do
       {:ok, :ok} ->
         alert_on_policy_violations()
-        pressure = ServiceRadar.ColdTier.PressureMonitor.check()
+        pressure = PressureMonitor.check()
         budget = Config.run_chunk_budget()
 
         Enum.reduce(Registry.tables(), budget, fn entry, remaining ->
@@ -75,14 +77,21 @@ defmodule ServiceRadar.ColdTier.Exporter do
 
         # Health checks run AFTER the pass so quarantine/frontier state
         # reflects this run (task 3.3).
-        ServiceRadar.ColdTier.Health.record_all(pressure)
+        Health.record_all(pressure)
 
         :ok
 
       {:error, reason} ->
-        Logger.error("Cold tier: analytics head setup failed; skipping run",
+        # A down/unreachable head is exactly when the primary is at risk (data
+        # can no longer be offloaded), so this branch MUST report health and
+        # pressure, not silently return healthy (review F10). Pressure is
+        # computed against the primary and does not need the head.
+        Logger.error("Cold tier: analytics head setup failed; skipping export run",
           reason: inspect(reason)
         )
+
+        pressure = PressureMonitor.check()
+        Health.record_head_failure(reason, pressure)
 
         :ok
     end

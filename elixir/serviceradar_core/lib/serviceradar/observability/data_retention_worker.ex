@@ -9,6 +9,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     unique: [period: 3_600, states: :incomplete]
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.ColdTier.Config
   alias ServiceRadar.ColdTier.RetentionFence
   alias ServiceRadar.Inventory.EndpointInventoryRetention
   alias ServiceRadar.Inventory.EndpointInventorySettingsRuntime
@@ -51,6 +52,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     reconcile_timescale_tables(config)
     alert_on_cagg_refresh_hazards()
     alert_on_undrained_cold_tier()
+    alert_on_misconfigured_cold_tier()
 
     results = [
       prune_trace_summaries(config, batch_size),
@@ -140,6 +142,22 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
             "the disable with ServiceRadar.ColdTier.Admin.waive/2",
           tables: tables
         )
+    end
+  end
+
+  # The cold tier is intended (enable flag + bucket) but the config is
+  # incomplete, so the exporter/pruner cannot run (review F09). The fence
+  # deliberately does NOT engage in this state — normal retention proceeds so
+  # the primary cannot fill behind a dead exporter — but this must be loud,
+  # because the operator believes offload is happening and it is not.
+  defp alert_on_misconfigured_cold_tier do
+    if Config.state() == :misconfigured do
+      Logger.error(
+        "Cold tier is INTENDED but MISCONFIGURED — offload is NOT running and data " <>
+          "aging past hot retention is being dropped by normal retention, not archived. " <>
+          "Supply the missing configuration.",
+        missing: Config.misconfiguration_reasons()
+      )
     end
   end
 

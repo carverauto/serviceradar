@@ -19,8 +19,51 @@ defmodule ServiceRadar.ColdTier.Config do
           secret_access_key: String.t() | nil
         }
 
+  @typedoc """
+  The single cold-tier activation state (review F09). Every cold consumer —
+  the retention fence, the exporter, and the pruner — keys off this so they
+  can never disagree:
+
+    * `:disabled` — no cold-tier intent (enable flag off or bucket absent).
+      The OSS default: nothing fences retention, nothing runs.
+    * `:enabled` — fully configured (intent + analytics head + primary FDW +
+      object store). Everything runs.
+    * `:misconfigured` — cold tier is INTENDED but the config is incomplete.
+      This is the dangerous middle the reviewer caught: fencing retention here
+      while the exporter cannot run would hold data hot forever and fill the
+      primary. So a misconfigured deployment does NOT fence — normal retention
+      proceeds (identical to no cold tier) — and the retention worker alerts.
+  """
+  @type state :: :disabled | :enabled | :misconfigured
+
+  @doc "The single activation state all cold consumers key off (review F09)."
+  @spec state() :: state()
+  def state do
+    cond do
+      not ServiceRadar.ColdTier.Registry.enabled?() -> :disabled
+      fully_configured?() -> :enabled
+      true -> :misconfigured
+    end
+  end
+
   @spec enabled?() :: boolean()
-  def enabled?, do: ServiceRadar.ColdTier.Registry.enabled?() and head_configured?()
+  def enabled?, do: state() == :enabled
+
+  @doc "True when the cold tier is intended (enable flag + bucket), regardless of completeness."
+  @spec intended?() :: boolean()
+  def intended?, do: ServiceRadar.ColdTier.Registry.enabled?()
+
+  @doc "Which required cold-tier config pieces are missing (empty when fully configured)."
+  @spec misconfiguration_reasons() :: [atom()]
+  def misconfiguration_reasons do
+    [
+      {:analytics_head, match?({:ok, _}, head_opts())},
+      {:object_store, match?({:ok, _}, s3())},
+      {:primary_fdw, match?({:ok, _}, primary_fdw())}
+    ]
+    |> Enum.reject(fn {_piece, present?} -> present? end)
+    |> Enum.map(&elem(&1, 0))
+  end
 
   @doc "Postgrex connection opts for the analytics head, or :disabled."
   @spec head_opts() :: {:ok, keyword()} | :disabled
@@ -114,7 +157,7 @@ defmodule ServiceRadar.ColdTier.Config do
   @spec run_chunk_budget() :: pos_integer()
   def run_chunk_budget, do: positive(config()[:run_chunk_budget], 24)
 
-  defp head_configured? do
+  defp fully_configured? do
     match?({:ok, _}, head_opts()) and match?({:ok, _}, s3()) and match?({:ok, _}, primary_fdw())
   end
 

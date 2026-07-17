@@ -59,6 +59,29 @@ defmodule ServiceRadar.ColdTier.Health do
     :ok
   end
 
+  @doc """
+  Record an unhealthy export path because the analytics head could not be
+  reached/set up (review F10). The exporter calls this on its failure branch,
+  where a normal `record_all/2` would run head-dependent checks that can't
+  complete — but the pressure check (primary-side) still must, since a down
+  head is exactly when the primary is at risk.
+  """
+  @spec record_head_failure(term(), PressureMonitor.report() | nil, keyword()) :: :ok
+  def record_head_failure(reason, pressure_report \\ nil, opts \\ []) do
+    recorder = Keyword.get(opts, :health_recorder, &TripwireHealth.record/3)
+
+    recorder.(@export_check, false, %{
+      head_available: false,
+      reason: inspect(reason),
+      remediation: "Analytics head unreachable — see docs/cold-tier-runbook.md (exports stalled)"
+    })
+
+    record_pressure(recorder, pressure_report || PressureMonitor.check())
+    record_fence(recorder, opts)
+
+    :ok
+  end
+
   defp record_export(recorder, opts) do
     quarantined = quarantined_chunks(opts)
     stalled = stalled_frontiers(opts)

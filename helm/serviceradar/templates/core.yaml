@@ -505,6 +505,15 @@ spec:
           value: {{ default 300000 $mtrAutomation.consensusCohortRetentionMs | quote }}
         - name: MTR_RETENTION_DAYS
           value: {{ default 30 $coreVals.mtrRetentionDays | quote }}
+        {{- /* Authoritative primary volume capacity for the cold-tier pressure
+               monitor. Without it usage_pct is nil and the 70/85/95% disk
+               alerts — the safety net that stops a stalled exporter from
+               filling the primary — can never fire (review F34). Rendered
+               whenever CNPG is chart-managed so the value is always present. */}}
+        {{- if default true $cnpg.enabled }}
+        - name: SERVICERADAR_CNPG_STORAGE_SIZE
+          value: {{ default "100Gi" $cnpg.storageSize | quote }}
+        {{- end }}
         - name: SERVICERADAR_TRACE_SUMMARY_RETENTION_DAYS
           value: {{ default 3 $observabilityRetention.traceSummaryDays | quote }}
         - name: SERVICERADAR_OTEL_TRACES_RETENTION_DAYS

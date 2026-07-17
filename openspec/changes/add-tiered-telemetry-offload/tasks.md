@@ -79,8 +79,8 @@ asserted 9 gauges while 10 ship).
 - [ ] 6.1.6 F13: round-robin the run budget across tables; a backlog in the first registry table currently starves every later table
 
 ### 6.2 Activation/config integrity (P1)
-- [ ] 6.2.1 F09: one validated activation state (disabled | misconfigured | enabled). Registry.enabled?/0 (enabled+bucket) fences retention while Config.enabled?/0 (also head+primary) silently disables exporter/pruner — partial config removes policies but stops all recovery
-- [ ] 6.2.2 F10: record head-failure health + primary pressure on every error branch; today they run only after successful head setup, so a down head reports healthy while data accumulates
+- [x] 6.2.1 F09: FIXED — one activation state (Config.state/0: disabled|misconfigured|enabled); the fence, exporter and pruner all key off Config.enabled?/0. Misconfigured does NOT fence (normal retention proceeds so the primary can't fill behind a dead exporter) and the retention worker alerts. Unit + live verified
+- [x] 6.2.2 F10: FIXED — the exporter's head-setup failure branch now records an unhealthy export check (Health.record_head_failure/3) and computes primary pressure, instead of returning healthy
 - [ ] 6.2.3 F15: build the Oban crontab from the validated state so an unconfigured install schedules no cold jobs at all
 
 ### 6.3 Deployment/security (P1 unless noted)
@@ -102,7 +102,7 @@ asserted 9 gauges while 10 ship).
 - [ ] 6.4.3 F29 (P2): preserve explicit-filter/absolute-hint provenance — the plan builder synthesizes a 24h range for `in:logs`, so the routing helper cannot distinguish a default from an explicit bound; add an end-to-end no-time routing test
 
 ### 6.5 Telemetry/contract (P1 unless noted)
-- [ ] 6.5.1 F34: render authoritative primary capacity into core (Helm+Compose) or derive it from a volume metric, and test the enabled rendering — today no deployment renders it, so the 70/85/95% alerts can never fire; also account for WAL and other PVC consumers, not just pg_database_size
+- [x] 6.5.1 F34: FIXED — chart renders SERVICERADAR_CNPG_STORAGE_SIZE from cnpg.storageSize (compose documents the explicit-bytes override); database_bytes now sums all DBs + WAL. Live: usage_pct=51.7 where it was nil. held_chunks also rewritten to one query driven off existing hypertables (no per-table erroring regclass casts)
 - [ ] 6.5.2 F35 (P2): implement the specified headroom budget (volume + p95 ingest -> headroom_days) and emit it
 - [ ] 6.5.3 F36 (P2): add the authenticated JSON admin endpoint required by task 3.1/D10
 - [ ] 6.5.4 F38 (P2): base held_chunks on Timescale chunks older than each table's hot retention (LEFT JOIN manifest for state), as PressureMonitor already does — the current gauge misses old chunks with no manifest row and counts new pending ones

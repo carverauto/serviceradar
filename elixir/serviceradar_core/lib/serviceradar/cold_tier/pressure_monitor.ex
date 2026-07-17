@@ -82,36 +82,67 @@ defmodule ServiceRadar.ColdTier.PressureMonitor do
     end
   end
 
+  # Volume consumers on the primary PVC. pg_database_size alone understates
+  # real usage — WAL is often the largest non-heap consumer, and a stalled
+  # exporter holds chunks that keep both growing (review F34). Sum every
+  # database plus the WAL directory, all best-effort so a permission or
+  # version quirk degrades to whatever is available rather than nil-ing out
+  # the whole pressure check.
   defp database_bytes do
-    case SQL.query(Repo, "SELECT pg_database_size(current_database())", [],
-           timeout: @query_timeout_ms
-         ) do
-      {:ok, %{rows: [[bytes]]}} -> bytes
+    db = scalar_bytes("SELECT sum(pg_database_size(datname))::bigint FROM pg_database")
+    wal = scalar_bytes("SELECT coalesce(sum(size), 0)::bigint FROM pg_ls_waldir()")
+
+    case {db, wal} do
+      {nil, nil} -> nil
+      {d, w} -> (d || 0) + (w || 0)
+    end
+  end
+
+  defp scalar_bytes(sql) do
+    case SQL.query(Repo, sql, [], timeout: @query_timeout_ms) do
+      {:ok, %{rows: [[bytes]]}} when is_integer(bytes) -> bytes
       _ -> nil
     end
   end
 
+  # Chunks held past each registry table's hot retention, in one query.
+  #
+  # Driven off `timescaledb_information.chunks` — which lists chunks of
+  # EXISTING hypertables only — so tables absent from a deployment are
+  # skipped naturally, without a `chunks_detailed_size(<name>::regclass)`
+  # cast that errors on a missing relation. Chunk sizes come straight from
+  # `pg_total_relation_size` on each chunk's own relation. The registry's
+  # per-table hot windows are supplied as a VALUES list (table names + integer
+  # day counts come from the registry, never from user input).
   defp held_chunks do
-    Enum.flat_map(Registry.tables(), fn entry ->
-      sql = """
-      SELECT count(*), coalesce(sum(d.total_bytes), 0)
-      FROM timescaledb_information.chunks c
-      JOIN chunks_detailed_size($1::regclass) d ON d.chunk_name = c.chunk_name
-      WHERE c.hypertable_schema = 'platform'
-        AND c.hypertable_name = $2
-        AND c.range_end < now() - ($3 * INTERVAL '1 day')
-      """
+    windows =
+      Enum.map_join(Registry.tables(), ",\n", fn e ->
+        "('#{e.table}', #{Registry.hot_retention_days(e)})"
+      end)
 
-      params = ["platform.#{entry.table}", entry.table, Registry.hot_retention_days(entry)]
+    sql = """
+    SELECT c.hypertable_name,
+           count(*),
+           coalesce(
+             sum(pg_total_relation_size(format('%I.%I', c.chunk_schema, c.chunk_name)::regclass)),
+             0
+           )::bigint
+    FROM timescaledb_information.chunks c
+    JOIN (VALUES #{windows}) AS r(name, hot_days) ON r.name = c.hypertable_name
+    WHERE c.hypertable_schema = 'platform'
+      AND c.range_end < now() - (r.hot_days * INTERVAL '1 day')
+    GROUP BY c.hypertable_name
+    """
 
-      case SQL.query(Repo, sql, params, timeout: @query_timeout_ms) do
-        {:ok, %{rows: [[chunks, bytes]]}} when chunks > 0 ->
-          [%{table: entry.table, chunks: chunks, bytes: bytes}]
+    case SQL.query(Repo, sql, [], timeout: @query_timeout_ms) do
+      {:ok, %{rows: rows}} ->
+        for [table, chunks, bytes] <- rows, chunks > 0 do
+          %{table: table, chunks: chunks, bytes: bytes}
+        end
 
-        _ ->
-          []
-      end
-    end)
+      _ ->
+        []
+    end
   end
 
   @doc "Provisioned primary volume in bytes, from configuration. Nil when unknown."
