@@ -122,11 +122,19 @@ defmodule ServiceRadar.ColdTier.Health do
   end
 
   defp record_fence(recorder, opts) do
-    violations = RetentionFence.policy_violations(opts)
+    # A check that cannot run is treated as unhealthy, never as clean: if we
+    # cannot confirm the fence is intact, we must not report that it is
+    # (review F07). {:error, _} surfaces as a violation the operator sees.
+    {violations, check_failed?} =
+      case RetentionFence.policy_violations(opts) do
+        {:ok, tables} -> {tables, false}
+        {:error, _} -> {["<policy check failed>"], true}
+      end
+
     undrained = RetentionFence.undrained_tables(opts)
     stale = RetentionFence.stale_invalidations(opts)
 
-    healthy? = violations == [] and undrained == [] and stale == []
+    healthy? = violations == [] and not check_failed? and undrained == [] and stale == []
 
     recorder.(@fence_check, healthy?, %{
       policy_violations: violations,

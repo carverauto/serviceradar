@@ -30,6 +30,48 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
 
   @query_timeout_ms 120_000
 
+  # Update-prone chunks must have been re-exported within this window to be
+  # eligible for drop (review F03). Kept looser than the exporter's pre-drop
+  # re-export throttle (@update_prone_reexport_interval_hours) so near-drop
+  # chunks stay fresh enough to pass rather than being held indefinitely.
+  @update_prone_freshness_hours 6
+
+  # Advisory-lock namespace for cold-tier drop serialization. The gate holds
+  # this per-table lock across its read + drop, and the exporter holds it
+  # around each manifest status flip, so a chunk can never transition
+  # verified<->pending between the gate's checks and its drop (review F02).
+  @advisory_namespace 0x0C01D
+
+  @doc """
+  Run `fun` while holding the per-table cold-tier drop lock (a transaction
+  scoped `pg_advisory_xact_lock`). Serializes the retention drop against the
+  exporter's manifest status transitions so the drop gate always reads a
+  consistent manifest state. The lock is NOT held across the exporter's COPY —
+  only its fast status flips — so a nightly drop never blocks on a long
+  export (it just sees the chunk as `pending` and holds it).
+  """
+  @spec with_table_lock(String.t(), (-> result), keyword()) :: result when result: var
+  def with_table_lock(table_name, fun, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    {:ok, result} =
+      repo.transaction(
+        fn ->
+          SQL.query!(
+            repo,
+            "SELECT pg_advisory_xact_lock($1::int, hashtext($2))",
+            [@advisory_namespace, table_name],
+            timeout: @query_timeout_ms
+          )
+
+          fun.()
+        end,
+        timeout: @query_timeout_ms
+      )
+
+    result
+  end
+
   @doc """
   Whether in-database retention policies are fenced off for this table.
 
@@ -86,7 +128,7 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   from migrations and from the retention worker; no-ops gracefully when the
   table is not a hypertable or TimescaleDB is absent.
   """
-  @spec reconcile_policy(String.t(), pos_integer(), keyword()) :: :ok
+  @spec reconcile_policy(String.t(), pos_integer(), keyword()) :: :ok | {:error, term()}
   def reconcile_policy(table_name, retention_days, opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
 
@@ -103,13 +145,11 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   and alerts on violations (defense-in-depth against future migrations or
   manual DDL re-arming a policy).
   """
-  @spec policy_violations() :: [String.t()]
+  @spec policy_violations(keyword()) :: {:ok, [String.t()]} | {:error, term()}
   def policy_violations(opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
 
     if Config.enabled?() do
-      fenced_tables = Registry.table_names()
-
       case SQL.query(
              repo,
              """
@@ -119,14 +159,19 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
                AND hypertable_schema = 'platform'
                AND hypertable_name = ANY($1)
              """,
-             [fenced_tables],
+             [Registry.table_names()],
              timeout: @query_timeout_ms
            ) do
-        {:ok, %{rows: rows}} -> List.flatten(rows)
-        {:error, _} -> []
+        {:ok, %{rows: rows}} ->
+          {:ok, List.flatten(rows)}
+
+        {:error, error} ->
+          # "Can't check" is NOT "clean" (review F07): a query failure must not
+          # read as an absence of violations, or a broken fence looks healthy.
+          {:error, error}
       end
     else
-      []
+      {:ok, []}
     end
   end
 
@@ -291,10 +336,25 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   end
 
   defp drift_clamp(repo, table_name, point) do
-    time_column =
+    {time_column, update_prone} =
       case Registry.fetch(table_name) do
-        {:ok, entry} -> entry.time_column
-        :error -> "timestamp"
+        {:ok, entry} -> {entry.time_column, entry.update_prone}
+        :error -> {"timestamp", false}
+      end
+
+    # Update-prone tables (ON CONFLICT DO UPDATE — e.g. ocsf_events) mutate rows
+    # in place WITHOUT changing the row count, so count-drift can't detect a
+    # stale archive (review F03). For those, additionally hold any verified
+    # chunk not re-exported within the freshness window. The hourly pre-drop
+    # re-verification keeps near-drop update-prone chunks fresh (its throttle is
+    # tighter than this window), so a chunk that legitimately reaches the drop
+    # point has a recent generation; this bounds the stale-generation exposure
+    # to the re-export cadence instead of "any time since first export".
+    freshness_clause =
+      if update_prone do
+        "OR m.verified_at < now() - INTERVAL '#{@update_prone_freshness_hours} hours'"
+      else
+        ""
       end
 
     sql = """
@@ -305,10 +365,13 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
     WHERE c.hypertable_schema = 'platform'
       AND c.hypertable_name = $1
       AND c.range_end <= $2
-      AND m.row_count IS DISTINCT FROM (
-        SELECT count(*) FROM platform.#{quoted(table_name)} t
-        WHERE t.#{quoted(time_column)} >= c.range_start
-          AND t.#{quoted(time_column)} < c.range_end
+      AND (
+        m.row_count IS DISTINCT FROM (
+          SELECT count(*) FROM platform.#{quoted(table_name)} t
+          WHERE t.#{quoted(time_column)} >= c.range_start
+            AND t.#{quoted(time_column)} < c.range_end
+        )
+        #{freshness_clause}
       )
     """
 
@@ -478,12 +541,15 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
         :ok
 
       {:error, error} ->
-        Logger.warning("Cold-tier retention fence: policy DDL failed",
+        # Do NOT swallow to :ok (review F07): a failed policy removal leaves the
+        # TimescaleDB retention worker armed on a fenced table, free to drop
+        # un-exported chunks. The caller must treat this as a fence breach.
+        Logger.error("Cold-tier retention fence: policy DDL failed",
           table: table_name,
           reason: Exception.message(error)
         )
 
-        :ok
+        {:error, {:policy_ddl_failed, table_name, Exception.message(error)}}
     end
   end
 end

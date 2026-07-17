@@ -64,7 +64,7 @@ defmodule ServiceRadar.ColdTier.Exporter do
   def run do
     case Head.session(&Head.ensure_setup/1) do
       {:ok, :ok} ->
-        alert_on_policy_violations()
+        enforce_fence()
         pressure = PressureMonitor.check()
         budget = Config.run_chunk_budget()
 
@@ -122,7 +122,10 @@ defmodule ServiceRadar.ColdTier.Exporter do
   # ON CONFLICT DO UPDATE leaves counts unchanged) are re-exported
   # unconditionally, throttled to once per @update_prone_reexport_interval.
   @predrop_window_hours 26
-  @update_prone_reexport_interval_hours 6
+  # Kept tighter than RetentionFence's update-prone freshness gate
+  # (@update_prone_freshness_hours) so a near-drop update-prone chunk is always
+  # re-exported recently enough to be droppable (review F03).
+  @update_prone_reexport_interval_hours 2
 
   defp predrop_reverify(_entry, remaining) when remaining <= 0, do: 0
 
@@ -325,32 +328,43 @@ defmodule ServiceRadar.ColdTier.Exporter do
     end
   end
 
+  # Every manifest status transition (pending on (re-)export, verified on
+  # success, pending on failure, quarantined) takes the per-table cold-tier
+  # lock (review F02). This is the OTHER half of the drop gate's serialization:
+  # the gate holds the same lock across its checks + drop, so a chunk can never
+  # flip verified<->pending between the gate's contiguous-verified read and its
+  # drift check. The lock is held only for this fast write, never across the
+  # non-preemptible COPY (which runs between the pending and verified flips).
   defp upsert_manifest(entry, chunk, object_key) do
-    ChunkExport
-    |> Ash.Changeset.for_create(:create, %{
-      table_name: entry.table,
-      chunk_name: chunk.chunk_name,
-      range_start: chunk.range_start,
-      range_end: chunk.range_end,
-      object_keys: [object_key],
-      status: :pending,
-      attempts: chunk.attempts + 1,
-      exported_at: DateTime.utc_now()
-    })
-    |> Ash.create!(authorize?: false)
+    RetentionFence.with_table_lock(entry.table, fn ->
+      ChunkExport
+      |> Ash.Changeset.for_create(:create, %{
+        table_name: entry.table,
+        chunk_name: chunk.chunk_name,
+        range_start: chunk.range_start,
+        range_end: chunk.range_end,
+        object_keys: [object_key],
+        status: :pending,
+        attempts: chunk.attempts + 1,
+        exported_at: DateTime.utc_now()
+      })
+      |> Ash.create!(authorize?: false)
+    end)
   end
 
   defp mark_verified(record, verification, published_key) do
-    record
-    |> Ash.Changeset.for_update(:update, %{
-      status: :verified,
-      row_count: verification.row_count,
-      bytes: object_bytes([published_key]),
-      content_checksum: verification.checksum,
-      last_error: nil,
-      verified_at: DateTime.utc_now()
-    })
-    |> Ash.update!(authorize?: false)
+    RetentionFence.with_table_lock(record.table_name, fn ->
+      record
+      |> Ash.Changeset.for_update(:update, %{
+        status: :verified,
+        row_count: verification.row_count,
+        bytes: object_bytes([published_key]),
+        content_checksum: verification.checksum,
+        last_error: nil,
+        verified_at: DateTime.utc_now()
+      })
+      |> Ash.update!(authorize?: false)
+    end)
   end
 
   # Actual on-disk size of the verified objects, so `cold_bytes` telemetry and
@@ -358,8 +372,6 @@ defmodule ServiceRadar.ColdTier.Exporter do
   # Best-effort: a listing failure must not fail an otherwise-verified export
   # (the size is reporting, not correctness), so it records nil and the next
   # reconciliation pass can fill it.
-  defp object_bytes([]), do: nil
-
   defp object_bytes(object_keys) do
     object_keys
     |> Enum.reduce(0, fn key, acc ->
@@ -385,9 +397,11 @@ defmodule ServiceRadar.ColdTier.Exporter do
       reason: reason
     )
 
-    record
-    |> Ash.Changeset.for_update(:update, %{status: :pending, last_error: reason})
-    |> Ash.update!(authorize?: false)
+    RetentionFence.with_table_lock(record.table_name, fn ->
+      record
+      |> Ash.Changeset.for_update(:update, %{status: :pending, last_error: reason})
+      |> Ash.update!(authorize?: false)
+    end)
   end
 
   defp quarantine(entry, chunk) do
@@ -402,18 +416,20 @@ defmodule ServiceRadar.ColdTier.Exporter do
     table = entry.table
     chunk_name = chunk.chunk_name
 
-    ChunkExport
-    |> Ash.Query.filter(table_name == ^table and chunk_name == ^chunk_name)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, %ChunkExport{} = record} ->
-        record
-        |> Ash.Changeset.for_update(:update, %{status: :quarantined})
-        |> Ash.update!(authorize?: false)
+    RetentionFence.with_table_lock(table, fn ->
+      ChunkExport
+      |> Ash.Query.filter(table_name == ^table and chunk_name == ^chunk_name)
+      |> Ash.read_one(authorize?: false)
+      |> case do
+        {:ok, %ChunkExport{} = record} ->
+          record
+          |> Ash.Changeset.for_update(:update, %{status: :quarantined})
+          |> Ash.update!(authorize?: false)
 
-      _ ->
-        :ok
-    end
+        _ ->
+          :ok
+      end
+    end)
 
     :quarantined
   end
@@ -500,17 +516,49 @@ defmodule ServiceRadar.ColdTier.Exporter do
     end
   end
 
-  defp alert_on_policy_violations do
+  # Actively re-assert the fence at the START of every run (review F07).
+  #
+  # The nightly retention worker also reconciles policies, but the exporter
+  # runs hourly — removing any in-DB retention policy here shrinks the window
+  # during which the TimescaleDB background worker could drop un-exported
+  # chunks (e.g. right after cold-tier activation, or after a migration
+  # re-armed one) from up to a day down to at most one export interval.
+  # Removal is idempotent.
+  defp enforce_fence do
+    removal_failures =
+      Enum.reduce(Registry.tables(), [], fn entry, failures ->
+        case RetentionFence.reconcile_policy(entry.table, Registry.hot_retention_days(entry)) do
+          :ok -> failures
+          {:error, reason} -> [{entry.table, reason} | failures]
+        end
+      end)
+
+    if removal_failures != [] do
+      Logger.error(
+        "Cold tier: could not remove in-database retention policies on fenced tables — " <>
+          "the TimescaleDB background worker may drop un-exported chunks until this clears",
+        failures: inspect(removal_failures)
+      )
+    end
+
     case RetentionFence.policy_violations() do
-      [] ->
+      {:ok, []} ->
         :ok
 
-      tables ->
+      {:ok, tables} ->
         Logger.error(
-          "Cold tier: in-database retention policies exist on fenced tables — " <>
-            "a migration or manual DDL re-armed them; the TimescaleDB background " <>
+          "Cold tier: in-database retention policies still present on fenced tables after " <>
+            "removal — a migration or manual DDL re-armed them; the TimescaleDB background " <>
             "worker may drop un-exported chunks",
           tables: tables
+        )
+
+      {:error, reason} ->
+        # Can't confirm the fence is intact — treat it as unconfirmed, not clean.
+        Logger.error(
+          "Cold tier: could not verify retention-policy state on fenced tables — " <>
+            "treat the fence as unconfirmed until this clears",
+          reason: inspect(reason)
         )
     end
 

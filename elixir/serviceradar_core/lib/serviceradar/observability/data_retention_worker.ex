@@ -236,18 +236,24 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     # verified-export prefix; :hold means data is retained (never silently
     # lost) until exports catch up. Unfenced tables get the plain retention
     # cutoff — identical to the previous interval-based behavior.
-    case RetentionFence.safe_drop_point(table_name, retention_days) do
-      {:ok, drop_point} ->
-        drop_chunks_older_than(table_name, drop_point)
+    #
+    # The gate computation and the drop run inside ONE transaction holding the
+    # per-table cold-tier lock (review F02), so the exporter cannot flip a
+    # chunk's manifest status between the gate's checks and the drop.
+    RetentionFence.with_table_lock(table_name, fn ->
+      case RetentionFence.safe_drop_point(table_name, retention_days) do
+        {:ok, drop_point} ->
+          drop_chunks_older_than(table_name, drop_point)
 
-      :hold ->
-        Logger.info("Cold tier is holding expired chunks pending verified export",
-          table: table_name,
-          retention_days: retention_days
-        )
+        :hold ->
+          Logger.info("Cold tier is holding expired chunks pending verified export",
+            table: table_name,
+            retention_days: retention_days
+          )
 
-        :ok
-    end
+          :ok
+      end
+    end)
   end
 
   defp drop_chunks_older_than(table_name, %DateTime{} = drop_point) do
