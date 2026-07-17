@@ -30,6 +30,7 @@ defmodule ServiceRadarWebNG.Application do
         ServiceRadarWebNG.Topology.RuntimeGraph
       ]
       |> Kernel.++(web_runtime().web_children())
+      |> maybe_add_control_plane_runtime_listener()
       |> maybe_add_grpc_supervisor()
       |> maybe_add_first_party_plugin_sync_scheduler()
       |> maybe_add_native_addon_sync_scheduler()
@@ -117,6 +118,26 @@ defmodule ServiceRadarWebNG.Application do
       end
     else
       children
+    end
+  end
+
+  defp maybe_add_control_plane_runtime_listener(children) do
+    config = Application.get_env(:serviceradar_web_ng, :control_plane_runtime, [])
+
+    case Keyword.get(config, :token) do
+      token when is_binary(token) and byte_size(token) >= 32 ->
+        port = Keyword.get(config, :port, 4001)
+
+        listener =
+          Supervisor.child_spec(
+            {Bandit, plug: ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter, scheme: :http, ip: {0, 0, 0, 0}, port: port},
+            id: ServiceRadarWebNG.ControlPlaneRuntimeListener
+          )
+
+        children ++ [listener]
+
+      _missing_or_invalid_token ->
+        children
     end
   end
 

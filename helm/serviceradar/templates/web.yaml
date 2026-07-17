@@ -8,6 +8,11 @@
 {{- $webNgGodView := default (dict) $webNg.godView -}}
 {{- $webNgFirstPartyImport := default (dict) $webNg.firstPartyPluginImport -}}
 {{- $webNgNativeAddonImport := default (dict) $webNg.nativeAddonImport -}}
+{{- $controlPlaneRuntime := default (dict) $webNg.controlPlaneRuntime -}}
+{{- $controlPlaneRuntimeEnabled := default false $controlPlaneRuntime.enabled -}}
+{{- $controlPlaneRuntimePort := default 4001 $controlPlaneRuntime.port -}}
+{{- $controlPlaneRuntimeSecretName := default "serviceradar-control-plane-runtime-access" $controlPlaneRuntime.existingSecretName -}}
+{{- $controlPlaneRuntimeSecretKey := default "token" $controlPlaneRuntime.tokenSecretKey -}}
 {{- $runtimeGraphAutoRefresh := true -}}
 {{- if hasKey $webNgGodView "runtimeGraphAutoRefresh" -}}
 {{- $runtimeGraphAutoRefresh = get $webNgGodView "runtimeGraphAutoRefresh" -}}
@@ -265,6 +270,12 @@ spec:
         ports:
         - containerPort: 4000
           name: http
+        {{- if $controlPlaneRuntimeEnabled }}
+        # Pod-only machine endpoint. It is intentionally omitted from both
+        # web-ng Services and every Gateway route.
+        - containerPort: {{ $controlPlaneRuntimePort }}
+          name: control-runtime
+        {{- end }}
         - containerPort: 4369
           name: epmd
         - containerPort: 9100
@@ -290,6 +301,15 @@ spec:
           value: {{ default "false" $webNg.devRoutes | quote }}
         - name: SERVICERADAR_LOCAL_MAILER
           value: {{ default "false" $webNg.localMailer | quote }}
+        {{- if $controlPlaneRuntimeEnabled }}
+        - name: SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT
+          value: {{ $controlPlaneRuntimePort | quote }}
+        - name: SERVICERADAR_CONTROL_PLANE_RUNTIME_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ $controlPlaneRuntimeSecretName | quote }}
+              key: {{ $controlPlaneRuntimeSecretKey | quote }}
+        {{- end }}
         {{- if $agentReleasePublicKey }}
         - name: SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY
           value: {{ $agentReleasePublicKey | quote }}

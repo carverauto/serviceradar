@@ -946,6 +946,15 @@ webNg:
   #       name: serviceradar-smtp-relay
   #       key: password
   extraEnvValueFrom: {}
+  # Dedicated pod-only listener for authenticated hosted-control-plane
+  # operations. Enabling this adds a container port and reads its bearer token
+  # from the named Secret; it never adds the port to a Service, Gateway,
+  # HTTPRoute, or other public route.
+  controlPlaneRuntime:
+    enabled: false
+    port: 4001
+    existingSecretName: serviceradar-control-plane-runtime-access
+    tokenSecretKey: token
   # Resource requests/limits for web-ng.
   resources:
     limits:

@@ -96,12 +96,31 @@ if System.get_env("PHX_SERVER") do
   config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint, server: true
 end
 
+control_plane_runtime_token =
+  case System.get_env("SERVICERADAR_CONTROL_PLANE_RUNTIME_TOKEN") do
+    nil ->
+      nil
+
+    "" ->
+      nil
+
+    token when byte_size(token) >= 32 ->
+      token
+
+    _short_token ->
+      raise "SERVICERADAR_CONTROL_PLANE_RUNTIME_TOKEN must contain at least 32 bytes"
+  end
+
 # =============================================================================
 # OpenTelemetry Configuration
 # =============================================================================
 # All OTEL exporter config MUST live here — runtime.exs runs before OTP apps
 # start, so the opentelemetry SDK picks up these values at boot.
 otel_endpoint = System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
+
+config :serviceradar_web_ng, :control_plane_runtime,
+  token: control_plane_runtime_token,
+  port: parse_int_env.("SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT", 4001)
 
 if otel_endpoint do
   ssl_opts = ServiceRadar.Telemetry.OtelSetup.ssl_options()
