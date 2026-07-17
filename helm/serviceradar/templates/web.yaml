@@ -299,8 +299,10 @@ spec:
           value: {{ default "true" $webNg.godViewEnabled | quote }}
         - name: SERVICERADAR_DEV_ROUTES
           value: {{ default "false" $webNg.devRoutes | quote }}
+        {{- if not (hasKey (default (dict) $webNg.extraEnv) "SERVICERADAR_LOCAL_MAILER") }}
         - name: SERVICERADAR_LOCAL_MAILER
           value: {{ default "false" $webNg.localMailer | quote }}
+        {{- end }}
         {{- if $controlPlaneRuntimeEnabled }}
         - name: SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT
           value: {{ $controlPlaneRuntimePort | quote }}

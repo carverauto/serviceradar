@@ -297,8 +297,10 @@ spec:
           value: "true"
         - name: SERVICERADAR_CORE_VAULT_ENABLED
           value: "true"
+        {{- if not (hasKey (default (dict) $coreVals.extraEnv) "SERVICERADAR_LOCAL_MAILER") }}
         - name: SERVICERADAR_LOCAL_MAILER
           value: "false"
+        {{- end }}
         - name: POOL_SIZE
           value: {{ default 40 $database.poolSize | quote }}
         - name: DATABASE_QUEUE_TARGET_MS
