@@ -358,6 +358,20 @@ pub struct ClassScore {
     pub median_latency_samples: Option<i64>,
 }
 
+/// Confirmed spike flags inside one explicitly labeled negative class.
+///
+/// The corpus keeps `is_truth=0` for expected operational shapes such as a
+/// recurring nightly load, while retaining a non-empty `klass`. Reporting those
+/// regions separately lets CI enforce the exact false-positive regression instead
+/// of hiding it inside aggregate precision.
+#[derive(Debug, Serialize)]
+pub struct FalsePositiveClassScore {
+    pub klass: String,
+    pub samples: usize,
+    pub flags: usize,
+    pub rate: f64,
+}
+
 /// CUSUM alarm coverage of one truth span (`alarm_samples` counts alarms inside
 /// `[start, end)`, no tolerance — the `216/300`-style drift-recall numerator).
 #[derive(Debug, Serialize)]
@@ -389,6 +403,7 @@ pub struct SeriesScore {
     pub tp_flags: usize,
     pub fp_flags: usize,
     pub by_class: Vec<ClassScore>,
+    pub false_positive_by_class: Vec<FalsePositiveClassScore>,
     /// Largest `|score|` over every per-sample verdict of the replay.
     pub max_abs_score: f64,
     /// False only if any per-sample verdict score was NaN/inf.
@@ -465,6 +480,45 @@ pub fn score_flags(series: &TruthSeries, anomalous: &[bool]) -> (Vec<ClassScore>
         .collect();
 
     (by_class, tp, fp)
+}
+
+/// Score explicitly named negative regions (`is_truth=0`, non-empty `klass`).
+pub fn score_false_positive_classes(
+    series: &TruthSeries,
+    anomalous: &[bool],
+) -> Vec<FalsePositiveClassScore> {
+    let m = series.truth.len().min(anomalous.len());
+    let mut order = Vec::new();
+    let mut counts: std::collections::HashMap<String, (usize, usize)> =
+        std::collections::HashMap::new();
+
+    for (i, is_anomalous) in anomalous.iter().take(m).enumerate() {
+        let klass = &series.klass[i];
+        if series.truth[i] || klass.is_empty() {
+            continue;
+        }
+        let entry = counts.entry(klass.clone()).or_insert_with(|| {
+            order.push(klass.clone());
+            (0, 0)
+        });
+        entry.0 += 1;
+        if *is_anomalous {
+            entry.1 += 1;
+        }
+    }
+
+    order
+        .into_iter()
+        .map(|klass| {
+            let (samples, flags) = counts.remove(&klass).expect("ordered class present");
+            FalsePositiveClassScore {
+                klass,
+                samples,
+                flags,
+                rate: flags as f64 / samples as f64,
+            }
+        })
+        .collect()
 }
 
 /// CUSUM alarm accounting for one series (per-span coverage + FP rate on the
@@ -596,6 +650,7 @@ pub fn run_scorecard(
         .map(|(key, truth_series)| {
             let r = replayed.get(key).unwrap_or(&empty);
             let (by_class, tp_flags, fp_flags) = score_flags(truth_series, &r.anomalous);
+            let false_positive_by_class = score_false_positive_classes(truth_series, &r.anomalous);
             let flags = tp_flags + fp_flags;
             SeriesScore {
                 series_key: key.clone(),
@@ -604,6 +659,7 @@ pub fn run_scorecard(
                 tp_flags,
                 fp_flags,
                 by_class,
+                false_positive_by_class,
                 max_abs_score: r.max_abs_score,
                 all_scores_finite: r.all_scores_finite,
                 cusum: cfg.cusum.then(|| score_cusum(truth_series, &r.alarms)),

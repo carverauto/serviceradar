@@ -15,18 +15,20 @@
 //! both fully deterministic, so any drift below a floor is a real behavioral
 //! regression in the kernels, not flake.
 //!
-//! Measured baseline (2026-07-12, this corpus, detector defaults + `--cusum`
-//! k=0.5 h=5.0):
-//!   - spike precision (cpu + mem + rate, ungated): 834 TP / 0 FP = 1.000
-//!   - z-catchable span recall: cpu spike 1/1, cpu step 1/1, mem step 1/1,
-//!     snmp rate burst 1/1 (median first-hit latency 4 samples each)
+//! Measured baseline (2026-07-17, this corpus):
+//!   - spike precision (production-gated cpu + ungated mem/rate): 150 TP / 0 FP
+//!     = 1.000
+//!   - the 21 recurring nightly CPU loads (420 samples) are explicitly negative
+//!     and produce 0 confirmed flags under the production CPU policy
+//!   - z-catchable span recall: cpu spike 1/1, mem step 1/1, snmp rate burst
+//!     1/1 (median first-hit latency 4 samples each)
 //!   - cpu single-blip: 0/1 confirmed (hysteresis holds, `confirm_slots` 5)
 //!   - deseasonalized CUSUM drift recall (cpu `drift` 300-sample ramp):
 //!     230/300 alarm samples = 0.767, first alarm at +20 samples
-//!   - CUSUM drift FP rate on clean seasonal series: cpu 129/29155 = 0.44%,
-//!     snmp rate 298/30142 = 0.99%
+//!   - CUSUM drift FP rate on the clean seasonal SNMP rate series:
+//!     298/30142 = 0.99%
 //!   - max |score| across all five series (incl. the contract-violation
-//!     `counter_raw` demo series): 44.65, all finite
+//!     `counter_raw` demo series): 48.44, all finite
 //!   - disk with the production saturation gate (80): 11 TP / 0 FP, the
 //!     benign sub-80 bump fully suppressed, the real >80 fill still 1/1
 //!
@@ -55,8 +57,7 @@ use serviceradar_anomaly_core::scorecard::{
 const SPIKE_PRECISION_FLOOR: f64 = 0.98;
 /// Floor just below the measured 230/300 = 0.767 CUSUM drift-span coverage.
 const DRIFT_RECALL_FLOOR: f64 = 0.75;
-/// Task 1.20 ceiling: deseasonalized drift FP <= 1% (measured cpu 0.44%,
-/// snmp rate 0.99%).
+/// Task 1.20 ceiling: deseasonalized drift FP <= 1% (measured rate 0.99%).
 const DRIFT_FP_CEILING: f64 = 0.01;
 /// Margin over the measured first CUSUM alarm at +20 samples into the ramp.
 const DRIFT_FIRST_ALARM_CEILING: usize = 40;
@@ -69,6 +70,7 @@ const CPU: &str = "cpu.usage_percent";
 const MEM: &str = "memory.usage_percent";
 const DISK: &str = "disk.usage_percent";
 const RATE: &str = "snmp.if1.rate_bps";
+const RECURRING_DIURNAL_FP: &str = "recurring_diurnal_fp";
 
 fn testdata(name: &str) -> PathBuf {
     // bazel rust_test: cwd is the main-workspace runfiles root.
@@ -105,6 +107,17 @@ fn class_detected(score: &SeriesScore, klass: &str) -> (usize, usize) {
     (class.detected, class.spans)
 }
 
+fn false_positive_class<'a>(
+    score: &'a SeriesScore,
+    klass: &str,
+) -> &'a serviceradar_anomaly_core::scorecard::FalsePositiveClassScore {
+    score
+        .false_positive_by_class
+        .iter()
+        .find(|class| class.klass == klass)
+        .unwrap_or_else(|| panic!("series {} missing negative class {klass}", score.series_key))
+}
+
 #[test]
 fn labeled_corpus_scorecard_floors() {
     let truth = load_truth(open_bufread(&testdata("truth.csv.gz")).expect("open truth"))
@@ -126,9 +139,10 @@ fn labeled_corpus_scorecard_floors() {
         buf
     };
 
-    // Replay 1: detector defaults + the deseasonalized CUSUM drift detector
-    // (the `--cusum` flag does not change the z-score verdicts, so this single
-    // replay yields both the spike scorecard and the drift metrics).
+    // Replay 1: detector defaults + the deseasonalized CUSUM drift detector.
+    // This remains the kernel sensitivity replay for memory/rate and the CPU
+    // CUSUM ramp; the CPU spike policy is exercised separately below with its
+    // shipping dispersion and saturation gates.
     let cusum_cfg = ReplayConfig {
         cusum: true,
         ..ReplayConfig::default()
@@ -136,11 +150,54 @@ fn labeled_corpus_scorecard_floors() {
     let scorecard =
         run_scorecard(Cursor::new(samples.as_str()), &truth, &cusum_cfg).expect("cusum replay");
 
-    // Floor: spike precision over the labeled z-scored series (disk is proven
-    // separately under its production saturation gate; counter_raw is the
-    // deliberate contract-violation demo).
-    let (mut tp, mut fp) = (0usize, 0usize);
-    for key in [CPU, MEM, RATE] {
+    let cpu_samples: String = BufReader::new(Cursor::new(samples.as_str()))
+        .lines()
+        .map(|line| line.expect("read line"))
+        .filter(|line| line.contains(CPU))
+        .fold(String::new(), |mut acc, line| {
+            acc.push_str(&line);
+            acc.push('\n');
+            acc
+        });
+    let cpu_truth: Vec<_> = truth
+        .iter()
+        .filter(|(key, _)| key == CPU)
+        .map(|(key, series)| {
+            (
+                key.clone(),
+                serviceradar_anomaly_core::scorecard::TruthSeries {
+                    truth: series.truth.clone(),
+                    klass: series.klass.clone(),
+                },
+            )
+        })
+        .collect();
+    let production_cpu_cfg = ReplayConfig {
+        saturation_gate_min: Some(85.0),
+        min_std_floor: Some(5.0),
+        min_cv: Some(0.10),
+        ..ReplayConfig::default()
+    };
+    let production_cpu = run_scorecard(
+        Cursor::new(cpu_samples.as_str()),
+        &cpu_truth,
+        &production_cpu_cfg,
+    )
+    .expect("production CPU replay");
+    let production_cpu_score = series(&production_cpu, CPU);
+
+    let recurring = false_positive_class(production_cpu_score, RECURRING_DIURNAL_FP);
+    assert_eq!(recurring.samples, 21 * 20);
+    assert_eq!(
+        recurring.flags, 0,
+        "recurring nightly CPU work is expected operation and must not emit spike findings"
+    );
+
+    // Floor: spike precision over the production-gated CPU replay and the
+    // ungated memory/rate kernel replay (disk is proven separately below;
+    // counter_raw is the deliberate contract-violation demo).
+    let (mut tp, mut fp) = (production_cpu_score.tp_flags, production_cpu_score.fp_flags);
+    for key in [MEM, RATE] {
         let score = series(&scorecard, key);
         tp += score.tp_flags;
         fp += score.fp_flags;
@@ -152,23 +209,23 @@ fn labeled_corpus_scorecard_floors() {
          {SPIKE_PRECISION_FLOOR} (measured baseline 1.000)"
     );
 
-    // Floor: every z-catchable injected span stays detected (measured 4/4).
-    for (key, klass) in [
-        (CPU, "spike"),
-        (CPU, "step"),
-        (MEM, "step"),
-        (RATE, "burst"),
+    // Floor: every production-relevant z-catchable injected span stays detected.
+    for (score, klass) in [
+        (production_cpu_score, "spike"),
+        (series(&scorecard, MEM), "step"),
+        (series(&scorecard, RATE), "burst"),
     ] {
-        let (detected, spans) = class_detected(series(&scorecard, key), klass);
+        let (detected, spans) = class_detected(score, klass);
         assert_eq!(
             (detected, spans),
             (1, 1),
-            "{key} {klass} span recall regressed (measured 1/1)"
+            "{} {klass} span recall regressed (measured 1/1)",
+            score.series_key
         );
     }
 
     // Hysteresis: the single-sample blip must NOT confirm (measured 0/1).
-    let (blip_detected, _) = class_detected(series(&scorecard, CPU), "blip");
+    let (blip_detected, _) = class_detected(production_cpu_score, "blip");
     assert_eq!(
         blip_detected, 0,
         "cpu single-sample blip confirmed — confirm_slots hysteresis regressed"
@@ -200,24 +257,24 @@ fn labeled_corpus_scorecard_floors() {
          (measured baseline +20)"
     );
 
-    // Ceiling: CUSUM false-alarm rate on the clean seasonal series (measured
-    // cpu 0.44%, snmp rate 0.99%; mem/disk exclusions in the module docs).
-    for key in [CPU, RATE] {
-        let cusum = series(&scorecard, key)
-            .cusum
-            .as_ref()
-            .unwrap_or_else(|| panic!("cusum stats for {key}"));
-        let fp_rate = cusum.fp_rate.expect("clean samples exist");
-        assert!(
-            fp_rate <= DRIFT_FP_CEILING,
-            "{key} drift FP rate {}/{} = {fp_rate:.4} exceeds ceiling {DRIFT_FP_CEILING}",
-            cusum.fp_alarms,
-            cusum.clean_samples
-        );
-    }
+    // Ceiling: CUSUM false-alarm rate on the clean seasonal rate series
+    // (memory/disk exclusions are in the module docs; CPU contains the explicit
+    // recurring negative load governed by the spike saturation policy above).
+    let key = RATE;
+    let cusum = series(&scorecard, key)
+        .cusum
+        .as_ref()
+        .unwrap_or_else(|| panic!("cusum stats for {key}"));
+    let fp_rate = cusum.fp_rate.expect("clean samples exist");
+    assert!(
+        fp_rate <= DRIFT_FP_CEILING,
+        "{key} drift FP rate {}/{} = {fp_rate:.4} exceeds ceiling {DRIFT_FP_CEILING}",
+        cusum.fp_alarms,
+        cusum.clean_samples
+    );
 
     // Bound: zero unbounded scores anywhere in the replay, including the
-    // counter_raw contract-violation series (measured max 44.65).
+    // counter_raw contract-violation series (measured max 48.44).
     for score in &scorecard.series {
         assert!(
             score.all_scores_finite,
