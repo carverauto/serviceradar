@@ -158,6 +158,12 @@ defmodule ServiceRadar.ColdTier.Pruner do
       manifested = Map.new(rows, fn [key, status] -> {key, status} end)
       cutoff = DateTime.add(DateTime.utc_now(), -@orphan_safety_hours * 3600, :second)
 
+      # Staging objects are never manifested (the manifest records the
+      # published key) and are never readable, so a stale one past the safety
+      # age is exactly the garbage this sweep should collect — the generic
+      # orphan rule below already covers them. Objects listed here are checked
+      # against the manifest by key, and `missing` (below) only considers
+      # published keys, so staging can never look like lost archive data.
       orphans =
         for %{key: key, last_modified: lm} <- objects,
             not Map.has_key?(manifested, key),

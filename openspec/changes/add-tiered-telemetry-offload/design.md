@@ -86,6 +86,20 @@ contained to the cold path; the OLTP primary never loads new libraries.
     still delivers no read path.
 
 ### D2. Format: hive-partitioned Parquet + manifest-in-primary as the commit protocol
+**Staging → verify → publish (the commit protocol's object half).** Exports
+never write the published key directly: a COPY is non-preemptible and can
+leave a complete-but-truncated object (spike 0.3), so writing straight to the
+key readers glob would make corrupt data instantly query-visible — and a
+re-export would do it to a key that was previously good. Exports land under
+`cold/v1/<table>/_staging/`, verification runs against that object, and only a
+verified object is server-side copied onto the published key. Object writes
+are atomic per key, so readers see the previous good object or the new good
+one, never a partial. Readers glob `date=*/` only, which is what makes
+"unverified objects are never readable" true for readers and not just for the
+manifest. (A verified-manifest-key file list instead of a glob is the stronger
+form — it would also hide tombstoned-but-not-yet-deleted objects — and is
+tracked as review finding F04's remainder.)
+
 Layout: `s3://<bucket>/cold/v1/<table>/date=YYYY-MM-DD/<chunk_id>[_<n>].parquet`,
 zstd, rows sorted by (time, series/tiebreaker) for row-group pruning. No table
 format (Delta/Iceberg/DuckLake) in v1: single writer, append-only, immutable

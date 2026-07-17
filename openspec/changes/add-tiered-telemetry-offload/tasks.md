@@ -73,7 +73,7 @@ asserted 9 gauges while 10 ship).
 ### 6.1 Retention/exporter correctness (P1)
 - [ ] 6.1.1 F02: serialize export and drop per table/chunk (advisory lock, or recheck status under lock immediately around drop_chunks) — the gate's verified-prefix and drift queries are not atomic with the exporter's verified->pending transition
 - [ ] 6.1.2 F03: make the update-prone re-export+verification synchronous at the drop gate; today it is a separate 6h-throttled pass and the gate only compares row count, so an upsert can preserve count and pass
-- [ ] 6.1.3 F04: readers must use verified manifest keys, not a `**/*.parquet` glob — a re-export overwrites the deterministic key before verification, so a corrupt-but-complete object is immediately query-visible (violates D2/D9). Use immutable generation/staging keys and publish atomically after verification
+- [~] 6.1.3 F04: PARTIALLY FIXED — exports now land on a `_staging/` key, verification runs against THAT object, and only a verified object is server-side copied onto the published key (writes are atomic per key), while readers glob `date=*/` only. Proven: a bogus staging object exists on the bucket yet the stitched view is unchanged. STILL OPEN: readers use a glob rather than the verified manifest key list, so a tombstoned-but-not-yet-deleted object stays visible for the (minutes-long) window between tombstone and delete
 - [ ] 6.1.4 F07: make verified policy removal a synchronous activation prerequisite (today an old autonomous policy can drop unexported chunks for ~24h after enablement); stop converting policy-DDL and violation-query errors to `:ok`
 - [ ] 6.1.5 F11: run a daily refresh across the FULL overlap [B, hot-drop horizon) — the current 26h pre-drop window means a late row in a 3-day-old chunk stays absent from cold until ~day 29 for 30-day logs, contradicting the documented <=24h bound
 - [ ] 6.1.6 F13: round-robin the run budget across tables; a backlog in the first registry table currently starves every later table
@@ -84,8 +84,8 @@ asserted 9 gauges while 10 ship).
 - [ ] 6.2.3 F15: build the Oban crontab from the validated state so an unconfigured install schedules no cold jobs at all
 
 ### 6.3 Deployment/security (P1 unless noted)
-- [ ] 6.3.1 F16: the analytics image cannot boot under CNPG (image postgres is UID 999; CNPG runs UID/GID 26 — reproduced: `initdb: could not look up effective user ID 26`). Build a CNPG-compatible image (pg_duckdb onto the CNPG base, as task 1.3 originally specified) and boot-smoke it under UID 26
-- [ ] 6.3.2 F17: render imagePullSecrets for the private analytics image (else ImagePullBackOff)
+- [x] 6.3.1 F16: FIXED via CNPG's supported postgresUID/postgresGID (the reviewer's sanctioned alternative to rebasing the image). Reproduced the failure (`initdb: could not look up effective user ID 26`) and verified UID 999 boots; chart now sets postgresUID/postgresGID: 999 and the smoke test runs under the production UID, so this class fails in CI rather than in a canary. FOLLOW-UP (optional): rebasing pg_duckdb onto the CNPG base would let the head run at UID 26 like every other cluster — worth doing if fleet policy requires a uniform UID
+- [x] 6.3.2 F17: FIXED — the head renders image.registryPullSecret (overridable per-head)
 - [ ] 6.3.3 F18: TLS on both hops — core->head has no TLS/CA/SNI and defaults ssl:false with no TLS-only pg_hba; head->primary carries no sslmode/CA/cert/key while compose's primary requires hostssl+clientcert=verify-full
 - [ ] 6.3.4 F19: manage the cold_reader credential coherently (CNPG managed.roles + Secret, or a reconciler updating both ends); the migration only sets a password from a direct env the migrations job never receives
 - [ ] 6.3.5 F21: the head NetworkPolicy blocks CNPG's Kubernetes API egress, so the instance manager can fail before the DB is managed
@@ -94,7 +94,7 @@ asserted 9 gauges while 10 ship).
 - [ ] 6.3.8 F23 (P2): dedicated ephemeral spill volume with coherent request/limit/cap (today spill shares the 20Gi database PVC)
 - [ ] 6.3.9 F24 (P2): set cold_reader CONNECTION LIMIT and narrow the blanket `_timescaledb_internal` grant to registry hypertables
 - [ ] 6.3.10 F25 (P2): revoke the default-privilege dependency in `down/0` so DROP ROLE succeeds; test migration up/down
-- [ ] 6.3.11 F26 (P2): make the image smoke wait for the final postmaster — it can pass against the entrypoint's temporary init server
+- [x] 6.3.11 F26: FIXED — the smoke now waits for the entrypoint's 'init process complete' banner and requires readiness to hold across several consecutive probes, so it cannot certify the temporary init server
 
 ### 6.4 SRQL routing (P1 unless noted)
 - [ ] 6.4.1 F30: carry entity aliases in the registry projection — Events/SecurityFindings/ScanActivity/DnsActivity (ocsf_events) and AttributedFlows (ocsf_network_activity) are hand-omitted from the Rust match, violating the registry single-source rule

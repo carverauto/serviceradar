@@ -51,6 +51,14 @@ if [[ -z "${IMAGE}" ]]; then
   IMAGE="docker.io/pgduckdb/pgduckdb@${digest}"
 fi
 
+# The UID the chart runs this image under (cold-analytics-head.yaml
+# postgresUID/postgresGID). The image's postgres user is 999, NOT
+# CloudNativePG's default 26 — running the smoke as root or as the image
+# default would pass while production dies at initdb with "could not look up
+# effective user ID". Keep this in lockstep with the chart.
+RUN_UID="${COLD_ANALYTICS_UID:-999}"
+RUN_GID="${COLD_ANALYTICS_GID:-999}"
+
 CONTAINER="cold-analytics-smoke-$$"
 
 cleanup() {
@@ -60,7 +68,10 @@ trap cleanup EXIT
 
 echo "==> Boot-smoking analytics image: ${IMAGE}"
 
+echo "==> Running as UID ${RUN_UID}:${RUN_GID} (the UID the chart configures)"
+
 "${DOCKER_BIN}" run -d --name "${CONTAINER}" \
+  --user "${RUN_UID}:${RUN_GID}" \
   -e POSTGRES_PASSWORD=smoke \
   -e POSTGRES_INITDB_ARGS='--locale=C --encoding=UTF8' \
   "${IMAGE}" >/dev/null
@@ -70,14 +81,35 @@ psql_smoke() {
     psql -v ON_ERROR_STOP=1 -U postgres -tA "$@"
 }
 
-echo "==> Waiting for PostgreSQL to accept connections (max ${WAIT_SECONDS}s)"
+echo "==> Waiting for the FINAL PostgreSQL server (max ${WAIT_SECONDS}s)"
+# The stock entrypoint runs a TEMPORARY postmaster (listening on the unix
+# socket only) to execute initdb scripts, then shuts it down and starts the
+# real one. Accepting the first successful `SELECT 1` races that bounce: the
+# query can hit the temporary server, which then stops before CREATE
+# EXTENSION, so the gate fails intermittently and passes on rerun.
+#
+# The entrypoint prints this exact banner only after the temporary server is
+# gone, so wait for it, then require readiness to hold steady.
 ready=false
 for _ in $(seq 1 "${WAIT_SECONDS}"); do
-  # The stock entrypoint restarts once after initdb; require a real query
-  # (not just pg_isready) so we don't race the bounce.
-  if [[ "$(psql_smoke -c 'SELECT 1' 2>/dev/null || true)" == "1" ]]; then
-    ready=true
-    break
+  if "${DOCKER_BIN}" logs "${CONTAINER}" 2>&1 | grep -q 'database system is ready to accept connections'; then
+    if "${DOCKER_BIN}" logs "${CONTAINER}" 2>&1 | grep -q 'PostgreSQL init process complete; ready for start up'; then
+      # Require several consecutive successes so we never certify a server
+      # that is about to stop.
+      stable=0
+      for _ in $(seq 1 5); do
+        if [[ "$(psql_smoke -c 'SELECT 1' 2>/dev/null || true)" == "1" ]]; then
+          stable=$((stable + 1))
+        else
+          stable=0
+        fi
+        sleep 1
+      done
+      if [[ "${stable}" -ge 3 ]]; then
+        ready=true
+        break
+      fi
+    fi
   fi
   if [[ "$("${DOCKER_BIN}" inspect -f '{{.State.Running}}' "${CONTAINER}" 2>/dev/null || true)" != "true" ]]; then
     echo "error: container exited during startup" >&2
@@ -87,7 +119,7 @@ for _ in $(seq 1 "${WAIT_SECONDS}"); do
   sleep 1
 done
 if [[ "${ready}" != "true" ]]; then
-  echo "error: PostgreSQL did not become ready within ${WAIT_SECONDS}s" >&2
+  echo "error: the final PostgreSQL server was not stably ready within ${WAIT_SECONDS}s" >&2
   "${DOCKER_BIN}" logs "${CONTAINER}" | tail -50 >&2
   exit 1
 fi

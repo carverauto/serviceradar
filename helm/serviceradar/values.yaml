@@ -853,6 +853,14 @@ coldTier:
     # TimescaleDB/AGE/PostGIS (pg_duckdb is structurally incompatible with a
     # TimescaleDB-loaded instance — never point this at the primary image).
     imageName: ""
+    # The analytics image is based on the official pgduckdb image, whose
+    # postgres user is UID/GID 999 — not CloudNativePG's default 26. These
+    # MUST match the image or the instance dies during initdb. Override only
+    # if you build the image on a base with a different postgres UID.
+    postgresUID: 999
+    postgresGID: 999
+    # Defaults to image.registryPullSecret; set only to use a dedicated secret.
+    registryPullSecret: ""
     clusterName: cnpg-analytics
     instances: 1
     storageSize: 20Gi

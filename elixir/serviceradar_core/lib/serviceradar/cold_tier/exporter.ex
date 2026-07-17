@@ -254,29 +254,56 @@ defmodule ServiceRadar.ColdTier.Exporter do
     end
   end
 
+  # Staging -> verify -> publish (design D2; review F04).
+  #
+  # Exports NEVER write the published key directly. A COPY is non-preemptible
+  # and can leave a complete-but-truncated object (spike 0.3), so writing
+  # straight to the key readers glob would make corrupt data instantly
+  # query-visible — and a re-export would do it to a key that was previously
+  # good. Instead the export lands on a staging key, verification runs against
+  # THAT object, and only a verified object is copied onto the published key.
+  # Object writes are atomic per key, so readers see the previous good object
+  # or the new good one, never a partial or corrupt one.
   defp attempt_export(entry, chunk) do
-    object_key = object_key(entry, chunk)
-    record = upsert_manifest(entry, chunk, object_key)
+    published_key = object_key(entry, chunk)
+    staging_key = staging_key(entry, chunk)
+    record = upsert_manifest(entry, chunk, published_key)
 
     result =
       Head.session(fn conn ->
-        Head.export_range(conn, entry, chunk.range_start, chunk.range_end, object_key)
-        Head.parquet_verification(conn, entry, object_key)
+        Head.export_range(conn, entry, chunk.range_start, chunk.range_end, staging_key)
+        Head.parquet_verification(conn, entry, staging_key)
       end)
 
     with {:ok, parquet_side} <- result,
          {:ok, primary_side} <- primary_verification(entry, chunk),
-         true <- Verification.match?(parquet_side, primary_side) do
-      mark_verified(record, parquet_side)
+         true <- Verification.match?(parquet_side, primary_side),
+         :ok <- publish(staging_key, published_key) do
+      mark_verified(record, parquet_side, published_key)
       :ok
     else
       false ->
+        # The staging object stays for post-mortem; the reconciliation sweep
+        # collects it. The published key is untouched and still good.
         record_failure(record, "verification mismatch: parquet != primary")
         :error
 
       {:error, reason} ->
         record_failure(record, inspect(reason))
         :error
+    end
+  end
+
+  defp publish(staging_key, published_key) do
+    case ObjectStore.copy_object(staging_key, published_key) do
+      :ok ->
+        # Best-effort: an orphaned staging object is collected by the sweep and
+        # never readable (readers only glob the published date= partitions).
+        ObjectStore.delete_objects([staging_key])
+        :ok
+
+      {:error, reason} ->
+        {:error, {:publish_failed, reason}}
     end
   end
 
@@ -304,12 +331,12 @@ defmodule ServiceRadar.ColdTier.Exporter do
     |> Ash.create!(authorize?: false)
   end
 
-  defp mark_verified(record, verification) do
+  defp mark_verified(record, verification, published_key) do
     record
     |> Ash.Changeset.for_update(:update, %{
       status: :verified,
       row_count: verification.row_count,
-      bytes: object_bytes(record.object_keys),
+      bytes: object_bytes([published_key]),
       content_checksum: verification.checksum,
       last_error: nil,
       verified_at: DateTime.utc_now()
@@ -325,7 +352,8 @@ defmodule ServiceRadar.ColdTier.Exporter do
   defp object_bytes([]), do: nil
 
   defp object_bytes(object_keys) do
-    Enum.reduce(object_keys, 0, fn key, acc ->
+    object_keys
+    |> Enum.reduce(0, fn key, acc ->
       case ObjectStore.list_objects(key) do
         {:ok, objects} ->
           acc + (objects |> Enum.filter(&(&1.key == key)) |> Enum.map(& &1.size) |> Enum.sum())
@@ -493,7 +521,16 @@ defmodule ServiceRadar.ColdTier.Exporter do
 
   defp object_key(entry, chunk) do
     date = DateTime.to_date(chunk.range_start)
-    relname = chunk.chunk_name |> String.split(".") |> List.last()
-    "#{Registry.object_prefix(entry, date)}/#{relname}.parquet"
+    "#{Registry.object_prefix(entry, date)}/#{chunk_relname(chunk)}.parquet"
   end
+
+  # Staging lives OUTSIDE the hive-partitioned `date=` prefixes that readers
+  # glob, so an in-flight or failed export is never query-visible. The key is
+  # deterministic per chunk, so a retry overwrites its own staging object
+  # rather than accumulating garbage.
+  defp staging_key(entry, chunk) do
+    "cold/#{Registry.layout_version()}/#{entry.table}/_staging/#{chunk_relname(chunk)}.parquet"
+  end
+
+  defp chunk_relname(chunk), do: chunk.chunk_name |> String.split(".") |> List.last()
 end

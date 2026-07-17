@@ -104,7 +104,14 @@ defmodule ServiceRadar.ColdTier.Views do
     {:ok, s3} = Config.s3()
     time = quoted(entry.time_column)
     bound = "TIMESTAMPTZ '#{DateTime.to_iso8601(boundary)}'"
-    glob = "#{s3.bucket_url}/cold/#{Registry.layout_version()}/#{entry.table}/**/*.parquet"
+
+    # Glob ONLY the published hive partitions (`date=...`). The exporter writes
+    # to `_staging/` and copies onto the published key only after verification
+    # (design D2; review F04), so a `**` glob here would expose in-flight and
+    # failed exports — a COPY is non-preemptible and can leave a
+    # complete-but-truncated object. Restricting the glob to `date=` is what
+    # keeps "unverified objects are never readable" true for readers.
+    glob = "#{s3.bucket_url}/cold/#{Registry.layout_version()}/#{entry.table}/date=*/*.parquet"
 
     cold_cols =
       Enum.map_join(entry.columns, ",\n         ", fn column ->

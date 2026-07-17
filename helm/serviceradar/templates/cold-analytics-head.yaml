@@ -47,6 +47,22 @@ metadata:
 spec:
   instances: {{ int (default 1 $head.instances) }}
   imageName: {{ $imageName | quote }}
+  {{- /* The analytics image is built on the official pgduckdb image, whose
+         postgres user is UID/GID 999 — NOT CloudNativePG's default 26. Without
+         these fields the instance dies before extension setup with
+         "initdb: could not look up effective user ID 26: user does not exist"
+         (verified against the pinned base). CNPG supports non-default UIDs
+         through postgresUID/postgresGID, and derives the pod fsGroup from
+         postgresGID so the PVC stays writable. These MUST match the image. */}}
+  postgresUID: {{ int (default 999 $head.postgresUID) }}
+  postgresGID: {{ int (default 999 $head.postgresGID) }}
+  {{- /* The analytics image is published to the same private registry as the
+         primary; without this it sits in ImagePullBackOff. */}}
+  {{- $pullSecret := default .Values.image.registryPullSecret $head.registryPullSecret }}
+  {{- if $pullSecret }}
+  imagePullSecrets:
+    - name: {{ $pullSecret | quote }}
+  {{- end }}
   bootstrap:
     initdb:
       database: serviceradar

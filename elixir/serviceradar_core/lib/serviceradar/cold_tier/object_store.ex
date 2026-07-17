@@ -59,6 +59,41 @@ defmodule ServiceRadar.ColdTier.ObjectStore do
     end
   end
 
+  @doc """
+  Server-side copy within the bucket (PUT with x-amz-copy-source).
+
+  This is the publish step of the cold tier's commit protocol: an exporter
+  writes to a staging key, verifies it, and only then copies it onto the
+  published key readers glob. S3 object writes are atomic per key — a reader
+  sees either the previous object or the new one, never a partial — so a
+  corrupt or half-written export can never become query-visible.
+  """
+  @spec copy_object(String.t(), String.t()) :: :ok | {:error, term()}
+  def copy_object(source_key, destination_key) do
+    with {:ok, ctx} <- context() do
+      bucket = ctx.base_url |> String.split("/") |> List.last()
+
+      case request(ctx, :put, "/#{destination_key}",
+             headers: [{"x-amz-copy-source", "/#{bucket}/#{source_key}"}]
+           ) do
+        {:ok, %{status: 200, body: body}} ->
+          # S3 can return 200 with an error document; a successful copy always
+          # carries CopyObjectResult.
+          if body =~ "<CopyObjectResult" and not (body =~ "<Error>") do
+            :ok
+          else
+            {:error, {:copy_failed, body}}
+          end
+
+        {:ok, %{status: status, body: body}} ->
+          {:error, {:http, status, body}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
   @doc "Pending multipart uploads in the bucket. Returns {:ok, [%{key, upload_id, initiated}]}."
   @spec list_multipart_uploads() :: {:ok, [map()]} | {:error, term()}
   def list_multipart_uploads do
