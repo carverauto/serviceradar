@@ -14,6 +14,8 @@
 {{- end -}}
 {{- $dnsHostname := default $host $dns.hostname -}}
 {{- $envoyProxy := default (dict) $gatewayApi.envoyProxy -}}
+{{- $envoyDeployment := default (dict) $envoyProxy.deployment -}}
+{{- $envoyPDB := default (dict) $envoyProxy.pdb -}}
 {{- $envoyService := default (dict) $envoyProxy.service -}}
 {{- $http := default (dict) $gatewayApi.http -}}
 {{- $httpEnabled := default true $http.enabled -}}
@@ -187,6 +189,14 @@ spec:
   provider:
     type: Kubernetes
     kubernetes:
+      {{- with $envoyDeployment }}
+      envoyDeployment:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $envoyPDB }}
+      envoyPDB:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       envoyService:
         type: {{ default "LoadBalancer" $envoyService.type }}
         externalTrafficPolicy: {{ default "Local" $envoyService.externalTrafficPolicy }}

@@ -1628,6 +1628,11 @@ gatewayApi:
     certificateName: ""
   envoyProxy:
     loggingLevel: warn
+    # Optional Envoy Gateway Kubernetes provider overrides. Hosted control-plane
+    # values use these to run one edge proxy per worker and protect quorum
+    # during voluntary disruptions; chart defaults remain suitable for labs.
+    deployment: {}
+    pdb: {}
     service:
       type: LoadBalancer
       externalTrafficPolicy: Local
