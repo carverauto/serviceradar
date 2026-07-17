@@ -128,10 +128,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "deep_causality_core"
-version = "0.10.0"
+name = "deep_causality_algebra"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0ce423ee9a790c9885f6120c362851e0a216b87dc8407618081d300d8d159c7"
+checksum = "de1f314e4c7f35b7b5f1efddad90514f46e0b28b4880740c86164d12e9211f8d"
+dependencies = [
+ "deep_causality_num",
+]
+
+[[package]]
+name = "deep_causality_core"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c27cac7fafa0e9c08edc70f76975d31241c5ed163a4d3107e3cfabf57bd9281c"
 dependencies = [
  "deep_causality_haft",
 ]
@@ -144,9 +153,18 @@ checksum = "0bfb1569988e0c786daf1477306980d69c761926254da234a2f758c23994af09"
 
 [[package]]
 name = "deep_causality_haft"
-version = "0.3.3"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9deeb116ca39f26de64ea24a9d817906d5b517160e6088425bbf1c2218d3fa0"
+checksum = "658cd9d0a4eb8f3ecf09d5054513806dcba55d52f844dfa282910b56fd2de59a"
+dependencies = [
+ "deep_causality_algebra",
+]
+
+[[package]]
+name = "deep_causality_num"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3dda52acfad1544f374160f04ef0b589df7b3fb8720aab4a95105e3d747160a"
 
 [[package]]
 name = "flate2"
