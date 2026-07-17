@@ -10,6 +10,7 @@ tests:
           content:
             name: SERVICERADAR_LOCAL_MAILER
             value: "false"
+          count: 1
         template: templates/web.yaml
         documentSelector:
           path: kind
@@ -28,6 +29,7 @@ tests:
           content:
             name: SERVICERADAR_LOCAL_MAILER
             value: "false"
+          count: 1
         template: templates/core.yaml
         documentSelector:
           path: kind
@@ -37,6 +39,7 @@ tests:
           content:
             name: SERVICERADAR_LOCAL_MAILER
             value: "true"
+          count: 1
         template: templates/core.yaml
         documentSelector:
           path: kind
@@ -52,6 +55,7 @@ tests:
           content:
             name: SERVICERADAR_LOCAL_MAILER
             value: "true"
+          count: 1
         template: templates/web.yaml
         documentSelector:
           path: kind

@@ -1,3 +1,18 @@
+# ServiceRadar v1.4.21
+
+Corrected hosted SMTP rendering so tenant upgrades can apply the private
+first-sign-in runtime without emitting conflicting environment variables.
+
+## Whats New
+
+**1.4.21**
+- Hosted first sign-in: tenant-specific `extraEnv` now cleanly overrides the
+  chart's local-mailer default for both web-ng and core. This prevents the
+  duplicate true/false environment entries that blocked the v1.4.20 tenant
+  Helm upgrade before any runtime or mail-delivery change occurred.
+- Helm regression coverage verifies the default and hosted override paths for
+  both workloads, including the absence of the conflicting value.
+
 # ServiceRadar v1.4.20
 
 Restored hosted tenant first-sign-in delivery through a private runtime
