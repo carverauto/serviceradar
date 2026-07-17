@@ -37,7 +37,8 @@ and explicit tag-push command. Never publish the tag before that merge.
 
 The script expects the working tree to be clean aside from VERSION, CHANGELOG,
 scripts/cut-release.sh, helm/serviceradar/Chart.yaml, and the demo ArgoCD source
-override changes. Dry runs skip the clean-tree check.
+override changes. Dry runs skip the clean-tree check but still perform remote
+Git-tag and OCI-chart occupancy checks.
 USAGE
 }
 
@@ -151,28 +152,26 @@ if git show-ref --verify --quiet "refs/tags/$tag"; then
     exit 1
 fi
 
-if [[ "$dry_run" == "true" ]]; then
-    echo "[dry-run] Would verify that origin does not already contain tag $tag"
-else
-    set +e
-    remote_tag_output=$(git ls-remote --exit-code --tags origin "refs/tags/$tag" 2>&1)
-    remote_tag_status=$?
-    set -e
+set +e
+remote_tag_output=$(git ls-remote --exit-code --tags origin "refs/tags/$tag" 2>&1)
+remote_tag_status=$?
+set -e
 
-    case "$remote_tag_status" in
-        0)
-            echo "Refusing to cut release: origin already contains tag $tag." >&2
-            exit 1
-            ;;
-        2)
-            ;;
-        *)
-            echo "Unable to verify whether origin contains tag $tag:" >&2
-            echo "$remote_tag_output" >&2
-            exit "$remote_tag_status"
-            ;;
-    esac
-fi
+case "$remote_tag_status" in
+    0)
+        echo "Refusing to cut release: origin already contains tag $tag." >&2
+        exit 1
+        ;;
+    2)
+        ;;
+    *)
+        echo "Unable to verify whether origin contains tag $tag:" >&2
+        echo "$remote_tag_output" >&2
+        exit "$remote_tag_status"
+        ;;
+esac
+
+"${script_dir}/check-oci-chart-version-available.sh" "$version"
 
 if [[ "$dry_run" == "false" || "$push" == "true" ]]; then
     if [[ -z "$current_branch" ]]; then

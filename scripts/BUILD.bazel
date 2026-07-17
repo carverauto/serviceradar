@@ -4,6 +4,7 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files([
     "check-addon-binary-size.sh",
+    "check-oci-chart-version-available.sh",
     "check-gazelle-drift.sh",
     "check-native-addon-version-bumps.sh",
     "check-rust-vendor-tracked.py",
@@ -14,6 +15,7 @@ exports_files([
     "test-verify-native-addon-publish-negative.sh",
     "test-wasm-plugin-publish-context.sh",
     "validate-release-tag.sh",
+    "validate-release-metadata.sh",
     "verify-oci-publish.sh",
     "verify-native-addon-publish.sh",
 ])
@@ -23,9 +25,11 @@ sh_test(
     timeout = "short",
     srcs = ["test-release-publish-contracts.sh"],
     data = [
+        "check-oci-chart-version-available.sh",
         "cosign_common.sh",
         "cut-release.sh",
         "upload-forgejo-release-asset.sh",
+        "validate-release-metadata.sh",
         "validate-release-tag.sh",
         "verify-oci-publish.sh",
         "//:.forgejo/workflows/image-security.yml",
