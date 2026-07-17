@@ -55,8 +55,13 @@ mkdir -p \
   "${fixture}/addons/anomaly-addon" \
   "${fixture}/addons/rdp-adapter" \
   "${fixture}/rust/anomaly-addon/src/tests" \
+  "${fixture}/addons/otel-collector" \
+  "${fixture}/addons/bumblebee-scan" \
+  "${fixture}/go/pkg/bumblebee" \
   "${fixture}/rust/rdp-adapter" \
   "${fixture}/rust/rdp-connector-probe" \
+  "${fixture}/rust/otel-addon" \
+  "${fixture}/rust/otel/src" \
   "${fixture}/scripts" \
   "${fixture}/third_party/crates"
 cp "${guard_source}" "${fixture}/scripts/check-native-addon-version-bumps.sh"
@@ -77,6 +82,12 @@ printf 'root-lock-v1\n' >Cargo.lock
 printf '[package]\nname = "serviceradar-rdp-connector-probe"\nversion = "0.1.0"\n' \
   >rust/rdp-connector-probe/Cargo.toml
 printf 'connector-lock-v1\n' >rust/rdp-connector-probe/Cargo.lock
+printf 'version: 0.1.0\n' >addons/otel-collector/addon.yaml
+printf '[package]\nname = "otel-addon"\nversion = "0.1.0"\n' >rust/otel-addon/Cargo.toml
+mkdir -p rust/otel/src
+printf 'pub fn collector() {}\n' >rust/otel/src/lib.rs
+printf 'version: 0.1.0\n' >addons/bumblebee-scan/addon.yaml
+printf 'package bumblebee\n' >go/pkg/bumblebee/runner.go
 write_vendor_inputs
 write_module_lock
 git add .
@@ -135,5 +146,31 @@ git commit -qm "change anomaly runtime"
 expect_failure \
   "anomaly native add-on payload changed" \
   scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD
+git rm -q rust/anomaly-addon/src/runtime_change.rs
+git commit -qm "restore anomaly runtime"
+scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD >/dev/null
 
-echo "native add-on Rust dependency metadata gate tests passed"
+# The OTEL add-on binary includes the local collector crate. A change there
+# changes the signed payload just as surely as a change under rust/otel-addon,
+# so it must require a manifest version bump.
+printf 'pub fn collector() { /* changed payload */ }\n' >rust/otel/src/lib.rs
+git add rust/otel/src/lib.rs
+git commit -qm "change shared otel collector payload"
+expect_failure \
+  "otel-collector native add-on payload changed but addons/otel-collector/addon.yaml stayed at 0.1.0" \
+  scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD
+printf 'pub fn collector() {}\n' >rust/otel/src/lib.rs
+git add rust/otel/src/lib.rs
+git commit -qm "restore shared otel collector payload"
+scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD >/dev/null
+
+# The Bumblebee add-on binary depends on the shared scanner package, not just
+# its command wrapper. Changes there must be versioned as a new signed package.
+printf 'package bumblebee\n\nfunc ChangedPayload() {}\n' >go/pkg/bumblebee/runner.go
+git add go/pkg/bumblebee/runner.go
+git commit -qm "change bumblebee scanner payload"
+expect_failure \
+  "bumblebee native add-on payload changed but addons/bumblebee-scan/addon.yaml stayed at 0.1.0" \
+  scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD
+
+echo "native add-on version gate tests passed"

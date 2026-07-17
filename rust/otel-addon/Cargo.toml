@@ -1,6 +1,6 @@
 [package]
 name = "otel-addon"
-version = "0.1.1"
+version = "0.1.2"
 description = "ServiceRadar OTEL collector packaged as a native agent add-on: local OTLP listeners + durable spool + acked RelayOtlp stream to the supervising agent (otlp-relay:v1)."
 edition = "2024"
 license = "Apache-2.0"
