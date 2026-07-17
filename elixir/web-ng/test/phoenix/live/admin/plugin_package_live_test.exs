@@ -568,7 +568,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     refute html =~ "Legacy recovery candidates"
   end
 
-  test "does not route an unbound legacy assignment through generic update", %{
+  test "allows a fresh assignment without mutating quarantined history", %{
     conn: conn,
     actor: actor
   } do
@@ -611,8 +611,17 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       })
       |> render_submit()
 
-    assert html =~ "unbound legacy assignment"
+    assert html =~ "Assignment created"
+    refute html =~ "Use its recovery action instead of updating it."
     assert legacy_unbound_row?(assignment.id)
+
+    current =
+      %{"agent_uid" => agent.uid, "plugin_package_id" => package.id}
+      |> Assignments.list()
+      |> Enum.find(fn candidate -> candidate.id != assignment.id end)
+
+    assert current.enabled
+    assert current.partition_id == partition_id
   end
 
   test "shows an unavailable legacy authenticated partition and a safe recovery error", %{

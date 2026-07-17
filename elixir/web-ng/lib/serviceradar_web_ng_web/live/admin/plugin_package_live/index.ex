@@ -3712,7 +3712,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp existing_assignment(assignments, agent_uid) when is_list(assignments) and is_binary(agent_uid) do
     Enum.find(assignments, fn assignment ->
-      assignment.agent_uid == agent_uid
+      assignment.agent_uid == agent_uid and not legacy_unbound_assignment?(assignment)
     end)
   end
 
