@@ -127,7 +127,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
              ).rows
   end
 
-  test "episode path rate guard folds over-limit transitions after DB upsert" do
+  test "episode path rate guard folds over-limit escalation transitions after DB upsert" do
     Application.put_env(:serviceradar_core, :anomaly_episode_rate_limit_per_hour, 1)
     attach_governor_telemetry()
 
@@ -135,8 +135,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     series_key = "test-series-rate-guard-#{unique}"
 
     messages = [
-      anomaly_message(series_key, "rate-guard-#{unique}-1", 1_812_456_000_000_000_000),
-      anomaly_message(series_key, "rate-guard-#{unique}-2", 1_812_456_030_000_000_000)
+      anomaly_message(series_key, "rate-guard-#{unique}-1", 1_812_456_000_000_000_000, 3),
+      anomaly_message(series_key, "rate-guard-#{unique}-2", 1_812_456_000_000_000_000, 4)
     ]
 
     on_exit(fn -> delete_episode_fixture!(series_key) end)
@@ -153,10 +153,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     assert is_binary(finding_uid)
 
-    assert [[2, 2]] =
+    assert [[1, 2, 4]] =
              Repo.query!(
                """
-               SELECT count(*), COALESCE(sum(occurrence_count), 0)::bigint
+               SELECT
+                 count(*),
+                 COALESCE(sum(occurrence_count), 0)::bigint,
+                 max(peak_severity_id)
                FROM platform.anomaly_episodes
                WHERE series_key = $1
                """,
@@ -202,7 +205,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   defp anomaly_message(
          series_key,
          event_id,
-         episode_started_at_unix_nano \\ 1_812_456_000_000_000_000
+         episode_started_at_unix_nano \\ 1_812_456_000_000_000_000,
+         severity_id \\ 4
        ) do
     payload = %{
       "event_id" => event_id,
@@ -210,7 +214,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       "event_type" => "anomaly",
       "class_uid" => 2004,
       "time" => 1_812_456_000_000,
-      "severity_id" => 4,
+      "severity_id" => severity_id,
       "device_uid" => "sr:episode-fold-device",
       "verdict_source" => "edge-drift",
       "producer_version" => "0.2.0",
