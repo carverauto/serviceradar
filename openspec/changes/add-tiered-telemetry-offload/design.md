@@ -339,9 +339,16 @@ bucket otherwise accumulates full noncurrent copies (spike 0.4). Quota-driven
 eviction (prune-to-bytes with a cross-signal eviction order) is a documented
 follow-up, not v1.
 
-### D10. Storage/retention telemetry
+### D10. Storage/retention telemetry (ingest rate amended)
 Always-on (cold tier or not): per-registry-table hot bytes
-(`hypertable_detailed_size`) and ingest-bytes/day EMA gauges. Cold-tier
+(`hypertable_detailed_size`) and ingest-bytes/day gauges. **Ingest rate is
+derived from the on-disk size of CLOSED chunks in a trailing window, not
+from sampling table size over time**: retention drops and offload shrink a
+hypertable, so a size delta reads as negative ingest exactly on the tables
+the projection cares about. Closed-chunk sizes only ever reflect data that
+arrived (the still-filling newest chunk is excluded, since its size
+understates the rate). This is the `rate_s` input the control-plane horizon
+math consumes. Cold-tier
 additional gauges: cold bytes (manifest), frontier lag, held/quarantined chunk
 counts, headroom-budget consumption, oldest-available timestamp per table
 (measured lookback). Exposed on the existing web-ng `/metrics` endpoint (the
@@ -374,8 +381,12 @@ crash-loop incident). CI boot-smoke test (start PG, `CREATE EXTENSION
 pg_duckdb`, run a `read_parquet`) gates every digest pin bump. Head GUC
 posture: `duckdb.postgres_role` bound to a dedicated role,
 `duckdb.max_memory` 1–2GB, `duckdb.threads` 2,
-`duckdb.disabled_filesystems='LocalFileSystem'`, community extensions off,
-autoinstall off with `httpfs`/`postgres` pre-packaged. CNPG operator v1.24.1
+`duckdb.disabled_filesystems='LocalFileSystem'` (verified on pg_duckdb
+1.1.0: this blocks local file reads/writes from DuckDB while leaving S3
+`COPY` **and query spill** fully working — so the lockdown is free),
+community extensions off, autoinstall off with `httpfs` pre-packaged.
+`duckdb.postgres_role` must name the query role: without it non-superusers
+are refused DuckDB execution outright. CNPG operator v1.24.1
 runs it fine; the head is the ideal canary for the overdue operator upgrade
 (adjacent task, not blocking).
 

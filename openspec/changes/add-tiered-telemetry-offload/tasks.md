@@ -14,8 +14,8 @@
 - [x] 1.2 CI drift check: migration altering a registry table's columns fails unless the registry entry is updated in the same change
 - [x] 1.3 Build `serviceradar-cnpg-analytics` Bazel image (CNPG PG18 base + pg_duckdb + libstdc++6; no TimescaleDB/AGE/PostGIS); publish via existing push targets
 - [x] 1.4 CI boot-smoke test for the analytics image (start PG, CREATE EXTENSION pg_duckdb, read_parquet round-trip) gating digest pin bumps
-- [ ] 1.5 Helm: analytics-head component (CNPG Cluster CRD, default disabled) — GUC posture (duckdb.postgres_role, max_memory, threads, disabled_filesystems, temp on dedicated ephemeral volume with max_temp_directory_size), resource requests derived from pool_size × max_memory formula; chart-owned posture defaults with named values keys for externally projected facts (cold-tier credentials secret name, sizing profile)
-- [ ] 1.6 Helm: NetworkPolicies (head→primary :5432; head→object-store egress; core/web-ng→head); dedicated read-only export role on the primary with role-level timeouts + keepalives (migration)
+- [x] 1.5 Helm: analytics-head component (CNPG Cluster CRD, default disabled) — GUC posture (duckdb.postgres_role, max_memory, threads, disabled_filesystems, temp on dedicated ephemeral volume with max_temp_directory_size), resource requests derived from pool_size × max_memory formula; chart-owned posture defaults with named values keys for externally projected facts (cold-tier credentials secret name, sizing profile)
+- [x] 1.6 Helm: NetworkPolicies (head→primary :5432; head→object-store egress; core/web-ng→head); dedicated read-only export role on the primary with role-level timeouts + keepalives (migration)
 - [ ] 1.7 core-elx secrets reconciler: idempotently (re)assert DuckDB S3 SECRET and postgres-type SECRET on the head from mounted K8s secrets; rotation integration test + runbook
 - [x] 1.8 Local dev: opt-in docker-compose profile with MinIO + a local analytics-head container (analytics image) + cold-tier env wiring, so the full export→verify→drop→query-back loop runs against the compose CNPG without any cloud object storage
 
@@ -23,7 +23,7 @@
 - [x] 2.1 Manifest table `platform.cold_chunk_exports` on the primary (migration) + Ash resource (migrate? false)
 - [x] 2.2 ColdTierExporter (Oban): chunk enumeration (older than now − export_lag), COPY-through-head export, count+checksum verification, manifest commit, deterministic object keys (idempotent re-export), paced backfill mode (one chunk at a time, off-peak, xmin-age abort)
 - [x] 2.3 Frontier bookkeeping: contiguous-verification advance; head boundary `B` write + ack ordering (drop point ≤ B ≤ F invariant); overlap-zone daily refresh (count/aggregate drift re-export); update-prone tables re-export at drop time
-- [ ] 2.4 Shared retention-policy fence helper consumed by DataRetentionWorker AND all retention-policy migrations; cold-enabled ⇒ remove in-DB policies for registry tables; exporter asserts no policy reappears (alert); CI check that registry-table retention DDL goes through the helper
+- [x] 2.4 Shared retention-policy fence helper consumed by DataRetentionWorker AND all retention-policy migrations; cold-enabled ⇒ remove in-DB policies for registry tables; exporter asserts no policy reappears (alert); CI check that registry-table retention DDL goes through the helper
 - [x] 2.5 Drop gate in DataRetentionWorker: chunk entirely below B + manifest verified + drop-time re-verification (re-export on mismatch) before drop_chunks
 - [x] 2.6 Pressure relief: headroom budget computation + escalating alerts; poison-chunk quarantine (N failures ⇒ skip + alert, blocks frontier); operator-acknowledged emergency drop at hard disk watermark; two-phase disable (drain-or-waive, then re-arm policies)
 - [x] 2.7 Cold pruning: per-table cold windows; objects-before-manifest delete order; manifest↔bucket reconciliation sweep; S3 client dependency in core-elx
@@ -33,8 +33,8 @@
 - [x] 2.9 Break-glass export runbook (poison chunks; head-down manual export path)
 
 ## 3. M1 — Storage/retention telemetry
-- [ ] 3.1 Always-on gauges: per-registry-table hot bytes, ingest-bytes/day EMA, non-telemetry baseline bytes (web-ng /metrics + authenticated JSON admin endpoint)
-- [ ] 3.2 Cold-tier gauges: cold bytes, frontier lag, held/quarantined chunk counts, headroom consumption, measured oldest-available per table
+- [x] 3.1 Always-on gauges: per-registry-table hot bytes, ingest-bytes/day EMA, non-telemetry baseline bytes (web-ng /metrics + authenticated JSON admin endpoint)
+- [x] 3.2 Cold-tier gauges: cold bytes, frontier lag, held/quarantined chunk counts, headroom consumption, measured oldest-available per table
 - [ ] 3.3 Alert wiring for headroom/quarantine/frontier-stall into the existing notification path
 
 ## 4. M2 — Transparent cold queries (SRQL)

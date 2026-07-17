@@ -5,10 +5,15 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
   import Telemetry.Metrics
 
   alias ServiceRadar.Telemetry, as: ServiceRadarTelemetry
+  alias ServiceRadarWebNG.StorageUsage
   alias ServiceRadarWebNG.TenantUsage
 
   @prometheus_reporter :serviceradar_web_ng_prometheus_metrics
   @duration_buckets_ms [1, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000]
+
+  # Storage gauges run sizing/manifest SQL, so they poll on their own slower
+  # cadence instead of the 10s default poller (design D10: ~once a minute).
+  @storage_poller_period to_timeout(minute: 1)
 
   @spec prometheus_reporter() :: atom()
   def prometheus_reporter, do: @prometheus_reporter
@@ -29,7 +34,13 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
           [
             # Telemetry poller will execute the given period measurements
             # every 10_000ms. Learn more here: https://hexdocs.pm/telemetry_metrics
-            {:telemetry_poller, measurements: periodic_measurements(), period: 10_000}
+            {:telemetry_poller, measurements: periodic_measurements(), period: 10_000},
+            # Storage/retention gauges poll once a minute (design D10) so the
+            # sizing and cold-manifest queries never run on the scrape path.
+            {:telemetry_poller,
+             measurements: storage_measurements(),
+             period: @storage_poller_period,
+             name: :serviceradar_web_ng_storage_poller}
             # Add reporters as children of your supervision tree.
             # {Telemetry.Metrics.ConsoleReporter, metrics: metrics()}
           ]
@@ -153,12 +164,68 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
         description: "Hosted-runtime contract gauge for current NATS leaf node count"
       ),
 
+      # Storage/retention telemetry (OpenSpec add-tiered-telemetry-offload, D10).
+      # Each gauge gets its own event so per-table and global emissions never
+      # fan out into metrics that lack the measurement.
+      storage_gauge("serviceradar.storage.hot_bytes",
+        tags: [:table],
+        description: "Hot-tier hypertable total bytes per cold-registry table (hypertable_detailed_size)"
+      ),
+      storage_gauge("serviceradar.storage.database_bytes",
+        description: "Size of the current database in bytes (pg_database_size)"
+      ),
+      storage_gauge("serviceradar.storage.nontelemetry_bytes",
+        description: "Database bytes not attributable to cold-registry hypertables (floored at 0)"
+      ),
+      storage_gauge("serviceradar.storage.ingest_bytes_per_day",
+        tags: [:table],
+        description:
+          "Trailing ingest rate per cold-registry table, from closed-chunk sizes " <>
+            "(drop-immune; input to retention-horizon projection)"
+      ),
+      storage_gauge("serviceradar.storage.cold_bytes",
+        tags: [:table],
+        description: "Verified cold-tier bytes per table from the cold chunk export manifest"
+      ),
+      storage_gauge("serviceradar.storage.cold_rows",
+        tags: [:table],
+        description: "Verified cold-tier row count per table from the cold chunk export manifest"
+      ),
+      storage_gauge("serviceradar.storage.cold_oldest_available_seconds",
+        tags: [:table],
+        description: "Oldest verified cold-tier range_start per table as a unix epoch timestamp"
+      ),
+      storage_gauge("serviceradar.storage.frontier_lag_seconds",
+        tags: [:table],
+        description: "Seconds between now and the cold completeness frontier per table"
+      ),
+      storage_gauge("serviceradar.storage.held_chunks",
+        tags: [:table],
+        description: "Cold-tier manifest chunks pending or exported but not yet verified, per table"
+      ),
+      storage_gauge("serviceradar.storage.quarantined_chunks",
+        tags: [:table],
+        description: "Cold-tier manifest chunks quarantined after repeated export failures, per table"
+      ),
+
       # VM Metrics
       last_value("vm.memory.total", unit: {:byte, :kilobyte}),
       last_value("vm.total_run_queue_lengths.total"),
       last_value("vm.total_run_queue_lengths.cpu"),
       last_value("vm.total_run_queue_lengths.io")
     ] ++ ServiceRadarTelemetry.camera_relay_metrics()
+  end
+
+  # A last_value gauge with a dedicated event name matching the full metric
+  # name and a fixed :value measurement, so each storage gauge is emitted
+  # independently (per-table tags on some, none on others).
+  defp storage_gauge(metric_name, opts) do
+    event_name = metric_name |> String.split(".") |> Enum.map(&String.to_atom/1)
+
+    last_value(
+      metric_name,
+      Keyword.merge([event_name: event_name, measurement: :value], opts)
+    )
   end
 
   defp duration_distribution(metric_name, opts) do
@@ -179,6 +246,12 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
       # Cluster health measurements
       {__MODULE__, :measure_cluster_health, []},
       {__MODULE__, :measure_tenant_usage, []}
+    ]
+  end
+
+  defp storage_measurements do
+    [
+      {__MODULE__, :measure_storage_usage, []}
     ]
   end
 
@@ -259,5 +332,60 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
       %{total: TenantUsage.leaf_node_count()},
       %{}
     )
+  end
+
+  @doc """
+  Emits storage/retention tier gauges (OpenSpec add-tiered-telemetry-offload,
+  design D10). Always-on gauges emit on every run; cold-tier gauges stay
+  absent when the cold-tier manifest tables do not exist.
+  """
+  def measure_storage_usage do
+    hot_bytes = StorageUsage.hot_bytes_by_table()
+    database_bytes = StorageUsage.database_bytes()
+    hot_total = hot_bytes |> Map.values() |> Enum.sum()
+
+    Enum.each(hot_bytes, fn {table, bytes} ->
+      emit_storage_gauge(:hot_bytes, bytes, %{table: table})
+    end)
+
+    emit_storage_gauge(:database_bytes, database_bytes)
+    emit_storage_gauge(:nontelemetry_bytes, max(database_bytes - hot_total, 0))
+
+    Enum.each(StorageUsage.ingest_bytes_per_day_by_table(), fn {table, rate} ->
+      emit_storage_gauge(:ingest_bytes_per_day, rate, %{table: table})
+    end)
+
+    case StorageUsage.cold_manifest_stats() do
+      :absent ->
+        :ok
+
+      stats ->
+        Enum.each(stats, fn stat ->
+          metadata = %{table: stat.table}
+
+          emit_storage_gauge(:cold_bytes, stat.cold_bytes, metadata)
+          emit_storage_gauge(:cold_rows, stat.cold_rows, metadata)
+          emit_storage_gauge(:held_chunks, stat.held_chunks, metadata)
+          emit_storage_gauge(:quarantined_chunks, stat.quarantined_chunks, metadata)
+
+          if stat.oldest_available_seconds do
+            emit_storage_gauge(:cold_oldest_available_seconds, stat.oldest_available_seconds, metadata)
+          end
+        end)
+    end
+
+    case StorageUsage.frontier_lag_seconds() do
+      :absent ->
+        :ok
+
+      lags ->
+        Enum.each(lags, fn {table, lag_seconds} ->
+          emit_storage_gauge(:frontier_lag_seconds, lag_seconds, %{table: table})
+        end)
+    end
+  end
+
+  defp emit_storage_gauge(gauge, value, metadata \\ %{}) do
+    :telemetry.execute([:serviceradar, :storage, gauge], %{value: value}, metadata)
   end
 end

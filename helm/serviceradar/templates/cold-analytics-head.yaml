@@ -78,6 +78,19 @@ spec:
       duckdb.autoinstall_known_extensions: "false"
       duckdb.autoload_known_extensions: "true"
       duckdb.allow_community_extensions: "false"
+      # Non-superusers may only execute DuckDB when granted this role
+      # (verified: without it they get "DuckDB execution is not allowed…").
+      # The cold-tier app role connects as the cluster owner, so this names
+      # the owner unless a deployment supplies its own analytics role.
+      duckdb.postgres_role: {{ default "serviceradar" $head.duckdbRole | quote }}
+      # Block local filesystem access from DuckDB: the head only ever reads
+      # Parquet from the object store and hot rows through postgres_fdw.
+      # Verified on pg_duckdb 1.1.0 that this blocks local reads/writes while
+      # leaving S3 COPY and query spill working.
+      duckdb.disabled_filesystems: "LocalFileSystem"
+      # Spill lives under PGDATA by default; keep it explicit so the size cap
+      # above is enforced on a known path.
+      duckdb.temporary_directory: /var/lib/postgresql/data/pg_duckdb/temp
       {{- range $key, $value := default (dict) $head.postgresqlParameters }}
       {{ $key }}: {{ $value | quote }}
       {{- end }}

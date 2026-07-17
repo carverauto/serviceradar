@@ -145,7 +145,7 @@ Materialized continuous-aggregate history SHALL NOT be destroyed by retention or
 - **THEN** an alert identifies the table so operators know a covering refresh would delete materialized history
 
 ### Requirement: Storage and retention telemetry is exported for external metering
-The runtime SHALL export per-registry-table storage telemetry — hot bytes, ingest bytes/day, and a non-telemetry baseline size — on its existing metrics endpoint regardless of cold-tier state. On cold-configured deployments it SHALL additionally export cold bytes, frontier lag, held/quarantined chunk counts, headroom consumption, and the measured oldest-available timestamp per table.
+The runtime SHALL export per-registry-table storage telemetry — hot bytes, ingest bytes/day, and a non-telemetry baseline size — on its existing metrics endpoint regardless of cold-tier state. The ingest rate SHALL be derived so that retention drops and offload cannot depress it (a table shrinking must never read as negative ingest). On cold-configured deployments it SHALL additionally export cold bytes, frontier lag, held/quarantined chunk counts, headroom consumption, and the measured oldest-available timestamp per table.
 
 #### Scenario: External control plane meters a deployment
 - **WHEN** an external system scrapes the runtime metrics endpoint
@@ -154,3 +154,7 @@ The runtime SHALL export per-registry-table storage telemetry — hot bytes, ing
 #### Scenario: Cold tier not configured
 - **WHEN** no cold-tier configuration is present
 - **THEN** hot-size and ingest-rate gauges are still exported and no cold-tier gauges appear
+
+#### Scenario: Retention drops data while ingest continues
+- **WHEN** retention or offload removes chunks from a table that is still ingesting
+- **THEN** the exported ingest rate continues to reflect arriving data and does not fall or go negative because the table shrank
