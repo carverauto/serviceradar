@@ -23,6 +23,14 @@
 //!   lookups (trace detail) supply an absolute time hint.
 //! * **Absent config ⇒ every function here is inert**, so an OSS deployment
 //!   behaves exactly as it does today.
+//!
+//! Landing note: this is the decision layer only. Nothing calls it until the
+//! NIF translate contract carries `ColdTierConfig` (task 4.1) and the plan
+//! builder consults it (task 4.2) — so the module is dead code today, and CI
+//! runs `clippy -D warnings`. The allow below comes off in the same change
+//! that wires it in; it is deliberately module-scoped so it cannot mask dead
+//! code anywhere else.
+#![allow(dead_code)]
 
 use super::QueryPlan;
 use crate::{
