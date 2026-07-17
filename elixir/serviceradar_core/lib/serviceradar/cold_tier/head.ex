@@ -63,7 +63,11 @@ defmodule ServiceRadar.ColdTier.Head do
     query!(conn, "CREATE EXTENSION IF NOT EXISTS postgres_fdw")
     query!(conn, "CREATE SCHEMA IF NOT EXISTS #{@fdw_schema}")
 
-    # Server + mapping: recreate only when options drift (cheap existence check).
+    # The reconciler OWNS the server and its mapping — it does not merely
+    # create them when absent. Credentials and connection facts rotate
+    # (verified: an existence-only check leaves a stale password in the
+    # mapping and every FDW read fails authentication until someone fixes it
+    # by hand), so both are re-asserted from current config on every run.
     query!(conn, """
     DO $$
     BEGIN
@@ -73,6 +77,12 @@ defmodule ServiceRadar.ColdTier.Head do
           OPTIONS (host '#{sql_escape(fdw.host)}', port '#{fdw.port}', dbname '#{sql_escape(fdw.dbname)}',
                    fetch_size '1000', connect_timeout '5', tcp_user_timeout '60000',
                    keepalives_idle '30', keepalives_interval '10', keepalives_count '3');
+      ELSE
+        -- Re-assert connection facts (host/port/dbname can move; the tuning
+        -- options are the spike-0.2 contract and must not drift).
+        ALTER SERVER #{@fdw_server} OPTIONS (SET host '#{sql_escape(fdw.host)}');
+        ALTER SERVER #{@fdw_server} OPTIONS (SET port '#{fdw.port}');
+        ALTER SERVER #{@fdw_server} OPTIONS (SET dbname '#{sql_escape(fdw.dbname)}');
       END IF;
     END $$;
     """)
@@ -80,12 +90,18 @@ defmodule ServiceRadar.ColdTier.Head do
     query!(conn, """
     DO $$
     BEGIN
-      IF NOT EXISTS (
+      IF EXISTS (
         SELECT 1 FROM pg_user_mappings WHERE srvname = '#{@fdw_server}' AND usename = current_user
       ) THEN
-        CREATE USER MAPPING FOR CURRENT_USER SERVER #{@fdw_server}
-          OPTIONS (user '#{sql_escape(fdw.username)}', password '#{sql_escape(fdw.password)}');
+        -- Rotation-safe: drop and recreate so the mapping always carries the
+        -- CURRENT credentials. postgres_fdw caches connections per session,
+        -- but head sessions are short-lived and discarded after any error,
+        -- so the next session picks the new password up.
+        DROP USER MAPPING FOR CURRENT_USER SERVER #{@fdw_server};
       END IF;
+
+      CREATE USER MAPPING FOR CURRENT_USER SERVER #{@fdw_server}
+        OPTIONS (user '#{sql_escape(fdw.username)}', password '#{sql_escape(fdw.password)}');
     END $$;
     """)
 

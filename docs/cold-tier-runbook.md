@@ -1,5 +1,34 @@
 # Cold tier operator runbook
 
+## Consistency contract (what the tiers guarantee)
+
+- **No committed row is ever absent from both tiers.** A chunk drops only
+  when it is verified-exported, entirely below the head-acknowledged query
+  boundary, and re-verified at drop time. If any of those fails, the data
+  stays hot (and pressure alerts fire) — the system holds data rather than
+  losing it.
+- **The overlap zone is eventually consistent.** Between export and drop, a
+  range exists in both tiers. Rows that arrive late into an already-exported
+  chunk are visible to hot queries immediately and to the cold tier after
+  the next pre-drop refresh (≤ one exporter run, hourly by default); the
+  drop gate re-verifies and re-exports on drift, so nothing is dropped
+  un-captured. Update-prone tables (`ocsf_events`, whose findings are
+  upserted after insert) are re-exported unconditionally near their drop
+  point, because an in-place update leaves row counts unchanged.
+- **Staleness bound**: a mutation landing after a chunk's final re-export
+  and before its drop is lost. Keeping the export lag (48h default) well
+  inside the hot window keeps that window at hours, not days.
+- **Archived objects are immutable.** Cold data is never updated in place;
+  a re-export overwrites a deterministic key wholesale.
+- **Verification, not existence.** An object at the expected key proves
+  nothing: a cancelled COPY leaves a complete-looking but truncated object.
+  Only a manifest row marked `verified` (row count + content checksum
+  agreeing across PostgreSQL and Parquet) admits data to the cold tier.
+- **Continuous aggregates are unaffected.** CAGGs materialize from hot data
+  minutes after ingest and keep their own retention; offload never feeds
+  them. Their refresh windows are clamped inside raw retention precisely so
+  a refresh can never recompute a dropped region into oblivion.
+
 Tiered telemetry offload (OpenSpec `add-tiered-telemetry-offload`). Applies
 only to deployments with cold-tier configuration; without it, nothing in
 this document exists at runtime.

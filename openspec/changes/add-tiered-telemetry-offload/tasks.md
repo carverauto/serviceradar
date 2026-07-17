@@ -16,7 +16,7 @@
 - [x] 1.4 CI boot-smoke test for the analytics image (start PG, CREATE EXTENSION pg_duckdb, read_parquet round-trip) gating digest pin bumps
 - [x] 1.5 Helm: analytics-head component (CNPG Cluster CRD, default disabled) — GUC posture (duckdb.postgres_role, max_memory, threads, disabled_filesystems, temp on dedicated ephemeral volume with max_temp_directory_size), resource requests derived from pool_size × max_memory formula; chart-owned posture defaults with named values keys for externally projected facts (cold-tier credentials secret name, sizing profile)
 - [x] 1.6 Helm: NetworkPolicies (head→primary :5432; head→object-store egress; core/web-ng→head); dedicated read-only export role on the primary with role-level timeouts + keepalives (migration)
-- [ ] 1.7 core-elx secrets reconciler: idempotently (re)assert DuckDB S3 SECRET and postgres-type SECRET on the head from mounted K8s secrets; rotation integration test + runbook
+- [x] 1.7 core-elx secrets reconciler: idempotently (re)assert DuckDB S3 SECRET and postgres-type SECRET on the head from mounted K8s secrets; rotation integration test + runbook
 - [x] 1.8 Local dev: opt-in docker-compose profile with MinIO + a local analytics-head container (analytics image) + cold-tier env wiring, so the full export→verify→drop→query-back loop runs against the compose CNPG without any cloud object storage
 
 ## 2. M1 — Export pipeline + gated retention
@@ -35,7 +35,7 @@
 ## 3. M1 — Storage/retention telemetry
 - [x] 3.1 Always-on gauges: per-registry-table hot bytes, ingest-bytes/day EMA, non-telemetry baseline bytes (web-ng /metrics + authenticated JSON admin endpoint)
 - [x] 3.2 Cold-tier gauges: cold bytes, frontier lag, held/quarantined chunk counts, headroom consumption, measured oldest-available per table
-- [ ] 3.3 Alert wiring for headroom/quarantine/frontier-stall into the existing notification path
+- [x] 3.3 Alert wiring for headroom/quarantine/frontier-stall into the existing notification path
 
 ## 4. M2 — Transparent cold queries (SRQL)
 - [ ] 4.1 Extend NIF translate contract: cold-tier config input (enabled entities, per-table B/hot windows, cold caps), route metadata output; Elixir callers source config from runtime env; background SRQLRunner pinned hot-only via mode
@@ -50,6 +50,6 @@
 
 ## 5. Supersession + validation
 - [x] 5.1 Withdraw `add-delta-metrics-lakehouse` and `add-rust-tdengine-analytics` change dirs; remove `rust/metrics-delta-writer` skeleton; carry the write-throughput decision-gate forward as the documented trigger for a future ingest-side writer committing through the manifest contract
-- [ ] 5.2 `openspec validate add-tiered-telemetry-offload --strict` passes
+- [x] 5.2 `openspec validate add-tiered-telemetry-offload --strict` passes
 - [ ] 5.3 Canary deployment: M1 enabled on one cold-configured environment; observe one full export→verify→drop cycle + one simulated stall (pressure-relief drill) before fleet rollout
-- [ ] 5.4 Docs: consistency contract (overlap-zone eventual consistency, staleness bounds), operator runbooks (rotation, drain/disable, emergency drop)
+- [x] 5.4 Docs: consistency contract (overlap-zone eventual consistency, staleness bounds), operator runbooks (rotation, drain/disable, emergency drop)

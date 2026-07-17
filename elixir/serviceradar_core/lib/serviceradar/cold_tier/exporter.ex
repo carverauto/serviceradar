@@ -62,7 +62,7 @@ defmodule ServiceRadar.ColdTier.Exporter do
     case Head.session(&Head.ensure_setup/1) do
       {:ok, :ok} ->
         alert_on_policy_violations()
-        ServiceRadar.ColdTier.PressureMonitor.check()
+        pressure = ServiceRadar.ColdTier.PressureMonitor.check()
         budget = Config.run_chunk_budget()
 
         Enum.reduce(Registry.tables(), budget, fn entry, remaining ->
@@ -71,6 +71,10 @@ defmodule ServiceRadar.ColdTier.Exporter do
           advance_frontier(entry)
           remaining - exported - refreshed
         end)
+
+        # Health checks run AFTER the pass so quarantine/frontier state
+        # reflects this run (task 3.3).
+        ServiceRadar.ColdTier.Health.record_all(pressure)
 
         :ok
 
