@@ -2,9 +2,9 @@
 
 ### Requirement: Native add-on approval is separate from desired version
 The control plane SHALL keep package approval separate from native add-on desired
-state. Direct assignments and add-on profiles SHALL default to a concrete manually
-pinned package, and importing or approving another package SHALL NOT directly change
-that pin.
+state. Importing or approving a package SHALL NOT directly rewrite assignment or
+profile package IDs in the approval transaction. Managed sources MAY consume that
+approval asynchronously by creating a rollout; manual pins SHALL remain unchanged.
 
 #### Scenario: Approval does not update a manual pin
 - **GIVEN** an agent or profile pinned to approved add-on version `0.2.22`
@@ -13,18 +13,30 @@ that pin.
 - **THEN** its desired package SHALL remain version `0.2.22`
 - **AND** no agent config change or deployment SHALL be triggered by approval alone
 
-#### Scenario: Existing sources migrate conservatively
+#### Scenario: Existing first-party source becomes managed
 - **GIVEN** a direct assignment or add-on profile created before update policies exist
+- **AND** its current package is signed, verified, and has `first_party` provenance
+- **AND** the source does not carry an explicit operator pin
+- **WHEN** the update-policy migration runs
+- **THEN** the source SHALL be assigned `track_latest_approved`
+- **AND** its selected package, params, enablement, and target scope SHALL remain unchanged
+
+#### Scenario: Existing non-first-party source remains pinned
+- **GIVEN** a direct assignment or add-on profile created before update policies exist
+- **AND** its current package came from upload, GitHub, or unverifiable provenance
 - **WHEN** the update-policy migration runs
 - **THEN** the source SHALL be assigned `manual_pin`
 - **AND** its selected package, params, enablement, and target scope SHALL remain unchanged
 
-### Requirement: Latest-approved tracking is explicit and eligibility constrained
-The control plane SHALL support an explicit `track_latest_approved` policy on direct
-assignments and add-on profiles. The policy SHALL consider only newer signed, verified,
-approved, non-revoked packages for the same logical add-on and selected release
-channel that satisfy platform, agent-contract, and capability-ceiling constraints.
-Finding a candidate SHALL create a rollout rather than rewriting all desired state.
+### Requirement: Latest-approved tracking is provenance-aware and eligibility constrained
+The control plane SHALL support `track_latest_approved` on direct assignments and
+add-on profiles and SHALL default signed, verified first-party sources to that policy.
+Non-first-party sources SHALL default to `manual_pin`, and an explicit operator pin
+SHALL take precedence over provenance defaults. Tracking SHALL consider only newer
+signed, verified, approved, non-revoked packages for the same logical add-on and
+trusted lineage on the selected release channel that satisfy platform, agent-contract,
+and capability-ceiling constraints. Finding a candidate SHALL create a rollout rather
+than rewriting all desired state.
 
 #### Scenario: Opted-in profile discovers an eligible candidate
 - **GIVEN** a profile on `track_latest_approved` with stable version `0.2.22`
@@ -32,6 +44,13 @@ Finding a candidate SHALL create a rollout rather than rewriting all desired sta
 - **WHEN** latest-candidate reconciliation runs
 - **THEN** the control plane SHALL create a rollout from `0.2.22` to `0.2.23`
 - **AND** profile-derived assignments SHALL remain on the stable package until their rollout targets advance
+
+#### Scenario: First-party source tracks without package-by-package operator action
+- **GIVEN** a source using a signed, verified first-party package on `track_latest_approved`
+- **AND** a newer package for the same add-on is approved by manual review or the configured auto-approval allowlist
+- **WHEN** latest-candidate reconciliation runs
+- **THEN** the control plane SHALL create and start a health-gated rollout automatically
+- **AND** an operator SHALL NOT need to edit the assignment or profile package ID
 
 #### Scenario: Candidate cannot expand privilege silently
 - **GIVEN** a track-latest source whose capability ceiling excludes `host_network_admin`

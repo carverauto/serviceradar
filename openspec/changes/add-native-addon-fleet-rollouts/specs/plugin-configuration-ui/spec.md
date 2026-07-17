@@ -2,19 +2,27 @@
 
 ### Requirement: Native add-on update policy is visible and explicit
 The native add-on assignment and profile UI SHALL show whether desired versions are
-manually pinned or track the latest approved eligible package. Manual pin SHALL be the
-default, and enabling tracking SHALL require an authorized operator to review and save
-canary, batch, soak, timeout, failure-tolerance, release-channel, and capability-ceiling
-settings.
+manually pinned or track the latest approved eligible package. Signed, verified
+first-party packages SHALL visibly default to managed tracking; other origins SHALL
+default to manual pin. The UI SHALL allow an authorized operator to pin any source or
+opt a non-first-party source into tracking after reviewing canary, batch, soak, timeout,
+failure-tolerance, release-channel, provenance, and capability-ceiling settings.
 
-#### Scenario: Existing profile shows a manual pin
-- **GIVEN** an existing add-on profile pinned to version `0.2.22`
+#### Scenario: Existing first-party profile shows managed tracking
+- **GIVEN** an existing add-on profile using signed, verified first-party version `0.2.22`
+- **AND** no explicit operator pin is recorded
 - **WHEN** an operator opens the profile
-- **THEN** the UI SHALL show `manual_pin` and version `0.2.22`
-- **AND** SHALL explain through state and controls that approving a newer package does not change this desired version
+- **THEN** the UI SHALL show `track_latest_approved` and stable version `0.2.22`
+- **AND** SHALL explain that a newer eligible approved version will use a staged rollout
+
+#### Scenario: Operator pins a managed first-party profile
+- **GIVEN** a first-party profile on `track_latest_approved`
+- **WHEN** an authorized operator selects `manual_pin` and saves version `0.2.22`
+- **THEN** the UI SHALL show the explicit pin and exclude that source from automatic candidates
+- **AND** future package approvals SHALL NOT change its desired version
 
 #### Scenario: Operator opts into latest-approved tracking
-- **GIVEN** an authorized operator editing a manually pinned source
+- **GIVEN** an authorized operator editing a manually pinned non-first-party source
 - **WHEN** they select `track_latest_approved`
 - **THEN** the UI SHALL require a release channel, capability ceiling, canary size, batch size, soak, timeout, and tolerated-failure policy
 - **AND** SHALL summarize the currently eligible target count before saving

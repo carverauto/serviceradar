@@ -27,11 +27,13 @@ but no update policy consumes that value: there is no native add-on rollout cont
 canary/batch state machine, or health-gated latest-version tracking. Wasm plugin
 assignment and scheduling remain a separate lifecycle and are not part of this model.
 
-This proposal does not change the existing UI requirement that a new assignment's
-version selector defaults to the latest approved package. That is a one-time default
-selection: once the source is saved under `manual_pin`, its concrete package remains
-stable until an operator starts an upgrade or explicitly enables tracking. Likewise,
-the fleet's existing "up to date" badge remains a comparison, not an update policy.
+This proposal turns the existing latest-approved selection into a durable update policy
+for trusted first-party native add-ons. A new assignment or profile backed by a signed,
+verified first-party package defaults to managed tracking. Existing first-party sources
+are migrated to that policy unless an explicit operator pin is recorded. Sources backed
+by uploads, GitHub imports, or another non-first-party origin remain pinned by default.
+The fleet's existing "up to date" badge remains a comparison; the rollout controller,
+not the read model, advances desired state.
 
 The current fleet read model compounds the ambiguity. Its attention flags treat every
 enabled assignment without a status as `assigned_not_running`, every inactive status
@@ -43,8 +45,9 @@ age, supervision model, an active request for an ephemeral helper, or rollout gr
 
 ### Goals
 
-- Make the default behavior explicit and conservative: package versions stay pinned
-  until an operator upgrades them or opts a source into a latest-approved track.
+- Keep trusted first-party native add-ons current without requiring an operator to
+  notice and manually promote each approved release.
+- Preserve explicit manual pins and conservative defaults for non-first-party sources.
 - Preserve package approval as an eligibility and security boundary.
 - Roll native add-ons through canaries and bounded batches with evidence-based health
   gates and deterministic rollback.
@@ -57,8 +60,10 @@ age, supervision model, an active request for an ephemeral helper, or rollout gr
 
 ### Non-Goals
 
-- Automatically approve imported packages or broaden an approved capability grant.
-- Force existing pinned assignments or profiles onto newer packages.
+- Automatically approve packages outside the existing first-party auto-approval
+  allowlist or broaden an approved capability grant.
+- Override an explicit operator version pin or automatically track non-first-party
+  sources without an operator selecting that policy.
 - Merge native add-on rollouts with base-agent release rollouts.
 - Change Wasm plugin assignment upgrade semantics.
 - Delete stale agent or status records as a side effect of presentation logic.
@@ -66,19 +71,34 @@ age, supervision model, an active request for an ephemeral helper, or rollout gr
 
 ## Decisions
 
-### Decision 1: Manual pins remain the default; tracking is explicit
+### Decision 1: Trusted first-party sources track by default; explicit pins win
 
 Each authoritative desired-state source (a direct assignment or an add-on profile)
 has an update policy:
 
 - `manual_pin`: keep the selected package until an authorized operator starts an
-  upgrade or rollback. This is the default for all existing and newly created sources.
+  upgrade or rollback. This is the default for upload/GitHub/non-first-party sources
+  and for any source an operator explicitly pins.
 - `track_latest_approved`: when a newer eligible package is approved, automatically
-  create and start a rollout using the source's stored rollout policy.
+  create and start a rollout using the source's stored rollout policy. This is the
+  default for new signed, verified first-party sources and for existing first-party
+  sources that do not carry an explicit operator pin.
 
 Approval only makes a package eligible. It never updates assignment package IDs in
 the approval transaction. A track-latest reconciler observes the new eligible package
-and creates an auditable rollout asynchronously for sources that previously opted in.
+and creates an auditable rollout asynchronously for managed sources. This preserves a
+reviewable security boundary while removing package-by-package deployment work. The
+existing `autoApproveAddonIds` setting remains the allowlist for packages that may cross
+the approval boundary without manual review; it does not bypass rollout eligibility or
+health gates.
+
+Migration derives the initial policy from package provenance and explicit source intent.
+A source selecting a signed, verified `first_party` package becomes
+`track_latest_approved` unless an explicit operator pin is already recorded. A source
+using an upload, GitHub import, unverifiable provenance, or a non-first-party package
+becomes `manual_pin`. Because older rows do not distinguish a historical concrete
+selection from an intentional pin, the migration SHALL record current first-party
+sources as managed and expose a one-click pin before the rollout controller is enabled.
 
 An eligible track candidate must have the same logical add-on ID, be signed, verified,
 approved, not revoked, newer according to semantic version ordering, compatible with
@@ -229,23 +249,25 @@ package as a candidate, but approval and rollout remain separately audited opera
 - Offline agents can hold a rollout open. Mitigation: preview them separately, use a
   target deadline, and require an explicit operator choice to exclude or retry them.
 - Automatic updates of privileged native code increase blast radius. Mitigation:
-  manual pin is the default; track-latest remains opt-in; candidates must already be
-  signed, verified, approved, compatible, and within a capability ceiling; canary and
-  health gates cannot be disabled for track-latest.
+  only signed, verified, approved candidates from the same trusted first-party lineage
+  track by default; explicit pins always win; candidates must be compatible and within
+  a capability ceiling; canary and health gates cannot be disabled for track-latest.
 - A bad health classifier could stop or advance a rollout incorrectly. Mitigation:
   persist raw evidence beside the derived category and cover every delivery/supervision
   model with contract and state-machine tests.
 
 ## Migration Plan
 
-1. Add rollout/update-policy schema with `manual_pin` defaults. Backfill existing
-   direct assignments and profiles without changing their selected package.
+1. Add rollout/update-policy schema. Backfill signed, verified first-party sources to
+   `track_latest_approved`, backfill non-first-party sources to `manual_pin`, preserve
+   every selected package, and expose an explicit pin control before enabling rollout.
 2. Add the enriched fleet classification and counters in read-only mode, compare old
    and new summaries in telemetry, then switch the UI to categorized semantics.
 3. Enable manual bulk rollouts with canary, batch, health gate, and rollback support.
 4. Validate mixed agent versions and each supervision model in a demo cohort.
-5. Enable `track_latest_approved` as an explicit per-source opt-in only after manual
-   rollout verification is complete.
+5. Enable automatic reconciliation for managed first-party sources only after manual
+   rollout verification is complete; keep non-first-party sources and explicit pins
+   out of automatic reconciliation.
 
 Rollback of the feature pauses active rollouts, removes unpromoted target overrides,
 restores stable pins, and disables track reconciliation. Stable source package IDs are
@@ -254,8 +276,7 @@ state from observed status.
 
 ## Open Questions
 
-- Should an enterprise-wide default rollout policy be tenant-configurable in the first
-  implementation, or should the initial release expose only platform defaults plus
-  per-source overrides?
+- Should the first release expose a tenant-wide emergency switch that pauses creation
+  of new automatic rollouts while preserving each source's stored update policy?
 - Should a manually resumed rollout be allowed to accept a partially successful source
   promotion, or must source promotion remain all-or-nothing in the first release?
