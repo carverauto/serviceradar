@@ -1,3 +1,22 @@
+# ServiceRadar v1.4.20
+
+Restored hosted tenant first-sign-in delivery through a private runtime
+boundary without weakening the existing local-login recovery policy.
+
+## Whats New
+
+**1.4.20**
+- Hosted first sign-in: web-ng can accept an authenticated, pod-only request
+  from the ServiceRadar control plane and send the tenant owner's existing
+  one-hour password setup email. The listener is not exposed through a
+  Kubernetes Service, Gateway, or HTTPRoute.
+- Recovery policy parity: private delivery applies the same fail-closed login
+  policy as the public password-reset route before creating a token or sending
+  mail. SSO-only and non-opted-in local accounts remain ineligible.
+- Helm deployment: the private listener is opt-in, requires a secret-backed
+  runtime token, and adds only its container port and secret reference to the
+  web-ng workload.
+
 # ServiceRadar v1.4.19
 
 Secure remote-access recovery, reliable anomaly delivery, and reproducible
