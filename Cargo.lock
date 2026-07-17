@@ -4810,25 +4810,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serviceradar-metrics-delta-writer"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-nats",
- "envy",
- "futures",
- "pretty_assertions",
- "prost",
- "serde",
- "serviceradar-metric-proto",
- "thiserror 2.0.18",
- "tokio",
- "tokio-postgres",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "serviceradar-netprobe"
 version = "0.2.24"
 dependencies = [

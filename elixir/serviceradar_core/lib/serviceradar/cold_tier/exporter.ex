@@ -62,6 +62,7 @@ defmodule ServiceRadar.ColdTier.Exporter do
     case Head.session(&Head.ensure_setup/1) do
       {:ok, :ok} ->
         alert_on_policy_violations()
+        ServiceRadar.ColdTier.PressureMonitor.check()
         budget = Config.run_chunk_budget()
 
         Enum.reduce(Registry.tables(), budget, fn entry, remaining ->

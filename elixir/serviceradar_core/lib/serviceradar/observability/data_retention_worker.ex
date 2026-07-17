@@ -50,6 +50,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
 
     reconcile_timescale_tables(config)
     alert_on_cagg_refresh_hazards()
+    alert_on_undrained_cold_tier()
 
     results = [
       prune_trace_summaries(config, batch_size),
@@ -125,6 +126,21 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
         drop_expired_chunks(table_name, retention_days)
       end
     )
+  end
+
+  defp alert_on_undrained_cold_tier do
+    case RetentionFence.undrained_tables() do
+      [] ->
+        :ok
+
+      tables ->
+        Logger.error(
+          "Cold tier is DISABLED but un-drained state remains — retention stays " <>
+            "fenced (only verified-exported data drops) until an operator completes " <>
+            "the disable with ServiceRadar.ColdTier.Admin.waive/2",
+          tables: tables
+        )
+    end
   end
 
   # A CAGG that refreshes past its raw source's retention DELETES its own

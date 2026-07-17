@@ -30,12 +30,45 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   @query_timeout_ms 120_000
 
   @doc """
-  Whether in-database retention policies are fenced off for this table
-  (cold tier enabled AND the table is in the registry).
+  Whether in-database retention policies are fenced off for this table.
+
+  True when the cold tier is enabled for a registry table — and ALSO when it
+  has been disabled but un-drained cold-tier state remains (two-phase
+  disable, task 2.6): flipping the env off must never silently re-arm drops
+  while un-exported chunks are held. The operator completes the disable with
+  `ServiceRadar.ColdTier.Admin.waive/2`, which clears the residue.
   """
   @spec fenced?(String.t()) :: boolean()
   def fenced?(table_name) do
-    Registry.enabled?() and Registry.member?(table_name)
+    Registry.member?(table_name) and (Registry.enabled?() or residue?(table_name))
+  end
+
+  @doc "Registry tables still fenced by residue while the cold tier is disabled."
+  @spec undrained_tables(keyword()) :: [String.t()]
+  def undrained_tables(opts \\ []) do
+    if Registry.enabled?() do
+      []
+    else
+      Enum.filter(Registry.table_names(), &residue?(&1, opts))
+    end
+  end
+
+  defp residue?(table_name, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    case SQL.query(
+           repo,
+           "SELECT 1 FROM platform.cold_tier_boundaries WHERE table_name = $1 LIMIT 1",
+           [table_name],
+           timeout: @query_timeout_ms
+         ) do
+      {:ok, %{rows: [_ | _]}} -> true
+      {:ok, _} -> false
+      # Table absent => cold tier never ran here; nothing to protect.
+      {:error, %Postgrex.Error{postgres: %{code: :undefined_table}}} -> false
+      # Unknown state: fail safe — keep the fence up.
+      {:error, _} -> true
+    end
   end
 
   @doc """

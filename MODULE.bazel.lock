@@ -1470,6 +1470,35 @@
               "reproducible": false
             }
           },
+          "pgduckdb_18_linux_amd64": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "pgduckdb/pgduckdb",
+              "identifier": "sha256:44c88eb9207971af1d7f9804a37429b1bb36f413cd8d7118c81e1288ddde85d1",
+              "platform": "linux/amd64",
+              "target_name": "pgduckdb_18_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "pgduckdb_18": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_alias",
+            "attributes": {
+              "target_name": "pgduckdb_18",
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "index.docker.io",
+              "repository": "pgduckdb/pgduckdb",
+              "identifier": "sha256:44c88eb9207971af1d7f9804a37429b1bb36f413cd8d7118c81e1288ddde85d1",
+              "platforms": {
+                "@@platforms//cpu:x86_64": "@pgduckdb_18_linux_amd64"
+              },
+              "bzlmod_repository": "pgduckdb_18",
+              "reproducible": true
+            }
+          },
           "oci_crane_darwin_amd64": {
             "repoRuleId": "@@rules_oci+//oci:repositories.bzl%crane_repositories",
             "attributes": {
@@ -1610,7 +1639,9 @@
             "serviceradar_tools",
             "serviceradar_tools_linux_amd64",
             "cloudnativepg_postgresql_18",
-            "cloudnativepg_postgresql_18_linux_amd64"
+            "cloudnativepg_postgresql_18_linux_amd64",
+            "pgduckdb_18",
+            "pgduckdb_18_linux_amd64"
           ],
           "explicitRootModuleDirectDevDeps": [],
           "useAllRepos": "NO",

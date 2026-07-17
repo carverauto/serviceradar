@@ -388,6 +388,7 @@ config :serviceradar_core, ServiceRadar.ColdTier,
   enabled: System.get_env("SERVICERADAR_COLD_TIER_ENABLED") in ["true", "1"],
   bucket_url: System.get_env("SERVICERADAR_COLD_TIER_BUCKET_URL"),
   s3_endpoint: System.get_env("SERVICERADAR_COLD_TIER_S3_ENDPOINT"),
+  s3_endpoint_runtime: System.get_env("SERVICERADAR_COLD_TIER_S3_ENDPOINT_RUNTIME"),
   s3_region: System.get_env("SERVICERADAR_COLD_TIER_S3_REGION"),
   s3_url_style: System.get_env("SERVICERADAR_COLD_TIER_S3_URL_STYLE"),
   s3_use_ssl: System.get_env("SERVICERADAR_COLD_TIER_S3_USE_SSL", "true") in ["true", "1"],
@@ -1457,6 +1458,9 @@ if config_env() == :prod do
            # Correctness does NOT depend on running before DataRetentionWorker —
            # the fence's drop gate alone enforces export-before-drop.
            {"47 * * * *", ServiceRadar.ColdTier.Exporter, queue: :maintenance},
+           # Cold-window pruning + manifest/bucket reconciliation (no-op when
+           # cold-tier config is absent).
+           {"23 4 * * *", ServiceRadar.ColdTier.Pruner, queue: :maintenance},
            {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
             queue: :maintenance},
            {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,

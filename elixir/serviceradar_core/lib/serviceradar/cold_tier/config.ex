@@ -91,6 +91,17 @@ defmodule ServiceRadar.ColdTier.Config do
     end
   end
 
+  @doc """
+  S3 endpoint as reachable from THIS runtime (the BEAM), for pruning and
+  reconciliation. The `s3_endpoint` in `s3/0` is the analytics head's
+  perspective (DuckDB secrets); in local dev the two differ (container DNS
+  vs host ports). Falls back to `s3_endpoint` when unset.
+  """
+  @spec runtime_s3_endpoint() :: String.t() | nil
+  def runtime_s3_endpoint do
+    config()[:s3_endpoint_runtime] || config()[:s3_endpoint]
+  end
+
   @doc "Hours a chunk must be closed before initial export (frontier lag)."
   @spec export_lag_hours() :: pos_integer()
   def export_lag_hours, do: positive(config()[:export_lag_hours], 48)

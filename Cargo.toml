@@ -25,7 +25,6 @@ members = [
     "rust/rdp-adapter",
     "rust/addon-sdk",
     "rust/otel-addon",
-    "rust/metrics-delta-writer",
     "rust/anomaly-core",
     "rust/anomaly-addon",
     "rust/anomaly-disposition",
