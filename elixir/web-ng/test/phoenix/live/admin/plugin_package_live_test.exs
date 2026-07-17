@@ -562,10 +562,58 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       |> render_click()
 
     assert html =~ "Legacy manual assignment reapproved."
-    assert html =~ "Manual reapproval completed."
-    assert html =~ "Reapproved"
-    assert has_element?(lv, "#request-manual-reapproval-#{assignment.id}[disabled]")
+    assert html =~ "Recovered legacy record"
+    assert html =~ "This disabled audit record does not affect the agent."
+    refute has_element?(lv, "#request-manual-reapproval-#{assignment.id}")
     refute html =~ "Legacy recovery candidates"
+  end
+
+  test "does not offer recovery for legacy configuration that cannot be migrated", %{
+    conn: conn,
+    actor: actor
+  } do
+    gateway =
+      gateway_fixture(%{
+        id: "plugin-legacy-schema-gw",
+        component_id: "plugin-legacy-schema-component"
+      })
+
+    agent =
+      agent_fixture(gateway, %{
+        uid: "agent-legacy-schema-plugin",
+        name: "Agent Legacy Schema Plugin"
+      })
+
+    partition_id = "farm01"
+    register_control_session!(agent.uid, partition_id)
+
+    on_exit(fn ->
+      ProcessRegistry.unregister({:agent_control, partition_id, agent.uid, node()})
+    end)
+
+    package = create_approved_package_version!(actor, "live-legacy-schema-plugin", "1.0.0")
+    assignment = create_assignment!(actor, agent.uid, package.id)
+    quarantine_assignment!(assignment.id)
+
+    current_schema = %{
+      "type" => "object",
+      "additionalProperties" => true,
+      "required" => ["now_required"],
+      "properties" => %{"now_required" => %{"type" => "string"}}
+    }
+
+    package
+    |> Ash.Changeset.for_update(:update, %{config_schema: current_schema}, actor: actor)
+    |> Ash.update!(actor: actor)
+
+    {:ok, lv, html} = live(conn, ~p"/admin/plugins/#{package.id}")
+
+    assert html =~ "Inactive legacy record"
+    assert html =~ "Its old configuration cannot be migrated safely."
+    assert html =~ "This record is disabled and does not affect the agent."
+    refute has_element?(lv, "#request-manual-reapproval-#{assignment.id}")
+    refute html =~ "Legacy recovery candidates"
+    assert legacy_unbound_row?(assignment.id)
   end
 
   test "allows a fresh assignment without mutating quarantined history", %{
@@ -624,7 +672,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert current.partition_id == partition_id
   end
 
-  test "shows an unavailable legacy authenticated partition and a safe recovery error", %{
+  test "does not offer recovery while authenticated partition evidence is unavailable", %{
     conn: conn,
     actor: actor
   } do
@@ -650,24 +698,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
     {:ok, lv, html} = live(conn, ~p"/admin/plugins/#{package.id}")
 
-    assert html =~
-             "Current authenticated partition: unavailable. Reconnect the agent and try again."
-
-    html =
-      lv
-      |> element("#request-manual-reapproval-#{assignment.id}")
-      |> render_click()
-
-    assert html =~ "Confirm manual reapproval"
-
-    html =
-      lv
-      |> element("#confirm-legacy-recovery")
-      |> render_click()
-
-    assert html =~
-             "Recovery was not completed: The selected agent has no trustworthy live partition evidence."
-
+    assert html =~ "Legacy record waiting for agent connection"
+    assert html =~ "This record is disabled and does not affect the agent."
+    refute has_element?(lv, "#request-manual-reapproval-#{assignment.id}")
+    refute html =~ "Legacy recovery candidates"
     assert legacy_unbound_row?(assignment.id)
   end
 
