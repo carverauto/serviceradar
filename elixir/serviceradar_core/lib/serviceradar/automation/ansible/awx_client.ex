@@ -76,27 +76,27 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
                    ])
   @launch_preflight_schema "serviceradar.awx_launch_preflight_request.v1"
   @launch_preflight_arg_keys MapSet.new([
-                              "schema",
-                              "controller_id",
-                              "template_id",
-                              "project_id",
-                              "inventory_id",
-                              "credential_ids",
-                              "execution_environment_id",
-                              "selected_hosts"
-                            ])
+                               "schema",
+                               "controller_id",
+                               "template_id",
+                               "project_id",
+                               "inventory_id",
+                               "credential_ids",
+                               "execution_environment_id",
+                               "selected_hosts"
+                             ])
   @launch_preflight_target_keys MapSet.new([
-                                 "membership_id",
-                                 "controller_id",
-                                 "inventory_id",
-                                 "awx_host_id",
-                                 "canonical_device_uid",
-                                 "host_name",
-                                 "ansible_host",
-                                 "enabled",
-                                 "membership_generation",
-                                 "source_fingerprint"
-                               ])
+                                  "membership_id",
+                                  "controller_id",
+                                  "inventory_id",
+                                  "awx_host_id",
+                                  "canonical_device_uid",
+                                  "host_name",
+                                  "ansible_host",
+                                  "enabled",
+                                  "membership_generation",
+                                  "source_fingerprint"
+                                ])
   @max_launch_preflight_targets 128
   @max_launch_preflight_credentials 128
   @canonical_positive_decimal ~r/\A[1-9][0-9]{0,9}\z/
@@ -282,7 +282,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   """
   @spec fetch_launch_preflight(Controller.t(), map(), keyword()) ::
           {:ok, struct()} | {:error, term()}
-  def fetch_launch_preflight(controller, request, opts \\ []) when is_map(request) do
+  def fetch_launch_preflight(controller, request, opts \\ [])
+
+  def fetch_launch_preflight(controller, request, opts) when is_map(request) do
     with {:ok, args} <- normalize_launch_preflight_request(request),
          :ok <- exact_preflight_controller(controller, args["controller_id"]) do
       dispatch_verb(controller, "awx.fetch_launch_preflight", args, opts)
@@ -866,25 +868,23 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   end
 
   defp allowed_paths_for("awx.fetch_launch_preflight", args) do
-    with {:ok, request} <- normalize_launch_preflight_request(args) do
-      credential_paths =
-        request["credential_ids"]
-        |> Enum.map(&"=/api/v2/credentials/#{&1}/")
+    case normalize_launch_preflight_request(args) do
+      {:ok, request} ->
+        credential_paths = Enum.map(request["credential_ids"], &"=/api/v2/credentials/#{&1}/")
 
-      host_paths =
-        request["selected_hosts"]
-        |> Enum.map(&"=/api/v2/hosts/#{&1["awx_host_id"]}/")
+        host_paths = Enum.map(request["selected_hosts"], &"=/api/v2/hosts/#{&1["awx_host_id"]}/")
 
-      [
-        "=/api/v2/job_templates/#{request["template_id"]}/",
-        "=/api/v2/job_templates/#{request["template_id"]}/survey_spec/",
-        "=/api/v2/projects/#{request["project_id"]}/",
-        "=/api/v2/inventories/#{request["inventory_id"]}/",
-        "=/api/v2/execution_environments/#{request["execution_environment_id"]}/"
-        | credential_paths ++ host_paths
-      ]
-    else
-      _ -> []
+        [
+          "=/api/v2/job_templates/#{request["template_id"]}/",
+          "=/api/v2/job_templates/#{request["template_id"]}/survey_spec/",
+          "=/api/v2/projects/#{request["project_id"]}/",
+          "=/api/v2/inventories/#{request["inventory_id"]}/",
+          "=/api/v2/execution_environments/#{request["execution_environment_id"]}/"
+          | credential_paths ++ host_paths
+        ]
+
+      _ ->
+        []
     end
   end
 
@@ -1156,12 +1156,14 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
     do: {:error, :invalid_awx_launch_preflight_request}
 
   defp exact_preflight_controller(%Controller{} = controller, controller_id) do
-    with {:ok, canonical_controller_id} <- canonical_uuid(controller.id) do
-      if canonical_controller_id == controller_id,
-        do: :ok,
-        else: {:error, :controller_launch_preflight_identity_mismatch}
-    else
-      _ -> {:error, :controller_launch_preflight_identity_invalid}
+    case canonical_uuid(controller.id) do
+      {:ok, canonical_controller_id} ->
+        if canonical_controller_id == controller_id,
+          do: :ok,
+          else: {:error, :controller_launch_preflight_identity_mismatch}
+
+      _ ->
+        {:error, :controller_launch_preflight_identity_invalid}
     end
   end
 
@@ -1237,8 +1239,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
          :ok <- canonical_preflight_host_name(target["host_name"]),
          :ok <- canonical_preflight_address(target["ansible_host"]),
          true <- target["enabled"] == true,
-         true <- is_binary(target["source_fingerprint"]) and
-                   Regex.match?(@source_fingerprint, target["source_fingerprint"]) do
+         true <-
+           is_binary(target["source_fingerprint"]) and
+             Regex.match?(@source_fingerprint, target["source_fingerprint"]) do
       {:ok, Map.put(target, "membership_id", membership_id)}
     else
       _ -> {:error, :invalid_awx_launch_preflight_target}
@@ -1275,6 +1278,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   defp unique_preflight_target_ids?(targets) do
     host_ids = Enum.map(targets, & &1["awx_host_id"])
     membership_ids = Enum.map(targets, & &1["membership_id"])
+
     length(host_ids) == length(Enum.uniq(host_ids)) and
       length(membership_ids) == length(Enum.uniq(membership_ids))
   end
@@ -1282,8 +1286,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   defp canonical_positive_decimal(value) when is_binary(value) do
     if Regex.match?(@canonical_positive_decimal, value) and
          String.to_integer(value) <= 2_147_483_647,
-      do: :ok,
-      else: :error
+       do: :ok,
+       else: :error
   end
 
   defp canonical_positive_decimal(_value), do: :error
@@ -1308,8 +1312,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
          byte_size(normalized) <= 255 and
          normalized not in ["", "all", "ungrouped"] and
          Regex.match?(~r/\A[a-z0-9][a-z0-9._-]*\z/, normalized),
-      do: :ok,
-      else: :error
+       do: :ok,
+       else: :error
   end
 
   defp canonical_preflight_host_name(_value), do: :error
@@ -1335,22 +1339,29 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   defp unbracket_preflight_address(value), do: value
 
   defp normalize_preflight_address(value) when is_binary(value) do
-    cond do
-      not safe_launch_preflight_text(value, 255) -> :invalid
-      String.contains?(value, ["/", "\\", "@", "?", "#", "%"]) -> :invalid
-      String.contains?(value, ":") ->
-        if Regex.match?(~r/\A[0-9A-Fa-f:.]+\z/, value),
-          do: String.downcase(value),
-          else: :invalid
+    case safe_launch_preflight_text(value, 255) do
+      :error ->
+        :invalid
 
-      true ->
-        normalized = value |> String.downcase() |> String.trim_trailing(".")
+      :ok ->
+        cond do
+          String.contains?(value, ["/", "\\", "@", "?", "#", "%"]) ->
+            :invalid
 
-        if normalized != "" and
-             not String.contains?(normalized, "..") and
-             Regex.match?(~r/\A[a-z0-9._-]+\z/, normalized),
-          do: normalized,
-          else: :invalid
+          String.contains?(value, ":") ->
+            if Regex.match?(~r/\A[0-9A-Fa-f:.]+\z/, value),
+              do: String.downcase(value),
+              else: :invalid
+
+          true ->
+            normalized = value |> String.downcase() |> String.trim_trailing(".")
+
+            if normalized != "" and
+                 not String.contains?(normalized, "..") and
+                 Regex.match?(~r/\A[a-z0-9._-]+\z/, normalized),
+               do: normalized,
+               else: :invalid
+        end
     end
   end
 

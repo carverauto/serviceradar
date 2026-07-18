@@ -3,6 +3,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
 
   alias ServiceRadar.Automation.Ansible.AutomationSecureExecutionCommandAttempt, as: Attempt
   alias ServiceRadar.Automation.Ansible.AwxClient
+  alias ServiceRadar.Automation.Ansible.AwxLaunchPreflightAttestation
   alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandContract, as: Contract
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher, as: Dispatcher
@@ -13,6 +14,10 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
   @execution_id "018f3f56-1111-7222-8333-123456789abd"
   @controller_id "018f3f56-1111-7222-8333-123456789abe"
   @execution_secret "018f3f56-2222-7222-8333-123456789abe"
+  @preflight_evidence_id "018f3f56-1111-7222-8333-123456789a01"
+  @preflight_command_id "018f3f56-1111-7222-8333-123456789a02"
+  @preflight_binding_id "018f3f56-1111-7222-8333-123456789a03"
+  @preflight_approval_id "018f3f56-1111-7222-8333-123456789a04"
 
   test "dispatches an exact durable launch only from the persisted dispatching state" do
     {attempt, resources} = launch_attempt(:dispatching, :dispatching)
@@ -21,6 +26,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
     assert {:ok, :dispatched} =
              Dispatcher.dispatch(attempt,
                resource_loader: fn _ -> {:ok, resources} end,
+               preflight_evidence_reader: preflight_evidence_reader(resources),
                current_authorizer: &authorize_current/3,
                claim: fn claimed, _token, _expires, _now ->
                  send(test_pid, :claimed)
@@ -42,6 +48,91 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
     assert request.launch_opts.host_limit == "farm01-node01"
     assert context["schema"] == Contract.context_schema()
     assert context["execution_id"] == @execution_id
+  end
+
+  test "launch rejects legacy metadata without immutable preflight evidence before claim" do
+    {attempt, resources} = launch_attempt(:dispatching, :dispatching)
+
+    resources =
+      resources
+      |> Map.update!(:operation, &drop_preflight_snapshot/1)
+      |> Map.update!(:execution, &drop_preflight_snapshot/1)
+
+    assert {:error, :awx_preflight_attestation_required} =
+             Dispatcher.dispatch(attempt,
+               resource_loader: fn _ -> {:ok, resources} end,
+               claim: fn _, _, _, _ -> flunk("legacy launch must not acquire a lease") end,
+               awx_dispatcher: fn _, _, _, _, _ -> flunk("legacy launch must not reach AWX") end
+             )
+  end
+
+  test "launch binds the immutable preflight to the exact dispatch partition" do
+    {attempt, resources} = launch_attempt(:dispatching, :dispatching)
+    attempt = %{attempt | dispatch_partition_id: "tonka01"}
+
+    assert {:error, :awx_preflight_partition_drift} =
+             Dispatcher.dispatch(attempt,
+               resource_loader: fn _ -> {:ok, resources} end,
+               preflight_evidence_reader: preflight_evidence_reader(resources),
+               claim: fn _, _, _, _ -> flunk("partition drift must not acquire a lease") end,
+               awx_dispatcher: fn _, _, _, _, _ -> flunk("partition drift must not reach AWX") end
+             )
+  end
+
+  test "launch binds the immutable preflight to the exact dispatch agent" do
+    {attempt, resources} = launch_attempt(:dispatching, :dispatching)
+    attempt = %{attempt | dispatch_agent_id: "edge-agent-2"}
+
+    assert {:error, :awx_preflight_agent_drift} =
+             Dispatcher.dispatch(attempt,
+               resource_loader: fn _ -> {:ok, resources} end,
+               preflight_evidence_reader: preflight_evidence_reader(resources),
+               claim: fn _, _, _, _ -> flunk("agent drift must not acquire a lease") end,
+               awx_dispatcher: fn _, _, _, _, _ -> flunk("agent drift must not reach AWX") end
+             )
+  end
+
+  test "launch rejects an immutable snapshot whose evidence cannot be loaded" do
+    {attempt, resources} = launch_attempt(:dispatching, :dispatching)
+
+    assert {:error, :awx_preflight_evidence_unavailable} =
+             Dispatcher.dispatch(attempt,
+               resource_loader: fn _ -> {:ok, resources} end,
+               preflight_evidence_reader: fn _ -> {:error, :not_found} end,
+               claim: fn _, _, _, _ -> flunk("unbacked preflight must not acquire a lease") end,
+               awx_dispatcher: fn _, _, _, _, _ ->
+                 flunk("unbacked preflight must not reach AWX")
+               end
+             )
+  end
+
+  test "legacy reconciliation and cleanup remain bounded to non-launch commands" do
+    test_pid = self()
+
+    for {attempt, resources, expected_command_type} <- [
+          legacy_nonlaunch_attempt(:list_recent_jobs),
+          legacy_nonlaunch_attempt(:cancel_job)
+        ] do
+      assert {:ok, :dispatched} =
+               Dispatcher.dispatch(attempt,
+                 resource_loader: fn _ -> {:ok, resources} end,
+                 claim: &claim/4,
+                 awx_dispatcher: fn claimed, _controller, _request, _context, _opts ->
+                   send(
+                     test_pid,
+                     {:legacy_nonlaunch_dispatch, claimed.stage, claimed.command_type}
+                   )
+
+                   {:ok, %{id: claimed.command_id}}
+                 end,
+                 mark_dispatched: fn claimed, _token, _now ->
+                   {:ok, %{claimed | state: :dispatched}}
+                 end
+               )
+
+      assert_receive {:legacy_nonlaunch_dispatch, stage, ^expected_command_type}
+      refute stage == :launch_job
+    end
   end
 
   test "recovery cannot dispatch a planned or partially transitioned launch" do
@@ -80,13 +171,15 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
   end
 
   test "current authority contraction terminalizes before claim or AWX dispatch" do
-    {attempt, resources} = launch_attempt(:dispatching, :dispatching)
+    now = ~U[2026-07-13 13:00:00.000000Z]
+    {attempt, resources} = launch_attempt(:dispatching, :dispatching, now)
     test_pid = self()
 
     assert {:error, :current_permission_denied} =
              Dispatcher.dispatch(attempt,
-               now: ~U[2026-07-13 13:00:00.000000Z],
+               now: now,
                resource_loader: fn ^attempt -> {:ok, resources} end,
+               preflight_evidence_reader: preflight_evidence_reader(resources),
                current_authorizer: fn current_resources, _now, _context ->
                  assert current_resources.operation.id == attempt.operation_id
                  {:error, :current_permission_denied}
@@ -107,7 +200,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
              )
 
     assert_receive {:authority_denied, attempt_id, @execution_id, :current_permission_denied,
-                    ~U[2026-07-13 13:00:00.000000Z]}
+                    ^now}
 
     assert attempt_id == attempt.id
   end
@@ -160,6 +253,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
     assert {:error, :secure_execution_request_digest_mismatch} =
              Dispatcher.dispatch(attempt,
                resource_loader: fn _ -> {:ok, resources} end,
+               preflight_evidence_reader: preflight_evidence_reader(resources),
                claim: fn _, _, _, _ ->
                  send(test_pid, :unsafe_claim)
                  {:error, :must_not_run}
@@ -179,6 +273,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
     assert {:ok, :dispatched} =
              Dispatcher.dispatch(attempt,
                resource_loader: fn _ -> {:ok, resources} end,
+               preflight_evidence_reader: preflight_evidence_reader(resources),
                current_authorizer: &authorize_current/3,
                claim: &claim/4,
                awx_dispatcher: fn _, _, _, _, _ -> {:error, :transport_interrupted} end,
@@ -217,6 +312,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
       assert {:error, :secure_execution_persisted_command_correlation_mismatch} =
                Dispatcher.dispatch(attempt,
                  resource_loader: fn _ -> {:ok, resources} end,
+                 preflight_evidence_reader: preflight_evidence_reader(resources),
                  current_authorizer: &authorize_current/3,
                  claim: &claim/4,
                  awx_dispatcher: fn _, _, _, _, _ ->
@@ -228,11 +324,17 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
     end
   end
 
-  defp launch_attempt(operation_state, execution_state) do
-    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+  defp launch_attempt(
+         operation_state,
+         execution_state,
+         now \\ DateTime.truncate(DateTime.utc_now(), :microsecond)
+       ) do
     operation = operation(operation_state)
     controller = controller()
     execution = execution(execution_state, controller)
+
+    {operation, execution, evidence} =
+      attach_live_preflight(operation, execution, controller, now)
 
     {:ok, request} = Contract.launch_request(operation, execution)
 
@@ -259,7 +361,14 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
         Map.merge(attrs, %{id: Ash.UUID.generate(), state: :planned, inserted_at: now})
       )
 
-    {attempt, %{operation: operation, execution: execution, controller: controller, targets: []}}
+    {attempt,
+     %{
+       operation: operation,
+       execution: execution,
+       controller: controller,
+       targets: [],
+       preflight_evidence: evidence
+     }}
   end
 
   defp continuation_attempt(stage, purpose, operation_state, execution_state) do
@@ -310,6 +419,79 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
      %{operation: operation, execution: execution, controller: controller, targets: targets}}
   end
 
+  defp legacy_nonlaunch_attempt(:list_recent_jobs) do
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    operation = operation(:dispatching)
+    controller = controller()
+
+    execution =
+      :dispatching
+      |> execution(controller)
+      |> put_in([:metadata, "awx_created_by_id"], 23)
+
+    {:ok, request} = Contract.recent_jobs_request(execution, DateTime.add(now, -1, :second))
+
+    {:ok, attrs} =
+      Contract.build_attempt(
+        attempt_base(),
+        execution,
+        request,
+        stage: :list_recent_jobs,
+        purpose: :launch_reconciliation,
+        command_type: "awx.list_recent_jobs",
+        reconcile_after: DateTime.add(now, -1, :second),
+        deadline_at: DateTime.add(now, 60, :second)
+      )
+
+    attempt =
+      struct!(
+        Attempt,
+        Map.merge(attrs, %{id: Ash.UUID.generate(), state: :planned, inserted_at: now})
+      )
+
+    {attempt, %{operation: operation, execution: execution, controller: controller, targets: []},
+     "awx.list_recent_jobs"}
+  end
+
+  defp legacy_nonlaunch_attempt(:cancel_job) do
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    operation = operation(:failed)
+    controller = controller()
+    execution = execution(:failed, controller)
+    {:ok, request} = Contract.cancel_job_request(77)
+
+    {:ok, attrs} =
+      Contract.build_attempt(
+        attempt_base(),
+        execution,
+        request,
+        stage: :cancel_job,
+        purpose: :terminal_cleanup,
+        command_type: "awx.cancel_job",
+        expected_job_id: 77,
+        deadline_at: DateTime.add(now, 60, :second)
+      )
+
+    attempt =
+      struct!(
+        Attempt,
+        Map.merge(attrs, %{id: Ash.UUID.generate(), state: :planned, inserted_at: now})
+      )
+
+    {attempt, %{operation: operation, execution: execution, controller: controller, targets: []},
+     "awx.cancel_job"}
+  end
+
+  defp attempt_base do
+    %{
+      operation_id: @operation_id,
+      execution_id: @execution_id,
+      controller_id: @controller_id,
+      dispatch_agent_id: "edge-agent-1",
+      dispatch_partition_id: "farm01"
+    }
+  end
+
   defp operation(state) do
     %{
       id: @operation_id,
@@ -358,6 +540,70 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
         "controller_security_snapshot" => controller_snapshot
       }
     }
+  end
+
+  defp attach_live_preflight(operation, execution, controller, verified_at) do
+    {:ok, security_snapshot} = ControllerSecuritySnapshot.capture(controller)
+    {:ok, security_digest} = ControllerSecuritySnapshot.digest(security_snapshot)
+
+    attestation = %{
+      schema: AwxLaunchPreflightAttestation.schema(),
+      evidence_id: @preflight_evidence_id,
+      command_id: @preflight_command_id,
+      controller_id: @controller_id,
+      dispatch_agent_id: "edge-agent-1",
+      dispatch_partition_id: "farm01",
+      binding_id: @preflight_binding_id,
+      binding_version: 1,
+      approval_id: @preflight_approval_id,
+      reviewed_launch_snapshot_digest: String.duplicate("a", 64),
+      preflight_request_digest: String.duplicate("b", 64),
+      target_snapshot_digest: String.duplicate("c", 64),
+      controller_security_snapshot_digest: security_digest,
+      live_launch_snapshot_digest: String.duplicate("d", 64),
+      command_result_digest: String.duplicate("e", 64),
+      verified_at: verified_at,
+      expires_at: DateTime.add(verified_at, 60, :second)
+    }
+
+    {:ok, attrs} = AwxLaunchPreflightAttestation.attrs(attestation)
+
+    {Map.merge(operation, attrs), Map.merge(execution, attrs), preflight_evidence(attestation)}
+  end
+
+  defp preflight_evidence(attestation) do
+    %{
+      id: attestation.evidence_id,
+      command_id: attestation.command_id,
+      controller_id: attestation.controller_id,
+      dispatch_agent_id: attestation.dispatch_agent_id,
+      dispatch_partition_id: attestation.dispatch_partition_id,
+      binding_id: attestation.binding_id,
+      binding_version: attestation.binding_version,
+      approval_id: attestation.approval_id,
+      reviewed_launch_snapshot_digest: attestation.reviewed_launch_snapshot_digest,
+      preflight_request_digest: attestation.preflight_request_digest,
+      target_snapshot_digest: attestation.target_snapshot_digest,
+      controller_security_snapshot_digest: attestation.controller_security_snapshot_digest,
+      live_launch_snapshot_digest: attestation.live_launch_snapshot_digest,
+      command_result_digest: attestation.command_result_digest,
+      verified_at: attestation.verified_at,
+      expires_at: attestation.expires_at
+    }
+  end
+
+  defp preflight_evidence_reader(%{preflight_evidence: evidence}) do
+    fn evidence_id ->
+      if evidence_id == evidence.id, do: {:ok, evidence}, else: {:error, :not_found}
+    end
+  end
+
+  defp drop_preflight_snapshot(resource) do
+    Map.drop(resource, [
+      :preflight_evidence_id,
+      :immutable_launch_snapshot,
+      :immutable_launch_snapshot_digest
+    ])
   end
 
   defp claim(claimed, _token, _expires, _now), do: {:ok, %{claimed | state: :dispatching}}

@@ -1,17 +1,19 @@
 defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Automation.Ansible.AwxLaunchContract
+  alias ServiceRadar.Automation.Ansible.AwxLaunchPreflightFixtures, as: Fixtures
   alias ServiceRadar.Automation.Ansible.DispatchMarkerContract
   alias ServiceRadar.Automation.Ansible.SecureChildLauncher
 
   @actor_id "018f3f56-1111-7222-8333-123456789a01"
   @playbook_id "018f3f56-1111-7222-8333-123456789a02"
-  @controller_id "018f3f56-1111-7222-8333-123456789a03"
-  @membership_id "018f3f56-1111-7222-8333-123456789a04"
-  @binding_id "018f3f56-1111-7222-8333-123456789a05"
-  @approval_id "018f3f56-1111-7222-8333-123456789a06"
-  @source_fingerprint "sha256:" <> String.duplicate("c", 64)
-  @now ~U[2026-07-12 15:00:00.000000Z]
+  @controller_id "018f0000-0000-7000-8000-000000000001"
+  @membership_id "018f0000-0000-7000-8000-000000000201"
+  @binding_id "018f0000-0000-7000-8000-000000000101"
+  @approval_id "018f0000-0000-7000-8000-000000000102"
+  @source_fingerprint "sha256:" <> String.duplicate("a", 64)
+  @now ~U[2026-07-14 23:20:00.000000Z]
 
   defmodule FakeAdapter do
     @moduledoc false
@@ -65,12 +67,27 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
       {:ok, %{plan: plan, controller: controller}}
     end
 
-    defp result(name), do: Process.get({__MODULE__, name})
+    defp result(name) do
+      case Process.get({__MODULE__, name}) do
+        {:sequence, [result | remaining]} ->
+          Process.put({__MODULE__, name}, {:sequence, remaining})
+          result
+
+        result ->
+          result
+      end
+    end
+
     defp notify(message), do: send(Process.get({__MODULE__, :test_pid}), message)
   end
 
   setup do
     Process.put({FakeAdapter, :test_pid}, self())
+    reset_fake_adapter()
+    :ok
+  end
+
+  defp reset_fake_adapter do
     Process.put({FakeAdapter, :actor}, {:ok, actor()})
     Process.put({FakeAdapter, :authorization}, {:ok, authorization()})
     Process.put({FakeAdapter, :playbook}, {:ok, playbook()})
@@ -78,7 +95,6 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
     Process.put({FakeAdapter, :binding}, {:ok, reviewed_binding()})
     Process.put({FakeAdapter, :controller}, {:ok, controller()})
     Process.put({FakeAdapter, :holds}, {:ok, []})
-    :ok
   end
 
   defp actor(overrides \\ %{}) do
@@ -119,87 +135,12 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
   end
 
   defp membership(overrides \\ %{}) do
-    Map.merge(
-      %{
-        id: @membership_id,
-        controller_id: @controller_id,
-        inventory_id: 34,
-        awx_host_id: 7,
-        canonical_device_uid: "sr:device-7",
-        source_generation: 3,
-        source_fingerprint: @source_fingerprint,
-        host_name: "farm01-pve01",
-        ansible_host: "192.168.2.22",
-        current: true,
-        enabled: true,
-        link_disposition: :approved
-      },
-      overrides
-    )
+    Fixtures.membership(overrides)
   end
 
-  defp controller(overrides \\ %{}) do
-    Map.merge(
-      %{
-        id: @controller_id,
-        enabled: true,
-        name: "farm01-awx",
-        base_url: "https://awx.example.test:443",
-        agent_id: "edge-agent-1",
-        sync_credential_secret_id: "018f3f56-1111-7222-8333-123456789ac1",
-        execution_credential_secret_id: "018f3f56-1111-7222-8333-123456789ac2",
-        callback_credential_secret_id: nil,
-        metadata: %{}
-      },
-      overrides
-    )
-  end
+  defp controller(overrides \\ %{}), do: Fixtures.controller(overrides)
 
-  defp reviewed_binding(overrides \\ %{}) do
-    Map.merge(
-      %{
-        id: @binding_id,
-        controller_id: @controller_id,
-        job_template_id: 42,
-        binding_version: 3,
-        current: true,
-        approval_state: :approved,
-        approval_id: @approval_id,
-        approval_expires_at: ~U[2026-07-12 16:00:00.000000Z],
-        allowed_inventory_ids: [34],
-        inventory_group_names: ["linux"],
-        ask_limit_on_launch: true,
-        dispatch_markers_retained: true,
-        project_update_on_launch: false,
-        project_id: 3,
-        scm_revision: String.duplicate("a", 40),
-        content_sha256: String.duplicate("b", 64),
-        execution_environment_id: 4,
-        credentials: [%{"id" => 5, "kind" => "ssh"}],
-        machine_credential_id: 5,
-        run_mode_supported: true,
-        check_mode_supported: true,
-        awx_created_by_id: 11,
-        input_schema: %{
-          "version" => %{
-            "type" => "text",
-            "required" => true,
-            "label" => "Package version"
-          }
-        },
-        input_classifications: %{"version" => "internal"},
-        callback_actions: [],
-        reviewed_by_principal_type: :human,
-        reviewed_by_principal_id: "reviewer-1",
-        reviewed_at: ~U[2026-07-12 14:00:00.000000Z],
-        review_metadata: %{
-          "review_ticket" => "SEC-42",
-          "dispatch_marker_contract" => DispatchMarkerContract.contract()
-        }
-      },
-      overrides
-    )
-  end
+  defp reviewed_binding(overrides \\ %{}), do: Fixtures.reviewed_binding(overrides)
 
   defp request(overrides \\ %{}) do
     Map.merge(
@@ -217,8 +158,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
   end
 
   test "loads exact durable identities and dispatches an attenuated immutable plan" do
-    assert {:ok, result} =
-             SecureChildLauncher.launch(request(), adapter: FakeAdapter, now: @now)
+    assert {:ok, result} = launch()
 
     assert_receive {:load_current_actor, @actor_id}
     assert_receive {:fresh_authorization, @actor_id}
@@ -226,7 +166,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
     assert_receive {:load_memberships, [@membership_id]}
     assert_receive {:load_controller, @controller_id}
     assert_receive {:load_binding, @controller_id, 42}
-    assert_receive {:active_hold_device_uids, ["sr:device-7"]}
+    assert_receive {:active_hold_device_uids, ["device-web01"]}
     assert_receive {:launch, plan, %{id: @controller_id}}
 
     assert result.plan == plan
@@ -246,19 +186,82 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
     assert [
              %{
                membership_id: @membership_id,
-               membership_generation: 3,
+               membership_generation: 5,
                source_fingerprint: @source_fingerprint
              }
            ] = plan.targets
 
     assert plan.execution.controller_id == @controller_id
-    assert plan.execution.inventory_id == 34
+    assert plan.execution.inventory_id == 8
     assert plan.execution.job_template_id == 42
-    assert plan.execution.host_limit == "farm01-pve01"
+    assert plan.execution.host_limit == "web01.example.test"
     assert plan.launch_opts.extra_vars["version"] == "1.2.3"
 
     refute Map.has_key?(request(), :host_limit)
     refute Map.has_key?(request(), :extra_vars)
+  end
+
+  test "fails before planning when the live preflight cannot attest the reviewed binding" do
+    assert {:error, :awx_preflight_unavailable} =
+             launch(%{},
+               live_preflight: fn _context, _opts -> {:error, :awx_preflight_unavailable} end
+             )
+
+    refute_receive {:launch, _, _}
+  end
+
+  test "re-reads authorization and policy after preflight before it can launch" do
+    Process.put(
+      {FakeAdapter, :authorization},
+      {:sequence,
+       [
+         {:ok, authorization()},
+         {:ok, authorization(%{permissions: MapSet.new(["ansible.catalog.view"])})}
+       ]}
+    )
+
+    assert {:error, :launch_permission_required} = launch()
+    assert_receive {:live_preflight, _context}
+    refute_receive {:launch, _, _}
+  end
+
+  test "rejects a hold, binding revision, controller, or target fingerprint changed after preflight" do
+    cases = [
+      {
+        :holds,
+        {:sequence, [{:ok, []}, {:ok, ["device-web01"]}]},
+        {:target_held, "device-web01"}
+      },
+      {
+        :binding,
+        {:sequence, [{:ok, reviewed_binding()}, {:ok, reviewed_binding(%{binding_version: 4})}]},
+        :awx_preflight_binding_drift
+      },
+      {
+        :controller,
+        {:sequence, [{:ok, controller()}, {:ok, controller(%{agent_id: "edge-agent-2"})}]},
+        :awx_preflight_controller_drift
+      },
+      {
+        :memberships,
+        {:sequence,
+         [
+           {:ok, [membership()]},
+           {:ok, [membership(%{source_fingerprint: "sha256:" <> String.duplicate("b", 64)})]}
+         ]},
+        :awx_preflight_request_drift
+      }
+    ]
+
+    Enum.each(cases, fn {resource, result, expected_error} ->
+      Process.put({FakeAdapter, resource}, result)
+
+      assert {:error, ^expected_error} = launch()
+      assert_receive {:live_preflight, _context}
+      refute_receive {:launch, _, _}
+
+      reset_fake_adapter()
+    end)
   end
 
   test "rejects SystemActor and non-membership selectors before any lookup" do
@@ -349,8 +352,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
     assert {:error, :binding_approval_expired} = launch()
 
     Process.put({FakeAdapter, :binding}, {:ok, reviewed_binding()})
-    Process.put({FakeAdapter, :holds}, {:ok, ["sr:device-7"]})
-    assert {:error, {:target_held, "sr:device-7"}} = launch()
+    Process.put({FakeAdapter, :holds}, {:ok, ["device-web01"]})
+    assert {:error, {:target_held, "device-web01"}} = launch()
     refute_receive {:launch, _, _}
   end
 
@@ -445,13 +448,33 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
     refute_receive {:launch, _, _}
   end
 
-  defp launch(overrides \\ %{}) do
+  defp launch(overrides \\ %{}, opts \\ []) do
+    opts =
+      Keyword.merge(
+        [
+          adapter: FakeAdapter,
+          now: @now,
+          live_preflight: &live_preflight/2,
+          edge_principal_resolver: &edge_principal/1
+        ],
+        opts
+      )
+
     overrides
     |> request()
-    |> SecureChildLauncher.launch(adapter: FakeAdapter, now: @now)
+    |> SecureChildLauncher.launch(opts)
   end
 
   defp callback_binding do
+    snapshot =
+      put_in(
+        Fixtures.reviewed_snapshot(),
+        ["template", "prompt_on_launch", "ask_credential_on_launch"],
+        true
+      )
+
+    {:ok, digest} = AwxLaunchContract.digest(snapshot)
+
     reviewed_binding(%{
       callback_actions: ["remote_access.ssh_ca.bundle.read"],
       ask_credential_on_launch: true,
@@ -459,8 +482,11 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
       callback_credential_organization_id: 2,
       callback_credential_injector_digest: String.duplicate("c", 64),
       callback_credential_slot: "ssh_ca_callback",
+      reviewed_launch_snapshot: snapshot,
+      reviewed_launch_snapshot_digest: digest,
       review_metadata: %{
         "policy_version" => "ssh-policy-v1",
+        "awx_snapshot_digest" => digest,
         "dispatch_marker_contract" => DispatchMarkerContract.contract(),
         "callback_contract" => %{
           "schema" => "serviceradar.automation_callback_launch_contract/v1",
@@ -476,6 +502,26 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
           "ttl_seconds" => 120
         }
       }
+    })
+  end
+
+  defp live_preflight(%{binding: binding} = context, _opts) do
+    send(self(), {:live_preflight, context})
+    {:ok, preflight_attestation(binding)}
+  end
+
+  defp edge_principal("edge-agent-1"),
+    do: {:ok, %{agent_id: "edge-agent-1", partition_id: "farm01"}}
+
+  defp preflight_attestation(binding) do
+    {:ok, request} = Fixtures.preflight_request(binding)
+    {:ok, request_digest} = AwxLaunchContract.request_digest(request)
+    {:ok, target_digest} = AwxLaunchContract.target_snapshot_digest(request)
+
+    Fixtures.attestation(%{
+      reviewed_launch_snapshot_digest: binding.reviewed_launch_snapshot_digest,
+      preflight_request_digest: request_digest,
+      target_snapshot_digest: target_digest
     })
   end
 end

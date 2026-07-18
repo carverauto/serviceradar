@@ -8,6 +8,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
   credential deletion. No AWX job is launched from this boundary.
   """
 
+  alias ServiceRadar.Automation.Ansible.AwxLaunchPreflightAttestation
   alias ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator.AshActions
   alias ServiceRadar.Automation.Ansible.CallbackResponsePolicy
   alias ServiceRadar.Automation.CallbackGrants.ActionContract
@@ -26,6 +27,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
   def launch(plan, controller, opts) when is_map(plan) and is_map(controller) and is_list(opts) do
     actions = Keyword.get(opts, :actions, AshActions)
     envelopes = Keyword.get(opts, :launch_envelopes, LaunchEnvelopes)
+    now = now(opts)
 
     with {:ok, launch_contract} <- callback_contract(plan),
          {:ok, action_contract} <- ActionContract.fetch(launch_contract.action),
@@ -34,10 +36,11 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
          {:ok, response_policy} <- response_policy(plan, launch_contract, opts),
          {:ok, callback_origin} <- RuntimeConfig.configured_callback_origin(),
          {:ok, lifecycle_opts} <- lifecycle_opts(opts),
+         {:ok, edge_principal} <- authenticated_edge_principal(controller, opts),
+         :ok <- verify_live_preflight(plan, controller, edge_principal, now, opts),
          envelope_opts = envelope_opts(opts),
          {:ok, allocation} <- envelopes.allocate(envelope_opts),
          {:ok, grant_id} <- grant_id(opts),
-         {:ok, edge_principal} <- authenticated_edge_principal(controller, opts),
          {:ok, callback} <-
            callback_context(
              plan,
@@ -63,6 +66,33 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
   end
 
   def launch(_plan, _controller, _opts), do: {:error, :invalid_callback_launch_plan}
+
+  # This boundary deliberately runs before a callback envelope or grant is
+  # allocated. HardenedRunLauncher performs the same check for its normal
+  # entrypoint, but CallbackLaunchOrchestrator is also callable by durable
+  # recovery and must not become a bypass around the immutable preflight.
+  defp verify_live_preflight(plan, controller, edge_principal, now, opts) do
+    verification_opts =
+      case Keyword.fetch(opts, :preflight_evidence_reader) do
+        {:ok, reader} -> [evidence_reader: reader]
+        :error -> []
+      end
+
+    with {:ok, snapshot} <-
+           AwxLaunchPreflightAttestation.verify_persisted(
+             value(plan, :operation),
+             value(plan, :execution),
+             controller,
+             now,
+             verification_opts
+           ) do
+      AwxLaunchPreflightAttestation.verify_dispatch_principal(
+        snapshot,
+        edge_principal.agent_id,
+        edge_principal.partition_id
+      )
+    end
+  end
 
   defp after_commit(actions, persisted, controller, plan, callback) do
     case actions.mark_dispatching(persisted) do
@@ -414,6 +444,9 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
         {:error, :authenticated_edge_principal_unavailable}
     end
   end
+
+  defp now(opts),
+    do: opts |> Keyword.get(:now, DateTime.utc_now()) |> DateTime.truncate(:microsecond)
 
   defp value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))
 

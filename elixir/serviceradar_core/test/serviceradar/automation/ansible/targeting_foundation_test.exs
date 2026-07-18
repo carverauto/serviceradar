@@ -54,7 +54,10 @@ defmodule ServiceRadar.Automation.Ansible.TargetingFoundationTest do
     create = Info.action(AutomationExecutionTarget, :create)
 
     refute source_fingerprint.allow_nil?
-    assert source_fingerprint.constraints[:match] == ~r/\Asha256:[0-9a-f]{64}\z/
+    assert {Spark.Regex, :cache, [pattern, flags]} = source_fingerprint.constraints[:match]
+    match = Spark.Regex.cache(pattern, flags)
+    assert Regex.match?(match, "sha256:" <> String.duplicate("a", 64))
+    refute Regex.match?(match, "not-a-fingerprint")
     assert :source_fingerprint in create.accept
   end
 

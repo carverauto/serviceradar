@@ -16,8 +16,7 @@ defmodule ServiceRadar.Automation.Ansible.PreflightSnapshotPersistenceTest do
     AutomationOperation => [:record_state, :request_cancel],
     AutomationExecution => [:record_state, :bind_job, :record_scope_verified]
   }
-  @migration_path
-    "priv/repo/migrations/20260714160200_add_automation_preflight_snapshot_evidence.exs"
+  @migration_path "priv/repo/migrations/20260714160200_add_automation_preflight_snapshot_evidence.exs"
 
   test "preflight evidence and immutable snapshots are create-only durable fields" do
     for resource <- @resources do

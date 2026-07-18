@@ -2,6 +2,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Automation.Ansible.AutomationSecureExecutionCommandAttempt, as: Attempt
+  alias ServiceRadar.Automation.Ansible.AwxLaunchPreflightAttestation
   alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandContract, as: Contract
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher, as: Dispatcher
@@ -95,6 +96,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
                dispatcher: fn recovered ->
                  Dispatcher.dispatch(recovered,
                    resource_loader: fn ^recovered -> {:ok, resources} end,
+                   preflight_evidence_reader: preflight_evidence_reader(resources),
                    current_authorizer: fn _current_resources, _now, _context ->
                      send(test_pid, :recovery_reauthorized)
                      {:error, :principal_disabled}
@@ -259,6 +261,9 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
       }
     }
 
+    {operation, execution, evidence} =
+      attach_live_preflight(operation, execution, controller, current)
+
     {:ok, request} = Contract.launch_request(operation, execution)
 
     {:ok, attrs} =
@@ -288,7 +293,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
       operation: operation,
       execution: execution,
       controller: controller,
-      targets: []
+      targets: [],
+      preflight_evidence: evidence
     }
 
     {attempt, resources}
@@ -335,6 +341,64 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
       callback_credential_secret_id: nil,
       metadata: %{}
     }
+  end
+
+  defp attach_live_preflight(operation, execution, controller, verified_at) do
+    {:ok, controller_snapshot} = ControllerSecuritySnapshot.capture(controller)
+
+    {:ok, controller_security_snapshot_digest} =
+      ControllerSecuritySnapshot.digest(controller_snapshot)
+
+    attestation = %{
+      schema: AwxLaunchPreflightAttestation.schema(),
+      evidence_id: Ash.UUID.generate(),
+      command_id: Ash.UUID.generate(),
+      controller_id: controller.id,
+      dispatch_agent_id: controller.agent_id,
+      dispatch_partition_id: "farm01",
+      binding_id: Ash.UUID.generate(),
+      binding_version: 1,
+      approval_id: Ash.UUID.generate(),
+      reviewed_launch_snapshot_digest: String.duplicate("a", 64),
+      preflight_request_digest: String.duplicate("b", 64),
+      target_snapshot_digest: String.duplicate("c", 64),
+      controller_security_snapshot_digest: controller_security_snapshot_digest,
+      live_launch_snapshot_digest: String.duplicate("d", 64),
+      command_result_digest: String.duplicate("e", 64),
+      verified_at: verified_at,
+      expires_at: DateTime.add(verified_at, 60, :second)
+    }
+
+    {:ok, attrs} = AwxLaunchPreflightAttestation.attrs(attestation)
+
+    {Map.merge(operation, attrs), Map.merge(execution, attrs), preflight_evidence(attestation)}
+  end
+
+  defp preflight_evidence(attestation) do
+    %{
+      id: attestation.evidence_id,
+      command_id: attestation.command_id,
+      controller_id: attestation.controller_id,
+      dispatch_agent_id: attestation.dispatch_agent_id,
+      dispatch_partition_id: attestation.dispatch_partition_id,
+      binding_id: attestation.binding_id,
+      binding_version: attestation.binding_version,
+      approval_id: attestation.approval_id,
+      reviewed_launch_snapshot_digest: attestation.reviewed_launch_snapshot_digest,
+      preflight_request_digest: attestation.preflight_request_digest,
+      target_snapshot_digest: attestation.target_snapshot_digest,
+      controller_security_snapshot_digest: attestation.controller_security_snapshot_digest,
+      live_launch_snapshot_digest: attestation.live_launch_snapshot_digest,
+      command_result_digest: attestation.command_result_digest,
+      verified_at: attestation.verified_at,
+      expires_at: attestation.expires_at
+    }
+  end
+
+  defp preflight_evidence_reader(%{preflight_evidence: evidence}) do
+    fn evidence_id ->
+      if evidence_id == evidence.id, do: {:ok, evidence}, else: {:error, :not_found}
+    end
   end
 
   defp now, do: DateTime.truncate(DateTime.utc_now(), :microsecond)

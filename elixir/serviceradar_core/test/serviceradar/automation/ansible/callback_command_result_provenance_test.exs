@@ -3,6 +3,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultProvenanceTest do
 
   alias ServiceRadar.Automation.Ansible.AutomationCallbackCommandAttempt, as: Attempt
   alias ServiceRadar.Automation.Ansible.AwxClient
+  alias ServiceRadar.Automation.Ansible.AwxLaunchPreflightAttestation
   alias ServiceRadar.Automation.Ansible.CallbackCommandContract, as: Contract
   alias ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator, as: Coordinator
   alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
@@ -232,6 +233,85 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultProvenanceTest do
     refute_received {:attempt_succeeded, _, _}
   end
 
+  test "attested callback result provenance ignores mutable execution boundary metadata" do
+    env = environment()
+    bundle = recent_jobs_bundle(env, [])
+
+    bundle =
+      put_in(bundle, [:execution, :metadata], %{
+        "awx_created_by_id" => 11,
+        "dispatch_partition_id" => "tonka01",
+        "controller_security_snapshot" => %{"tampered" => true}
+      })
+
+    {:ok, expected_snapshot} = ControllerSecuritySnapshot.capture(env.controller)
+
+    assert {:ok, :launch_candidate_not_visible} =
+             process(bundle,
+               controller_provenance: fn controller, request, provenance_opts ->
+                 assert controller.id == env.controller.id
+                 assert request.template_id == env.execution.job_template_id
+                 assert provenance_opts[:expected_partition_id] == "farm01"
+                 assert provenance_opts[:expected_controller_snapshot] == expected_snapshot
+                 {:ok, %{jobs: [], complete?: true}}
+               end
+             )
+
+    assert_receive {:attempt_planned, retry}
+    assert retry.stage == :list_recent_jobs
+  end
+
+  test "legacy callback credential results are constrained to cleanup and cannot schedule launch" do
+    env = environment()
+
+    bundle =
+      env |> create_credential_bundle(cleanup_only: false) |> remove_preflight_attestation()
+
+    assert {:ok, :credential_cleanup_lookup_scheduled} =
+             process(bundle,
+               controller_credential_lookup: fn _controller, _expected, _opts ->
+                 {:ok, %{credentials: [], complete?: true}}
+               end
+             )
+
+    assert_receive {:attempt_planned, cleanup}
+    assert cleanup.stage == :fetch_credential
+    assert cleanup.cleanup_only == true
+    refute cleanup.stage == :launch_job
+  end
+
+  test "an expired preflight contains an already-launched callback job without binding or activation" do
+    env = environment()
+    job_id = 40_101
+    bundle = env |> launch_bundle(job_id, cleanup_only: false) |> expire_preflight_attestation()
+
+    {:ok, expected_snapshot} = ControllerSecuritySnapshot.capture(env.controller)
+
+    assert {:ok, :launch_cleanup_contained} =
+             process(bundle,
+               lifecycle: CaptureLifecycle,
+               lifecycle_opts: [],
+               controller_provenance: fn controller, ^job_id, provenance_opts ->
+                 assert controller.id == env.controller.id
+                 assert provenance_opts[:expected_partition_id] == "farm01"
+                 assert provenance_opts[:expected_controller_snapshot] == expected_snapshot
+                 {:ok, accepted_job(env, job_id, "running")}
+               end
+             )
+
+    grant_id = env.grant.id
+
+    assert_receive {:verified_cleanup_revoked, ^grant_id,
+                    %{credential_id: @credential_id, job_id: ^job_id},
+                    :callback_deadline_cleanup_only}
+
+    refute_received {:unexpected_credential_bind, _, _}
+    refute_received {:unexpected_job_bind, _, _}
+    refute_received {:unexpected_execution_bind, _}
+    refute_received {:unexpected_scope_activation, _, _}
+    refute_received {:unexpected_activation, _, _}
+  end
+
   test "deadline cleanup for credential creation persists a read-only cleanup retry" do
     env = environment_with_unbound_credential()
     bundle = create_credential_bundle(env, cleanup_only: false)
@@ -363,6 +443,12 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultProvenanceTest do
         dispatcher: fn attempt ->
           send(self(), {:dispatched_follow_up, attempt})
           {:ok, :dispatched}
+        end,
+        preflight_evidence_reader: fn evidence_id ->
+          case value(bundle, :preflight_evidence) do
+            %{id: ^evidence_id} = evidence -> {:ok, evidence}
+            _ -> {:error, :not_found}
+          end
         end,
         now: @now
       ] ++ opts
@@ -583,7 +669,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultProvenanceTest do
       execution: env.execution,
       targets: env.targets,
       controller: env.controller,
-      grant: env.grant
+      grant: env.grant,
+      preflight_evidence: env.preflight_evidence
     }
   end
 
@@ -683,42 +770,51 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultProvenanceTest do
     }
 
     {:ok, controller_snapshot} = ControllerSecuritySnapshot.capture(controller)
+    {preflight_attrs, preflight_evidence} = preflight_attrs(controller)
 
-    operation = %{
-      id: operation_id,
-      mutating: true,
-      declared_inputs: %{},
-      callback_actions: ["remote_access.ssh_ca.bundle.read"],
-      state: :dispatching
-    }
+    operation =
+      Map.merge(
+        %{
+          id: operation_id,
+          mutating: true,
+          declared_inputs: %{},
+          callback_actions: ["remote_access.ssh_ca.bundle.read"],
+          state: :dispatching
+        },
+        preflight_attrs
+      )
 
-    execution = %{
-      id: execution_id,
-      operation_id: operation_id,
-      controller_id: controller_id,
-      dispatch_id: Ash.UUID.generate(),
-      snapshot_digest: String.duplicate("d", 64),
-      job_template_id: 42,
-      inventory_id: 34,
-      project_id: 3,
-      scm_revision: String.duplicate("a", 40),
-      execution_environment_id: 4,
-      machine_credential_id: 5,
-      host_limit: "farm01-pve01",
-      check_mode: false,
-      credential_snapshot: %{
-        "credential_ids" => [5],
-        "credentials" => [%{"id" => 5, "kind" => "machine"}]
-      },
-      metadata: %{
-        "awx_created_by_id" => 11,
-        "dispatch_partition_id" => "farm01",
-        "controller_security_snapshot" => controller_snapshot
-      },
-      awx_job_id: nil,
-      accepted_job_snapshot: nil,
-      state: :dispatching
-    }
+    execution =
+      Map.merge(
+        %{
+          id: execution_id,
+          operation_id: operation_id,
+          controller_id: controller_id,
+          dispatch_id: Ash.UUID.generate(),
+          snapshot_digest: String.duplicate("d", 64),
+          job_template_id: 42,
+          inventory_id: 34,
+          project_id: 3,
+          scm_revision: String.duplicate("a", 40),
+          execution_environment_id: 4,
+          machine_credential_id: 5,
+          host_limit: "farm01-pve01",
+          check_mode: false,
+          credential_snapshot: %{
+            "credential_ids" => [5],
+            "credentials" => [%{"id" => 5, "kind" => "machine"}]
+          },
+          metadata: %{
+            "awx_created_by_id" => 11,
+            "dispatch_partition_id" => "farm01",
+            "controller_security_snapshot" => controller_snapshot
+          },
+          awx_job_id: nil,
+          accepted_job_snapshot: nil,
+          state: :dispatching
+        },
+        preflight_attrs
+      )
 
     targets = [
       %{
@@ -755,13 +851,94 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultProvenanceTest do
       operation: operation,
       execution: execution,
       targets: targets,
-      grant: grant
+      grant: grant,
+      preflight_evidence: preflight_evidence
     }
   end
 
   defp environment_with_unbound_credential do
     env = environment()
     %{env | grant: %{env.grant | ephemeral_credential_id: nil}}
+  end
+
+  defp preflight_attrs(controller) do
+    {:ok, controller_snapshot} = ControllerSecuritySnapshot.capture(controller)
+
+    {:ok, controller_security_snapshot_digest} =
+      ControllerSecuritySnapshot.digest(controller_snapshot)
+
+    attestation = %{
+      schema: AwxLaunchPreflightAttestation.schema(),
+      evidence_id: Ash.UUID.generate(),
+      command_id: Ash.UUID.generate(),
+      controller_id: controller.id,
+      dispatch_agent_id: controller.agent_id,
+      dispatch_partition_id: "farm01",
+      binding_id: Ash.UUID.generate(),
+      binding_version: 3,
+      approval_id: Ash.UUID.generate(),
+      reviewed_launch_snapshot_digest: String.duplicate("a", 64),
+      preflight_request_digest: String.duplicate("b", 64),
+      target_snapshot_digest: String.duplicate("c", 64),
+      controller_security_snapshot_digest: controller_security_snapshot_digest,
+      live_launch_snapshot_digest: String.duplicate("d", 64),
+      command_result_digest: String.duplicate("e", 64),
+      verified_at: DateTime.add(@now, -1, :second),
+      expires_at: DateTime.add(@now, 60, :second)
+    }
+
+    {:ok, attrs} = AwxLaunchPreflightAttestation.attrs(attestation)
+    {attrs, preflight_evidence(attestation)}
+  end
+
+  defp preflight_evidence(attestation) do
+    %{
+      id: value(attestation, :evidence_id),
+      command_id: value(attestation, :command_id),
+      controller_id: value(attestation, :controller_id),
+      dispatch_agent_id: value(attestation, :dispatch_agent_id),
+      dispatch_partition_id: value(attestation, :dispatch_partition_id),
+      binding_id: value(attestation, :binding_id),
+      binding_version: value(attestation, :binding_version),
+      approval_id: value(attestation, :approval_id),
+      reviewed_launch_snapshot_digest: value(attestation, :reviewed_launch_snapshot_digest),
+      preflight_request_digest: value(attestation, :preflight_request_digest),
+      target_snapshot_digest: value(attestation, :target_snapshot_digest),
+      controller_security_snapshot_digest:
+        value(attestation, :controller_security_snapshot_digest),
+      live_launch_snapshot_digest: value(attestation, :live_launch_snapshot_digest),
+      command_result_digest: value(attestation, :command_result_digest),
+      verified_at: value(attestation, :verified_at),
+      expires_at: value(attestation, :expires_at)
+    }
+  end
+
+  defp remove_preflight_attestation(bundle) do
+    fields = [
+      :preflight_evidence_id,
+      :immutable_launch_snapshot,
+      :immutable_launch_snapshot_digest
+    ]
+
+    bundle
+    |> update_in([:operation], &Map.drop(&1, fields))
+    |> update_in([:execution], &Map.drop(&1, fields))
+  end
+
+  defp expire_preflight_attestation(bundle) do
+    attestation =
+      bundle.operation.immutable_launch_snapshot
+      |> Map.put("verified_at", DateTime.to_iso8601(DateTime.add(@now, -120, :second)))
+      |> Map.put("expires_at", DateTime.to_iso8601(DateTime.add(@now, -1, :second)))
+
+    {:ok, attrs} = AwxLaunchPreflightAttestation.attrs(attestation)
+
+    %{
+      bundle
+      | operation: Map.merge(bundle.operation, attrs),
+        execution: Map.merge(bundle.execution, attrs),
+        preflight_evidence: preflight_evidence(attestation)
+    }
   end
 
   defp accepted_job(env, job_id, status) do
@@ -789,6 +966,9 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultProvenanceTest do
       }
     }
   end
+
+  defp value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))
+  defp value(_map, _key), do: nil
 
   defp stringify(map), do: Map.new(map, fn {key, value} -> {to_string(key), value} end)
 end

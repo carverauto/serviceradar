@@ -13,6 +13,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   alias ServiceRadar.Automation.Ansible.AutomationExecution
   alias ServiceRadar.Automation.Ansible.AutomationExecutionTarget
   alias ServiceRadar.Automation.Ansible.AutomationOperation
+  alias ServiceRadar.Automation.Ansible.AwxLaunchPreflightAttestation
   alias ServiceRadar.Automation.Ansible.CallbackCommandContract
   alias ServiceRadar.Automation.Ansible.CallbackCommandDispatcher
   alias ServiceRadar.Automation.Ansible.Controller
@@ -117,9 +118,10 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
              reported_command_type,
              opts
            ),
-         :ok <- verify_controller_boundary(bundle),
+         {:ok, boundary} <- verify_controller_boundary(bundle, now, opts),
          :ok <- terminal_command(bundle.command) do
-      process_terminal_bundle(bundle, now, opts)
+      bundle = Map.put(bundle, :controller_boundary, boundary)
+      process_terminal_bundle(bundle, now, apply_boundary_policy(opts, boundary))
     else
       {:error, _reason} = error -> error
     end
@@ -159,10 +161,10 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
 
     with {:ok, bundle} <- load_bundle(attempt.command_id, opts),
          true <- same_id?(bundle.attempt.id, attempt.id) || {:error, :callback_attempt_changed},
-         :ok <- verify_controller_boundary(bundle),
+         {:ok, boundary} <- verify_controller_boundary(bundle, now, opts),
          {:ok, claimed, token} <- claim_processing(bundle.attempt, now, opts) do
-      bundle = %{bundle | attempt: claimed}
-      reconcile_claimed_transport(bundle, token, now, opts)
+      bundle = %{bundle | attempt: claimed, controller_boundary: boundary}
+      reconcile_claimed_transport(bundle, token, now, apply_boundary_policy(opts, boundary))
     else
       false -> {:error, :callback_attempt_changed}
       {:error, _reason} = error -> error
@@ -239,24 +241,154 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
     end
   end
 
-  defp verify_controller_boundary(bundle) do
+  # Fresh callback executions are anchored to the immutable, independently
+  # evidenced launch preflight. The raw controller snapshot used for later
+  # read-only provenance is reconstructed from the current controller only
+  # after its digest is verified against that immutable attestation; mutable
+  # execution metadata is never an authority for a new callback child.
+  #
+  # Older rows retain the prior metadata boundary solely so already-created
+  # credentials/jobs can be contained. `apply_boundary_policy/2` forces those
+  # paths into cleanup-only processing, preventing a digest-only legacy row
+  # from ever creating a follow-up `awx.launch_job` command.
+  defp verify_controller_boundary(bundle, now, opts) do
+    if immutable_preflight_present?(bundle) do
+      verify_attested_controller_boundary(bundle, now, opts)
+    else
+      verify_legacy_cleanup_boundary(bundle)
+    end
+  end
+
+  defp verify_attested_controller_boundary(bundle, now, opts) do
+    verification_opts = preflight_verification_opts(opts)
+
+    case AwxLaunchPreflightAttestation.verify_persisted(
+           bundle.operation,
+           bundle.execution,
+           bundle.controller,
+           now,
+           verification_opts
+         ) do
+      {:ok, attestation} ->
+        verified_attested_controller_boundary(bundle, attestation, :attested)
+
+      # The mutation was already issued. Keep the evidence/controller/edge
+      # boundary intact, but route every later action through cleanup-only so
+      # expiry cannot authorize a new credential or job launch.
+      {:error, :awx_preflight_evidence_expired} ->
+        with {:ok, attestation} <-
+               AwxLaunchPreflightAttestation.verify_persisted_for_cleanup(
+                 bundle.operation,
+                 bundle.execution,
+                 bundle.controller,
+                 now,
+                 verification_opts
+               ) do
+          verified_attested_controller_boundary(bundle, attestation, :attested_cleanup)
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp verified_attested_controller_boundary(bundle, attestation, mode) do
+    with :ok <-
+           AwxLaunchPreflightAttestation.verify_dispatch_principal(
+             attestation,
+             bundle.attempt.dispatch_agent_id,
+             bundle.attempt.dispatch_partition_id
+           ),
+         :ok <- exact_boundary_dispatch(bundle, attestation["dispatch_partition_id"]),
+         {:ok, controller_security_snapshot} <-
+           ControllerSecuritySnapshot.capture(bundle.controller) do
+      {:ok,
+       %{
+         mode: mode,
+         dispatch_partition_id: attestation["dispatch_partition_id"],
+         controller_security_snapshot: controller_security_snapshot
+       }}
+    end
+  end
+
+  defp verify_legacy_cleanup_boundary(bundle) do
     metadata = value(bundle.execution, :metadata) || %{}
 
     with partition when is_binary(partition) and partition != "" <-
            value(metadata, :dispatch_partition_id),
-         true <- partition == bundle.attempt.dispatch_partition_id,
-         true <- partition == value(bundle.command, :partition_id),
-         true <- partition == value(bundle.grant, :dispatch_partition_id),
+         :ok <- exact_boundary_dispatch(bundle, partition),
          :ok <-
            ControllerSecuritySnapshot.verify(
              bundle.controller,
              value(metadata, :controller_security_snapshot)
            ) do
-      :ok
+      {:ok,
+       %{
+         mode: :legacy_cleanup,
+         dispatch_partition_id: partition,
+         controller_security_snapshot: value(metadata, :controller_security_snapshot)
+       }}
     else
       false -> {:error, :callback_controller_security_boundary_drift}
       {:error, _reason} = error -> error
       _ -> {:error, :callback_dispatch_partition_required}
+    end
+  end
+
+  defp exact_boundary_dispatch(bundle, partition) do
+    command = value(bundle, :command) || %{}
+    attempt = value(bundle, :attempt) || %{}
+    grant = value(bundle, :grant) || %{}
+
+    cond do
+      not is_binary(partition) or partition == "" ->
+        {:error, :callback_dispatch_partition_required}
+
+      partition != value(attempt, :dispatch_partition_id) ->
+        {:error, :callback_controller_security_boundary_drift}
+
+      partition != value(command, :partition_id) ->
+        {:error, :callback_controller_security_boundary_drift}
+
+      partition != value(grant, :dispatch_partition_id) ->
+        {:error, :callback_controller_security_boundary_drift}
+
+      value(bundle.controller, :agent_id) != value(attempt, :dispatch_agent_id) ->
+        {:error, :callback_controller_security_boundary_drift}
+
+      value(command, :agent_id) != value(attempt, :dispatch_agent_id) ->
+        {:error, :callback_controller_security_boundary_drift}
+
+      value(grant, :dispatch_agent_id) != value(attempt, :dispatch_agent_id) ->
+        {:error, :callback_controller_security_boundary_drift}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp immutable_preflight_present?(bundle) when is_map(bundle) do
+    Enum.any?([value(bundle, :operation), value(bundle, :execution)], fn resource ->
+      snapshot = value(resource, :immutable_launch_snapshot)
+
+      not is_nil(value(resource, :preflight_evidence_id)) or
+        not is_nil(value(resource, :immutable_launch_snapshot_digest)) or
+        (is_map(snapshot) and map_size(snapshot) > 0)
+    end)
+  end
+
+  defp immutable_preflight_present?(_bundle), do: false
+
+  defp apply_boundary_policy(opts, %{mode: mode})
+       when mode in [:attested_cleanup, :legacy_cleanup],
+       do: Keyword.put(opts, :cleanup_only, true)
+
+  defp apply_boundary_policy(opts, _boundary), do: opts
+
+  defp preflight_verification_opts(opts) do
+    case Keyword.fetch(opts, :preflight_evidence_reader) do
+      {:ok, reader} -> [evidence_reader: reader]
+      :error -> []
     end
   end
 
@@ -308,7 +440,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   defp reconcile_claimed_transport(bundle, token, now, opts) do
     case rebuild_and_validate(bundle) do
       {:ok, _request} ->
-        with {:ok, next_attrs, outcome} <- reconciliation_attempt_attrs(bundle, now),
+        with {:ok, next_attrs, outcome} <-
+               reconciliation_attempt_attrs_for_boundary(bundle, now, opts),
              {:ok, next} <-
                ambiguous_with_next(bundle.attempt, token, nil, outcome, next_attrs, now),
              :ok <- dispatch_after_commit(next, opts) do
@@ -317,6 +450,14 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
 
       {:error, reason} ->
         finish_fail_closed(bundle, token, nil, reason, now, opts)
+    end
+  end
+
+  defp reconciliation_attempt_attrs_for_boundary(bundle, now, opts) do
+    if cleanup_only?(bundle, opts) do
+      cleanup_reconciliation_attempt_attrs(bundle, now, opts)
+    else
+      reconciliation_attempt_attrs(bundle, now)
     end
   end
 
@@ -439,7 +580,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   end
 
   defp process_claimed(bundle, request, lease_token, result_digest, now, opts) do
-    cleanup_only = bundle.attempt.cleanup_only == true or Keyword.get(opts, :cleanup_only, false)
+    cleanup_only = cleanup_only?(bundle, opts)
 
     cond do
       cleanup_only ->
@@ -465,6 +606,11 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
       true ->
         process_command_failure(bundle, lease_token, result_digest, now, opts)
     end
+  end
+
+  defp cleanup_only?(bundle, opts) do
+    value(value(bundle, :attempt) || %{}, :cleanup_only) == true or
+      Keyword.get(opts, :cleanup_only, false)
   end
 
   defp process_cleanup_only_success(
@@ -579,6 +725,22 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
         opts
       )
     end
+  end
+
+  # Once the preflight TTL closes, a job that was already dispatched must be
+  # contained rather than activated. The independent controller lookup below
+  # discovers its exact durable identity before any cancellation is scheduled.
+  defp process_cleanup_only_success(
+         %{attempt: %Attempt{stage: stage}} = bundle,
+         _request,
+         token,
+         digest,
+         now,
+         opts,
+         true
+       )
+       when stage in [:fetch_job, :fetch_host_summaries] do
+    reconcile_cleanup_launch_candidates(bundle, token, digest, now, opts)
   end
 
   defp process_cleanup_only_success(
@@ -949,13 +1111,13 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
          {:ok, candidates} <- verified_reconciled_job_candidates(bundle, verified.jobs) do
       cond do
         verified.complete? and candidates == [] ->
-          schedule_recent_jobs_poll(bundle, request, token, digest, now)
+          schedule_recent_jobs_poll(bundle, request, token, digest, now, opts)
 
         verified.complete? and length(candidates) == 1 ->
           reconcile_verified_candidate(bundle, hd(candidates), token, digest, now, opts)
 
         not verified.complete? and candidates == [] ->
-          schedule_recent_jobs_poll(bundle, request, token, digest, now)
+          schedule_recent_jobs_poll(bundle, request, token, digest, now, opts)
 
         true ->
           reason =
@@ -1241,7 +1403,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
     end
   end
 
-  defp schedule_recent_jobs_poll(bundle, request, token, digest, now) do
+  defp schedule_recent_jobs_poll(bundle, request, token, digest, now, opts) do
     next_at = DateTime.add(now, @poll_seconds, :second)
 
     with :ok <- before_deadline(bundle.attempt, next_at),
@@ -1252,7 +1414,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
              command_type: "awx.list_recent_jobs",
              expected_credential_id: value(bundle.grant, :ephemeral_credential_id),
              reconcile_after: bundle.attempt.reconcile_after,
-             next_attempt_at: next_at
+             next_attempt_at: next_at,
+             attempt_store: callback_attempt_store(opts)
            ),
          {:ok, next} <-
            complete_with_next(
@@ -1261,7 +1424,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
              digest,
              :launch_candidate_not_visible,
              next_attrs,
-             now
+             now,
+             opts
            ) do
       {:ok, next, :launch_candidate_not_visible}
     end
@@ -1332,6 +1496,91 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
 
   defp reconciliation_attempt_attrs(_bundle, _now),
     do: {:error, :callback_command_not_reconcilable}
+
+  # Transport ambiguity after preflight expiry is never allowed to restart the
+  # ordinary create/launch chain. It is converted into a fresh-deadline,
+  # cleanup-only lookup that can discover and remove an orphaned credential or
+  # job without issuing either privileged mutation again.
+  defp cleanup_reconciliation_attempt_attrs(
+         %{attempt: %Attempt{stage: stage}} = bundle,
+         now,
+         opts
+       )
+       when stage in [:create_credential, :fetch_credential] do
+    with {:ok, request} <-
+           CallbackCommandContract.credential_lookup_request(
+             bundle.execution,
+             bundle.grant.awx_scope_snapshot
+           ),
+         {:ok, attrs} <-
+           cleanup_attempt_attrs(
+             bundle,
+             request,
+             now,
+             [
+               stage: :fetch_credential,
+               purpose: :credential_reconciliation,
+               command_type: "awx.fetch_callback_credential"
+             ],
+             opts
+           ) do
+      {:ok, attrs, :credential_cleanup_transport_reconciliation}
+    end
+  end
+
+  defp cleanup_reconciliation_attempt_attrs(
+         %{attempt: %Attempt{stage: :cancel_job}} = bundle,
+         now,
+         opts
+       ) do
+    with {:ok, request} <-
+           CallbackCommandContract.cancel_job_request(bundle.attempt.expected_job_id),
+         {:ok, attrs} <-
+           cleanup_attempt_attrs(
+             bundle,
+             request,
+             now,
+             [
+               stage: :cancel_job,
+               purpose: :terminal_cleanup,
+               command_type: "awx.cancel_job",
+               expected_credential_id: cleanup_credential_id(bundle),
+               expected_job_id: bundle.attempt.expected_job_id,
+               candidate_job_ids: bundle.attempt.candidate_job_ids
+             ],
+             opts
+           ) do
+      {:ok, attrs, :cancel_cleanup_transport_reconciliation}
+    end
+  end
+
+  defp cleanup_reconciliation_attempt_attrs(bundle, now, opts) do
+    reconcile_after = cleanup_reconcile_after(bundle, now)
+
+    with {:ok, request} <-
+           CallbackCommandContract.recent_jobs_request(bundle.execution, reconcile_after),
+         {:ok, attrs} <-
+           cleanup_attempt_attrs(
+             bundle,
+             request,
+             now,
+             [
+               stage: :list_recent_jobs,
+               purpose: :launch_reconciliation,
+               command_type: "awx.list_recent_jobs",
+               expected_credential_id: cleanup_credential_id(bundle),
+               reconcile_after: reconcile_after
+             ],
+             opts
+           ) do
+      {:ok, attrs, :launch_cleanup_transport_reconciliation}
+    end
+  end
+
+  defp cleanup_reconcile_after(bundle, now) do
+    bundle.attempt.reconcile_after || bundle.attempt.dispatched_at || bundle.attempt.inserted_at ||
+      DateTime.add(now, -60, :second)
+  end
 
   defp exact_create_result(bundle) do
     payload = stringify(bundle.command.result_payload)
@@ -2165,15 +2414,15 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
     do: callback_attempt_store(opts).create_planned(attrs, actor: @actor)
 
   defp controller_provenance_opts(bundle, opts) do
-    metadata = value(bundle.execution, :metadata) || %{}
+    boundary = value(bundle, :controller_boundary) || %{}
 
     opts
     |> Keyword.get(:controller_provenance_opts, [])
     |> Keyword.put(
       :expected_controller_snapshot,
-      value(metadata, :controller_security_snapshot)
+      value(boundary, :controller_security_snapshot)
     )
-    |> Keyword.put(:expected_partition_id, bundle.attempt.dispatch_partition_id)
+    |> Keyword.put(:expected_partition_id, value(boundary, :dispatch_partition_id))
   end
 
   defp optional_found_credential_id(%{"found" => true, "credential_id" => id})

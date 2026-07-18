@@ -14,6 +14,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
   alias ServiceRadar.Automation.Ansible.AutomationExecutionTarget
   alias ServiceRadar.Automation.Ansible.AutomationOperation
   alias ServiceRadar.Automation.Ansible.AwxClient
+  alias ServiceRadar.Automation.Ansible.AwxLaunchPreflightAttestation
   alias ServiceRadar.Automation.Ansible.CallbackCommandContract
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
@@ -37,7 +38,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
     with :ok <- before_deadline(attempt, now),
          {:ok, resources} <- load_resources(attempt, opts),
          :ok <- validate_resource_principal(attempt, resources),
-         :ok <- verify_controller_boundary(attempt, resources),
+         :ok <- verify_controller_boundary(attempt, resources, now, opts),
          :ok <- validate_cleanup_only_stage(attempt),
          {:ok, request} <- rebuild_request(attempt, resources),
          true <-
@@ -48,6 +49,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
            CallbackCommandContract.context_matches?(attempt, resources.execution, context) ||
              {:error, :callback_command_context_digest_mismatch},
          :ok <- authorize_privileged_continuation(attempt, resources, opts),
+         :ok <- verify_preflight_before_mutation(attempt, resources, now, opts),
          {:ok, claimed, lease_token} <- claim(attempt, now, opts) do
       dispatch_claimed(claimed, lease_token, resources, request, context, now, opts)
     else
@@ -79,7 +81,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
 
         with {:ok, resources} <- load_resources(attempt, opts),
              :ok <- validate_resource_principal(attempt, resources),
-             :ok <- verify_controller_boundary(attempt, resources),
+             :ok <- verify_controller_boundary(attempt, resources, now, opts),
              :ok <- authorize_callback(mode, resources, opts) do
           :ok
         else
@@ -158,7 +160,78 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
   defp validate_resource_principal(_attempt, _resources),
     do: {:error, :callback_command_resource_principal_mismatch}
 
-  defp verify_controller_boundary(attempt, resources) do
+  # New plans carry a create-only attestation on both durable resources. It is
+  # checked for every non-mutating continuation, while mutation stages defer
+  # the same full check until immediately before a lease can be claimed. That
+  # preserves current-authority denial handling without letting a launch or
+  # credential creation reach the command bus without evidence.
+  #
+  # Existing rows predate the attestation fields (their JSON snapshot is the
+  # migration's empty default). They retain the old controller snapshot path
+  # only for non-launch work; `verify_preflight_before_mutation/4` prevents a
+  # legacy/digest-only row from entering either mutation stage.
+  defp verify_controller_boundary(attempt, resources, now, opts) do
+    cond do
+      immutable_preflight_present?(resources) and preflight_mutation_stage?(attempt) ->
+        :ok
+
+      immutable_preflight_present?(resources) ->
+        verify_immutable_preflight(attempt, resources, now, opts)
+
+      true ->
+        verify_legacy_controller_boundary(attempt, resources)
+    end
+  end
+
+  defp verify_preflight_before_mutation(attempt, resources, now, opts) do
+    if preflight_mutation_stage?(attempt),
+      do: verify_immutable_preflight(attempt, resources, now, opts),
+      else: :ok
+  end
+
+  defp verify_immutable_preflight(attempt, resources, now, opts) do
+    verification_opts = preflight_verification_opts(opts)
+
+    case AwxLaunchPreflightAttestation.verify_persisted(
+           value(resources, :operation),
+           value(resources, :execution),
+           value(resources, :controller),
+           now,
+           verification_opts
+         ) do
+      {:ok, snapshot} ->
+        verify_preflight_dispatch_principal(snapshot, attempt)
+
+      {:error, :awx_preflight_evidence_expired} = error ->
+        if preflight_mutation_stage?(attempt) do
+          error
+        else
+          with {:ok, snapshot} <-
+                 AwxLaunchPreflightAttestation.verify_persisted_for_cleanup(
+                   value(resources, :operation),
+                   value(resources, :execution),
+                   value(resources, :controller),
+                   now,
+                   verification_opts
+                 ) do
+            verify_preflight_dispatch_principal(snapshot, attempt)
+          end
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp verify_preflight_dispatch_principal(snapshot, attempt) do
+    AwxLaunchPreflightAttestation.verify_dispatch_principal(
+      snapshot,
+      attempt.dispatch_agent_id,
+      attempt.dispatch_partition_id
+    )
+  end
+
+  defp verify_legacy_controller_boundary(attempt, resources) do
     metadata = value(resources.execution, :metadata) || %{}
 
     with partition when is_binary(partition) and partition != "" <-
@@ -174,6 +247,30 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcher do
       false -> {:error, :callback_dispatch_partition_drift}
       {:error, _reason} = error -> error
       _ -> {:error, :callback_dispatch_partition_required}
+    end
+  end
+
+  defp immutable_preflight_present?(resources) when is_map(resources) do
+    Enum.any?([value(resources, :operation), value(resources, :execution)], fn resource ->
+      snapshot = value(resource, :immutable_launch_snapshot)
+
+      not is_nil(value(resource, :preflight_evidence_id)) or
+        not is_nil(value(resource, :immutable_launch_snapshot_digest)) or
+        (is_map(snapshot) and map_size(snapshot) > 0)
+    end)
+  end
+
+  defp immutable_preflight_present?(_resources), do: false
+
+  defp preflight_mutation_stage?(%Attempt{stage: stage})
+       when stage in [:create_credential, :launch_job], do: true
+
+  defp preflight_mutation_stage?(_attempt), do: false
+
+  defp preflight_verification_opts(opts) do
+    case Keyword.fetch(opts, :preflight_evidence_reader) do
+      {:ok, reader} -> [evidence_reader: reader]
+      :error -> []
     end
   end
 

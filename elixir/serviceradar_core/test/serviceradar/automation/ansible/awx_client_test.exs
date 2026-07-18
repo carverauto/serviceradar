@@ -291,7 +291,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
         {"awx.fetch_template", %{"template_id" => -1}},
         {"awx.fetch_launch_preflight", Map.delete(launch_preflight_request(), "schema")},
         {"awx.fetch_launch_preflight", launch_preflight_request(%{"template_id" => 42})},
-        {"awx.fetch_launch_preflight", launch_preflight_request(%{"credential_ids" => ["91", "5"]})},
+        {"awx.fetch_launch_preflight",
+         launch_preflight_request(%{"credential_ids" => ["91", "5"]})},
         {"awx.fetch_launch_preflight",
          launch_preflight_request(%{
            "selected_hosts" => [
@@ -307,13 +308,21 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
         {"awx.fetch_launch_preflight",
          launch_preflight_request(%{
            "selected_hosts" => [
-             launch_preflight_request()["selected_hosts"] |> hd() |> Map.put("host_name", "NODE-101")
+             launch_preflight_request()["selected_hosts"]
+             |> hd()
+             |> Map.put("host_name", "NODE-101")
            ]
          })},
         {"awx.fetch_launch_preflight",
          launch_preflight_request(%{
            "selected_hosts" => [
              launch_preflight_request()["selected_hosts"] |> hd() |> Map.put("ansible_host", nil)
+           ]
+         })},
+        {"awx.fetch_launch_preflight",
+         launch_preflight_request(%{
+           "selected_hosts" => [
+             launch_preflight_request()["selected_hosts"] |> hd() |> Map.put("ansible_host", "")
            ]
          })},
         {"awx.launch_job", %{"template_id" => 0}},
@@ -381,8 +390,15 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
     end
 
     test "preflight binds the request controller to the dispatched controller" do
+      mismatched_controller =
+        Map.put(preflight_controller(), :id, "018f3f56-0000-7222-8333-123456789abd")
+
       assert {:error, :controller_launch_preflight_identity_mismatch} =
-               AwxClient.fetch_launch_preflight(controller(), launch_preflight_request(), dispatch_opts())
+               AwxClient.fetch_launch_preflight(
+                 mismatched_controller,
+                 launch_preflight_request(),
+                 dispatch_opts()
+               )
 
       refute_received {:dispatch, _, "awx.fetch_launch_preflight", _, _}
     end
@@ -490,6 +506,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       assert_receive {:dispatch, _, "awx.fetch_launch_preflight", preflight_payload, _}
 
       assert preflight_payload["args"] == launch_preflight_request()
+
       assert preflight_payload["credential_broker"]["credential_secret_ref"] ==
                "credentialref:network-credential-secret:018f3f56-2222-7222-8333-123456789abc"
 

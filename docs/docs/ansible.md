@@ -144,7 +144,7 @@ The Ansible integration never passes a plaintext AWX token to a playbook. Each A
 In the ServiceRadar web UI, go to **Settings → Credentials** and create:
 
 1. A sync credential (for example `awx-prod-sync`) for an AWX principal with OAuth `read` and only the organization/inventory/project/template read roles needed for health, catalog, and inventory discovery.
-2. An execution credential (for example `awx-prod-exec`) for a non-superuser AWX principal with OAuth `write`, exact inventory `Use`, template `Execute`, and machine-credential `Use` roles. It does not need Project Admin, Inventory Admin, Job Template Admin, Ad Hoc, or organization-wide Credential Admin.
+2. An execution credential (for example `awx-prod-exec`) for a non-superuser AWX principal with only the exact AWX resource reads needed by live launch preflight (the reviewed template, survey, project, inventory, selected hosts, credentials, and execution environment), plus OAuth `write`, exact inventory `Use`, template `Execute`, machine-credential `Use`, and job lifecycle read/cancel roles. It does not need Project Admin, Inventory Admin, Job Template Admin, Ad Hoc, or organization-wide Credential Admin.
 3. For callback-enabled playbooks, a callback credential. The currently supported least-privilege deployment deliberately reuses the execution credential and grants that principal Credential Admin only in a dedicated empty AWX organization such as `ServiceRadar Ephemeral`. Configure the reviewed callback credential organization ID to that empty organization. Never grant the principal Credential Admin in an organization that contains operator or machine credentials.
 
 Save each credential. You will select the references when registering the controller. ServiceRadar supports distinct execution and callback references, but a deployment using distinct AWX users must first prove that the execution principal has `Use` on each dynamically created callback credential; selecting a different secret does not add or bypass AWX permissions.
@@ -175,6 +175,48 @@ Save. Within `AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS` (default 30), `ControllerH
 When upgrading a controller created before the purpose split, the migration copies its legacy secret reference into all three purpose fields. This preserves exactly the access the controller already had; it does not grant any new AWX role. Rotate the three fields to the least-privilege principals above, verify two sync cycles plus one exact canary run and callback cleanup, wait for in-flight commands and the five-minute broker-grant TTL, then revoke the legacy AWX token. During the one-release rolling-upgrade window, a row written by an old ServiceRadar pod may use the deprecated legacy field for sync only. Execution and callback never fall back to it.
 
 If the status stays `:unknown` past two health intervals, see [Troubleshooting](#troubleshooting).
+
+### 2a. Live AWX preflight and callback enablement runbook
+
+ServiceRadar treats the reviewed AWX binding as a security boundary. A mutable
+launch must first obtain a redacted live preflight through the controller's
+assigned edge agent, compare it with the approved binding, then persist only
+the resulting identifiers and digests before `awx.launch_job` is allowed.
+
+Use this procedure for a new controller, an AWX change, or a callback rollout:
+
+1. Keep `automationCallbacks.enabled: false`. Confirm the controller is healthy
+   and the on-demand `awx` plugin (not only `awx-inventory-sync`) is assigned to
+   its selected edge agent.
+2. Give the ServiceRadar runner machine principal only the resource reads and
+   `Use`/`Execute` roles listed above. It must not edit job templates, projects,
+   inventories, credentials, or execution environments. If callbacks are
+   required, grant Credential Admin only in a dedicated empty callback
+   organization; never in an organization that contains production credentials.
+   Restrict direct AWX template execution to that runner identity/team. Operators
+   must launch through ServiceRadar so its RBAC, preflight evidence, and audit
+   trail cannot be bypassed.
+3. Create or renew the approved binding through the binding-review workflow with
+   a complete secret-free reviewed launch snapshot. A legacy digest-only binding
+   is intentionally non-launchable. Do not patch a reviewed binding in place.
+4. If ServiceRadar reports template/project, credential, execution-environment,
+   survey, prompt, or target-membership drift, leave the binding blocked. Review
+   the AWX change, then create a new binding version with a fresh canonical
+   snapshot and approval. Never accept the live values automatically.
+5. Run one narrowly scoped, ServiceRadar-initiated canary against a reviewed
+   non-production target. Confirm it creates one read-only preflight command,
+   retains redacted preflight evidence and the immutable launch snapshot, and
+   dispatches exactly one matching AWX job. Repeat the canary for the callback
+   path only after the non-callback preflight canary succeeds.
+6. Only then enable `automationCallbacks.enabled` in the intended Helm overlay
+   and deploy it through the normal reviewed release path. To roll back, set it
+   to `false` and redeploy/sync the overlay; this removes callback issuance
+   without deleting the immutable evidence needed for investigation.
+
+The brief interval between a live AWX read and AWX launch cannot be made
+cross-system atomic. The runner's least-privilege role, immediate launch after
+preflight, and the no-direct-launch restriction are therefore required parts of
+the control, not optional hardening.
 
 ### 3. Register a git playbook repository (optional)
 
