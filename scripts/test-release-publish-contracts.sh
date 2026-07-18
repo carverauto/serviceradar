@@ -404,21 +404,25 @@ publish_images_step = workflow[
     workflow.index("- name: Publish Helm chart to OCI registry")
 ]
 for fragment in (
-    'digest_label = entry.get(',
-    '":" + entry.get("push_image", entry["image"]) + ".digest",',
-    'print("//docker/images:" + digest_label[1:])',
     'SERVICERADAR_COSIGN_COMMON="${PWD}/scripts/cosign_common.sh"',
     'SERVICERADAR_REPO_ROOT="${PWD}"',
+    'SERVICERADAR_SIGN_REGISTRY_TAG="${release_sha_tag}"',
     '"${sign_script}"',
 ):
     if fragment not in publish_images_step:
-        raise SystemExit(f"release retry is missing digest materialization contract: {fragment}")
+        raise SystemExit(f"release retry is missing registry-digest signing contract: {fragment}")
+if 'mapfile -t image_targets' in publish_images_step or 'bazel build --config=remote_push --stamp "${image_targets[@]}"' in publish_images_step:
+    raise SystemExit("release retry must not rebuild image digests after registry equality is proven")
 
 for fragment in (
     'source "${SERVICERADAR_COSIGN_COMMON:-${SCRIPT_DIR}/cosign_common.sh}"',
     'REPO_ROOT="${SERVICERADAR_REPO_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"',
+    'SIGN_REGISTRY_TAG="${SERVICERADAR_SIGN_REGISTRY_TAG:-}"',
+    'skopeo inspect --format',
+    '"docker://${repository}:${SIGN_REGISTRY_TAG}"',
+    'digest_source="published registry tag ${repository}:${SIGN_REGISTRY_TAG}"',
     'digest_file="${IMAGE_METADATA_DIR}/${digest_target}.json.sha256"',
-    'invalid Bazel OCI digest metadata',
+    'digest_source="Bazel OCI digest metadata ${digest_file}"',
 ):
     if fragment not in sign_oci_publish:
         raise SystemExit(f"OCI signer is missing canonical Bazel digest handling: {fragment}")
