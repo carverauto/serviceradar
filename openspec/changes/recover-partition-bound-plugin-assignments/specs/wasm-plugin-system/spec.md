@@ -41,6 +41,13 @@ an empty object and an empty array.
 - **THEN** it canonicalizes the object as `{}` and the array as `[]`
 - **AND** a valid release signature is not rejected because the collection types were collapsed
 
+#### Scenario: Periodic trusted catalog sync schedules its successor
+- **GIVEN** the hourly first-party Wasm catalog sync is currently executing
+- **WHEN** that successful execution schedules its periodic successor
+- **THEN** the successor uniqueness check excludes the currently executing row
+- **AND** exactly one future sync remains scheduled at the configured interval
+- **AND** the minute-scale bootstrap guard does not become the normal execution cadence
+
 #### Scenario: Compatible trusted assignment recovers
 - **GIVEN** a disabled unbound manual assignment references a trusted first-party package
 - **AND** its parameters satisfy the current package schema

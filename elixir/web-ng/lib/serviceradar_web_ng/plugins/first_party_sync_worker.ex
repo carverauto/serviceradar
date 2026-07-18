@@ -19,6 +19,10 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
 
   @default_release_limit 10
   @default_reschedule_seconds 3_600
+  @bootstrap_unique [period: :infinity, states: :incomplete]
+  @successor_unique [period: :infinity, states: [:available, :scheduled, :retryable]]
+  @bootstrap_states ["available", "scheduled", "executing", "retryable", "suspended"]
+  @manual_unique [period: :infinity, states: :incomplete, keys: [:force]]
 
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
@@ -26,7 +30,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
       if check_existing_job() do
         {:ok, :already_scheduled}
       else
-        %{} |> new(schedule_in: 60) |> ObanSupport.safe_insert()
+        %{} |> bootstrap_job(schedule_in: 60) |> ObanSupport.safe_insert()
       end
     else
       {:error, :oban_unavailable}
@@ -41,7 +45,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
       |> maybe_put("limit", Keyword.get(opts, :limit))
 
     args
-    |> new()
+    |> manual_job()
     |> ObanSupport.safe_insert()
   end
 
@@ -49,18 +53,19 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   def perform(%Oban.Job{args: args}) do
     force? = Map.get(args || %{}, "force") == true
 
-    try do
+    result =
       if force? or auto_sync_enabled?() do
         run_sync(args || %{})
       else
         Logger.debug("First-party Wasm plugin sync skipped because auto-sync is disabled")
         :ok
       end
-    after
-      if !force? do
-        schedule_next()
-      end
+
+    if !force? and result == :ok do
+      schedule_next()
     end
+
+    result
   end
 
   defp run_sync(args) do
@@ -86,7 +91,13 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
 
   defp schedule_next do
     if auto_sync_enabled?() and ObanSupport.available?() do
-      _ = ObanSupport.safe_insert(new(%{}, schedule_in: reschedule_seconds()))
+      case ObanSupport.safe_insert(successor_job(%{}, schedule_in: reschedule_seconds())) do
+        {:ok, %Oban.Job{}} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Failed to schedule the next first-party Wasm plugin sync", reason: inspect(reason))
+      end
     end
 
     :ok
@@ -96,7 +107,8 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
     query =
       from(j in Oban.Job,
         where: j.worker == ^to_string(__MODULE__),
-        where: j.state in ["available", "scheduled", "executing", "retryable"],
+        where: j.state in ^@bootstrap_states,
+        where: fragment("COALESCE(?->>'force', 'false') <> 'true'", j.args),
         limit: 1
       )
 
@@ -142,6 +154,10 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp bootstrap_job(args, opts), do: new(args, Keyword.put(opts, :unique, @bootstrap_unique))
+  defp successor_job(args, opts), do: new(args, Keyword.put(opts, :unique, @successor_unique))
+  defp manual_job(args), do: new(args, unique: @manual_unique)
 
   defp log_import_failures(failures) do
     Enum.each(failures, fn failure ->
