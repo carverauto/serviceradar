@@ -208,6 +208,20 @@ path_belongs_to_addon() {
   return 1
 }
 
+path_is_test_only() {
+  local path="$1"
+
+  # Rust unit/integration tests are compiled only into rust_test targets and
+  # never into the signed native add-on bundle. Treating them as payload forces
+  # operators to approve a new package version whose runtime bytes are
+  # unchanged. Production sources under src/ remain version-gated.
+  case "${path}" in
+    rust/*/src/tests/*|rust/*/tests/*) return 0 ;;
+  esac
+
+  return 1
+}
+
 inventory_stanza() {
   local ref="$1" addon="$2"
   python3 - "${ref}" "${addon}" <<'PY'
@@ -304,7 +318,7 @@ while IFS= read -r path; do
   esac
 
   while IFS= read -r addon; do
-    if path_belongs_to_addon "${addon}" "${path}"; then
+    if path_belongs_to_addon "${addon}" "${path}" && ! path_is_test_only "${path}"; then
       required_bumps="${required_bumps}${addon}"$'\n'
       version_checks="${version_checks}${addon}"$'\n'
     fi

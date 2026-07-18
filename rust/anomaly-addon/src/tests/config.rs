@@ -8,7 +8,7 @@ use addon_sdk::Addon;
 use crate::AnomalyAddon;
 use crate::checkpoint::{resolve_checkpoint_settings, resolve_scoring_stale_after_ns};
 use crate::config::{AddonConfig, DEFAULT_SCORING_STALE_AFTER_NS};
-use crate::engine::{DriftMode, EngineConfig};
+use crate::engine::{DetectorEngine, DriftMode, EngineConfig, SeriesProfile};
 
 #[test]
 fn config_empty_optional_numbers_fall_back_to_defaults() {
@@ -469,13 +469,14 @@ fn config_resolves_delivered_seasonal_baselines() {
 
 #[test]
 fn config_resolves_compact_delivered_seasonal_baselines() {
-    let mut centers = vec![serde_json::Value::Null; serviceradar_anomaly_core::HOURS_PER_WEEK];
-    let mut scales = vec![serde_json::Value::Null; serviceradar_anomaly_core::HOURS_PER_WEEK];
-    let mut sample_counts = vec![serde_json::json!(0); serviceradar_anomaly_core::HOURS_PER_WEEK];
-    let index = 2 * 24 + 11;
+    let mut centers = vec![serde_json::json!(100.0); serviceradar_anomaly_core::HOURS_PER_WEEK];
+    let scales = vec![serde_json::json!(1.25); serviceradar_anomaly_core::HOURS_PER_WEEK];
+    let sample_counts = vec![serde_json::json!(9); serviceradar_anomaly_core::HOURS_PER_WEEK];
+    // Unix epoch is Thursday 00:00 UTC (dow=4, hod=0), deliberately not the
+    // final/latest profile slot. This pins end-to-end resolution of a historic
+    // bucket from the compact 168-element payload shape core delivers.
+    let index = 4 * 24;
     centers[index] = serde_json::json!(42.5);
-    scales[index] = serde_json::json!(1.25);
-    sample_counts[index] = serde_json::json!(9);
 
     let config: AddonConfig = serde_json::from_value(serde_json::json!({
         "seasonal_baselines": {
@@ -493,7 +494,28 @@ fn config_resolves_compact_delivered_seasonal_baselines() {
     let profile = resolved
         .get("series-a")
         .expect("series-a compact baseline resolves");
-    assert_eq!(profile.populated_bucket_count(), 1);
+    assert_eq!(profile.populated_bucket_count(), 168);
+
+    let mut engine = DetectorEngine::new(EngineConfig::default());
+    engine.set_seasonal_settings(config.resolve_seasonal_settings());
+    engine.set_seasonal_baselines(resolved);
+    let verdict = engine
+        .evaluate_with_seasonal_key(
+            "detector-series-a",
+            "series-a",
+            42.5,
+            0,
+            SeriesProfile::default(),
+        )
+        .expect("non-latest seasonal bucket verdict");
+    let seasonal = verdict
+        .signals
+        .iter()
+        .find(|signal| signal.name == "seasonal")
+        .expect("compact profile must resolve a seasonal signal");
+    assert!(seasonal.ready);
+    assert_eq!(seasonal.mean, Some(42.5));
+    assert!(!seasonal.breached);
 }
 
 #[test]

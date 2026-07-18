@@ -25,9 +25,9 @@ Injected anomaly classes (and what each is meant to prove about a plain z-score)
     blip               single-sample excursion        -> should NOT confirm (hysteresis)
     step               sudden sustained level shift    -> SHOULD detect (+ recovery edge)
     drift / leak       slow monotone ramp             -> usually MISSED (self-masking)
-    recurring_seasonal nightly scheduled load          -> edge re-alerts every night;
-                                                          this is what the SEASONAL
-                                                          (core) tier must dispose
+    recurring_diurnal nightly scheduled load           -> expected operation;
+                                                          every spike alert is a
+                                                          truth-labeled false positive
     counter_raw        monotonic counter fed raw       -> GARBAGE without rate-norm
 """
 import argparse
@@ -101,13 +101,15 @@ def build_cpu(n, cadence_s, rng):
 
     spd = int(round(86400 / cadence_s))
 
-    # recurring nightly backup at 02:00 (+35 for 20 min) — expected/seasonal
+    # Recurring nightly backup at 02:00 (+35 for 20 min) is expected operation,
+    # not an incident. Keep a negative class label on every sample so the
+    # committed scorecard can enforce that production spike policy suppresses
+    # these alerts instead of silently counting them as true positives.
     nightly, spans = nightly_spikes(n, cadence_s, hour=2.0, length_min=20, amp=35.0)
     values += nightly
     for (s, e) in spans:
-        truth[s:e] = 1
         for j in range(s, e):
-            klass[j] = "recurring_seasonal"
+            klass[j] = "recurring_diurnal_fp"
 
     # one-off sustained spike in week 2, Tue ~10:30 (+55 for 12 min)
     s = 8 * spd + int(round(10.5 * 3600 / cadence_s))

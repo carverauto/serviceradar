@@ -14,7 +14,8 @@ use serviceradar_anomaly_core::{HOURS_PER_WEEK, SaturationGate, SeasonalBucket};
 
 use crate::engine::*;
 use crate::identity::{metric_class, seasonal_series_key, series_key_for};
-use crate::verdict::cusum_drift_record;
+use crate::metrics_classify::counter_series_profile;
+use crate::verdict::{cusum_drift_record, verdict_record};
 
 #[test]
 fn flat_baseline_then_spike_breaches() {
@@ -2563,6 +2564,120 @@ fn harness_quiet_interface_burst_bounds_score_severity_and_episode_count() {
     assert!(
         records.iter().all(|event| event["severity_id"] != 5),
         "edge drift must never mint Critical by itself: {records:?}"
+    );
+}
+
+#[test]
+fn harness_diurnal_interface_without_baseline_stays_bounded_and_adopts_a_shift() {
+    const MINUTE_NS: u64 = 60 * 1_000_000_000;
+    const SLOTS_PER_DAY: u64 = 24 * 60;
+    const DIURNAL_DAYS: u64 = 3;
+
+    let mut engine = DetectorEngine::new(EngineConfig::default());
+    let profile = counter_series_profile(&Metric {
+        name: "ifOutUcastPkts".to_string(),
+        metric_type: "snmp.interface".to_string(),
+        ..Default::default()
+    });
+    let series_key = "diurnal-interface-if49";
+    let mut open_count = 0_u64;
+    let mut adopted_clear_count = 0_u64;
+    let mut max_stored_score = 0.0_f64;
+    let resource = MetricResource {
+        agent_id: "agent-snmp".to_string(),
+        host_id: "snmp-poller".to_string(),
+        device_id: "switch-a".to_string(),
+        partition: "demo".to_string(),
+        ..Default::default()
+    };
+    let metric = Metric {
+        name: "ifOutUcastPkts".to_string(),
+        metric_type: "snmp.interface".to_string(),
+        ..Default::default()
+    };
+
+    // Production-like interface traffic: quiet nights around 15 pkt/s and a
+    // daytime ramp/plateau between 40 and 75 pkt/s. No seasonal baseline is
+    // installed, so only the rolling spike path may emit an episode.
+    for slot in 0..(DIURNAL_DAYS * SLOTS_PER_DAY) {
+        let minute = slot % SLOTS_PER_DAY;
+        let value = match minute {
+            0..=359 | 1_200..=1_439 => 15.0 + (slot % 3) as f64,
+            360..=719 => 40.0 + (minute - 360) as f64 * (35.0 / 359.0),
+            720..=959 => 75.0,
+            _ => 75.0 - (minute - 960) as f64 * (35.0 / 239.0),
+        };
+        let tv = engine
+            .evaluate_transition(series_key, value, slot * MINUTE_NS, profile)
+            .expect("diurnal verdict");
+        if tv.transition == AnomalyTransition::Open {
+            open_count = open_count.saturating_add(1);
+        }
+    }
+
+    assert!(
+        open_count <= DIURNAL_DAYS,
+        "ordinary diurnal traffic must stay bounded to <= one spike episode/day, saw {open_count}"
+    );
+
+    // A stable, non-saturated level shift must not remain anomalous forever.
+    // The production interface profile adopts after 300 continuously anomalous
+    // samples, then the rebuilt baseline must remain quiet at the new level.
+    let shift_start = DIURNAL_DAYS * SLOTS_PER_DAY;
+    for offset in 0..420u64 {
+        let tv = engine
+            .evaluate_transition(
+                series_key,
+                10_000.0,
+                (shift_start + offset) * MINUTE_NS,
+                profile,
+            )
+            .expect("sustained-shift verdict");
+        if tv.transition == AnomalyTransition::Open {
+            open_count = open_count.saturating_add(1);
+        }
+        if tv.transition == AnomalyTransition::Clear
+            && tv.clear_reason == Some(SpikeClearReason::Adopted)
+        {
+            adopted_clear_count = adopted_clear_count.saturating_add(1);
+        }
+        if tv.transition != AnomalyTransition::None {
+            let point = MetricPoint {
+                value: tv.verdict.sample_value,
+                observed_at_unix_nano: (shift_start + offset) * MINUTE_NS,
+                if_index: 49,
+                ..Default::default()
+            };
+            let record = verdict_record(
+                &resource,
+                &metric,
+                &point,
+                series_key,
+                &tv.verdict,
+                tv.transition,
+                tv.episode,
+            );
+            let event: serde_json::Value =
+                serde_json::from_slice(&record.payload).expect("spike OCSF payload");
+            max_stored_score = max_stored_score.max(
+                event["anomaly"]["score"]
+                    .as_f64()
+                    .expect("stored anomaly score"),
+            );
+        }
+    }
+
+    assert_eq!(
+        adopted_clear_count, 1,
+        "the sustained level shift must clear exactly once through spike adoption"
+    );
+    assert!(
+        open_count <= DIURNAL_DAYS + 1,
+        "the diurnal run plus one sustained shift must remain episode-bounded, saw {open_count} opens"
+    );
+    assert!(
+        max_stored_score <= 50.0,
+        "stored spike evidence must stay bounded at 50, saw {max_stored_score}"
     );
 }
 

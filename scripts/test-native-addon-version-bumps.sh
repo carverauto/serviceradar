@@ -52,7 +52,9 @@ expect_failure() {
 }
 
 mkdir -p \
+  "${fixture}/addons/anomaly-addon" \
   "${fixture}/addons/rdp-adapter" \
+  "${fixture}/rust/anomaly-addon/src/tests" \
   "${fixture}/rust/rdp-adapter" \
   "${fixture}/rust/rdp-connector-probe" \
   "${fixture}/scripts" \
@@ -66,6 +68,9 @@ git config user.email "native-addon-gate-test@serviceradar.invalid"
 git config user.name "ServiceRadar test"
 
 printf 'version: 0.1.0\n' >addons/rdp-adapter/addon.yaml
+printf 'version: 0.3.0\n' >addons/anomaly-addon/addon.yaml
+printf '[package]\nname = "serviceradar-anomaly-addon"\nversion = "0.3.0"\n' \
+  >rust/anomaly-addon/Cargo.toml
 printf '[package]\nname = "serviceradar-rdp-adapter"\nversion = "0.1.0"\n' \
   >rust/rdp-adapter/Cargo.toml
 printf 'root-lock-v1\n' >Cargo.lock
@@ -115,5 +120,20 @@ write_module_lock
 git add MODULE.bazel.lock
 git commit -qm "refresh connector module lock"
 scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD >/dev/null
+
+# Test-only Rust sources do not change the signed add-on runtime payload and
+# therefore must not force a fake package-version bump.
+printf '#[test]\nfn regression_only() {}\n' >rust/anomaly-addon/src/tests/regression.rs
+git add rust/anomaly-addon/src/tests/regression.rs
+git commit -qm "add anomaly regression test"
+scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD >/dev/null
+
+# The adjacent production source remains protected by the same version gate.
+printf 'pub fn runtime_change() {}\n' >rust/anomaly-addon/src/runtime_change.rs
+git add rust/anomaly-addon/src/runtime_change.rs
+git commit -qm "change anomaly runtime"
+expect_failure \
+  "anomaly native add-on payload changed" \
+  scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD
 
 echo "native add-on Rust dependency metadata gate tests passed"
