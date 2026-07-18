@@ -179,6 +179,12 @@ defmodule ServiceRadarWebNG.Plugins.UploadSignature do
 
   defp write_canonical_json(%{} = map), do: map |> canonicalize() |> write_canonical_json()
 
+  # An empty YAML sequence is an array in the signed manifest contract. Without
+  # this clause, Enum.all?/2 below vacuously classifies [] as a key/value list
+  # and serializes it as {}, so otherwise-valid bundles such as Proxmox's
+  # `allowed_domains: []` cannot pass cross-runtime signature verification.
+  defp write_canonical_json([]), do: "[]"
+
   defp write_canonical_json(list) when is_list(list) do
     if Enum.all?(list, &match?({_, _}, &1)) do
       "{" <>

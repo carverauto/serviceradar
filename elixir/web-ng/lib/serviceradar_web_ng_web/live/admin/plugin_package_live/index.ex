@@ -1124,12 +1124,17 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         {:noreply, put_flash(socket, :info, legacy_recovery_success_message(kind, recovery))}
 
       {:error, error} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           "Recovery was not completed: #{legacy_recovery_error_message(error)}"
-         )}
+        package = socket.assigns.selected_package
+
+        socket =
+          socket
+          |> assign(:assignments, list_plugin_assignments(package.plugin_id, scope))
+          |> reset_legacy_recovery_candidate_page()
+          |> assign_legacy_recovery_candidates(scope)
+          |> assign_credential_context(package)
+          |> assign(:recovery_confirmation, nil)
+
+        {:noreply, put_flash(socket, :error, legacy_recovery_failure_message(error))}
     end
   end
 
@@ -2095,11 +2100,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 <%= for assignment <- @assignments do %>
                   <% current_package = package_for_assignment(assignment, @versions) %>
                   <% upgrade_target = latest_upgrade_target(assignment, @versions) %>
-                  <% approved_targets = approved_upgrade_targets(assignment, @versions) %>
+                  <% approved_targets = approved_version_targets(assignment, @versions) %>
+                  <% latest_approved? =
+                    latest_approved_assignment_version?(assignment, @versions) %>
                   <% legacy_kind = legacy_recovery_kind_for_display(assignment) %>
                   <% legacy_compatibility = legacy_recovery_compatibility_message(assignment) %>
                   <% legacy_partition_context = legacy_authenticated_partition_message(assignment) %>
                   <% manual_recovery = legacy_manual_recovery_status(assignment) %>
+                  <% manual_legacy_state = legacy_manual_presentation_state(assignment) %>
                   <% policy_recovery = legacy_policy_recovery_status(assignment) %>
                   <% credential_rule_recovery? = legacy_credential_rule_recovery?(assignment) %>
                   <div
@@ -2116,8 +2124,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                           <%= if assignment.source == :policy do %>
                             <.ui_badge size="xs" variant="ghost">policy</.ui_badge>
                           <% end %>
-                          <%= if legacy_kind do %>
-                            <.ui_badge size="xs" variant="warning">legacy unbound</.ui_badge>
+                          <%= if legacy_kind == :manual and manual_legacy_state == :completed do %>
+                            <.ui_badge size="xs" variant="success">legacy recovered</.ui_badge>
+                          <% else %>
+                            <%= if legacy_kind do %>
+                              <.ui_badge size="xs" variant="warning">legacy unbound</.ui_badge>
+                            <% end %>
                           <% end %>
                           <%= if uncovered_assignment?(@assignment_coverage, assignment.id) do %>
                             <span
@@ -2131,15 +2143,22 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                         <div class="text-base-content/60">
                           every {assignment.interval_seconds}s, timeout {assignment.timeout_seconds}s
                         </div>
-                        <div class="text-base-content/60">
+                        <div
+                          id={"assignment-version-#{assignment.id}"}
+                          class="text-base-content/60"
+                        >
                           version {package_version(current_package)}
                           <%= if upgrade_target do %>
-                            <span>-> latest {upgrade_target.version}</span>
+                            <span>-> newer {upgrade_target.version}</span>
+                          <% else %>
+                            <%= if latest_approved? do %>
+                              <span class="text-success">· latest approved</span>
+                            <% end %>
                           <% end %>
                         </div>
                       </div>
                       <div class="flex flex-wrap items-center gap-2">
-                        <%= if legacy_kind == :manual do %>
+                        <%= if legacy_kind == :manual and manual_legacy_state == :actionable do %>
                           <button
                             id={"request-manual-reapproval-#{assignment.id}"}
                             type="button"
@@ -2187,6 +2206,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                         <%= if is_nil(legacy_kind) and assignment.source != :policy do %>
                           <%= if upgrade_target do %>
                             <button
+                              id={"upgrade-assignment-#{assignment.id}"}
                               type="button"
                               class="btn btn-primary btn-xs"
                               phx-click="upgrade_assignment"
@@ -2199,19 +2219,32 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                           <% end %>
                           <%= if approved_targets != [] do %>
                             <form
+                              id={"assignment-version-form-#{assignment.id}"}
                               phx-submit="upgrade_assignment"
                               phx-value-id={assignment.id}
                               class="flex items-center gap-1"
                             >
                               <select
+                                id={"assignment-version-select-#{assignment.id}"}
                                 name="assignment_upgrade[target_package_id]"
+                                aria-label={"Change version for #{assignment.agent_uid}"}
+                                required
                                 class="select select-bordered select-xs w-auto min-w-[4.75rem] shrink-0"
                               >
+                                <option value="" selected disabled>Change version</option>
                                 <%= for target <- approved_targets do %>
-                                  <option value={target.id}>{target.version}</option>
+                                  <option value={target.id}>
+                                    {assignment_version_option_label(target, current_package)}
+                                  </option>
                                 <% end %>
                               </select>
-                              <button type="submit" class="btn btn-ghost btn-xs">Set</button>
+                              <button
+                                id={"apply-assignment-version-#{assignment.id}"}
+                                type="submit"
+                                class="btn btn-ghost btn-xs"
+                              >
+                                Apply
+                              </button>
                             </form>
                           <% end %>
                         <% end %>
@@ -2228,56 +2261,77 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                         <% end %>
                       </div>
                     </div>
-                    <%= if legacy_kind do %>
+                    <%= if legacy_kind == :manual and manual_legacy_state != :actionable do %>
                       <div
                         id={"legacy-assignment-recovery-#{assignment.id}"}
                         role="status"
-                        class="alert alert-warning alert-vertical mt-3"
+                        class={[
+                          "mt-3 rounded-md border px-3 py-2 text-xs",
+                          manual_legacy_state == :completed &&
+                            "border-success/30 bg-success/5 text-base-content/70",
+                          manual_legacy_state != :completed &&
+                            "border-base-200 bg-base-200/30 text-base-content/70"
+                        ]}
                       >
-                        <div>
-                          <div class="font-semibold">{legacy_recovery_label(legacy_kind)}</div>
-                          <p class="mt-1 text-xs">{legacy_recovery_message(legacy_kind)}</p>
-                          <p
-                            :if={legacy_kind == :policy and legacy_recovery_owner_label(assignment)}
-                            class="mt-1 text-xs"
-                          >
-                            Owner: {legacy_recovery_owner_label(assignment)}
-                          </p>
-                          <p :if={legacy_compatibility} class="mt-1 text-xs">
-                            {legacy_compatibility}
-                          </p>
-                          <p :if={legacy_partition_context} class="mt-1 text-xs">
-                            {legacy_partition_context}
-                          </p>
-                          <p
-                            :if={
-                              legacy_kind == :manual and
-                                legacy_manual_recovery_message(manual_recovery)
-                            }
-                            class="mt-1 text-xs font-medium"
-                          >
-                            {legacy_manual_recovery_message(manual_recovery)}
-                          </p>
-                          <p
-                            :if={
-                              legacy_kind == :policy and
-                                legacy_policy_recovery_message(policy_recovery)
-                            }
-                            class="mt-1 text-xs font-medium"
-                          >
-                            {legacy_policy_recovery_message(policy_recovery)}
-                          </p>
-                          <p
-                            :if={
-                              legacy_kind == :policy and credential_rule_recovery? and
-                                not @can_reconcile_credential_rules
-                            }
-                            class="mt-1 text-xs"
-                          >
-                            You also need credential-management permission to reconcile this credential rule.
-                          </p>
+                        <div class="font-medium">
+                          {legacy_manual_presentation_title(manual_legacy_state)}
                         </div>
+                        <p class="mt-1">
+                          {legacy_manual_presentation_message(manual_legacy_state)}
+                        </p>
                       </div>
+                    <% else %>
+                      <%= if legacy_kind do %>
+                        <div
+                          id={"legacy-assignment-recovery-#{assignment.id}"}
+                          role="status"
+                          class="alert alert-warning alert-vertical mt-3"
+                        >
+                          <div>
+                            <div class="font-semibold">{legacy_recovery_label(legacy_kind)}</div>
+                            <p class="mt-1 text-xs">{legacy_recovery_message(legacy_kind)}</p>
+                            <p
+                              :if={legacy_kind == :policy and legacy_recovery_owner_label(assignment)}
+                              class="mt-1 text-xs"
+                            >
+                              Owner: {legacy_recovery_owner_label(assignment)}
+                            </p>
+                            <p :if={legacy_compatibility} class="mt-1 text-xs">
+                              {legacy_compatibility}
+                            </p>
+                            <p :if={legacy_partition_context} class="mt-1 text-xs">
+                              {legacy_partition_context}
+                            </p>
+                            <p
+                              :if={
+                                legacy_kind == :manual and
+                                  legacy_manual_recovery_message(manual_recovery)
+                              }
+                              class="mt-1 text-xs font-medium"
+                            >
+                              {legacy_manual_recovery_message(manual_recovery)}
+                            </p>
+                            <p
+                              :if={
+                                legacy_kind == :policy and
+                                  legacy_policy_recovery_message(policy_recovery)
+                              }
+                              class="mt-1 text-xs font-medium"
+                            >
+                              {legacy_policy_recovery_message(policy_recovery)}
+                            </p>
+                            <p
+                              :if={
+                                legacy_kind == :policy and credential_rule_recovery? and
+                                  not @can_reconcile_credential_rules
+                              }
+                              class="mt-1 text-xs"
+                            >
+                              You also need credential-management permission to reconcile this credential rule.
+                            </p>
+                          </div>
+                        </div>
+                      <% end %>
                     <% end %>
                   </div>
                 <% end %>
@@ -2664,7 +2718,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   # proves that no operator action remains.
   defp legacy_recovery_candidate_actionable?(candidate) do
     case legacy_recovery_kind_for_display(candidate) do
-      :manual -> manual_recovery_state(legacy_manual_recovery_status(candidate)) != :reapproved
+      :manual -> legacy_manual_presentation_state(candidate) == :actionable
       :policy -> policy_recovery_state(legacy_policy_recovery_status(candidate)) != :reconciled
       # Unsupported historical owners and unavailable projections remain visible
       # in package detail, but are not recovery actions or candidate work.
@@ -3712,7 +3766,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp existing_assignment(assignments, agent_uid) when is_list(assignments) and is_binary(agent_uid) do
     Enum.find(assignments, fn assignment ->
-      assignment.agent_uid == agent_uid
+      assignment.agent_uid == agent_uid and not legacy_unbound_assignment?(assignment)
     end)
   end
 
@@ -3993,6 +4047,55 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp manual_recovery_action_enabled?(can_assign_plugins, manual_recovery) do
     can_assign_plugins and manual_recovery_state(manual_recovery) != :reapproved
+  end
+
+  defp legacy_manual_presentation_state(assignment) do
+    if manual_recovery_state(legacy_manual_recovery_status(assignment)) == :reapproved do
+      :completed
+    else
+      case {legacy_config_compatibility_state(assignment), legacy_authenticated_partition_state(assignment)} do
+        {:compatible, :available} ->
+          :actionable
+
+        {:incompatible, _partition_state} ->
+          :incompatible
+
+        {:unavailable, _partition_state} ->
+          :package_unavailable
+
+        {_config_state, partition_state} when partition_state in [:mismatch, :unavailable] ->
+          :identity_unavailable
+
+        _ ->
+          :unavailable
+      end
+    end
+  end
+
+  defp legacy_manual_presentation_title(:completed), do: "Recovered legacy record"
+  defp legacy_manual_presentation_title(:incompatible), do: "Inactive legacy record"
+  defp legacy_manual_presentation_title(:package_unavailable), do: "Inactive legacy record"
+  defp legacy_manual_presentation_title(:identity_unavailable), do: "Legacy record waiting for agent connection"
+  defp legacy_manual_presentation_title(_state), do: "Inactive legacy record"
+
+  defp legacy_manual_presentation_message(:completed) do
+    "A current partition-bound replacement is active. This disabled audit record does not affect the agent."
+  end
+
+  defp legacy_manual_presentation_message(:incompatible) do
+    "Its old configuration cannot be migrated safely. This record is disabled and does not affect the agent. Create a new assignment with the current form only if this add-on is still needed."
+  end
+
+  defp legacy_manual_presentation_message(:package_unavailable) do
+    "Its package is not currently approved, so it cannot be migrated. This record is disabled and does not affect the agent."
+  end
+
+  defp legacy_manual_presentation_message(:identity_unavailable) do
+    "This record is disabled and does not affect the agent. Reconnect the agent and refresh before attempting recovery."
+  end
+
+  defp legacy_manual_presentation_message(_state) do
+    "This record is disabled and does not affect the agent. No recovery action is currently available."
   end
 
   defp manual_recovery_action_label(manual_recovery) do
@@ -4284,6 +4387,30 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
+  defp legacy_config_compatibility_state(assignment) do
+    compatibility =
+      assignment |> legacy_recovery_details() |> value_from_map(:config_compatibility)
+
+    case value_from_map(compatibility, :state) do
+      state when state in [:compatible, "compatible"] -> :compatible
+      state when state in [:incompatible, "incompatible"] -> :incompatible
+      state when state in [:unavailable, "unavailable"] -> :unavailable
+      _state -> nil
+    end
+  end
+
+  defp legacy_authenticated_partition_state(assignment) do
+    partition =
+      assignment |> legacy_recovery_details() |> value_from_map(:authenticated_partition)
+
+    case value_from_map(partition, :state) do
+      state when state in [:available, "available"] -> :available
+      state when state in [:mismatch, "mismatch"] -> :mismatch
+      state when state in [:unavailable, "unavailable"] -> :unavailable
+      _state -> nil
+    end
+  end
+
   defp legacy_authenticated_partition_message(assignment) do
     partition =
       assignment |> legacy_recovery_details() |> value_from_map(:authenticated_partition)
@@ -4417,6 +4544,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp legacy_recovery_error_message(_error),
     do: "The server rejected recovery without creating or modifying an assignment."
+
+  defp legacy_recovery_failure_message(error) do
+    "Recovery was not completed. No live assignment was changed. #{legacy_recovery_error_message(error)}"
+  end
 
   # -- Credential-rule coverage (x-serviceradar-credential-materialized) -------
   #
@@ -4656,31 +4787,75 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp package_version(package), do: package.version || "unknown"
 
   defp latest_upgrade_target(assignment, versions) do
-    assignment
-    |> approved_upgrade_targets(versions)
-    |> List.last()
+    case package_for_assignment(assignment, versions) do
+      nil ->
+        nil
+
+      current_package ->
+        assignment
+        |> approved_version_targets(versions)
+        |> Enum.filter(&(compare_package_versions(&1, current_package) == :gt))
+        |> List.last()
+    end
   end
 
-  defp approved_upgrade_targets(assignment, versions) do
+  defp approved_version_targets(assignment, versions) do
     versions
     |> Enum.filter(&approved_upgrade_target?(&1, assignment))
     |> Enum.sort(&version_before_or_equal?/2)
   end
 
+  defp latest_approved_assignment_version?(assignment, versions) do
+    current_package = package_for_assignment(assignment, versions)
+
+    latest_package =
+      versions
+      |> Enum.filter(&approved_plugin_version?(&1, assignment.plugin_id))
+      |> Enum.sort(&version_before_or_equal?/2)
+      |> List.last()
+
+    not is_nil(current_package) and not is_nil(latest_package) and
+      current_package.id == latest_package.id
+  end
+
   defp approved_upgrade_target?(package, assignment) do
-    package.status == :approved and
-      package.plugin_id == assignment.plugin_id and
+    approved_plugin_version?(package, assignment.plugin_id) and
       package.id != assignment.plugin_package_id
   end
 
-  defp version_before_or_equal?(left, right) do
+  defp approved_plugin_version?(package, plugin_id) do
+    package.status in [:approved, "approved"] and package.plugin_id == plugin_id
+  end
+
+  defp assignment_version_option_label(target, current_package) do
+    relation =
+      case compare_package_versions(target, current_package) do
+        :lt -> "rollback"
+        :gt -> "newer"
+        :eq -> "current"
+      end
+
+    "#{target.version} (#{relation})"
+  end
+
+  defp compare_package_versions(_left, nil), do: :eq
+
+  defp compare_package_versions(left, right) do
     case {Version.parse(left.version || ""), Version.parse(right.version || "")} do
       {{:ok, left_version}, {:ok, right_version}} ->
-        Version.compare(left_version, right_version) != :gt
+        Version.compare(left_version, right_version)
 
       _ ->
-        (left.version || "") <= (right.version || "")
+        cond do
+          (left.version || "") < (right.version || "") -> :lt
+          (left.version || "") > (right.version || "") -> :gt
+          true -> :eq
+        end
     end
+  end
+
+  defp version_before_or_equal?(left, right) do
+    compare_package_versions(left, right) != :gt
   end
 
   defp get_actor(socket) do
