@@ -16,4 +16,14 @@ defmodule ServiceRadarWebNG.Plugins.UploadSignatureTest do
     assert UploadSignature.verification_payload(manifest, "ABCDEF") ==
              ~s({"content_hash":"abcdef","manifest":{"permissions":{"allowed_domains":[],"allowed_ports":[8006]}}})
   end
+
+  test "canonical payload distinguishes empty manifest maps from arrays" do
+    manifest = %{
+      "capabilities" => [],
+      "permissions" => %{}
+    }
+
+    assert UploadSignature.verification_payload(manifest, "ABCDEF") ==
+             ~s({"content_hash":"abcdef","manifest":{"capabilities":[],"permissions":{}}})
+  end
 end

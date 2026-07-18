@@ -291,6 +291,8 @@ spec:
           value: "-kernel inet_dist_listen_min 9100 -kernel inet_dist_listen_max 9155"
         - name: PHX_SERVER
           value: "true"
+        - name: SERVICERADAR_RELEASE_VERSION
+          value: {{ include "serviceradar.imageTag" (dict "Values" .Values "service" "webNg") | quote }}
         - name: PHX_HOST
           value: {{ default "serviceradar-web-ng" $webHost | quote }}
         - name: PHX_CHECK_ORIGIN

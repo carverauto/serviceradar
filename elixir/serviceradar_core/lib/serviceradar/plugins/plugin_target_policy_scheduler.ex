@@ -9,6 +9,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyScheduler do
   alias ServiceRadar.Credentials.PluginIntegrationReconcileWorker
   alias ServiceRadar.Credentials.ProxmoxCredentialRuleReconcileWorker
   alias ServiceRadar.Plugins.AddonProfileReconcileWorker
+  alias ServiceRadar.Plugins.PluginLegacyAssignmentRecoveryWorker
   alias ServiceRadar.Plugins.PluginPolicyAssignmentRecoveryDispatchWorker
   alias ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker
   alias ServiceRadar.Repo
@@ -38,6 +39,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyScheduler do
       Enum.each(
         [
           PluginTargetPolicyReconcileWorker,
+          PluginLegacyAssignmentRecoveryWorker,
           PluginPolicyAssignmentRecoveryDispatchWorker,
           ProxmoxCredentialRuleReconcileWorker,
           CameraCredentialRuleReconcileWorker,

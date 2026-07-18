@@ -32,13 +32,15 @@ implementation status, not the target user experience.
 - [x] 3.5 Run the focused core and LiveView suites plus strict OpenSpec validation against the completed recovery implementation.
 - [x] 3.6 Write an operator runbook for reviewing recovery candidates and reconciling the demo inventory.
 
-## 4. Automatic recovery and exception-only UX correction
+## 4. Zero-touch trusted recovery correction
 
-- [ ] 4.1 Add a tenant-scoped logical recovery planner and item store that groups duplicate legacy rows by owner, agent, and logical plugin; fingerprints current inputs; and converges under concurrent scans and retries.
-- [ ] 4.2 Trigger bounded automatic policy and credential-rule reconciliation after deployment, agent connection, owner/package changes, and periodic sweep using current controller authority and current owner materialization only.
-- [ ] 4.3 Add an immutable, expiring manual adoption plan with one tenant-scoped confirmation, per-item initiating-principal reauthorization, current mTLS rechecks, automatic reconnect retry, and idempotent conflict handling.
-- [ ] 4.4 Define and test the strict allowlist for automatic manual principal continuity; if no existing evidence qualifies, route every manual item through the single adoption plan without weakening identity checks.
-- [ ] 4.5 Replace row/request-oriented UI projections with tenant-authorized aggregate progress, normalized exception groups, bounded on-demand agent detail, and internally fenced plan/item/request/audit records.
-- [ ] 4.6 Remove legacy cards, repeated warning panels, raw package UUID labels, per-row review links, and policy-reconcile controls from the normal plugin assignment UI; exclude quarantined rows from normal create/update lookup; add compact progress, one manual-plan confirmation, and direct exception remediation links.
-- [ ] 4.7 Add domain, authorization, controller, concurrency, reconnect, schema/credential failure, cross-tenant, aggregate-projection, and LiveView tests for automatic and one-confirmation recovery.
-- [ ] 4.8 Replace the row-by-row operator runbook, deploy the corrected workflow to demo, and verify expected active assignments, service-state rows, plugin execution, automatic retries, and grouped exceptions before declaring restoration complete.
+- [x] 4.1 Add a named internal Oban worker that scans disabled unbound history in bounded keyset pages and is scheduled uniquely by the existing plugin policy scheduler.
+- [x] 4.2 Restrict automatic manual recovery to approved, verified, signed, content-addressed first-party packages; leave uploaded and otherwise untrusted packages disabled.
+- [x] 4.3 Reuse the guarded recovery transaction to recheck current mTLS evidence, current schema, secret references, and active conflicts, create a fresh bound assignment, preserve the source row, and converge through the immutable audit.
+- [x] 4.4 Keep policy-owned rows out of the manual worker and rely on current plugin-policy and credential-rule reconcilers rather than cloning historical owner state.
+- [x] 4.5 Exclude quarantined history from normal assignment lists/lookups and remove the legacy candidate table and all per-row recovery/reconciliation controls from operator workflows.
+- [x] 4.6 Source the Settings release card from the deployed immutable web-ng image tag with a local-development fallback.
+- [x] 4.7 Add focused core, LiveView, status-card, and Helm rendering tests for trust gating, automatic recovery, hidden history, fresh create behavior, and deployed release identity.
+- [x] 4.8 Preserve empty JSON object versus array types in cross-runtime upload-signature canonicalization so correctly signed first-party packages remain eligible for trusted import and recovery.
+- [x] 4.9 Give periodic first-party Wasm sync a distinct scheduled-successor uniqueness contract so the executing job cannot suppress its hourly successor and trigger minute-scale bootstrap retries.
+- [ ] 4.10 Run complete Elixir and Helm quality gates, deploy the corrected workflow to demo, and verify active assignments, disabled audit history, plugin execution, absence of the legacy queue, and the displayed release version.

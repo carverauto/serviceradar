@@ -1,12 +1,16 @@
 defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   use ServiceRadarWebNG.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
   import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0, system_actor: 0]
 
+  alias Oban.Job
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.Plugins.FirstPartySyncWorker
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.Plugins.UploadSignature
@@ -360,6 +364,58 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     assert package.source_release_tag == "v1.0.2"
     assert package.source_bundle_digest == Storage.sha256(first_party_bundle("v1.0.2"))
     assert package.content_hash == Storage.sha256(first_party_wasm("v1.0.2"))
+  end
+
+  test "periodic first-party sync schedules a successor while the current job executes" do
+    original_config = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :first_party_plugin_import,
+      Keyword.merge(original_config,
+        auto_sync_enabled: true,
+        repo_url: @repo_url,
+        sync_release_limit: 10,
+        sync_interval_seconds: 3_600
+      )
+    )
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_web_ng, :first_party_plugin_import, original_config)
+    end)
+
+    now = DateTime.utc_now()
+
+    executing =
+      %{}
+      |> Job.new(worker: FirstPartySyncWorker, queue: :web_maintenance)
+      |> Ecto.Changeset.change(
+        state: "executing",
+        attempt: 1,
+        max_attempts: 3,
+        attempted_at: now,
+        inserted_at: now,
+        scheduled_at: now
+      )
+      |> Repo.insert!()
+
+    assert :ok = FirstPartySyncWorker.perform(%{executing | args: %{}})
+
+    worker_jobs =
+      Repo.all(
+        from(job in Job,
+          where: job.worker == ^inspect(FirstPartySyncWorker),
+          order_by: [asc: job.id]
+        )
+      )
+
+    successor = Enum.find(worker_jobs, &(&1.id != executing.id and &1.state == "scheduled"))
+
+    assert successor,
+           "expected a scheduled successor, got: #{inspect(Enum.map(worker_jobs, &{&1.id, &1.state, &1.conflict?}))}"
+
+    refute successor.conflict?
+    assert DateTime.after?(successor.scheduled_at, DateTime.utc_now())
   end
 
   test "approve keeps previously approved versions available for assignment upgrades" do

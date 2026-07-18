@@ -147,6 +147,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecoveryAudit do
                     :bound_manual_assignment_conflict,
                     :plugin_package_not_found,
                     :plugin_package_not_approved,
+                    :plugin_package_not_trusted,
                     :params_not_recoverable,
                     :assignment_create_failed
                   ]

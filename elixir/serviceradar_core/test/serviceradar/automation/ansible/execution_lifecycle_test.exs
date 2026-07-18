@@ -345,7 +345,8 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycleTest do
          "serviceradar_dispatch_id" => "018f3f56-1111-7222-8333-123456789abe",
          "serviceradar_snapshot_digest" => String.duplicate("c", 64)
        }, :accepted_snapshot_digest_mismatch},
-      {"dispatch_markers", %{"serviceradar_dispatch_id" => "018f3f56-1111-7222-8333-123456789abe"},
+      {"dispatch_markers",
+       %{"serviceradar_dispatch_id" => "018f3f56-1111-7222-8333-123456789abe"},
        :accepted_markers_missing}
     ]
 
@@ -402,7 +403,7 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycleTest do
     # match on template/inventory/limit/credentials/integration user.
     for job <- [
           accepted_job(%{"scm_revision" => "", "dispatch_markers" => %{}}),
-          accepted_job(%{"scm_revision" => nil}) |> Map.delete("dispatch_markers")
+          %{"scm_revision" => nil} |> accepted_job() |> Map.delete("dispatch_markers")
         ] do
       assert {:ok, snapshot} =
                ExecutionLifecycle.accepted_job_snapshot(execution(), @controller_id, job)

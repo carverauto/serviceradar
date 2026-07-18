@@ -165,9 +165,12 @@ defmodule ServiceRadarWebNG.Plugins.UploadSignature do
   end
 
   defp canonicalize(%{} = map) do
-    map
-    |> Enum.map(fn {key, value} -> {normalize_key(key), canonicalize(value)} end)
-    |> Enum.sort_by(&elem(&1, 0))
+    entries =
+      map
+      |> Enum.map(fn {key, value} -> {normalize_key(key), canonicalize(value)} end)
+      |> Enum.sort_by(&elem(&1, 0))
+
+    {:object, entries}
   end
 
   defp canonicalize(list) when is_list(list), do: Enum.map(list, &canonicalize/1)
@@ -179,21 +182,20 @@ defmodule ServiceRadarWebNG.Plugins.UploadSignature do
 
   defp write_canonical_json(%{} = map), do: map |> canonicalize() |> write_canonical_json()
 
-  # An empty YAML sequence is an array in the signed manifest contract. Without
-  # this clause, Enum.all?/2 below vacuously classifies [] as a key/value list
-  # and serializes it as {}, so otherwise-valid bundles such as Proxmox's
-  # `allowed_domains: []` cannot pass cross-runtime signature verification.
+  defp write_canonical_json({:object, entries}) do
+    "{" <>
+      Enum.map_join(entries, ",", fn {key, value} ->
+        Jason.encode!(key) <> ":" <> write_canonical_json(value)
+      end) <> "}"
+  end
+
+  # Maps are tagged as objects above, so an empty YAML sequence remains an array
+  # while an empty YAML map remains an object. The distinction is part of the
+  # signed payload and must agree with the Go release signer byte-for-byte.
   defp write_canonical_json([]), do: "[]"
 
   defp write_canonical_json(list) when is_list(list) do
-    if Enum.all?(list, &match?({_, _}, &1)) do
-      "{" <>
-        Enum.map_join(list, ",", fn {key, value} ->
-          Jason.encode!(key) <> ":" <> write_canonical_json(value)
-        end) <> "}"
-    else
-      "[" <> Enum.map_join(list, ",", &write_canonical_json/1) <> "]"
-    end
+    "[" <> Enum.map_join(list, ",", &write_canonical_json/1) <> "]"
   end
 
   defp write_canonical_json(other), do: Jason.encode!(other)
