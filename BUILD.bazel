@@ -35,6 +35,7 @@ exports_files([
     "elixir/.credo.ex_dna.exs",
     "elixir/.credo.jump_checks.exs",
     "elixir/.credo.ex_slop.exs",
+    "k8s/argocd/applications/demo-prod.yaml",
 ])
 
 # Custom RBE platform using Oracle Linux 9 based executor image

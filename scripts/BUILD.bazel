@@ -39,6 +39,7 @@ sh_test(
         "//:.forgejo/workflows/source-security.yml",
         "//:.forgejo/workflows/wasm-plugins.yml",
         "//docker/images:image_inventory.bzl",
+        "//:k8s/argocd/applications/demo-prod.yaml",
     ],
 )
 
