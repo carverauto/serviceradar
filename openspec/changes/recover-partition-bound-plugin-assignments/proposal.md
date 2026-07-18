@@ -2,21 +2,25 @@
 
 ## Why
 
-The partition-binding migration correctly disabled legacy plugin assignments that had no immutable proof of the edge partition that originally received them. The current plugin package UI has no way to show the authenticated partition, distinguish an unbound legacy row from a normal disabled assignment, or safely reapprove it. As a result, operators see missing services and an apparent assignment form that cannot recover the affected rows.
+The partition-binding migration correctly disabled legacy plugin assignments that had no immutable proof of the edge partition that originally received them. The first recovery implementation preserved that boundary, but exposed the migration as a row-by-row operator queue. It repeats historical rows, displays package UUIDs instead of recognizable plugin names, mixes recovery controls into the normal assignment editor, and requires one click per agent and package even when a current policy or credential rule is already authoritative.
+
+That is an internal data-repair workflow, not an acceptable product workflow. Partition safety does not require operators to understand historical storage details or manually replay controller-owned desired state. Recovery should be automatic wherever current authority and identity can be proven, require at most one tenant-scoped confirmation for remaining compatible manual intent, and surface only grouped exceptions that need a human decision.
 
 ## What Changes
 
-- Show the server-authenticated partition for an agent selected in the plugin assignment UI, without adding a user-editable partition selector.
-- Add an explicit, audited reapproval flow for manually managed legacy assignments that creates a new partition-bound assignment only after the server resolves current mTLS control-session evidence.
+- Automatically reconcile policy- and credential-rule-owned legacy assignments from their current authoritative owner. The controller deduplicates historical rows into one logical desired assignment, retries on agent reconnect and owner/package changes, and requires no per-row operator action.
+- Add a tenant-scoped recovery plan for compatible manually managed legacy assignments. One authorized confirmation adopts the current authenticated principal for every eligible item in the plan; the server rechecks mTLS evidence, package approval, schema compatibility, authorization, and conflicts for each item at commit time.
+- Automatically recover a manual assignment without confirmation only when immutable principal-continuity evidence independently binds the historical intent to the current authenticated principal. Current agent metadata, a matching UID, or a `default` partition assumption is not continuity evidence.
 - Keep the historical unbound assignment disabled as audit history; do not mutate it into a live assignment or infer its partition from agent metadata.
-- Route policy-owned legacy assignments back through their authoritative policy or credential-rule materializer instead of allowing a manual clone.
-- Require the initiating user to be authorized for the requested assignment or policy reconciliation, preserve secret *references* only, and fail closed when current identity evidence, package approval, schema validation, or conflict checks fail.
-- Provide a tenant-scoped, keyset-paged review list for quarantined legacy assignments so operators can find each affected agent and package without a bulk re-enable action or a default-partition assumption.
-- Surface only redacted durable recovery state in the package UI: policy reconciliation exposes its state and replacement count, while completed manual recovery exposes only `reapproved`. Recovery-request payloads, principals, owner identifiers, replacement identifiers, and raw recovery-audit rows remain internal.
-- Make credential-rule recovery requirements explicit in the UI: it needs both plugin-assignment and credential-management authority, while the control plane remains the final authorization point.
+- Treat an operator's normal create action as fresh intent. Quarantined history must never be selected as the current assignment, block remove-and-recreate, or redirect a normal create into legacy recovery.
+- Preserve secret *references* only and fail closed per item when current identity evidence, package approval, schema validation, current owner authority, or conflict checks fail.
+- Replace the legacy candidate queue with a compact recovery summary and a grouped exception view. Use plugin names and affected-agent counts, keep raw identifiers in technical detail only, and keep historical recovery rows out of the normal assignment editor.
+- Distinguish waiting states from actionable exceptions: offline agents retry automatically, while schema incompatibility, invalid credential policy, unsupported owners, authorization denial, and assignment conflicts explain the single remediation that is actually required.
+- Surface only redacted aggregate progress and exception state. Recovery-request payloads, principals, owner identifiers, replacement identifiers, and raw recovery-audit rows remain internal.
+- Remove the row-by-row recovery runbook and document the automatic controller, one-time manual adoption plan, fail-closed checks, and exception remediation instead.
 
 ## Impact
 
 - Affected specs: `wasm-plugin-system`, `plugin-configuration-ui`, `ash-authorization`
-- Affected code: plugin assignment domain/actions, authenticated edge-session lookup, credential-rule materializer, plugin package LiveView/API, durable recovery-request status projection, assignment audit/history, and operator documentation
-- Operational impact: legacy assignments remain quarantined until an authorized operator explicitly reapproves manual rows or reconciles the owning policy; no direct SQL re-enable procedure is introduced.
+- Affected code: plugin assignment recovery planner, authenticated edge-session lookup, policy and credential-rule reconcilers, plugin package LiveView/API, durable aggregate status projection, assignment audit/history, and operator documentation
+- Operational impact: controller-owned assignments recover automatically; compatible manual assignments require no more than one tenant-scoped confirmation unless immutable continuity permits automatic recovery; only blocked exceptions remain visible. No direct SQL re-enable procedure or inferred default partition is introduced.

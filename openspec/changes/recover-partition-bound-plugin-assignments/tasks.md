@@ -1,3 +1,7 @@
+Sections 1-3 record the shipped fail-closed recovery baseline. Section 4
+supersedes its row-by-row operator workflow; checked tasks below are historical
+implementation status, not the target user experience.
+
 ## 1. Domain and authorization
 
 - [x] 1.1 Define a tenant-scoped legacy-assignment recovery read model that classifies unbound manual and policy rows without treating current agent metadata as historical proof.
@@ -27,4 +31,14 @@
 - [x] 3.4 Add LiveView/API tests for authenticated-partition display, no partition selector, manual confirmation and completion, policy-only reconciliation, credential-rule permission messaging, redacted internal-only status/audit access, keyset candidate paging, and actionable error states.
 - [x] 3.5 Run the focused core and LiveView suites plus strict OpenSpec validation against the completed recovery implementation.
 - [x] 3.6 Write an operator runbook for reviewing recovery candidates and reconciling the demo inventory.
-- [ ] 3.7 Validate the runbook against representative online demo agents and confirm restored services before declaring service restoration complete.
+
+## 4. Automatic recovery and exception-only UX correction
+
+- [ ] 4.1 Add a tenant-scoped logical recovery planner and item store that groups duplicate legacy rows by owner, agent, and logical plugin; fingerprints current inputs; and converges under concurrent scans and retries.
+- [ ] 4.2 Trigger bounded automatic policy and credential-rule reconciliation after deployment, agent connection, owner/package changes, and periodic sweep using current controller authority and current owner materialization only.
+- [ ] 4.3 Add an immutable, expiring manual adoption plan with one tenant-scoped confirmation, per-item initiating-principal reauthorization, current mTLS rechecks, automatic reconnect retry, and idempotent conflict handling.
+- [ ] 4.4 Define and test the strict allowlist for automatic manual principal continuity; if no existing evidence qualifies, route every manual item through the single adoption plan without weakening identity checks.
+- [ ] 4.5 Replace row/request-oriented UI projections with tenant-authorized aggregate progress, normalized exception groups, bounded on-demand agent detail, and internally fenced plan/item/request/audit records.
+- [ ] 4.6 Remove legacy cards, repeated warning panels, raw package UUID labels, per-row review links, and policy-reconcile controls from the normal plugin assignment UI; exclude quarantined rows from normal create/update lookup; add compact progress, one manual-plan confirmation, and direct exception remediation links.
+- [ ] 4.7 Add domain, authorization, controller, concurrency, reconnect, schema/credential failure, cross-tenant, aggregate-projection, and LiveView tests for automatic and one-confirmation recovery.
+- [ ] 4.8 Replace the row-by-row operator runbook, deploy the corrected workflow to demo, and verify expected active assignments, service-state rows, plugin execution, automatic retries, and grouped exceptions before declaring restoration complete.

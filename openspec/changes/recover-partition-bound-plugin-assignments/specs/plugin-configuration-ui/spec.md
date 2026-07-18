@@ -18,69 +18,88 @@ The plugin package assignment UI SHALL show the current authenticated partition 
 - **AND** it does not imply that a saved or default partition will be used
 - **AND** it prevents or clearly fails the assignment action until evidence is available
 
-### Requirement: Legacy assignment recovery UX
-The plugin configuration UI SHALL identify disabled assignments with no partition as requiring reapproval and distinguish manual ownership from policy ownership. It SHALL guide the operator to the safe recovery action appropriate to that ownership model, show only a tenant-scoped and secret-safe policy-recovery status, and prevent the UI from implying authority that the server will deny.
+### Requirement: Automatic recovery is separated from assignment editing
+The plugin configuration UI SHALL keep historical recovery records out of the
+normal assignment editor. It SHALL NOT require an operator to reconcile a
+policy-owned row, display repeated recovery warnings for duplicate historical
+rows, or present a manual recovery action per assignment. It SHALL show current
+live assignments normally and place secret-safe recovery history in a collapsed,
+non-actionable detail surface.
 
-#### Scenario: Manual legacy assignment is presented for reapproval
-- **GIVEN** a package details view includes a disabled manual assignment with no partition
-- **WHEN** an authorized operator views the assignment
-- **THEN** the UI labels it as an unbound legacy assignment requiring reapproval
-- **AND** shows the non-secret configuration compatibility state and authenticated-agent context
-- **AND** offers an explicit confirmation action to create a replacement rather than a generic update action
+#### Scenario: Package detail contains legacy history
+- **GIVEN** a package has current assignments and one or more disabled unbound historical assignments
+- **WHEN** an operator opens the package assignment editor
+- **THEN** the normal assignment list shows current assignments and their current controls
+- **AND** historical rows do not render repeated warning panels, policy-reconcile buttons, or per-row reapproval buttons
+- **AND** a collapsed history summary may show only normalized completion or exception state
 
-#### Scenario: Completed manual reapproval does not remain actionable
-- **GIVEN** a disabled unbound manual assignment has a successful immutable recovery audit
-- **WHEN** an authorized operator views its package details
-- **THEN** the UI shows only a secret-safe completed state and disables another reapproval action
-- **AND** it does not render a replacement identifier, actor, timestamp, partition, or audit payload
+#### Scenario: Policy recovery runs without a UI action
+- **GIVEN** a disabled unbound policy assignment has a current authoritative owner
+- **WHEN** an operator views its package or recovery summary
+- **THEN** the UI does not ask the operator to start or approve reconciliation
+- **AND** it shows only aggregate automatic progress or an actionable current-owner exception
+- **AND** the control plane remains responsible for owner, credential, schema, and identity checks
 
-#### Scenario: Policy-owned legacy assignment is presented for reconciliation
-- **GIVEN** a package details view includes a disabled policy-owned assignment with no partition
-- **WHEN** an authorized operator views the assignment
-- **THEN** the UI identifies the owning policy or credential rule when available
-- **AND** does not offer a manual clone or editable recovery form
-- **AND** offers an authorized reconciliation action or explains why the policy cannot currently recover it
+#### Scenario: Historical identifiers are not primary labels
+- **GIVEN** recovery state refers to a plugin package and one or more agents
+- **WHEN** the UI renders that state
+- **THEN** it uses the approved plugin name, human-readable reason, and affected-agent count as the primary labels
+- **AND** package UUIDs, recovery request IDs, replacement IDs, and raw audit identifiers appear only in explicitly opened technical detail when authorized
 
-#### Scenario: Credential-rule recovery requires credential authority in the UI
-- **GIVEN** a disabled unbound policy assignment is owned by a credential rule
-- **AND** an operator has plugin-assignment permission but lacks credential-management permission
-- **WHEN** the operator views the package details
-- **THEN** the reconciliation action is disabled with an explanation that credential permission is required
-- **AND** the UI does not submit a request that purports to elevate that operator
-- **AND** the control plane remains responsible for the final current-owner authorization
+#### Scenario: Quarantined history does not block a fresh assignment
+- **GIVEN** an agent has only disabled unbound historical rows for a plugin
+- **AND** an authorized operator submits the normal assignment form with current configuration
+- **WHEN** the UI resolves whether to create or update an assignment
+- **THEN** it excludes every unbound historical row from current-assignment lookup
+- **AND** it submits a fresh create through the normal partition-binding path
+- **AND** it does not display an instruction to use a per-row recovery action
 
-#### Scenario: Credential-rule recovery event cannot bypass the disabled control
-- **GIVEN** a disabled unbound policy assignment is owned by a credential rule
-- **AND** an operator lacks credential-management permission
-- **WHEN** the browser submits a direct recovery event for that row
-- **THEN** the LiveView rejects it before creating a durable reconciliation request
-- **AND** it reports only the missing credential-management requirement
+### Requirement: Tenant-scoped manual adoption plan
+The plugin configuration UI SHALL provide at most one tenant-scoped confirmation
+for compatible manual legacy assignments that cannot be recovered from immutable
+principal-continuity evidence. The preview SHALL summarize eligible, waiting, and
+blocked logical assignments; it SHALL NOT ask the operator to approve each agent,
+package, or historical row separately. Confirmation SHALL submit only the
+immutable plan identifier and explicit tenant-scoped intent, never a partition,
+secret value, or caller-edited item list.
 
-#### Scenario: Policy reconciliation status refreshes without disclosing request data
-- **GIVEN** an authorized operator has requested reconciliation for a policy-owned legacy assignment in the current tenant
-- **WHEN** the package details view refreshes while the request is queued or running
-- **THEN** the UI shows a secret-safe queued or running status and refreshes the assignment until a terminal status is available
-- **AND** a terminal status shows safe remediation and, when reconciled, only the replacement count
-- **AND** the UI does not render request parameters, principal information, owner identifiers, raw credential material, or replacement identifiers
+#### Scenario: Operator approves compatible manual recovery once
+- **GIVEN** the current tenant has multiple compatible manual legacy assignments across multiple agents and plugins
+- **AND** an operator is authorized to create assignments in that tenant
+- **WHEN** the operator opens the recovery plan
+- **THEN** the UI summarizes recognizable plugin names, affected-agent counts, and eligible, waiting, and blocked totals
+- **AND** one confirmation approves all immutable eligible items in the plan
+- **AND** the UI does not render a confirmation control for every item
 
-#### Scenario: Recovery result is actionable and secret-safe
-- **GIVEN** an operator requests a legacy assignment recovery
-- **WHEN** the request succeeds, conflicts, lacks evidence, is denied, or fails schema validation
-- **THEN** the UI displays the outcome and any safe remediation
-- **AND** it SHALL NOT render raw secret values in the result, error, or audit detail
+#### Scenario: Server rejects a forged or stale plan submission
+- **GIVEN** a browser changes plan membership, supplies a partition, replays an expired plan, or submits a plan from another tenant
+- **WHEN** the confirmation event reaches the control plane
+- **THEN** the action fails without creating or enabling an assignment
+- **AND** the UI reports a safe stale-or-unauthorized result without disclosing cross-tenant or secret data
 
-### Requirement: Legacy recovery candidate review
-The plugin configuration UI SHALL provide a tenant-scoped, bounded, keyset-paged review list for legacy unbound assignments that still need action. The list SHALL show the affected agent UID, plugin package reference, recovery kind, redacted recovery status, and a route to review the corresponding package details. It SHALL NOT provide a bulk re-enable operation, infer a partition, or present a global recovery-request queue. Completed historical rows SHALL retain only their safe completion state in package detail, not be counted as pending candidates or expose raw audit history.
+### Requirement: Recovery overview is exception-only
+The plugin configuration UI SHALL provide a tenant-scoped, bounded recovery
+overview that reports aggregate automatic progress and groups only actionable
+exceptions by recognizable plugin and remediation reason. Offline or temporarily
+unavailable agents SHALL be shown as waiting and SHALL NOT be presented as tasks
+requiring operator action. Completed historical rows SHALL not remain in an
+action queue.
 
-#### Scenario: Authorized operator reviews tenant recovery candidates
-- **GIVEN** the current tenant has one or more disabled unbound legacy assignments
-- **WHEN** an operator with plugin-assignment permission opens the Plugins index
-- **THEN** the UI lists only candidates visible in that tenant with their safe review metadata
-- **AND** each candidate links to its package details for an explicit manual reapproval or policy reconciliation
-- **AND** the list does not assume the `default` partition or offer a bulk recovery action
-- **AND** the list uses bounded keyset pages rather than numeric offset scans or an unbounded candidate collection in the LiveView
+#### Scenario: Automatic recovery is progressing normally
+- **GIVEN** the tenant has restored items, items waiting for agents, and no actionable exceptions
+- **WHEN** an authorized operator opens the Plugins index
+- **THEN** the UI shows compact aggregate progress
+- **AND** it does not render a legacy-review table, per-row links, or a warning that the operator must process waiting items
 
-#### Scenario: No cross-tenant candidate metadata is rendered
-- **GIVEN** another tenant has legacy recovery candidates
+#### Scenario: Actionable failures are grouped by remediation
+- **GIVEN** multiple logical recovery items fail for the same current schema, credential-policy, unsupported-owner, permission, or conflict reason
+- **WHEN** an authorized operator opens recovery exceptions
+- **THEN** the UI groups them by plugin name and remediation reason with an affected-agent count
+- **AND** it links directly to the current policy, credential rule, configuration, or conflict surface that can resolve the issue
+- **AND** individual agent details are disclosed only on demand within the tenant
+- **AND** the collection uses bounded keyset pages rather than an unbounded LiveView list
+
+#### Scenario: No cross-tenant recovery metadata is rendered
+- **GIVEN** another tenant has recovery progress, plans, or exceptions
 - **WHEN** an operator opens the Plugins index in the current tenant
-- **THEN** the UI does not render the other tenant's agent, package, status, or recovery-request existence
+- **THEN** the UI does not render the other tenant's agents, plugins, counts, statuses, plan existence, or recovery-request existence
