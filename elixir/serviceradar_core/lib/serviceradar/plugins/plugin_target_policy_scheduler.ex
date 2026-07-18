@@ -10,6 +10,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyScheduler do
   alias ServiceRadar.Credentials.ProxmoxCredentialRuleReconcileWorker
   alias ServiceRadar.Plugins.AddonProfileReconcileWorker
   alias ServiceRadar.Plugins.AddonRolloutWorker
+  alias ServiceRadar.Plugins.AddonUpdatePolicyBackfillWorker
   alias ServiceRadar.Plugins.PluginLegacyAssignmentRecoveryWorker
   alias ServiceRadar.Plugins.PluginPolicyAssignmentRecoveryDispatchWorker
   alias ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker
@@ -45,6 +46,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyScheduler do
           ProxmoxCredentialRuleReconcileWorker,
           CameraCredentialRuleReconcileWorker,
           PluginIntegrationReconcileWorker,
+          AddonUpdatePolicyBackfillWorker,
           AddonProfileReconcileWorker,
           AddonRolloutWorker
         ],

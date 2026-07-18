@@ -92,7 +92,10 @@ existing `autoApproveAddonIds` setting remains the allowlist for packages that m
 the approval boundary without manual review; it does not bypass rollout eligibility or
 health gates.
 
-Migration derives the initial policy from package provenance and explicit source intent.
+Post-bootstrap migration convergence derives the initial policy from package provenance
+and explicit source intent. The schema migration marks only rows that already exist,
+then a one-shot Oban worker drains those rows in bounded, skip-locked batches so fleet
+size cannot block application startup or overwrite choices made after the migration.
 A source selecting a signed, verified `first_party` package becomes
 `track_latest_approved` unless an explicit operator pin is already recorded. A source
 using an upload, GitHub import, unverifiable provenance, or a non-first-party package
@@ -264,9 +267,11 @@ package as a candidate, but approval and rollout remain separately audited opera
 
 ## Migration Plan
 
-1. Add rollout/update-policy schema. Backfill signed, verified first-party sources to
-   `track_latest_approved`, backfill non-first-party sources to `manual_pin`, preserve
-   every selected package, and expose an explicit pin control before enabling rollout.
+1. Add rollout/update-policy schema. Mark pre-existing rows for asynchronous,
+   post-bootstrap convergence; backfill signed, verified first-party sources to
+   `track_latest_approved` in bounded batches, leave non-first-party sources on
+   `manual_pin`, preserve every selected package, and expose an explicit pin control
+   before enabling rollout.
 2. Add the enriched fleet classification and counters in read-only mode, compare old
    and new summaries in telemetry, then switch the UI to categorized semantics.
 3. Enable manual bulk rollouts with canary, batch, health gate, and rollback support.

@@ -18,6 +18,7 @@ defmodule ServiceRadar.Repo.Migrations.AddNativeAddonRollouts do
       add :release_channel, :text, null: false, default: "stable"
       add :capability_ceiling, {:array, :text}, null: false, default: []
       add :rollout_policy, :map, null: false, default: @default_policy
+      add :update_policy_backfill_pending, :boolean, null: false, default: true
     end
 
     alter table(:addon_profiles, prefix: "platform") do
@@ -26,7 +27,19 @@ defmodule ServiceRadar.Repo.Migrations.AddNativeAddonRollouts do
       add :release_channel, :text, null: false, default: "stable"
       add :capability_ceiling, {:array, :text}, null: false, default: []
       add :rollout_policy, :map, null: false, default: @default_policy
+      add :update_policy_backfill_pending, :boolean, null: false, default: true
     end
+
+    # Existing rows retain TRUE from the fast column default, while rows created
+    # after this migration are initialized by ApplyAddonUpdatePolicyDefaults and
+    # must never be mistaken for legacy data by the asynchronous backfill worker.
+    execute(
+      "ALTER TABLE platform.addon_assignments ALTER COLUMN update_policy_backfill_pending SET DEFAULT FALSE"
+    )
+
+    execute(
+      "ALTER TABLE platform.addon_profiles ALTER COLUMN update_policy_backfill_pending SET DEFAULT FALSE"
+    )
 
     create table(:addon_rollouts, primary_key: false, prefix: "platform") do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
@@ -126,32 +139,6 @@ defmodule ServiceRadar.Repo.Migrations.AddNativeAddonRollouts do
     WHERE state IN ('pending', 'waiting_health', 'healthy_soak', 'succeeded', 'rollback_pending')
     """)
 
-    execute("""
-    UPDATE platform.addon_assignments AS assignment
-    SET update_policy = 'track_latest_approved',
-        capability_ceiling = package.approved_capabilities
-    FROM platform.addon_packages AS package
-    WHERE assignment.addon_package_id = package.id
-      AND assignment.source <> 'profile'
-      AND assignment.explicit_version_pin = FALSE
-      AND package.source_type = 'first_party'
-      AND package.verification_status = 'verified'
-      AND package.verification_error IS NULL
-      AND package.status = 'approved'
-    """)
-
-    execute("""
-    UPDATE platform.addon_profiles AS profile
-    SET update_policy = 'track_latest_approved',
-        capability_ceiling = package.approved_capabilities
-    FROM platform.addon_packages AS package
-    WHERE profile.addon_package_id = package.id
-      AND profile.explicit_version_pin = FALSE
-      AND package.source_type = 'first_party'
-      AND package.verification_status = 'verified'
-      AND package.verification_error IS NULL
-      AND package.status = 'approved'
-    """)
   end
 
   def down do
@@ -168,6 +155,7 @@ defmodule ServiceRadar.Repo.Migrations.AddNativeAddonRollouts do
     drop table(:addon_rollouts, prefix: "platform")
 
     alter table(:addon_profiles, prefix: "platform") do
+      remove :update_policy_backfill_pending
       remove :rollout_policy
       remove :capability_ceiling
       remove :release_channel
@@ -176,6 +164,7 @@ defmodule ServiceRadar.Repo.Migrations.AddNativeAddonRollouts do
     end
 
     alter table(:addon_assignments, prefix: "platform") do
+      remove :update_policy_backfill_pending
       remove :rollout_policy
       remove :capability_ceiling
       remove :release_channel

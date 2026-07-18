@@ -5,10 +5,13 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.AddonProfile
   alias ServiceRadar.Plugins.AddonRollout
   alias ServiceRadar.Plugins.AddonRolloutCoordinator
   alias ServiceRadar.Plugins.AddonRolloutTarget
   alias ServiceRadar.Plugins.AddonStatus
+  alias ServiceRadar.Plugins.AddonUpdatePolicyBackfillWorker
+  alias ServiceRadar.Repo
 
   require Ash.Query
 
@@ -115,6 +118,87 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     rollout = get_rollout(rollout.id, actor)
     assert rollout.state == :completed
     assert get_rollout_target(rollout.id, actor).state == :promoted
+  end
+
+  test "legacy trusted sources are backfilled in a bounded post-startup batch" do
+    actor = SystemActor.system(:addon_update_policy_backfill_test)
+    unique = System.unique_integer([:positive])
+    addon_id = "rollout-backfill-#{unique}"
+    agent_uid = "rollout-backfill-agent-#{unique}"
+    package = approved_package(addon_id, "1.0.0", actor, ["network-observe"])
+
+    {:ok, assignment} =
+      AddonAssignment
+      |> Ash.Changeset.for_create(
+        :create,
+        %{agent_uid: agent_uid, addon_package_id: package.id},
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, profile} =
+      AddonProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Rollout backfill profile #{unique}",
+          addon_package_id: package.id,
+          target_query: "in:agents"
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    assert assignment.update_policy == :track_latest_approved
+    assert profile.update_policy == :track_latest_approved
+
+    Repo.query!(
+      """
+      UPDATE platform.addon_assignments
+      SET update_policy = 'manual_pin',
+          capability_ceiling = ARRAY[]::text[],
+          update_policy_backfill_pending = TRUE
+      WHERE id = ($1::text)::uuid
+      """,
+      [assignment.id]
+    )
+
+    Repo.query!(
+      """
+      UPDATE platform.addon_profiles
+      SET update_policy = 'manual_pin',
+          capability_ceiling = ARRAY[]::text[],
+          update_policy_backfill_pending = TRUE
+      WHERE id = ($1::text)::uuid
+      """,
+      [profile.id]
+    )
+
+    assert {:ok, %{assignments: assignments, profiles: profiles}} =
+             AddonUpdatePolicyBackfillWorker.backfill_batch(Repo, 100)
+
+    assert assignments >= 1
+    assert profiles >= 1
+
+    assignment = get_assignment(assignment.id, actor)
+    {:ok, profile} = AddonProfile.get_by_id(profile.id, actor: actor)
+
+    assert assignment.update_policy == :track_latest_approved
+    assert assignment.capability_ceiling == ["network-observe"]
+    assert profile.update_policy == :track_latest_approved
+    assert profile.capability_ceiling == ["network-observe"]
+
+    assert %{rows: [[false]]} =
+             Repo.query!(
+               "SELECT update_policy_backfill_pending FROM platform.addon_assignments WHERE id = ($1::text)::uuid",
+               [assignment.id]
+             )
+
+    assert %{rows: [[false]]} =
+             Repo.query!(
+               "SELECT update_policy_backfill_pending FROM platform.addon_profiles WHERE id = ($1::text)::uuid",
+               [profile.id]
+             )
   end
 
   test "pause, resume, and cancel preserve the stable package and clear the candidate override" do
@@ -282,7 +366,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     status
   end
 
-  defp approved_package(addon_id, version, actor) do
+  defp approved_package(addon_id, version, actor, approved_capabilities \\ []) do
     {:ok, package} =
       AddonPackage
       |> Ash.Changeset.for_create(
@@ -312,7 +396,10 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
       package
       |> Ash.Changeset.for_update(
         :approve,
-        %{approved_capabilities: [], approved_by: "system:addon_rollout_db_test"},
+        %{
+          approved_capabilities: approved_capabilities,
+          approved_by: "system:addon_rollout_db_test"
+        },
         actor: actor
       )
       |> Ash.update(actor: actor)
