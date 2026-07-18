@@ -26,11 +26,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
     addon_ids = Keyword.get(opts, :addon_ids, [])
 
     addons
-    |> maybe_filter_release_tag(release_tag)
-    |> Enum.filter(
-      &(Map.get(&1, :import_ready?) and selected_addon?(&1, addon_ids) and
-          not RetiredNativeAddons.retired?(&1.addon_id))
-    )
+    |> Enum.filter(&import_ready_candidate?/1)
+    |> select_release(release_tag)
+    |> Enum.filter(&selected_addon?(&1, addon_ids))
     |> dedupe_native_addon_versions()
   end
 
@@ -408,11 +406,23 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
     "sha256:" <> (:sha256 |> :crypto.hash(value) |> Base.encode16(case: :lower))
   end
 
-  defp maybe_filter_release_tag(addons, release_tag) when is_binary(release_tag) and release_tag != "" do
+  defp import_ready_candidate?(addon) do
+    Map.get(addon, :import_ready?) and not RetiredNativeAddons.retired?(addon.addon_id)
+  end
+
+  defp select_release(addons, release_tag) when is_binary(release_tag) and release_tag != "" do
     Enum.filter(addons, &(&1.release_tag == release_tag))
   end
 
-  defp maybe_filter_release_tag(addons, _release_tag), do: addons
+  # Discovery is newest-first. An unattended sync treats the first import-ready
+  # release as one authoritative set instead of filling missing add-ons from
+  # historical indexes. Historical releases remain available through the exact
+  # release-tag path above.
+  defp select_release([%{release_tag: release_tag} | _] = addons, _release_tag) do
+    Enum.filter(addons, &(&1.release_tag == release_tag))
+  end
+
+  defp select_release([], _release_tag), do: []
 
   defp selected_addon?(_addon, []), do: true
   defp selected_addon?(addon, addon_ids), do: addon.addon_id in addon_ids
