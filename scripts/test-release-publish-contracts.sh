@@ -19,6 +19,7 @@ cut_release="${repo_root}/scripts/cut-release.sh"
 validate_release_tag="${repo_root}/scripts/validate-release-tag.sh"
 validate_release_metadata="${repo_root}/scripts/validate-release-metadata.sh"
 check_oci_chart_version_available="${repo_root}/scripts/check-oci-chart-version-available.sh"
+sign_oci_publish="${repo_root}/scripts/sign-oci-publish.sh"
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
@@ -294,7 +295,8 @@ python3 - \
   "${source_security_workflow}" \
   "${image_security_workflow}" \
   "${upload_release_asset}" \
-  "${cut_release}" <<'PY'
+  "${cut_release}" \
+  "${sign_oci_publish}" <<'PY'
 import sys
 from pathlib import Path
 
@@ -305,6 +307,7 @@ source_security_workflow = Path(sys.argv[4]).read_text()
 image_security_workflow = Path(sys.argv[5]).read_text()
 upload_release_asset = Path(sys.argv[6]).read_text()
 cut_release = Path(sys.argv[7]).read_text()
+sign_oci_publish = Path(sys.argv[8]).read_text()
 
 required_workflow_fragments = [
     "id: source",
@@ -384,6 +387,43 @@ if not (
 digest_check = '"${tag_check_script}" "${release_sha_tag}" "${RELEASE_TAG}" latest'
 if workflow.count(digest_check) != 2:
     raise SystemExit("release workflow must run the same all-image digest check before and after publish")
+
+checkout_step = workflow[
+    workflow.index("- name: Checkout release commit"):
+    workflow.index("- name: Derive managed agent release public key")
+]
+for fragment in (
+    'cp scripts/sign-oci-publish.sh "${RUNNER_TEMP}/sign-oci-publish.sh"',
+    'chmod +x "${RUNNER_TEMP}/sign-oci-publish.sh"',
+):
+    if fragment not in checkout_step:
+        raise SystemExit(f"release retry does not preserve the protected signer: {fragment}")
+
+publish_images_step = workflow[
+    workflow.index("- name: Publish container images"):
+    workflow.index("- name: Publish Helm chart to OCI registry")
+]
+for fragment in (
+    'digest_label = entry.get(',
+    '":" + entry.get("push_image", entry["image"]) + ".digest",',
+    'print("//docker/images:" + digest_label[1:])',
+    'SERVICERADAR_COSIGN_COMMON="${PWD}/scripts/cosign_common.sh"',
+    'SERVICERADAR_REPO_ROOT="${PWD}"',
+    '"${sign_script}"',
+):
+    if fragment not in publish_images_step:
+        raise SystemExit(f"release retry is missing digest materialization contract: {fragment}")
+
+for fragment in (
+    'source "${SERVICERADAR_COSIGN_COMMON:-${SCRIPT_DIR}/cosign_common.sh}"',
+    'REPO_ROOT="${SERVICERADAR_REPO_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"',
+    'digest_file="${IMAGE_METADATA_DIR}/${digest_target}.json.sha256"',
+    'invalid Bazel OCI digest metadata',
+):
+    if fragment not in sign_oci_publish:
+        raise SystemExit(f"OCI signer is missing canonical Bazel digest handling: {fragment}")
+if '_index.json"' in sign_oci_publish:
+    raise SystemExit("OCI signer still relies on non-top-level Bazel index metadata")
 
 postflight = workflow.index("Rechecking release image digest equality after publish/build handling.")
 signing = workflow.index("source ./scripts/ci/prepare-openbao-cosign-env.sh")
