@@ -19,11 +19,12 @@ expected inactivity.
 
 ## What Changes
 
-- Preserve manual version pinning as the default. Importing or approving a package
-  SHALL NOT directly rewrite assignments or profiles.
-- Add an explicit, opt-in `track_latest_approved` policy for direct assignments and
-  add-on profiles. A newly approved eligible version creates a staged rollout; it does
-  not fan out an immediate uncoordinated config change.
+- Make `track_latest_approved` the default for native add-on assignments and profiles
+  backed by signed, verified first-party packages. Existing first-party sources migrate
+  to managed tracking; explicit operator pins and non-first-party sources remain pinned.
+- Keep approval separate from desired state: importing or approving a package SHALL NOT
+  rewrite assignments in the approval transaction. A newer eligible approved version
+  instead creates an asynchronous staged rollout with no operator action required.
 - Add native add-on rollout records with a snapshotted target set, canary and batch
   controls, inter-batch soak, fresh model-specific health gates, pause/resume/cancel,
   per-target state, and automatic rollback to the previous desired package on failure.
@@ -59,5 +60,6 @@ expected inactivity.
     and config-apply diagnostics
 - Related but separate: base-agent rollout behavior remains in
   `agent-release-management`; Wasm plugin assignment upgrades are not changed here.
-- Compatibility: all existing assignments and profiles migrate to `manual_pin`, so
-  installing this change causes no automatic add-on updates.
+- Compatibility: existing signed and verified first-party sources become managed and
+  may automatically roll to a newer already-approved stable package after migration.
+  Existing upload/GitHub sources and explicit operator pins remain `manual_pin`.

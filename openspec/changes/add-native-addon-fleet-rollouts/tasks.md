@@ -2,7 +2,7 @@
 
 ## 1. Data model and authorization
 
-- [ ] 1.1 Add explicit `manual_pin` and `track_latest_approved` update policies to direct add-on assignments and add-on profiles; migrate every existing source to `manual_pin`
+- [ ] 1.1 Add explicit `manual_pin` and `track_latest_approved` update policies to direct add-on assignments and add-on profiles; migrate signed/verified first-party sources to tracking unless explicitly pinned and migrate other sources to `manual_pin`
 - [ ] 1.2 Add rollout, rollout-source, and per-agent rollout-target resources with stable/candidate package IDs, target snapshots, batch policy, prior desired state, lifecycle timestamps, evidence, and errors
 - [ ] 1.3 Add uniqueness/locking constraints so one active rollout owns an effective (agent, add-on) target and one candidate rollout owns a source at a time
 - [ ] 1.4 Apply existing add-on management authorization to policy and rollout actions and record policy/rollout transitions in audit history
@@ -11,7 +11,7 @@
 
 - [ ] 2.1 Implement deterministic latest-candidate selection by logical add-on ID, semantic version, release channel, verification/approval/revocation state, platform/agent compatibility, and capability ceiling
 - [ ] 2.2 Ensure package import/approval never directly mutates assignment or profile package IDs
-- [ ] 2.3 Reconcile opted-in track-latest sources asynchronously into rollout candidates and queue newer approvals while a source already has an active rollout
+- [ ] 2.3 Reconcile managed first-party and operator-opted-in track-latest sources asynchronously into rollout candidates and queue newer approvals while a source already has an active rollout
 - [ ] 2.4 Block failed or privilege-expanding candidates per source until an authorized operator explicitly retries or changes policy
 
 ## 3. Rollout coordination
@@ -40,7 +40,7 @@
 
 ## 6. Operator UI
 
-- [ ] 6.1 Add update-policy controls to direct assignment and add-on profile forms, with manual pin as the visible default
+- [ ] 6.1 Add update-policy controls to direct assignment and add-on profile forms, showing managed tracking by default for signed/verified first-party packages and manual pin for other origins
 - [ ] 6.2 Add an approved-package bulk upgrade preview grouped by authoritative source with eligible, incompatible, overridden, unavailable, ephemeral, and already-current counts
 - [ ] 6.3 Add canary, batch size, soak, timeout, and failure-tolerance controls and create a rollout instead of bulk-updating assignments
 - [ ] 6.4 Add rollout progress/detail with per-target evidence, pause/resume/cancel, retry, and rollback actions
@@ -54,7 +54,7 @@
 - [ ] 7.3 Test profile reconciliation during canary, paused, failed, rolled-back, and completed rollouts, including direct overrides and dynamic membership
 - [ ] 7.4 Test fleet classification for real runtime failure, stale disconnected agent, never-reported assignment, healthy built-in observed-only runtime, dormant ephemeral helper, incompatible target, and in-progress convergence
 - [ ] 7.5 Add LiveView and Playwright coverage for bulk preview, policy controls, rollout operations, counters/filters, reason visibility, authorization, and responsive layout
-- [ ] 7.6 Run mixed-version demo rollouts against at least one continuous service, one systemd timer, and one ephemeral helper; verify no automatic updates occur before opt-in
+- [ ] 7.6 Run mixed-version demo rollouts against at least one continuous service, one systemd timer, and one ephemeral helper; verify first-party managed sources auto-roll and explicit/non-first-party pins do not
 
 ## 8. Documentation and rollout
 
