@@ -121,7 +121,12 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   end
 
   defp schedule_next_check(args) do
-    case ObanSupport.safe_insert(new(args, schedule_in: @evaluation_interval_seconds)) do
+    case ObanSupport.safe_insert(
+           new(args,
+             schedule_in: @evaluation_interval_seconds,
+             unique: [states: :scheduled]
+           )
+         ) do
       {:ok, _job} ->
         :ok
 

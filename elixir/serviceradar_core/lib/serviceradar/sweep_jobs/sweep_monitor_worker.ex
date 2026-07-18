@@ -33,8 +33,6 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
   use Oban.Worker,
     queue: :monitoring,
     max_attempts: 3,
-    # Exclude :executing so the self-reschedule in perform/1 isn't deduped
-    # against the still-running job (double-seed guarded by check_existing_job).
     unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Actors.SystemActor
@@ -116,7 +114,12 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
   end
 
   defp schedule_next_check(args) do
-    case ObanSupport.safe_insert(new(args, schedule_in: @monitor_interval_seconds)) do
+    case ObanSupport.safe_insert(
+           new(args,
+             schedule_in: @monitor_interval_seconds,
+             unique: [states: :scheduled]
+           )
+         ) do
       {:ok, _job} ->
         :ok
 

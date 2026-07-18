@@ -75,7 +75,10 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorker do
   end
 
   defp schedule_next do
-    ObanSupport.safe_insert(new(%{}, schedule_in: @default_reschedule_seconds))
+    ObanSupport.safe_insert(
+      new(%{}, schedule_in: @default_reschedule_seconds, unique: [states: :scheduled])
+    )
+
     :ok
   end
 
