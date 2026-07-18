@@ -20,6 +20,7 @@ validate_release_tag="${repo_root}/scripts/validate-release-tag.sh"
 validate_release_metadata="${repo_root}/scripts/validate-release-metadata.sh"
 check_oci_chart_version_available="${repo_root}/scripts/check-oci-chart-version-available.sh"
 sign_oci_publish="${repo_root}/scripts/sign-oci-publish.sh"
+demo_prod_application="${repo_root}/k8s/argocd/applications/demo-prod.yaml"
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
@@ -296,7 +297,8 @@ python3 - \
   "${image_security_workflow}" \
   "${upload_release_asset}" \
   "${cut_release}" \
-  "${sign_oci_publish}" <<'PY'
+  "${sign_oci_publish}" \
+  "${demo_prod_application}" <<'PY'
 import sys
 from pathlib import Path
 
@@ -308,6 +310,7 @@ image_security_workflow = Path(sys.argv[5]).read_text()
 upload_release_asset = Path(sys.argv[6]).read_text()
 cut_release = Path(sys.argv[7]).read_text()
 sign_oci_publish = Path(sys.argv[8]).read_text()
+demo_prod_application = Path(sys.argv[9]).read_text()
 
 required_workflow_fragments = [
     "id: source",
@@ -516,6 +519,23 @@ if "steps.parallel_assets.outcome == 'success'" not in advance_step:
     raise SystemExit("demo advancement is not explicitly gated on parallel asset verification")
 if "steps.finalize_release.outcome == 'success'" not in advance_step:
     raise SystemExit("demo advancement is not explicitly gated on release finalization")
+
+for fragment in (
+    "targetRevision: demo/prod-release",
+    "automated:",
+    "enabled: true",
+    "prune: false",
+    "selfHeal: false",
+    "allowEmpty: false",
+):
+    if fragment not in demo_prod_application:
+        raise SystemExit(f"demo release application is missing zero-touch contract: {fragment}")
+
+sync_policy = demo_prod_application[demo_prod_application.index("  syncPolicy:"):]
+if "prune: true" in sync_policy:
+    raise SystemExit("zero-touch demo release automation must not enable pruning")
+if "selfHeal: true" in sync_policy:
+    raise SystemExit("zero-touch demo release automation must not overwrite live drift")
 
 for worker_name, worker in (
     ("native add-on", native_addons_workflow),
