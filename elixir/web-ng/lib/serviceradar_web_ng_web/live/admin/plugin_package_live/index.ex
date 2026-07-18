@@ -25,6 +25,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   @package_page_size 10
   @first_party_catalog_page_size 10
   @official_release_tag_regex ~r/^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$/
+  @plugin_assignment_manage_permission "settings.plugins.manage"
+  @credential_manage_permission "settings.credentials.manage"
+  @policy_recovery_poll_delay_ms 2_000
+  @policy_recovery_poll_attempt_limit 30
+  @legacy_recovery_candidate_page_size 50
 
   # Capabilities that grant network egress or raw request access from a Wasm
   # plugin. These MUST be explicitly carried into a package's approved
@@ -47,12 +52,20 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     if RBAC.can?(scope, "plugins.view") do
       packages = list_packages(%{}, scope)
       release_options = combined_release_options([], packages)
+      can_assign_plugins = RBAC.can?(scope, @plugin_assignment_manage_permission)
+
+      can_reconcile_credential_rules =
+        can_assign_plugins and RBAC.can?(scope, @credential_manage_permission)
 
       socket =
         socket
         |> assign(:can_stage_plugins, RBAC.can?(scope, "plugins.stage"))
         |> assign(:can_approve_plugins, RBAC.can?(scope, "plugins.approve"))
-        |> assign(:can_assign_plugins, RBAC.can?(scope, "plugins.assign"))
+        # PluginAssignment mutations (including legacy recovery) are guarded
+        # by the core `settings.plugins.manage` policy. Do not advertise a
+        # weaker `plugins.assign` browser capability that the server will deny.
+        |> assign(:can_assign_plugins, can_assign_plugins)
+        |> assign(:can_reconcile_credential_rules, can_reconcile_credential_rules)
         |> assign(:page_title, "Plugins")
         |> assign(:current_path, nil)
         |> assign(:plugins_base_path, "/admin/plugins")
@@ -80,6 +93,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:review_form, default_review_form())
         |> assign(:assignment_form, default_assignment_form())
         |> assign(:assignments, [])
+        |> assign(:authenticated_partition_preview, nil)
+        |> assign(:recovery_confirmation, nil)
+        |> assign(:policy_recovery_polls, %{})
+        |> assign(:legacy_recovery_candidate_page, 1)
+        |> assign(:legacy_recovery_candidates_more?, false)
         |> assign(:credential_fields, [])
         |> assign(:credential_coverage, nil)
         |> assign(:assignment_coverage, %{})
@@ -95,13 +113,20 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:download_expires_at, nil)
         |> assign(:blob_present, nil)
         |> assign(:upload_errors, [])
+        # Candidate discovery is a database-backed, tenant-scoped query. Keep
+        # the disconnected mount free of new database work and load it only
+        # after the LiveView socket is connected.
+        |> assign(:legacy_recovery_candidates, [])
         |> allow_upload(:wasm_blob,
           accept: ~w(.wasm),
           max_entries: 1,
           max_file_size: Storage.max_upload_bytes()
         )
 
-      if connected?(socket), do: send(self(), :load_first_party_catalog)
+      if connected?(socket) do
+        send(self(), :load_first_party_catalog)
+        send(self(), :load_legacy_recovery_candidates)
+      end
 
       {:ok, socket}
     else
@@ -148,6 +173,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:review_form, build_review_form(package))
         |> assign(:assignment_form, default_assignment_form())
         |> assign(:assignments, list_plugin_assignments(package.plugin_id, scope))
+        |> assign(:authenticated_partition_preview, nil)
+        |> assign(:recovery_confirmation, nil)
+        |> assign(:policy_recovery_polls, %{})
         |> assign_credential_context(package)
         |> assign(:versions, list_versions(package.plugin_id, scope))
         |> assign(:upload_errors, [])
@@ -168,6 +196,44 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   @impl true
   def handle_info(:load_first_party_catalog, socket) do
     {:noreply, load_first_party_catalog(socket)}
+  end
+
+  def handle_info(:load_legacy_recovery_candidates, socket) do
+    {:noreply, assign_legacy_recovery_candidates(socket, socket.assigns.current_scope)}
+  end
+
+  def handle_info({:refresh_policy_recovery, legacy_assignment_id, request_id, attempt}, socket) do
+    poll = Map.get(socket.assigns.policy_recovery_polls, legacy_assignment_id)
+
+    if current_policy_recovery_poll?(poll, request_id, attempt) and
+         not is_nil(socket.assigns.selected_package) do
+      package = socket.assigns.selected_package
+      scope = socket.assigns.current_scope
+      assignments = list_plugin_assignments(package.plugin_id, scope)
+      state = policy_recovery_state_for_assignment(assignments, legacy_assignment_id)
+
+      socket = assign(socket, :assignments, assignments)
+
+      case state do
+        state when state in [:queued, :pending] ->
+          {:noreply, schedule_policy_recovery_poll(socket, legacy_assignment_id, request_id, attempt)}
+
+        state when is_atom(state) ->
+          {:noreply,
+           socket
+           |> clear_policy_recovery_poll(legacy_assignment_id)
+           |> assign_legacy_recovery_candidates(scope)
+           |> put_flash(:info, policy_recovery_terminal_message(state))}
+
+        _ ->
+          {:noreply,
+           socket
+           |> clear_policy_recovery_poll(legacy_assignment_id)
+           |> put_flash(:error, "Could not refresh policy reconciliation status. Refresh the page before retrying.")}
+      end
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
@@ -197,6 +263,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
      |> assign(:selected_package, nil)
      |> assign(:assignments, [])
      |> assign(:assignment_form, default_assignment_form())
+     |> assign(:authenticated_partition_preview, nil)
+     |> assign(:recovery_confirmation, nil)
+     |> assign(:policy_recovery_polls, %{})
      |> assign(:versions, [])
      |> assign(:upload_errors, [])
      |> assign(:upload_url, nil)
@@ -234,8 +303,25 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
      |> assign(:packages, packages)
      |> assign(:agents, list_agents(scope))
      |> assign_capacity(scope)
+     |> assign_legacy_recovery_candidates(scope)
      |> assign(:verification_policy, plugin_verification_policy())
      |> assign_first_party_catalog_view(socket.assigns.first_party_catalog_all, socket.assigns.first_party_release_tag)}
+  end
+
+  def handle_event("legacy_recovery_candidate_page", %{"id" => direction}, socket) do
+    current_page = socket.assigns.legacy_recovery_candidate_page
+
+    page =
+      case direction do
+        "next" when socket.assigns.legacy_recovery_candidates_more? -> current_page + 1
+        "previous" -> max(current_page - 1, 1)
+        _ -> current_page
+      end
+
+    {:noreply,
+     socket
+     |> assign(:legacy_recovery_candidate_page, page)
+     |> assign_legacy_recovery_candidates(socket.assigns.current_scope)}
   end
 
   def handle_event("sync_first_party_catalog", _params, socket) do
@@ -530,7 +616,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     {:noreply,
      socket
      |> assign(:assignment_form, form)
-     |> assign_form_coverage(form["agent_uid"])}
+     |> assign_form_coverage(form["agent_uid"])
+     |> assign_authenticated_partition_preview(form["agent_uid"])}
   end
 
   def handle_event("approve_package", %{"review" => _params}, %{assigns: %{can_approve_plugins: false}} = socket) do
@@ -687,6 +774,61 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     upgrade_assignment(socket, id, Map.get(params, "target_package_id"))
   end
 
+  def handle_event("request_legacy_recovery", _params, %{assigns: %{can_assign_plugins: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to recover plugin assignments.")}
+  end
+
+  def handle_event("request_legacy_recovery", %{"id" => id, "kind" => kind}, socket) do
+    case legacy_recovery_confirmation(socket.assigns.assignments, id, kind) do
+      {:ok, confirmation} ->
+        if legacy_recovery_confirmation_allowed?(socket, confirmation) do
+          {:noreply, assign(socket, :recovery_confirmation, confirmation)}
+        else
+          {:noreply, put_flash(socket, :error, credential_recovery_permission_message())}
+        end
+
+      {:error, :not_found} ->
+        {:noreply, put_flash(socket, :error, "Legacy assignment was not found. Refresh and try again.")}
+
+      {:error, :not_recoverable} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "This assignment is not an unbound legacy row and cannot be recovered through reapproval."
+         )}
+
+      {:error, :kind_mismatch} ->
+        {:noreply, put_flash(socket, :error, "The requested recovery action does not match this assignment.")}
+    end
+  end
+
+  def handle_event("cancel_legacy_recovery", _params, socket) do
+    {:noreply, assign(socket, :recovery_confirmation, nil)}
+  end
+
+  def handle_event("confirm_legacy_recovery", _params, %{assigns: %{can_assign_plugins: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to recover plugin assignments.")}
+  end
+
+  def handle_event("confirm_legacy_recovery", %{"id" => id, "kind" => kind}, socket) do
+    confirmation = socket.assigns.recovery_confirmation
+
+    case {
+      recovery_confirmation_matches?(confirmation, id, kind),
+      legacy_recovery_confirmation_allowed?(socket, confirmation)
+    } do
+      {true, true} ->
+        perform_legacy_recovery(socket, id, kind)
+
+      {true, false} ->
+        {:noreply, put_flash(socket, :error, credential_recovery_permission_message())}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Review this recovery request again before confirming.")}
+    end
+  end
+
   def handle_event("restage_package", _params, %{assigns: %{can_approve_plugins: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to approve plugin packages.")}
   end
@@ -725,6 +867,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          |> assign(:selected_package, nil)
          |> assign(:assignments, [])
          |> assign(:assignment_form, default_assignment_form())
+         |> assign(:authenticated_partition_preview, nil)
+         |> assign(:recovery_confirmation, nil)
          |> assign(:versions, [])
          |> assign(:upload_url, nil)
          |> assign(:upload_token, nil)
@@ -773,19 +917,30 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       nil ->
         create_assignment(socket, scope, attrs)
 
-      %{source: :policy} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           "This agent already has this plugin assigned by policy. Change the policy to move versions."
-         )}
-
-      %{plugin_package_id: package_id} = assignment when package_id != attrs.plugin_package_id ->
-        upgrade_assignment(socket, scope, assignment, attrs)
-
       assignment ->
-        update_assignment(socket, scope, assignment, attrs)
+        cond do
+          legacy_unbound_assignment?(assignment) ->
+            {:noreply,
+             put_flash(
+               socket,
+               :error,
+               "This agent has an unbound legacy assignment. Use its recovery action instead of updating it."
+             )}
+
+          assignment_source(assignment) == :policy ->
+            {:noreply,
+             put_flash(
+               socket,
+               :error,
+               "This agent already has this plugin assigned by policy. Change the policy to move versions."
+             )}
+
+          assignment_package_id(assignment) != attrs.plugin_package_id ->
+            upgrade_assignment(socket, scope, assignment, attrs)
+
+          true ->
+            update_assignment(socket, scope, assignment, attrs)
+        end
     end
   end
 
@@ -864,6 +1019,40 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp upgrade_assignment(socket, _id, _target_package_id) do
     {:noreply, put_flash(socket, :error, "Select a plugin version to upgrade to.")}
+  end
+
+  defp perform_legacy_recovery(socket, id, kind) do
+    scope = socket.assigns.current_scope
+
+    result =
+      case normalize_legacy_recovery_kind(kind) do
+        {:ok, :manual} ->
+          Assignments.reapprove_legacy_manual(id, %{confirm: true}, scope: scope)
+
+        {:ok, :policy} ->
+          Assignments.reconcile_legacy_policy(id, %{confirm: true}, scope: scope)
+
+        :error ->
+          {:error, :invalid_recovery_kind}
+      end
+
+    case result do
+      {:ok, recovery} ->
+        package = socket.assigns.selected_package
+
+        socket =
+          socket
+          |> assign(:assignments, list_plugin_assignments(package.plugin_id, scope))
+          |> assign_legacy_recovery_candidates(scope)
+          |> assign_credential_context(package)
+          |> assign(:recovery_confirmation, nil)
+          |> schedule_policy_recovery_poll(id, recovery)
+
+        {:noreply, put_flash(socket, :info, legacy_recovery_success_message(kind, recovery))}
+
+      {:error, error} ->
+        {:noreply, put_flash(socket, :error, "Recovery was not completed: #{legacy_recovery_error_message(error)}")}
+    end
   end
 
   @sobelow_skip ["Traversal.FileModule"]
@@ -981,6 +1170,96 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             </.ui_button>
           </div>
         </div>
+
+        <.ui_panel :if={
+          @legacy_recovery_candidates != [] or @legacy_recovery_candidates_more? or
+            @legacy_recovery_candidate_page > 1
+        }>
+          <:header>
+            <div>
+              <div class="text-sm font-semibold">Legacy recovery candidates</div>
+              <p class="text-xs text-base-content/60">
+                These quarantined assignments need explicit review. ServiceRadar will derive the live partition from mTLS; it will not assume `default`.
+              </p>
+            </div>
+            <span class="badge badge-warning badge-sm">
+              {length(@legacy_recovery_candidates)} pending review on page {@legacy_recovery_candidate_page}
+            </span>
+          </:header>
+
+          <div role="alert" class="alert alert-warning alert-vertical sm:alert-horizontal mb-3">
+            <div>
+              <div class="font-semibold">Review each candidate before restoring services</div>
+              <p class="text-xs">
+                Manual rows require reapproval. Policy rows must be reconciled from their current authoritative policy or credential rule. Candidates are paged 50 at a time.
+              </p>
+            </div>
+          </div>
+
+          <div :if={@legacy_recovery_candidates == []} class="py-2 text-xs text-base-content/60">
+            No unresolved candidates appear on this page.
+          </div>
+
+          <div :if={@legacy_recovery_candidates != []} class="overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                  <th>Agent</th>
+                  <th>Plugin package</th>
+                  <th>Recovery</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <%= for candidate <- @legacy_recovery_candidates do %>
+                  <% package_id = assignment_value(candidate, :plugin_package_id) %>
+                  <% recovery_kind = legacy_recovery_kind_for_display(candidate) %>
+                  <% recovery_status = legacy_policy_recovery_status(candidate) %>
+                  <tr class="hover:bg-base-200/30">
+                    <td class="text-xs font-mono">{assignment_value(candidate, :agent_uid)}</td>
+                    <td class="text-xs font-mono">{package_id || "Unavailable"}</td>
+                    <td class="text-xs">{legacy_recovery_label(recovery_kind)}</td>
+                    <td class="text-xs">
+                      {legacy_candidate_status_message(recovery_kind, recovery_status)}
+                    </td>
+                    <td>
+                      <.ui_button
+                        :if={is_binary(package_id) and package_id != ""}
+                        variant="ghost"
+                        size="xs"
+                        navigate={plugins_show_path(@plugins_base_path, package_id)}
+                      >
+                        Review
+                      </.ui_button>
+                    </td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="mt-3 flex items-center justify-end gap-2">
+            <.ui_button
+              variant="ghost"
+              size="xs"
+              phx-click="legacy_recovery_candidate_page"
+              phx-value-id="previous"
+              disabled={@legacy_recovery_candidate_page == 1}
+            >
+              Previous
+            </.ui_button>
+            <.ui_button
+              variant="ghost"
+              size="xs"
+              phx-click="legacy_recovery_candidate_page"
+              phx-value-id="next"
+              disabled={not @legacy_recovery_candidates_more?}
+            >
+              Next
+            </.ui_button>
+          </div>
+        </.ui_panel>
 
         <% catalog_rows =
           combined_catalog_rows(
@@ -1247,6 +1526,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         assignment_form={@assignment_form}
         assignment_coverage={@assignment_coverage}
         credential_coverage={@credential_coverage}
+        authenticated_partition_preview={@authenticated_partition_preview}
+        recovery_confirmation={@recovery_confirmation}
+        can_assign_plugins={@can_assign_plugins}
+        can_reconcile_credential_rules={@can_reconcile_credential_rules}
         versions={@versions}
         blob_present={@blob_present}
         uploads={@uploads}
@@ -1669,6 +1952,40 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div class="rounded-xl border border-base-200 p-4 space-y-3">
             <div class="text-sm font-semibold">Assignments</div>
+            <%= if @recovery_confirmation do %>
+              <div
+                id="legacy-recovery-confirmation"
+                role="alert"
+                class="alert alert-warning alert-vertical sm:alert-horizontal"
+              >
+                <div>
+                  <div class="font-semibold">{legacy_confirmation_title(@recovery_confirmation)}</div>
+                  <p class="mt-1 text-xs">
+                    {legacy_confirmation_message(@recovery_confirmation)}
+                  </p>
+                </div>
+                <div class="flex shrink-0 flex-wrap gap-2">
+                  <button
+                    id="confirm-legacy-recovery"
+                    type="button"
+                    class="btn btn-warning btn-sm"
+                    phx-click="confirm_legacy_recovery"
+                    phx-value-id={@recovery_confirmation.id}
+                    phx-value-kind={@recovery_confirmation.kind}
+                  >
+                    {legacy_confirmation_action_label(@recovery_confirmation)}
+                  </button>
+                  <button
+                    id="cancel-legacy-recovery"
+                    type="button"
+                    class="btn btn-ghost btn-sm"
+                    phx-click="cancel_legacy_recovery"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            <% end %>
             <%= if @assignments == [] do %>
               <p class="text-xs text-base-content/60">No agents assigned yet.</p>
             <% else %>
@@ -1677,79 +1994,189 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   <% current_package = package_for_assignment(assignment, @versions) %>
                   <% upgrade_target = latest_upgrade_target(assignment, @versions) %>
                   <% approved_targets = approved_upgrade_targets(assignment, @versions) %>
-                  <div class="flex items-center justify-between rounded-lg border border-base-200/70 bg-base-100/60 p-2 text-xs">
-                    <div>
-                      <div class="font-medium flex items-center gap-2">
-                        {assignment.agent_uid}
-                        <%= if assignment.enabled == false do %>
-                          <.ui_badge size="xs" variant="ghost">disabled</.ui_badge>
-                        <% end %>
-                        <%= if assignment.source == :policy do %>
-                          <.ui_badge size="xs" variant="ghost">policy</.ui_badge>
-                        <% end %>
-                        <%= if uncovered_assignment?(@assignment_coverage, assignment.id) do %>
-                          <span
-                            class="badge badge-warning badge-xs"
-                            title={coverage_badge_title(@assignment_coverage, assignment.id)}
-                          >
-                            no credential rule coverage
-                          </span>
-                        <% end %>
+                  <% legacy_kind = legacy_recovery_kind_for_display(assignment) %>
+                  <% legacy_compatibility = legacy_recovery_compatibility_message(assignment) %>
+                  <% legacy_partition_context = legacy_authenticated_partition_message(assignment) %>
+                  <% manual_recovery = legacy_manual_recovery_status(assignment) %>
+                  <% policy_recovery = legacy_policy_recovery_status(assignment) %>
+                  <% credential_rule_recovery? = legacy_credential_rule_recovery?(assignment) %>
+                  <div
+                    id={"assignment-#{assignment.id}"}
+                    class="rounded-lg border border-base-200/70 bg-base-100/60 p-3 text-xs"
+                  >
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <div class="font-medium flex flex-wrap items-center gap-2">
+                          {assignment.agent_uid}
+                          <%= if assignment.enabled == false do %>
+                            <.ui_badge size="xs" variant="ghost">disabled</.ui_badge>
+                          <% end %>
+                          <%= if assignment.source == :policy do %>
+                            <.ui_badge size="xs" variant="ghost">policy</.ui_badge>
+                          <% end %>
+                          <%= if legacy_kind do %>
+                            <.ui_badge size="xs" variant="warning">legacy unbound</.ui_badge>
+                          <% end %>
+                          <%= if uncovered_assignment?(@assignment_coverage, assignment.id) do %>
+                            <span
+                              class="badge badge-warning badge-xs"
+                              title={coverage_badge_title(@assignment_coverage, assignment.id)}
+                            >
+                              no credential rule coverage
+                            </span>
+                          <% end %>
+                        </div>
+                        <div class="text-base-content/60">
+                          every {assignment.interval_seconds}s, timeout {assignment.timeout_seconds}s
+                        </div>
+                        <div class="text-base-content/60">
+                          version {package_version(current_package)}
+                          <%= if upgrade_target do %>
+                            <span>-> latest {upgrade_target.version}</span>
+                          <% end %>
+                        </div>
                       </div>
-                      <div class="text-base-content/60">
-                        every {assignment.interval_seconds}s, timeout {assignment.timeout_seconds}s
-                      </div>
-                      <div class="text-base-content/60">
-                        version {package_version(current_package)}
-                        <%= if upgrade_target do %>
-                          <span>-> latest {upgrade_target.version}</span>
-                        <% end %>
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <%= if assignment.source == :policy do %>
-                        <span class="text-[11px] text-base-content/50">managed by policy</span>
-                      <% else %>
-                        <%= if upgrade_target do %>
+                      <div class="flex flex-wrap items-center gap-2">
+                        <%= if legacy_kind == :manual do %>
                           <button
+                            id={"request-manual-reapproval-#{assignment.id}"}
                             type="button"
-                            class="btn btn-primary btn-xs"
-                            phx-click="upgrade_assignment"
+                            class="btn btn-warning btn-xs"
+                            phx-click="request_legacy_recovery"
                             phx-value-id={assignment.id}
-                            phx-value-target-package-id={upgrade_target.id}
-                            data-confirm={"Upgrade this assignment to #{upgrade_target.version}?"}
+                            phx-value-kind="manual"
+                            disabled={
+                              not manual_recovery_action_enabled?(
+                                @can_assign_plugins,
+                                manual_recovery
+                              )
+                            }
                           >
-                            Upgrade
+                            {manual_recovery_action_label(manual_recovery)}
                           </button>
                         <% end %>
-                        <%= if approved_targets != [] do %>
-                          <form
-                            phx-submit="upgrade_assignment"
+                        <%= if legacy_kind == :policy do %>
+                          <button
+                            id={"request-policy-reconciliation-#{assignment.id}"}
+                            type="button"
+                            class="btn btn-warning btn-xs"
+                            phx-click="request_legacy_recovery"
                             phx-value-id={assignment.id}
-                            class="flex items-center gap-1"
+                            phx-value-kind="policy"
+                            disabled={
+                              not policy_recovery_action_enabled?(
+                                @can_assign_plugins,
+                                @can_reconcile_credential_rules,
+                                credential_rule_recovery?,
+                                policy_recovery
+                              )
+                            }
                           >
-                            <select
-                              name="assignment_upgrade[target_package_id]"
-                              class="select select-bordered select-xs w-auto min-w-[4.75rem] shrink-0"
-                            >
-                              <%= for target <- approved_targets do %>
-                                <option value={target.id}>{target.version}</option>
-                              <% end %>
-                            </select>
-                            <button type="submit" class="btn btn-ghost btn-xs">Set</button>
-                          </form>
+                            {policy_recovery_action_label(
+                              @can_reconcile_credential_rules,
+                              credential_rule_recovery?,
+                              policy_recovery
+                            )}
+                          </button>
                         <% end %>
-                      <% end %>
-                      <button
-                        type="button"
-                        class="btn btn-ghost btn-xs"
-                        phx-click="delete_assignment"
-                        phx-value-id={assignment.id}
-                        data-confirm="Remove this assignment?"
-                      >
-                        Remove
-                      </button>
+                        <%= if is_nil(legacy_kind) and assignment.source == :policy do %>
+                          <span class="text-[11px] text-base-content/50">managed by policy</span>
+                        <% end %>
+                        <%= if is_nil(legacy_kind) and assignment.source != :policy do %>
+                          <%= if upgrade_target do %>
+                            <button
+                              type="button"
+                              class="btn btn-primary btn-xs"
+                              phx-click="upgrade_assignment"
+                              phx-value-id={assignment.id}
+                              phx-value-target-package-id={upgrade_target.id}
+                              data-confirm={"Upgrade this assignment to #{upgrade_target.version}?"}
+                            >
+                              Upgrade
+                            </button>
+                          <% end %>
+                          <%= if approved_targets != [] do %>
+                            <form
+                              phx-submit="upgrade_assignment"
+                              phx-value-id={assignment.id}
+                              class="flex items-center gap-1"
+                            >
+                              <select
+                                name="assignment_upgrade[target_package_id]"
+                                class="select select-bordered select-xs w-auto min-w-[4.75rem] shrink-0"
+                              >
+                                <%= for target <- approved_targets do %>
+                                  <option value={target.id}>{target.version}</option>
+                                <% end %>
+                              </select>
+                              <button type="submit" class="btn btn-ghost btn-xs">Set</button>
+                            </form>
+                          <% end %>
+                        <% end %>
+                        <%= if is_nil(legacy_kind) do %>
+                          <button
+                            type="button"
+                            class="btn btn-ghost btn-xs"
+                            phx-click="delete_assignment"
+                            phx-value-id={assignment.id}
+                            data-confirm="Remove this assignment?"
+                          >
+                            Remove
+                          </button>
+                        <% end %>
+                      </div>
                     </div>
+                    <%= if legacy_kind do %>
+                      <div
+                        id={"legacy-assignment-recovery-#{assignment.id}"}
+                        role="status"
+                        class="alert alert-warning alert-vertical mt-3"
+                      >
+                        <div>
+                          <div class="font-semibold">{legacy_recovery_label(legacy_kind)}</div>
+                          <p class="mt-1 text-xs">{legacy_recovery_message(legacy_kind)}</p>
+                          <p
+                            :if={legacy_kind == :policy and legacy_recovery_owner_label(assignment)}
+                            class="mt-1 text-xs"
+                          >
+                            Owner: {legacy_recovery_owner_label(assignment)}
+                          </p>
+                          <p :if={legacy_compatibility} class="mt-1 text-xs">
+                            {legacy_compatibility}
+                          </p>
+                          <p :if={legacy_partition_context} class="mt-1 text-xs">
+                            {legacy_partition_context}
+                          </p>
+                          <p
+                            :if={
+                              legacy_kind == :manual and
+                                legacy_manual_recovery_message(manual_recovery)
+                            }
+                            class="mt-1 text-xs font-medium"
+                          >
+                            {legacy_manual_recovery_message(manual_recovery)}
+                          </p>
+                          <p
+                            :if={
+                              legacy_kind == :policy and
+                                legacy_policy_recovery_message(policy_recovery)
+                            }
+                            class="mt-1 text-xs font-medium"
+                          >
+                            {legacy_policy_recovery_message(policy_recovery)}
+                          </p>
+                          <p
+                            :if={
+                              legacy_kind == :policy and credential_rule_recovery? and
+                                not @can_reconcile_credential_rules
+                            }
+                            class="mt-1 text-xs"
+                          >
+                            You also need credential-management permission to reconcile this credential rule.
+                          </p>
+                        </div>
+                      </div>
+                    <% end %>
                   </div>
                 <% end %>
               </div>
@@ -1772,6 +2199,38 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   <% end %>
                 </select>
               </div>
+              <%= if @authenticated_partition_preview do %>
+                <div
+                  id="authenticated-partition-preview"
+                  role="status"
+                  class={[
+                    "alert alert-vertical",
+                    if(@authenticated_partition_preview.state == :available,
+                      do: "alert-info",
+                      else: "alert-warning"
+                    )
+                  ]}
+                >
+                  <%= if @authenticated_partition_preview.state == :available do %>
+                    <div>
+                      <div class="font-semibold">
+                        Authenticated partition: {@authenticated_partition_preview.partition_id}
+                      </div>
+                      <p class="mt-1 text-xs">
+                        Derived from this agent's current live mTLS control session. It is informational
+                        only and will be resolved again when you save.
+                      </p>
+                    </div>
+                  <% else %>
+                    <div>
+                      <div class="font-semibold">Authenticated partition: unavailable</div>
+                      <p class="mt-1 text-xs">
+                        {authenticated_partition_preview_message(@authenticated_partition_preview)}
+                      </p>
+                    </div>
+                  <% end %>
+                </div>
+              <% end %>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label class="label">
@@ -2024,6 +2483,116 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp list_plugin_assignments(plugin_id, scope) do
     Assignments.list(%{"plugin_id" => plugin_id}, scope: scope)
+  end
+
+  defp assign_legacy_recovery_candidates(socket, scope) do
+    {candidates, more?} =
+      if socket.assigns.can_assign_plugins,
+        do: list_legacy_recovery_candidates(scope, socket.assigns.legacy_recovery_candidate_page),
+        else: {[], false}
+
+    socket
+    |> assign(:legacy_recovery_candidates, candidates)
+    |> assign(:legacy_recovery_candidates_more?, more?)
+  end
+
+  defp list_legacy_recovery_candidates(scope, page) do
+    offset = max(page - 1, 0) * @legacy_recovery_candidate_page_size
+
+    case Assignments.list_legacy(
+           scope: scope,
+           limit: @legacy_recovery_candidate_page_size + 1,
+           offset: offset
+         ) do
+      {:ok, candidates} ->
+        {page_candidates, overflow} = Enum.split(candidates, @legacy_recovery_candidate_page_size)
+
+        actionable_candidates =
+          page_candidates
+          |> Enum.map(&enrich_legacy_recovery_candidate(&1, scope))
+          |> Enum.filter(&legacy_recovery_candidate_actionable?/1)
+
+        {actionable_candidates, overflow != []}
+
+      {:error, _reason} ->
+        {[], false}
+    end
+  end
+
+  defp enrich_legacy_recovery_candidate(candidate, scope) do
+    case Assignments.legacy_detail(candidate.legacy_assignment_id, scope: scope) do
+      {:ok, detail} -> Map.put(candidate, :recovery, detail)
+      {:error, _reason} -> candidate
+    end
+  end
+
+  # Quarantined rows deliberately remain disabled and partition-unbound as
+  # historical evidence, even after their replacement succeeds. Keep them out
+  # of the actionable candidate count once the safe, redacted terminal state
+  # proves that no operator action remains.
+  defp legacy_recovery_candidate_actionable?(candidate) do
+    case legacy_recovery_kind_for_display(candidate) do
+      :manual -> manual_recovery_state(legacy_manual_recovery_status(candidate)) != :reapproved
+      :policy -> policy_recovery_state(legacy_policy_recovery_status(candidate)) != :reconciled
+      _ -> false
+    end
+  end
+
+  defp schedule_policy_recovery_poll(socket, legacy_assignment_id, recovery) when is_map(recovery) do
+    case {legacy_recovery_result_state(recovery), value_from_map(recovery, :request_id)} do
+      {state, request_id} when state in [:queued, :pending] and is_binary(request_id) ->
+        schedule_policy_recovery_poll(socket, legacy_assignment_id, request_id, 0)
+
+      _ ->
+        socket
+    end
+  end
+
+  defp schedule_policy_recovery_poll(socket, _legacy_assignment_id, _recovery), do: socket
+
+  defp schedule_policy_recovery_poll(socket, legacy_assignment_id, request_id, attempt)
+       when is_binary(legacy_assignment_id) and is_binary(request_id) and is_integer(attempt) and
+              attempt < @policy_recovery_poll_attempt_limit do
+    next_attempt = attempt + 1
+
+    if connected?(socket) do
+      Process.send_after(
+        self(),
+        {:refresh_policy_recovery, legacy_assignment_id, request_id, next_attempt},
+        @policy_recovery_poll_delay_ms
+      )
+    end
+
+    polls =
+      Map.put(socket.assigns.policy_recovery_polls, legacy_assignment_id, %{
+        request_id: request_id,
+        attempt: next_attempt
+      })
+
+    assign(socket, :policy_recovery_polls, polls)
+  end
+
+  defp schedule_policy_recovery_poll(socket, legacy_assignment_id, _request_id, _attempt) do
+    clear_policy_recovery_poll(socket, legacy_assignment_id)
+  end
+
+  defp clear_policy_recovery_poll(socket, legacy_assignment_id) do
+    assign(
+      socket,
+      :policy_recovery_polls,
+      Map.delete(socket.assigns.policy_recovery_polls, legacy_assignment_id)
+    )
+  end
+
+  defp current_policy_recovery_poll?(%{request_id: request_id, attempt: attempt}, request_id, attempt), do: true
+
+  defp current_policy_recovery_poll?(_poll, _request_id, _attempt), do: false
+
+  defp policy_recovery_state_for_assignment(assignments, legacy_assignment_id) do
+    assignments
+    |> Enum.find(&(assignment_id(&1) == legacy_assignment_id))
+    |> legacy_policy_recovery_status()
+    |> value_from_map(:state)
   end
 
   defp list_versions(plugin_id, scope) do
@@ -2991,6 +3560,593 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   defp existing_assignment(_assignments, _agent_uid), do: nil
+
+  # Partition recovery deliberately derives all identity data from the current
+  # authenticated control session. The preview makes that provenance visible,
+  # but it is never submitted as assignment input and the recovery command
+  # resolves it again immediately before it creates a replacement.
+  defp assign_authenticated_partition_preview(socket, agent_uid) do
+    case trim_or_nil(agent_uid) do
+      nil ->
+        assign(socket, :authenticated_partition_preview, nil)
+
+      agent_uid ->
+        scope = socket.assigns.current_scope
+
+        preview =
+          case Assignments.authenticated_partition_preview(agent_uid, scope: scope) do
+            {:ok, preview} -> normalize_authenticated_partition_preview(agent_uid, preview)
+            {:error, reason} -> unavailable_partition_preview(agent_uid, reason)
+            _other -> unavailable_partition_preview(agent_uid, :unavailable)
+          end
+
+        assign(socket, :authenticated_partition_preview, preview)
+    end
+  rescue
+    _exception ->
+      # A preview must fail closed. In particular, do not fall back to an
+      # agent record, a default partition, or a value from an earlier form.
+      assign(socket, :authenticated_partition_preview, unavailable_partition_preview(agent_uid, :unavailable))
+  end
+
+  defp normalize_authenticated_partition_preview(agent_uid, preview) when is_map(preview) do
+    partition_id = value_from_map(preview, :partition_id)
+
+    if is_binary(partition_id) and String.trim(partition_id) != "" do
+      %{
+        agent_uid: agent_uid,
+        state: :available,
+        partition_id: String.trim(partition_id)
+      }
+    else
+      unavailable_partition_preview(agent_uid, value_from_map(preview, :reason) || :unavailable)
+    end
+  end
+
+  defp normalize_authenticated_partition_preview(agent_uid, _preview),
+    do: unavailable_partition_preview(agent_uid, :unavailable)
+
+  defp unavailable_partition_preview(agent_uid, reason) do
+    %{agent_uid: agent_uid, state: :unavailable, reason: normalize_partition_preview_reason(reason)}
+  end
+
+  defp normalize_partition_preview_reason(reason)
+       when reason in [
+              :agent_offline,
+              :authenticated_agent_partition_unavailable,
+              :authenticated_agent_partition_mismatch,
+              :forbidden,
+              :not_found
+            ], do: reason
+
+  defp normalize_partition_preview_reason(_reason), do: :unavailable
+
+  defp authenticated_partition_preview_message(%{reason: :agent_offline}),
+    do: "No live authenticated control session is available for this agent."
+
+  defp authenticated_partition_preview_message(%{reason: :authenticated_agent_partition_unavailable}),
+    do: "The live control session did not provide a trustworthy partition."
+
+  defp authenticated_partition_preview_message(%{reason: :authenticated_agent_partition_mismatch}),
+    do: "The live control-session identity does not match the selected agent."
+
+  defp authenticated_partition_preview_message(%{reason: :forbidden}),
+    do: "You are not authorized to inspect this agent's live control session."
+
+  defp authenticated_partition_preview_message(%{reason: :not_found}),
+    do: "The selected agent is no longer available in your current scope."
+
+  defp authenticated_partition_preview_message(_preview),
+    do: "The authenticated partition is unavailable. No saved or default partition will be used."
+
+  defp legacy_recovery_confirmation(assignments, id, requested_kind) when is_list(assignments) do
+    with assignment when not is_nil(assignment) <- Enum.find(assignments, &(assignment_id(&1) == id)),
+         {:ok, kind} <- legacy_recovery_kind(assignment),
+         {:ok, ^kind} <- normalize_legacy_recovery_kind(requested_kind) do
+      {:ok,
+       %{
+         id: assignment_id(assignment),
+         kind: kind,
+         agent_uid: assignment_value(assignment, :agent_uid),
+         owner_label: legacy_recovery_owner_label(assignment),
+         credential_rule_recovery?: legacy_credential_rule_recovery?(assignment)
+       }}
+    else
+      nil -> {:error, :not_found}
+      :error -> {:error, :not_recoverable}
+      {:error, _reason} -> {:error, :kind_mismatch}
+    end
+  end
+
+  defp legacy_recovery_confirmation(_assignments, _id, _requested_kind), do: {:error, :not_found}
+
+  defp recovery_confirmation_matches?(confirmation, id, kind) when is_map(confirmation) do
+    case normalize_legacy_recovery_kind(kind) do
+      {:ok, normalized_kind} ->
+        value_from_map(confirmation, :id) == id and value_from_map(confirmation, :kind) == normalized_kind
+
+      :error ->
+        false
+    end
+  end
+
+  defp recovery_confirmation_matches?(_confirmation, _id, _kind), do: false
+
+  defp legacy_recovery_confirmation_allowed?(socket, confirmation) do
+    not (value_from_map(confirmation, :kind) == :policy and
+           value_from_map(confirmation, :credential_rule_recovery?) == true and
+           not socket.assigns.can_reconcile_credential_rules)
+  end
+
+  defp credential_recovery_permission_message,
+    do: "You need credential-management permission to reconcile this credential rule."
+
+  defp legacy_unbound_assignment?(assignment) do
+    assignment_value(assignment, :enabled) == false and blank_partition?(assignment_value(assignment, :partition_id))
+  end
+
+  defp legacy_recovery_kind(assignment) do
+    if legacy_unbound_assignment?(assignment) do
+      case assignment_source(assignment) do
+        :manual -> {:ok, :manual}
+        :policy -> {:ok, :policy}
+        _ -> :error
+      end
+    else
+      :error
+    end
+  end
+
+  defp legacy_recovery_kind_for_display(assignment) do
+    case legacy_recovery_kind(assignment) do
+      {:ok, kind} -> kind
+      :error -> nil
+    end
+  end
+
+  defp legacy_recovery_label(:manual), do: "Unbound legacy manual assignment"
+  defp legacy_recovery_label(:policy), do: "Unbound legacy policy assignment"
+  defp legacy_recovery_label(_kind), do: "Unbound legacy assignment"
+
+  defp legacy_recovery_message(:manual),
+    do:
+      "This historical row has no trustworthy partition. Reapproval creates a new partition-bound assignment from the live mTLS session; this row remains disabled for audit history."
+
+  defp legacy_recovery_message(:policy),
+    do:
+      "This historical row has no trustworthy partition. It cannot be cloned or edited here; reconciliation re-evaluates the current authoritative policy or credential rule."
+
+  defp legacy_recovery_message(_kind),
+    do: "This historical row has no trustworthy partition and requires explicit recovery review."
+
+  defp legacy_policy_recovery_status(assignment) do
+    assignment
+    |> legacy_recovery_details()
+    |> value_from_map(:policy_recovery)
+  end
+
+  defp legacy_manual_recovery_status(assignment) do
+    assignment
+    |> legacy_recovery_details()
+    |> value_from_map(:manual_recovery)
+  end
+
+  defp legacy_credential_rule_recovery?(assignment) do
+    assignment
+    |> legacy_recovery_details()
+    |> value_from_map(:owner)
+    |> value_from_map(:kind)
+    |> case do
+      kind when kind in [:credential_rule, "credential_rule"] -> true
+      _ -> false
+    end
+  end
+
+  defp policy_recovery_action_enabled?(
+         can_assign_plugins,
+         can_reconcile_credential_rules,
+         credential_rule_recovery?,
+         policy_recovery
+       ) do
+    can_assign_plugins and
+      (not credential_rule_recovery? or can_reconcile_credential_rules) and
+      not policy_recovery_active?(policy_recovery) and
+      policy_recovery_state(policy_recovery) != :reconciled
+  end
+
+  defp manual_recovery_action_enabled?(can_assign_plugins, manual_recovery) do
+    can_assign_plugins and manual_recovery_state(manual_recovery) != :reapproved
+  end
+
+  defp manual_recovery_action_label(manual_recovery) do
+    case manual_recovery_state(manual_recovery) do
+      :reapproved -> "Reapproved"
+      _ -> "Reapprove"
+    end
+  end
+
+  defp policy_recovery_action_label(can_reconcile_credential_rules, true, _policy_recovery)
+       when not can_reconcile_credential_rules, do: "Credential permission required"
+
+  defp policy_recovery_action_label(_can_reconcile_credential_rules, _credential_rule_recovery?, policy_recovery) do
+    case policy_recovery_state(policy_recovery) do
+      :queued ->
+        "Reconciliation queued"
+
+      :pending ->
+        "Reconciling"
+
+      :reconciled ->
+        "Reconciled"
+
+      state
+      when state in [
+             :no_longer_eligible,
+             :owner_not_authoritative,
+             :identity_unavailable,
+             :identity_changed,
+             :package_unapproved,
+             :schema_invalid,
+             :conflict,
+             :denied,
+             :failed
+           ] ->
+        "Retry reconciliation"
+
+      _ ->
+        "Reconcile policy"
+    end
+  end
+
+  defp legacy_policy_recovery_message(nil), do: nil
+
+  defp legacy_policy_recovery_message(policy_recovery) do
+    case policy_recovery_state(policy_recovery) do
+      :queued ->
+        "Policy reconciliation is queued. This row will refresh while the current source is re-evaluated."
+
+      :pending ->
+        "Policy reconciliation is running against the current source and live mTLS identity."
+
+      :reconciled ->
+        replacement_count = value_from_map(policy_recovery, :replacement_count) || 0
+
+        "Policy reconciliation completed: #{replacement_count} current assignment#{plural_suffix(replacement_count)} restored."
+
+      :no_longer_eligible ->
+        "Policy reconciliation completed without a replacement because this target is no longer eligible. Review the current policy and target."
+
+      :owner_not_authoritative ->
+        "Policy reconciliation could not run because the historical policy or credential rule is no longer authoritative."
+
+      :identity_unavailable ->
+        "Policy reconciliation is waiting for trustworthy live partition evidence. Reconnect the target agent, then retry."
+
+      :identity_changed ->
+        "Policy reconciliation stopped because the target's live identity changed. Verify the agent and retry."
+
+      :package_unapproved ->
+        "Policy reconciliation stopped because the package is not currently approved. Review and approve the package before retrying."
+
+      :schema_invalid ->
+        "Policy reconciliation stopped because the current policy configuration no longer validates. Review the current policy before retrying."
+
+      :conflict ->
+        "Policy reconciliation found an enabled assignment for this target and partition. Review the current assignment before retrying."
+
+      :denied ->
+        "Policy reconciliation was denied after current authorization was rechecked. Confirm your permissions and retry."
+
+      :failed ->
+        "Policy reconciliation did not complete. Review the current source and retry."
+
+      :unavailable ->
+        "Policy reconciliation status is temporarily unavailable. Refresh this page before retrying."
+
+      _ ->
+        nil
+    end
+  end
+
+  defp legacy_manual_recovery_message(manual_recovery) do
+    case manual_recovery_state(manual_recovery) do
+      :reapproved ->
+        "Manual reapproval completed. Its partition-bound replacement remains in effect; this historical row stays disabled."
+
+      _ ->
+        nil
+    end
+  end
+
+  defp legacy_candidate_status_message(:manual, _policy_recovery), do: "Reapproval required"
+
+  defp legacy_candidate_status_message(:policy, policy_recovery) do
+    legacy_policy_recovery_message(policy_recovery) || "Reconciliation required"
+  end
+
+  defp legacy_candidate_status_message(_kind, _policy_recovery), do: "Review required"
+
+  defp manual_recovery_state(manual_recovery) when is_map(manual_recovery) do
+    case value_from_map(manual_recovery, :state) do
+      state when state in [:reapproved, "reapproved"] -> :reapproved
+      _ -> nil
+    end
+  end
+
+  defp manual_recovery_state(_manual_recovery), do: nil
+
+  defp policy_recovery_active?(policy_recovery), do: policy_recovery_state(policy_recovery) in [:queued, :pending]
+
+  defp policy_recovery_state(policy_recovery) when is_map(policy_recovery) do
+    case value_from_map(policy_recovery, :state) do
+      state when state in [:queued, "queued"] -> :queued
+      state when state in [:pending, "pending"] -> :pending
+      state when state in [:reconciled, "reconciled"] -> :reconciled
+      state when state in [:no_longer_eligible, "no_longer_eligible"] -> :no_longer_eligible
+      state when state in [:owner_not_authoritative, "owner_not_authoritative"] -> :owner_not_authoritative
+      state when state in [:identity_unavailable, "identity_unavailable"] -> :identity_unavailable
+      state when state in [:identity_changed, "identity_changed"] -> :identity_changed
+      state when state in [:package_unapproved, "package_unapproved"] -> :package_unapproved
+      state when state in [:schema_invalid, "schema_invalid"] -> :schema_invalid
+      state when state in [:conflict, "conflict"] -> :conflict
+      state when state in [:denied, "denied"] -> :denied
+      state when state in [:failed, "failed"] -> :failed
+      state when state in [:unavailable, "unavailable"] -> :unavailable
+      _ -> nil
+    end
+  end
+
+  defp policy_recovery_state(_policy_recovery), do: nil
+
+  defp policy_recovery_terminal_message(:reconciled),
+    do: "Policy reconciliation completed. The recovered assignment now reflects the current authoritative policy."
+
+  defp policy_recovery_terminal_message(:no_longer_eligible),
+    do: "Policy reconciliation completed without a replacement because the target is no longer eligible."
+
+  defp policy_recovery_terminal_message(state) do
+    legacy_policy_recovery_message(%{state: state}) ||
+      "Policy reconciliation finished. Review the recovery status before retrying."
+  end
+
+  defp plural_suffix(1), do: ""
+  defp plural_suffix(_count), do: "s"
+
+  defp legacy_confirmation_title(%{kind: :manual}), do: "Confirm manual reapproval"
+  defp legacy_confirmation_title(%{kind: :policy}), do: "Confirm policy reconciliation"
+  defp legacy_confirmation_title(_confirmation), do: "Confirm legacy recovery"
+
+  defp legacy_confirmation_message(%{kind: :manual, agent_uid: agent_uid}) do
+    "Reapprove the legacy manual assignment for #{agent_uid}? The server will resolve current mTLS evidence again and retain the historical row disabled."
+  end
+
+  defp legacy_confirmation_message(%{kind: :policy, agent_uid: agent_uid} = confirmation) do
+    owner = Map.get(confirmation, :owner_label)
+    owner_text = if is_binary(owner) and owner != "", do: " for #{owner}", else: ""
+
+    "Request reconciliation for #{agent_uid}#{owner_text}? The current source, target eligibility, and live mTLS evidence will be re-evaluated."
+  end
+
+  defp legacy_confirmation_message(_confirmation),
+    do: "The server will validate this recovery against current authorization and live identity evidence."
+
+  defp legacy_confirmation_action_label(%{kind: :manual}), do: "Confirm reapproval"
+  defp legacy_confirmation_action_label(%{kind: :policy}), do: "Request reconciliation"
+  defp legacy_confirmation_action_label(_confirmation), do: "Confirm recovery"
+
+  defp normalize_legacy_recovery_kind(:manual), do: {:ok, :manual}
+  defp normalize_legacy_recovery_kind("manual"), do: {:ok, :manual}
+  defp normalize_legacy_recovery_kind(:policy), do: {:ok, :policy}
+  defp normalize_legacy_recovery_kind("policy"), do: {:ok, :policy}
+  defp normalize_legacy_recovery_kind(_kind), do: :error
+
+  defp assignment_source(assignment) do
+    case assignment_value(assignment, :source) do
+      :manual -> :manual
+      "manual" -> :manual
+      :policy -> :policy
+      "policy" -> :policy
+      _ -> nil
+    end
+  end
+
+  defp assignment_package_id(assignment), do: assignment_value(assignment, :plugin_package_id)
+  defp assignment_id(assignment), do: assignment_value(assignment, :id)
+
+  defp assignment_value(assignment, key) when is_map(assignment), do: value_from_map(assignment, key)
+
+  defp assignment_value(_assignment, _key), do: nil
+
+  defp value_from_map(map, key) when is_map(map) and is_atom(key) do
+    case Map.fetch(map, key) do
+      {:ok, value} -> value
+      :error -> Map.get(map, Atom.to_string(key))
+    end
+  end
+
+  defp value_from_map(_map, _key), do: nil
+
+  defp blank_partition?(partition_id), do: not (is_binary(partition_id) and String.trim(partition_id) != "")
+
+  defp legacy_recovery_details(assignment) do
+    case assignment_value(assignment, :recovery) do
+      details when is_map(details) -> details
+      _ -> %{}
+    end
+  end
+
+  defp legacy_recovery_owner_label(assignment) do
+    owner = assignment |> legacy_recovery_details() |> value_from_map(:owner)
+    fallback_id = assignment_value(assignment, :policy_id)
+
+    cond do
+      is_map(owner) and is_binary(value_from_map(owner, :label)) and value_from_map(owner, :label) != "" ->
+        value_from_map(owner, :label)
+
+      is_map(owner) and is_binary(value_from_map(owner, :id)) and value_from_map(owner, :id) != "" ->
+        legacy_owner_kind_label(value_from_map(owner, :kind)) <> " " <> value_from_map(owner, :id)
+
+      is_binary(fallback_id) and fallback_id != "" ->
+        "Policy #{fallback_id}"
+
+      true ->
+        nil
+    end
+  end
+
+  defp legacy_owner_kind_label(:credential_rule), do: "Credential rule"
+  defp legacy_owner_kind_label("credential_rule"), do: "Credential rule"
+  defp legacy_owner_kind_label(:policy), do: "Policy"
+  defp legacy_owner_kind_label("policy"), do: "Policy"
+  defp legacy_owner_kind_label(_kind), do: "Owner"
+
+  defp legacy_recovery_compatibility_message(assignment) do
+    compatibility = assignment |> legacy_recovery_details() |> value_from_map(:config_compatibility)
+
+    case {value_from_map(compatibility, :state), value_from_map(compatibility, :reason)} do
+      {state, _reason} when state in [:compatible, "compatible"] ->
+        "Configuration: compatible with the current package schema."
+
+      {state, _reason} when state in [:incompatible, "incompatible"] ->
+        "Configuration: the current package schema no longer accepts this historical configuration."
+
+      {state, _reason} when state in [:unavailable, "unavailable"] ->
+        "Configuration: the package is unavailable or no longer approved, so recovery cannot proceed."
+
+      _ ->
+        nil
+    end
+  end
+
+  defp legacy_authenticated_partition_message(assignment) do
+    partition = assignment |> legacy_recovery_details() |> value_from_map(:authenticated_partition)
+    state = value_from_map(partition, :state)
+    partition_id = value_from_map(partition, :partition_id)
+
+    cond do
+      state in [:available, "available"] and is_binary(partition_id) and
+          String.trim(partition_id) != "" ->
+        "Current authenticated partition: #{String.trim(partition_id)}. It will be resolved again when recovery runs."
+
+      state in [:mismatch, "mismatch"] ->
+        "Current authenticated partition: unavailable because the live control-session identity does not match this agent. Reconnect the agent and try again."
+
+      state in [:unavailable, "unavailable"] ->
+        "Current authenticated partition: unavailable. Reconnect the agent and try again."
+
+      true ->
+        nil
+    end
+  end
+
+  defp legacy_recovery_success_message(kind, recovery) do
+    case {normalize_legacy_recovery_kind(kind), legacy_recovery_result_state(recovery)} do
+      {{:ok, :manual}, :already_reapproved} ->
+        "This legacy manual assignment was already reapproved. Its partition-bound replacement remains in effect."
+
+      {{:ok, :manual}, _state} ->
+        "Legacy manual assignment reapproved. A new partition-bound assignment was created; the historical row remains disabled."
+
+      {{:ok, :policy}, state} when state in [:queued, :pending] ->
+        "Policy reconciliation queued. Its status will refresh here while the current policy or credential rule re-evaluates this target."
+
+      {{:ok, :policy}, :already_reconciled} ->
+        "This legacy policy assignment was already reconciled."
+
+      {{:ok, :policy}, _state} ->
+        "Policy reconciliation completed. Any replacement reflects the current authoritative policy, not the historical row."
+
+      _ ->
+        "Legacy assignment recovery completed."
+    end
+  end
+
+  defp legacy_recovery_result_state(recovery) when is_map(recovery) do
+    value_from_map(recovery, :state) || value_from_map(recovery, :status)
+  end
+
+  defp legacy_recovery_result_state(_recovery), do: nil
+
+  defp legacy_recovery_error_message(:recovery_confirmation_required), do: "Explicit confirmation is required."
+
+  defp legacy_recovery_error_message(:legacy_assignment_not_manual),
+    do: "This row is policy-owned and must be reconciled by its authoritative policy."
+
+  defp legacy_recovery_error_message(:legacy_assignment_not_policy),
+    do: "This row is manually owned and must be reapproved instead."
+
+  defp legacy_recovery_error_message(:legacy_assignment_not_unbound),
+    do: "This row is no longer an unbound legacy assignment. Refresh and review its current state."
+
+  defp legacy_recovery_error_message(:authenticated_agent_partition_unavailable),
+    do: "The selected agent has no trustworthy live partition evidence."
+
+  defp legacy_recovery_error_message(reason)
+       when reason in [:authenticated_agent_partition_mismatch, :authenticated_agent_partition_changed],
+       do: "The live control-session identity no longer matches the selected agent."
+
+  defp legacy_recovery_error_message(:agent_offline), do: "The selected agent is offline. Reconnect it and try again."
+
+  defp legacy_recovery_error_message(reason)
+       when reason in [:active_assignment_conflict, :bound_manual_assignment_conflict],
+       do: "An enabled assignment already owns this agent and plugin in the resolved partition."
+
+  defp legacy_recovery_error_message(reason)
+       when reason in [:package_not_approved, :plugin_package_not_approved, :plugin_package_not_found],
+       do: "The package is no longer approved for assignment."
+
+  defp legacy_recovery_error_message(reason)
+       when reason in [:policy_owner_unavailable, :owner_not_found, :owner_not_authoritative],
+       do: "The historical policy or credential rule is no longer authoritative."
+
+  defp legacy_recovery_error_message(:policy_reconciliation_forbidden),
+    do: "You are not authorized to reconcile the owning policy or credential rule."
+
+  defp legacy_recovery_error_message(:forbidden), do: "You are not authorized to recover this assignment."
+
+  defp legacy_recovery_error_message(reason)
+       when reason in [
+              :authorization_denied,
+              :initiating_actor_required,
+              :initiating_principal_required,
+              :current_authority_denied,
+              :current_permission_denied,
+              :principal_disabled,
+              :principal_not_found,
+              :principal_owner_changed,
+              :service_principal_write_scope_required
+            ], do: "You are not authorized to recover this assignment."
+
+  defp legacy_recovery_error_message(reason)
+       when reason in [:legacy_partition_reapproval_required, :legacy_assignment_not_unbound, :not_legacy_unbound],
+       do: "This historical row must remain disabled. Use its explicit recovery action instead."
+
+  defp legacy_recovery_error_message({:rejected, :not_legacy_unbound}),
+    do: "This historical row must remain disabled. Use its explicit recovery action instead."
+
+  defp legacy_recovery_error_message({:rejected, :policy_assignment_requires_reconciliation}),
+    do: "This row is policy-owned and must be reconciled by its authoritative policy."
+
+  defp legacy_recovery_error_message(:policy_assignment_requires_reconciliation),
+    do: "This row is policy-owned and must be reconciled by its authoritative policy."
+
+  defp legacy_recovery_error_message(:params_not_recoverable),
+    do: "The historical configuration no longer satisfies the current package schema."
+
+  defp legacy_recovery_error_message(:schema_invalid),
+    do: "The historical configuration no longer satisfies the current package schema."
+
+  defp legacy_recovery_error_message({:configuration_incompatible, _errors}),
+    do: "The historical configuration no longer satisfies the current package schema."
+
+  defp legacy_recovery_error_message({:schema_invalid, :params_not_recoverable}),
+    do: "The historical configuration no longer satisfies the current package schema."
+
+  defp legacy_recovery_error_message({:active_assignment_conflict, _assignment_id}),
+    do: "An enabled assignment already owns this agent and plugin in the resolved partition."
+
+  defp legacy_recovery_error_message(_error),
+    do: "The server rejected recovery without creating or modifying an assignment."
 
   # -- Credential-rule coverage (x-serviceradar-credential-materialized) -------
   #

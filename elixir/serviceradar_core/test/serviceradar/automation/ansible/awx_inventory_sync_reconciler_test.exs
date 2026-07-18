@@ -32,11 +32,16 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
     end
 
     @impl true
-    def list_policy_assignments(policy_id, _actor) do
+    def list_policy_assignments(policy_id, _actor, opts) do
+      partition_id = Keyword.get(opts, :partition_id)
+
       rows =
         __MODULE__
         |> Agent.get(&Map.values/1)
-        |> Enum.filter(&(&1.policy_id == policy_id and &1.source == :policy))
+        |> Enum.filter(fn row ->
+          row.policy_id == policy_id and row.source == :policy and
+            (is_nil(partition_id) or row.partition_id == partition_id)
+        end)
 
       {:ok, rows}
     end

@@ -36,6 +36,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
 
   @inventory_purpose :inventory_enrichment
   @reconcile_telemetry_event [:serviceradar, :credential_rules, :reconcile]
+  @policy_recovery_executor SystemActor.system(:plugin_policy_assignment_recovery_executor)
 
   @doc "Telemetry event emitted once per provider/purpose/agent reconcile."
   @spec reconcile_telemetry_event() :: [atom()]
@@ -101,6 +102,90 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     result = do_reconcile_provider_for_agent(profile, agent_id, purpose, actor, opts)
     emit_reconcile_telemetry(profile, purpose, agent_id, result)
     result
+  end
+
+  @doc """
+  Reconciles one *currently selected* credential rule for one agent.
+
+  This is the narrow recovery entry point for a policy-owned legacy plugin
+  assignment. It deliberately reloads the rule, its provider profile, every
+  rule currently in scope, and the selection winner before it issues a grant or
+  materializes an assignment. A historical policy id is therefore never enough
+  to revive a rule that has since been disabled, moved out of scope, or
+  superseded by a higher-priority rule.
+
+  The entry point accepts only the named policy-recovery executor because it
+  can issue a persisted `CredentialBrokerGrant`; user-facing code must first
+  create a durable, re-authorized recovery request and let its restricted
+  worker call this function. A generic `%{role: :system}` actor is not enough.
+  """
+  @spec reconcile_current_rule_for_agent(String.t(), String.t(), atom(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def reconcile_current_rule_for_agent(rule_id, agent_id, purpose, opts \\ [])
+
+  def reconcile_current_rule_for_agent(rule_id, agent_id, purpose, opts)
+      when is_binary(rule_id) and is_binary(agent_id) and is_atom(purpose) do
+    case Keyword.fetch(opts, :actor) do
+      {:ok, actor} ->
+        if policy_recovery_executor?(actor) do
+          do_reconcile_current_rule_for_agent(rule_id, agent_id, purpose, actor, opts)
+        else
+          {:error, :restricted_rule_recovery_requires_recovery_executor}
+        end
+
+      :error ->
+        {:error, :explicit_recovery_actor_required}
+    end
+  end
+
+  def reconcile_current_rule_for_agent(_rule_id, _agent_id, _purpose, _opts),
+    do: {:error, :invalid_rule_recovery_scope}
+
+  defp policy_recovery_executor?(actor) when is_map(actor) do
+    actor_value(actor, :id) == @policy_recovery_executor.id and
+      actor_value(actor, :role) == @policy_recovery_executor.role
+  end
+
+  defp policy_recovery_executor?(_actor), do: false
+
+  defp actor_value(actor, key), do: Map.get(actor, key) || Map.get(actor, Atom.to_string(key))
+
+  defp do_reconcile_current_rule_for_agent(rule_id, agent_id, purpose, actor, opts) do
+    with {:ok, rule} <- current_rule(rule_id, actor),
+         {:ok, provider} <- required_string(rule, [:provider, "provider"], "provider"),
+         {:ok, profile} <- profile_for_provider(provider),
+         true <- profile.rule_has_purpose?(rule, purpose) || {:error, :rule_purpose_mismatch},
+         {:ok, rules} <- rules_for_agent_scope(profile, agent_id, purpose, actor, opts),
+         {:ok, selected_rules} <- selected_rules_for_agent(profile, rules, agent_id, purpose) do
+      case Enum.find(selected_rules, &(value_string(&1, [:id, "id"]) == rule_id)) do
+        nil ->
+          {:ok, skip_summary(:owner_not_authoritative)}
+
+        selected_rule ->
+          with {:ok, package} <- approved_plugin_package(profile.plugin_id(purpose), actor, opts) do
+            reconcile_rules(
+              [selected_rule],
+              agent_id,
+              package,
+              opts
+              |> Keyword.put(:actor, actor)
+              |> Keyword.put(:profile, profile)
+              |> Keyword.put(:purpose, purpose)
+            )
+          end
+      end
+    else
+      false -> {:ok, skip_summary(:owner_not_authoritative)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp current_rule(rule_id, actor) do
+    case NetworkCredentialRule.get_by_id(rule_id, actor: actor) do
+      {:ok, nil} -> {:error, :rule_not_found}
+      {:ok, rule} -> {:ok, rule}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp do_reconcile_provider_for_agent(profile, agent_id, purpose, actor, opts) do
@@ -373,6 +458,10 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
         |> Keyword.put(:actor, actor)
         |> Keyword.put(:chunk_size, metadata_int(rule, "chunk_size", 100))
         |> Keyword.put(:target_agent_uid, agent_id)
+        # A policy id is shared by every agent covered by a credential rule.
+        # This invocation is for one agent only, so stale-row retraction must
+        # not disable assignments owned by another agent in the same rule.
+        |> Keyword.put(:agent_scope, [agent_id])
 
       reconciler.reconcile(policy, input_defs, reconcile_opts)
     end

@@ -27,7 +27,12 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
 
   def plan(policy, resolved_inputs, opts) when is_map(policy) and is_list(resolved_inputs) do
     with {:ok, normalized_policy} <- normalize_policy(policy),
-         grouped = group_rows_by_agent(resolved_inputs, Keyword.get(opts, :target_agent_uid)),
+         grouped =
+           group_rows_by_agent(
+             resolved_inputs,
+             Keyword.get(opts, :target_agent_uid),
+             Keyword.get(opts, :restrict_agent_uid)
+           ),
          {:ok, assignments} <- build_assignments(normalized_policy, grouped, opts) do
       summary = %{
         matched_rows: grouped.total_rows,
@@ -94,7 +99,15 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
     end
   end
 
-  defp group_rows_by_agent(resolved_inputs, target_agent_uid) do
+  # `target_agent_uid` is an intentional ownership override used by credential
+  # rules: every resolved target is delivered to the credential rule's edge
+  # agent. It must not be reused by a recovery flow for a generic target
+  # policy, because doing so could retarget another agent's rows.
+  #
+  # `restrict_agent_uid` is the recovery-safe counterpart. It retains only
+  # rows whose *native* agent ownership matches the requested agent and never
+  # rewrites that ownership.
+  defp group_rows_by_agent(resolved_inputs, target_agent_uid, restrict_agent_uid) do
     Enum.reduce(resolved_inputs, %{by_agent: %{}, total_rows: 0}, fn input, acc ->
       name = ValueUtils.string_value(input, [:name, "name"])
       entity = ValueUtils.string_value(input, [:entity, "entity"]) || "unknown"
@@ -108,27 +121,34 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
           entity,
           query,
           MapUtils.stringify_keys(row),
-          target_agent_uid
+          target_agent_uid,
+          restrict_agent_uid
         )
       end)
     end)
   end
 
-  defp accumulate_agent_row(acc, name, entity, query, row, target_agent_uid) do
+  defp accumulate_agent_row(acc, name, entity, query, row, target_agent_uid, restrict_agent_uid) do
+    native_agent_id = agent_id_for_row(row, nil)
+
     case agent_id_for_row(row, target_agent_uid) do
       nil ->
         acc
 
       agent_id ->
-        item =
-          acc.by_agent
-          |> Map.get(agent_id, [])
-          |> ensure_input(name, entity, query, row)
+        if restricts_other_agent?(restrict_agent_uid, native_agent_id) do
+          acc
+        else
+          item =
+            acc.by_agent
+            |> Map.get(agent_id, [])
+            |> ensure_input(name, entity, query, row)
 
-        %{
-          by_agent: Map.put(acc.by_agent, agent_id, item),
-          total_rows: acc.total_rows + 1
-        }
+          %{
+            by_agent: Map.put(acc.by_agent, agent_id, item),
+            total_rows: acc.total_rows + 1
+          }
+        end
     end
   end
 
@@ -176,6 +196,16 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
   defp agent_id_for_row(row, _target_agent_uid) do
     ValueUtils.string_value(row, [:agent_uid, "agent_uid", :agent_id, "agent_id"])
   end
+
+  defp restricts_other_agent?(nil, _native_agent_id), do: false
+  defp restricts_other_agent?("", _native_agent_id), do: false
+
+  defp restricts_other_agent?(restrict_agent_uid, native_agent_id)
+       when is_binary(restrict_agent_uid) do
+    native_agent_id != restrict_agent_uid
+  end
+
+  defp restricts_other_agent?(_restrict_agent_uid, _native_agent_id), do: true
 
   defp assignment_key(policy_id, agent_id, input) do
     payload =

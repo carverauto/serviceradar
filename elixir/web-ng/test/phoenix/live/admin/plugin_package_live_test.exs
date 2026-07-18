@@ -12,8 +12,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       system_actor: 0
     ]
 
+  alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Plugins.PluginTargetPolicy
+  alias ServiceRadar.ProcessRegistry
+  alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Plugins.Assignments
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Storage
@@ -358,6 +364,273 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     refute html =~ "agent-stale-plugin"
   end
 
+  test "shows an authenticated partition preview without exposing a partition field", %{
+    conn: conn,
+    actor: actor
+  } do
+    gateway = gateway_fixture(%{id: "plugin-preview-gw", component_id: "plugin-preview-component"})
+    agent = agent_fixture(gateway, %{uid: "agent-preview-plugin", name: "Agent Preview Plugin"})
+    partition_id = "farm01"
+    register_control_session!(agent.uid, partition_id)
+
+    on_exit(fn ->
+      ProcessRegistry.unregister({:agent_control, partition_id, agent.uid, node()})
+    end)
+
+    package = create_approved_package_version!(actor, "live-preview-plugin", "1.0.0")
+    {:ok, lv, html} = live(conn, ~p"/admin/plugins/#{package.id}")
+
+    assert html =~ "Assign to Agent"
+    refute html =~ "assignment[partition_id]"
+    refute html =~ "name=\"partition_id\""
+
+    html =
+      lv
+      |> form("form[phx-submit='create_assignment']", %{
+        "assignment" => %{"agent_uid" => agent.uid}
+      })
+      |> render_change()
+
+    assert html =~ "Authenticated partition: #{partition_id}"
+    assert html =~ "current live mTLS control session"
+    refute html =~ "assignment[partition_id]"
+    refute html =~ "name=\"partition_id\""
+  end
+
+  test "labels an unbound legacy manual assignment and requires confirmation", %{
+    conn: conn,
+    actor: actor
+  } do
+    gateway = gateway_fixture(%{id: "plugin-legacy-manual-gw", component_id: "plugin-legacy-manual-component"})
+    agent = agent_fixture(gateway, %{uid: "agent-legacy-manual-plugin", name: "Agent Legacy Manual Plugin"})
+    partition_id = "farm01"
+    register_control_session!(agent.uid, partition_id)
+
+    on_exit(fn ->
+      ProcessRegistry.unregister({:agent_control, partition_id, agent.uid, node()})
+    end)
+
+    package = create_approved_package_version!(actor, "live-legacy-manual-plugin", "1.0.0")
+    assignment = create_assignment!(actor, agent.uid, package.id)
+    quarantine_assignment!(assignment.id)
+
+    {:ok, lv, html} = live(conn, ~p"/admin/plugins/#{package.id}")
+
+    assert html =~ "Unbound legacy manual assignment"
+    assert html =~ "legacy unbound"
+    assert html =~ "Reapprove"
+    assert html =~ "Configuration: compatible with the current package schema."
+    assert html =~ "Current authenticated partition: #{partition_id}."
+    refute html =~ "request-policy-reconciliation-#{assignment.id}"
+    refute html =~ "Remove this assignment?"
+
+    html =
+      lv
+      |> element("#request-manual-reapproval-#{assignment.id}")
+      |> render_click()
+
+    assert html =~ "Confirm manual reapproval"
+    assert html =~ "historical row disabled"
+    assert has_element?(lv, "#confirm-legacy-recovery")
+
+    html =
+      lv
+      |> element("#cancel-legacy-recovery")
+      |> render_click()
+
+    refute html =~ "Confirm manual reapproval"
+    assert legacy_unbound_row?(assignment.id)
+
+    html =
+      lv
+      |> element("#request-manual-reapproval-#{assignment.id}")
+      |> render_click()
+
+    assert html =~ "Confirm manual reapproval"
+
+    html =
+      lv
+      |> element("#confirm-legacy-recovery")
+      |> render_click()
+
+    assert html =~ "Legacy manual assignment reapproved."
+    assert html =~ "Manual reapproval completed."
+    assert html =~ "Reapproved"
+    assert has_element?(lv, "#request-manual-reapproval-#{assignment.id}[disabled]")
+    refute html =~ "Legacy recovery candidates"
+  end
+
+  test "does not route an unbound legacy assignment through generic update", %{
+    conn: conn,
+    actor: actor
+  } do
+    gateway = gateway_fixture(%{id: "plugin-legacy-upsert-gw", component_id: "plugin-legacy-upsert-component"})
+    agent = agent_fixture(gateway, %{uid: "agent-legacy-upsert-plugin", name: "Agent Legacy Upsert Plugin"})
+    partition_id = "farm01"
+    register_control_session!(agent.uid, partition_id)
+
+    on_exit(fn ->
+      ProcessRegistry.unregister({:agent_control, partition_id, agent.uid, node()})
+    end)
+
+    package = create_approved_package_version!(actor, "live-legacy-upsert-plugin", "1.0.0")
+    assignment = create_assignment!(actor, agent.uid, package.id)
+    quarantine_assignment!(assignment.id)
+
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins/#{package.id}")
+
+    html =
+      lv
+      |> form("form[phx-submit='create_assignment']", %{
+        "assignment" => %{
+          "agent_uid" => agent.uid,
+          "interval_seconds" => "60",
+          "timeout_seconds" => "10",
+          "params" => "{}",
+          "permissions_override" => "{}",
+          "resources_override" => "{}"
+        }
+      })
+      |> render_submit()
+
+    assert html =~ "unbound legacy assignment"
+    assert legacy_unbound_row?(assignment.id)
+  end
+
+  test "shows an unavailable legacy authenticated partition and a safe recovery error", %{
+    conn: conn,
+    actor: actor
+  } do
+    gateway =
+      gateway_fixture(%{
+        id: "plugin-legacy-offline-gw",
+        component_id: "plugin-legacy-offline-component"
+      })
+
+    agent =
+      agent_fixture(gateway, %{
+        uid: "agent-legacy-offline-plugin",
+        name: "Agent Legacy Offline Plugin"
+      })
+
+    partition_id = "farm01"
+    register_control_session!(agent.uid, partition_id)
+
+    package = create_approved_package_version!(actor, "live-legacy-offline-plugin", "1.0.0")
+    assignment = create_assignment!(actor, agent.uid, package.id)
+    quarantine_assignment!(assignment.id)
+    unregister_control_session!(partition_id, agent.uid)
+
+    {:ok, lv, html} = live(conn, ~p"/admin/plugins/#{package.id}")
+
+    assert html =~ "Current authenticated partition: unavailable. Reconnect the agent and try again."
+
+    html =
+      lv
+      |> element("#request-manual-reapproval-#{assignment.id}")
+      |> render_click()
+
+    assert html =~ "Confirm manual reapproval"
+
+    html =
+      lv
+      |> element("#confirm-legacy-recovery")
+      |> render_click()
+
+    assert html =~ "Recovery was not completed: The selected agent has no trustworthy live partition evidence."
+    assert legacy_unbound_row?(assignment.id)
+  end
+
+  test "labels an unbound policy assignment for policy-only reconciliation", %{
+    conn: conn,
+    actor: actor
+  } do
+    gateway = gateway_fixture(%{id: "plugin-legacy-policy-gw", component_id: "plugin-legacy-policy-component"})
+    agent = agent_fixture(gateway, %{uid: "agent-legacy-policy-plugin", name: "Agent Legacy Policy Plugin"})
+    partition_id = "tonka01"
+    register_control_session!(agent.uid, partition_id)
+
+    on_exit(fn ->
+      ProcessRegistry.unregister({:agent_control, partition_id, agent.uid, node()})
+    end)
+
+    package = create_approved_package_version!(actor, "live-legacy-policy-plugin", "1.0.0")
+    policy = create_plugin_target_policy!(actor, package.id)
+
+    assignment =
+      create_assignment!(actor, agent.uid, package.id, source: :policy, policy_id: policy.id)
+
+    quarantine_assignment!(assignment.id)
+
+    {:ok, lv, html} = live(conn, ~p"/admin/plugins/#{package.id}")
+
+    assert html =~ "Unbound legacy policy assignment"
+    assert html =~ "Reconcile policy"
+    assert html =~ "Legacy recovery candidates"
+    assert html =~ agent.uid
+    assert html =~ policy.name
+    assert html =~ "Configuration: compatible with the current package schema."
+    assert html =~ "Current authenticated partition: #{partition_id}."
+    refute html =~ "request-manual-reapproval-#{assignment.id}"
+    refute html =~ "Upgrade this assignment"
+
+    html =
+      lv
+      |> element("#request-policy-reconciliation-#{assignment.id}")
+      |> render_click()
+
+    assert html =~ "Confirm policy reconciliation"
+    assert html =~ "Request reconciliation"
+
+    html =
+      lv
+      |> element("#confirm-legacy-recovery")
+      |> render_click()
+
+    assert html =~ "Policy reconciliation queued."
+    assert html =~ "Policy reconciliation is queued."
+    refute html =~ "Confirm policy reconciliation"
+  end
+
+  test "does not submit credential-rule reconciliation without credential-management permission", %{
+    conn: conn,
+    actor: actor
+  } do
+    gateway = gateway_fixture(%{id: "plugin-legacy-credential-gw", component_id: "plugin-legacy-credential-component"})
+    agent = agent_fixture(gateway, %{uid: "agent-legacy-credential-plugin", name: "Agent Legacy Credential Plugin"})
+    partition_id = "farm01"
+    register_control_session!(agent.uid, partition_id)
+
+    on_exit(fn ->
+      ProcessRegistry.unregister({:agent_control, partition_id, agent.uid, node()})
+    end)
+
+    package = create_approved_package_version!(actor, "live-legacy-credential-plugin", "1.0.0")
+
+    assignment =
+      create_assignment!(actor, agent.uid, package.id,
+        source: :policy,
+        policy_id: "network-credential-rule:#{Ash.UUID.generate()}:inventory_enrichment"
+      )
+
+    quarantine_assignment!(assignment.id)
+
+    user = grant_permissions(admin_user_fixture(), ["plugins.view", "settings.plugins.manage"])
+
+    {:ok, lv, html} = live(log_in_user(conn, user), ~p"/admin/plugins/#{package.id}")
+
+    assert html =~ "Credential permission required"
+    assert has_element?(lv, "#request-policy-reconciliation-#{assignment.id}[disabled]")
+
+    html =
+      lv
+      |> element("#request-policy-reconciliation-#{assignment.id}")
+      |> render_click()
+
+    assert html =~ "You need credential-management permission to reconcile this credential rule."
+    refute html =~ "Confirm policy reconciliation"
+  end
+
   test "removes an assignment without crashing when delete returns success", %{conn: conn, actor: actor} do
     gateway = gateway_fixture(%{id: "plugin-delete-gw", component_id: "plugin-delete-component"})
     agent = agent_fixture(gateway, %{uid: "agent-delete-plugin", name: "Agent Delete Plugin"})
@@ -698,6 +971,87 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     }
   end
 
+  defp register_control_session!(agent_uid, partition_id) do
+    assert {:ok, _pid} =
+             ProcessRegistry.register(
+               {:agent_control, partition_id, agent_uid, node()},
+               %{
+                 agent_id: agent_uid,
+                 partition_id: partition_id,
+                 gateway_node: node(),
+                 capabilities: ["wasm"]
+               }
+             )
+
+    assert_control_partition(agent_uid, partition_id, 40)
+  end
+
+  defp assert_control_partition(_agent_uid, _partition_id, 0), do: flunk("control-session partition did not converge")
+
+  defp assert_control_partition(agent_uid, partition_id, attempts) do
+    case AgentCommandBus.resolve_control_session_evidence(partition_id, agent_uid, nil) do
+      {:ok, %{agent_id: ^agent_uid, partition_id: ^partition_id}} ->
+        :ok
+
+      _other ->
+        Process.sleep(10)
+        assert_control_partition(agent_uid, partition_id, attempts - 1)
+    end
+  end
+
+  defp unregister_control_session!(partition_id, agent_uid) do
+    :ok = ProcessRegistry.unregister({:agent_control, partition_id, agent_uid, node()})
+    assert_control_session_absent(agent_uid, 40)
+  end
+
+  defp assert_control_session_absent(_agent_uid, 0), do: flunk("control-session removal did not converge")
+
+  defp assert_control_session_absent(agent_uid, attempts) do
+    case AgentCommandBus.resolve_control_session_evidence(agent_uid) do
+      {:error, _reason} ->
+        :ok
+
+      _other ->
+        Process.sleep(10)
+        assert_control_session_absent(agent_uid, attempts - 1)
+    end
+  end
+
+  defp quarantine_assignment!(assignment_id) do
+    Repo.query!(
+      "UPDATE platform.plugin_assignments SET enabled = false, partition_id = NULL WHERE id = $1",
+      [assignment_id]
+    )
+  end
+
+  defp legacy_unbound_row?(assignment_id) do
+    result =
+      Repo.query!(
+        "SELECT enabled, partition_id FROM platform.plugin_assignments WHERE id = $1",
+        [assignment_id]
+      )
+
+    result.rows == [[false, nil]]
+  end
+
+  defp create_plugin_target_policy!(actor, package_id) do
+    PluginTargetPolicy
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "Legacy policy recovery #{System.unique_integer([:positive])}",
+        plugin_package_id: package_id,
+        input_definitions: [],
+        params_template: %{},
+        interval_seconds: 60,
+        timeout_seconds: 10,
+        enabled: true
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+  end
+
   defp create_assignment!(actor, agent_uid, package_id, opts \\ []) do
     source = Keyword.get(opts, :source, :manual)
 
@@ -708,7 +1062,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
                  plugin_package_id: package_id,
                  source: source,
                  source_key: source_key(source),
-                 policy_id: policy_id(source),
+                 policy_id: Keyword.get(opts, :policy_id, policy_id(source)),
                  enabled: true,
                  interval_seconds: 60,
                  timeout_seconds: 10,
@@ -732,6 +1086,31 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
   defp policy_id(:policy), do: "policy-#{System.unique_integer([:positive])}"
   defp policy_id(_source), do: nil
+
+  defp grant_permissions(user, permissions) do
+    profile =
+      RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Plugin recovery LiveView #{System.unique_integer([:positive])}",
+          description: "Test profile for plugin recovery permissions",
+          permissions: permissions
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+
+    updated =
+      user
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: system_actor())
+      |> Ash.update!()
+
+    RBAC.clear_process_cache()
+    RBAC.Cache.put(updated.id, MapSet.new(permissions))
+
+    updated
+  end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)

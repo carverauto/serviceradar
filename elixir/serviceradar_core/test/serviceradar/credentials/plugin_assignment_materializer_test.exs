@@ -49,6 +49,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
              PluginAssignmentMaterializer.reconcile_rules(rules, "agent-a", package,
                reconciler: FakeReconciler,
                actor: %{id: "system"},
+               expected_partition_id: "farm01",
                test_pid: self()
              )
 
@@ -71,6 +72,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     assert policy.timeout_seconds == 45
     assert opts[:chunk_size] == 25
     assert opts[:target_agent_uid] == "agent-a"
+    assert opts[:expected_partition_id] == "farm01"
 
     assert input_defs == [
              %{
