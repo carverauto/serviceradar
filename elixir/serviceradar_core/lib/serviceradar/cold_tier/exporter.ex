@@ -34,6 +34,7 @@ defmodule ServiceRadar.ColdTier.Exporter do
     unique: [period: 1_800, states: :incomplete]
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.ColdTier.ChunkExport
   alias ServiceRadar.ColdTier.Config
   alias ServiceRadar.ColdTier.Head
@@ -68,12 +69,13 @@ defmodule ServiceRadar.ColdTier.Exporter do
         pressure = PressureMonitor.check()
         budget = Config.run_chunk_budget()
 
-        Enum.reduce(Registry.tables(), budget, fn entry, remaining ->
-          exported = export_table(entry, remaining)
-          refreshed = predrop_reverify(entry, remaining - exported)
-          advance_frontier(entry)
-          remaining - exported - refreshed
-        end)
+        _remaining_budget =
+          Enum.reduce(Registry.tables(), budget, fn entry, remaining ->
+            exported = export_table(entry, remaining)
+            refreshed = predrop_reverify(entry, remaining - exported)
+            advance_frontier(entry)
+            remaining - exported - refreshed
+          end)
 
         # Health checks run AFTER the pass so quarantine/frontier state
         # reflects this run (task 3.3).
@@ -348,7 +350,7 @@ defmodule ServiceRadar.ColdTier.Exporter do
         attempts: chunk.attempts + 1,
         exported_at: DateTime.utc_now()
       })
-      |> Ash.create!(authorize?: false)
+      |> Ash.create!(actor: SystemActor.system(:cold_tier_exporter))
     end)
   end
 
@@ -363,7 +365,7 @@ defmodule ServiceRadar.ColdTier.Exporter do
         last_error: nil,
         verified_at: DateTime.utc_now()
       })
-      |> Ash.update!(authorize?: false)
+      |> Ash.update!(actor: SystemActor.system(:cold_tier_exporter))
     end)
   end
 
@@ -400,7 +402,7 @@ defmodule ServiceRadar.ColdTier.Exporter do
     RetentionFence.with_table_lock(record.table_name, fn ->
       record
       |> Ash.Changeset.for_update(:update, %{status: :pending, last_error: reason})
-      |> Ash.update!(authorize?: false)
+      |> Ash.update!(actor: SystemActor.system(:cold_tier_exporter))
     end)
   end
 
@@ -419,12 +421,12 @@ defmodule ServiceRadar.ColdTier.Exporter do
     RetentionFence.with_table_lock(table, fn ->
       ChunkExport
       |> Ash.Query.filter(table_name == ^table and chunk_name == ^chunk_name)
-      |> Ash.read_one(authorize?: false)
+      |> Ash.read_one(actor: SystemActor.system(:cold_tier_exporter))
       |> case do
         {:ok, %ChunkExport{} = record} ->
           record
           |> Ash.Changeset.for_update(:update, %{status: :quarantined})
-          |> Ash.update!(authorize?: false)
+          |> Ash.update!(actor: SystemActor.system(:cold_tier_exporter))
 
         _ ->
           :ok
