@@ -14,5 +14,5 @@
 
 - [x] 3.1 Run web-ng format, compile, strict Credo, and focused native add-on tests
 - [x] 3.2 Run strict OpenSpec validation
-- [ ] 3.3 Publish a feature branch and Forgejo PR linked to issue #4558
+- [x] 3.3 Publish a feature branch and Forgejo PR linked to issue #4558
 - [ ] 3.4 After release, verify demo scheduled sync converges without historical conflict retries
