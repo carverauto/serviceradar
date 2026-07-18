@@ -466,6 +466,85 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert {:ok, %{mode: :auxiliary, relation: "INFERRED_TO", reason: :projected_inferred}} =
                TopologyGraph.classify_projection(enriched)
     end
+
+    test "LLDP neighbors resolved to provisional endpoint candidates become attachment evidence" do
+      [enriched] =
+        MapperResultsIngestor.enrich_resolved_topology_records(
+          [
+            %{
+              protocol: "LLDP",
+              local_device_id: "sr:switch-a",
+              local_device_ip: "192.168.1.87",
+              local_if_name: "1/0/7",
+              local_if_index: 7,
+              neighbor_device_id: "sr:endpoint-b",
+              neighbor_chassis_id: "aa:bb:cc:dd:ee:07",
+              metadata: %{
+                "source" => "lldp",
+                "confidence_tier" => "high",
+                "confidence_score" => 95,
+                "confidence_reason" => "direct_lldp_neighbor",
+                "evidence_class" => "direct-physical",
+                "relation_family" => "CONNECTS_TO"
+              }
+            }
+          ],
+          %{
+            "sr:endpoint-b" => %{
+              uid: "sr:endpoint-b",
+              type: nil,
+              type_id: 0,
+              name: nil,
+              hostname: nil,
+              metadata: %{
+                "identity_source" => "mapper_topology_sighting",
+                "identity_state" => "provisional"
+              }
+            }
+          }
+        )
+
+      assert enriched.metadata["relation_family"] == "ATTACHED_TO"
+      assert enriched.metadata["evidence_class"] == "direct-physical"
+    end
+
+    test "LLDP neighbors resolved to infrastructure keep CONNECTS_TO backbone semantics" do
+      [enriched] =
+        MapperResultsIngestor.enrich_resolved_topology_records(
+          [
+            %{
+              protocol: "LLDP",
+              local_device_id: "sr:switch-a",
+              local_device_ip: "192.168.1.87",
+              local_if_name: "1/0/24",
+              local_if_index: 24,
+              neighbor_device_id: "sr:core-b",
+              neighbor_port_id: "eth2",
+              metadata: %{
+                "source" => "lldp",
+                "confidence_tier" => "high",
+                "confidence_score" => 95,
+                "confidence_reason" => "direct_lldp_neighbor",
+                "evidence_class" => "direct-physical",
+                "relation_family" => "CONNECTS_TO"
+              }
+            }
+          ],
+          %{
+            "sr:core-b" => %{
+              uid: "sr:core-b",
+              type: "Switch",
+              type_id: 10,
+              name: "core-b",
+              hostname: "core-b",
+              metadata: %{}
+            }
+          }
+        )
+
+      assert enriched.metadata["relation_family"] == "CONNECTS_TO"
+      assert enriched.metadata["evidence_class"] == "direct-physical"
+    end
   end
 
   describe "projection_diagnostics/1 contract" do

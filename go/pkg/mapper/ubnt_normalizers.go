@@ -152,6 +152,32 @@ func (c UniFiClient) normalizedUplinkDeviceID() string {
 	return strings.TrimSpace(c.UplinkDeviceID)
 }
 
+func (c UniFiClient) normalizedUplinkDeviceMAC() string {
+	if strings.TrimSpace(c.UplinkDeviceMAC) != "" {
+		return strings.TrimSpace(c.UplinkDeviceMAC)
+	}
+
+	return strings.TrimSpace(c.UplinkDeviceMACSnake)
+}
+
+func (c UniFiClient) uplinkPortIndex() int32 {
+	switch {
+	case c.UplinkPortIdx != nil:
+		return *c.UplinkPortIdx
+	case c.UplinkPortIdxSnake != nil:
+		return *c.UplinkPortIdxSnake
+	default:
+		return 0
+	}
+}
+
+// uplinkPortIndexPresent reports whether the payload carried a usable uplink
+// port index. UniFi port indexes are 1-based; an explicit 0 is treated as
+// unknown so the link degrades to switch-level attachment.
+func (c UniFiClient) uplinkPortIndexPresent() bool {
+	return c.uplinkPortIndex() > 0
+}
+
 func (a UniFiClientAccess) normalizedType() string {
 	return strings.ToUpper(strings.TrimSpace(a.Type))
 }

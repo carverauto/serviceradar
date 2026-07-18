@@ -173,7 +173,7 @@ func (*DiscoveryEngine) processWirelessClientAssociations(
 			"evidence_class":    "endpoint-attachment",
 			"relation_type":     "ATTACHED_TO",
 			"relation_family":   "ATTACHED_TO",
-			"confidence_tier":   "high",
+			"confidence_tier":   confidenceTierHigh,
 			"confidence_reason": "controller_client_association",
 			"controller_url":    apiConfig.BaseURL,
 			"site_id":           site.ID,
@@ -195,6 +195,100 @@ func (*DiscoveryEngine) processWirelessClientAssociations(
 			LocalDeviceIP:      strings.TrimSpace(ap.IP),
 			LocalDeviceID:      strings.TrimSpace(ap.DeviceID),
 			LocalIfName:        "wireless",
+			NeighborChassisID:  clientMAC,
+			NeighborSystemName: client.normalizedName(),
+			NeighborMgmtAddr:   client.normalizedIP(),
+			Metadata:           metadata,
+		})
+	}
+
+	return links
+}
+
+// processWiredClientAssociations mirrors processWirelessClientAssociations for
+// WIRED clients from the Integration v1 /clients endpoint.
+//
+// Per-port wired detail requires the legacy stat/device port_table[].mac_table[]
+// payload, which is owned by add-unifi-wifi-discovery-parity; this change emits
+// switch-level attachment from Integration v1 /clients only and deliberately
+// adds no /stat/sta fetch. When a controller payload does carry an uplink port
+// index, the link is emitted per-port at full confidence.
+func (*DiscoveryEngine) processWiredClientAssociations(
+	job *DiscoveryJob,
+	clients []UniFiClient,
+	deviceCache map[string]struct {
+		IP       string
+		Name     string
+		MAC      string
+		DeviceID string
+	},
+	apiConfig UniFiAPIConfig,
+	site UniFiSite) []*TopologyLink {
+	links := make([]*TopologyLink, 0, len(clients))
+
+	for i := range clients {
+		client := clients[i]
+		uplinkID := client.normalizedUplinkDeviceID()
+		if uplinkID == "" {
+			continue
+		}
+
+		sw, exists := deviceCache[uplinkID]
+		if !exists || strings.TrimSpace(sw.IP) == "" || strings.TrimSpace(sw.DeviceID) == "" {
+			continue
+		}
+
+		clientMAC := client.normalizedMAC()
+		if clientMAC == "" {
+			continue
+		}
+
+		// applyTopologyEvidenceClass defaults endpoint-attachment to "high"
+		// when the tier is unset, so the reduced switch-level tier must be
+		// stamped explicitly here.
+		confidenceTier := confidenceTierMedium
+		confidenceReason := "controller_wired_client_switch_level"
+		var localIfIndex int32
+		if client.uplinkPortIndexPresent() {
+			localIfIndex = client.uplinkPortIndex()
+			confidenceTier = confidenceTierHigh
+			confidenceReason = "controller_client_association"
+		}
+
+		metadata := map[string]string{
+			"discovery_id":      job.ID,
+			"discovery_time":    time.Now().Format(time.RFC3339),
+			"source":            "unifi-api-wired-client",
+			"evidence_class":    "endpoint-attachment",
+			"relation_type":     "ATTACHED_TO",
+			"relation_family":   "ATTACHED_TO",
+			"confidence_tier":   confidenceTier,
+			"confidence_reason": confidenceReason,
+			"controller_url":    apiConfig.BaseURL,
+			"site_id":           site.ID,
+			"site_name":         site.Name,
+			"controller_name":   apiConfig.Name,
+			"unifi_client_id":   strings.TrimSpace(client.ID),
+			"client_type":       client.normalizedType(),
+			"uplink_device_id":  uplinkID,
+		}
+		if swMAC := client.normalizedUplinkDeviceMAC(); swMAC != "" {
+			metadata["uplink_device_mac"] = swMAC
+		}
+		if accessType := client.Access.normalizedType(); accessType != "" {
+			metadata["access_type"] = accessType
+		}
+		if connectedAt := strings.TrimSpace(client.ConnectedAt); connectedAt != "" {
+			metadata["connected_at"] = connectedAt
+		}
+
+		// LocalIfName is left empty so resolveLocalInterfaceName binds the
+		// interface scan's "Port-N" vertex when a port index is known.
+		links = append(links, &TopologyLink{
+			Protocol:           "UniFi-API",
+			LocalDeviceIP:      strings.TrimSpace(sw.IP),
+			LocalDeviceID:      strings.TrimSpace(sw.DeviceID),
+			LocalIfIndex:       localIfIndex,
 			NeighborChassisID:  clientMAC,
 			NeighborSystemName: client.normalizedName(),
 			NeighborMgmtAddr:   client.normalizedIP(),

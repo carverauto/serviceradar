@@ -3,6 +3,8 @@ package mapper
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -210,6 +212,91 @@ func TestBuildSNMPL2LinksFromNeighborsSkipsKnownFdbNeighborWithoutIdentity(t *te
 	assert.Equal(t, int32(11), links[0].LocalIfIndex)
 }
 
+func TestBuildSNMPL2LinksFromNeighborsReadmitsCrossDeviceObservedJoin(t *testing.T) {
+	t.Parallel()
+
+	neighbors := []arpNeighbor{
+		{
+			// Same-device ARP+FDB known-IP-no-identity neighbors stay vetoed.
+			ifIndex:            9,
+			ip:                 "192.168.10.62",
+			mac:                "aa:bb:cc:dd:ee:62",
+			fdbPortMapped:      true,
+			neighborKnown:      true,
+			neighborIdentified: false,
+			observedJoin:       false,
+		},
+		{
+			// Cross-device ARP-observed joins are exempt from the veto even
+			// when the IP is "known" via the recursive scan queue.
+			ifIndex:            13,
+			ip:                 "192.168.10.31",
+			mac:                "aa:bb:cc:dd:ee:31",
+			fdbPortMapped:      true,
+			neighborKnown:      true,
+			neighborIdentified: false,
+			observedJoin:       true,
+		},
+	}
+
+	links := buildSNMPL2LinksFromNeighbors("sr:aruba", "192.168.10.154", "disc-5", neighbors)
+	require.Len(t, links, 1)
+	assert.Equal(t, "192.168.10.31", links[0].NeighborMgmtAddr)
+	assert.Equal(t, int32(13), links[0].LocalIfIndex)
+	assert.Equal(t, "snmp-arp-fdb", links[0].Metadata["source"])
+	assert.Equal(t, "cross_device_arp_fdb_join", links[0].Metadata["confidence_reason"])
+	assert.Equal(t, "medium", links[0].Metadata["confidence_tier"])
+	assert.Equal(t, evidenceClassInferredSegment, links[0].Metadata["evidence_class"])
+	assert.Equal(t, "ATTACHED_TO", links[0].Metadata["relation_family"])
+}
+
+func TestBuildSNMPL2LinksFromNeighborsEmitsCrossSubnetFdbAttachment(t *testing.T) {
+	t.Parallel()
+
+	neighbors := []arpNeighbor{
+		{
+			ifIndex:       3,
+			ip:            "192.168.2.11",
+			mac:           "aa:bb:cc:dd:ee:11",
+			fdbPortMapped: true,
+			crossSubnet:   true,
+		},
+	}
+
+	links := buildSNMPL2LinksFromNeighbors("sr:usw-pro-24", "192.168.1.131", "disc-6", neighbors)
+	require.Len(t, links, 1)
+	assert.Equal(t, "192.168.2.11", links[0].NeighborMgmtAddr)
+	assert.Equal(t, "cross_subnet_arp_fdb_port_mapping", links[0].Metadata["confidence_reason"])
+	assert.Equal(t, "medium", links[0].Metadata["confidence_tier"])
+	assert.Equal(t, evidenceClassInferredSegment, links[0].Metadata["evidence_class"])
+	assert.Equal(t, "ATTACHED_TO", links[0].Metadata["relation_family"])
+}
+
+func TestBuildSNMPL2LinksFromNeighborsAddsVLANMetadata(t *testing.T) {
+	t.Parallel()
+
+	neighbors := []arpNeighbor{
+		{
+			ifIndex:       5,
+			ip:            "192.168.2.12",
+			mac:           "aa:bb:cc:dd:ee:12",
+			fdbPortMapped: true,
+			vlanID:        100,
+		},
+		{
+			ifIndex:       6,
+			ip:            "192.168.1.13",
+			mac:           "aa:bb:cc:dd:ee:13",
+			fdbPortMapped: true,
+		},
+	}
+
+	links := buildSNMPL2LinksFromNeighbors("sr:usw-pro-24", "192.168.1.131", "disc-7", neighbors)
+	require.Len(t, links, 2)
+	assert.Equal(t, "100", links[0].Metadata["vlan_id"])
+	assert.NotContains(t, links[1].Metadata, "vlan_id")
+}
+
 func TestBuildSNMPL2LinksFromNeighborsDeduplicatesIdenticalEvidence(t *testing.T) {
 	t.Parallel()
 
@@ -282,10 +369,10 @@ func TestObservedFDBMappedNeighborsReusesObservedIPsAcrossDevices(t *testing.T) 
 	engine := &DiscoveryEngine{}
 	job := &DiscoveryJob{}
 
-	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:62", "192.168.1.62")
-	engine.recordObservedNeighborIPByMAC(job, "AA:BB:CC:DD:EE:62", "192.168.1.62")
-	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:88", "192.168.1.88")
-	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:99", "192.168.2.99")
+	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:62", "192.168.1.62", "192.168.1.1", true)
+	engine.recordObservedNeighborIPByMAC(job, "AA:BB:CC:DD:EE:62", "192.168.1.62", "192.168.1.1", true)
+	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:88", "192.168.1.88", "192.168.1.1", true)
+	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:99", "192.168.2.99", "192.168.1.1", false)
 
 	neighbors := engine.observedFDBMappedNeighbors(
 		job,
@@ -296,7 +383,8 @@ func TestObservedFDBMappedNeighborsReusesObservedIPsAcrossDevices(t *testing.T) 
 			"aabbccddee88": 7,
 			"aabbccddee99": 7,
 		},
-		map[int32]int{7: 12},
+		map[string]int32{"aabbccddee99": 20},
+		map[int32]int{7: 5},
 		map[string]knownMACNeighbor{
 			"aabbccddee88": {deviceID: "sr:known-switch", ip: "192.168.1.88", mac: "aa:bb:cc:dd:ee:88"},
 		},
@@ -306,14 +394,299 @@ func TestObservedFDBMappedNeighborsReusesObservedIPsAcrossDevices(t *testing.T) 
 		},
 	)
 
-	require.Len(t, neighbors, 1)
+	// Cross-subnet observed IPs are no longer excluded: 192.168.2.99 joins
+	// with crossSubnet=true. The known-device MAC (ee:88) is still skipped.
+	require.Len(t, neighbors, 2)
+
 	assert.Equal(t, int32(7), neighbors[0].ifIndex)
 	assert.Equal(t, "192.168.1.62", neighbors[0].ip)
 	assert.Equal(t, "aabbccddee62", neighbors[0].mac)
 	assert.True(t, neighbors[0].fdbPortMapped)
-	assert.Equal(t, 12, neighbors[0].fdbMacCount)
+	assert.Equal(t, 5, neighbors[0].fdbMacCount)
 	assert.False(t, neighbors[0].neighborKnown)
 	assert.False(t, neighbors[0].neighborIdentified)
+	assert.False(t, neighbors[0].crossSubnet)
+	assert.True(t, neighbors[0].observedJoin)
+	assert.Equal(t, int32(0), neighbors[0].vlanID)
+
+	assert.Equal(t, int32(7), neighbors[1].ifIndex)
+	assert.Equal(t, "192.168.2.99", neighbors[1].ip)
+	assert.Equal(t, "aabbccddee99", neighbors[1].mac)
+	assert.False(t, neighbors[1].neighborIdentified)
+	assert.True(t, neighbors[1].crossSubnet)
+	assert.True(t, neighbors[1].observedJoin)
+	assert.Equal(t, int32(20), neighbors[1].vlanID)
+}
+
+func TestObservedFDBMappedNeighborsPrefersSubnetLocalMappings(t *testing.T) {
+	t.Parallel()
+
+	engine := &DiscoveryEngine{}
+	job := &DiscoveryJob{}
+
+	// One MAC observed with disagreeing IPs: the mapping recorded by the L3
+	// owner of the endpoint's subnet wins over remote ARP hearsay.
+	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:70", "10.0.0.5", "192.168.1.1", false)
+	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:70", "192.168.1.70", "192.168.1.1", true)
+	// A MAC with only non-local mappings still falls back to them.
+	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:71", "10.0.0.9", "192.168.1.1", false)
+
+	neighbors := engine.observedFDBMappedNeighbors(
+		job,
+		"192.168.1.138",
+		map[string]struct{}{"192.168.1": {}},
+		map[string]int32{
+			"aabbccddee70": 3,
+			"aabbccddee71": 4,
+		},
+		nil,
+		map[int32]int{3: 1, 4: 1},
+		map[string]knownMACNeighbor{},
+		map[string]bool{},
+	)
+
+	require.Len(t, neighbors, 2)
+	assert.Equal(t, "192.168.1.70", neighbors[0].ip)
+	assert.False(t, neighbors[0].crossSubnet)
+	assert.Equal(t, "10.0.0.9", neighbors[1].ip)
+	assert.True(t, neighbors[1].crossSubnet)
+}
+
+func TestRecordObservedNeighborIPByMACSubnetLocalIsSticky(t *testing.T) {
+	t.Parallel()
+
+	engine := &DiscoveryEngine{}
+	job := &DiscoveryJob{}
+
+	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:72", "192.168.1.72", "192.168.1.9", false)
+	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:72", "192.168.1.72", "192.168.1.1", true)
+	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:72", "192.168.1.72", "192.168.1.9", false)
+
+	observed := engine.observedNeighborIPsByMAC(job)
+	require.Len(t, observed["aabbccddee72"], 1)
+	assert.Equal(t, "192.168.1.72", observed["aabbccddee72"][0].ip)
+	assert.True(t, observed["aabbccddee72"][0].subnetLocal)
+	// Observers accumulate (deduplicated, sorted) across records.
+	assert.Equal(t, []string{"192.168.1.1", "192.168.1.9"}, observed["aabbccddee72"][0].observers)
+}
+
+func TestObservedFDBMappedNeighborsRequiresCrossDeviceObserver(t *testing.T) {
+	t.Parallel()
+
+	engine := &DiscoveryEngine{}
+	job := &DiscoveryJob{}
+	targetIP := "192.168.1.138"
+
+	// Only the target itself observed this mapping (its own ARP rows): the
+	// observed join must not produce a twin of the direct ARP+FDB neighbor.
+	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:80", "192.168.1.80", targetIP, true)
+
+	join := func() []arpNeighbor {
+		return engine.observedFDBMappedNeighbors(
+			job,
+			targetIP,
+			map[string]struct{}{"192.168.1": {}},
+			map[string]int32{"aabbccddee80": 5},
+			nil,
+			map[int32]int{5: 1},
+			map[string]knownMACNeighbor{},
+			map[string]bool{},
+		)
+	}
+
+	assert.Empty(t, join())
+
+	// A second, genuinely cross-device observer makes the mapping joinable.
+	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:80", "192.168.1.80", "192.168.1.1", true)
+
+	neighbors := join()
+	require.Len(t, neighbors, 1)
+	assert.Equal(t, "192.168.1.80", neighbors[0].ip)
+	assert.True(t, neighbors[0].observedJoin)
+}
+
+func TestSelfObservedARPFDBTwinStaysVetoed(t *testing.T) {
+	t.Parallel()
+
+	// End-to-end composition of a single device's walk: its own ARP row for a
+	// known-IP, unidentified neighbor is vetoed on the direct path and must
+	// NOT resurface through the observed-join path as a cross-device twin.
+	engine := &DiscoveryEngine{}
+	job := &DiscoveryJob{}
+	targetIP := "192.168.1.138"
+	localSubnets := map[string]struct{}{"192.168.1": {}}
+	bridgeIfByMAC := map[string]int32{"aabbccddee90": 9}
+	fdbMacCountByIf := map[int32]int{9: 1}
+	knownNeighborsByMAC := map[string]knownMACNeighbor{}
+	knownNeighborIPs := map[string]bool{"192.168.1.90": true}
+
+	// appendNeighborEvidence-equivalent: record the target's own ARP row with
+	// itself as observer and produce the direct FDB-mapped neighbor.
+	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:90", "192.168.1.90", targetIP, true)
+	direct := arpNeighbor{
+		ifIndex:            9,
+		ip:                 "192.168.1.90",
+		mac:                "aa:bb:cc:dd:ee:90",
+		fdbPortMapped:      true,
+		fdbMacCount:        1,
+		neighborKnown:      true,
+		neighborIdentified: false,
+	}
+
+	observed := engine.observedFDBMappedNeighbors(
+		job,
+		targetIP,
+		localSubnets,
+		bridgeIfByMAC,
+		nil,
+		fdbMacCountByIf,
+		knownNeighborsByMAC,
+		knownNeighborIPs,
+	)
+
+	neighbors := make([]arpNeighbor, 0, len(observed)+1)
+	neighbors = append(neighbors, direct)
+	neighbors = append(neighbors, observed...)
+
+	links := buildSNMPL2LinksFromNeighbors("sr:switch", targetIP, "disc-twin", neighbors)
+	assert.Empty(t, links)
+}
+
+func TestObservedFDBMappedNeighborsSkipsHighFanoutPorts(t *testing.T) {
+	t.Parallel()
+
+	engine := &DiscoveryEngine{}
+	job := &DiscoveryJob{}
+
+	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:50", "192.168.1.50", "192.168.1.1", true)
+
+	// A port holding more MACs than the bound is a trunk/uplink, never an
+	// endpoint attachment point for the observed join.
+	neighbors := engine.observedFDBMappedNeighbors(
+		job,
+		"192.168.1.138",
+		map[string]struct{}{"192.168.1": {}},
+		map[string]int32{"aabbccddee50": 7},
+		nil,
+		map[int32]int{7: maxObservedJoinPortMACs + 1},
+		map[string]knownMACNeighbor{},
+		map[string]bool{},
+	)
+	assert.Empty(t, neighbors)
+}
+
+func TestObservedFDBMappedNeighborsSkipsSharedMACsWithManyIPs(t *testing.T) {
+	t.Parallel()
+
+	engine := &DiscoveryEngine{}
+	job := &DiscoveryJob{}
+
+	// One MAC mapping to more IPs than the cap (all subnet-local, all
+	// cross-device observed) is a shared/virtual/proxy-ARP MAC: skipped.
+	for i := 1; i <= maxObservedJoinIPsPerMAC+1; i++ {
+		engine.recordObservedNeighborIPByMAC(
+			job, "aa:bb:cc:dd:ee:60", fmt.Sprintf("192.168.1.%d", i), "192.168.1.1", true)
+	}
+	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:61", "192.168.1.61", "192.168.1.1", true)
+
+	neighbors := engine.observedFDBMappedNeighbors(
+		job,
+		"192.168.1.138",
+		map[string]struct{}{"192.168.1": {}},
+		map[string]int32{
+			"aabbccddee60": 3,
+			"aabbccddee61": 4,
+		},
+		nil,
+		map[int32]int{3: 5, 4: 1},
+		map[string]knownMACNeighbor{},
+		map[string]bool{},
+	)
+	require.Len(t, neighbors, 1)
+	assert.Equal(t, "192.168.1.61", neighbors[0].ip)
+}
+
+func TestReconcileObservedFDBJoinsEmitsLateARPJoinOnce(t *testing.T) {
+	t.Parallel()
+
+	publisher := &recordingPublisher{}
+	engine := &DiscoveryEngine{publisher: publisher, logger: logger.NewTestLogger()}
+	job := &DiscoveryJob{
+		ID:     "disc-reconcile",
+		ctx:    context.Background(),
+		Params: &DiscoveryParams{},
+		Results: &DiscoveryResults{
+			TopologyLinks: []*TopologyLink{},
+		},
+	}
+
+	// FDB owner walked first: its join context is cached while the shared ARP
+	// map is still empty, so its own walk emitted nothing.
+	engine.recordObservedJoinContext(job, "192.168.10.154", &observedJoinContext{
+		localDeviceID:   "sr:aruba",
+		localSubnets:    map[string]struct{}{"192.168.10": {}},
+		bridgeIfByMAC:   map[string]int32{"aabbccddee31": 13},
+		vlanByMAC:       map[string]int32{},
+		fdbMacCountByIf: map[int32]int{13: 1},
+	})
+
+	// The ARP owner walked later and recorded the mapping.
+	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:31", "192.168.10.31", "192.168.10.1", true)
+
+	engine.reconcileObservedFDBJoins(job)
+
+	require.Len(t, publisher.topologyLinks, 1)
+	link := publisher.topologyLinks[0]
+	assert.Equal(t, "sr:aruba", link.LocalDeviceID)
+	assert.Equal(t, int32(13), link.LocalIfIndex)
+	assert.Equal(t, "192.168.10.31", link.NeighborMgmtAddr)
+	assert.Equal(t, "cross_device_arp_fdb_join", link.Metadata["confidence_reason"])
+	assert.Equal(t, "medium", link.Metadata["confidence_tier"])
+	require.Len(t, job.Results.TopologyLinks, 1)
+
+	// Re-running must not duplicate the already-published link.
+	engine.reconcileObservedFDBJoins(job)
+	assert.Len(t, publisher.topologyLinks, 1)
+	assert.Len(t, job.Results.TopologyLinks, 1)
+}
+
+func TestBuildSNMPL2LinksFromNeighborsFillsCandidateCapSameSubnetFirst(t *testing.T) {
+	t.Parallel()
+
+	// Cross-subnet ARP-only rows arrive FIRST but must not displace
+	// same-subnet candidates from the cap.
+	neighbors := make([]arpNeighbor, 0, maxSNMPARPCandidateNeighbors+3)
+	for i := 0; i < 3; i++ {
+		neighbors = append(neighbors, arpNeighbor{
+			ip:          fmt.Sprintf("10.0.0.%d", i+1),
+			mac:         fmt.Sprintf("aa:bb:cc:dd:01:%02x", i),
+			crossSubnet: true,
+		})
+	}
+	for i := 0; i < maxSNMPARPCandidateNeighbors-1; i++ {
+		neighbors = append(neighbors, arpNeighbor{
+			ip:  fmt.Sprintf("192.168.1.%d", i+1),
+			mac: fmt.Sprintf("aa:bb:cc:dd:02:%02x", i),
+		})
+	}
+
+	links := buildSNMPL2LinksFromNeighbors("sr:switch", "192.168.1.1", "disc-cap", neighbors)
+	require.Len(t, links, maxSNMPARPCandidateNeighbors)
+
+	crossSubnetIPs := make([]string, 0, 1)
+	sameSubnetCount := 0
+	for _, link := range links {
+		if strings.HasPrefix(link.NeighborMgmtAddr, "10.0.0.") {
+			crossSubnetIPs = append(crossSubnetIPs, link.NeighborMgmtAddr)
+			continue
+		}
+		sameSubnetCount++
+	}
+
+	// All same-subnet candidates admitted; the single leftover cap slot goes
+	// to the FIRST cross-subnet row (relative order preserved).
+	assert.Equal(t, maxSNMPARPCandidateNeighbors-1, sameSubnetCount)
+	assert.Equal(t, []string{"10.0.0.1"}, crossSubnetIPs)
 }
 
 func TestKnownDeviceIPv4SetIncludesScanQueueTargets(t *testing.T) {

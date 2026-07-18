@@ -12,6 +12,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   alias ServiceRadar.Identity.AliasEvents
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Inventory.InterfaceClassifier
@@ -448,9 +449,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   def suppress_topology_sighting_candidate?(_record), do: false
 
   # Evidence sources whose neighbors are ordinary hosts observed behind a switch
-  # port / AP association (ARP+FDB correlation and UniFi client tables). These
-  # are the only producers of switch↔host attachment evidence.
-  @endpoint_attachment_sighting_sources ~w(snmp-arp-fdb unifi-api-port-table unifi-api-wireless-client)
+  # port / AP association (ARP+FDB correlation, UniFi client tables, and
+  # direct-physical LLDP/CDP endpoint sightings). Promotion only ever fires for
+  # UNRESOLVED neighbors, so resolved infrastructure never reaches it; residual
+  # un-inventoried infrastructure is filtered downstream by the device-side
+  # guards (`endpoint_attachment_candidate_device?/1`).
+  @endpoint_attachment_sighting_sources ~w(snmp-arp-fdb unifi-api-port-table unifi-api-wireless-client unifi-api-wired-client lldp cdp)
 
   @doc false
   def endpoint_identity_candidate?(record) when is_map(record) do
@@ -474,6 +478,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       _ -> "low"
     end
   end
+
+  # LLDP/CDP-promoted endpoint identities are deliberately capped at "medium":
+  # the physical adjacency is direct, but a chassis MAC alone says less about
+  # the endpoint's identity than a controller/FDB-correlated sighting, so they
+  # must not inherit the direct-physical -> "high" identity tier.
+  @doc false
+  def endpoint_identity_confidence_tier(evidence_class, source) when source in ["lldp", "cdp"] do
+    case endpoint_identity_confidence_tier(evidence_class) do
+      "high" -> "medium"
+      tier -> tier
+    end
+  end
+
+  def endpoint_identity_confidence_tier(evidence_class, _source),
+    do: endpoint_identity_confidence_tier(evidence_class)
 
   defp promote_endpoint_topology_sighting(record, actor) do
     mac = normalize_mac(record.neighbor_chassis_id)
@@ -518,22 +537,101 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
          actor
        ) do
     with {:ok, uid} <- resolve_device_uid_via_dire(candidate_ip, partition, [mac], actor) do
-      if device_exists?(uid, actor) do
-        # DIRE resolved the sighting onto an existing device (MAC identifier,
-        # alias, or merge-audit canonical hit) — reuse it, never duplicate.
-        {:ok, uid}
-      else
-        create_endpoint_topology_device(
-          uid,
-          mac,
-          candidate_ip,
-          partition,
-          source_device_id,
-          metadata,
-          actor
-        )
+      cond do
+        device_exists?(uid, actor) ->
+          # DIRE resolved the sighting onto an existing device (MAC identifier,
+          # alias, or merge-audit canonical hit) — reuse it, never duplicate.
+          {:ok, uid}
+
+        is_binary(existing_uid = find_live_device_uid_by_ip(candidate_ip, partition, actor)) and
+            bindable_endpoint_ip_device?(existing_uid, mac, actor) ->
+          # The sighting's IP already belongs to a live device with no
+          # conflicting MAC identity (e.g. an IP-only hypervisor record). DIRE
+          # never consults the IP when a strong MAC is present, so bind here
+          # and register the MAC so future sightings resolve via DIRE instead
+          # of minting a provisional duplicate. Distinct MAC = different
+          # hardware: when the device already carries a different MAC (column
+          # or registered identifier), shared-IP evidence (DHCP churn, NAT/VIP
+          # reuse) must never merge them, so the guard falls through to the
+          # deterministic MAC-seeded mint below.
+          register_mapper_mac_identifiers(existing_uid, [mac], candidate_ip, partition, actor)
+          {:ok, existing_uid}
+
+        true ->
+          create_endpoint_topology_device(
+            uid,
+            mac,
+            candidate_ip,
+            partition,
+            source_device_id,
+            metadata,
+            actor
+          )
       end
     end
+  end
+
+  defp find_live_device_uid_by_ip(nil, _partition, _actor), do: nil
+
+  defp find_live_device_uid_by_ip(candidate_ip, partition, actor) do
+    case lookup_device_uids_by_ip([candidate_ip]) do
+      %{^candidate_ip => uid} when is_binary(uid) ->
+        uid
+
+      _ ->
+        case find_device_uid_by_alias(candidate_ip, partition, actor) do
+          {:ok, uid} when is_binary(uid) and uid != "" -> uid
+          _ -> nil
+        end
+    end
+  end
+
+  # Identity-safety guard for the IP/alias bind: only a device with NO MAC
+  # identity at all — empty `mac` column and no registered :mac identifier
+  # rows — or one matching the sighting MAC may be bound. A failed check
+  # counts as a conflict (do not bind) rather than crashing the promotion.
+  # NOTE: `find_live_device_uid_by_ip` may already have reactivated a stale
+  # :ip alias before this guard rejects; the reactivation lives in the shared
+  # alias helper (`alias_device_uid/2`) used by non-endpoint paths too, so it
+  # is left in place rather than restructured.
+  defp bindable_endpoint_ip_device?(device_uid, mac, actor) do
+    not device_mac_column_conflict?(device_uid, mac, actor) and
+      not registered_mac_identifier_conflict?(device_uid, mac)
+  end
+
+  defp device_mac_column_conflict?(device_uid, mac, actor) do
+    case Device.get_by_uid(device_uid, false, actor: actor) do
+      {:ok, %Device{deleted_at: nil} = device} ->
+        device_mac = normalize_mac(device.mac)
+        is_binary(device_mac) and device_mac != mac
+
+      _ ->
+        # Unloadable device: treat as conflicting rather than binding blind.
+        true
+    end
+  rescue
+    e ->
+      Logger.warning("Endpoint bind MAC column check raised for #{device_uid}: #{inspect(e)}")
+      true
+  end
+
+  defp registered_mac_identifier_conflict?(device_uid, mac) do
+    registered =
+      from(di in DeviceIdentifier,
+        where: di.device_id == ^device_uid,
+        where: di.identifier_type == ^"mac",
+        select: di.identifier_value
+      )
+      |> Repo.all()
+      |> Enum.map(&normalize_mac/1)
+      |> Enum.reject(&is_nil/1)
+
+    registered != [] and mac not in registered
+  rescue
+    e ->
+      Logger.warning("Endpoint bind MAC identifier check raised for #{device_uid}: #{inspect(e)}")
+
+      true
   end
 
   defp create_endpoint_topology_device(
@@ -579,11 +677,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   @doc false
   def endpoint_topology_candidate_metadata(record, mac) when is_map(record) do
     evidence_class = metadata_value(record.metadata, "evidence_class")
+    source = metadata_value(record.metadata, "source")
 
     record
     |> topology_candidate_metadata()
     |> Map.put("topology_last_seen_neighbor_mac", mac)
-    |> Map.put("identity_confidence_tier", endpoint_identity_confidence_tier(evidence_class))
+    |> Map.put(
+      "identity_confidence_tier",
+      endpoint_identity_confidence_tier(evidence_class, source)
+    )
   end
 
   defp promote_topology_sighting(record, actor) do
@@ -1657,10 +1759,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp enrich_resolved_topology_record(record, devices_by_uid, strong_device_ids)
        when is_map(record) do
-    if snmp_arp_fdb_record?(record) do
-      maybe_promote_snmp_fdb_attachment(record, devices_by_uid, strong_device_ids)
-    else
-      record
+    cond do
+      snmp_arp_fdb_record?(record) ->
+        maybe_promote_snmp_fdb_attachment(record, devices_by_uid, strong_device_ids)
+
+      direct_endpoint_attachment_record?(record) ->
+        maybe_promote_direct_endpoint_attachment(record, devices_by_uid)
+
+      true ->
+        record
     end
   end
 
@@ -1698,6 +1805,34 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp snmp_arp_fdb_record?(_record), do: false
+
+  defp direct_endpoint_attachment_record?(record) when is_map(record) do
+    metadata_value(Map.get(record, :metadata), "source") in ["lldp", "cdp"]
+  end
+
+  defp direct_endpoint_attachment_record?(_record), do: false
+
+  # LLDP/CDP neighbors that resolved to a provisional endpoint-candidate device
+  # get the ATTACHED_TO upgrade; infrastructure-resolved (or unresolved)
+  # neighbors keep their direct-physical CONNECTS_TO backbone semantics. The
+  # strong-evidence set is deliberately not consulted here: an LLDP/CDP record
+  # marks its own neighbor strong, which would make the upgrade unreachable.
+  defp maybe_promote_direct_endpoint_attachment(record, devices_by_uid) do
+    neighbor_uid = normalize_string(Map.get(record, :neighbor_device_id))
+    neighbor_device = Map.get(devices_by_uid, neighbor_uid)
+
+    if endpoint_attachment_candidate_device?(neighbor_device) do
+      metadata =
+        record
+        |> Map.get(:metadata)
+        |> ensure_map()
+        |> Map.put("relation_family", "ATTACHED_TO")
+
+      Map.put(record, :metadata, metadata)
+    else
+      record
+    end
+  end
 
   defp endpoint_attachment_candidate_device?(device) when is_map(device) do
     metadata = ensure_map(Map.get(device, :metadata))
@@ -2312,6 +2447,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     if ips == [] and uids == [] and names == [] and macs == [] do
       empty_topology_device_index()
     else
+      identifier_index =
+        build_identifier_topology_index(macs, ips, topology_record_partitions(records))
+
       query =
         from(d in Device,
           where: is_nil(d.deleted_at),
@@ -2334,7 +2472,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
       query
       |> Repo.all()
-      |> build_topology_device_index_maps()
+      |> build_topology_device_index_maps(identifier_index)
     end
   rescue
     e ->
@@ -2342,10 +2480,67 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       empty_topology_device_index()
   end
 
-  defp build_topology_device_index_maps(rows) do
+  defp topology_record_partitions(records) do
+    records
+    |> Enum.map(&normalize_partition(topology_record_partition(&1)))
+    |> Enum.uniq()
+  end
+
+  # Identifier-aware neighbor resolution: consult the canonical identity graph
+  # (platform.device_identifiers) for the payload's MACs and IPs so a sighting
+  # carrying a registered secondary identifier binds to its device. MAC values
+  # are byte-identical to the index keys (12 uppercase hex). Kept in its own
+  # rescue so a failure here degrades to the ocsf-only index instead of
+  # killing all binding for the payload.
+  defp build_identifier_topology_index(macs, ips, partitions) do
+    if macs == [] and ips == [] do
+      empty_topology_device_index()
+    else
+      query =
+        from(di in DeviceIdentifier,
+          join: d in Device,
+          on: d.uid == di.device_id,
+          where: is_nil(d.deleted_at),
+          where: di.partition in ^partitions,
+          where:
+            (di.identifier_type == ^"mac" and di.identifier_value in ^macs) or
+              (di.identifier_type == ^"ip" and di.identifier_value in ^ips),
+          select: {di.identifier_type, di.identifier_value, di.device_id}
+        )
+
+      query
+      |> Repo.all()
+      |> Enum.sort()
+      |> Enum.reduce(empty_topology_device_index(), fn {type, value, device_id}, acc ->
+        uid = normalize_string(device_id)
+
+        if canonical_topology_uid?(uid) do
+          case to_string(type) do
+            "mac" -> put_topology_index_entry(acc, :mac_to_uid, value, uid)
+            "ip" -> put_topology_index_entry(acc, :ip_to_uid, value, uid)
+            _ -> acc
+          end
+        else
+          acc
+        end
+      end)
+    end
+  rescue
+    e ->
+      Logger.warning("Topology identifier index lookup failed: #{inspect(e)}")
+      empty_topology_device_index()
+  end
+
+  # Identifier-graph entries seed the base index FIRST; ocsf_devices rows fold
+  # in afterwards with Map.put_new (first-wins) semantics, so a registered
+  # identifier beats a direct-column match for the same key while the direct
+  # columns remain the fallback for everything else. Public (@doc false) so the
+  # merge precedence stays pinned by unit tests.
+  @doc false
+  def build_topology_device_index_maps(rows, base_index \\ empty_topology_device_index()) do
     rows
     |> Enum.sort_by(&topology_index_row_rank/1)
-    |> Enum.reduce(empty_topology_device_index(), fn row, acc ->
+    |> Enum.reduce(base_index, fn row, acc ->
       uid = normalize_string(row.uid)
       ip = normalize_string(row.ip)
       mac = normalize_mac(row.mac)

@@ -31,6 +31,10 @@ const (
 	evidenceClassHostedVirtual   = "hosted-virtual"
 	evidenceClassInferredSegment = "inferred-segment"
 	evidenceClassObservedOnly    = "observed-only"
+
+	confidenceTierHigh   = "high"
+	confidenceTierMedium = "medium"
+	confidenceTierLow    = "low"
 )
 
 const (

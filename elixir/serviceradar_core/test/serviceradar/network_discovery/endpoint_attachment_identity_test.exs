@@ -5,9 +5,11 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentIdentityTest do
 
     * flag OFF: the legacy suppression split is unchanged — FDB neighbors
       matching the 4-way suppression conjunction are suppressed, never minted;
-    * flag ON: MAC-carrying FDB/UniFi-client neighbors become endpoint
-      candidates (MAC+partition-keyed) instead of being suppressed, while
-      MAC-less records keep the legacy IP-keyed rules (including suppression);
+    * flag ON: MAC-carrying FDB/UniFi-client neighbors — plus direct-physical
+      LLDP/CDP and UniFi wired-client sightings
+      (fix-cross-subnet-topology-attachment [G]) — become endpoint candidates
+      (MAC+partition-keyed) instead of being suppressed, while MAC-less
+      records keep the legacy IP-keyed rules (including suppression);
     * deterministic uid convergence: same MAC + partition always derives the
       same `sr:` uid regardless of observed IP (network-agnostic identity),
       and distinct MACs always derive distinct uids;
@@ -39,6 +41,44 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentIdentityTest do
         "relation_family" => "ATTACHED_TO",
         "confidence_tier" => "medium",
         "confidence_reason" => "single_identifier_inference"
+      }
+    }
+    |> Map.merge(overrides)
+    |> MapperResultsIngestor.normalize_topology()
+  end
+
+  defp lldp_endpoint_record(overrides \\ %{}) do
+    %{
+      "timestamp" => DateTime.truncate(DateTime.utc_now(), :microsecond),
+      "protocol" => "LLDP",
+      "agent_id" => "agent-ea",
+      "partition" => "default",
+      "local_device_id" => "sr:ea-switch",
+      "local_device_ip" => "192.0.2.10",
+      "local_if_index" => 7,
+      "neighbor_chassis_id" => "aa:bb:cc:dd:ee:03",
+      "neighbor_mgmt_addr" => "192.0.2.88",
+      "metadata" => %{"source" => "lldp"}
+    }
+    |> Map.merge(overrides)
+    |> MapperResultsIngestor.normalize_topology()
+  end
+
+  defp unifi_wired_client_record(overrides \\ %{}) do
+    %{
+      "timestamp" => DateTime.truncate(DateTime.utc_now(), :microsecond),
+      "protocol" => "UniFi-API",
+      "agent_id" => "agent-ea",
+      "partition" => "default",
+      "local_device_id" => "sr:ea-usw",
+      "local_device_ip" => "192.0.2.30",
+      "neighbor_chassis_id" => "aa:bb:cc:dd:ee:04",
+      "neighbor_mgmt_addr" => "192.0.2.99",
+      "metadata" => %{
+        "source" => "unifi-api-wired-client",
+        "relation_family" => "ATTACHED_TO",
+        "confidence_tier" => "medium",
+        "confidence_reason" => "controller_wired_client_switch_level"
       }
     }
     |> Map.merge(overrides)
@@ -132,8 +172,41 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentIdentityTest do
     test "non-attachment sources never become endpoint candidates" do
       record =
         fdb_attachment_record(%{
-          "metadata" => %{"source" => "snmp-lldp", "evidence_class" => "direct-physical"}
+          "metadata" => %{"source" => "unifi-api-uplink", "evidence_class" => "direct-physical"}
         })
+
+      refute MapperResultsIngestor.endpoint_identity_candidate?(record)
+    end
+
+    test "LLDP endpoint sightings are endpoint candidates" do
+      record = lldp_endpoint_record()
+
+      assert MapperResultsIngestor.endpoint_identity_candidate?(record)
+
+      assert %{endpoint: [^record], ip: [], suppressed: 0} =
+               MapperResultsIngestor.partition_topology_sighting_candidates([record], true)
+    end
+
+    test "CDP endpoint sightings are endpoint candidates" do
+      record = lldp_endpoint_record(%{"protocol" => "CDP", "metadata" => %{"source" => "cdp"}})
+
+      assert MapperResultsIngestor.endpoint_identity_candidate?(record)
+
+      assert %{endpoint: [^record], ip: [], suppressed: 0} =
+               MapperResultsIngestor.partition_topology_sighting_candidates([record], true)
+    end
+
+    test "UniFi wired client sightings are endpoint candidates" do
+      record = unifi_wired_client_record()
+
+      assert MapperResultsIngestor.endpoint_identity_candidate?(record)
+
+      assert %{endpoint: [^record], ip: [], suppressed: 0} =
+               MapperResultsIngestor.partition_topology_sighting_candidates([record], true)
+    end
+
+    test "LLDP neighbors that already resolved are never candidates" do
+      record = lldp_endpoint_record(%{"neighbor_device_id" => "sr:already-resolved"})
 
       refute MapperResultsIngestor.endpoint_identity_candidate?(record)
     end
@@ -203,6 +276,38 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentIdentityTest do
       assert metadata["topology_last_seen_neighbor_mac"] == mac
       assert metadata["identity_confidence_tier"] == "medium"
       assert metadata["topology_last_seen_protocol"] == "snmp-l2"
+    end
+
+    test "LLDP/CDP-sourced promotions are capped at medium identity confidence" do
+      assert MapperResultsIngestor.endpoint_identity_confidence_tier("direct-physical", "lldp") ==
+               "medium"
+
+      assert MapperResultsIngestor.endpoint_identity_confidence_tier("direct-physical", "cdp") ==
+               "medium"
+
+      assert MapperResultsIngestor.endpoint_identity_confidence_tier("observed-only", "lldp") ==
+               "low"
+
+      assert MapperResultsIngestor.endpoint_identity_confidence_tier(
+               "direct-physical",
+               "snmp-arp-fdb"
+             ) == "high"
+
+      assert MapperResultsIngestor.endpoint_identity_confidence_tier(
+               "endpoint-attachment",
+               "unifi-api-wired-client"
+             ) == "high"
+    end
+
+    test "LLDP endpoint candidate metadata carries the medium identity tier" do
+      record = lldp_endpoint_record()
+      mac = IdentityReconciler.normalize_mac("aa:bb:cc:dd:ee:03")
+
+      metadata = MapperResultsIngestor.endpoint_topology_candidate_metadata(record, mac)
+
+      assert metadata["topology_last_seen_neighbor_mac"] == mac
+      assert metadata["identity_confidence_tier"] == "medium"
+      assert metadata["topology_last_seen_protocol"] == "lldp"
     end
   end
 end

@@ -513,7 +513,7 @@ func TestFetchUniFiClientsForSite(t *testing.T) {
 		expectedCount  int
 	}{
 		{
-			name: "filters wireless clients",
+			name: "returns wired and wireless clients",
 			serverResponse: []UniFiClient{
 				{ID: "wired-1", Type: "WIRED", MACAddress: "00:11:22:33:44:55", UplinkDeviceID: "switch-1"},
 				{ID: "wireless-1", Type: "WIRELESS", MACAddress: "aa:bb:cc:dd:ee:ff", UplinkDeviceID: "ap-1"},
@@ -521,7 +521,7 @@ func TestFetchUniFiClientsForSite(t *testing.T) {
 			},
 			statusCode:    http.StatusOK,
 			expectError:   false,
-			expectedCount: 2,
+			expectedCount: 3,
 		},
 		{
 			name:           "server error",
@@ -567,14 +567,18 @@ func TestFetchUniFiClientsForSite(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Len(t, clients, tt.expectedCount)
+
+			typeCounts := make(map[string]int)
 			for _, client := range clients {
-				assert.Equal(t, "WIRELESS", client.normalizedType())
+				typeCounts[client.normalizedType()]++
 			}
+			assert.Equal(t, 1, typeCounts["WIRED"])
+			assert.Equal(t, 2, typeCounts["WIRELESS"])
 		})
 	}
 }
 
-func TestFetchUniFiClientsForSitePaginatesBeforeFilteringWireless(t *testing.T) {
+func TestFetchUniFiClientsForSitePaginatesAcrossClientTypes(t *testing.T) {
 	requestedOffsets := make([]int, 0, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodGet, r.Method)
@@ -611,10 +615,15 @@ func TestFetchUniFiClientsForSitePaginatesBeforeFilteringWireless(t *testing.T) 
 	clients, err := engine.fetchUniFiClientsForSite(context.Background(), client, headers, apiConfig, site)
 	require.NoError(t, err)
 	assert.Equal(t, []int{0, uniFiAPIPageLimit}, requestedOffsets)
-	assert.Len(t, clients, uniFiAPIPageLimit+1)
+	assert.Len(t, clients, uniFiAPIPageLimit+2)
+
+	wiredCount := 0
 	for _, client := range clients {
-		assert.Equal(t, "WIRELESS", client.normalizedType())
+		if client.normalizedType() == "WIRED" {
+			wiredCount++
+		}
 	}
+	assert.Equal(t, 1, wiredCount)
 }
 
 func TestFetchUniFiDevicesPaginatesLegacyDiscoveryPath(t *testing.T) {
@@ -1173,6 +1182,89 @@ func TestProcessWirelessClientAssociations(t *testing.T) {
 	assert.Equal(t, "DEFAULT", link.Metadata["access_type"])
 }
 
+func TestProcessWiredClientAssociations(t *testing.T) {
+	job := &DiscoveryJob{ID: "test-job"}
+	engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
+	portIdx := int32(7)
+	clients := []UniFiClient{
+		{
+			ID:             "wired-1",
+			Type:           "WIRED",
+			Name:           "pve-host",
+			MACAddress:     "aa:bb:cc:dd:ee:ff",
+			IPAddress:      "192.168.2.11",
+			UplinkDeviceID: "switch-1",
+			ConnectedAt:    "2026-04-12T00:00:00Z",
+			Access:         UniFiClientAccess{Type: "DEFAULT"},
+		},
+		{
+			ID:             "wired-with-port",
+			Type:           "WIRED",
+			Name:           "nas",
+			MACAddress:     "11:22:33:44:55:66",
+			IPAddress:      "192.168.1.40",
+			UplinkDeviceID: "switch-1",
+			UplinkPortIdx:  &portIdx,
+		},
+		{
+			ID:             "wired-missing-mac",
+			Type:           "WIRED",
+			UplinkDeviceID: "switch-1",
+		},
+		{
+			ID:             "wired-missing-switch",
+			Type:           "WIRED",
+			MACAddress:     "22:33:44:55:66:77",
+			UplinkDeviceID: "missing-switch",
+		},
+		{
+			ID:         "wired-no-uplink",
+			Type:       "WIRED",
+			MACAddress: "33:44:55:66:77:88",
+		},
+	}
+	deviceCache := map[string]struct {
+		IP       string
+		Name     string
+		MAC      string
+		DeviceID string
+	}{
+		"switch-1": {IP: "192.168.1.131", Name: "USW-24-PoE", MAC: "ff:ee:dd:cc:bb:aa", DeviceID: GenerateDeviceID("ff:ee:dd:cc:bb:aa")},
+	}
+	apiConfig := UniFiAPIConfig{Name: "Test API", BaseURL: "https://example.com/api"}
+	site := UniFiSite{ID: "site1", Name: "Site 1"}
+
+	links := engine.processWiredClientAssociations(job, clients, deviceCache, apiConfig, site)
+	require.Len(t, links, 2)
+
+	switchLevel := links[0]
+	assert.Equal(t, "UniFi-API", switchLevel.Protocol)
+	assert.Equal(t, "192.168.1.131", switchLevel.LocalDeviceIP)
+	assert.Equal(t, GenerateDeviceID("ff:ee:dd:cc:bb:aa"), switchLevel.LocalDeviceID)
+	assert.Equal(t, int32(0), switchLevel.LocalIfIndex)
+	assert.Empty(t, switchLevel.LocalIfName)
+	assert.Equal(t, "aa:bb:cc:dd:ee:ff", switchLevel.NeighborChassisID)
+	assert.Equal(t, "pve-host", switchLevel.NeighborSystemName)
+	assert.Equal(t, "192.168.2.11", switchLevel.NeighborMgmtAddr)
+	assert.Equal(t, "unifi-api-wired-client", switchLevel.Metadata["source"])
+	assert.Equal(t, "endpoint-attachment", switchLevel.Metadata["evidence_class"])
+	assert.Equal(t, "ATTACHED_TO", switchLevel.Metadata["relation_type"])
+	assert.Equal(t, "ATTACHED_TO", switchLevel.Metadata["relation_family"])
+	assert.Equal(t, "medium", switchLevel.Metadata["confidence_tier"])
+	assert.Equal(t, "controller_wired_client_switch_level", switchLevel.Metadata["confidence_reason"])
+	assert.Equal(t, "switch-1", switchLevel.Metadata["uplink_device_id"])
+	assert.Equal(t, "WIRED", switchLevel.Metadata["client_type"])
+	assert.Equal(t, "DEFAULT", switchLevel.Metadata["access_type"])
+	assert.Equal(t, "2026-04-12T00:00:00Z", switchLevel.Metadata["connected_at"])
+
+	portLevel := links[1]
+	assert.Equal(t, int32(7), portLevel.LocalIfIndex)
+	assert.Empty(t, portLevel.LocalIfName)
+	assert.Equal(t, "11:22:33:44:55:66", portLevel.NeighborChassisID)
+	assert.Equal(t, "high", portLevel.Metadata["confidence_tier"])
+	assert.Equal(t, "controller_client_association", portLevel.Metadata["confidence_reason"])
+}
+
 func TestQuerySingleUniFiAPIIncludesWirelessClientAssociations(t *testing.T) {
 	job := &DiscoveryJob{
 		ID: "test-job",
@@ -1237,26 +1329,42 @@ func TestQuerySingleUniFiAPIIncludesWirelessClientAssociations(t *testing.T) {
 
 	links, err := engine.querySingleUniFiAPI(context.Background(), job, "", apiConfig, site)
 	require.NoError(t, err)
-	require.Len(t, links, 2)
+	require.Len(t, links, 3)
 
 	var uplinkLink *TopologyLink
 	var wirelessLink *TopologyLink
+	var wiredLink *TopologyLink
 	for _, link := range links {
 		switch link.Metadata["source"] {
 		case "unifi-api-uplink":
 			uplinkLink = link
 		case "unifi-api-wireless-client":
 			wirelessLink = link
+		case "unifi-api-wired-client":
+			wiredLink = link
 		}
 	}
 	require.NotNil(t, uplinkLink)
 	require.NotNil(t, wirelessLink)
+	require.NotNil(t, wiredLink)
 	assert.Equal(t, "192.168.1.233", wirelessLink.LocalDeviceIP)
 	assert.Equal(t, GenerateDeviceID("00:11:22:33:44:55"), wirelessLink.LocalDeviceID)
 	assert.Equal(t, "aa:bb:cc:dd:ee:ff", wirelessLink.NeighborChassisID)
 	assert.Equal(t, "192.168.1.50", wirelessLink.NeighborMgmtAddr)
 	assert.Equal(t, "endpoint-attachment", wirelessLink.Metadata["evidence_class"])
 	assert.Equal(t, "ATTACHED_TO", wirelessLink.Metadata["relation_family"])
+
+	assert.Equal(t, "192.168.1.254", wiredLink.LocalDeviceIP)
+	assert.Equal(t, GenerateDeviceID("ff:ee:dd:cc:bb:aa"), wiredLink.LocalDeviceID)
+	assert.Equal(t, int32(0), wiredLink.LocalIfIndex)
+	assert.Empty(t, wiredLink.LocalIfName)
+	assert.Equal(t, "11:22:33:44:55:66", wiredLink.NeighborChassisID)
+	assert.Equal(t, "wired-host", wiredLink.NeighborSystemName)
+	assert.Equal(t, "192.168.1.60", wiredLink.NeighborMgmtAddr)
+	assert.Equal(t, "endpoint-attachment", wiredLink.Metadata["evidence_class"])
+	assert.Equal(t, "ATTACHED_TO", wiredLink.Metadata["relation_family"])
+	assert.Equal(t, "medium", wiredLink.Metadata["confidence_tier"])
+	assert.Equal(t, "controller_wired_client_switch_level", wiredLink.Metadata["confidence_reason"])
 }
 
 func TestProcessUplinkInfo(t *testing.T) {

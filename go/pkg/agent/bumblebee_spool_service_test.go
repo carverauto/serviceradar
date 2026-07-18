@@ -12,6 +12,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/bumblebee"
 	"github.com/carverauto/serviceradar/proto"
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
+	"github.com/stretchr/testify/require"
 )
 
 const bumblebeeSpoolTestAgentID = "agent-1"
@@ -149,9 +150,7 @@ func TestBumblebeeSpoolServiceAddonTelemetryEmitsScanAndFindingEvents(t *testing
 	if source != bumblebeeTelemetryProducerID {
 		t.Fatalf("source = %q, want %s", source, bumblebeeTelemetryProducerID)
 	}
-	if batch == nil {
-		t.Fatal("expected telemetry batch")
-	}
+	require.NotNil(t, batch, "expected telemetry batch")
 	if got := len(batch.Records); got != 2 {
 		t.Fatalf("records = %d, want 2", got)
 	}

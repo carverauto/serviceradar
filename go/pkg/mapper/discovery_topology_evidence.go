@@ -38,11 +38,11 @@ func applyTopologyEvidenceClass(link *TopologyLink) {
 
 		switch link.Metadata["evidence_class"] {
 		case evidenceClassDirectPhysical, evidenceClassDirectLogical, evidenceClassHostedVirtual, evidenceClassEndpointAttachment:
-			link.Metadata["confidence_tier"] = "high"
+			link.Metadata["confidence_tier"] = confidenceTierHigh
 		case evidenceClassInferredSegment:
-			link.Metadata["confidence_tier"] = "medium"
+			link.Metadata["confidence_tier"] = confidenceTierMedium
 		default:
-			link.Metadata["confidence_tier"] = "low"
+			link.Metadata["confidence_tier"] = confidenceTierLow
 		}
 		return
 	}
@@ -75,11 +75,11 @@ func applyTopologyEvidenceClass(link *TopologyLink) {
 
 	switch link.Metadata["evidence_class"] {
 	case evidenceClassDirectPhysical, evidenceClassDirectLogical, evidenceClassHostedVirtual, evidenceClassEndpointAttachment:
-		link.Metadata["confidence_tier"] = "high"
+		link.Metadata["confidence_tier"] = confidenceTierHigh
 	case evidenceClassInferredSegment:
-		link.Metadata["confidence_tier"] = "medium"
+		link.Metadata["confidence_tier"] = confidenceTierMedium
 	default:
-		link.Metadata["confidence_tier"] = "low"
+		link.Metadata["confidence_tier"] = confidenceTierLow
 	}
 }
 

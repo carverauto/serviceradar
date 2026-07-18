@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestPluginHTTPClientWithTrustedCAsAugmentsSystemRoots(t *testing.T) {
@@ -31,9 +33,7 @@ func TestPluginHTTPClientWithTrustedCAsAugmentsSystemRoots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build plugin HTTP client: %v", err)
 	}
-	if client == nil {
-		t.Fatal("expected configured plugin HTTP client")
-	}
+	require.NotNil(t, client, "expected configured plugin HTTP client")
 
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
 	if err != nil {

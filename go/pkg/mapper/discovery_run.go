@@ -131,6 +131,12 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 					}
 				}
 			}
+
+			// The per-target observed join runs at each target's own walk, so
+			// an FDB owner walked before the ARP owner never saw the mapping.
+			// Replay the join against the final shared map after the last
+			// topology pass (recursive or not).
+			e.reconcileObservedFDBJoins(job)
 		}
 	}
 	recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusCompleted, "topology complete")
