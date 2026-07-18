@@ -297,3 +297,70 @@ Streaming plugins SHALL access live camera media transport through dedicated hos
 - **THEN** it SHALL do so through the host media bridge
 - **AND** the agent SHALL reject media bridge calls from plugins without the required capability
 
+### Requirement: Hypervisor plugin adapter contract
+Hypervisor plugins SHALL act as provider adapters that emit a shared hypervisor enrichment envelope and may include provider-specific metadata only where the shared contract has no equivalent field.
+
+#### Scenario: Add a new vSphere/vCenter plugin
+- **GIVEN** a vSphere/vCenter plugin collects host, cluster, datastore, guest, and guest NIC data
+- **WHEN** the plugin emits results
+- **THEN** it SHALL use the shared hypervisor enrichment schema
+- **AND** core ingestion SHALL not require a new provider-specific ingestion pipeline for common virtualization records
+
+#### Scenario: Keep provider logic inside adapters
+- **GIVEN** a hypervisor plugin uses provider-specific API endpoints, authentication flows, or object names
+- **WHEN** it returns inventory to ServiceRadar
+- **THEN** provider-specific API shapes SHALL be normalized before shared ingestion
+- **AND** shared agent runtime, core ingestion, UI, SRQL, and alerting code SHALL not branch on provider except for adapter selection, labels, or provider-only drilldowns
+
+### Requirement: Generic remote-console target contract
+Console-capable plugins SHALL use a shared remote-console target contract and protocol/provider-specific transport adapters.
+
+#### Scenario: Open console for supported target
+- **GIVEN** a device, hypervisor host, or virtual guest has remote-console target metadata and a scoped credential rule
+- **WHEN** an operator opens a console session
+- **THEN** the system SHALL create the session through generic authorization and credential broker code
+- **AND** the selected agent-side protocol/provider transport adapter SHALL handle Proxmox SSH/termproxy/VNC, plain SSH, vSphere console behavior, or future RDP behavior without exposing credentials to the browser.
+
+#### Scenario: Audit console sessions consistently across providers
+- **GIVEN** an operator opens a console to a Proxmox guest, vSphere VM, Linux device over SSH, or future Windows host over RDP
+- **WHEN** the session is created, resized, closed, or fails
+- **THEN** the system SHALL record generic remote-console audit events with actor, device, optional provider, target ref, protocol, credential rule, gateway, agent, and session outcome
+- **AND** the audit record SHALL NOT include plaintext credentials or terminal byte contents.
+
+### Requirement: Provider-neutral hypervisor credential rules
+Hypervisor plugins SHALL consume scoped credential rules using shared provider and purpose fields instead of provider-specific credential plumbing.
+
+#### Scenario: Scope credentials for inventory collection
+- **GIVEN** an operator creates a hypervisor credential rule for provider `proxmox` or `vsphere`
+- **WHEN** the rule is assigned to an agent and SRQL scope
+- **THEN** the generated plugin assignment SHALL include credential broker references scoped to that agent, provider, purpose, and target scope
+- **AND** plaintext secrets SHALL NOT be delivered to unrelated agents or stored in plugin package schemas.
+
+### Requirement: Plugin credential inputs are brokered and typed
+The plugin runtime SHALL support scoped, typed credential broker grants for credential-rule-driven assignments while preserving redaction and allowlist enforcement.
+
+#### Scenario: Runtime supplies scoped Proxmox broker grant
+- **GIVEN** a Proxmox plugin assignment was compiled from a credential rule
+- **WHEN** the plugin starts
+- **THEN** the runtime SHALL provide only a broker grant, target metadata, and credential reference required for that assignment
+- **AND** decrypted token, password, private key, ticket, cookie, and CSRF values SHALL NOT be supplied directly to the plugin
+- **AND** the plugin SHALL still access the target only through approved host functions
+
+### Requirement: Plugin results cannot persist secrets
+The plugin result ingestion pipeline SHALL reject or sanitize credential-bearing fields in plugin result payloads.
+
+#### Scenario: Plugin accidentally returns token value
+- **GIVEN** a plugin result details payload contains a field that matches a scoped secret value
+- **WHEN** ingestion validates the result
+- **THEN** the secret SHALL be redacted or the result SHALL be rejected according to policy
+- **AND** the raw secret SHALL NOT be stored in CNPG, logs, events, or inventory enrichment
+
+### Requirement: Console access is outside plugin execution
+Interactive console sessions SHALL be handled by the authorized console broker path and SHALL NOT run inside the WASM plugin sandbox.
+
+#### Scenario: Proxmox plugin reports console capability only
+- **GIVEN** the Proxmox plugin discovers a PVE host or guest that may support console access
+- **WHEN** the plugin emits enrichment
+- **THEN** it MAY report non-secret console capability hints
+- **AND** it SHALL NOT open an interactive terminal session or receive SSH private key material for an interactive session
+

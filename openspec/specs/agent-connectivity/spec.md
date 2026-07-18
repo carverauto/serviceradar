@@ -185,3 +185,171 @@ The system SHALL persist agent commands with a stateful lifecycle, including que
 - **WHEN** the command is dispatched
 - **THEN** the command record transitions immediately to `offline`
 
+### Requirement: Remote access uses the agent control stream
+Remote-access commands and frames SHALL use the existing agent-initiated control stream and SHALL NOT require inbound connectivity from the platform to an agent.
+
+#### Scenario: Agent opens outbound control stream
+- **GIVEN** an agent has completed Hello and established its control stream
+- **WHEN** a remote-access session is assigned to that agent
+- **THEN** the gateway SHALL deliver open/data/resize/close frames over that existing stream
+- **AND** the platform SHALL NOT dial the agent directly.
+
+### Requirement: Agents advertise remote-access capabilities
+Agents SHALL advertise remote-access adapter and enhanced-recording capabilities during enrollment and control-stream heartbeats.
+
+#### Scenario: Agent lacks BPF support
+- **GIVEN** an agent is running on a platform without compatible BPF support
+- **WHEN** it sends Hello or a control-stream heartbeat
+- **THEN** it SHALL omit `remote_access.bpf`
+- **AND** the control plane SHALL NOT route sessions requiring enhanced BPF tracing to that agent.
+
+#### Scenario: BPF capability requires explicit production gate
+- **GIVEN** the agent has a ServiceRadar-owned BPF collector implementation
+- **WHEN** BPF runtime enablement is disabled, the kernel compatibility check fails, required BPF filesystem paths are unavailable, required eBPF features are unsupported, permissions are insufficient, or the self-test collection cannot load
+- **THEN** the agent SHALL omit `remote_access.bpf`
+- **AND** the capability report SHALL preserve sanitized disabled reasons for operator diagnosis.
+
+#### Scenario: Procfs fallback does not advertise BPF
+- **GIVEN** an agent can collect fallback host events from procfs or another non-BPF source
+- **WHEN** the agent advertises remote-access capabilities
+- **THEN** fallback collection MAY advertise generic recording capability
+- **AND** it SHALL NOT advertise `remote_access.bpf`.
+
+#### Scenario: Required BPF policy fails before target dial
+- **GIVEN** a remote-access session policy requires BPF enhanced recording
+- **AND** the selected agent cannot start the required ServiceRadar-owned BPF collector for that session
+- **WHEN** the agent receives the open frame
+- **THEN** it SHALL fail the session before opening the target connection
+- **AND** the target opener SHALL NOT be invoked.
+
+#### Scenario: Agentless target cannot satisfy required BPF
+- **GIVEN** a remote-access session targets a host where ServiceRadar cannot attach managed host probes
+- **WHEN** policy requires BPF enhanced recording
+- **THEN** the session SHALL fail closed before target access
+- **AND** fallback collectors SHALL be used only when policy explicitly allows fallback.
+
+### Requirement: Agent enforces session grants
+Agents SHALL enforce signed or otherwise authenticated session grants that constrain protocol, target, credential reference, TTL, session ID, and selected agent/gateway route.
+
+#### Scenario: Browser cannot retarget SSH connection
+- **GIVEN** a session grant authorizes SSH to target `10.1.2.3:22`
+- **WHEN** the browser sends terminal input frames
+- **THEN** the agent SHALL treat those frames only as terminal input
+- **AND** SHALL reject any attempt to change target host, port, protocol, or credential reference after session open.
+
+#### Scenario: SSH open payload cannot change selected route
+- **GIVEN** an SSH open frame is delivered over an authenticated route for agent `agent-a` and gateway `gateway-a`
+- **WHEN** the payload declares a different `agent_id` or `gateway_id`
+- **THEN** the agent SHALL reject the open frame before dialing the target
+- **AND** no SSH credential material SHALL be used.
+
+### Requirement: Credential custody modes for remote access
+Agents SHALL support remote-access credentials supplied through explicit custody modes and SHALL fail closed when the required custody mode is unavailable.
+
+#### Scenario: User-present credential is not persisted
+- **GIVEN** an operator supplies a password, key, or signing capability for one session
+- **WHEN** the session ends or expires
+- **THEN** the credential material SHALL be discarded
+- **AND** it SHALL NOT be written to the database or agent config.
+
+#### Scenario: Central credential grant is tightly scoped
+- **GIVEN** a centrally stored remote-access credential is explicitly allowed by break-glass or non-SSH-device policy
+- **WHEN** the credential broker issues a grant
+- **THEN** the grant SHALL be scoped to one session, one selected agent/gateway route, one target, one protocol, and a short TTL
+- **AND** the browser SHALL NOT receive plaintext secret material.
+
+#### Scenario: SSO identity is exchanged for a short-lived SSH certificate
+- **GIVEN** an operator authenticated to ServiceRadar through an OIDC/SAML identity provider such as Authentik
+- **AND** ServiceRadar RBAC allows the operator to assume one or more SSH principals on a target
+- **WHEN** the operator opens a generic SSH remote-access session
+- **THEN** ServiceRadar SHALL be able to issue a short-lived OpenSSH user certificate scoped to that actor, target, principal set, and session
+- **AND** the selected agent SHALL use the certificate for SSH authentication without storing a reusable target password or shared bastion private key.
+
+#### Scenario: Protocol rejects mismatched custody mode
+- **GIVEN** a protocol uses a specific credential custody model
+- **WHEN** a session request supplies a custody mode intended for a different protocol
+- **THEN** the control plane SHALL reject the session before issuing an attach ticket
+- **AND** generic SSH SHALL NOT accept provider-ticket or no-credential custody modes.
+
+### Requirement: Agents use one shared eBPF runtime
+Agents SHALL use a single shared eBPF runtime/loader boundary for ServiceRadar-owned eBPF features instead of creating feature-specific eBPF runtimes.
+
+#### Scenario: New agent feature needs eBPF
+- **GIVEN** a future agent feature needs Linux eBPF programs, maps, links, ring buffers, or capability checks
+- **WHEN** the feature is implemented
+- **THEN** it SHALL integrate with the shared agent eBPF runtime
+- **AND** it SHALL NOT introduce a separate loader, map manager, ring-buffer loop, or kernel compatibility checker unless the proposal documents a technical blocker.
+
+#### Scenario: Remote access consumes shared runtime
+- **GIVEN** remote-access enhanced recording needs command, file, and network probes
+- **WHEN** the agent starts eBPF enhanced recording for a session
+- **THEN** remote access SHALL register session-scoped probes and event normalization on top of the shared runtime
+- **AND** shared runtime ownership SHALL remain outside the remote-access adapter package.
+
+#### Scenario: Classic socket BPF remains separate
+- **GIVEN** existing packet capture code uses classic socket BPF filters through `golang.org/x/sys/unix`
+- **WHEN** the shared eBPF runtime is introduced
+- **THEN** that classic BPF path MAY remain separate
+- **AND** any later unification SHALL be explicit rather than forced by the remote-access eBPF collector.
+
+### Requirement: Agents advertise BPF capability only after runtime validation
+Agents SHALL advertise `remote_access.bpf` only when the running binary, platform, kernel, permissions, and startup validation can support required eBPF enhanced recording.
+
+#### Scenario: Binary lacks BPF build support
+- **GIVEN** an agent binary is built without Linux eBPF collector support
+- **WHEN** the agent sends Hello or control-stream heartbeat capabilities
+- **THEN** it SHALL omit `remote_access.bpf`
+- **AND** it MAY still advertise `remote_access.recording` for non-BPF recording or allowed fallback modes.
+
+#### Scenario: Runtime validation fails
+- **GIVEN** an agent binary includes eBPF collector support
+- **AND** the host kernel, mounts, permissions, or self-test validation cannot support the collector
+- **WHEN** the agent sends Hello or control-stream heartbeat capabilities
+- **THEN** it SHALL omit `remote_access.bpf`
+- **AND** the control plane SHALL NOT route sessions requiring eBPF enhanced recording to that agent.
+
+#### Scenario: Deployment has only raw-socket capability
+- **GIVEN** an agent deployment grants `NET_RAW` for ICMP or packet probing
+- **AND** it does not explicitly enable the BPF runtime profile with required mounts, capabilities, and runtime checks
+- **WHEN** the agent reports capabilities
+- **THEN** it SHALL omit `remote_access.bpf`
+- **AND** it SHALL report BPF as disabled rather than inferring support from raw-socket access.
+
+#### Scenario: Deployment explicitly enables BPF profile
+- **GIVEN** an agent deployment explicitly enables the BPF runtime profile
+- **AND** the binary, kernel, mounts, capabilities, and startup self-test all pass
+- **WHEN** the agent reports capabilities
+- **THEN** it MAY advertise `remote_access.bpf`
+- **AND** its capability report SHALL include enough version and status metadata for the control plane to route required-BPF sessions safely.
+
+### Requirement: Agents clean up BPF session state
+Agents SHALL remove session-scoped BPF state when a remote-access session closes, expires, fails, or the agent shuts down.
+
+#### Scenario: Session closes normally
+- **GIVEN** a remote-access session is registered in BPF maps
+- **WHEN** the session closes normally
+- **THEN** the agent SHALL remove the session identifier from BPF maps
+- **AND** no later host events SHALL be attributed to the closed session.
+
+#### Scenario: Session fails during open
+- **GIVEN** a remote-access session starts eBPF enhanced recording
+- **WHEN** the target adapter fails before the session becomes active
+- **THEN** the agent SHALL stop the collector or unregister the session
+- **AND** it SHALL emit a sanitized terminal outcome without leaking target credentials.
+
+### Requirement: Agents enforce eBPF execution-boundary compatibility
+Agents SHALL fail closed when a remote-access policy requires target-side eBPF tracing but the adapter cannot place the actual target execution context into a ServiceRadar-managed session boundary.
+
+#### Scenario: Adapter cannot scope target process tree
+- **GIVEN** a remote-access policy requires target-side command or file eBPF tracing
+- **AND** the selected adapter only opens an outbound client connection to another host
+- **WHEN** the adapter cannot register the target shell process tree with the shared eBPF runtime
+- **THEN** the agent SHALL reject the open before target access
+- **AND** it SHALL report a sanitized capability or policy failure.
+
+#### Scenario: Adapter scopes local process tree
+- **GIVEN** a remote-access adapter starts a local PTY process on the same Linux host as the ServiceRadar agent
+- **WHEN** eBPF enhanced recording is enabled for that session
+- **THEN** the agent SHALL register the local process tree with the shared eBPF runtime before the PTY starts
+- **AND** it SHALL unregister the process tree when the session closes or fails.
+

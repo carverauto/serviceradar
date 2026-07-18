@@ -3,7 +3,7 @@
 This file tracks remediation work surfaced by the deep-dive review. Each finding entry follows:
 
 ```
-- [ ] N.M [SEV] <one-line summary>
+- <status> N.M [SEV] <one-line summary>
       Where: <file:line>  (commit: <sha-or-"working tree">)
       Why: <impact in one sentence>
       Fix: <intended remediation>

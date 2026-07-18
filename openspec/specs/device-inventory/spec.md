@@ -665,3 +665,128 @@ The camera inventory model SHALL track which edge agent or gateway can originate
 - **THEN** the system SHALL mark the profile stale
 - **AND** viewer workflows SHALL be able to surface that state before attempting live playback
 
+### Requirement: Provider-neutral hypervisor enrichment contract
+The system SHALL ingest hypervisor inventory through a provider-neutral contract that supports clusters, hosts, datastores, guests, network interfaces, disks, storage systems, environmentals, and provider-specific metadata.
+
+#### Scenario: Ingest multiple hypervisor providers through one pipeline
+- **GIVEN** one Proxmox collector and one vSphere/vCenter collector emit inventory for hosts, guests, datastores, and guest NICs
+- **WHEN** the inventory is ingested
+- **THEN** both providers SHALL populate the shared virtualization inventory tables
+- **AND** downstream UI/SRQL/alerting code SHALL query provider-neutral tables instead of provider-specific tables
+
+#### Scenario: Preserve provider detail without using metadata as the primary model
+- **GIVEN** a provider reports data that maps to shared virtualization fields and additional provider-only attributes
+- **WHEN** the inventory is ingested
+- **THEN** shared facts such as host status, guest state, NIC MAC/IP, datastore capacity, storage health, environmental readings, and provider refs SHALL be stored in structured fields
+- **AND** metadata SHALL be used only for provider-specific details that do not yet have a shared field
+
+### Requirement: Shared guest identity resolution
+The system SHALL resolve virtualized guest devices using shared identity logic across hypervisor providers.
+
+#### Scenario: Link guest device from any provider by MAC or IP
+- **GIVEN** a hypervisor provider reports guest NIC MAC/IP evidence
+- **AND** an existing inventory device has matching device identifiers in the same partition
+- **WHEN** hypervisor enrichment is ingested
+- **THEN** the guest SHALL link to the canonical device using the shared identity resolver
+- **AND** provider-specific ingestors SHALL NOT duplicate MAC/IP/name matching logic
+
+#### Scenario: Avoid provider-specific identity forks
+- **GIVEN** Proxmox and vSphere report equivalent guest identity evidence in different native API shapes
+- **WHEN** each provider adapter emits the shared hypervisor envelope
+- **THEN** the shared identity resolver SHALL apply the same precedence and confidence rules
+- **AND** provider adapters SHALL NOT implement their own canonical device matching beyond normalizing provider API fields into the envelope
+
+### Requirement: Provider-neutral virtualization UI and alerting inputs
+The system SHALL expose virtualization inventory and metrics to UI, SRQL, and alerting through provider-neutral fields with optional provider-specific drilldown metadata.
+
+#### Scenario: Display hypervisor inventory for different providers
+- **GIVEN** device detail data includes Proxmox and vSphere virtualization records
+- **WHEN** the device details page, dashboard panels, or alerting rules query virtualization inventory
+- **THEN** they SHALL use provider-neutral resource, status, metric, and relationship fields
+- **AND** provider-specific names SHALL be limited to labels, badges, or drilldown metadata.
+
+#### Scenario: Define alerts against any hypervisor provider
+- **GIVEN** virtualization metrics or health observations are collected from Proxmox and vSphere hosts
+- **WHEN** an operator creates an alert rule for host CPU, memory, storage capacity, environmental health, or guest state
+- **THEN** the rule SHALL target provider-neutral metric and relationship fields
+- **AND** the provider SHALL be an optional filter rather than a required rule type.
+
+### Requirement: Proxmox inventory enrichment
+The system SHALL persist Proxmox plugin-discovered node and guest metadata as enrichment tied to canonical device identity.
+
+#### Scenario: PVE node enrichment is stored
+- **GIVEN** a Proxmox plugin result identifies a PVE node
+- **WHEN** enrichment ingestion resolves the canonical device
+- **THEN** the device SHALL be enriched with vendor `Proxmox`, role `hypervisor`, OS `Proxmox VE`, cluster metadata, node name, version when available, and freshness timestamp
+- **AND** raw credentials SHALL NOT be persisted in inventory or enrichment rows
+
+#### Scenario: QEMU and LXC guests are stored
+- **GIVEN** a Proxmox plugin result identifies QEMU and LXC guests
+- **WHEN** enrichment ingestion resolves canonical identities
+- **THEN** guest devices SHALL be represented as virtual devices
+- **AND** metadata SHALL include Proxmox cluster, host node, VMID, guest type, status, template flag, and source provenance
+
+### Requirement: Proxmox hosted topology enrichment
+The system SHALL represent Proxmox host-to-guest relationships as hosted virtualization topology, not physical network adjacency.
+
+#### Scenario: Guest hosted on PVE node
+- **GIVEN** the Proxmox plugin reports guest `101` running on node `pve-a`
+- **WHEN** topology enrichment is ingested
+- **THEN** the system SHALL create or update a hosted virtualization relation between the canonical guest and node
+- **AND** it SHALL NOT create a physical `CONNECTS_TO` edge solely from this Proxmox relationship
+
+### Requirement: Proxmox enrichment freshness
+The system SHALL track freshness and source provenance for Proxmox enrichment.
+
+#### Scenario: Proxmox enrichment becomes stale
+- **GIVEN** a Proxmox guest was last enriched by the plugin at an earlier timestamp
+- **WHEN** the configured freshness window elapses without a new observation
+- **THEN** the enrichment SHALL be marked stale
+- **AND** inventory reads SHALL distinguish stale Proxmox metadata from current observations
+
+### Requirement: Proxmox fields exposed for SRQL-backed inventory views
+The system SHALL expose Proxmox enrichment fields to SRQL-backed inventory views.
+
+#### Scenario: Filter Proxmox guests by host node
+- **GIVEN** Proxmox enrichment exists for guest devices
+- **WHEN** a user runs an SRQL query for Proxmox guests on a host node
+- **THEN** the query SHALL be able to filter by provider, cluster, node, VMID, guest type, status, and freshness
+
+### Requirement: Proxmox console capability exposure
+The system SHALL expose console capability metadata for Proxmox-enriched devices without exposing credentials.
+
+#### Scenario: Device details shows console availability
+- **GIVEN** a PVE host or guest has matching console credential rules and an eligible edge agent
+- **WHEN** an authorized user opens device details
+- **THEN** the UI SHALL indicate which console modes are available
+- **AND** it SHALL NOT expose SSH keys, Proxmox tickets, passwords, or API tokens
+
+### Requirement: Source Identity Conflict Diagnostics
+The inventory data layer SHALL persist or expose source identity conflicts so operators can distinguish unreachable devices from devices whose identity evidence is unsafe.
+
+#### Scenario: Conflict is recorded for source identity drift
+- **GIVEN** identity reconciliation detects that an active device has conflicting source-authoritative identifiers
+- **WHEN** the conflict is detected
+- **THEN** inventory diagnostics SHALL include the device UID, source type, source identifier values, current IP, current MAC, conflict category, first detected time, and last detected time
+- **AND** the conflict SHALL remain visible until repaired or explicitly dismissed
+
+#### Scenario: Conflict diagnostics are not silently purged
+- **GIVEN** an unresolved source identity conflict exists
+- **WHEN** routine retention or cleanup workers run
+- **THEN** the conflict SHALL NOT be silently deleted solely because it is older than 30 days
+- **AND** automated workflows SHALL continue treating the affected identity as unsafe until the conflict is resolved
+
+### Requirement: Inventory Repair Audit Trail
+The inventory data layer SHALL record audit information for automated or operator-approved repairs of source identity drift.
+
+#### Scenario: Automated metadata repair
+- **GIVEN** a device has one typed Armis identifier and stale metadata with a different Armis ID
+- **WHEN** repair tooling updates the stale metadata to match the typed identifier
+- **THEN** the system SHALL record the prior value, repaired value, repair actor, repair time, and repair reason
+
+#### Scenario: Ambiguous conflict remains unresolved
+- **GIVEN** a conflict involves multiple active devices or multiple plausible source identifiers
+- **WHEN** repair tooling cannot prove a safe correction
+- **THEN** the tool SHALL leave the conflict unresolved
+- **AND** it SHALL record why automatic repair was skipped
+
