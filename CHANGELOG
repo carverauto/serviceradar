@@ -1,3 +1,35 @@
+# ServiceRadar v1.4.23
+
+Restored first-party add-on and plugin imports, removed impossible legacy
+recovery actions, and stabilized recurring background work and release
+validation.
+
+## Whats New
+
+**1.4.23**
+- Native add-ons: verified immutable bundles can be reused across release
+  envelopes when an add-on version is unchanged. Corrected first-party package
+  versions and OCI identity checks prevent false source conflicts during
+  release catalog synchronization. (PR #4613)
+- Wasm plugins and assignment recovery: signed bundles with empty optional
+  manifest arrays now import correctly. The Plugins Manager no longer offers
+  recovery actions that cannot succeed for unbound historical assignments and
+  keeps supported assignment workflows available. (PRs #4609, #4610)
+- Background scheduling: self-scheduling Oban workers reliably retain their
+  successor jobs under uniqueness constraints. OUI refreshes now run weekly
+  and provider metadata refreshes daily instead of repeatedly contacting the
+  upstream services. (PRs #4614, #4623)
+- Anomaly verification: committed scorecard and regression coverage lock in
+  spike coalescing, duplicate suppression, and seasonal-delivery behavior
+  without introducing a second anomaly implementation. (PR #4607)
+- Release integrity: Git tags, product metadata, Helm charts, Argo release
+  sources, native add-on catalogs, and published OCI artifacts are checked for
+  consistent immutable versions. Local release operators can run the same OCI
+  chart occupancy guard with an installed Helm client. (PRs #4608, #4624)
+- Gateway availability: Helm now exposes replica, disruption-budget, and
+  topology-spread controls for highly available Envoy Gateway deployments.
+  (PR #4606)
+
 # ServiceRadar v1.4.22
 
 Restored hosted core startup for tenant environments that use the private
