@@ -13,7 +13,19 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 oci_registry="${OCI_REGISTRY:-registry.carverauto.dev}"
 oci_chart_repository="${OCI_CHART_REPOSITORY:-serviceradar/charts}"
 oci_chart_name="${OCI_CHART_NAME:-serviceradar}"
-helm_runner="${SERVICERADAR_HELM_RUNNER:-${script_dir}/run-helm.sh}"
+helm_runner="${SERVICERADAR_HELM_RUNNER:-}"
+
+# run-helm.sh is designed for Forgejo jobs, where HOSTNAME names the job
+# container whose volumes must be inherited. Prefer an installed Helm binary
+# for local operator runs so release preflights do not try to mount a developer
+# workstation hostname as a Docker container.
+if [[ -z "${helm_runner}" ]] && [[ -z "${CI:-}" ]] && command -v helm >/dev/null 2>&1; then
+  helm_runner="$(command -v helm)"
+fi
+
+if [[ -z "${helm_runner}" ]]; then
+  helm_runner="${script_dir}/run-helm.sh"
+fi
 chart_ref="oci://${oci_registry}/${oci_chart_repository}/${oci_chart_name}"
 
 set +e
@@ -27,7 +39,7 @@ if [[ "${probe_status}" -eq 0 ]]; then
   exit 1
 fi
 
-if grep -Eiq 'manifest unknown|manifest_unknown|no such manifest' <<<"${probe_output}"; then
+if grep -Eiq 'manifest unknown|manifest_unknown|no such manifest|(^|: )[[:space:]]*not found([[:space:]]|$)' <<<"${probe_output}"; then
   echo "OCI Helm chart version ${version} is available."
   exit 0
 fi

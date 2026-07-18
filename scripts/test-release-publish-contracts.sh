@@ -205,6 +205,10 @@ case "${FAKE_CHART_PROBE_MODE:-}" in
     echo 'Error: registry response: MANIFEST_UNKNOWN' >&2
     exit 1
     ;;
+  available_not_found)
+    echo 'Error: failed to perform "FetchReference" on source: registry.example.invalid/charts/serviceradar:9.8.7: not found' >&2
+    exit 1
+    ;;
   occupied)
     echo 'apiVersion: v2'
     exit 0
@@ -223,6 +227,16 @@ chmod +x "${fake_helm}"
 
 FAKE_CHART_PROBE_MODE=available \
   SERVICERADAR_HELM_RUNNER="${fake_helm}" \
+  "${check_oci_chart_version_available}" 9.8.7 >/dev/null
+
+FAKE_CHART_PROBE_MODE=available_not_found \
+  SERVICERADAR_HELM_RUNNER="${fake_helm}" \
+  "${check_oci_chart_version_available}" 9.8.7 >/dev/null
+
+ln -s "${fake_helm}" "${tmp_dir}/helm"
+env -u CI -u SERVICERADAR_HELM_RUNNER \
+  PATH="${tmp_dir}:${PATH}" \
+  FAKE_CHART_PROBE_MODE=available_not_found \
   "${check_oci_chart_version_available}" 9.8.7 >/dev/null
 
 if FAKE_CHART_PROBE_MODE=occupied \
