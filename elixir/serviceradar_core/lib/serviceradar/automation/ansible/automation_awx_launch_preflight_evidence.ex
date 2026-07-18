@@ -33,18 +33,19 @@ defmodule ServiceRadar.Automation.Ansible.AutomationAwxLaunchPreflightEvidence d
     end
 
     check_constraints do
-      check_constraint :digests, "automation_awx_preflight_evidence_digest_check",
-        check: """
-        reviewed_launch_snapshot_digest ~ '^[0-9a-f]{64}$'
-        AND preflight_request_digest ~ '^[0-9a-f]{64}$'
-        AND target_snapshot_digest ~ '^[0-9a-f]{64}$'
-        AND controller_security_snapshot_digest ~ '^[0-9a-f]{64}$'
-        AND live_launch_snapshot_digest ~ '^[0-9a-f]{64}$'
-        AND command_result_digest ~ '^[0-9a-f]{64}$'
-        """,
-        message: "must contain only lowercase SHA-256 digests"
+      check_constraint :reviewed_launch_snapshot_digest,
+                       "automation_awx_preflight_evidence_digest_check",
+                       check: """
+                       reviewed_launch_snapshot_digest ~ '^[0-9a-f]{64}$'
+                       AND preflight_request_digest ~ '^[0-9a-f]{64}$'
+                       AND target_snapshot_digest ~ '^[0-9a-f]{64}$'
+                       AND controller_security_snapshot_digest ~ '^[0-9a-f]{64}$'
+                       AND live_launch_snapshot_digest ~ '^[0-9a-f]{64}$'
+                       AND command_result_digest ~ '^[0-9a-f]{64}$'
+                       """,
+                       message: "must contain only lowercase SHA-256 digests"
 
-      check_constraint :bounds, "automation_awx_preflight_evidence_bounds_check",
+      check_constraint :dispatch_agent_id, "automation_awx_preflight_evidence_bounds_check",
         check: """
         dispatch_agent_id <> ''
         AND dispatch_partition_id <> ''

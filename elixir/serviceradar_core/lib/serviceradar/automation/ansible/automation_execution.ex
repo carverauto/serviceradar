@@ -54,25 +54,26 @@ defmodule ServiceRadar.Automation.Ansible.AutomationExecution do
     identity_wheres_to_sql unique_controller_job: "awx_job_id IS NOT NULL"
 
     check_constraints do
-      check_constraint :preflight_snapshot_pair,
-        "ansible_automation_executions_preflight_snapshot_pair",
-        check: """
-        (
-          preflight_evidence_id IS NULL
-          AND immutable_launch_snapshot_digest IS NULL
-          AND immutable_launch_snapshot = '{}'::jsonb
-        )
-        OR (
-          preflight_evidence_id IS NOT NULL
-          AND immutable_launch_snapshot_digest IS NOT NULL
-          AND immutable_launch_snapshot_digest ~ '^[0-9a-f]{64}$'
-          AND jsonb_typeof(immutable_launch_snapshot) = 'object'
-          AND immutable_launch_snapshot <> '{}'::jsonb
-        )
-        """,
-        message:
-          "must retain a complete preflight-evidence ID, immutable launch snapshot, " <>
-            "and lowercase digest together"
+      # Multi-column pair: either all empty (legacy) or full attestation together.
+      check_constraint :preflight_evidence_id,
+                       "ansible_automation_executions_preflight_snapshot_pair",
+                       check: """
+                       (
+                         preflight_evidence_id IS NULL
+                         AND immutable_launch_snapshot_digest IS NULL
+                         AND immutable_launch_snapshot = '{}'::jsonb
+                       )
+                       OR (
+                         preflight_evidence_id IS NOT NULL
+                         AND immutable_launch_snapshot_digest IS NOT NULL
+                         AND immutable_launch_snapshot_digest ~ '^[0-9a-f]{64}$'
+                         AND jsonb_typeof(immutable_launch_snapshot) = 'object'
+                         AND immutable_launch_snapshot <> '{}'::jsonb
+                       )
+                       """,
+                       message:
+                         "must retain a complete preflight-evidence ID, immutable launch snapshot, " <>
+                           "and lowercase digest together"
     end
 
     references do

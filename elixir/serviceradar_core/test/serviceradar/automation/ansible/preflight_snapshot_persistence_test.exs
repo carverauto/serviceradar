@@ -51,8 +51,10 @@ defmodule ServiceRadar.Automation.Ansible.PreflightSnapshotPersistenceTest do
 
     for {resource, constraint_name} <- expected_constraints do
       assert Enum.any?(PostgresInfo.check_constraints(resource), fn constraint ->
+               # AshPostgres requires the attribute key to be a real field; the
+               # SQL still enforces the multi-column empty-or-complete pair.
                constraint.name == constraint_name and
-                 constraint.attribute == :preflight_snapshot_pair
+                 constraint.attribute == :preflight_evidence_id
              end)
     end
   end
