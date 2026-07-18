@@ -147,7 +147,12 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
 
   defp schedule_next do
     _ =
-      support_module().safe_insert(new(%{}, schedule_in: max(scheduler_interval_seconds(), 10)))
+      support_module().safe_insert(
+        new(%{},
+          schedule_in: max(scheduler_interval_seconds(), 10),
+          unique: [states: :scheduled]
+        )
+      )
 
     :ok
   end

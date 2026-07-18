@@ -124,7 +124,10 @@ defmodule ServiceRadar.Edge.AgentCommandCleanupWorker do
   defp normalize_positive(_value, default), do: default
 
   defp schedule_next_cleanup do
-    ObanSupport.safe_insert(new(%{}, schedule_in: reschedule_seconds()))
+    ObanSupport.safe_insert(
+      new(%{}, schedule_in: reschedule_seconds(), unique: [states: :scheduled])
+    )
+
     :ok
   end
 

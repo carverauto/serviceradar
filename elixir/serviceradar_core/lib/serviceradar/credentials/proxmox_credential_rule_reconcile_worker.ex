@@ -118,7 +118,11 @@ defmodule ServiceRadar.Credentials.ProxmoxCredentialRuleReconcileWorker do
         @default_reschedule_seconds
       )
 
-    _ = ObanSupport.safe_insert(new(%{}, schedule_in: max(seconds, 10)))
+    _ =
+      ObanSupport.safe_insert(
+        new(%{}, schedule_in: max(seconds, 10), unique: [states: :scheduled])
+      )
+
     :ok
   end
 

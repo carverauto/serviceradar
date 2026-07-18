@@ -251,7 +251,11 @@ defmodule ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorker do
   end
 
   defp schedule_next do
-    _ = ObanSupport.safe_insert(new(%{}, schedule_in: interval_seconds()))
+    _ =
+      ObanSupport.safe_insert(
+        new(%{}, schedule_in: interval_seconds(), unique: [states: :scheduled])
+      )
+
     :ok
   end
 

@@ -211,7 +211,11 @@ defmodule ServiceRadar.Automation.Ansible.RetentionWorker do
   end
 
   defp schedule_next do
-    _ = ObanSupport.safe_insert(new(%{}, schedule_in: interval_seconds()))
+    _ =
+      ObanSupport.safe_insert(
+        new(%{}, schedule_in: interval_seconds(), unique: [states: :scheduled])
+      )
+
     :ok
   end
 

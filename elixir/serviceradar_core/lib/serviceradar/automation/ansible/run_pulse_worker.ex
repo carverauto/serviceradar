@@ -170,7 +170,7 @@ defmodule ServiceRadar.Automation.Ansible.RunPulseWorker do
 
     _ =
       %{"controller_id" => controller.id}
-      |> new(schedule_in: seconds)
+      |> new(schedule_in: seconds, unique: [states: :scheduled])
       |> ObanSupport.safe_insert()
 
     :ok

@@ -86,7 +86,7 @@ defmodule ServiceRadar.Observability.StatefulAlertCleanupWorker do
 
   defp schedule_next_cleanup do
     %{}
-    |> new(schedule_in: @reschedule_interval_seconds)
+    |> new(schedule_in: @reschedule_interval_seconds, unique: [states: :scheduled])
     |> ObanSupport.safe_insert()
   end
 

@@ -486,6 +486,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
   defp schedule_next(config, true, insert_job) do
     %{"scheduled_at" => DateTime.to_iso8601(DateTime.utc_now()), "last_result" => "success"}
     |> new(
+      unique: [states: :scheduled],
       schedule_in:
         max(Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds), 3_600)
     )
@@ -495,6 +496,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
   defp schedule_next(config, false, insert_job) do
     %{"scheduled_at" => DateTime.to_iso8601(DateTime.utc_now()), "last_result" => "failure"}
     |> new(
+      unique: [states: :scheduled],
       schedule_in:
         max(
           Keyword.get(config, :failure_reschedule_seconds, @default_failure_reschedule_seconds),

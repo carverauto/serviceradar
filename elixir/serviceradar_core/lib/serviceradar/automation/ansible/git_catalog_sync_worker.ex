@@ -343,7 +343,7 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorker do
 
     _ =
       %{"repository_id" => repo.id}
-      |> new(schedule_in: seconds)
+      |> new(schedule_in: seconds, unique: [states: :scheduled])
       |> ObanSupport.safe_insert()
 
     :ok
