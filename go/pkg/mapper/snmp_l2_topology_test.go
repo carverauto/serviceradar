@@ -523,19 +523,17 @@ func TestSelfObservedARPFDBTwinStaysVetoed(t *testing.T) {
 	// appendNeighborEvidence-equivalent: record the target's own ARP row with
 	// itself as observer and produce the direct FDB-mapped neighbor.
 	engine.recordObservedNeighborIPByMAC(job, "aa:bb:cc:dd:ee:90", "192.168.1.90", targetIP, true)
-	neighbors := []arpNeighbor{
-		{
-			ifIndex:            9,
-			ip:                 "192.168.1.90",
-			mac:                "aa:bb:cc:dd:ee:90",
-			fdbPortMapped:      true,
-			fdbMacCount:        1,
-			neighborKnown:      true,
-			neighborIdentified: false,
-		},
+	direct := arpNeighbor{
+		ifIndex:            9,
+		ip:                 "192.168.1.90",
+		mac:                "aa:bb:cc:dd:ee:90",
+		fdbPortMapped:      true,
+		fdbMacCount:        1,
+		neighborKnown:      true,
+		neighborIdentified: false,
 	}
 
-	neighbors = append(neighbors, engine.observedFDBMappedNeighbors(
+	observed := engine.observedFDBMappedNeighbors(
 		job,
 		targetIP,
 		localSubnets,
@@ -544,7 +542,11 @@ func TestSelfObservedARPFDBTwinStaysVetoed(t *testing.T) {
 		fdbMacCountByIf,
 		knownNeighborsByMAC,
 		knownNeighborIPs,
-	)...)
+	)
+
+	neighbors := make([]arpNeighbor, 0, len(observed)+1)
+	neighbors = append(neighbors, direct)
+	neighbors = append(neighbors, observed...)
 
 	links := buildSNMPL2LinksFromNeighbors("sr:switch", targetIP, "disc-twin", neighbors)
 	assert.Empty(t, links)

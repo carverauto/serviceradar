@@ -173,7 +173,7 @@ func (*DiscoveryEngine) processWirelessClientAssociations(
 			"evidence_class":    "endpoint-attachment",
 			"relation_type":     "ATTACHED_TO",
 			"relation_family":   "ATTACHED_TO",
-			"confidence_tier":   "high",
+			"confidence_tier":   confidenceTierHigh,
 			"confidence_reason": "controller_client_association",
 			"controller_url":    apiConfig.BaseURL,
 			"site_id":           site.ID,
@@ -246,12 +246,12 @@ func (*DiscoveryEngine) processWiredClientAssociations(
 		// applyTopologyEvidenceClass defaults endpoint-attachment to "high"
 		// when the tier is unset, so the reduced switch-level tier must be
 		// stamped explicitly here.
-		confidenceTier := "medium"
+		confidenceTier := confidenceTierMedium
 		confidenceReason := "controller_wired_client_switch_level"
 		var localIfIndex int32
 		if client.uplinkPortIndexPresent() {
 			localIfIndex = client.uplinkPortIndex()
-			confidenceTier = "high"
+			confidenceTier = confidenceTierHigh
 			confidenceReason = "controller_client_association"
 		}
 

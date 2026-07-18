@@ -104,7 +104,6 @@ go_test(
     embed = [":mapper"],
     deps = [
         "//go/pkg/logger",
-        "//go/pkg/models",
         "//proto",
         "//proto/discovery",
         "@com_github_gosnmp_gosnmp//:gosnmp",

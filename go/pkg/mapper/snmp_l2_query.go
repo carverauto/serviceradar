@@ -286,7 +286,7 @@ func buildSNMPL2LinksFromNeighbors(
 					"fdb_port_mapped":   "false",
 					"evidence_class":    evidenceClassObservedOnly,
 					"relation_family":   "OBSERVED_TO",
-					"confidence_tier":   "low",
+					"confidence_tier":   confidenceTierLow,
 					"confidence_reason": "single_identifier_inference",
 					// Keep ARP-only observations marked for recursive target expansion.
 					// candidate_only links stay in the in-memory job results to seed
@@ -317,7 +317,7 @@ func buildSNMPL2LinksFromNeighbors(
 			"fdb_port_mapped":   "true",
 			"evidence_class":    evidenceClassInferredSegment,
 			"relation_family":   "ATTACHED_TO",
-			"confidence_tier":   "medium",
+			"confidence_tier":   confidenceTierMedium,
 			"confidence_reason": confidenceReason,
 		}
 		if n.vlanID > 0 {
