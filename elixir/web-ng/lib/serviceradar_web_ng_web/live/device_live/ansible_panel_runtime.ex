@@ -393,8 +393,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
   def launch_error_message(:awx_preflight_unavailable),
     do: "Live AWX launch preflight is not available on this deployment."
 
-  def launch_error_message(_other),
-    do: "Launch failed because current approval or authorization could not be verified."
+  def launch_error_message(_other), do: "Launch failed because current approval or authorization could not be verified."
 
   defp secure_launch_success(%{operation: %{id: id}}) when is_binary(id) do
     "Secure launch dispatched as operation #{id}."

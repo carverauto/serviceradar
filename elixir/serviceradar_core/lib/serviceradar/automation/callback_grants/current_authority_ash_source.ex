@@ -149,13 +149,11 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityAshSource do
   # include NotFound alongside other failures must fail closed.
   defp ash_not_found?(%Ash.Error.Query.NotFound{}), do: true
 
-  defp ash_not_found?(%Ash.Error.Invalid{errors: errors})
-       when is_list(errors) and errors != [] do
+  defp ash_not_found?(%Ash.Error.Invalid{errors: errors}) when is_list(errors) and errors != [] do
     Enum.all?(errors, &ash_not_found?/1)
   end
 
-  defp ash_not_found?(%Ash.Error.Unknown{errors: errors})
-       when is_list(errors) and errors != [] do
+  defp ash_not_found?(%Ash.Error.Unknown{errors: errors}) when is_list(errors) and errors != [] do
     Enum.all?(errors, &ash_not_found?/1)
   end
 
