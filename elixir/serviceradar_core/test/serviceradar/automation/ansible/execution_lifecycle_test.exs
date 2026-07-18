@@ -335,7 +335,18 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycleTest do
        :accepted_credentials_mismatch},
       {"launched_by", %{"id" => 12, "type" => "user"}, :accepted_integration_identity_mismatch},
       {"job_type", "check", :accepted_mode_mismatch},
-      {"dispatch_markers", %{}, :accepted_dispatch_id_mismatch}
+      {"dispatch_markers",
+       %{
+         "serviceradar_dispatch_id" => "018f3f56-1111-7222-8333-ffffffffffff",
+         "serviceradar_snapshot_digest" => String.duplicate("b", 64)
+       }, :accepted_dispatch_id_mismatch},
+      {"dispatch_markers",
+       %{
+         "serviceradar_dispatch_id" => "018f3f56-1111-7222-8333-123456789abe",
+         "serviceradar_snapshot_digest" => String.duplicate("c", 64)
+       }, :accepted_snapshot_digest_mismatch},
+      {"dispatch_markers", %{"serviceradar_dispatch_id" => "018f3f56-1111-7222-8333-123456789abe"},
+       :accepted_markers_missing}
     ]
 
     for {field, value, expected_error} <- mismatches do
@@ -383,6 +394,23 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycleTest do
                @controller_id,
                accepted_job(%{"job_slice_number" => 2})
              )
+  end
+
+  test "accepts pending jobs with empty scm_revision and unobserved dispatch markers" do
+    # AWX launch responses often have blank scm_revision before checkout and omit
+    # markers when the template ignores request extra_vars. Identity still has to
+    # match on template/inventory/limit/credentials/integration user.
+    for job <- [
+          accepted_job(%{"scm_revision" => "", "dispatch_markers" => %{}}),
+          accepted_job(%{"scm_revision" => nil}) |> Map.delete("dispatch_markers")
+        ] do
+      assert {:ok, snapshot} =
+               ExecutionLifecycle.accepted_job_snapshot(execution(), @controller_id, job)
+
+      assert snapshot["awx_job_id"] == 77
+      assert snapshot["serviceradar_dispatch_id"] == execution().dispatch_id
+      assert snapshot["serviceradar_snapshot_digest"] == execution().snapshot_digest
+    end
   end
 
   test "classifies only a strict expected subset as retryable host evidence" do

@@ -411,21 +411,37 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
 
   defp verify_job_markers(job, dispatch_id, snapshot_digest) do
     dispatch_markers = value(job, :dispatch_markers)
+    dispatch_marker = marker_string(dispatch_markers, :serviceradar_dispatch_id)
+    snapshot_marker = marker_string(dispatch_markers, :serviceradar_snapshot_digest)
 
     cond do
-      not is_map(dispatch_markers) ->
+      # AWX may ignore launch extra_vars; unobserved markers are allowed when
+      # the rest of the immutable launch contract already matched.
+      is_nil(dispatch_marker) and is_nil(snapshot_marker) ->
+        :ok
+
+      is_nil(dispatch_marker) or is_nil(snapshot_marker) ->
         {:error, :accepted_markers_missing}
 
-      value(dispatch_markers, :serviceradar_dispatch_id) != dispatch_id ->
+      dispatch_marker != dispatch_id ->
         {:error, :accepted_dispatch_id_mismatch}
 
-      value(dispatch_markers, :serviceradar_snapshot_digest) != snapshot_digest ->
+      snapshot_marker != snapshot_digest ->
         {:error, :accepted_snapshot_digest_mismatch}
 
       true ->
         :ok
     end
   end
+
+  defp marker_string(markers, key) when is_map(markers) do
+    case value(markers, key) do
+      value when is_binary(value) and value != "" -> value
+      _ -> nil
+    end
+  end
+
+  defp marker_string(_markers, _key), do: nil
 
   defp normalize_host_summaries(summaries) do
     summaries
