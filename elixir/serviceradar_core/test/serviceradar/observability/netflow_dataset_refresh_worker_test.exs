@@ -34,7 +34,7 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerTest do
         Application.delete_env(:serviceradar_core, NetflowProviderDatasetRefreshWorker)
       end)
 
-      assert :ok = NetflowProviderDatasetRefreshWorker.perform(%Oban.Job{args: %{}})
+      assert :ok = NetflowProviderDatasetRefreshWorker.perform(%Job{args: %{}})
     end
 
     test "oui worker handles unreachable source and returns :ok" do
@@ -51,7 +51,7 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerTest do
         Application.delete_env(:serviceradar_core, NetflowOuiDatasetRefreshWorker)
       end)
 
-      assert :ok = NetflowOuiDatasetRefreshWorker.perform(%Oban.Job{args: %{}})
+      assert :ok = NetflowOuiDatasetRefreshWorker.perform(%Job{args: %{}})
     end
   end
 
@@ -71,7 +71,7 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerTest do
   defp assert_expected_schedule_result(result) do
     if ObanSupport.available?() do
       assert match?({:ok, :already_scheduled}, result) or
-               match?({:ok, %Oban.Job{}}, result)
+               match?({:ok, %Job{}}, result)
     else
       assert {:error, :oban_unavailable} = result
     end
