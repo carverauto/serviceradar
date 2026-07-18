@@ -42,3 +42,26 @@ semantic version before automatic import or approval can proceed.
 - **WHEN** synchronization verifies its manifest, bundle, and artifact signatures
 - **THEN** it SHALL import the new package as a distinct immutable version
 - **AND** existing historical versions SHALL remain available for audit and rollback
+
+### Requirement: Trusted native add-on repair converges through deployment policy
+
+The control plane SHALL re-evaluate the deployment's configured auto-approval
+allowlist after a verified first-party native add-on is repaired or synchronization
+finds an otherwise reusable verified package left staged by an interrupted repair.
+It SHALL NOT require per-package operator approval for an allowlisted package, and
+SHALL NOT override an explicit denied or revoked review state.
+
+#### Scenario: Interrupted repair left an allowlisted package staged
+
+- **GIVEN** a verified first-party package is staged and covered by the deployment auto-approval allowlist
+- **AND** its persisted content matches the authoritative signed release entry
+- **WHEN** unattended synchronization evaluates the package
+- **THEN** the package SHALL become approved without operator interaction
+- **AND** dependent profile reconciliation SHALL be able to resume
+
+#### Scenario: Explicitly rejected package requires operator action
+
+- **GIVEN** a first-party package was denied or revoked before a verified repair
+- **WHEN** unattended synchronization repairs its persisted artifacts
+- **THEN** the package SHALL retain its denied or revoked state
+- **AND** synchronization SHALL NOT restore approval automatically

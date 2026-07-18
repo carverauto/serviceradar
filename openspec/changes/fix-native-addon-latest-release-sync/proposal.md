@@ -21,6 +21,11 @@ blocked because two different signed bundle digests were published as version
   semantic version.
 - Publish the changed anomaly payload as 0.3.1 so it can coexist with the
   already-audited 0.3.0 package and converge normally.
+- Reapply the configured first-party auto-approval policy after a verified
+  package repair or when sync finds an allowlisted package left staged by an
+  earlier interrupted repair. Explicit denial and revocation remain fail-closed.
+- Cover every signed first-party native add-on shipped in demo with the demo
+  deployment's explicit auto-approval allowlist.
 - Add regression coverage for newest-release selection, explicit historical
   imports, and immutable version collisions.
 

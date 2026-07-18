@@ -16,3 +16,10 @@
 - [x] 3.2 Run strict OpenSpec validation
 - [x] 3.3 Publish a feature branch and Forgejo PR linked to issue #4558
 - [ ] 3.4 After release, verify demo scheduled sync converges without historical conflict retries
+
+## 4. Trusted repair convergence
+
+- [x] 4.1 Reapply auto-approval after verified repair and for reusable allowlisted staged packages
+- [x] 4.2 Preserve explicit denied and revoked review decisions during repair
+- [x] 4.3 Cover the complete signed first-party demo add-on inventory with the demo trust allowlist
+- [ ] 4.4 Verify repaired demo packages approve and their profiles reconcile without operator clicks

@@ -44,7 +44,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
             {:error, source_conflict(package, addon)}
 
           reusable_package?(package, addon) ->
-            {:skipped, package}
+            with {:ok, package} <- maybe_approve(package, opts) do
+              {:skipped, package}
+            end
 
           true ->
             # A release can re-wrap an unchanged, signed bundle in a new OCI
@@ -52,7 +54,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
             # usual case; source drift reaches the verified core reconciler,
             # which only reuses byte-equivalent package content and otherwise
             # retains the existing immutable package.
-            sync_import(addon, opts)
+            sync_import(addon, Keyword.put(opts, :existing_review_status, package.status))
         end
 
       {:error, _reason} = error ->
@@ -112,7 +114,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
         end
 
       {:ok, package, :repaired} ->
-        {:imported, package}
+        with {:ok, package} <- maybe_approve_repaired(package, opts) do
+          {:imported, package}
+        end
 
       {:ok, package, :reused} ->
         {:skipped, package}
@@ -146,6 +150,48 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   end
 
   defp maybe_approve(%AddonPackage{} = package, _opts), do: {:ok, package}
+
+  defp maybe_approve_repaired(%AddonPackage{} = package, opts) do
+    case Keyword.get(opts, :existing_review_status) do
+      :denied -> restore_denied(package)
+      :revoked -> restore_revoked(package)
+      _status -> maybe_approve(package, opts)
+    end
+  end
+
+  defp restore_denied(%AddonPackage{} = package) do
+    package
+    |> Ash.Changeset.for_update(
+      :deny,
+      %{denied_reason: "Preserved after verified first-party package repair"},
+      actor: SystemActor.system(:native_addon_sync)
+    )
+    |> Ash.update()
+  end
+
+  defp restore_revoked(%AddonPackage{} = package) do
+    actor = SystemActor.system(:native_addon_sync)
+
+    with {:ok, approved} <-
+           package
+           |> Ash.Changeset.for_update(
+             :approve,
+             %{
+               approved_capabilities: package.capabilities || [],
+               approved_by: "system:native_addon_sync_review_restore"
+             },
+             actor: actor
+           )
+           |> Ash.update() do
+      approved
+      |> Ash.Changeset.for_update(
+        :revoke,
+        %{denied_reason: "Preserved after verified first-party package repair"},
+        actor: actor
+      )
+      |> Ash.update()
+    end
+  end
 
   defp reusable_package?(%AddonPackage{} = package, addon) do
     package.source_type == :first_party and source_matches?(package, addon) and

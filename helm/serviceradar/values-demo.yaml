@@ -392,7 +392,10 @@ webNg:
     syncReleaseLimit: 20
     syncIntervalSeconds: 1800
     autoApproveAddonIds:
+      - bumblebee
       - netprobe
+      - powerdns
+      - rdp
       - workload-identity
       - scalibr-endpoint-inventory
       # anomaly: so the rebuilt 0.1.1 bundle (config_schema with metric_feed)
