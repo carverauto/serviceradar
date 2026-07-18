@@ -1,0 +1,17 @@
+suite: web-ng deployed release version
+templates:
+  - templates/web.yaml
+tests:
+  - it: exposes the global immutable image tag to the product status UI
+    set:
+      global.imageTag: v9.8.7
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_RELEASE_VERSION
+            value: v9.8.7
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment

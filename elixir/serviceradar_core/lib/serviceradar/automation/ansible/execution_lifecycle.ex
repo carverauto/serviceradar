@@ -547,9 +547,14 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
 
   defp markers_match_snapshot?(markers, expected_snapshot_digest) do
     case markers_status(markers) do
-      :absent -> true
-      :partial -> false
-      :complete -> marker_string(markers, :serviceradar_snapshot_digest) == expected_snapshot_digest
+      :absent ->
+        true
+
+      :partial ->
+        false
+
+      :complete ->
+        marker_string(markers, :serviceradar_snapshot_digest) == expected_snapshot_digest
     end
   end
 

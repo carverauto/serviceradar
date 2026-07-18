@@ -247,6 +247,20 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     assert nav_by_title["API keys"] == "/settings/api-credentials"
   end
 
+  test "edge status cards report the deployed ServiceRadar image version" do
+    previous = System.get_env("SERVICERADAR_RELEASE_VERSION")
+    System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.4.23")
+
+    on_exit(fn ->
+      if previous,
+        do: System.put_env("SERVICERADAR_RELEASE_VERSION", previous),
+        else: System.delete_env("SERVICERADAR_RELEASE_VERSION")
+    end)
+
+    cards = StatusCards.for_view(Catalog.view(:plugins))
+    assert Enum.find(cards, &(&1.title == "Latest release")).value == "1.4.23"
+  end
+
   test "status strip is suppressed on a has_own_stats page (Cluster Status)" do
     # Cluster Status renders its own Oban metrics, so `for_view/1` returns
     # :suppressed and the shared strip must not render.

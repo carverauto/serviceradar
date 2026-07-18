@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
       |> maybe_filter_agent_uid(filters)
       |> maybe_filter_package_id(filters)
       |> maybe_filter_plugin_id(filters)
+      |> exclude_legacy_history()
       |> Ash.Query.limit(limit)
       |> Ash.Query.sort(inserted_at: :desc)
 
@@ -273,6 +274,13 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
 
   defp read(query, nil), do: query |> Ash.read!() |> Enum.map(&redact_assignment/1)
   defp read(query, scope), do: query |> Ash.read!(scope: scope) |> Enum.map(&redact_assignment/1)
+
+  # Disabled partition-unbound rows are immutable migration history, not
+  # current assignments. Keep them out of every normal list and lookup flow;
+  # the restricted recovery context remains the only way to enumerate them.
+  defp exclude_legacy_history(query) do
+    Ash.Query.filter(query, enabled == true or (not is_nil(partition_id) and partition_id != ""))
+  end
 
   defp read_one_by_id(id, nil) do
     PluginAssignment

@@ -127,7 +127,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
       if connected?(socket) do
         send(self(), :load_first_party_catalog)
-        send(self(), :load_legacy_recovery_candidates)
       end
 
       {:ok, socket}
@@ -309,8 +308,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
      |> assign(:packages, packages)
      |> assign(:agents, list_agents(scope))
      |> assign_capacity(scope)
-     |> reset_legacy_recovery_candidate_page()
-     |> assign_legacy_recovery_candidates(scope)
      |> assign(:verification_policy, plugin_verification_policy())
      |> assign_first_party_catalog_view(
        socket.assigns.first_party_catalog_all,
@@ -1256,96 +1253,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             </.ui_button>
           </div>
         </div>
-
-        <.ui_panel :if={
-          @legacy_recovery_candidates != [] or @legacy_recovery_candidates_more? or
-            @legacy_recovery_candidate_page > 1
-        }>
-          <:header>
-            <div>
-              <div class="text-sm font-semibold">Legacy recovery candidates</div>
-              <p class="text-xs text-base-content/60">
-                These quarantined assignments need explicit review. ServiceRadar will derive the live partition from mTLS; it will not assume `default`.
-              </p>
-            </div>
-            <span class="badge badge-warning badge-sm">
-              {length(@legacy_recovery_candidates)} pending review on page {@legacy_recovery_candidate_page}
-            </span>
-          </:header>
-
-          <div role="alert" class="alert alert-warning alert-vertical sm:alert-horizontal mb-3">
-            <div>
-              <div class="font-semibold">Review each candidate before restoring services</div>
-              <p class="text-xs">
-                Manual rows require reapproval. Policy rows must be reconciled from their current authoritative policy or credential rule. Candidates are paged 50 at a time.
-              </p>
-            </div>
-          </div>
-
-          <div :if={@legacy_recovery_candidates == []} class="py-2 text-xs text-base-content/60">
-            No unresolved candidates appear on this page.
-          </div>
-
-          <div :if={@legacy_recovery_candidates != []} class="overflow-x-auto">
-            <table class="table table-sm">
-              <thead>
-                <tr class="text-xs uppercase tracking-wide text-base-content/60">
-                  <th>Agent</th>
-                  <th>Plugin package</th>
-                  <th>Recovery</th>
-                  <th>Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                <%= for candidate <- @legacy_recovery_candidates do %>
-                  <% package_id = assignment_value(candidate, :plugin_package_id) %>
-                  <% recovery_kind = legacy_recovery_kind_for_display(candidate) %>
-                  <% recovery_status = legacy_policy_recovery_status(candidate) %>
-                  <tr class="hover:bg-base-200/30">
-                    <td class="text-xs font-mono">{assignment_value(candidate, :agent_uid)}</td>
-                    <td class="text-xs font-mono">{package_id || "Unavailable"}</td>
-                    <td class="text-xs">{legacy_recovery_label(recovery_kind)}</td>
-                    <td class="text-xs">
-                      {legacy_candidate_status_message(recovery_kind, recovery_status)}
-                    </td>
-                    <td>
-                      <.ui_button
-                        :if={is_binary(package_id) and package_id != ""}
-                        variant="ghost"
-                        size="xs"
-                        navigate={plugins_show_path(@plugins_base_path, package_id)}
-                      >
-                        Review
-                      </.ui_button>
-                    </td>
-                  </tr>
-                <% end %>
-              </tbody>
-            </table>
-          </div>
-
-          <div class="mt-3 flex items-center justify-end gap-2">
-            <.ui_button
-              variant="ghost"
-              size="xs"
-              phx-click="legacy_recovery_candidate_page"
-              phx-value-id="previous"
-              disabled={@legacy_recovery_candidate_page == 1}
-            >
-              Previous
-            </.ui_button>
-            <.ui_button
-              variant="ghost"
-              size="xs"
-              phx-click="legacy_recovery_candidate_page"
-              phx-value-id="next"
-              disabled={not @legacy_recovery_candidates_more?}
-            >
-              Next
-            </.ui_button>
-          </div>
-        </.ui_panel>
 
         <% catalog_rows =
           combined_catalog_rows(
@@ -2638,7 +2545,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   defp list_plugin_assignments(plugin_id, scope) do
-    Assignments.list(%{"plugin_id" => plugin_id}, scope: scope)
+    plugin_id
+    |> then(&Assignments.list(%{"plugin_id" => &1}, scope: scope))
+    |> Enum.reject(&legacy_unbound_assignment?/1)
   end
 
   defp assign_legacy_recovery_candidates(socket, scope) do
@@ -4197,14 +4106,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         nil
     end
   end
-
-  defp legacy_candidate_status_message(:manual, _policy_recovery), do: "Reapproval required"
-
-  defp legacy_candidate_status_message(:policy, policy_recovery) do
-    legacy_policy_recovery_message(policy_recovery) || "Reconciliation required"
-  end
-
-  defp legacy_candidate_status_message(_kind, _policy_recovery), do: "Review required"
 
   defp manual_recovery_state(manual_recovery) when is_map(manual_recovery) do
     case value_from_map(manual_recovery, :state) do

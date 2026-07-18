@@ -278,6 +278,58 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecoveryTest do
     assert only_audit.id == audit.id
   end
 
+  test "automatic recovery restores verified first-party manual history without confirmation", %{
+    actor: actor,
+    unique_id: unique_id
+  } do
+    candidate =
+      quarantined_manual_assignment!(actor, unique_id,
+        source_type: :first_party,
+        verification_status: "verified",
+        signature: %{"key_id" => "release-test-key"},
+        wasm_object_key: "plugins/automatic/#{unique_id}.wasm"
+      )
+
+    assert {:ok, summary} =
+             PluginAssignmentRecovery.recover_automatic(
+               config_dispatcher: fn _partition_id, _agent_uid -> :ok end,
+               config_dispatch_async?: false
+             )
+
+    assert summary.scanned == 1
+    assert summary.manual_candidates == 1
+    assert summary.recovered == 1
+    assert summary.failed == 0
+
+    assert {:ok, [audit]} = audits_for_legacy(candidate.assignment.id, actor)
+    assert audit.outcome == :recovered
+    assert audit.actor_type == :service
+    assert audit.actor_id == "system:plugin_assignment_automatic_recovery"
+
+    assert {:ok, replacement} = assignment_by_id(audit.replacement_assignment_id, actor)
+    assert replacement.enabled
+    assert replacement.partition_id == candidate.partition_id
+    assert replacement.agent_uid == candidate.agent_uid
+  end
+
+  test "automatic recovery leaves uploaded manual history quarantined", %{
+    actor: actor,
+    unique_id: unique_id
+  } do
+    candidate = quarantined_manual_assignment!(actor, unique_id)
+
+    assert {:ok, summary} = PluginAssignmentRecovery.recover_automatic()
+    assert summary.manual_candidates == 1
+    assert summary.recovered == 0
+    assert summary.deferred == 1
+    assert summary.failed == 0
+
+    assert {:ok, []} = audits_for_legacy(candidate.assignment.id, actor)
+    assert {:ok, legacy} = assignment_by_id(candidate.assignment.id, actor)
+    refute legacy.enabled
+    assert is_nil(legacy.partition_id)
+  end
+
   test "legacy detail is an actor-authorized, secret-free projection", %{
     actor: actor,
     unique_id: unique_id
@@ -1043,7 +1095,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecoveryTest do
       ProcessRegistry.unregister({:agent_control, partition_id, agent_uid, node()})
     end)
 
-    {:ok, package} = create_approved_package(actor, plugin_id, config_schema)
+    {:ok, package} = create_approved_package(actor, plugin_id, config_schema, opts)
 
     assert {:ok, assignment} =
              PluginAssignment
@@ -1117,7 +1169,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecoveryTest do
     end
   end
 
-  defp create_approved_package(actor, plugin_id, config_schema) do
+  defp create_approved_package(actor, plugin_id, config_schema, opts \\ []) do
     {:ok, _plugin} =
       Plugin
       |> Ash.Changeset.for_create(
@@ -1160,12 +1212,29 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecoveryTest do
                  config_schema: config_schema,
                  display_contract: %{},
                  content_hash: "sha256:#{plugin_id}",
-                 signature: %{},
-                 source_type: :upload
+                 signature: Keyword.get(opts, :signature, %{}),
+                 source_type: Keyword.get(opts, :source_type, :upload),
+                 verification_status: Keyword.get(opts, :verification_status)
                },
                actor: actor
              )
              |> Ash.create(actor: actor)
+
+    package =
+      case Keyword.get(opts, :wasm_object_key) do
+        object_key when is_binary(object_key) ->
+          assert {:ok, updated} =
+                   package
+                   |> Ash.Changeset.for_update(:update, %{wasm_object_key: object_key},
+                     actor: actor
+                   )
+                   |> Ash.update(actor: actor)
+
+          updated
+
+        _ ->
+          package
+      end
 
     package
     |> Ash.Changeset.for_update(:approve, %{approved_by: "test"}, actor: actor)

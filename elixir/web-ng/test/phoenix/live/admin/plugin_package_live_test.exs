@@ -495,7 +495,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     refute html =~ "name=\"partition_id\""
   end
 
-  test "labels an unbound legacy manual assignment and requires confirmation", %{
+  test "hides quarantined manual history from the normal assignment workflow", %{
     conn: conn,
     actor: actor
   } do
@@ -524,51 +524,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
     {:ok, lv, html} = live(conn, ~p"/admin/plugins/#{package.id}")
 
-    assert html =~ "Unbound legacy manual assignment"
-    assert html =~ "legacy unbound"
-    assert html =~ "Reapprove"
-    assert html =~ "Configuration: compatible with the current package schema."
-    assert html =~ "Current authenticated partition: #{partition_id}."
-    refute html =~ "request-policy-reconciliation-#{assignment.id}"
-    refute html =~ "Remove this assignment?"
-
-    html =
-      lv
-      |> element("#request-manual-reapproval-#{assignment.id}")
-      |> render_click()
-
-    assert html =~ "Confirm manual reapproval"
-    assert html =~ "historical row disabled"
-    assert has_element?(lv, "#confirm-legacy-recovery")
-
-    html =
-      lv
-      |> element("#cancel-legacy-recovery")
-      |> render_click()
-
-    refute html =~ "Confirm manual reapproval"
-    assert legacy_unbound_row?(assignment.id)
-
-    html =
-      lv
-      |> element("#request-manual-reapproval-#{assignment.id}")
-      |> render_click()
-
-    assert html =~ "Confirm manual reapproval"
-
-    html =
-      lv
-      |> element("#confirm-legacy-recovery")
-      |> render_click()
-
-    assert html =~ "Legacy manual assignment reapproved."
-    assert html =~ "Recovered legacy record"
-    assert html =~ "This disabled audit record does not affect the agent."
-    refute has_element?(lv, "#request-manual-reapproval-#{assignment.id}")
+    refute html =~ "Unbound legacy manual assignment"
     refute html =~ "Legacy recovery candidates"
+    refute has_element?(lv, "#assignment-#{assignment.id}")
+    refute has_element?(lv, "#request-manual-reapproval-#{assignment.id}")
+    assert legacy_unbound_row?(assignment.id)
   end
 
-  test "does not offer recovery for legacy configuration that cannot be migrated", %{
+  test "keeps incompatible quarantined history hidden and disabled", %{
     conn: conn,
     actor: actor
   } do
@@ -608,10 +571,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
     {:ok, lv, html} = live(conn, ~p"/admin/plugins/#{package.id}")
 
-    assert html =~ "Inactive legacy record"
-    assert html =~ "Its old configuration cannot be migrated safely."
-    assert html =~ "This record is disabled and does not affect the agent."
+    refute html =~ "Inactive legacy record"
+    refute html =~ "Its old configuration cannot be migrated safely."
     refute has_element?(lv, "#request-manual-reapproval-#{assignment.id}")
+    refute has_element?(lv, "#assignment-#{assignment.id}")
     refute html =~ "Legacy recovery candidates"
     assert legacy_unbound_row?(assignment.id)
   end
@@ -672,7 +635,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert current.partition_id == partition_id
   end
 
-  test "does not offer recovery while authenticated partition evidence is unavailable", %{
+  test "keeps offline quarantined history out of the operator workflow", %{
     conn: conn,
     actor: actor
   } do
@@ -698,14 +661,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
     {:ok, lv, html} = live(conn, ~p"/admin/plugins/#{package.id}")
 
-    assert html =~ "Legacy record waiting for agent connection"
-    assert html =~ "This record is disabled and does not affect the agent."
+    refute html =~ "Legacy record waiting for agent connection"
     refute has_element?(lv, "#request-manual-reapproval-#{assignment.id}")
+    refute has_element?(lv, "#assignment-#{assignment.id}")
     refute html =~ "Legacy recovery candidates"
     assert legacy_unbound_row?(assignment.id)
   end
 
-  test "labels an unbound policy assignment for policy-only reconciliation", %{
+  test "hides policy history while authoritative reconcilers restore desired state", %{
     conn: conn,
     actor: actor
   } do
@@ -741,35 +704,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     {:ok, lv, _html} = live(log_in_user(conn, user), ~p"/admin/plugins/#{package.id}")
     html = render(lv)
 
-    assert html =~ "Unbound legacy policy assignment"
-    assert html =~ "Reconcile policy"
-    assert html =~ "Legacy recovery candidates"
-    assert html =~ agent.uid
-    assert html =~ policy.name
-    assert html =~ "Configuration: compatible with the current package schema."
-    assert html =~ "Current authenticated partition: #{partition_id}."
-    refute html =~ "request-manual-reapproval-#{assignment.id}"
-    refute html =~ "Upgrade this assignment"
-
-    html =
-      lv
-      |> element("#request-policy-reconciliation-#{assignment.id}")
-      |> render_click()
-
-    assert html =~ "Confirm policy reconciliation"
-    assert html =~ "Request reconciliation"
-
-    html =
-      lv
-      |> element("#confirm-legacy-recovery")
-      |> render_click()
-
-    assert html =~ "Policy reconciliation queued."
-    assert html =~ "Policy reconciliation is queued."
-    refute html =~ "Confirm policy reconciliation"
+    refute html =~ "Unbound legacy policy assignment"
+    refute html =~ "Legacy recovery candidates"
+    refute has_element?(lv, "#assignment-#{assignment.id}")
+    refute has_element?(lv, "#request-policy-reconciliation-#{assignment.id}")
+    assert legacy_unbound_row?(assignment.id)
   end
 
-  test "keeps an unsupported historical policy owner visible but non-actionable", %{
+  test "keeps unsupported historical policy owners hidden and auditable", %{
     conn: conn,
     actor: actor
   } do
@@ -807,29 +749,15 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
     {:ok, lv, html} = live(log_in_user(conn, user), ~p"/admin/plugins/#{package.id}")
 
-    assert html =~ "Unbound legacy policy assignment"
-
-    assert html =~
-             "owner is not a supported current plugin target policy or credential rule."
-
+    refute html =~ "Unbound legacy policy assignment"
     refute html =~ "ansible:awx-inventory-sync"
     refute html =~ "Legacy recovery candidates"
+    refute has_element?(lv, "#assignment-#{assignment.id}")
     refute has_element?(lv, "#request-policy-reconciliation-#{assignment.id}")
-
-    html =
-      render_click(lv, "request_legacy_recovery", %{
-        "id" => assignment.id,
-        "kind" => "policy"
-      })
-
-    assert html =~
-             "owner is not a supported current plugin target policy or credential rule."
-
-    refute html =~ "Confirm policy reconciliation"
     assert legacy_unbound_row?(assignment.id)
   end
 
-  test "does not submit credential-rule reconciliation without credential-management permission",
+  test "does not expose credential-rule history as an operator recovery action",
        %{
          conn: conn,
          actor: actor
@@ -867,17 +795,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
     {:ok, lv, html} = live(log_in_user(conn, user), ~p"/admin/plugins/#{package.id}")
 
-    assert html =~ "Credential permission required"
-    assert has_element?(lv, "#request-policy-reconciliation-#{assignment.id}[disabled]")
-
-    html =
-      render_click(lv, "request_legacy_recovery", %{
-        "id" => assignment.id,
-        "kind" => "policy"
-      })
-
-    assert html =~ "You need credential-management permission to reconcile this credential rule."
-    refute html =~ "Confirm policy reconciliation"
+    refute html =~ "Credential permission required"
+    refute html =~ "Legacy recovery candidates"
+    refute has_element?(lv, "#assignment-#{assignment.id}")
+    refute has_element?(lv, "#request-policy-reconciliation-#{assignment.id}")
+    assert legacy_unbound_row?(assignment.id)
   end
 
   test "removes an assignment without crashing when delete returns success", %{
