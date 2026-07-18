@@ -1,6 +1,6 @@
 [package]
 name = "serviceradar-anomaly-addon"
-version = "0.3.0"
+version = "0.3.1"
 description = "ServiceRadar edge anomaly add-on: consumes the agent's local metric feed (metric-feed:v1), runs the shared serviceradar-anomaly-core detector per series, and emits anomaly verdicts upstream (native-telemetry:v1). OpenSpec: move-anomaly-detection-to-edge."
 edition = "2024"
 license = "Apache-2.0"

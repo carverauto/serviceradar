@@ -26,11 +26,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
     addon_ids = Keyword.get(opts, :addon_ids, [])
 
     addons
-    |> maybe_filter_release_tag(release_tag)
-    |> Enum.filter(
-      &(Map.get(&1, :import_ready?) and selected_addon?(&1, addon_ids) and
-          not RetiredNativeAddons.retired?(&1.addon_id))
-    )
+    |> Enum.filter(&import_ready_candidate?/1)
+    |> select_release(release_tag)
+    |> Enum.filter(&selected_addon?(&1, addon_ids))
     |> dedupe_native_addon_versions()
   end
 
@@ -46,7 +44,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
             {:error, source_conflict(package, addon)}
 
           reusable_package?(package, addon) ->
-            {:skipped, package}
+            with {:ok, package} <- maybe_approve(package, opts) do
+              {:skipped, package}
+            end
 
           true ->
             # A release can re-wrap an unchanged, signed bundle in a new OCI
@@ -54,7 +54,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
             # usual case; source drift reaches the verified core reconciler,
             # which only reuses byte-equivalent package content and otherwise
             # retains the existing immutable package.
-            sync_import(addon, opts)
+            sync_import(addon, Keyword.put(opts, :existing_review_status, package.status))
         end
 
       {:error, _reason} = error ->
@@ -114,7 +114,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
         end
 
       {:ok, package, :repaired} ->
-        {:imported, package}
+        with {:ok, package} <- maybe_approve_repaired(package, opts) do
+          {:imported, package}
+        end
 
       {:ok, package, :reused} ->
         {:skipped, package}
@@ -148,6 +150,48 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   end
 
   defp maybe_approve(%AddonPackage{} = package, _opts), do: {:ok, package}
+
+  defp maybe_approve_repaired(%AddonPackage{} = package, opts) do
+    case Keyword.get(opts, :existing_review_status) do
+      :denied -> restore_denied(package)
+      :revoked -> restore_revoked(package)
+      _status -> maybe_approve(package, opts)
+    end
+  end
+
+  defp restore_denied(%AddonPackage{} = package) do
+    package
+    |> Ash.Changeset.for_update(
+      :deny,
+      %{denied_reason: "Preserved after verified first-party package repair"},
+      actor: SystemActor.system(:native_addon_sync)
+    )
+    |> Ash.update()
+  end
+
+  defp restore_revoked(%AddonPackage{} = package) do
+    actor = SystemActor.system(:native_addon_sync)
+
+    with {:ok, approved} <-
+           package
+           |> Ash.Changeset.for_update(
+             :approve,
+             %{
+               approved_capabilities: package.capabilities || [],
+               approved_by: "system:native_addon_sync_review_restore"
+             },
+             actor: actor
+           )
+           |> Ash.update() do
+      approved
+      |> Ash.Changeset.for_update(
+        :revoke,
+        %{denied_reason: "Preserved after verified first-party package repair"},
+        actor: actor
+      )
+      |> Ash.update()
+    end
+  end
 
   defp reusable_package?(%AddonPackage{} = package, addon) do
     package.source_type == :first_party and source_matches?(package, addon) and
@@ -408,11 +452,23 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
     "sha256:" <> (:sha256 |> :crypto.hash(value) |> Base.encode16(case: :lower))
   end
 
-  defp maybe_filter_release_tag(addons, release_tag) when is_binary(release_tag) and release_tag != "" do
+  defp import_ready_candidate?(addon) do
+    Map.get(addon, :import_ready?) and not RetiredNativeAddons.retired?(addon.addon_id)
+  end
+
+  defp select_release(addons, release_tag) when is_binary(release_tag) and release_tag != "" do
     Enum.filter(addons, &(&1.release_tag == release_tag))
   end
 
-  defp maybe_filter_release_tag(addons, _release_tag), do: addons
+  # Discovery is newest-first. An unattended sync treats the first import-ready
+  # release as one authoritative set instead of filling missing add-ons from
+  # historical indexes. Historical releases remain available through the exact
+  # release-tag path above.
+  defp select_release([%{release_tag: release_tag} | _] = addons, _release_tag) do
+    Enum.filter(addons, &(&1.release_tag == release_tag))
+  end
+
+  defp select_release([], _release_tag), do: []
 
   defp selected_addon?(_addon, []), do: true
   defp selected_addon?(addon, addon_ids), do: addon.addon_id in addon_ids
