@@ -24,6 +24,7 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   @default_timeout_ms 30_000
   @default_reschedule_seconds 24 * 3600
   @default_failure_reschedule_seconds 12 * 3600
+  @successor_unique [period: :infinity, states: [:available, :scheduled, :retryable]]
   @insert_chunk_size 250
   @db_timeout_ms 120_000
 
@@ -275,8 +276,16 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   end
 
   defp schedule_next(seconds) when is_integer(seconds) do
-    _ = ObanSupport.safe_insert(new(%{}, schedule_in: max(seconds, 3_600)))
+    _ =
+      %{}
+      |> successor_job(schedule_in: max(seconds, 3_600))
+      |> ObanSupport.safe_insert()
+
     :ok
+  end
+
+  defp successor_job(args, opts) do
+    new(args, Keyword.put(opts, :unique, @successor_unique))
   end
 
   defp header(headers, name) do
