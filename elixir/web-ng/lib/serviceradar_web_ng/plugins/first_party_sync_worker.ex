@@ -74,6 +74,8 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
             "import_ready=#{summary.import_ready} imported=#{summary.imported} failed=#{length(summary.failed)}"
         )
 
+        log_import_failures(summary.failed)
+
         :ok
 
       {:error, reason} ->
@@ -140,4 +142,15 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp log_import_failures(failures) do
+    Enum.each(failures, fn failure ->
+      Logger.warning("First-party Wasm plugin import failed",
+        plugin_id: Map.get(failure, :plugin_id),
+        version: Map.get(failure, :version),
+        release_tag: Map.get(failure, :release_tag),
+        reason: inspect(Map.get(failure, :error), limit: 20, printable_limit: 1_000)
+      )
+    end)
+  end
 end

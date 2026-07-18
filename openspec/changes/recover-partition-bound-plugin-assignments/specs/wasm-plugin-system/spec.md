@@ -31,6 +31,16 @@ operator confirmation only for an approved, verified, signed, content-addressed
 first-party package and only after current mTLS, schema, secret-reference, and
 conflict checks pass. The historical row SHALL remain disabled and unbound.
 
+The first-party upload-signature verifier SHALL preserve JSON collection types
+when producing the canonical signed payload, including the distinction between
+an empty object and an empty array.
+
+#### Scenario: Signed manifest contains empty collections
+- **GIVEN** a signed first-party manifest contains both an empty object and an empty array
+- **WHEN** the control plane verifies the package for trusted import or recovery
+- **THEN** it canonicalizes the object as `{}` and the array as `[]`
+- **AND** a valid release signature is not rejected because the collection types were collapsed
+
 #### Scenario: Compatible trusted assignment recovers
 - **GIVEN** a disabled unbound manual assignment references a trusted first-party package
 - **AND** its parameters satisfy the current package schema

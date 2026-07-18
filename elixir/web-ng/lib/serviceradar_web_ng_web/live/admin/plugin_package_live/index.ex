@@ -1196,7 +1196,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
         {:noreply,
          socket
-         |> put_flash(:info, import_summary_message(summary, release_label))
+         |> put_flash(import_summary_flash_kind(summary), import_summary_message(summary, release_label))
          |> assign(
            :packages,
            list_packages(current_filters(socket), socket.assigns.current_scope)
@@ -2944,10 +2944,40 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
     parts =
       ["#{summary.imported} imported", "#{skipped} skipped (already imported)"] ++
-        if failed > 0, do: ["#{failed} failed"], else: []
+        if failed > 0, do: ["#{failed} failed (#{import_failure_summary(summary.failed)})"], else: []
 
     "Import finished for #{release_label}: #{Enum.join(parts, ", ")}."
   end
+
+  defp import_summary_flash_kind(%{failed: []}), do: :info
+  defp import_summary_flash_kind(_summary), do: :error
+
+  defp import_failure_summary(failures) do
+    details =
+      failures
+      |> Enum.take(3)
+      |> Enum.map_join(", ", fn failure ->
+        plugin = Map.get(failure, :plugin_id, "unknown plugin")
+        version = Map.get(failure, :version)
+        reason = safe_import_failure_reason(Map.get(failure, :error))
+        label = if is_binary(version), do: "#{plugin} #{version}", else: plugin
+        "#{label}: #{reason}"
+      end)
+
+    if length(failures) > 3, do: details <> ", …", else: details
+  end
+
+  defp safe_import_failure_reason(:invalid_signature), do: "signature verification failed"
+  defp safe_import_failure_reason(:untrusted_signer), do: "signer is not trusted"
+  defp safe_import_failure_reason(:plugin_not_found), do: "release entry was not found"
+
+  defp safe_import_failure_reason(reason) when is_atom(reason) do
+    reason
+    |> Atom.to_string()
+    |> String.replace("_", " ")
+  end
+
+  defp safe_import_failure_reason(_reason), do: "import was rejected"
 
   defp first_party_repo_url do
     config = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])

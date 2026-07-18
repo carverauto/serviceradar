@@ -41,4 +41,5 @@ implementation status, not the target user experience.
 - [x] 4.5 Exclude quarantined history from normal assignment lists/lookups and remove the legacy candidate table and all per-row recovery/reconciliation controls from operator workflows.
 - [x] 4.6 Source the Settings release card from the deployed immutable web-ng image tag with a local-development fallback.
 - [x] 4.7 Add focused core, LiveView, status-card, and Helm rendering tests for trust gating, automatic recovery, hidden history, fresh create behavior, and deployed release identity.
-- [ ] 4.8 Run complete Elixir and Helm quality gates, deploy the corrected workflow to demo, and verify active assignments, disabled audit history, plugin execution, absence of the legacy queue, and the displayed release version.
+- [x] 4.8 Preserve empty JSON object versus array types in cross-runtime upload-signature canonicalization so correctly signed first-party packages remain eligible for trusted import and recovery.
+- [ ] 4.9 Run complete Elixir and Helm quality gates, deploy the corrected workflow to demo, and verify active assignments, disabled audit history, plugin execution, absence of the legacy queue, and the displayed release version.
