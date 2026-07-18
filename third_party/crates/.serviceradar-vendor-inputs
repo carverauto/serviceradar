@@ -1,4 +1,4 @@
-FILE:@@//Cargo.lock 96adc2bb15c560a9ff184d7188b2816cb04104f867645bc688e374aaf5816b00
+FILE:@@//Cargo.lock fd3cf9a235cf4a16cad792b59204fc561c872dc0c4e7f4d8b592c7e1758d445e
 FILE:@@//Cargo.toml 5519ce288bb6871262c9ceb2db46ac3db230cd64679523c3d3fb14b2c225985c
 FILE:@@//integration_tests/srql/Cargo.toml c047a421087d35281c3161a948100f0c082c988ecd5a18a56f21abfddd707c6a
 FILE:@@//rust/addon-sdk/Cargo.toml c672ef640c69fe506f64d9eee8d4d3bb009b18a8832253de50da5fa115e352dc
@@ -28,8 +28,8 @@ FILE:@@//rust/metric-proto/Cargo.toml 859c8398d7c3b2149c5f4087d8e7507e77c680b130
 FILE:@@//rust/metrics-delta-writer/Cargo.toml 31e76dc98aa92add9cf71c623586d1f01a112a626d2cf988b1366acafbb340f0
 FILE:@@//rust/netprobe/Cargo.toml 59e2fbfcdca4b76478d90b30f045cd54d73e57e50a3e4a9b6399590b639fd082
 FILE:@@//rust/otel/Cargo.toml 950ee24f5df0a0a932befc607d32b101851ee87b02f14fb5840d94ac09c5423e
-FILE:@@//rust/otel-addon/Cargo.toml dd7fe1d1cb66be9bddfc5919c88e60bb56cb351a6dcbebf2e05afc46b1526634
-FILE:@@//rust/powerdns/Cargo.toml 6f84fbc082f0297a7c256d267b47570d0c48aa1706e50e5da783a55a8d56e995
+FILE:@@//rust/otel-addon/Cargo.toml b90e667f4d9b3749efd0f5ce400c8975d2ba4a7363ba4c4458de161b88aaa029
+FILE:@@//rust/powerdns/Cargo.toml 74d5aeac047da861bcf515bd74024f1844901a88b7cce59eeab604a399cf611c
 FILE:@@//rust/rdp-adapter/Cargo.toml 511366f68333dd0ee0f06073818bc59365e4fc01e4484f38ab0032f97c25d273
 FILE:@@//rust/rperf-client/Cargo.toml 81f647979ca4085c80c088bd75bead91446f6665134991456ad0cb01fabc1bc6
 FILE:@@//rust/srql/Cargo.toml 887ae60c570e3be716a68b1141932788a17a26d7fcee4e31d798b23fc05ab0b0

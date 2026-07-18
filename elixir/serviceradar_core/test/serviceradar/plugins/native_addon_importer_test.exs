@@ -264,7 +264,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
         "addon_id" => "netprobe",
         "version" => "0.1.0",
         "oci_ref" => "registry.carverauto.dev/serviceradar/serviceradar-addon-netprobe:sha-abc",
-        "oci_digest" => "sha256:deadbeef"
+        "oci_digest" => "sha256:deadbeef",
+        "bundle_digest" => "sha256:#{String.duplicate("a", 64)}"
       }
 
       artifacts = %{
@@ -301,6 +302,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
 
       assert attrs.source_oci_ref =~ "serviceradar-addon-netprobe"
       assert attrs.source_oci_digest == "sha256:deadbeef"
+      assert attrs.source_metadata == %{"bundle_digest" => "sha256:#{String.duplicate("a", 64)}"}
       assert attrs.source_release_tag == "sha-abc"
       assert attrs.source_type == :first_party
       assert attrs.verification_status == "verified"

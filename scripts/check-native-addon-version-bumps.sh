@@ -180,7 +180,7 @@ path_belongs_to_addon() {
       ;;
     bumblebee)
       case "${path}" in
-        addons/bumblebee-scan/*|go/cmd/bumblebee-scan/*) return 0 ;;
+        addons/bumblebee-scan/*|go/cmd/bumblebee-scan/*|go/pkg/bumblebee/*) return 0 ;;
       esac
       ;;
     scalibr-endpoint-inventory)
@@ -200,7 +200,7 @@ path_belongs_to_addon() {
       ;;
     otel-collector)
       case "${path}" in
-        addons/otel-collector/*|rust/otel-addon/*) return 0 ;;
+        addons/otel-collector/*|rust/otel-addon/*|rust/otel/*) return 0 ;;
       esac
       ;;
   esac

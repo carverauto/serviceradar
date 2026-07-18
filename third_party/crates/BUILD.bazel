@@ -1015,14 +1015,14 @@ alias(
 )
 
 alias(
-    name = "serviceradar-powerdns-addon-0.1.2",
-    actual = "//third_party/crates/serviceradar-powerdns-addon-0.1.2:serviceradar_powerdns_addon",
+    name = "serviceradar-powerdns-addon-0.1.3",
+    actual = "//third_party/crates/serviceradar-powerdns-addon-0.1.3:serviceradar_powerdns_addon",
     tags = ["manual"],
 )
 
 alias(
     name = "serviceradar-powerdns-addon",
-    actual = "//third_party/crates/serviceradar-powerdns-addon-0.1.2:serviceradar_powerdns_addon",
+    actual = "//third_party/crates/serviceradar-powerdns-addon-0.1.3:serviceradar_powerdns_addon",
     tags = ["manual"],
 )
 

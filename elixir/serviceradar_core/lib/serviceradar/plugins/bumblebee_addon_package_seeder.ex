@@ -17,7 +17,7 @@ defmodule ServiceRadar.Plugins.BumblebeeAddonPackageSeeder do
   require Logger
 
   @addon_id "bumblebee"
-  @version "0.1.0"
+  @version "0.1.2"
   @capabilities ["exposure-scan"]
   @config_schema_path Path.expand(
                         "../../../../../addons/bumblebee-scan/config.schema.json",

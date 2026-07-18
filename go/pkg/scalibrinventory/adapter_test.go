@@ -536,7 +536,7 @@ func TestScaLibrPayloadUsesSharedPendingAckAndReconcileLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.CollectorVersion != "0.1.2" ||
+	if first.CollectorVersion != "0.1.3" ||
 		first.UploadReason != endpointinventory.UploadReasonChanged ||
 		first.SBOM == nil ||
 		manifest == nil ||

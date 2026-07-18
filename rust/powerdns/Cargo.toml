@@ -1,6 +1,6 @@
 [package]
 name = "serviceradar-powerdns-addon"
-version = "0.1.2"
+version = "0.1.3"
 description = "PowerDNS protobuf telemetry native add-on for ServiceRadar"
 authors = ["ServiceRadar Team"]
 edition = "2024"

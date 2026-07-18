@@ -42,13 +42,18 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
 
       {:ok, %AddonPackage{} = package} ->
         cond do
-          source_conflict?(package, addon) ->
+          source_type_owned?(package) ->
             {:error, source_conflict(package, addon)}
 
           reusable_package?(package, addon) ->
             {:skipped, package}
 
           true ->
+            # A release can re-wrap an unchanged, signed bundle in a new OCI
+            # manifest. The exact-source fast path above avoids fetching in the
+            # usual case; source drift reaches the verified core reconciler,
+            # which only reuses byte-equivalent package content and otherwise
+            # retains the existing immutable package.
             sync_import(addon, opts)
         end
 
@@ -147,6 +152,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   defp reusable_package?(%AddonPackage{} = package, addon) do
     package.source_type == :first_party and source_matches?(package, addon) and
       package.verification_status == "verified" and is_nil(package.verification_error) and
+      source_bundle_digest_matches?(package, addon) and
       artifact_contract_matches?(
         package.addon_id,
         package.version,
@@ -155,16 +161,18 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
       )
   end
 
-  defp source_conflict?(%AddonPackage{source_type: source_type}, _addon) when source_type != :first_party, do: true
-
-  defp source_conflict?(%AddonPackage{} = package, addon) do
-    populated_source_disagrees?(package.source_oci_ref, addon.oci_ref, &normalize_source_ref/1) or
-      populated_source_disagrees?(
-        package.source_oci_digest,
-        addon.oci_digest,
-        &normalize_source_digest/1
-      )
+  defp source_bundle_digest_matches?(%AddonPackage{source_metadata: metadata}, addon) when is_map(metadata) do
+    with digest when is_binary(digest) <- normalize_digest(Map.get(metadata, "bundle_digest")),
+         ^digest <- normalize_digest(addon.bundle_digest) do
+      true
+    else
+      _ -> false
+    end
   end
+
+  defp source_bundle_digest_matches?(_package, _addon), do: false
+
+  defp source_type_owned?(%AddonPackage{source_type: source_type}), do: source_type != :first_party
 
   defp source_conflict(%AddonPackage{} = package, addon) do
     reason =
@@ -377,13 +385,6 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
     case normalize_string(value) do
       value when is_binary(value) -> String.downcase(value)
       _ -> nil
-    end
-  end
-
-  defp populated_source_disagrees?(existing, discovered, normalize) do
-    case normalize_string(existing) do
-      nil -> false
-      _existing -> normalize.(existing) != normalize.(discovered)
     end
   end
 

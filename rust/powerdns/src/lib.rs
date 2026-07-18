@@ -42,7 +42,7 @@ pub mod dnsmessage {
 }
 
 const ADDON_ID: &str = "powerdns";
-const ADDON_VERSION: &str = "0.1.2";
+const ADDON_VERSION: &str = "0.1.3";
 const SOURCE_TYPE: &str = "powerdns";
 const DNS_ACTIVITY_SCHEMA_ID: &str = "com.carverauto.powerdns.dns_activity";
 const DNS_ACTIVITY_SCHEMA_VERSION: &str = "1.0.0";
