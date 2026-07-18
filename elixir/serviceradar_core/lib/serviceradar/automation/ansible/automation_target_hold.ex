@@ -55,11 +55,17 @@ defmodule ServiceRadar.Automation.Ansible.AutomationTargetHold do
 
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
-    define :get_active_for_device, action: :active_for_device, args: [:canonical_device_uid]
+    # Active-hold reads are optional lookups: no row is a valid "not held" answer,
+    # not a hard NotFound. Callers treat {:ok, nil} as clear.
+    define :get_active_for_device,
+      action: :active_for_device,
+      args: [:canonical_device_uid],
+      not_found_error?: false
 
     define :get_active_history_for_device,
       action: :active_history_for_device,
-      args: [:canonical_device_uid]
+      args: [:canonical_device_uid],
+      not_found_error?: false
 
     define :list_for_device, action: :for_device, args: [:canonical_device_uid]
     define :place_hold, action: :place_hold

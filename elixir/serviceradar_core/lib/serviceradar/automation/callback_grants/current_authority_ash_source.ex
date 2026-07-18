@@ -87,10 +87,22 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityAshSource do
   @impl true
   def active_holds(device_uids) when is_list(device_uids) do
     Enum.reduce_while(device_uids, {:ok, []}, fn device_uid, {:ok, holds} ->
-      case AutomationTargetHold.get_active_for_device(device_uid, actor: @actor) do
-        {:ok, nil} -> {:cont, {:ok, holds}}
-        {:ok, hold} -> {:cont, {:ok, [hold | holds]}}
-        {:error, reason} -> {:halt, {:error, reason}}
+      case AutomationTargetHold.get_active_for_device(device_uid,
+             actor: @actor,
+             not_found_error?: false
+           ) do
+        {:ok, nil} ->
+          {:cont, {:ok, holds}}
+
+        {:ok, hold} ->
+          {:cont, {:ok, [hold | holds]}}
+
+        {:error, reason} ->
+          if ash_not_found?(reason) do
+            {:cont, {:ok, holds}}
+          else
+            {:halt, {:error, reason}}
+          end
       end
     end)
   end
@@ -132,6 +144,13 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityAshSource do
   defp required({:ok, nil}), do: {:error, :record_not_found}
   defp required({:ok, value}), do: {:ok, value}
   defp required({:error, reason}), do: {:error, reason}
+
+  defp ash_not_found?(%Ash.Error.Query.NotFound{}), do: true
+
+  defp ash_not_found?(%Ash.Error.Invalid{errors: errors}) when is_list(errors),
+    do: Enum.any?(errors, &ash_not_found?/1)
+
+  defp ash_not_found?(_), do: false
 
   defp positive_integer?(value), do: is_integer(value) and value > 0
 

@@ -85,10 +85,22 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher.AshAdapter do
   def active_hold_device_uids(device_uids) do
     device_uids
     |> Enum.reduce_while({:ok, []}, fn device_uid, {:ok, held} ->
-      case AutomationTargetHold.get_active_for_device(device_uid, actor: @actor) do
-        {:ok, nil} -> {:cont, {:ok, held}}
-        {:ok, hold} -> {:cont, {:ok, [hold.canonical_device_uid | held]}}
-        {:error, reason} -> {:halt, {:error, {:target_hold_lookup_failed, reason}}}
+      case AutomationTargetHold.get_active_for_device(device_uid,
+             actor: @actor,
+             not_found_error?: false
+           ) do
+        {:ok, nil} ->
+          {:cont, {:ok, held}}
+
+        {:ok, hold} ->
+          {:cont, {:ok, [hold.canonical_device_uid | held]}}
+
+        {:error, reason} ->
+          if ash_not_found?(reason) do
+            {:cont, {:ok, held}}
+          else
+            {:halt, {:error, {:target_hold_lookup_failed, reason}}}
+          end
       end
     end)
     |> case do
@@ -99,6 +111,13 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher.AshAdapter do
 
   @impl true
   def launch(plan, controller), do: HardenedRunLauncher.launch(plan, controller)
+
+  defp ash_not_found?(%Ash.Error.Query.NotFound{}), do: true
+
+  defp ash_not_found?(%Ash.Error.Invalid{errors: errors}) when is_list(errors),
+    do: Enum.any?(errors, &ash_not_found?/1)
+
+  defp ash_not_found?(_), do: false
 
   defp required({:ok, nil}, error), do: {:error, error}
   defp required({:ok, value}, _error), do: {:ok, value}
