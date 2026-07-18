@@ -912,18 +912,62 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     new_package = create_approved_package_version!(actor, plugin_id, "1.1.0")
     assignment = create_assignment!(actor, agent.uid, old_package.id)
 
-    {:ok, lv, html} = live(conn, ~p"/admin/plugins/#{new_package.id}")
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins/#{new_package.id}")
 
-    assert html =~ "version 1.0.0"
-    assert html =~ "latest 1.1.0"
+    assert has_element?(
+             lv,
+             "#assignment-version-#{assignment.id}",
+             "version 1.0.0 -> newer 1.1.0"
+           )
+
+    assert has_element?(
+             lv,
+             "#upgrade-assignment-#{assignment.id}[phx-value-target-package-id='#{new_package.id}']"
+           )
 
     html =
       lv
-      |> element("button[phx-click='upgrade_assignment'][phx-value-id='#{assignment.id}']")
+      |> element("#upgrade-assignment-#{assignment.id}")
       |> render_click()
 
     assert html =~ "Assignment upgraded"
     assert upgraded_assignment!(actor, assignment.id).plugin_package_id == new_package.id
+  end
+
+  test "does not present an older approved version as the latest upgrade", %{
+    conn: conn,
+    actor: actor
+  } do
+    gateway =
+      gateway_fixture(%{id: "plugin-current-gw", component_id: "plugin-current-component"})
+
+    agent = agent_fixture(gateway, %{uid: "agent-current-plugin", name: "Agent Current Plugin"})
+    plugin_id = "live-current-plugin-#{System.unique_integer([:positive])}"
+    old_package = create_approved_package_version!(actor, plugin_id, "1.0.0")
+    current_package = create_approved_package_version!(actor, plugin_id, "1.1.0")
+    assignment = create_assignment!(actor, agent.uid, current_package.id)
+
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins/#{current_package.id}")
+
+    assert has_element?(
+             lv,
+             "#assignment-version-#{assignment.id}",
+             "version 1.1.0 · latest approved"
+           )
+
+    refute has_element?(lv, "#upgrade-assignment-#{assignment.id}")
+
+    assert has_element?(
+             lv,
+             "#assignment-version-select-#{assignment.id} option[value='#{old_package.id}']",
+             "1.0.0 (rollback)"
+           )
+
+    assert has_element?(
+             lv,
+             "#assignment-version-select-#{assignment.id} option[value='']",
+             "Change version"
+           )
   end
 
   test "upgrades an assignment to a selected approved version", %{conn: conn, actor: actor} do

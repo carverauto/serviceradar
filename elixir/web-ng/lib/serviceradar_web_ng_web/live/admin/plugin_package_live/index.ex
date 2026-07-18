@@ -2100,7 +2100,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 <%= for assignment <- @assignments do %>
                   <% current_package = package_for_assignment(assignment, @versions) %>
                   <% upgrade_target = latest_upgrade_target(assignment, @versions) %>
-                  <% approved_targets = approved_upgrade_targets(assignment, @versions) %>
+                  <% approved_targets = approved_version_targets(assignment, @versions) %>
+                  <% latest_approved? =
+                    latest_approved_assignment_version?(assignment, @versions) %>
                   <% legacy_kind = legacy_recovery_kind_for_display(assignment) %>
                   <% legacy_compatibility = legacy_recovery_compatibility_message(assignment) %>
                   <% legacy_partition_context = legacy_authenticated_partition_message(assignment) %>
@@ -2141,10 +2143,17 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                         <div class="text-base-content/60">
                           every {assignment.interval_seconds}s, timeout {assignment.timeout_seconds}s
                         </div>
-                        <div class="text-base-content/60">
+                        <div
+                          id={"assignment-version-#{assignment.id}"}
+                          class="text-base-content/60"
+                        >
                           version {package_version(current_package)}
                           <%= if upgrade_target do %>
-                            <span>-> latest {upgrade_target.version}</span>
+                            <span>-> newer {upgrade_target.version}</span>
+                          <% else %>
+                            <%= if latest_approved? do %>
+                              <span class="text-success">· latest approved</span>
+                            <% end %>
                           <% end %>
                         </div>
                       </div>
@@ -2197,6 +2206,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                         <%= if is_nil(legacy_kind) and assignment.source != :policy do %>
                           <%= if upgrade_target do %>
                             <button
+                              id={"upgrade-assignment-#{assignment.id}"}
                               type="button"
                               class="btn btn-primary btn-xs"
                               phx-click="upgrade_assignment"
@@ -2209,19 +2219,32 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                           <% end %>
                           <%= if approved_targets != [] do %>
                             <form
+                              id={"assignment-version-form-#{assignment.id}"}
                               phx-submit="upgrade_assignment"
                               phx-value-id={assignment.id}
                               class="flex items-center gap-1"
                             >
                               <select
+                                id={"assignment-version-select-#{assignment.id}"}
                                 name="assignment_upgrade[target_package_id]"
+                                aria-label={"Change version for #{assignment.agent_uid}"}
+                                required
                                 class="select select-bordered select-xs w-auto min-w-[4.75rem] shrink-0"
                               >
+                                <option value="" selected disabled>Change version</option>
                                 <%= for target <- approved_targets do %>
-                                  <option value={target.id}>{target.version}</option>
+                                  <option value={target.id}>
+                                    {assignment_version_option_label(target, current_package)}
+                                  </option>
                                 <% end %>
                               </select>
-                              <button type="submit" class="btn btn-ghost btn-xs">Set</button>
+                              <button
+                                id={"apply-assignment-version-#{assignment.id}"}
+                                type="submit"
+                                class="btn btn-ghost btn-xs"
+                              >
+                                Apply
+                              </button>
                             </form>
                           <% end %>
                         <% end %>
@@ -4764,31 +4787,75 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp package_version(package), do: package.version || "unknown"
 
   defp latest_upgrade_target(assignment, versions) do
-    assignment
-    |> approved_upgrade_targets(versions)
-    |> List.last()
+    case package_for_assignment(assignment, versions) do
+      nil ->
+        nil
+
+      current_package ->
+        assignment
+        |> approved_version_targets(versions)
+        |> Enum.filter(&(compare_package_versions(&1, current_package) == :gt))
+        |> List.last()
+    end
   end
 
-  defp approved_upgrade_targets(assignment, versions) do
+  defp approved_version_targets(assignment, versions) do
     versions
     |> Enum.filter(&approved_upgrade_target?(&1, assignment))
     |> Enum.sort(&version_before_or_equal?/2)
   end
 
+  defp latest_approved_assignment_version?(assignment, versions) do
+    current_package = package_for_assignment(assignment, versions)
+
+    latest_package =
+      versions
+      |> Enum.filter(&approved_plugin_version?(&1, assignment.plugin_id))
+      |> Enum.sort(&version_before_or_equal?/2)
+      |> List.last()
+
+    not is_nil(current_package) and not is_nil(latest_package) and
+      current_package.id == latest_package.id
+  end
+
   defp approved_upgrade_target?(package, assignment) do
-    package.status == :approved and
-      package.plugin_id == assignment.plugin_id and
+    approved_plugin_version?(package, assignment.plugin_id) and
       package.id != assignment.plugin_package_id
   end
 
-  defp version_before_or_equal?(left, right) do
+  defp approved_plugin_version?(package, plugin_id) do
+    package.status in [:approved, "approved"] and package.plugin_id == plugin_id
+  end
+
+  defp assignment_version_option_label(target, current_package) do
+    relation =
+      case compare_package_versions(target, current_package) do
+        :lt -> "rollback"
+        :gt -> "newer"
+        :eq -> "current"
+      end
+
+    "#{target.version} (#{relation})"
+  end
+
+  defp compare_package_versions(_left, nil), do: :eq
+
+  defp compare_package_versions(left, right) do
     case {Version.parse(left.version || ""), Version.parse(right.version || "")} do
       {{:ok, left_version}, {:ok, right_version}} ->
-        Version.compare(left_version, right_version) != :gt
+        Version.compare(left_version, right_version)
 
       _ ->
-        (left.version || "") <= (right.version || "")
+        cond do
+          (left.version || "") < (right.version || "") -> :lt
+          (left.version || "") > (right.version || "") -> :gt
+          true -> :eq
+        end
     end
+  end
+
+  defp version_before_or_equal?(left, right) do
+    compare_package_versions(left, right) != :gt
   end
 
   defp get_actor(socket) do
