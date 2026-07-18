@@ -144,7 +144,7 @@ The Ansible integration never passes a plaintext AWX token to a playbook. Each A
 In the ServiceRadar web UI, go to **Settings → Credentials** and create:
 
 1. A sync credential (for example `awx-prod-sync`) for an AWX principal with OAuth `read` and only the organization/inventory/project/template read roles needed for health, catalog, and inventory discovery.
-2. An execution credential (for example `awx-prod-exec`) for a non-superuser AWX principal with only the exact AWX resource reads needed by live launch preflight (the reviewed template, survey, project, inventory, selected hosts, credentials, and execution environment), plus OAuth `write`, exact inventory `Use`, template `Execute`, machine-credential `Use`, and job lifecycle read/cancel roles. It does not need Project Admin, Inventory Admin, Job Template Admin, Ad Hoc, or organization-wide Credential Admin.
+2. An execution credential (for example `awx-prod-exec`) for a non-superuser AWX principal with only the exact AWX resource reads needed by live launch preflight (the reviewed template, survey, **project `Read`**, inventory, selected hosts, credentials, and execution environment), plus OAuth `write`, exact inventory `Use`, template `Execute`, machine-credential `Use`, and job lifecycle read/cancel roles. Template `Execute` alone does **not** grant `GET /api/v2/projects/<id>/`; without explicit project `Read`, live preflight fails closed on project revision drift checks. It does not need Project Admin, Inventory Admin, Job Template Admin, Ad Hoc, or organization-wide Credential Admin.
 3. For callback-enabled playbooks, a callback credential. The currently supported least-privilege deployment deliberately reuses the execution credential and grants that principal Credential Admin only in a dedicated empty AWX organization such as `ServiceRadar Ephemeral`. Configure the reviewed callback credential organization ID to that empty organization. Never grant the principal Credential Admin in an organization that contains operator or machine credentials.
 
 Save each credential. You will select the references when registering the controller. ServiceRadar supports distinct execution and callback references, but a deployment using distinct AWX users must first prove that the execution principal has `Use` on each dynamically created callback credential; selecting a different secret does not add or bypass AWX permissions.
@@ -189,13 +189,17 @@ Use this procedure for a new controller, an AWX change, or a callback rollout:
    and the on-demand `awx` plugin (not only `awx-inventory-sync`) is assigned to
    its selected edge agent.
 2. Give the ServiceRadar runner machine principal only the resource reads and
-   `Use`/`Execute` roles listed above. It must not edit job templates, projects,
-   inventories, credentials, or execution environments. If callbacks are
-   required, grant Credential Admin only in a dedicated empty callback
-   organization; never in an organization that contains production credentials.
-   Restrict direct AWX template execution to that runner identity/team. Operators
-   must launch through ServiceRadar so its RBAC, preflight evidence, and audit
-   trail cannot be bypassed.
+   `Use`/`Execute` roles listed above. Explicitly grant **project `Read`** on
+   each reviewed project (demo canary: project `serviceradar-ansible-canary`).
+   Verify with the runner principal: template/survey/inventory/host/credential
+   GET succeed, project GET succeeds, template PATCH is denied. Prefer denying
+   direct `POST .../launch/` outside ServiceRadar where AWX policy allows; if
+   template Execute remains required for `awx.launch_job`, keep operator AWX
+   UI access off that principal. If callbacks are required, grant Credential
+   Admin only in a dedicated empty callback organization such as
+   `ServiceRadar Ephemeral`; never in an organization that contains production
+   credentials. Operators must launch through ServiceRadar so its RBAC,
+   preflight evidence, and audit trail cannot be bypassed.
 3. Create or renew the approved binding through the binding-review workflow with
    a complete secret-free reviewed launch snapshot. A legacy digest-only binding
    is intentionally non-launchable. Do not patch a reviewed binding in place.
