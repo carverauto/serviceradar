@@ -181,7 +181,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
     existing_by_key
     |> Enum.reject(fn {key, _} -> Map.has_key?(desired_by_key, key) end)
     |> Enum.reduce_while({:ok, 0}, fn {_key, assignment}, {:ok, count} ->
-      if assignment.enabled == false do
+      if assignment.enabled == false or not is_nil(Map.get(assignment, :rollout_id)) do
         {:cont, {:ok, count}}
       else
         case store.disable_assignment(assignment, actor) do

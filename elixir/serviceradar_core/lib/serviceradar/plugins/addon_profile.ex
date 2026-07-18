@@ -15,6 +15,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
 
   alias ServiceRadar.Plugins.AddonProfileOps
   alias ServiceRadar.Plugins.Changes.ApplyAddonConfigDefaults
+  alias ServiceRadar.Plugins.Changes.ApplyAddonUpdatePolicyDefaults
   alias ServiceRadar.Plugins.Changes.SetAssignmentAddonId
   alias ServiceRadar.Plugins.Validations.AddonAssignmentParams
   alias ServiceRadar.Plugins.Validations.AddonPackageApproved
@@ -30,7 +31,12 @@ defmodule ServiceRadar.Plugins.AddonProfile do
     :priority,
     :max_targets,
     :metadata,
-    :enabled
+    :enabled,
+    :update_policy,
+    :explicit_version_pin,
+    :release_channel,
+    :capability_ceiling,
+    :rollout_policy
   ]
 
   postgres do
@@ -79,6 +85,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
 
       change SetAssignmentAddonId
       change ApplyAddonConfigDefaults
+      change ApplyAddonUpdatePolicyDefaults
       validate AddonPackageApproved
       validate AddonAssignmentParams
       validate SingleEnabledAddonProfile
@@ -91,6 +98,19 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       require_atomic? false
 
       accept @mutable_fields ++ [:last_reconciled_at, :last_reconcile_summary]
+
+      change SetAssignmentAddonId
+      change ApplyAddonConfigDefaults
+      change ApplyAddonUpdatePolicyDefaults
+      validate AddonPackageApproved
+      validate AddonAssignmentParams
+      validate SingleEnabledAddonProfile
+    end
+
+    update :promote_rollout do
+      description "Promote a successfully health-gated rollout into stable profile state."
+      require_atomic? false
+      accept [:addon_package_id]
 
       change SetAssignmentAddonId
       change ApplyAddonConfigDefaults
@@ -125,7 +145,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
   policies do
     import ServiceRadar.Plugins.Policies
 
-    manage_actions([:create, :update, :destroy, :preview, :reconcile_now])
+    manage_actions([:create, :update, :destroy, :preview, :reconcile_now, :promote_rollout])
   end
 
   attributes do
@@ -202,6 +222,37 @@ defmodule ServiceRadar.Plugins.AddonProfile do
     end
 
     attribute :last_reconcile_summary, :map do
+      allow_nil? false
+      public? true
+      default %{}
+    end
+
+    attribute :update_policy, :atom do
+      allow_nil? false
+      public? true
+      default :manual_pin
+      constraints one_of: [:manual_pin, :track_latest_approved]
+    end
+
+    attribute :explicit_version_pin, :boolean do
+      allow_nil? false
+      public? true
+      default false
+    end
+
+    attribute :release_channel, :string do
+      allow_nil? false
+      public? true
+      default "stable"
+    end
+
+    attribute :capability_ceiling, {:array, :string} do
+      allow_nil? false
+      public? true
+      default []
+    end
+
+    attribute :rollout_policy, :map do
       allow_nil? false
       public? true
       default %{}

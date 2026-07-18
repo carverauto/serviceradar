@@ -13,7 +13,9 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
     notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.Changes.ApplyAddonConfigDefaults
+  alias ServiceRadar.Plugins.Changes.ApplyAddonUpdatePolicyDefaults
   alias ServiceRadar.Plugins.Changes.SetAssignmentAddonId
   alias ServiceRadar.Plugins.Validations.AddonAssignmentParams
   alias ServiceRadar.Plugins.Validations.AddonPackageApproved
@@ -30,7 +32,12 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
     :profile_reconcile_status,
     :profile_reconcile_error,
     :profile_last_reconciled_at,
-    :profile_metadata
+    :profile_metadata,
+    :update_policy,
+    :explicit_version_pin,
+    :release_channel,
+    :capability_ceiling,
+    :rollout_policy
   ]
 
   @create_fields [:agent_uid, :addon_package_id | @mutable_fields]
@@ -75,6 +82,7 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
 
       change SetAssignmentAddonId
       change ApplyAddonConfigDefaults
+      change ApplyAddonUpdatePolicyDefaults
       validate AddonPackageApproved
       validate NoDuplicateEnabledAddonAssignment
       validate AddonAssignmentParams
@@ -85,8 +93,29 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
 
       change SetAssignmentAddonId
       change ApplyAddonConfigDefaults
+      change ApplyAddonUpdatePolicyDefaults
       validate AddonPackageApproved
       validate NoDuplicateEnabledAddonAssignment
+      validate AddonAssignmentParams
+    end
+
+    update :apply_rollout_override do
+      require_atomic? false
+      accept [:rollout_package_id, :rollout_id, :rollout_started_at]
+    end
+
+    update :clear_rollout_override do
+      require_atomic? false
+      accept [:rollout_package_id, :rollout_id, :rollout_started_at]
+    end
+
+    update :promote_rollout do
+      require_atomic? false
+      accept [:addon_package_id, :rollout_package_id, :rollout_id, :rollout_started_at]
+
+      change SetAssignmentAddonId
+      change ApplyAddonConfigDefaults
+      validate AddonPackageApproved
       validate AddonAssignmentParams
     end
   end
@@ -173,12 +202,47 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
       default %{}
     end
 
+    attribute :update_policy, :atom do
+      allow_nil? false
+      public? true
+      default :manual_pin
+      constraints one_of: [:manual_pin, :track_latest_approved]
+    end
+
+    attribute :explicit_version_pin, :boolean do
+      allow_nil? false
+      public? true
+      default false
+    end
+
+    attribute :release_channel, :string do
+      allow_nil? false
+      public? true
+      default "stable"
+    end
+
+    attribute :capability_ceiling, {:array, :string} do
+      allow_nil? false
+      public? true
+      default []
+    end
+
+    attribute :rollout_policy, :map do
+      allow_nil? false
+      public? true
+      default %{}
+    end
+
+    attribute :rollout_package_id, :uuid, public?: true
+    attribute :rollout_id, :uuid, public?: true
+    attribute :rollout_started_at, :utc_datetime_usec, public?: true
+
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end
 
   relationships do
-    belongs_to :addon_package, ServiceRadar.Plugins.AddonPackage do
+    belongs_to :addon_package, AddonPackage do
       allow_nil? false
       public? true
       destination_attribute :id
@@ -191,6 +255,22 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
       public? true
       destination_attribute :id
       source_attribute :addon_profile_id
+      define_attribute? false
+    end
+
+    belongs_to :rollout_package, AddonPackage do
+      allow_nil? true
+      public? true
+      destination_attribute :id
+      source_attribute :rollout_package_id
+      define_attribute? false
+    end
+
+    belongs_to :rollout, ServiceRadar.Plugins.AddonRollout do
+      allow_nil? true
+      public? true
+      destination_attribute :id
+      source_attribute :rollout_id
       define_attribute? false
     end
   end

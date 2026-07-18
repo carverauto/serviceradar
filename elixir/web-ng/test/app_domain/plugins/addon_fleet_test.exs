@@ -9,7 +9,10 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
   """
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.AddonStatus
   alias ServiceRadarWebNG.Plugins.AddonFleet
 
   @moduletag :db_free
@@ -41,6 +44,10 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
       collector?: true,
       version_status: {:up_to_date, "1.0.0", true},
       stale_assignments: [],
+      category: :healthy,
+      reason_code: "desired_runtime_healthy",
+      evidence_age_seconds: 0,
+      rollout_state: nil,
       attention: [],
       attention?: false
     }
@@ -69,6 +76,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
         row(
           agent_uid: "agent-1",
           addon_id: "netprobe",
+          category: :action_required,
           attention: [:stopped_or_inactive],
           attention?: true
         ),
@@ -77,6 +85,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
           agent_uid: nil,
           addon_id: "scalibr-endpoint-inventory",
           agent_label: "— (catalog only)",
+          category: :action_required,
           attention: [:staged_not_approved],
           attention?: true
         )
@@ -133,27 +142,215 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
 
       assert [%{addon_id: "netprobe"}] = result
     end
+
+    test "filters by mutually exclusive health category", %{rows: rows} do
+      result = AddonFleet.filter(rows, %{"category" => "action_required"})
+      assert length(result) == 2
+      assert Enum.all?(result, &(&1.category == :action_required))
+    end
   end
 
   describe "summary/1" do
-    test "counts totals, attention, running, and staged packages" do
+    test "counts operationally distinct health categories" do
       rows = [
-        row(active?: true, package_status: :approved, attention?: false),
-        row(active?: false, package_status: :staged, attention?: true),
-        row(active?: true, package_status: :staged, attention?: false),
-        row(active?: false, package_status: :approved, attention?: true)
+        row(category: :healthy),
+        row(category: :updating),
+        row(category: :action_required),
+        row(category: :unavailable),
+        row(category: :expected_inactive),
+        row(category: :observed_only, assigned?: false, enabled?: false)
       ]
 
       assert AddonFleet.summary(rows) == %{
-               total: 4,
-               attention: 2,
-               running: 2,
-               staged: 2
+               managed: 5,
+               healthy: 1,
+               updating: 1,
+               action_required: 1,
+               unavailable: 1,
+               expected_inactive: 1,
+               observed_only: 1
              }
     end
 
     test "is all-zero for an empty fleet" do
-      assert AddonFleet.summary([]) == %{total: 0, attention: 0, running: 0, staged: 0}
+      assert AddonFleet.summary([]) == %{
+               managed: 0,
+               healthy: 0,
+               updating: 0,
+               action_required: 0,
+               unavailable: 0,
+               expected_inactive: 0,
+               observed_only: 0
+             }
+    end
+  end
+
+  describe "classify/7" do
+    setup do
+      now = ~U[2026-07-18 14:00:00Z]
+
+      package =
+        package(
+          supervision: :agent_sidecar,
+          status: :approved,
+          version: "1.0.0"
+        )
+
+      assignment = %AddonAssignment{
+        id: Ecto.UUID.generate(),
+        enabled: true,
+        inserted_at: DateTime.add(now, -60),
+        updated_at: DateTime.add(now, -60)
+      }
+
+      agent = %Agent{
+        status: :connected,
+        is_healthy: true,
+        last_seen_time: DateTime.add(now, -5)
+      }
+
+      status = %AddonStatus{
+        state: "running",
+        active: true,
+        version: "1.0.0",
+        reported_at: DateTime.add(now, -5)
+      }
+
+      base = %{assigned_version: "1.0.0"}
+
+      {:ok, now: now, package: package, assignment: assignment, agent: agent, status: status, base: base}
+    end
+
+    test "keeps fresh runtime failures actionable", context do
+      status = %{context.status | state: "unhealthy", degradation_reason: "unit_failed"}
+
+      assert AddonFleet.classify(
+               context.base,
+               context.package,
+               context.assignment,
+               status,
+               context.agent,
+               nil,
+               context.now
+             ) == {:action_required, "runtime_reported_unhealthy"}
+    end
+
+    test "classifies offline or stale desired state as unavailable, not a current failure", context do
+      agent = %{context.agent | status: :disconnected, last_seen_time: DateTime.add(context.now, -600)}
+      status = %{context.status | state: "unhealthy", reported_at: DateTime.add(context.now, -600)}
+
+      assert AddonFleet.classify(
+               context.base,
+               context.package,
+               context.assignment,
+               status,
+               agent,
+               nil,
+               context.now
+             ) == {:unavailable, "agent_unavailable_or_stale"}
+    end
+
+    test "classifies a never-reported assignment as unavailable", context do
+      assert AddonFleet.classify(
+               context.base,
+               context.package,
+               context.assignment,
+               nil,
+               context.agent,
+               nil,
+               context.now
+             ) == {:unavailable, "desired_runtime_not_yet_reported"}
+    end
+
+    test "keeps healthy built-ins and stale observations informational", context do
+      assert AddonFleet.classify(
+               context.base,
+               context.package,
+               nil,
+               context.status,
+               context.agent,
+               nil,
+               context.now
+             ) == {:observed_only, "healthy_observed_only_runtime"}
+
+      stale_unhealthy = %{
+        context.status
+        | state: "unhealthy",
+          reported_at: DateTime.add(context.now, -600)
+      }
+
+      assert AddonFleet.classify(
+               context.base,
+               context.package,
+               nil,
+               stale_unhealthy,
+               context.agent,
+               nil,
+               context.now
+             ) == {:observed_only, "observed_only_stale"}
+    end
+
+    test "keeps a fresh unhealthy observed-only runtime actionable", context do
+      status = %{context.status | state: "failed"}
+
+      assert AddonFleet.classify(
+               context.base,
+               context.package,
+               nil,
+               status,
+               context.agent,
+               nil,
+               context.now
+             ) == {:action_required, "runtime_reported_unhealthy"}
+    end
+
+    test "classifies a ready ephemeral helper as expected inactive", context do
+      package = %{context.package | supervision: :ephemeral_helper}
+      status = %{context.status | state: "ready", active: false}
+
+      assert AddonFleet.classify(
+               context.base,
+               package,
+               context.assignment,
+               status,
+               context.agent,
+               nil,
+               context.now
+             ) == {:expected_inactive, "ephemeral_helper_ready"}
+    end
+
+    test "shows incompatible and in-progress rollout targets truthfully", context do
+      failed_rollout = %{
+        rollout_state: :failed,
+        state: :failed,
+        reason_code: "unsupported_platform"
+      }
+
+      assert AddonFleet.classify(
+               context.base,
+               context.package,
+               context.assignment,
+               context.status,
+               context.agent,
+               failed_rollout,
+               context.now
+             ) == {:action_required, "unsupported_platform"}
+
+      active_rollout = %{
+        rollout_state: :running,
+        state: :waiting_health,
+        reason_code: "waiting_for_fresh_candidate_health"
+      }
+
+      assert AddonFleet.classify(
+               context.base,
+               context.package,
+               context.assignment,
+               context.status,
+               context.agent,
+               active_rollout,
+               context.now
+             ) == {:updating, "waiting_for_fresh_candidate_health"}
     end
   end
 

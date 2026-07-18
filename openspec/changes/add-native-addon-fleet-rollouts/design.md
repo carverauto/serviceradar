@@ -180,6 +180,12 @@ surfaces the failure. The operator may then rollback the entire rollout, fix and
 or explicitly resume under an amended policy. Track-latest records the failed candidate
 as blocked for that source so the same package cannot immediately retrigger a loop.
 
+Failure tolerance applies only to profile rollouts with multiple snapshotted targets.
+After recovery is verified and an operator resumes, a rolled-back target within the
+stored tolerance is converted to an explicit manual pin on its prior package before
+the profile is promoted. Profile reconciliation therefore cannot immediately reapply
+the failed candidate to that agent. Direct-assignment rollouts remain all-or-nothing.
+
 ### Decision 5: Fleet health is a precedence-ordered classification
 
 The read model stores observation freshness, agent availability, management origin,
@@ -278,5 +284,3 @@ state from observed status.
 
 - Should the first release expose a tenant-wide emergency switch that pauses creation
   of new automatic rollouts while preserving each source's stored update policy?
-- Should a manually resumed rollout be allowed to accept a partially successful source
-  promotion, or must source promotion remain all-or-nothing in the first release?
