@@ -145,10 +145,19 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityAshSource do
   defp required({:ok, value}), do: {:ok, value}
   defp required({:error, reason}), do: {:error, reason}
 
+  # Only a pure NotFound is "device not held". Mixed Ash error classes that
+  # include NotFound alongside other failures must fail closed.
   defp ash_not_found?(%Ash.Error.Query.NotFound{}), do: true
 
-  defp ash_not_found?(%Ash.Error.Invalid{errors: errors}) when is_list(errors),
-    do: Enum.any?(errors, &ash_not_found?/1)
+  defp ash_not_found?(%Ash.Error.Invalid{errors: errors})
+       when is_list(errors) and errors != [] do
+    Enum.all?(errors, &ash_not_found?/1)
+  end
+
+  defp ash_not_found?(%Ash.Error.Unknown{errors: errors})
+       when is_list(errors) and errors != [] do
+    Enum.all?(errors, &ash_not_found?/1)
+  end
 
   defp ash_not_found?(_), do: false
 
