@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# shellcheck source=scripts/cosign_common.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cosign_common.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1090,SC1091
+source "${SERVICERADAR_COSIGN_COMMON:-${SCRIPT_DIR}/cosign_common.sh}"
 trap cosign_cleanup_temp_files EXIT
 
 if ! command -v cosign >/dev/null 2>&1; then
@@ -25,7 +26,7 @@ if ! command -v curl >/dev/null 2>&1; then
   exit 1
 fi
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="${SERVICERADAR_REPO_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 REGISTRY_HOST="${OCI_REGISTRY:-registry.carverauto.dev}"
 OCI_PROJECT="${OCI_PROJECT:-serviceradar}"
 BAZEL_BIN="${BAZEL_BIN:-$(cd "${REPO_ROOT}" && bazel info bazel-bin 2>/dev/null)}"
@@ -355,29 +356,17 @@ fi
 
 for row in "${image_rows[@]}"; do
   IFS='|' read -r repository digest_target <<<"${row}"
-  index_json="${IMAGE_METADATA_DIR}/${digest_target}_index.json"
-  if [[ ! -f "${index_json}" ]]; then
-    echo "error: missing Bazel OCI index metadata for ${repository}: ${index_json}" >&2
+  digest_file="${IMAGE_METADATA_DIR}/${digest_target}.json.sha256"
+  if [[ ! -f "${digest_file}" ]]; then
+    echo "error: missing Bazel OCI digest metadata for ${repository}: ${digest_file}" >&2
     exit 1
   fi
 
-  digest="$(python3 - <<'PY3' "${index_json}"
-import json
-import sys
-from pathlib import Path
-
-index_path = Path(sys.argv[1])
-index = json.loads(index_path.read_text())
-manifests = index.get("manifests") or []
-if not manifests:
-    raise SystemExit(f"no manifests in {index_path}")
-manifest = manifests[0]
-digest = manifest.get("digest")
-if not digest:
-    raise SystemExit(f"manifest digest missing in {index_path}")
-print(digest)
-PY3
-)"
+  digest="$(tr -d '[:space:]' < "${digest_file}")"
+  if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "error: invalid Bazel OCI digest metadata for ${repository}: ${digest_file}" >&2
+    exit 1
+  fi
 
   ref="${repository}@${digest}"
   echo "signing ${ref}"
