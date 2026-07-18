@@ -181,6 +181,19 @@ defmodule ServiceRadar.Automation.Ansible.TargetingTest do
                  "dispatch-1"
                )
     end
+
+    test "allows unobserved markers when the rest of the launch contract matches" do
+      assert {:ok, plan} = Targeting.build_child([membership()], "controller-1", [])
+
+      job = %{
+        inventory_id: 34,
+        host_limit: "farm01-pve01",
+        dispatch_markers: %{}
+      }
+
+      summaries = [%{"host_id" => 7, "host_name" => "farm01-pve01"}]
+      assert :ok = Targeting.verify_job_scope(plan, job, summaries, "dispatch-1")
+    end
   end
 
   describe "validate_binding/3" do

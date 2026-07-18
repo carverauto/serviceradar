@@ -198,47 +198,87 @@ var callbackCredentialInputKeys = [...]string{
 	"callback_state",
 }
 
-var allowedCreateCallbackCredentialArgs = map[string]struct{}{
-	"credential_type_id": {},
-	"organization_id":    {},
-	"credential_name":    {},
-	"injector_sha256":    {},
+// Allowlists are explicit switch predicates, not map[string]struct{} membership.
+// TinyGo has failed closed on package-level string maps when keys come from
+// JSON-unmarshaled map[string]any, which blocked every launch/list_recent_jobs
+// command before any AWX HTTP call (no credential grant resolution).
+
+func allowedCreateCallbackCredentialArg(key string) bool {
+	switch key {
+	case "credential_type_id", "organization_id", "credential_name", "injector_sha256":
+		return true
+	default:
+		return false
+	}
 }
 
-var allowedFetchCallbackCredentialArgs = map[string]struct{}{
-	"credential_type_id": {},
-	"organization_id":    {},
-	"credential_name":    {},
+func allowedFetchCallbackCredentialArg(key string) bool {
+	switch key {
+	case "credential_type_id", "organization_id", "credential_name":
+		return true
+	default:
+		return false
+	}
 }
 
-var allowedVerifyCallbackCredentialArgs = map[string]struct{}{
-	"credential_id":      {},
-	"credential_type_id": {},
-	"organization_id":    {},
-	"credential_name":    {},
+func allowedVerifyCallbackCredentialArg(key string) bool {
+	switch key {
+	case "credential_id", "credential_type_id", "organization_id", "credential_name":
+		return true
+	default:
+		return false
+	}
 }
 
-var allowedListCallbackCredentialArgs = map[string]struct{}{
-	"credential_type_id": {},
-	"organization_id":    {},
-	"credential_name":    {},
-	"max_credentials":    {},
+func allowedListCallbackCredentialArg(key string) bool {
+	switch key {
+	case "credential_type_id", "organization_id", "credential_name", "max_credentials":
+		return true
+	default:
+		return false
+	}
 }
 
-var allowedListRecentJobArgs = map[string]struct{}{
-	"template_id":    {},
-	"inventory_id":   {},
-	"created_by_id":  {},
-	"created_after":  {},
-	"page_size":      {},
-	"max_candidates": {},
+func allowedListRecentJobArg(key string) bool {
+	switch key {
+	case "template_id", "inventory_id", "created_by_id", "created_after", "page_size", "max_candidates":
+		return true
+	default:
+		return false
+	}
 }
 
-var allowedDeleteCallbackCredentialArgs = map[string]struct{}{
-	"credential_id":      {},
-	"credential_type_id": {},
-	"organization_id":    {},
-	"credential_name":    {},
+func allowedDeleteCallbackCredentialArg(key string) bool {
+	switch key {
+	case "credential_id", "credential_type_id", "organization_id", "credential_name":
+		return true
+	default:
+		return false
+	}
+}
+
+func allowedLaunchArg(key string) bool {
+	switch key {
+	case "template_id",
+		"extra_vars",
+		"host_limit",
+		"inventory_id",
+		"credential_ids",
+		"execution_environment_id",
+		"job_type",
+		"diff_mode",
+		"verbosity",
+		"forks",
+		"job_slice_count",
+		"timeout",
+		"job_tags",
+		"skip_tags",
+		"labels",
+		"instance_group_ids":
+		return true
+	default:
+		return false
+	}
 }
 
 type awxCallbackCredentialSummary struct {
@@ -254,7 +294,7 @@ type awxCallbackCredentialSummary struct {
 // single-resolution, memory-only launch envelope. A missing host-side input
 // therefore cannot degrade into a plaintext command/config fallback.
 func runCreateCallbackCredential(cfg Config) *sdk.Result {
-	if err := validateExactArgs(cfg.Args, allowedCreateCallbackCredentialArgs); err != nil {
+	if err := validateExactArgs(cfg.Args, allowedCreateCallbackCredentialArg); err != nil {
 		return errorResult("awx.create_callback_credential", err)
 	}
 
@@ -333,7 +373,7 @@ func runCreateCallbackCredential(cfg Config) *sdk.Result {
 // deterministic ephemeral credential after an ambiguous create transport.
 // It never creates, updates, or deletes a credential.
 func runFetchCallbackCredential(cfg Config) *sdk.Result {
-	if err := validateExactArgs(cfg.Args, allowedFetchCallbackCredentialArgs); err != nil {
+	if err := validateExactArgs(cfg.Args, allowedFetchCallbackCredentialArg); err != nil {
 		return errorResult("awx.fetch_callback_credential", err)
 	}
 
@@ -384,7 +424,7 @@ const maxCallbackCredentialLookupResults = 5_000
 // this path never treats absence as success and never accepts co-reported
 // selector fields in place of a direct controller GET by ID.
 func runVerifyCallbackCredential(cfg Config) *sdk.Result {
-	if err := validateExactArgs(cfg.Args, allowedVerifyCallbackCredentialArgs); err != nil {
+	if err := validateExactArgs(cfg.Args, allowedVerifyCallbackCredentialArg); err != nil {
 		return errorResult("awx.verify_callback_credential", err)
 	}
 
@@ -437,7 +477,7 @@ func runVerifyCallbackCredential(cfg Config) *sdk.Result {
 // not a reason to discard controller-observed IDs; an incomplete or drifting
 // page set still fails closed.
 func runListCallbackCredentials(cfg Config) *sdk.Result {
-	if err := validateExactArgs(cfg.Args, allowedListCallbackCredentialArgs); err != nil {
+	if err := validateExactArgs(cfg.Args, allowedListCallbackCredentialArg); err != nil {
 		return errorResult("awx.list_callback_credentials", err)
 	}
 
@@ -831,7 +871,7 @@ func callbackCredentialConflictResult(credential awxCallbackCredentialSummary) *
 // before deleting it. A 404 during verification is an idempotent success; a
 // credential with a mismatched name, type, or organization is never deleted.
 func runDeleteCallbackCredential(cfg Config) *sdk.Result {
-	if err := validateExactArgs(cfg.Args, allowedDeleteCallbackCredentialArgs); err != nil {
+	if err := validateExactArgs(cfg.Args, allowedDeleteCallbackCredentialArg); err != nil {
 		return errorResult("awx.delete_callback_credential", err)
 	}
 
@@ -895,10 +935,13 @@ func callbackCredentialDeleteResult(credentialID, credentialTypeID int, cleanupS
 		WithLabel("verb", "awx.delete_callback_credential")
 }
 
-func validateExactArgs(args map[string]any, allowed map[string]struct{}) error {
+func validateExactArgs(args map[string]any, allowed func(string) bool) error {
 	for key := range args {
-		if _, ok := allowed[key]; !ok {
-			return fmt.Errorf("args contain an unreviewed field")
+		// TinyGo map[string]struct{} membership against JSON-unmarshaled keys has
+		// been observed to fail closed even for compile-time-allowlisted fields.
+		// Keep the allowlist as an explicit predicate (switch) instead.
+		if !allowed(key) {
+			return fmt.Errorf("args contain an unreviewed field %q", key)
 		}
 	}
 	return nil
@@ -1173,29 +1216,10 @@ var reservedDispatchVars = [...]string{
 	"serviceradar_snapshot_digest",
 }
 
-var allowedLaunchArgs = map[string]struct{}{
-	"template_id":              {},
-	"extra_vars":               {},
-	"host_limit":               {},
-	"inventory_id":             {},
-	"credential_ids":           {},
-	"execution_environment_id": {},
-	"job_type":                 {},
-	"diff_mode":                {},
-	"verbosity":                {},
-	"forks":                    {},
-	"job_slice_count":          {},
-	"timeout":                  {},
-	"job_tags":                 {},
-	"skip_tags":                {},
-	"labels":                   {},
-	"instance_group_ids":       {},
-}
-
 func buildLaunchBody(args map[string]any) (map[string]any, error) {
 	for key := range args {
-		if _, allowed := allowedLaunchArgs[key]; !allowed {
-			return nil, fmt.Errorf("launch arguments contain an unreviewed field")
+		if !allowedLaunchArg(key) {
+			return nil, fmt.Errorf("launch arguments contain an unreviewed field %q", key)
 		}
 	}
 	body := make(map[string]any)
@@ -1439,7 +1463,7 @@ const (
 // controller-reported count above the durable ceiling. The trusted control
 // plane still compares exact retained markers and accepted-job fields.
 func runListRecentJobs(cfg Config) *sdk.Result {
-	if err := validateExactArgs(cfg.Args, allowedListRecentJobArgs); err != nil {
+	if err := validateExactArgs(cfg.Args, allowedListRecentJobArg); err != nil {
 		return errorResult("awx.list_recent_jobs", err)
 	}
 
