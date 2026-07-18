@@ -435,29 +435,6 @@ jobs:
                 exit 1
               fi
             fi
-          else
-            mapfile -t image_targets < <(
-              python3 - docker/images/image_inventory.bzl <<'PY'
-          import ast
-          import re
-          import sys
-          from pathlib import Path
-
-          text = Path(sys.argv[1]).read_text()
-          match = re.search(r"PUBLISHABLE_IMAGES\s*=\s*(\[[\s\S]*?\])\n\n", text)
-          if not match:
-              raise SystemExit("unable to parse image inventory")
-          for entry in ast.literal_eval(match.group(1)):
-              digest_label = entry.get(
-                  "digest_label",
-                  ":" + entry.get("push_image", entry["image"]) + ".digest",
-              )
-              if not digest_label.startswith(":"):
-                  raise SystemExit(f"unsupported digest label: {digest_label}")
-              print("//docker/images:" + digest_label[1:])
-          PY
-            )
-            bazel build --config=remote_push --stamp "${image_targets[@]}"
           fi
 
           echo "Rechecking release image digest equality after publish/build handling."
@@ -480,6 +457,7 @@ jobs:
           fi
           SERVICERADAR_COSIGN_COMMON="${PWD}/scripts/cosign_common.sh" \
             SERVICERADAR_REPO_ROOT="${PWD}" \
+            SERVICERADAR_SIGN_REGISTRY_TAG="${release_sha_tag}" \
             "${sign_script}"
           ./scripts/verify-oci-publish.sh "${verify_tags[@]}"
           unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
