@@ -19,6 +19,8 @@ package mapper
 import (
 	"fmt"
 
+	"strconv"
+
 	"strings"
 
 	"github.com/gosnmp/gosnmp"
@@ -34,12 +36,22 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 	localSubnets := e.localIPv4Subnets(job, targetIP)
 	knownNeighborIPs := e.knownDeviceIPv4Set(job)
 	knownNeighborsByMAC := e.knownDeviceNeighborByMAC(job)
-	bridgeIfByMAC, fdbMacCountByIf := e.bridgeIfIndexByMAC(client)
+	bridgeIfByMAC, fdbMacCountByIf, vlanByMAC := e.bridgeIfIndexByMAC(client, targetIP, job)
+
+	// Cache the join inputs so the end-of-topology-stage reconcile pass can
+	// replay the cross-device join against the final shared ARP map.
+	e.recordObservedJoinContext(job, targetIP, &observedJoinContext{
+		localDeviceID:   localDeviceID,
+		localSubnets:    localSubnets,
+		bridgeIfByMAC:   bridgeIfByMAC,
+		vlanByMAC:       vlanByMAC,
+		fdbMacCountByIf: fdbMacCountByIf,
+	})
 
 	neighbors := make([]arpNeighbor, 0, 32)
 
 	appendNeighborEvidence := func(ip, mac string) {
-		if ip == "" || ip == targetIP || !isIPv4(ip) || !inSubnetSet(localSubnets, ip) {
+		if ip == "" || ip == targetIP || !isIPv4(ip) {
 			return
 		}
 		if mac == "" || mac == "00:00:00:00:00:00" {
@@ -51,7 +63,12 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 			return
 		}
 
-		e.recordObservedNeighborIPByMAC(job, norm, ip)
+		// Record every valid ARP row into the per-job shared map, including
+		// out-of-/24 rows: another walked device's FDB may own the bridge
+		// port for this MAC.
+		subnetLocal := inSubnetSet(localSubnets, ip)
+		e.recordObservedNeighborIPByMAC(job, norm, ip, targetIP, subnetLocal)
+		crossSubnet := !subnetLocal
 		_, neighborIdentified := knownNeighborsByMAC[norm]
 		if bridgeIf, exists := bridgeIfByMAC[norm]; exists && bridgeIf > 0 {
 			fdbMacCount := fdbMacCountByIf[bridgeIf]
@@ -64,6 +81,8 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 				fdbMacCount:        fdbMacCount,
 				neighborKnown:      neighborKnown,
 				neighborIdentified: neighborIdentified,
+				crossSubnet:        crossSubnet,
+				vlanID:             vlanByMAC[norm],
 			})
 			return
 		}
@@ -76,6 +95,7 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 			fdbMacCount:        0,
 			neighborKnown:      knownNeighborIPs[ip],
 			neighborIdentified: neighborIdentified,
+			crossSubnet:        crossSubnet,
 		})
 	}
 
@@ -140,7 +160,7 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 		if neighbor.deviceID == "" || neighbor.deviceID == localDeviceID {
 			continue
 		}
-		if !isIPv4(neighbor.ip) || !inSubnetSet(localSubnets, neighbor.ip) {
+		if !isIPv4(neighbor.ip) {
 			continue
 		}
 
@@ -157,6 +177,8 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 			fdbMacCount:        fdbMacCountByIf[ifIndex],
 			neighborKnown:      true,
 			neighborIdentified: true,
+			crossSubnet:        !inSubnetSet(localSubnets, neighbor.ip),
+			vlanID:             vlanByMAC[normalizedMAC],
 		})
 	}
 
@@ -167,6 +189,7 @@ func (e *DiscoveryEngine) querySNMPL2Neighbors(
 			targetIP,
 			localSubnets,
 			bridgeIfByMAC,
+			vlanByMAC,
 			fdbMacCountByIf,
 			knownNeighborsByMAC,
 			knownNeighborIPs,
@@ -198,7 +221,28 @@ func buildSNMPL2LinksFromNeighbors(
 	seen := make(map[string]struct{}, len(neighbors))
 	arpCandidateCount := 0
 
+	// Fill the ARP-only candidate cap with same-subnet neighbors first so
+	// cross-subnet rows never displace the pre-change candidate population
+	// (recursion seeds from these candidates). Relative order within each
+	// partition is preserved; FDB-mapped neighbors are unaffected by the cap.
+	ordered := neighbors
 	for _, n := range neighbors {
+		if !n.fdbPortMapped && n.crossSubnet {
+			ordered = make([]arpNeighbor, 0, len(neighbors))
+			deferred := make([]arpNeighbor, 0)
+			for _, candidate := range neighbors {
+				if !candidate.fdbPortMapped && candidate.crossSubnet {
+					deferred = append(deferred, candidate)
+					continue
+				}
+				ordered = append(ordered, candidate)
+			}
+			ordered = append(ordered, deferred...)
+			break
+		}
+	}
+
+	for _, n := range ordered {
 		if n.ip == "" {
 			continue
 		}
@@ -206,8 +250,12 @@ func buildSNMPL2LinksFromNeighbors(
 		// Do not convert an IP-only match for an already-known device into a
 		// topology edge. Managed peers need stronger identity than "we saw this
 		// IP in ARP and a MAC on some bridge port", otherwise a single host can
-		// appear attached to multiple unrelated devices.
-		if n.fdbPortMapped && n.neighborKnown && !n.neighborIdentified {
+		// appear attached to multiple unrelated devices. Cross-device
+		// ARP-observed joins are exempt: their IPs enter the recursive scan
+		// queue (making them "known") without ever gaining a registered
+		// identity, so the veto would wrongly drop every recursively-reached
+		// switch's endpoints.
+		if n.fdbPortMapped && n.neighborKnown && !n.neighborIdentified && !n.observedJoin {
 			continue
 		}
 
@@ -241,8 +289,8 @@ func buildSNMPL2LinksFromNeighbors(
 					"confidence_tier":   "low",
 					"confidence_reason": "single_identifier_inference",
 					// Keep ARP-only observations marked for recursive target expansion.
-					// These are also published so downstream topology can surface
-					// low-confidence endpoint attachments behind switches/APs.
+					// candidate_only links stay in the in-memory job results to seed
+					// the recursive pass but are dropped before publish/export.
 					"candidate_only": "true",
 				},
 			})
@@ -253,6 +301,29 @@ func buildSNMPL2LinksFromNeighbors(
 			continue
 		}
 
+		confidenceReason := "arp_fdb_port_mapping"
+		switch {
+		case n.observedJoin:
+			confidenceReason = "cross_device_arp_fdb_join"
+		case n.crossSubnet:
+			confidenceReason = "cross_subnet_arp_fdb_port_mapping"
+		}
+
+		metadata := map[string]string{
+			"protocol":          "SNMP-L2",
+			"discovery_id":      discoveryID,
+			"source":            "snmp-arp-fdb",
+			"evidence":          "ipNetToMedia+dot1dTpFdb",
+			"fdb_port_mapped":   "true",
+			"evidence_class":    evidenceClassInferredSegment,
+			"relation_family":   "ATTACHED_TO",
+			"confidence_tier":   "medium",
+			"confidence_reason": confidenceReason,
+		}
+		if n.vlanID > 0 {
+			metadata["vlan_id"] = strconv.Itoa(int(n.vlanID))
+		}
+
 		links = append(links, &TopologyLink{
 			Protocol:          "SNMP-L2",
 			LocalDeviceIP:     targetIP,
@@ -260,17 +331,7 @@ func buildSNMPL2LinksFromNeighbors(
 			LocalIfIndex:      n.ifIndex,
 			NeighborChassisID: n.mac,
 			NeighborMgmtAddr:  n.ip,
-			Metadata: map[string]string{
-				"protocol":          "SNMP-L2",
-				"discovery_id":      discoveryID,
-				"source":            "snmp-arp-fdb",
-				"evidence":          "ipNetToMedia+dot1dTpFdb",
-				"fdb_port_mapped":   "true",
-				"evidence_class":    evidenceClassInferredSegment,
-				"relation_family":   "ATTACHED_TO",
-				"confidence_tier":   "medium",
-				"confidence_reason": "arp_fdb_port_mapping",
-			},
+			Metadata:          metadata,
 		})
 	}
 

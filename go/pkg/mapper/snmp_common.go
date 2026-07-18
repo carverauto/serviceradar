@@ -48,6 +48,7 @@ const (
 	oidDot1dStpPortState       = ".1.3.6.1.2.1.17.2.15.1.3"
 	oidDot1dBasePortIfIndex    = ".1.3.6.1.2.1.17.1.4.1.2"
 	oidDot1dTpFdbPort          = ".1.3.6.1.2.1.17.4.3.1.2"
+	oidDot1qTpFdbPort          = ".1.3.6.1.2.1.17.7.2.2.1.2"
 	oidDot1qVlanCurrentEgress  = ".1.3.6.1.2.1.17.7.1.4.2.1.4"
 	oidDot1qVlanStaticEgress   = ".1.3.6.1.2.1.17.7.1.4.3.1.2"
 	oidDot1qVlanStaticUntagged = ".1.3.6.1.2.1.17.7.1.4.3.1.4"

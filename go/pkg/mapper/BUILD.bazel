@@ -83,6 +83,8 @@ go_library(
 go_test(
     name = "mapper_test",
     srcs = [
+        "discovery_recursive_enrichment_test.go",
+        "discovery_recursive_targets_test.go",
         "discovery_test.go",
         "discovery_topology_publish_test.go",
         "grpc_test.go",
@@ -91,9 +93,12 @@ go_test(
         "mapper_agent_service_test.go",
         "mikrotik_poller_test.go",
         "proxmox_poller_test.go",
+        "snmp_l2_bridge_test.go",
+        "snmp_l2_topology_test.go",
         "snmp_polling_test.go",
         "topology_identity_test.go",
         "ubnt_poller_test.go",
+        "utils_cidr_test.go",
     ],
     data = glob(["testdata/**"]),
     embed = [":mapper"],

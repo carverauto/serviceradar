@@ -178,15 +178,25 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		return nil, err
 	}
 
-	wirelessClients, err := e.fetchUniFiClientsForSite(ctx, client, headers, apiConfig, site)
+	siteClients, err := e.fetchUniFiClientsForSite(ctx, client, headers, apiConfig, site)
 	if err != nil {
 		e.logger.Warn().
 			Str("job_id", job.ID).
 			Str("api_name", apiConfig.Name).
 			Str("site_name", site.Name).
 			Err(err).
-			Msg("Failed to fetch UniFi wireless client associations; continuing without AP client topology")
-		wirelessClients = nil
+			Msg("Failed to fetch UniFi client associations; continuing without client topology")
+		siteClients = nil
+	}
+
+	var wirelessClients, wiredClients []UniFiClient
+	for i := range siteClients {
+		switch siteClients[i].normalizedType() {
+		case "WIRELESS":
+			wirelessClients = append(wirelessClients, siteClients[i])
+		case "WIRED":
+			wiredClients = append(wiredClients, siteClients[i])
+		}
 	}
 
 	var links []*TopologyLink
@@ -194,6 +204,7 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 	portCount := 0
 	uplinkCount := 0
 	wirelessClientCount := 0
+	wiredClientCount := 0
 	var legacyDetails []legacyUniFiDeviceDetailsRecord
 	legacyDetailsLoaded := false
 	if targetIP != "" {
@@ -283,6 +294,10 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 	links = append(links, wirelessLinks...)
 	wirelessClientCount = len(wirelessLinks)
 
+	wiredLinks := e.processWiredClientAssociations(job, wiredClients, deviceCache, apiConfig, site)
+	links = append(links, wiredLinks...)
+	wiredClientCount = len(wiredLinks)
+
 	e.logger.Info().
 		Str("job_id", job.ID).
 		Str("api_name", apiConfig.Name).
@@ -292,6 +307,7 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		Int("port_links", portCount).
 		Int("uplink_links", uplinkCount).
 		Int("wireless_client_links", wirelessClientCount).
+		Int("wired_client_links", wiredClientCount).
 		Int("total_links", len(links)).
 		Msg("UniFi topology extraction summary")
 

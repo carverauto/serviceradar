@@ -48,14 +48,15 @@ type gatewayMapperConfig struct {
 }
 
 type mapperCredSpec struct {
-	Targets         []string `json:"targets"`
-	Version         string   `json:"version"`
-	Community       string   `json:"community"`
-	Username        string   `json:"username"`
-	AuthProtocol    string   `json:"auth_protocol"`
-	AuthPassword    string   `json:"auth_password"`
-	PrivacyProtocol string   `json:"privacy_protocol"`
-	PrivacyPassword string   `json:"privacy_password"`
+	Targets               []string `json:"targets"`
+	Version               string   `json:"version"`
+	Community             string   `json:"community"`
+	Username              string   `json:"username"`
+	AuthProtocol          string   `json:"auth_protocol"`
+	AuthPassword          string   `json:"auth_password"`
+	PrivacyProtocol       string   `json:"privacy_protocol"`
+	PrivacyPassword       string   `json:"privacy_password"`
+	VLANCommunityIndexing bool     `json:"vlan_community_indexing"`
 }
 
 type mapperUnifiSpec struct {
@@ -195,14 +196,15 @@ func convertMapperCreds(creds []mapperCredSpec) []mapper.SNMPCredentialConfig {
 	out := make([]mapper.SNMPCredentialConfig, 0, len(creds))
 	for _, cred := range creds {
 		out = append(out, mapper.SNMPCredentialConfig{
-			Targets:         cred.Targets,
-			Version:         mapper.SNMPVersion(cred.Version),
-			Community:       cred.Community,
-			Username:        cred.Username,
-			AuthProtocol:    cred.AuthProtocol,
-			AuthPassword:    cred.AuthPassword,
-			PrivacyProtocol: cred.PrivacyProtocol,
-			PrivacyPassword: cred.PrivacyPassword,
+			Targets:               cred.Targets,
+			Version:               mapper.SNMPVersion(cred.Version),
+			Community:             cred.Community,
+			Username:              cred.Username,
+			AuthProtocol:          cred.AuthProtocol,
+			AuthPassword:          cred.AuthPassword,
+			PrivacyProtocol:       cred.PrivacyProtocol,
+			PrivacyPassword:       cred.PrivacyPassword,
+			VLANCommunityIndexing: cred.VLANCommunityIndexing,
 		})
 	}
 
@@ -313,12 +315,13 @@ func parseMapperJobCreds(job mapperJobSpec, log logger.Logger) mapper.SNMPCreden
 	}
 
 	return mapper.SNMPCredentials{
-		Version:         mapper.SNMPVersion(parsed.Version),
-		Community:       parsed.Community,
-		Username:        parsed.Username,
-		AuthProtocol:    parsed.AuthProtocol,
-		AuthPassword:    parsed.AuthPassword,
-		PrivacyProtocol: parsed.PrivacyProtocol,
-		PrivacyPassword: parsed.PrivacyPassword,
+		Version:               mapper.SNMPVersion(parsed.Version),
+		Community:             parsed.Community,
+		Username:              parsed.Username,
+		AuthProtocol:          parsed.AuthProtocol,
+		AuthPassword:          parsed.AuthPassword,
+		PrivacyProtocol:       parsed.PrivacyProtocol,
+		PrivacyPassword:       parsed.PrivacyPassword,
+		VLANCommunityIndexing: parsed.VLANCommunityIndexing,
 	}
 }

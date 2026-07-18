@@ -99,6 +99,10 @@ type SNMPCredentials struct {
 	PrivacyProtocol string                      // Privacy protocol for v3 (DES/AES)
 	PrivacyPassword string                      `sensitive:"true"` // Privacy password for v3
 	TargetSpecific  map[string]*SNMPCredentials // Credentials for specific targets
+	// VLANCommunityIndexing opts a v1/v2c credential into per-VLAN indexed
+	// community bridge walks (community@vlan). The gRPC SNMPCredentials proto
+	// has no equivalent field, so gRPC-initiated jobs always default to false.
+	VLANCommunityIndexing bool `json:"vlan_community_indexing"`
 }
 
 // DiscoveryStatusType describes the current state of a discovery job.
@@ -147,7 +151,8 @@ type DiscoveryJob struct {
 	uniFiTopologyPolled      bool                           // Guard UniFi topology collection to once per job
 	deviceMap                map[string]*DeviceInterfaceMap // DeviceID -> DeviceInterfaceMap
 	interfaceMap             map[string]*DiscoveredInterface
-	observedNeighborIPsByMAC map[string]map[string]struct{}
+	observedNeighborIPsByMAC map[string]map[string]observedNeighborIPState
+	observedJoinContexts     map[string]*observedJoinContext // Key: targetIP; inputs for the end-of-stage join reconcile
 	identityReconciled       bool
 	interfacesPublished      bool
 }
@@ -401,6 +406,9 @@ type SNMPCredentialConfig struct {
 	AuthPassword    string      `json:"auth_password" sensitive:"true"`    // Auth password for v3
 	PrivacyProtocol string      `json:"privacy_protocol"`                  // Privacy protocol for v3 (DES/AES)
 	PrivacyPassword string      `json:"privacy_password" sensitive:"true"` // Privacy password for v3
+	// VLANCommunityIndexing opts a v1/v2c credential into per-VLAN indexed
+	// community bridge walks (community@vlan). Defaults to false.
+	VLANCommunityIndexing bool `json:"vlan_community_indexing"`
 }
 
 // ScheduledJob represents a scheduled discovery job configuration

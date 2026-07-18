@@ -108,6 +108,14 @@ type UniFiClient struct {
 	UplinkDeviceID string            `json:"uplinkDeviceId"`
 	ConnectedAt    string            `json:"connectedAt"`
 	Access         UniFiClientAccess `json:"access"`
+
+	// Optional uplink switch/port detail for wired clients. The deployed
+	// Integration v1 controllers omit these fields entirely, so consumers must
+	// degrade to switch-level attachment when they are absent.
+	UplinkDeviceMAC      string `json:"uplinkDeviceMac"`
+	UplinkDeviceMACSnake string `json:"uplink_device_mac"`
+	UplinkPortIdx        *int32 `json:"uplinkPortIdx"`
+	UplinkPortIdxSnake   *int32 `json:"uplink_port_idx"`
 }
 
 type UniFiClientAccess struct {
