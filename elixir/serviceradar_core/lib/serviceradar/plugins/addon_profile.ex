@@ -97,7 +97,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       # runs) instead of erroring MustBeAtomic.
       require_atomic? false
 
-      accept @mutable_fields ++ [:last_reconciled_at, :last_reconcile_summary]
+      accept @mutable_fields
 
       change SetAssignmentAddonId
       change ApplyAddonConfigDefaults
@@ -105,6 +105,11 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       validate AddonPackageApproved
       validate AddonAssignmentParams
       validate SingleEnabledAddonProfile
+    end
+
+    update :record_reconcile_result do
+      description "Persist reconciliation outcome without revalidating desired add-on state."
+      accept [:last_reconciled_at, :last_reconcile_summary]
     end
 
     update :promote_rollout do
@@ -145,7 +150,15 @@ defmodule ServiceRadar.Plugins.AddonProfile do
   policies do
     import ServiceRadar.Plugins.Policies
 
-    manage_actions([:create, :update, :destroy, :preview, :reconcile_now, :promote_rollout])
+    manage_actions([
+      :create,
+      :update,
+      :destroy,
+      :preview,
+      :reconcile_now,
+      :promote_rollout,
+      :record_reconcile_result
+    ])
   end
 
   attributes do

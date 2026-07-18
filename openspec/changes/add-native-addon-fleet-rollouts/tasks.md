@@ -53,6 +53,7 @@
 - [ ] 7.2 State-machine-test success, pause/resume/cancel, offline timeout, per-target rollback, whole-rollout rollback, and recovery for every supervision model
 - [ ] 7.3 Test profile reconciliation during canary, paused, failed, rolled-back, and completed rollouts, including direct overrides and dynamic membership
 - [x] 7.4 Test fleet classification for real runtime failure, stale disconnected agent, never-reported assignment, healthy built-in observed-only runtime, dormant ephemeral helper, incompatible target, and in-progress convergence
+- [x] 7.4a Persist failed profile reconciliation summaries independently of desired-state package validation
 - [ ] 7.5 Add LiveView and Playwright coverage for bulk preview, policy controls, rollout operations, counters/filters, reason visibility, authorization, and responsive layout
 - [ ] 7.6 Run mixed-version demo rollouts against at least one continuous service, one systemd timer, and one ephemeral helper; verify first-party managed sources auto-roll and explicit/non-first-party pins do not
 

@@ -132,3 +132,17 @@ batch.
 - **THEN** the profile's stable package SHALL be promoted to the candidate package
 - **AND** per-target rollout overrides SHALL be removed
 - **AND** agents newly matching the profile SHALL receive the promoted stable package on reconciliation
+
+### Requirement: Profile reconciliation outcomes remain observable during invalid desired state
+The control plane SHALL persist the latest add-on profile reconciliation outcome
+without rerunning package approval or configuration validation on the outcome-only
+write. Desired-state validation SHALL continue to protect profile configuration
+changes, while a failed reconcile SHALL remain visible even when its selected
+package is staged, denied, or revoked.
+
+#### Scenario: Staged package blocks assignment materialization
+- **GIVEN** an add-on profile references a package that is no longer approved
+- **WHEN** profile reconciliation fails before materializing its desired assignments
+- **THEN** the profile SHALL retain its existing desired configuration unchanged
+- **AND** its latest reconciliation summary SHALL record the failure and timestamp
+- **AND** recording that outcome SHALL NOT itself fail package approval validation
