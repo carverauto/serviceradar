@@ -91,6 +91,19 @@ in:flows dst_tag:role:guest-wifi time:last_1h
 Mapping namespaces and max tags per prefix are configurable on
 `ServiceRadar.PrefixTags.NetboxImportWorker` Application env.
 
+## Additional tag sources (advisory)
+
+| Source | Tags | Cadence | Authority |
+|--------|------|---------|-----------|
+| Provider CIDRs | `provider:<name>` | After provider dataset refresh | Hosting-provider columns (same chain) |
+| Geo (Geolix) | `geo:country:`, `geo:asn:` | Per-flow derivation | MMDB only; not stored in trie |
+| Threat intel | `ti:<feed>`, `ti:label:…` | High (default ~5m) | **Advisory** — authoritative matching stays on `threat_intel_matches` / match pipeline |
+| DNS policy (RPZ) | `dns-policy:hit`, `dns-policy:<policy>` | Default ~15m | **Advisory** — clients that recently triggered RPZ |
+
+Threat and DNS-policy tags are **point-in-time evidence** at flow ingest. They
+are never retro-applied to historical rows. Investigation surfaces must not
+treat tag columns as the sole authority for threat coverage.
+
 Import rules:
 
 - Follows NetBox `next` pagination to exhaustion.

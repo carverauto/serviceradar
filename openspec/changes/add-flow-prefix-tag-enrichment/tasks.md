@@ -141,18 +141,18 @@
 
 ## 12. Threat-intel tag source (amendment)
 
-- [ ] 12.1 `ti:` source importer materializing current OTX IP/CIDR indicators
+- [x] 12.1 `ti:` source importer materializing current OTX IP/CIDR indicators
       into high-cadence snapshots with expiry handling
-- [ ] 12.2 Advisory semantics enforced in UI copy and docs (point-in-time
+- [x] 12.2 Advisory semantics enforced in UI copy and docs (point-in-time
       evidence; authority stays with threat_intel_matches)
 - [ ] 12.3 Engine adoption by the CTI current-matching path (coordinate with
       improve-threat-intel-investigation; no second LPM implementation)
-- [ ] 12.4 Tests: active-indicator tagging, no retro-tagging, expiry stops
+- [x] 12.4 Tests: active-indicator tagging, no retro-tagging, expiry stops
       tagging
 
 ## 13. DNS-policy (RPZ) tag source (amendment)
 
-- [ ] 13.1 Periodic materializer from ingested PowerDNS/RPZ hostile-IP
+- [x] 13.1 Periodic materializer from ingested PowerDNS/RPZ hostile-IP
       triggers into a `dns-policy:` snapshot source
-- [ ] 13.2 Tests: trigger tagging, expiry/removal on feed update, advisory
+- [x] 13.2 Tests: trigger tagging, expiry/removal on feed update, advisory
       provenance

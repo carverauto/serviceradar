@@ -122,9 +122,32 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
       body
       |> parse_feed_indicators(max_indicators_per_feed)
       |> Enum.each(&upsert_indicator(&1, source, actor, now, expires_at))
+
+      # Refresh advisory ti: trie after feed upserts (best-effort).
+      _ = maybe_reload_ti_trie()
     end
 
     :ok
+  end
+
+  defp maybe_reload_ti_trie do
+    if Code.ensure_loaded?(ServiceRadar.PrefixTags.ThreatIntelSource) do
+      case ServiceRadar.PrefixTags.ThreatIntelSource.reload() do
+        {:ok, count} ->
+          Logger.info("Prefix-tag ti trie refreshed after threat feed", rows: count)
+          :ok
+
+        {:error, reason} ->
+          Logger.debug("Prefix-tag ti trie reload skipped", reason: inspect(reason))
+          :ok
+      end
+    else
+      :ok
+    end
+  rescue
+    e ->
+      Logger.debug("Prefix-tag ti trie reload failed", error: Exception.message(e))
+      :ok
   end
 
   defp download_feed(url, timeout_ms) do

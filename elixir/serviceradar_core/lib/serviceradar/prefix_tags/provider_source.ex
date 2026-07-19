@@ -35,24 +35,27 @@ defmodule ServiceRadar.PrefixTags.ProviderSource do
   def source_name, do: @source
 
   @doc """
-  Load the active provider snapshot into the prefix-tag Store and broadcast.
+  Load the active provider snapshot into the prefix-tag Store.
 
-  Returns `{:ok, count}` or `{:error, reason}`. Empty/missing snapshots clear the
-  provider trie.
+  Options:
+  - `:broadcast?` (default `true`) — notify peer nodes. Loaders that invoke
+    this on invalidation must pass `broadcast?: false` to avoid a PubSub loop.
   """
-  @spec reload() :: {:ok, non_neg_integer()} | {:error, term()}
-  def reload do
+  @spec reload(keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def reload(opts \\ []) do
+    broadcast? = Keyword.get(opts, :broadcast?, true)
+
     case fetch_active_snapshot_id() do
       {:ok, nil} ->
         Store.clear(@source)
-        _ = Loader.broadcast_invalidation(%{source: @source})
+        maybe_broadcast(broadcast?)
         {:ok, 0}
 
       {:ok, snapshot_id} ->
         case fetch_rows(snapshot_id) do
           {:ok, rows} ->
             _ = Store.put_rows(@source, rows)
-            _ = Loader.broadcast_invalidation(%{source: @source})
+            maybe_broadcast(broadcast?)
             Logger.info("PrefixTags.ProviderSource loaded provider trie", rows: length(rows))
             {:ok, length(rows)}
 
@@ -64,6 +67,9 @@ defmodule ServiceRadar.PrefixTags.ProviderSource do
         {:error, reason}
     end
   end
+
+  defp maybe_broadcast(true), do: Loader.broadcast_invalidation(%{source: @source})
+  defp maybe_broadcast(false), do: :ok
 
   @doc "Resolve hosting provider name for an IP from the provider trie only."
   @spec provider_for_ip(String.t() | nil) :: String.t() | nil

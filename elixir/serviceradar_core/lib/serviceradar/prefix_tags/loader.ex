@@ -135,9 +135,9 @@ defmodule ServiceRadar.PrefixTags.Loader do
   @impl true
   def handle_continue(:initial_load, state) do
     state = do_reload(state, :all)
-    # Provider CIDRs live in a separate snapshot table; compile into the
-    # `provider` source trie when that consolidation path is available.
-    _ = maybe_reload_provider_source()
+    # External sources (provider/ti/dns-policy) are compiled from other tables,
+    # not platform.prefix_tags — reload them after snapshot-backed sources.
+    _ = reload_all_external_sources()
     {:noreply, state}
   end
 
@@ -154,19 +154,27 @@ defmodule ServiceRadar.PrefixTags.Loader do
   def handle_info({:prefix_tags_snapshot_changed, meta}, state) when is_map(meta) do
     source = Map.get(meta, :source) || Map.get(meta, "source")
 
-    scope =
-      if is_binary(source) and source != "" do
-        source
-      else
-        :all
-      end
+    Logger.info("PrefixTags.Loader reloading after snapshot invalidation", source: inspect(source))
 
-    Logger.info("PrefixTags.Loader reloading after snapshot invalidation", source: inspect(scope))
-    {:noreply, do_reload(state, scope)}
+    cond do
+      is_binary(source) and external_source?(source) ->
+        _ = reload_external_source(source)
+        {:noreply, state}
+
+      is_binary(source) and source != "" ->
+        {:noreply, do_reload(state, source)}
+
+      true ->
+        state = do_reload(state, :all)
+        _ = reload_all_external_sources()
+        {:noreply, state}
+    end
   end
 
   def handle_info({:prefix_tags_snapshot_changed, _meta}, state) do
-    {:noreply, do_reload(state, :all)}
+    state = do_reload(state, :all)
+    _ = reload_all_external_sources()
+    {:noreply, state}
   end
 
   def handle_info({:nodeup, _node, _info}, state) do
@@ -347,23 +355,55 @@ defmodule ServiceRadar.PrefixTags.Loader do
     )
   end
 
-  defp maybe_reload_provider_source do
-    if Code.ensure_loaded?(ServiceRadar.PrefixTags.ProviderSource) do
-      case ServiceRadar.PrefixTags.ProviderSource.reload() do
-        {:ok, _} -> :ok
-        {:error, reason} ->
-          Logger.debug("PrefixTags.Loader provider source reload skipped",
-            reason: inspect(reason)
-          )
+  # Sources compiled from tables other than prefix_tag_snapshots/prefix_tags.
+  # Invalidating these must re-run the materializer, never a prefix_tags SELECT
+  # (which would be empty and wipe the trie).
+  @external_source_modules %{
+    "provider" => ServiceRadar.PrefixTags.ProviderSource,
+    "ti" => ServiceRadar.PrefixTags.ThreatIntelSource,
+    "dns-policy" => ServiceRadar.PrefixTags.DnsPolicySource
+  }
 
+  defp external_source?(source), do: Map.has_key?(@external_source_modules, source)
+
+  defp reload_all_external_sources do
+    Enum.each(Map.keys(@external_source_modules), &reload_external_source/1)
+    :ok
+  end
+
+  defp reload_external_source(source) when is_binary(source) do
+    case Map.get(@external_source_modules, source) do
+      nil ->
+        :ok
+
+      mod ->
+        if Code.ensure_loaded?(mod) and function_exported?(mod, :reload, 1) do
+          # broadcast?: false — we are already handling a broadcast (or boot).
+          case mod.reload(broadcast?: false) do
+            {:ok, count} ->
+              Logger.debug("PrefixTags.Loader external source reloaded",
+                source: source,
+                rows: count
+              )
+
+              :ok
+
+            {:error, reason} ->
+              Logger.debug("PrefixTags.Loader external source reload skipped",
+                source: source,
+                reason: inspect(reason)
+              )
+
+              :ok
+          end
+        else
           :ok
-      end
-    else
-      :ok
+        end
     end
   rescue
     e ->
-      Logger.debug("PrefixTags.Loader provider source reload failed",
+      Logger.debug("PrefixTags.Loader external source reload failed",
+        source: source,
         error: Exception.message(e)
       )
 
