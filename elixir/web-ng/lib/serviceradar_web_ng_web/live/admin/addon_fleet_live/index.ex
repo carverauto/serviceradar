@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadarWebNG.Plugins.AddonFleet
+  alias ServiceRadarWebNG.Plugins.AddonRollouts
   alias ServiceRadarWebNG.Plugins.AddonRuntimePolicy
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
@@ -27,19 +28,24 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   @base_path "/settings/agents/addons/fleet"
 
   @attention_labels %{
-    staged_not_approved: "staged / not approved",
-    assigned_not_running: "assigned, not running",
-    stopped_or_inactive: "stopped / inactive",
-    version_drift: "version drift",
-    observed_unassigned: "running, unassigned"
+    "runtime_reported_unhealthy" => "runtime reported unhealthy",
+    "desired_package_not_approved" => "desired package is not approved",
+    "desired_state_not_converged" => "desired state did not converge",
+    "candidate_health_timeout" => "candidate health timed out",
+    "rollback_recovery_unverified" => "rollback recovery is unverified"
   }
+
+  @categories ~w(healthy updating action_required unavailable expected_inactive observed_only)
 
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
     if RBAC.can?(scope, "plugins.view") do
-      {:ok, load_fleet(socket, default_filters())}
+      {:ok,
+       socket
+       |> assign(:can_manage_rollouts, RBAC.can?(scope, "plugins.assign"))
+       |> load_fleet(default_filters())}
     else
       {:ok,
        socket
@@ -66,6 +72,30 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     {:noreply, load_fleet(socket, socket.assigns.filters)}
   end
 
+  def handle_event("rollout_action", %{"id" => id, "operation" => operation}, socket) do
+    result =
+      case operation do
+        "pause" -> AddonRollouts.pause(id, scope: socket.assigns.current_scope)
+        "resume" -> AddonRollouts.resume(id, scope: socket.assigns.current_scope)
+        "cancel" -> AddonRollouts.cancel(id, scope: socket.assigns.current_scope)
+        "rollback" -> AddonRollouts.rollback(id, scope: socket.assigns.current_scope)
+        _ -> {:error, :unsupported_operation}
+      end
+
+    socket =
+      case result do
+        :ok ->
+          socket
+          |> put_flash(:info, "Rollout #{operation} accepted.")
+          |> load_fleet(socket.assigns.filters)
+
+        {:error, reason} ->
+          put_flash(socket, :error, "Rollout action failed: #{inspect(reason)}")
+      end
+
+    {:noreply, socket}
+  end
+
   def handle_event("toggle_details", %{"row" => key}, socket) do
     expanded = socket.assigns.expanded_rows
 
@@ -86,7 +116,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     |> assign(:current_path, @base_path)
     |> assign(:all_rows, rows)
     |> assign(:catalog_only, catalog_only)
+    |> assign(:rollouts, AddonRollouts.list(scope: socket.assigns.current_scope))
     |> assign(:expanded_rows, MapSet.new())
+    |> assign(:categories, @categories)
     |> assign(:agent_options, AddonFleet.agents(rows))
     |> assign(:addon_options, AddonFleet.addon_ids(rows))
     |> apply_filters(filters)
@@ -102,7 +134,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   end
 
   defp default_filters do
-    %{"agent_uid" => "", "addon_id" => "", "attention_only" => "false"}
+    %{
+      "agent_uid" => "",
+      "addon_id" => "",
+      "category" => "",
+      "attention_only" => "false"
+    }
   end
 
   defp row_key(row), do: "#{row.agent_uid}|#{row.addon_id}"
@@ -134,11 +171,14 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
           </.ui_button>
         </div>
 
-        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <.stat_card label="Deployments" value={@summary.total} />
-          <.stat_card label="Needs attention" value={@summary.attention} tone="error" />
-          <.stat_card label="Running" value={@summary.running} tone="success" />
-          <.stat_card label="Staged packages" value={@summary.staged} tone="warning" />
+        <div class="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+          <.stat_card label="Managed" value={@summary.managed} />
+          <.stat_card label="Healthy" value={@summary.healthy} tone="success" />
+          <.stat_card label="Updating" value={@summary.updating} tone="info" />
+          <.stat_card label="Needs attention" value={@summary.action_required} tone="error" />
+          <.stat_card label="Unavailable" value={@summary.unavailable} tone="warning" />
+          <.stat_card label="Expected idle" value={@summary.expected_inactive} />
+          <.stat_card label="Observed only" value={@summary.observed_only} />
         </div>
 
         <.ui_panel>
@@ -153,6 +193,18 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                 <option value="">All agents</option>
                 <%= for {label, uid} <- @agent_options do %>
                   <option value={uid} selected={@filters["agent_uid"] == uid}>{label}</option>
+                <% end %>
+              </select>
+            </div>
+
+            <div>
+              <label class="label"><span class="label-text">Health category</span></label>
+              <select name="filter[category]" class="select select-bordered select-sm min-w-[12rem]">
+                <option value="">All categories</option>
+                <%= for category <- @categories do %>
+                  <option value={category} selected={@filters["category"] == category}>
+                    {category |> String.replace("_", " ") |> String.capitalize()}
+                  </option>
                 <% end %>
               </select>
             </div>
@@ -186,6 +238,95 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
           </form>
         </.ui_panel>
 
+        <.ui_panel :if={@rollouts != []}>
+          <:header>
+            <div>
+              <div class="text-sm font-semibold">Automatic rollouts</div>
+              <p class="text-xs text-base-content/60">
+                Signed and approved updates advance through canaries and health-gated batches.
+              </p>
+            </div>
+          </:header>
+
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                  <th>Add-on</th>
+                  <th>Version</th>
+                  <th>Progress</th>
+                  <th>State</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={rollout <- @rollouts} data-role="addon-rollout-row">
+                  <td>
+                    <div class="font-medium">{rollout.addon_id}</div>
+                    <div class="font-mono text-[11px] text-base-content/50">
+                      {rollout.source_type} · {rollout.source_id}
+                    </div>
+                  </td>
+                  <td class="font-mono text-xs">
+                    {rollout.previous_package.version} → {rollout.candidate_package.version}
+                  </td>
+                  <td class="text-xs">{rollout_progress(rollout.targets)}</td>
+                  <td>
+                    <span class={["badge badge-sm", rollout_state_badge(rollout.state)]}>
+                      {rollout.state}
+                    </span>
+                    <div :if={rollout.blocked_reason} class="mt-1 text-xs text-error">
+                      {rollout.blocked_reason}
+                    </div>
+                  </td>
+                  <td class="text-right">
+                    <div :if={@can_manage_rollouts} class="flex justify-end gap-1">
+                      <button
+                        :if={rollout.state in [:pending, :running]}
+                        class="btn btn-ghost btn-xs"
+                        phx-click="rollout_action"
+                        phx-value-id={rollout.id}
+                        phx-value-operation="pause"
+                      >
+                        Pause
+                      </button>
+                      <button
+                        :if={rollout.state == :paused}
+                        class="btn btn-ghost btn-xs"
+                        phx-click="rollout_action"
+                        phx-value-id={rollout.id}
+                        phx-value-operation="resume"
+                      >
+                        Resume
+                      </button>
+                      <button
+                        :if={rollout.state in [:pending, :running, :paused]}
+                        class="btn btn-ghost btn-xs text-warning"
+                        phx-click="rollout_action"
+                        phx-value-id={rollout.id}
+                        phx-value-operation="rollback"
+                        data-confirm="Roll every advanced target back to the prior package?"
+                      >
+                        Roll back
+                      </button>
+                      <button
+                        :if={rollout.state in [:pending, :running, :paused]}
+                        class="btn btn-ghost btn-xs text-error"
+                        phx-click="rollout_action"
+                        phx-value-id={rollout.id}
+                        phx-value-operation="cancel"
+                        data-confirm="Cancel this rollout and restore stable desired state?"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </.ui_panel>
+
         <.ui_panel>
           <:header>
             <div class="flex flex-wrap items-center justify-between gap-3">
@@ -213,7 +354,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                     <th>Status</th>
                     <th>Runtime</th>
                     <th>Last seen</th>
-                    <th>Attention</th>
+                    <th>Health</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -289,16 +430,17 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                       </td>
                       <td class="align-top">
                         <div class="flex max-w-[14rem] flex-wrap gap-1">
-                          <%= for flag <- row.attention do %>
-                            <span class={[
-                              "badge badge-xs h-auto whitespace-normal py-0.5 text-left leading-tight",
-                              attention_badge(flag)
-                            ]}>
-                              {attention_label(flag)}
+                          <span class={[
+                            "badge badge-xs h-auto whitespace-normal py-0.5 text-left leading-tight",
+                            category_badge(row.category)
+                          ]}>
+                            {category_label(row.category)}
+                          </span>
+                          <span class="basis-full text-xs text-base-content/50">
+                            {reason_label(row.reason_code)}
+                            <span :if={row.evidence_age_seconds}>
+                              · evidence {format_age(row.evidence_age_seconds)} old
                             </span>
-                          <% end %>
-                          <span :if={row.attention == []} class="text-xs text-base-content/40">
-                            ok
                           </span>
                         </div>
                       </td>
@@ -511,6 +653,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   defp stat_tone_class("error", value) when value > 0, do: "text-error"
   defp stat_tone_class("warning", value) when value > 0, do: "text-warning"
   defp stat_tone_class("success", value) when value > 0, do: "text-success"
+  defp stat_tone_class("info", value) when value > 0, do: "text-info"
   defp stat_tone_class(_tone, _value), do: "text-base-content"
 
   defp verification_badge("verified"), do: "badge-success badge-soft"
@@ -536,6 +679,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   defp assigned_label(%{management_mode: :required}), do: "required"
   defp assigned_label(_row), do: "unassigned"
 
+  defp running_badge(%{category: :healthy}), do: "badge-success"
+  defp running_badge(%{category: :expected_inactive}), do: "badge-info badge-soft"
+  defp running_badge(%{category: :updating}), do: "badge-info"
+  defp running_badge(%{category: :unavailable}), do: "badge-warning badge-soft"
   defp running_badge(%{active?: true}), do: "badge-success"
   defp running_badge(%{running_state: nil}), do: "badge-ghost"
   defp running_badge(_row), do: "badge-error"
@@ -543,11 +690,34 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   defp running_label(%{running_state: nil}), do: "not reported"
   defp running_label(%{running_state: state}), do: state
 
-  defp attention_badge(:staged_not_approved), do: "badge-warning"
-  defp attention_badge(:observed_unassigned), do: "badge-info"
-  defp attention_badge(_flag), do: "badge-error"
+  defp category_badge(:healthy), do: "badge-success"
+  defp category_badge(:updating), do: "badge-info"
+  defp category_badge(:action_required), do: "badge-error"
+  defp category_badge(:unavailable), do: "badge-warning"
+  defp category_badge(:expected_inactive), do: "badge-ghost"
+  defp category_badge(:observed_only), do: "badge-ghost badge-outline"
+  defp category_badge(_), do: "badge-ghost"
 
-  defp attention_label(flag), do: Map.get(@attention_labels, flag, to_string(flag))
+  defp category_label(category), do: category |> to_string() |> String.replace("_", " ")
+
+  defp reason_label(reason), do: Map.get(@attention_labels, reason, reason |> to_string() |> String.replace("_", " "))
+
+  defp rollout_progress(targets) do
+    total = length(targets)
+
+    complete =
+      Enum.count(targets, &(&1.state in [:succeeded, :promoted, :rolled_back, :excluded]))
+
+    held = Enum.count(targets, &(&1.state == :rolled_back))
+    suffix = if held > 0, do: " · #{held} held on prior version", else: ""
+    "#{complete}/#{total} complete#{suffix}"
+  end
+
+  defp rollout_state_badge(:completed), do: "badge-success"
+  defp rollout_state_badge(state) when state in [:running, :pending], do: "badge-info"
+  defp rollout_state_badge(:paused), do: "badge-warning"
+  defp rollout_state_badge(state) when state in [:failed, :rolled_back], do: "badge-error"
+  defp rollout_state_badge(_), do: "badge-ghost"
 
   defp diagnostic_link_class(reason) do
     if AddonRuntimePolicy.resource_limit_warning?(reason), do: "text-warning", else: "text-error"
@@ -564,4 +734,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   end
 
   defp format_time(_other), do: "—"
+
+  defp format_age(seconds) when seconds < 60, do: "#{seconds}s"
+  defp format_age(seconds) when seconds < 3_600, do: "#{div(seconds, 60)}m"
+  defp format_age(seconds), do: "#{div(seconds, 3_600)}h"
 end

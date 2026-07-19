@@ -105,8 +105,11 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
         |> assign(:selected_package, package)
         |> assign(:newer_approved_package, newer_approved_package(socket.assigns.packages, package))
         |> assign(:show_details_modal, true)
-        |> assign(:assignment_form, default_assignment_form())
-        |> assign(:assignment_preview, build_assignment_preview(default_assignment_form(), package, scope))
+        |> assign(:assignment_form, default_assignment_form(package))
+        |> assign(
+          :assignment_preview,
+          build_assignment_preview(default_assignment_form(package), package, scope)
+        )
         |> assign(:assignments, list_assignments_for_package(package.id, scope))
         |> assign(:addon_profiles, list_profiles_for_package(package.id, scope))
         |> assign(:profile_form, default_profile_form(package))
@@ -232,7 +235,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   end
 
   def handle_event("assignment_change", %{"assignment" => form}, socket) do
-    form = Map.merge(default_assignment_form(), form)
+    form = Map.merge(default_assignment_form(socket.assigns.selected_package), form)
 
     {:noreply,
      socket
@@ -254,18 +257,28 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   def handle_event("create_assignment", %{"assignment" => form}, socket) do
     scope = socket.assigns.current_scope
     package = socket.assigns.selected_package
-    form = Map.merge(default_assignment_form(), form)
+    form = Map.merge(default_assignment_form(package), form)
 
     with {:ok, agent_uids} <- fetch_assignment_agent_uids(form, package, scope),
          {:ok, params} <- parse_params(form, package.config_schema) do
-      case create_assignments(agent_uids, package, params, parse_args(Map.get(form, "args")), scope) do
+      case create_assignments(
+             agent_uids,
+             package,
+             params,
+             parse_args(Map.get(form, "args")),
+             update_policy_attrs(form),
+             scope
+           ) do
         {:ok, count} ->
           {:noreply,
            socket
            |> put_flash(:info, assignment_success_message(count))
            |> assign(:assignments, list_assignments_for_package(package.id, scope))
-           |> assign(:assignment_form, default_assignment_form())
-           |> assign(:assignment_preview, build_assignment_preview(default_assignment_form(), package, scope))}
+           |> assign(:assignment_form, default_assignment_form(package))
+           |> assign(
+             :assignment_preview,
+             build_assignment_preview(default_assignment_form(package), package, scope)
+           )}
 
         {:error, error, _created_count} ->
           {:noreply, put_flash(socket, :error, "Failed to assign: #{format_error(error)}")}
@@ -338,6 +351,40 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
       {:error, error} ->
         {:noreply, put_flash(socket, :error, "Profile reconcile failed: #{format_error(error)}")}
+    end
+  end
+
+  def handle_event("set_assignment_update_policy", %{"id" => id, "policy" => policy}, socket) do
+    attrs = update_policy_only_attrs(policy)
+
+    case AddonAssignments.update(id, attrs, scope: socket.assigns.current_scope) do
+      {:ok, _} ->
+        package = socket.assigns.selected_package
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Assignment update policy changed.")
+         |> assign(:assignments, list_assignments_for_package(package.id, socket.assigns.current_scope))}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Could not change update policy: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("set_profile_update_policy", %{"id" => id, "policy" => policy}, socket) do
+    attrs = update_policy_only_attrs(policy)
+
+    case AddonProfiles.update(id, attrs, scope: socket.assigns.current_scope) do
+      {:ok, _} ->
+        package = socket.assigns.selected_package
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Profile update policy changed.")
+         |> assign(:addon_profiles, list_profiles_for_package(package.id, socket.assigns.current_scope))}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Could not change update policy: #{format_error(reason)}")}
     end
   end
 
@@ -820,6 +867,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                             >
                               reconciled
                             </span>
+                            <span class="badge badge-info badge-soft badge-xs">
+                              {update_policy_label(assignment.update_policy)}
+                            </span>
                           </div>
                           <div
                             :if={assignment_reconcile_error(assignment, @addon_profiles)}
@@ -835,6 +885,16 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                           ]}>
                             {if assignment.enabled, do: "enabled", else: "disabled"}
                           </span>
+                          <button
+                            :if={@can_assign_addons}
+                            type="button"
+                            class="btn btn-ghost btn-xs"
+                            phx-click="set_assignment_update_policy"
+                            phx-value-id={assignment.id}
+                            phx-value-policy={next_update_policy(assignment.update_policy)}
+                          >
+                            {update_policy_action_label(assignment.update_policy)}
+                          </button>
                           <button
                             :if={@can_assign_addons}
                             type="button"
@@ -898,6 +958,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                             <span :if={profile.last_reconciled_at} class="badge badge-ghost badge-xs">
                               reconciled
                             </span>
+                            <span class="badge badge-info badge-soft badge-xs">
+                              {update_policy_label(profile.update_policy)}
+                            </span>
                             <span
                               :if={report.status}
                               class={["badge badge-xs", profile_report_status_badge(report.status)]}
@@ -939,6 +1002,16 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                         >
                           Reconcile
                         </button>
+                        <button
+                          :if={@can_assign_addons}
+                          type="button"
+                          class="btn btn-ghost btn-xs"
+                          phx-click="set_profile_update_policy"
+                          phx-value-id={profile.id}
+                          phx-value-policy={next_update_policy(profile.update_policy)}
+                        >
+                          {update_policy_action_label(profile.update_policy)}
+                        </button>
                       </li>
                     <% end %>
                   </ul>
@@ -967,6 +1040,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                       placeholder="in:agents"
                     />
                   </div>
+                  <.update_policy_fields prefix="profile" form={@profile_form} />
                   <div
                     :if={
                       config_schema_present?(flat_config_form_schema(@selected_package.config_schema))
@@ -1115,6 +1189,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                     ><%= @assignment_form["agent_ids"] %></textarea>
                   </div>
 
+                  <.update_policy_fields prefix="assignment" form={@assignment_form} />
+
                   <div
                     :if={show_assignment_preview?(@assignment_preview)}
                     id="addon-compatibility-preview"
@@ -1249,6 +1325,88 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
         <% end %>
       </Shell.settings_chrome>
     </Layouts.app>
+    """
+  end
+
+  attr :prefix, :string, required: true
+  attr :form, :map, required: true
+
+  defp update_policy_fields(assigns) do
+    ~H"""
+    <div class="rounded-lg border border-info/20 bg-info/5 p-3 space-y-3">
+      <div>
+        <label class="label"><span class="label-text">Updates</span></label>
+        <select name={"#{@prefix}[update_policy]"} class="select select-bordered w-full">
+          <option
+            value="track_latest_approved"
+            selected={@form["update_policy"] == "track_latest_approved"}
+          >
+            Automatically track latest approved (recommended)
+          </option>
+          <option value="manual_pin" selected={@form["update_policy"] == "manual_pin"}>
+            Pin this version
+          </option>
+        </select>
+        <p class="mt-1 text-xs text-base-content/60">
+          Tracked packages roll out automatically through a canary and health-gated batches.
+          Approval never widens the capability grant.
+        </p>
+      </div>
+
+      <div :if={@form["update_policy"] == "track_latest_approved"} class="grid gap-3 sm:grid-cols-3">
+        <.rollout_number prefix={@prefix} form={@form} field="canary_size" label="Canary" min="1" />
+        <.rollout_number prefix={@prefix} form={@form} field="batch_size" label="Batch size" min="1" />
+        <.rollout_number
+          prefix={@prefix}
+          form={@form}
+          field="max_parallel"
+          label="Max parallel"
+          min="1"
+        />
+        <.rollout_number
+          prefix={@prefix}
+          form={@form}
+          field="soak_seconds"
+          label="Soak (seconds)"
+          min="0"
+        />
+        <.rollout_number
+          prefix={@prefix}
+          form={@form}
+          field="health_timeout_seconds"
+          label="Health timeout (seconds)"
+          min="30"
+        />
+        <.rollout_number
+          prefix={@prefix}
+          form={@form}
+          field="tolerated_failures"
+          label="Failure tolerance"
+          min="0"
+        />
+      </div>
+    </div>
+    """
+  end
+
+  attr :prefix, :string, required: true
+  attr :form, :map, required: true
+  attr :field, :string, required: true
+  attr :label, :string, required: true
+  attr :min, :string, required: true
+
+  defp rollout_number(assigns) do
+    ~H"""
+    <div>
+      <label class="label"><span class="label-text text-xs">{@label}</span></label>
+      <input
+        type="number"
+        min={@min}
+        name={"#{@prefix}[#{@field}]"}
+        value={@form[@field]}
+        class="input input-bordered input-sm w-full"
+      />
+    </div>
     """
   end
 
@@ -1645,7 +1803,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     "#{name} (#{agent.uid})"
   end
 
-  defp default_assignment_form do
+  defp default_assignment_form(package \\ nil) do
     %{
       "target_mode" => "agent",
       "cohort" => "connected",
@@ -1653,7 +1811,14 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
       "agent_ids" => "",
       "params" => "",
       "params_raw" => "",
-      "args" => ""
+      "args" => "",
+      "update_policy" => default_update_policy(package),
+      "canary_size" => "1",
+      "batch_size" => "10",
+      "max_parallel" => "10",
+      "soak_seconds" => "300",
+      "health_timeout_seconds" => "900",
+      "tolerated_failures" => "0"
     }
   end
 
@@ -1666,7 +1831,14 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
       "priority" => "100",
       "max_targets" => "10000",
       "params" => "{}",
-      "args" => ""
+      "args" => "",
+      "update_policy" => "manual_pin",
+      "canary_size" => "1",
+      "batch_size" => "10",
+      "max_parallel" => "10",
+      "soak_seconds" => "300",
+      "health_timeout_seconds" => "900",
+      "tolerated_failures" => "0"
     }
   end
 
@@ -1680,7 +1852,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
         base["params"]
       end
 
-    %{base | "name" => "#{package.name} profile", "params" => params}
+    %{
+      base
+      | "name" => "#{package.name} profile",
+        "params" => params,
+        "update_policy" => default_update_policy(package)
+    }
   end
 
   defp default_profile_config_params(package) do
@@ -1720,14 +1897,15 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     with {:ok, agent_uid} <- fetch_agent_uid(form), do: {:ok, [agent_uid]}
   end
 
-  defp create_assignments(agent_uids, package, params, args, scope) do
+  defp create_assignments(agent_uids, package, params, args, policy_attrs, scope) do
     Enum.reduce_while(agent_uids, {:ok, 0}, fn agent_uid, {:ok, count} ->
-      attrs = %{
-        agent_uid: agent_uid,
-        addon_package_id: package.id,
-        params: params,
-        args: args
-      }
+      attrs =
+        Map.merge(policy_attrs, %{
+          agent_uid: agent_uid,
+          addon_package_id: package.id,
+          params: params,
+          args: args
+        })
 
       # Upsert by (agent_uid, addon_id): re-pushing the same add-on (or upgrading
       # to a newer package of it) must update the existing assignment rather than
@@ -1745,6 +1923,18 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   defp source_label(source) when is_atom(source), do: Atom.to_string(source)
   defp source_label(source) when is_binary(source), do: source
   defp source_label(_source), do: "unknown"
+
+  defp update_policy_label(:track_latest_approved), do: "automatic updates"
+  defp update_policy_label("track_latest_approved"), do: "automatic updates"
+  defp update_policy_label(_), do: "version pinned"
+
+  defp next_update_policy(:track_latest_approved), do: "manual_pin"
+  defp next_update_policy("track_latest_approved"), do: "manual_pin"
+  defp next_update_policy(_), do: "track_latest_approved"
+
+  defp update_policy_action_label(:track_latest_approved), do: "Pin"
+  defp update_policy_action_label("track_latest_approved"), do: "Pin"
+  defp update_policy_action_label(_), do: "Enable auto-update"
 
   defp assignment_source_text(assignment, profiles) do
     case source_label(assignment.source) do
@@ -1870,9 +2060,57 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
        args: parse_args(Map.get(form, "args")),
        priority: priority,
        max_targets: max_targets,
-       enabled: true
+       enabled: true,
+       update_policy: update_policy(Map.get(form, "update_policy")),
+       explicit_version_pin: Map.get(form, "update_policy") == "manual_pin",
+       rollout_policy: rollout_policy_attrs(form)
      }}
   end
+
+  defp update_policy_attrs(form) do
+    policy = update_policy(Map.get(form, "update_policy"))
+
+    %{
+      update_policy: policy,
+      explicit_version_pin: policy == :manual_pin,
+      rollout_policy: rollout_policy_attrs(form)
+    }
+  end
+
+  defp update_policy_only_attrs(value) do
+    policy = update_policy(value)
+    %{update_policy: policy, explicit_version_pin: policy == :manual_pin}
+  end
+
+  defp update_policy("track_latest_approved"), do: :track_latest_approved
+  defp update_policy(_), do: :manual_pin
+
+  defp rollout_policy_attrs(form) do
+    %{
+      "canary_size" => parse_rollout_integer(form, "canary_size", 1),
+      "batch_size" => parse_rollout_integer(form, "batch_size", 10),
+      "max_parallel" => parse_rollout_integer(form, "max_parallel", 10),
+      "soak_seconds" => parse_rollout_integer(form, "soak_seconds", 300),
+      "health_timeout_seconds" => parse_rollout_integer(form, "health_timeout_seconds", 900),
+      "tolerated_failures" => parse_rollout_integer(form, "tolerated_failures", 0)
+    }
+  end
+
+  defp parse_rollout_integer(form, key, default) do
+    case Integer.parse(to_string(Map.get(form, key, default))) do
+      {value, ""} -> value
+      _ -> default
+    end
+  end
+
+  defp default_update_policy(%{
+         source_type: :first_party,
+         status: :approved,
+         verification_status: "verified",
+         verification_error: nil
+       }), do: "track_latest_approved"
+
+  defp default_update_policy(_), do: "manual_pin"
 
   defp profile_target_query(value) when is_binary(value) do
     case String.trim(value) do

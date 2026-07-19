@@ -455,9 +455,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id}, actor: actor)
       |> Ash.Query.filter(enabled == true)
       |> Ash.Query.sort(source: :asc, updated_at: :desc, inserted_at: :desc)
-      |> Ash.Query.load(:addon_package)
+      |> Ash.Query.load([:addon_package, :rollout_package])
       |> Ash.read!()
       |> Enum.map(&ensure_addon_package_loaded(&1, actor))
+      |> Enum.map(&apply_rollout_package_override/1)
       |> Enum.reject(&retired_addon_assignment?/1)
       |> Enum.filter(&approved_addon_package?/1)
       |> select_effective_addon_assignments()
@@ -539,6 +540,17 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       _ -> assignment
     end
   end
+
+  # The authoritative assignment/profile package remains stable while a rollout
+  # advances one target at a time. Config generation alone resolves the persisted
+  # per-target override, so profile reconciliation cannot bypass the batch gate.
+  defp apply_rollout_package_override(
+         %AddonAssignment{rollout_id: rollout_id, rollout_package: %AddonPackage{} = package} =
+           assignment
+       )
+       when not is_nil(rollout_id), do: %{assignment | addon_package: package}
+
+  defp apply_rollout_package_override(%AddonAssignment{} = assignment), do: assignment
 
   defp approved_addon_package?(%AddonAssignment{
          addon_package: %AddonPackage{status: :approved, verification_status: "blob_missing"}

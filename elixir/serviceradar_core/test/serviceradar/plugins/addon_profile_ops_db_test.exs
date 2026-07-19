@@ -45,6 +45,12 @@ defmodule ServiceRadar.Plugins.AddonProfileOpsDbTest do
     def disable_assignment(_assignment, _actor), do: {:error, :unexpected_assignment}
   end
 
+  defmodule FailingResolver do
+    @moduledoc false
+
+    def resolve(_inputs, _opts), do: {:error, ["forced resolver failure"]}
+  end
+
   setup_all do
     ServiceRadar.TestSupport.start_core!()
     :ok
@@ -129,5 +135,23 @@ defmodule ServiceRadar.Plugins.AddonProfileOpsDbTest do
     assert result.desired_assignments == 0
     assert result.skip_counts == %{"missing_required_capability" => 1}
     assert result.upserted == 0
+
+    {:ok, staged_package} =
+      package
+      |> Ash.Changeset.for_update(:reimport, %{}, actor: actor)
+      |> Ash.update()
+
+    assert staged_package.status == :staged
+
+    assert {:error, ["forced resolver failure"]} =
+             AddonProfileOps.reconcile_by_id(profile.id,
+               actor: actor,
+               resolver: FailingResolver
+             )
+
+    assert {:ok, reconciled_profile} = AddonProfile.get_by_id(profile.id, actor: actor)
+    assert reconciled_profile.last_reconcile_summary["status"] == "failed"
+    assert reconciled_profile.last_reconcile_summary["last_error"] == "forced resolver failure"
+    assert %DateTime{} = reconciled_profile.last_reconciled_at
   end
 end
