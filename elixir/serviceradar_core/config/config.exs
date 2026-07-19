@@ -206,7 +206,7 @@ config :serviceradar_core,
 # Prefix-tag flow enrichment (LPM trie). Default OFF until migrations are known
 # applied on every EventWriter node (deploy-before-migration would fail inserts
 # once the Diesel schema expects the new columns). Fail-open when enabled.
-# Provider trie defaults ON (SQL/ProviderCidrCache is legacy fallback only).
+# Provider trie defaults ON (SQL is boot/empty-trie fallback only; no ETS cache).
 config :serviceradar_core,
   prefix_tag_enrichment_enabled: false,
   # Serve hosting-provider lookups from the provider: trie (ProviderSource loads at boot).

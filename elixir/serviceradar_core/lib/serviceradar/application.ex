@@ -133,12 +133,9 @@ defmodule ServiceRadar.Application do
         # lookup per device instead of per event under load)
         device_correlation_cache_child(),
 
-        # Cross-batch ETS cache for flow hosting-provider CIDR lookups (one GiST
-        # probe per distinct IP per snapshot instead of per batch)
-        provider_cidr_cache_child(),
-
         # Per-node prefix-tag LPM trie loader (core-elx + web-ng when repo is on;
-        # agent-gateway excluded via repo_enabled? false)
+        # agent-gateway excluded via repo_enabled? false). Hosting-provider LPM
+        # uses the `provider` trie (ProviderSource) — no cross-batch ETS cache.
         prefix_tags_loader_child(),
 
         # Horde registries (always started for registration support)
@@ -330,18 +327,6 @@ defmodule ServiceRadar.Application do
   defp device_correlation_cache_child do
     if repo_enabled?() do
       ServiceRadar.EventWriter.DeviceCorrelationCache
-    end
-  end
-
-  defp provider_cidr_cache_child do
-    # Legacy GiST/ETS path — only needed while prefix_tag_provider_trie_enabled is off
-    # (or during the empty-trie SQL fallback window, where Process-dict caching still helps).
-    # When the provider trie is the default path, skip starting the ETS process.
-    trie_default? =
-      Application.get_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, true) == true
-
-    if repo_enabled?() and not trie_default? do
-      ServiceRadar.EventWriter.ProviderCidrCache
     end
   end
 

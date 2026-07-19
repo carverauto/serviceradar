@@ -828,6 +828,26 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       hidden_from_nav: false
     },
     %{
+      id: :prefix_tags,
+      category: :network_services,
+      parent_group: :net_services,
+      subgroup: nil,
+      title: "Prefix Tags",
+      description: "Manual IP/CIDR prefix tags for flow enrichment (NetBox/TI/DNS-policy read-only).",
+      icon: "hero-tag",
+      route: "/settings/networks/prefix-tags",
+      live_view: ServiceRadarWebNGWeb.Settings.PrefixTagsLive,
+      permission: "settings.prefix_tags.manage",
+      order: 155,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["prefix", "tags", "cidr", "ipam", "netbox", "enrichment", "lpm"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
       id: :threat_intel,
       category: :network_services,
       parent_group: :net_services,

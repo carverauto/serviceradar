@@ -32,7 +32,7 @@ feature only imports IPAM **prefixes and tags** for flow enrichment.
 | Flag | Default | Purpose |
 |------|---------|---------|
 | `prefix_tag_enrichment_enabled` | **false** | Write `src/dst_prefix_tags` on flow ingest. Keep off until migrations land on every EventWriter node (deploy-before-migration fails inserts). Fail-open when enabled. |
-| `prefix_tag_provider_trie_enabled` | **true** | Hosting-provider LPM via `provider` trie (SQL/`ProviderCidrCache` only if trie empty or flag off) |
+| `prefix_tag_provider_trie_enabled` | **true** | Hosting-provider LPM via `provider` trie (per-batch GiST SQL only if trie empty or flag off) |
 | `threat_intel_engine_match_enabled` | **true** | CTI `IpThreatIntelCache` current-match via `ti` trie incl. `ti:severity:N` (SQL if trie empty) |
 | `geo_tag_derivation_enabled` | **false** | Merge `geo:country:` / `geo:asn:` from Geolix into tag columns |
 | `prefix_tags_loader_enabled` | **true** | Boot the per-node Loader |
@@ -57,8 +57,9 @@ FROM platform.prefix_tag_snapshots
 WHERE is_active;
 ```
 
-5. Preview tags for an IP in **Settings → Integrations → CRM/IPAM → Prefix tag
-   preview** (reads the local node's trie; no DB hop).
+5. Manage manual prefixes and preview lookups under **Settings → Network
+   Services → Prefix Tags** (`/settings/networks/prefix-tags`). Imported
+   sources (NetBox, provider, ti, dns-policy) are read-only tabs.
 6. **After** migrations are applied on every EventWriter / core-elx node, enable
    tag columns:
 
@@ -192,8 +193,8 @@ Permission: `settings.prefix_tags.manage` (operator+ by default).
   flag on at production volume, evaluate a Rustler NIF behind the same
   `PrefixTags.Engine` behaviour (no API change).
 - Rollback provider path: set `prefix_tag_provider_trie_enabled: false` to
-  restore GiST + `ProviderCidrCache` (cache GenServer starts only when the flag
-  is false).
+  force per-batch GiST SQL lookups (no cross-batch ETS cache; the provider
+  trie is the durable LPM cache).
 
 ## Proximity queries (geo cache)
 

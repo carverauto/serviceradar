@@ -4,7 +4,9 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
 
   This module is intentionally deterministic and side-effect light:
   - protocol/tcp/service/direction are pure transforms
-  - provider/OUI lookups read from CNPG snapshot tables
+  - hosting-provider lookups use the in-memory `provider` prefix-tag trie
+    (`ProviderSource`); GiST SQL is only a boot/empty-trie fallback
+  - OUI lookups read from CNPG snapshot tables
   """
 
   alias Ecto.Adapters.SQL
@@ -207,7 +209,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
     trie_tags = flatten_tag_chain(chain)
     geo_tags = geo_tags_for_ip(ip)
     tags = merge_unique_tags(trie_tags, geo_tags)
-    source = chain_source(chain) || if(geo_tags != [], do: "geo", else: nil)
+    source = chain_source(chain) || if(geo_tags == [], do: nil, else: "geo")
 
     if tags == [] do
       %{tags: nil, source: nil}
@@ -225,7 +227,8 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   end
 
   defp merge_unique_tags(a, b) do
-    Enum.reduce(a ++ b, {[], MapSet.new()}, fn tag, {acc, seen} ->
+    (a ++ b)
+    |> Enum.reduce({[], MapSet.new()}, fn tag, {acc, seen} ->
       if MapSet.member?(seen, tag) do
         {acc, seen}
       else
@@ -371,9 +374,10 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   @doc """
   Whether hosting-provider lookups should use the in-memory prefix-tag engine.
 
-  When true (default), uses the `provider` trie and skips per-IP GiST SQL /
-  `ProviderCidrCache`. Falls back to SQL only while the provider trie is empty
-  (not yet loaded), then treats misses as true negatives.
+  When true (default), uses the `provider` trie. Falls back to per-batch GiST SQL
+  only while the provider trie is empty (not yet loaded) or when the flag is
+  disabled for tests. Cross-batch ETS caching was removed — the trie is the
+  durable LPM cache.
   """
   @spec provider_trie_enabled?() :: boolean()
   def provider_trie_enabled? do
@@ -408,9 +412,8 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   end
 
   defp sql_provider_for_ip(ip) when is_binary(ip) do
-    with {:ok, %Postgrex.INET{} = inet} <- Cidr.dump_to_native(ip, []) do
-      cached_provider_for_inet(inet)
-    else
+    case Cidr.dump_to_native(ip, []) do
+      {:ok, %Postgrex.INET{} = inet} -> cached_provider_for_inet(inet)
       _ -> nil
     end
   end
@@ -436,22 +439,14 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   defp lookup_provider_for_inet(%Postgrex.INET{} = inet) do
     case Process.get(@provider_lookup_fun_key, :__serviceradar_unset__) do
       lookup_fun when is_function(lookup_fun, 1) ->
-        # Test/injection path: bypass the cross-batch ETS cache, honor the injected fun
-        # so existing tests that assert exact DB call counts keep working.
+        # Test/injection path: honor the injected fun so existing tests that
+        # assert exact DB call counts keep working.
         lookup_fun.(inet)
 
       :__serviceradar_unset__ ->
-        # L2: cross-batch ETS cache keyed by {active snapshot_id, "addr/mask"}. The
-        # per-batch Process-dict cache (cached_provider_for_inet/1) is L1; this absorbs
-        # the cross-batch repeats — the dominant source of the ~186,800 GiST round-trips
-        # — including negative (non-cloud -> nil) results. query_provider_for_inet/1
-        # already reads @active_snapshot_key and returns nil when it is unset.
-        snapshot_id = Process.get(@active_snapshot_key)
-        ip_key = provider_cache_key(inet)
-
-        ServiceRadar.EventWriter.ProviderCidrCache.fetch(snapshot_id, ip_key, fn ->
-          query_provider_for_inet(inet)
-        end)
+        # Per-batch Process-dict cache is L1 (with_provider_cache/2). SQL path is
+        # only for empty-trie boot / flag-off; production uses ProviderSource.
+        query_provider_for_inet(inet)
     end
   end
 
