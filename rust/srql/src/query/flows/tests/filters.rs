@@ -110,6 +110,96 @@ fn builds_query_with_directional_tag_and_cidr() {
 }
 
 #[test]
+fn builds_query_with_near_filter() {
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: vec![Filter {
+            field: "near".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("30.2672,-97.7431,50km".to_string()),
+        }],
+        order: Vec::new(),
+        limit: 50,
+        offset: 0,
+        time_range: None,
+        stats: None,
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let (sql, _params) = to_sql_and_params(&plan).expect("near filter should translate");
+    assert!(
+        sql.contains("ST_DWithin") && sql.contains("ip_geo_enrichment_cache"),
+        "near filter should use geo cache ST_DWithin: {sql}"
+    );
+    assert!(
+        sql.contains("src_endpoint_ip") && sql.contains("dst_endpoint_ip"),
+        "near should match either side: {sql}"
+    );
+}
+
+#[test]
+fn near_composes_with_tag_filter() {
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: vec![
+            Filter {
+                field: "tag".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("ti:otx".to_string()),
+            },
+            Filter {
+                field: "near".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("30.27,-97.74,50km".to_string()),
+            },
+        ],
+        order: Vec::new(),
+        limit: 50,
+        offset: 0,
+        time_range: None,
+        stats: None,
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let (sql, _params) = to_sql_and_params(&plan).expect("composed filters should translate");
+    assert!(sql.contains("@>") && sql.contains("ti:otx"), "tag missing: {sql}");
+    assert!(sql.contains("ST_DWithin"), "near missing: {sql}");
+}
+
+#[test]
+fn rejects_invalid_near_literal() {
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: vec![Filter {
+            field: "near".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("not-a-point".to_string()),
+        }],
+        order: Vec::new(),
+        limit: 10,
+        offset: 0,
+        time_range: None,
+        stats: None,
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let err = to_sql_and_params(&plan).expect_err("invalid near should fail");
+    assert!(
+        err.to_string().contains("near"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
 fn rejects_invalid_tag_literal() {
     let plan = QueryPlan {
         entity: Entity::Flows,

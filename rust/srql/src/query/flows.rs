@@ -18,8 +18,8 @@ pub(super) use self::expressions::*;
 use self::{
     filters::apply_filter,
     literals::{
-        normalize_cidr_literal, normalize_device_uid_literal, tag_any_contains_sql,
-        tag_contains_sql,
+        near_exists_sql, normalize_cidr_literal, normalize_device_uid_literal,
+        normalize_near_literal, tag_any_contains_sql, tag_contains_sql, NearSide,
     },
     order::apply_ordering,
     params::collect_filter_params,

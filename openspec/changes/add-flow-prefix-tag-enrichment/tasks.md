@@ -130,14 +130,14 @@
 - [x] 11.1 Enrichment hook derives `geo:country:`/`geo:asn:` tags from the
       resident Geolix lookup behind `:geo_tag_derivation_enabled`; fail-open
       when MMDB absent
-- [ ] 11.2 Migration: `geometry(Point, 4326)` column on
+- [x] 11.2 Migration: `geometry(Point, 4326)` column on
       `platform.ip_geo_enrichment_cache` derived from latitude/longitude
       (FieldSurvey/WiFi-map pattern) + GiST index; backfill + refresh-worker
       population
-- [ ] 11.3 SRQL proximity filter for `in:flows`: parse coordinate+radius term,
+- [x] 11.3 SRQL proximity filter for `in:flows`: parse coordinate+radius term,
       translate to `ST_DWithin` IP-set subquery against the geo cache,
       compose with tag/CIDR/time filters; translation + integration tests
-- [ ] 11.4 Docs: SRQL cookbook entries for proximity + tag compositions
+- [x] 11.4 Docs: SRQL cookbook entries for proximity + tag compositions
 
 ## 12. Threat-intel tag source (amendment)
 

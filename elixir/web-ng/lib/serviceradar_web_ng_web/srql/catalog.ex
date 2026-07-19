@@ -901,6 +901,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "tag",
         "src_tag",
         "dst_tag",
+        "near",
+        "src_near",
+        "dst_near",
         "as_path",
         "bgp_communities"
       ],

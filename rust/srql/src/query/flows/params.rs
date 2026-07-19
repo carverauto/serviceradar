@@ -39,6 +39,8 @@ pub(super) fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter
         "src_cidr" | "dst_cidr" => Ok(()),
         // Tag filters inline validated JSONB literals (no binds).
         "tag" | "src_tag" | "dst_tag" => Ok(()),
+        // Proximity filters inline validated lat/lng/radius (no binds).
+        "near" | "src_near" | "dst_near" => Ok(()),
         "protocol_num" | "proto" => {
             let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
                 ServiceError::InvalidRequest(format!("{} must be an integer", filter.field))

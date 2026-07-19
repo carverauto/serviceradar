@@ -297,9 +297,45 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
             build_stats_text_filter("COALESCE(dst_geo.country_iso2, 'Unknown')", filter, binds)
         }
         "tag" | "src_tag" | "dst_tag" => build_stats_tag_filter(filter),
+        "near" | "src_near" | "dst_near" => build_stats_near_filter(filter),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field for flows stats: '{other}'"
         ))),
+    }
+}
+
+fn build_stats_near_filter(filter: &Filter) -> Result<String> {
+    use crate::query::flows::literals::{near_exists_sql, normalize_near_literal, NearSide};
+
+    let side = match filter.field.as_str() {
+        "src_near" => NearSide::Src,
+        "dst_near" => NearSide::Dst,
+        "near" => NearSide::Either,
+        other => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported near filter field: '{other}'"
+            )));
+        }
+    };
+
+    // Stats SQL aliases the flows table as `f`.
+    let rewrite_ip = |sql: String| {
+        sql.replace("src_endpoint_ip", "f.src_endpoint_ip")
+            .replace("dst_endpoint_ip", "f.dst_endpoint_ip")
+    };
+
+    match filter.op {
+        FilterOp::Eq => {
+            let point = normalize_near_literal(filter.value.as_scalar()?)?;
+            Ok(rewrite_ip(near_exists_sql(point, side)))
+        }
+        FilterOp::NotEq => {
+            let point = normalize_near_literal(filter.value.as_scalar()?)?;
+            Ok(format!("(NOT {})", rewrite_ip(near_exists_sql(point, side))))
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "near filter only supports equality (e.g. near:30.27,-97.74,50km)".into(),
+        )),
     }
 }
 

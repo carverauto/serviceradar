@@ -371,10 +371,49 @@ pub(super) fn apply_filter<'a>(
         "tag" | "src_tag" | "dst_tag" => {
             query = apply_tag_filter(query, filter)?;
         }
+        "near" | "src_near" | "dst_near" => {
+            query = apply_near_filter(query, filter)?;
+        }
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for flows: '{other}'"
             )));
+        }
+    }
+
+    Ok(query)
+}
+
+fn apply_near_filter<'a>(
+    mut query: FlowsQuery<'a>,
+    filter: &Filter,
+) -> Result<FlowsQuery<'a>> {
+    let side = match filter.field.as_str() {
+        "src_near" => NearSide::Src,
+        "dst_near" => NearSide::Dst,
+        "near" => NearSide::Either,
+        other => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported near filter field: '{other}'"
+            )));
+        }
+    };
+
+    match filter.op {
+        FilterOp::Eq => {
+            let point = normalize_near_literal(filter.value.as_scalar()?)?;
+            let expr = sql::<diesel::sql_types::Bool>(&near_exists_sql(point, side));
+            query = query.filter(expr);
+        }
+        FilterOp::NotEq => {
+            let point = normalize_near_literal(filter.value.as_scalar()?)?;
+            let expr = sql::<diesel::sql_types::Bool>(&near_exists_sql(point, side));
+            query = query.filter(not(expr));
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(
+                "near filter only supports equality (e.g. near:30.27,-97.74,50km)".into(),
+            ));
         }
     }
 
