@@ -12,6 +12,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   alias Ecto.Adapters.SQL
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.PrefixTags.Store, as: PrefixTagStore
+  alias ServiceRadar.PrefixTags.ThreatIntelSource
   alias ServiceRadar.ReferenceData.ServicePorts
   alias ServiceRadar.Repo
   alias ServiceRadar.Types.Cidr
@@ -234,14 +235,27 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
 
   defp do_ip_enrichment(ip) when is_binary(ip) do
     tags_enabled? = prefix_tag_enrichment_enabled?()
+    provider_trie? = provider_trie_enabled?()
 
     # When tag enrichment is off, only walk the provider trie (not every source).
+    # When provider-trie rollback is off, exclude provider from the aggregate
+    # chain so stale provider:* tags cannot leak into prefix_tags columns.
     chain =
       try do
-        if tags_enabled? do
-          PrefixTagStore.lookup(ip)
-        else
-          provider_chain_for_ip(ip)
+        cond do
+          tags_enabled? and provider_trie? ->
+            PrefixTagStore.lookup(ip)
+
+          tags_enabled? ->
+            ip
+            |> PrefixTagStore.lookup()
+            |> Enum.reject(&(Map.get(&1, :source) == "provider"))
+
+          provider_trie? ->
+            PrefixTagStore.lookup(ip, "provider")
+
+          true ->
+            []
         end
       rescue
         e ->
@@ -274,14 +288,6 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
         provider: provider,
         provider_source: provider_source
       }
-    end
-  end
-
-  defp provider_chain_for_ip(ip) when is_binary(ip) do
-    if provider_trie_enabled?() do
-      PrefixTagStore.lookup(ip, "provider")
-    else
-      []
     end
   end
 
@@ -391,12 +397,70 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   defp maybe_geo_tag(acc, _, _), do: acc
 
   defp flatten_tag_chain(chain) when is_list(chain) do
+    now = DateTime.utc_now()
+
     chain
-    |> Enum.flat_map(fn
-      %{tags: tags} when is_list(tags) -> tags
-      _ -> []
+    |> Enum.flat_map(fn match ->
+      case match do
+        %{source: "ti"} = m ->
+          # Derive TI display tags from still-active members so expired feed
+          # provenance/severity never lands on newly enriched flows.
+          tags_from_active_ti_match(m, now)
+
+        %{tags: tags} when is_list(tags) ->
+          if ThreatIntelSource.match_expired?(match, now), do: [], else: tags
+
+        _ ->
+          []
+      end
     end)
     |> Enum.uniq()
+  end
+
+  defp tags_from_active_ti_match(match, now) do
+    case ThreatIntelSource.active_indicators(match, now) do
+      [_ | _] = inds ->
+        inds
+        |> Enum.flat_map(&List.wrap(&1[:tags] || &1["tags"]))
+        |> rebuild_ti_display_tags()
+
+      [] ->
+        if ThreatIntelSource.match_expired?(match, now) do
+          []
+        else
+          # Singleton aggregates omit :indicators; use aggregate fields.
+          match[:tags]
+          |> List.wrap()
+          |> then(fn tags ->
+            if tags == [] and is_integer(match[:severity]) and match[:severity] > 0 do
+              feed =
+                case match[:feed_sources] do
+                  [s | _] -> "ti:#{ServiceRadar.PrefixTags.Slug.slugify(s, empty: "unknown")}"
+                  _ -> nil
+                end
+
+              Enum.reject([feed, "ti:severity:#{match[:severity]}"], &is_nil/1)
+            else
+              tags
+            end
+          end)
+        end
+    end
+  end
+
+  defp rebuild_ti_display_tags(tags) do
+    max_sev = ThreatIntelSource.max_severity_from_tags(tags)
+
+    rest =
+      tags
+      |> Enum.reject(fn
+        "ti:severity:" <> _ -> true
+        _ -> false
+      end)
+      |> Enum.uniq()
+      |> Enum.take(if(max_sev > 0, do: 7, else: 8))
+
+    if max_sev > 0, do: rest ++ ["ti:severity:#{max_sev}"], else: rest
   end
 
   @spec decode_tcp_flags(integer() | nil) :: [String.t()]

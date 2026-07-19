@@ -3,14 +3,15 @@ defmodule ServiceRadar.PrefixTags.Changes.BroadcastManualInvalidation do
   Post-commit trie invalidation for manual prefix-tag mutations.
 
   Runs in `after_transaction` so peer loaders see the committed row (not the
-  pre-commit snapshot that `after_action` can observe). Safe for atomic and
-  non-atomic actions: `atomic/3` returns `:ok` so create/update/destroy are not
-  blocked, while `change/3` attaches the post-commit hook.
+  pre-commit snapshot that `after_action` can observe). When Loader is down
+  (or disabled), falls back to a local Store rebuild so this node does not
+  keep serving a stale manual trie indefinitely.
   """
 
   use Ash.Resource.Change
 
   alias ServiceRadar.PrefixTags.Loader
+  alias ServiceRadar.PrefixTags.Manual
 
   @impl true
   def change(changeset, _opts, _context) do
@@ -46,12 +47,36 @@ defmodule ServiceRadar.PrefixTags.Changes.BroadcastManualInvalidation do
       is_map(record) and is_binary(Map.get(record, :source)) ->
         record.source
 
+      is_map(record) and not is_nil(Map.get(record, :snapshot_id)) ->
+        case query_snapshot_source(record.snapshot_id) do
+          src when is_binary(src) -> src
+          _ -> "manual"
+        end
+
       true ->
         case Ash.Changeset.get_argument(changeset, :source) do
           src when is_binary(src) and src != "" -> src
           _ -> "manual"
         end
     end
+  end
+
+  defp query_snapshot_source(snapshot_id) do
+    case Ecto.Adapters.SQL.query(
+           ServiceRadar.Repo,
+           "SELECT source FROM platform.prefix_tag_snapshots WHERE id = $1",
+           [snapshot_id]
+         ) do
+      {:ok, %{rows: [[source]]}} when is_binary(source) -> source
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp invalidate_source("manual") do
+    # Full path: Loader.reload with local Store rebuild fallback + broadcast.
+    Manual.invalidate!()
   end
 
   defp invalidate_source(source) when is_binary(source) do

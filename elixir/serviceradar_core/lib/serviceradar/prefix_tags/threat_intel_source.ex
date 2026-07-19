@@ -101,6 +101,9 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
 
     display_tags = tags |> Enum.reverse() |> Enum.uniq() |> take_display_tags()
 
+    # Singleton rows omit nested :indicators — aggregate fields already carry
+    # full semantics and avoid ~400B/row of resident trie payload at scale.
+    # merge_prefix_group/2 only attaches :indicators when a CIDR has 2+ members.
     %{
       prefix: prefix,
       tags: display_tags,
@@ -111,16 +114,15 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
       expires_at: exp,
       # Raw provenance for CTI (not subject to the display-tag cap).
       feed_sources: [source_raw],
-      indicators: [
-        %{
-          source: source_raw,
-          source_slug: source_slug,
-          severity: sev,
-          expires_at: exp,
-          indicator_count: 1,
-          tags: display_tags
-        }
-      ]
+      # Transient: only used when grouping duplicates before put_rows.
+      __member: %{
+        source: source_raw,
+        source_slug: source_slug,
+        severity: sev,
+        expires_at: exp,
+        indicator_count: 1,
+        tags: display_tags
+      }
     }
   end
 
@@ -330,52 +332,52 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
   end
 
   defp merge_prefix_group(prefix, group) when is_list(group) do
-    indicators =
-      Enum.flat_map(group, fn row ->
+    members =
+      Enum.map(group, fn row ->
         case row do
-          %{indicators: inds} when is_list(inds) and inds != [] -> inds
-          row -> [row_as_indicator(row)]
+          %{__member: m} when is_map(m) -> m
+          %{indicators: [m | _]} when is_map(m) -> m
+          row -> row_as_indicator(row)
         end
       end)
 
     feed_sources =
-      indicators
+      members
       |> Enum.map(&(&1[:source] || ""))
       |> Enum.reject(&(&1 == ""))
       |> Enum.uniq()
 
-    # Display tags: merge labels/sources under the cap, but always preserve
-    # the canonical max severity tag (reserved outside the budget).
     raw_tags = Enum.flat_map(group, &List.wrap(&1.tags))
     display_tags = build_display_tags(raw_tags)
-
-    # Aggregate expires_at is only used as a coarse gate when indicators list
-    # is missing; never min-across-all (that would drop permanent members).
-    # Leave nil when any member is permanent; otherwise use the latest expiry
-    # so the coarse gate does not drop later members early.
-    expires_at = aggregate_expires_at(indicators)
+    expires_at = aggregate_expires_at(members)
 
     sev =
-      indicators
+      members
       |> Enum.map(& &1[:severity])
       |> Enum.reject(&is_nil/1)
       |> Enum.max(fn -> nil end)
 
     count =
-      indicators
+      members
       |> Enum.map(&(&1[:indicator_count] || 1))
       |> Enum.sum()
 
-    %{
+    base = %{
       prefix: prefix,
       tags: display_tags,
       source: @source,
       severity: sev,
       indicator_count: count,
       expires_at: expires_at,
-      feed_sources: feed_sources,
-      indicators: indicators
+      feed_sources: feed_sources
     }
+
+    # Only multi-member groups need per-indicator expiry metadata in the trie.
+    if length(members) > 1 do
+      Map.put(base, :indicators, members)
+    else
+      base
+    end
   end
 
   defp row_as_indicator(row) do

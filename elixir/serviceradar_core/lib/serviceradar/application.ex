@@ -133,6 +133,10 @@ defmodule ServiceRadar.Application do
         # lookup per device instead of per event under load)
         device_correlation_cache_child(),
 
+        # Owns the Store source-name ETS registry (must outlive ephemeral
+        # materializer processes that call put_trie/sources).
+        prefix_tags_registry_child(),
+
         # Per-node prefix-tag LPM trie loader (core-elx + web-ng when repo is on;
         # agent-gateway excluded via repo_enabled? false). Hosting-provider LPM
         # uses the `provider` trie (ProviderSource) — no cross-batch ETS cache.
@@ -327,6 +331,14 @@ defmodule ServiceRadar.Application do
   defp device_correlation_cache_child do
     if repo_enabled?() do
       ServiceRadar.EventWriter.DeviceCorrelationCache
+    end
+  end
+
+  defp prefix_tags_registry_child do
+    # Always start when repo is on — independent of Loader — so Store.sources/0
+    # keeps a stable ETS owner even with SERVICERADAR_PREFIX_TAGS_LOADER_ENABLED=false.
+    if repo_enabled?() do
+      ServiceRadar.PrefixTags.Registry
     end
   end
 

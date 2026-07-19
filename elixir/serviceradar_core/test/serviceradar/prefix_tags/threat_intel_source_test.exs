@@ -107,19 +107,17 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSourceTest do
         ~U[2026-01-01 00:00:00Z]
       )
 
-    # Pre-merge as materialize does
-    merged_prefix = "198.51.100.0/24"
-
+    # Pre-merge as materialize does (multi-member keeps :indicators).
     Store.put_rows("ti", [
       %{
-        prefix: merged_prefix,
+        prefix: "198.51.100.0/24",
         tags: ["ti:otx", "ti:spamhaus", "ti:severity:4"],
         source: "ti",
         severity: 4,
         indicator_count: 2,
         expires_at: nil,
         feed_sources: ["otx", "spamhaus"],
-        indicators: permanent.indicators ++ finite.indicators
+        indicators: [permanent.__member, finite.__member]
       }
     ])
 
@@ -160,5 +158,17 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSourceTest do
     sources = ThreatIntelSource.sources_from_match(chain)
     assert "alienvault_otx" in sources
     assert "spamhaus" in sources
+  end
+
+  test "singleton indicators omit nested indicators metadata" do
+    row = ThreatIntelSource.map_indicator_row("203.0.113.5/32", "otx", nil, 3)
+
+    # map_indicator_row may carry a transient __member for grouping; merge
+    # through put_rows path uses group_by + merge which strips it for singletons.
+    Store.put_rows("ti", [row])
+    [match] = Store.lookup("203.0.113.5", "ti")
+    refute Map.has_key?(match, :indicators)
+    assert match.severity == 3
+    assert match.feed_sources == ["otx"] or "ti:otx" in match.tags
   end
 end

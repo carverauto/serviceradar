@@ -179,6 +179,43 @@ defmodule ServiceRadar.EventWriter.FlowEnrichmentTest do
       )
     end
 
+    test "provider trie flag off excludes provider tags from prefix_tags columns" do
+      Application.put_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, false)
+      Application.put_env(:serviceradar_core, :prefix_tag_enrichment_enabled, true)
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, false)
+        Application.put_env(:serviceradar_core, :prefix_tag_enrichment_enabled, false)
+      end)
+
+      Store.put_rows("provider", [
+        %{prefix: "203.0.113.0/24", tags: ["provider:TrieCloud"], source: "provider"}
+      ])
+
+      Store.put_rows("manual", [
+        %{prefix: "203.0.113.0/24", tags: ["site:lab"], source: "manual"}
+      ])
+
+      enriched =
+        FlowEnrichment.with_provider_cache(
+          fn ->
+            FlowEnrichment.enrich(%{
+              protocol_num: 6,
+              src_ip: "203.0.113.10",
+              dst_ip: "198.51.100.1"
+            })
+          end,
+          provider_lookup: fn _inet -> "SQLCloud" end
+        )
+
+      assert enriched.src_hosting_provider == "SQLCloud"
+      assert "site:lab" in (enriched.src_prefix_tags || [])
+      refute "provider:TrieCloud" in (enriched.src_prefix_tags || [])
+
+      refute is_binary(enriched.src_prefix_tags_source) and
+               String.contains?(enriched.src_prefix_tags_source || "", "provider")
+    end
+
     test "manual provider: tags do not override hosting-provider columns" do
       Application.put_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, true)
       Application.put_env(:serviceradar_core, :prefix_tag_enrichment_enabled, true)
@@ -278,6 +315,56 @@ defmodule ServiceRadar.EventWriter.FlowEnrichmentTest do
       assert is_map(enriched)
       # geo tags may be nil/absent when lookup fails
       refute Map.get(enriched, :src_prefix_tags) in [["geo:country:us"]]
+    end
+
+    test "expired CTI members are filtered from flow prefix tags" do
+      Application.put_env(:serviceradar_core, :prefix_tag_enrichment_enabled, true)
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_core, :prefix_tag_enrichment_enabled, false)
+      end)
+
+      # High-severity feed already expired; permanent low-severity peer remains.
+      Store.put_rows("ti", [
+        %{
+          prefix: "203.0.113.0/24",
+          tags: ["ti:expired-feed", "ti:otx", "ti:severity:5"],
+          source: "ti",
+          severity: 5,
+          indicator_count: 2,
+          expires_at: nil,
+          feed_sources: ["expired-feed", "otx"],
+          indicators: [
+            %{
+              source: "expired-feed",
+              severity: 5,
+              expires_at: ~U[2020-01-01 00:00:00Z],
+              indicator_count: 1,
+              tags: ["ti:expired-feed", "ti:severity:5"]
+            },
+            %{
+              source: "otx",
+              severity: 2,
+              expires_at: nil,
+              indicator_count: 1,
+              tags: ["ti:otx", "ti:severity:2"]
+            }
+          ]
+        }
+      ])
+
+      enriched =
+        FlowEnrichment.enrich(%{
+          protocol_num: 6,
+          src_ip: "203.0.113.10",
+          dst_ip: "198.51.100.1"
+        })
+
+      tags = enriched.src_prefix_tags || []
+      assert "ti:otx" in tags
+      refute "ti:expired-feed" in tags
+      refute "ti:severity:5" in tags
+      assert "ti:severity:2" in tags
     end
   end
 

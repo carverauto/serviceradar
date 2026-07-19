@@ -3,7 +3,8 @@ defmodule ServiceRadar.PrefixTags.PrefixTag do
   A single IP/CIDR prefix and its associated tags within a snapshot.
 
   Manual entries live under the permanent `manual` snapshot source and support
-  create/update/destroy. Imported snapshot rows are read-only for operators.
+  create/update/destroy. Imported snapshot rows are read-only for operators —
+  update/destroy actions assert the related snapshot source is `manual`.
   """
 
   use Ash.Resource,
@@ -11,6 +12,8 @@ defmodule ServiceRadar.PrefixTags.PrefixTag do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.PrefixTags.Changes.AdjustManualRecordCount
+  alias ServiceRadar.PrefixTags.Changes.AssertManualSnapshot
   alias ServiceRadar.PrefixTags.Changes.BroadcastManualInvalidation
   alias ServiceRadar.Types.Cidr
   alias ServiceRadar.Types.Jsonb
@@ -51,8 +54,11 @@ defmodule ServiceRadar.PrefixTags.PrefixTag do
 
     destroy :destroy do
       primary? true
-      # Post-commit invalidation cannot run as a pure SQL atomic change.
+      # Post-commit invalidation + manual-source guard cannot be pure SQL atomics.
       require_atomic? false
+      change {AssertManualSnapshot, []}
+      # -1 inside the same transaction as the row delete (after_action).
+      change {AdjustManualRecordCount, delta: -1}
       change {BroadcastManualInvalidation, []}
     end
 
@@ -65,13 +71,16 @@ defmodule ServiceRadar.PrefixTags.PrefixTag do
       accept @prefix_tag_fields
       # Callers ensure the manual snapshot exists and pass its id; the importer
       # and engine use :create for bulk snapshot loads.
+      # +1 inside the same transaction as the row insert (after_action).
+      change {AdjustManualRecordCount, delta: 1}
       change {BroadcastManualInvalidation, []}
     end
 
     update :update do
       accept [:prefix, :vrf, :tags, :site, :role, :tenant, :status, :partition]
-      # Post-commit invalidation cannot run as a pure SQL atomic change.
+      # Post-commit invalidation + manual-source guard cannot be pure SQL atomics.
       require_atomic? false
+      change {AssertManualSnapshot, []}
       change {BroadcastManualInvalidation, []}
     end
 

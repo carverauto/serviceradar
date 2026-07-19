@@ -11,8 +11,8 @@ defmodule ServiceRadar.PrefixTags.Store do
   alias ServiceRadar.PrefixTags.Engine
   alias ServiceRadar.PrefixTags.Trie
 
-  # Enumerable registry of registered source names (atomic insert/delete).
-  # Probing only a hard-coded catalog drops dynamic/plugin sources from lookup/1.
+  # Enumerable registry of registered source names. Owned by
+  # ServiceRadar.PrefixTags.Registry so ephemeral callers cannot delete it on exit.
   @sources_table __MODULE__.Sources
   # Single atomic handle: one persistent_term get returns {version, trie}.
   @active_handle_key_prefix {__MODULE__, :active_handle}
@@ -358,25 +358,7 @@ defmodule ServiceRadar.PrefixTags.Store do
   end
 
   defp ensure_sources_table do
-    case :ets.whereis(@sources_table) do
-      :undefined ->
-        try do
-          :ets.new(@sources_table, [
-            :set,
-            :public,
-            :named_table,
-            read_concurrency: true,
-            write_concurrency: true
-          ])
-        rescue
-          ArgumentError -> :ok
-        end
-
-      _tid ->
-        :ok
-    end
-
-    :ok
+    ServiceRadar.PrefixTags.Registry.ensure!()
   end
 
   defp engine do

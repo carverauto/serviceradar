@@ -119,11 +119,10 @@ defmodule ServiceRadar.PrefixTags.Manual do
            |> stringify_keys()
            |> Map.put("snapshot_id", snapshot.id)
            |> normalize_tags_attr(),
-         :ok <- validate_tags(Map.get(attrs, "tags")),
-         {:ok, tag} <- PrefixTag.create_manual(attrs, ash_opts) do
-      # Invalidation is post-commit via BroadcastManualInvalidation.
-      _ = adjust_record_count!(snapshot.id, 1)
-      {:ok, tag}
+         :ok <- validate_tags(Map.get(attrs, "tags")) do
+      # record_count ±1 and invalidation run inside/after the Ash action
+      # (AdjustManualRecordCount after_action + BroadcastManualInvalidation).
+      PrefixTag.create_manual(attrs, ash_opts)
     end
   end
 
@@ -140,8 +139,8 @@ defmodule ServiceRadar.PrefixTags.Manual do
         |> Map.drop(["snapshot_id", :snapshot_id])
 
       with :ok <- validate_tags(Map.get(attrs, "tags")) do
+        # AssertManualSnapshot + BroadcastManualInvalidation on the action.
         PrefixTag.update(tag, attrs, ash_opts)
-        # Invalidation is post-commit via BroadcastManualInvalidation.
       end
     end
   end
@@ -153,18 +152,43 @@ defmodule ServiceRadar.PrefixTags.Manual do
 
     with :ok <- assert_manual!(tag, ash_opts) do
       case PrefixTag.destroy(tag, ash_opts) do
-        :ok ->
-          _ = adjust_record_count!(tag.snapshot_id, -1)
-          :ok
-
-        {:ok, _} ->
-          _ = adjust_record_count!(tag.snapshot_id, -1)
-          :ok
-
-        {:error, err} ->
-          {:error, err}
+        :ok -> :ok
+        {:ok, _} -> :ok
+        {:error, err} -> {:error, err}
       end
     end
+  end
+
+  @doc """
+  Reconcile `record_count` for a snapshot from a live COUNT(*).
+
+  Use to repair drift if an older code path left the counter wrong. Prefer the
+  transactional ±1 path for normal create/destroy.
+  """
+  @spec reconcile_record_count!(term()) :: non_neg_integer()
+  def reconcile_record_count!(snapshot_id) do
+    case Ecto.Adapters.SQL.query(
+           ServiceRadar.Repo,
+           """
+           UPDATE platform.prefix_tag_snapshots s
+           SET record_count = sub.cnt,
+               updated_at = NOW()
+           FROM (
+             SELECT COUNT(*)::bigint AS cnt
+             FROM platform.prefix_tags
+             WHERE snapshot_id = $1
+           ) sub
+           WHERE s.id = $1
+           RETURNING s.record_count
+           """,
+           [snapshot_id]
+         ) do
+      {:ok, %{rows: [[n]]}} when is_integer(n) -> n
+      {:ok, %{rows: [[n]]}} -> String.to_integer(to_string(n))
+      _ -> 0
+    end
+  rescue
+    _ -> 0
   end
 
   @doc "Parse a free-form tags field (comma/whitespace/newline separated)."
@@ -242,48 +266,6 @@ defmodule ServiceRadar.PrefixTags.Manual do
         end
     end
   end
-
-  # Atomic increment/decrement keeps concurrent create/destroy from racing a
-  # full COUNT recompute. Floor at 0 so over-delete cannot go negative.
-  defp adjust_record_count!(snapshot_id, delta) when is_integer(delta) and delta != 0 do
-    case Ecto.Adapters.SQL.query(
-           ServiceRadar.Repo,
-           """
-           UPDATE platform.prefix_tag_snapshots
-           SET record_count = GREATEST(0, COALESCE(record_count, 0) + $2),
-               updated_at = NOW()
-           WHERE id = $1
-           RETURNING record_count
-           """,
-           [snapshot_id, delta]
-         ) do
-      {:ok, %{rows: [[n]]}} when is_integer(n) ->
-        n
-
-      {:ok, %{rows: [[n]]}} ->
-        String.to_integer(to_string(n))
-
-      {:error, reason} ->
-        Logger.warning("PrefixTags.Manual record_count adjust failed",
-          error: inspect(reason),
-          delta: delta
-        )
-
-        0
-
-      _ ->
-        0
-    end
-  rescue
-    e ->
-      Logger.warning("PrefixTags.Manual record_count adjust crashed",
-        error: Exception.message(e)
-      )
-
-      0
-  end
-
-  defp adjust_record_count!(_, _), do: 0
 
   @doc false
   @spec invalidate!() :: :ok

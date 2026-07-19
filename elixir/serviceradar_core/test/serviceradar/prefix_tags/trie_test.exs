@@ -169,6 +169,28 @@ defmodule ServiceRadar.PrefixTags.TrieTest do
       assert Store.lookup("203.0.113.10") == []
     end
 
+    test "source registry survives the process that first registered a source" do
+      parent = self()
+
+      # Ephemeral process registers a custom source then exits (old bug: ETS
+      # table was owned by this process and vanished on exit).
+      spawn(fn ->
+        Store.put_rows("ephemeral", [
+          %{prefix: "198.51.100.0/24", tags: ["ephemeral:zone"], source: "ephemeral"}
+        ])
+
+        send(parent, :registered)
+      end)
+
+      assert_receive :registered, 2_000
+      # Give the owner process time to fully exit.
+      Process.sleep(50)
+
+      assert "ephemeral" in Store.sources()
+      assert Store.lookup("198.51.100.10") != []
+      assert Store.lookup("198.51.100.10", "ephemeral") != []
+    end
+
     test "snapshot swap under concurrent lookups" do
       Store.put_rows("manual", [%{prefix: "10.0.0.0/8", tags: ["v1"], source: "manual"}])
 
