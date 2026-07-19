@@ -172,8 +172,9 @@ defmodule ServiceRadar.PrefixTags.TrieTest do
     test "source registry survives the process that first registered a source" do
       parent = self()
 
-      # Ephemeral process registers a custom source then exits (old bug: ETS
-      # table was owned by this process and vanished on exit).
+      # Ephemeral process registers a custom source then exits (old bug: its
+      # caller-owned ETS table vanished on exit). With no supervised Registry,
+      # aggregate lookup falls back to the persistent registration handle.
       spawn(fn ->
         Store.put_rows("ephemeral", [
           %{prefix: "198.51.100.0/24", tags: ["ephemeral:zone"], source: "ephemeral"}

@@ -158,7 +158,9 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
       last_value("vm.total_run_queue_lengths.total"),
       last_value("vm.total_run_queue_lengths.cpu"),
       last_value("vm.total_run_queue_lengths.io")
-    ] ++ ServiceRadarTelemetry.camera_relay_metrics()
+    ] ++
+      ServiceRadarTelemetry.camera_relay_metrics() ++
+      ServiceRadarTelemetry.prefix_tag_metrics()
   end
 
   defp duration_distribution(metric_name, opts) do

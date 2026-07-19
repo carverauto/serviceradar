@@ -19,6 +19,7 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Observability.OutboundFeedPolicy
   alias ServiceRadar.Observability.ThreatIntelIndicator
+  alias ServiceRadar.PrefixTags.ThreatIntelSource
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -131,9 +132,9 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
   end
 
   defp maybe_reload_ti_trie do
-    if Code.ensure_loaded?(ServiceRadar.PrefixTags.ThreatIntelSource) do
-      case ServiceRadar.PrefixTags.ThreatIntelSource.reload() do
-        {:ok, count} ->
+    if Code.ensure_loaded?(ThreatIntelSource) do
+      case ThreatIntelSource.reload() do
+        {:ok, %{row_count: count}} ->
           Logger.info("Prefix-tag ti trie refreshed after threat feed", rows: count)
           :ok
 

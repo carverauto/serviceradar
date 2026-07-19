@@ -51,7 +51,7 @@ defmodule ServiceRadar.PrefixTags.MaterializeWorker do
         started = System.monotonic_time(:microsecond)
 
         case @reload_mod.reload() do
-          {:ok, count} ->
+          {:ok, %{row_count: count}} when is_integer(count) and count >= 0 ->
             duration_us = System.monotonic_time(:microsecond) - started
             emit(:ok, count, duration_us)
 

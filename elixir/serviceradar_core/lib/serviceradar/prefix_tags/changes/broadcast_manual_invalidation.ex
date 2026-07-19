@@ -62,13 +62,19 @@ defmodule ServiceRadar.PrefixTags.Changes.BroadcastManualInvalidation do
   end
 
   defp query_snapshot_source(snapshot_id) do
-    case Ecto.Adapters.SQL.query(
-           ServiceRadar.Repo,
-           "SELECT source FROM platform.prefix_tag_snapshots WHERE id = $1",
-           [snapshot_id]
-         ) do
-      {:ok, %{rows: [[source]]}} when is_binary(source) -> source
-      _ -> nil
+    case Ecto.UUID.dump(snapshot_id) do
+      {:ok, dumped_snapshot_id} ->
+        case Ecto.Adapters.SQL.query(
+               ServiceRadar.Repo,
+               "SELECT source FROM platform.prefix_tag_snapshots WHERE id = $1",
+               [dumped_snapshot_id]
+             ) do
+          {:ok, %{rows: [[source]]}} when is_binary(source) -> source
+          _ -> nil
+        end
+
+      :error ->
+        nil
     end
   rescue
     _ -> nil

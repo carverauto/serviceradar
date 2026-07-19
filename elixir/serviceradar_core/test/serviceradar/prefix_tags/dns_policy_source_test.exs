@@ -29,8 +29,30 @@ defmodule ServiceRadar.PrefixTags.DnsPolicySourceTest do
       DnsPolicySource.map_client_row("10.0.0.5", "hagezi-pro")
     ])
 
-    tags = Store.lookup("10.0.0.5") |> Enum.flat_map(& &1.tags)
+    tags = "10.0.0.5" |> Store.lookup() |> Enum.flat_map(& &1.tags)
     assert "dns-policy:hit" in tags
     assert "dns-policy:hagezi-pro" in tags
+  end
+
+  test "query parser returns latest durable RPZ event time" do
+    snapshot_at = ~N[2026-07-18 08:00:00]
+
+    parsed =
+      DnsPolicySource.parse_query_result(%{
+        rows: [
+          ["192.0.2.10", "hagezi-pro", snapshot_at],
+          ["192.0.2.10", "malware-block", snapshot_at]
+        ]
+      })
+
+    assert parsed.snapshot_at == ~U[2026-07-18 08:00:00Z]
+    assert [%{prefix: "192.0.2.10/32", source: "dns-policy", tags: tags}] = parsed.rows
+    assert "dns-policy:hagezi-pro" in tags
+    assert "dns-policy:malware-block" in tags
+  end
+
+  test "query parser accepts an empty lookback result without inventing freshness" do
+    assert %{rows: [], snapshot_at: nil} =
+             DnsPolicySource.parse_query_result(%{rows: [[nil, nil, nil]]})
   end
 end

@@ -1,19 +1,26 @@
 defmodule ServiceRadar.PrefixTags.Registry do
   @moduledoc """
-  Long-lived owner of the prefix-tag source-name ETS registry.
+  Supervised owner of the prefix-tag source-name ETS registry.
 
-  `Store` previously created the public named ETS table in whichever process
-  first called `put_trie/2` or `sources/0`. That process owned the table, so its
-  exit deleted the registry while per-source tries remained in `:persistent_term`
-  — aggregate `lookup/1` then silently dropped every source.
+  The source tries and their registration state live together in
+  `:persistent_term`; ETS is only the hot-path enumerable index. This lets a
+  restarted Registry rebuild the index without reloading snapshots and lets
+  `Store` continue to work in `--no-start` unit tests without creating an
+  unmanaged, globally named process.
 
-  This GenServer owns the table for the life of the node (including when the
-  Loader is disabled).
+  Source mutations use a node-local `:global` lock. The lock serializes a
+  source's persistent handle and ETS membership changes while allowing
+  different sources to swap independently.
   """
 
   use GenServer
 
   @table ServiceRadar.PrefixTags.Store.Sources
+  @ready_marker {__MODULE__, :ready}
+  @active_handle_key_prefix {ServiceRadar.PrefixTags.Store, :active_handle}
+  @source_lock_namespace {__MODULE__, :source}
+
+  @type source :: String.t()
 
   @doc false
   def table_name, do: @table
@@ -23,68 +30,116 @@ defmodule ServiceRadar.PrefixTags.Registry do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end
 
-  @doc """
-  Ensure the registry table exists under this process.
-
-  Safe to call from any process; creates via the owner when the table is missing.
-  """
-  @spec ensure!() :: :ok
-  def ensure! do
-    case :ets.whereis(@table) do
-      :undefined ->
-        pid = ensure_owner_started()
-        GenServer.call(pid, :ensure_table)
-
-      _tid ->
-        :ok
-    end
+  @doc false
+  @spec with_source_lock(source(), (-> result)) :: result when result: var
+  def with_source_lock(source, fun) when is_binary(source) and is_function(fun, 0) do
+    lock = {{@source_lock_namespace, source}, self()}
+    :global.trans(lock, fun, [node()])
   end
 
-  defp ensure_owner_started do
-    case Process.whereis(__MODULE__) do
-      pid when is_pid(pid) ->
-        pid
+  @doc false
+  @spec sync_source(source(), boolean()) :: :ok
+  def sync_source(source, registered?) when is_binary(source) and is_boolean(registered?) do
+    case :ets.whereis(@table) do
+      :undefined ->
+        :ok
 
-      nil ->
-        # Unit tests / partial boot: start an *unlinked* owner so the table is
-        # never owned by an ephemeral materializer or exiting test process.
-        # Production starts this under Application supervision via start_link/1.
-        case GenServer.start(__MODULE__, [], name: __MODULE__) do
-          {:ok, pid} -> pid
-          {:error, {:already_started, pid}} -> pid
+      _tid when registered? ->
+        true = :ets.insert(@table, {source})
+        :ok
+
+      _tid ->
+        :ets.delete(@table, source)
+        :ok
+    end
+  rescue
+    # The table owner may have died between whereis/1 and insert/delete. Its
+    # supervised replacement will rehydrate from the persistent handles.
+    ArgumentError -> :ok
+  end
+
+  @doc false
+  @spec sources() :: [source()]
+  def sources do
+    case :ets.whereis(@table) do
+      :undefined ->
+        persistent_sources()
+
+      _tid ->
+        case :ets.lookup(@table, @ready_marker) do
+          [{@ready_marker}] ->
+            @table
+            |> :ets.tab2list()
+            |> Enum.flat_map(fn
+              {source} when is_binary(source) -> [source]
+              _marker -> []
+            end)
+
+          [] ->
+            # A newly created named table is visible before init/1 finishes.
+            # Keep serving from the authoritative handles until rehydration is
+            # complete instead of exposing an empty or partially rebuilt set.
+            persistent_sources()
         end
     end
+  rescue
+    # A restart can remove the table after whereis/1. The fallback is slower,
+    # but only runs during that short gap or in deliberately unsupervised tests.
+    ArgumentError -> persistent_sources()
   end
 
   @impl true
   def init(_opts) do
-    _ = create_table()
+    _tid =
+      :ets.new(@table, [
+        :set,
+        :public,
+        :named_table,
+        read_concurrency: true,
+        write_concurrency: true
+      ])
+
+    rehydrate_sources()
+    true = :ets.insert(@table, {@ready_marker})
     {:ok, %{}}
   end
 
-  @impl true
-  def handle_call(:ensure_table, _from, state) do
-    _ = create_table()
-    {:reply, :ok, state}
+  defp rehydrate_sources do
+    # Recheck every discovered source while holding the same lock as Store
+    # mutations. This closes both init/install and init/clear races.
+    Enum.each(persistent_sources(), fn source ->
+      with_source_lock(source, fn ->
+        sync_source(source, registered_handle?(source))
+      end)
+    end)
   end
 
-  defp create_table do
-    case :ets.whereis(@table) do
-      :undefined ->
-        :ets.new(@table, [
-          :set,
-          :public,
-          :named_table,
-          read_concurrency: true,
-          write_concurrency: true
-        ])
+  defp persistent_sources do
+    :persistent_term.get()
+    |> Enum.flat_map(fn
+      {{@active_handle_key_prefix, source}, {_version, _trie, :registered}}
+      when is_binary(source) ->
+        [source]
 
-        :ok
+      # Handles created before registration state was embedded were active.
+      {{@active_handle_key_prefix, source}, {_version, _trie}} when is_binary(source) ->
+        [source]
 
-      _tid ->
-        :ok
+      _other ->
+        []
+    end)
+    |> Enum.uniq()
+  end
+
+  defp registered_handle?(source) do
+    case :persistent_term.get(active_handle_key(source), nil) do
+      {_version, _trie, :registered} -> true
+      {_version, _trie} -> true
+      _other -> false
     end
   rescue
-    ArgumentError -> :ok
+    ArgumentError -> false
   end
+
+  defp active_handle_key(source), do: {@active_handle_key_prefix, source}
 end

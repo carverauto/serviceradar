@@ -35,21 +35,32 @@ defmodule ServiceRadar.PrefixTags.Changes.AdjustManualRecordCount do
   end
 
   defp adjust(snapshot_id, delta) when is_integer(delta) and delta != 0 do
-    case SQL.query(
-           Repo,
-           """
-           UPDATE platform.prefix_tag_snapshots
-           SET record_count = GREATEST(0, COALESCE(record_count, 0) + $2),
-               updated_at = NOW()
-           WHERE id = $1
-           """,
-           [snapshot_id, delta]
-         ) do
-      {:ok, %{num_rows: n}} when is_integer(n) and n >= 1 -> :ok
-      {:ok, _} -> {:error, :snapshot_not_found}
-      {:error, reason} -> {:error, reason}
+    with {:ok, dumped_snapshot_id} <- dump_uuid(snapshot_id) do
+      case SQL.query(
+             Repo,
+             """
+             UPDATE platform.prefix_tag_snapshots
+             SET record_count = GREATEST(0, COALESCE(record_count, 0) + $2),
+                 updated_at = NOW()
+             WHERE id = $1
+             """,
+             [dumped_snapshot_id, delta]
+           ) do
+        {:ok, %{num_rows: n}} when is_integer(n) and n >= 1 -> :ok
+        {:ok, _} -> {:error, :snapshot_not_found}
+        {:error, reason} -> {:error, reason}
+      end
     end
   rescue
     e -> {:error, e}
+  end
+
+  # Ash exposes UUID attributes as canonical strings, while Postgrex's binary
+  # protocol expects UUID query parameters in their 16-byte database form.
+  defp dump_uuid(value) do
+    case Ecto.UUID.dump(value) do
+      {:ok, dumped} -> {:ok, dumped}
+      :error -> {:error, :invalid_snapshot_id}
+    end
   end
 end

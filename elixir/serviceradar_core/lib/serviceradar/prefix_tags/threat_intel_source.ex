@@ -16,7 +16,10 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
   on structured fields and are not subject to the display budget.
   """
 
+  @behaviour ServiceRadar.PrefixTags.ExternalSources
+
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.PrefixTags.ExternalSources
   alias ServiceRadar.PrefixTags.Loader
   alias ServiceRadar.PrefixTags.Slug
   alias ServiceRadar.PrefixTags.Store
@@ -28,17 +31,33 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
   @max_tags_per_prefix 8
 
   @load_active_sql """
+  WITH active AS (
+    SELECT
+      host(indicator) || '/' || masklen(indicator) AS prefix,
+      source,
+      label,
+      severity,
+      expires_at
+    FROM platform.threat_intel_indicators
+    WHERE (expires_at IS NULL OR expires_at > now())
+  ),
+  freshness AS (
+    SELECT max(updated_at) AS snapshot_at
+    FROM platform.threat_intel_indicators
+  )
   SELECT
-    host(indicator) || '/' || masklen(indicator) AS prefix,
-    source,
-    label,
-    severity,
-    expires_at
-  FROM platform.threat_intel_indicators
-  WHERE (expires_at IS NULL OR expires_at > now())
+    a.prefix,
+    a.source,
+    a.label,
+    a.severity,
+    a.expires_at,
+    f.snapshot_at
+  FROM freshness f
+  LEFT JOIN active a ON TRUE
   """
 
   @doc "Canonical Store source name."
+  @impl true
   @spec source_name() :: String.t()
   def source_name, do: @source
 
@@ -49,12 +68,16 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
   - `:broadcast?` (default `true`) — notify peer nodes. Loaders that invoke
     this on invalidation must pass `broadcast?: false` to avoid a PubSub loop.
   """
-  @spec reload(keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  @impl true
+  @spec reload(keyword()) ::
+          {:ok, ExternalSources.reload_result()} | {:error, term()}
   def reload(opts \\ []) do
     broadcast? = Keyword.get(opts, :broadcast?, true)
 
-    case fetch_rows() do
-      {:ok, rows} ->
+    case SQL.query(Repo, @load_active_sql, []) do
+      {:ok, result} ->
+        %{rows: rows, snapshot_at: snapshot_at} = parse_query_result(result)
+
         if rows == [] do
           Store.clear(@source)
         else
@@ -63,11 +86,13 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
 
         if broadcast?, do: Loader.broadcast_invalidation(%{source: @source})
         Logger.info("PrefixTags.ThreatIntelSource loaded ti trie", rows: length(rows))
-        {:ok, length(rows)}
+        {:ok, ExternalSources.reload_result(length(rows), snapshot_at)}
 
       {:error, reason} ->
         {:error, reason}
     end
+  rescue
+    e -> {:error, e}
   end
 
   @doc false
@@ -298,37 +323,34 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
 
   def active_indicators(_, _), do: []
 
-  defp fetch_rows do
-    case SQL.query(Repo, @load_active_sql, []) do
-      {:ok, %{rows: rows}} ->
-        parsed =
-          rows
-          |> Enum.map(fn
-            [prefix, source, label, severity, expires_at] when is_binary(prefix) ->
-              map_indicator_row(prefix, source, label, severity, expires_at)
+  @doc false
+  @spec parse_query_result(map()) :: %{rows: [map()], snapshot_at: DateTime.t() | nil}
+  def parse_query_result(%{rows: rows}) when is_list(rows) do
+    snapshot_at =
+      Enum.find_value(rows, fn
+        [_prefix, _source, _label, _severity, _expires_at, value] ->
+          ExternalSources.normalize_datetime(value)
 
-            [prefix, source, label, severity] when is_binary(prefix) ->
-              map_indicator_row(prefix, source, label, severity, nil)
+        _ ->
+          nil
+      end)
 
-            [prefix, source, label] when is_binary(prefix) ->
-              map_indicator_row(prefix, source, label, nil, nil)
+    parsed =
+      rows
+      |> Enum.flat_map(fn
+        [prefix, source, label, severity, expires_at, _snapshot_at]
+        when is_binary(prefix) ->
+          [map_indicator_row(prefix, source, label, severity, expires_at)]
 
-            _ ->
-              nil
-          end)
-          |> Enum.reject(&is_nil/1)
-          # Collapse duplicate prefixes for the display trie, but keep each
-          # indicator's own expiry/severity/source for CTI parity.
-          |> Enum.group_by(& &1.prefix)
-          |> Enum.map(fn {prefix, group} -> merge_prefix_group(prefix, group) end)
+        _ ->
+          []
+      end)
+      # Collapse duplicate prefixes for the display trie, but keep each
+      # indicator's own expiry/severity/source for CTI parity.
+      |> Enum.group_by(& &1.prefix)
+      |> Enum.map(fn {prefix, group} -> merge_prefix_group(prefix, group) end)
 
-        {:ok, parsed}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  rescue
-    e -> {:error, e}
+    %{rows: parsed, snapshot_at: snapshot_at}
   end
 
   defp merge_prefix_group(prefix, group) when is_list(group) do

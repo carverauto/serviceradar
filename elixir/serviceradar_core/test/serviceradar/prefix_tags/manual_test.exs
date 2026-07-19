@@ -1,7 +1,17 @@
 defmodule ServiceRadar.PrefixTags.ManualTest do
   use ExUnit.Case, async: true
 
+  alias Ash.Resource.Info
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.PrefixTags.Manual
+  alias ServiceRadar.PrefixTags.PrefixTag
+
+  @manager %{
+    id: "prefix-tag-manager",
+    role: :operator,
+    permissions: MapSet.new(["settings.prefix_tags.manage"])
+  }
+  @system SystemActor.system(:prefix_tags_manual_test)
 
   describe "parse_tags_input/1" do
     test "splits on commas, whitespace, and newlines" do
@@ -28,5 +38,20 @@ defmodule ServiceRadar.PrefixTags.ManualTest do
 
   test "source_name is manual" do
     assert Manual.source_name() == "manual"
+  end
+
+  test "generic create is importer-only while managers use create_manual" do
+    refute Ash.can?({PrefixTag, :create}, @manager)
+    assert Ash.can?({PrefixTag, :create}, @system)
+    assert Ash.can?({PrefixTag, :create_manual}, @manager)
+  end
+
+  test "trie rebuild action is unpaginated without weakening the UI read" do
+    ui_action = Info.action(PrefixTag, :list_active)
+    rebuild_action = Info.action(PrefixTag, :list_active_for_rebuild)
+
+    assert ui_action.pagination.required?
+    assert ui_action.pagination.max_page_size == 250
+    refute rebuild_action.pagination
   end
 end

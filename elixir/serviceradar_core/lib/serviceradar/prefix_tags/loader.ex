@@ -35,8 +35,8 @@ defmodule ServiceRadar.PrefixTags.Loader do
     s.source,
     s.id AS snapshot_id,
     s.promoted_at
-  FROM platform.prefix_tags p
-  JOIN platform.prefix_tag_snapshots s ON s.id = p.snapshot_id
+  FROM platform.prefix_tag_snapshots s
+  LEFT JOIN platform.prefix_tags p ON p.snapshot_id = s.id
   WHERE s.is_active = TRUE
   """
 
@@ -52,29 +52,9 @@ defmodule ServiceRadar.PrefixTags.Loader do
     s.source,
     s.id AS snapshot_id,
     s.promoted_at
-  FROM platform.prefix_tags p
-  JOIN platform.prefix_tag_snapshots s ON s.id = p.snapshot_id
+  FROM platform.prefix_tag_snapshots s
+  LEFT JOIN platform.prefix_tags p ON p.snapshot_id = s.id
   WHERE s.is_active = TRUE AND s.source = $1
-  """
-
-  # Active snapshots with zero rows are invisible to the INNER JOIN above.
-  @load_empty_active_snapshots_sql """
-  SELECT s.source, s.id AS snapshot_id, s.promoted_at
-  FROM platform.prefix_tag_snapshots s
-  WHERE s.is_active = TRUE
-    AND NOT EXISTS (
-      SELECT 1 FROM platform.prefix_tags p WHERE p.snapshot_id = s.id
-    )
-  """
-
-  @load_empty_active_for_source_sql """
-  SELECT s.source, s.id AS snapshot_id, s.promoted_at
-  FROM platform.prefix_tag_snapshots s
-  WHERE s.is_active = TRUE
-    AND s.source = $1
-    AND NOT EXISTS (
-      SELECT 1 FROM platform.prefix_tags p WHERE p.snapshot_id = s.id
-    )
   """
 
   @type state :: %{
@@ -277,9 +257,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
             version = Store.put_rows(source, rows)
             stats = Store.stats(source)
             # Prefer snapshot promoted_at for age telemetry (not rebuild wall time).
-            freshness =
-              Map.get(snapshot_ids_by_source, {:promoted_at, source}) ||
-                DateTime.utc_now()
+            freshness = Map.get(snapshot_ids_by_source, {:promoted_at, source})
 
             {source,
              %{
@@ -302,8 +280,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
               else
                 if !external_source?(source), do: Store.clear(source)
 
-                prev_at =
-                  get_in(state.sources, [source, :snapshot_at]) || DateTime.utc_now()
+                prev_at = get_in(state.sources, [source, :snapshot_at])
 
                 Map.put(sources_meta, source, %{
                   version: nil,
@@ -378,67 +355,19 @@ defmodule ServiceRadar.PrefixTags.Loader do
   end
 
   defp fetch_active_rows(:all) do
-    with {:ok, result} <- SQL.query(Repo, @load_active_sql, []),
-         {:ok, by_source, meta} <- parse_rows(result),
-         {:ok, empty_meta} <- fetch_empty_active_snapshots(:all) do
-      {:ok, merge_empty_sources(by_source, empty_meta), Map.merge(meta, empty_meta)}
+    with {:ok, result} <- SQL.query(Repo, @load_active_sql, []) do
+      parse_active_rows(result)
     end
   rescue
     e -> {:error, e}
   end
 
   defp fetch_active_rows(source) when is_binary(source) do
-    with {:ok, result} <- SQL.query(Repo, @load_active_for_source_sql, [source]),
-         {:ok, by_source, meta} <- parse_rows(result),
-         {:ok, empty_meta} <- fetch_empty_active_snapshots(source) do
-      {:ok, merge_empty_sources(by_source, empty_meta), Map.merge(meta, empty_meta)}
+    with {:ok, result} <- SQL.query(Repo, @load_active_for_source_sql, [source]) do
+      parse_active_rows(result)
     end
   rescue
     e -> {:error, e}
-  end
-
-  defp fetch_empty_active_snapshots(:all) do
-    case SQL.query(Repo, @load_empty_active_snapshots_sql, []) do
-      {:ok, %{rows: rows}} -> {:ok, empty_snapshot_meta(rows)}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp fetch_empty_active_snapshots(source) when is_binary(source) do
-    case SQL.query(Repo, @load_empty_active_for_source_sql, [source]) do
-      {:ok, %{rows: rows}} -> {:ok, empty_snapshot_meta(rows)}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp empty_snapshot_meta(rows) do
-    Enum.reduce(rows, %{}, fn
-      [source, snapshot_id, promoted_at], acc when is_binary(source) ->
-        acc
-        |> Map.update(source, [to_string(snapshot_id)], fn ids ->
-          Enum.uniq([to_string(snapshot_id) | ids])
-        end)
-        |> Map.put(
-          {:promoted_at, source},
-          normalize_datetime(promoted_at) || Map.get(acc, {:promoted_at, source})
-        )
-
-      _, acc ->
-        acc
-    end)
-  end
-
-  defp merge_empty_sources(by_source, empty_meta) do
-    empty_meta
-    |> Enum.filter(fn
-      {source, _} when is_binary(source) -> not Map.has_key?(by_source, source)
-      _ -> false
-    end)
-    |> Enum.reduce(by_source, fn {source, _ids}, acc ->
-      # Empty active snapshot: install zero-row trie so loaded? is true.
-      _ = Store.put_rows(source, [])
-      Map.put_new(acc, source, [])
-    end)
   end
 
   defp merge_preserving_external_freshness(old_sources, new_sources) do
@@ -451,53 +380,76 @@ defmodule ServiceRadar.PrefixTags.Loader do
     end)
   end
 
-  defp parse_rows(%{rows: rows, columns: columns}) do
+  @doc false
+  @spec parse_active_rows(map()) :: {:ok, %{String.t() => [map()]}, map()}
+  def parse_active_rows(%{rows: rows, columns: columns}) do
     col_index = columns |> Enum.with_index() |> Map.new()
 
     parsed =
-      Enum.map(rows, fn row ->
-        tags = normalize_tags(Enum.at(row, col_index["tags"]))
+      Enum.flat_map(rows, fn row ->
+        prefix = Enum.at(row, col_index["prefix"])
+        source = Enum.at(row, col_index["source"])
 
-        %{
-          prefix: Enum.at(row, col_index["prefix"]),
-          tags: tags,
-          vrf: Enum.at(row, col_index["vrf"]),
-          site: Enum.at(row, col_index["site"]),
-          role: Enum.at(row, col_index["role"]),
-          tenant: Enum.at(row, col_index["tenant"]),
-          status: Enum.at(row, col_index["status"]),
-          source: Enum.at(row, col_index["source"])
-        }
+        if is_binary(prefix) and is_binary(source) do
+          [
+            %{
+              prefix: prefix,
+              tags: normalize_tags(Enum.at(row, col_index["tags"])),
+              vrf: Enum.at(row, col_index["vrf"]),
+              site: Enum.at(row, col_index["site"]),
+              role: Enum.at(row, col_index["role"]),
+              tenant: Enum.at(row, col_index["tenant"]),
+              status: Enum.at(row, col_index["status"]),
+              source: source
+            }
+          ]
+        else
+          []
+        end
       end)
 
-    by_source = Enum.group_by(parsed, & &1.source)
+    source_names =
+      rows
+      |> Enum.map(&Enum.at(&1, col_index["source"]))
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    by_source =
+      Enum.reduce(source_names, Enum.group_by(parsed, & &1.source), fn source, acc ->
+        Map.put_new(acc, source, [])
+      end)
 
     snapshot_ids_by_source =
       rows
       |> Enum.group_by(&Enum.at(&1, col_index["source"]))
       |> Enum.reduce(%{}, fn {source, source_rows}, acc ->
-        ids =
-          source_rows
-          |> Enum.map(&Enum.at(&1, col_index["snapshot_id"]))
-          |> Enum.uniq()
-          |> Enum.map(&to_string/1)
+        if is_binary(source) do
+          ids =
+            source_rows
+            |> Enum.map(&Enum.at(&1, col_index["snapshot_id"]))
+            |> Enum.reject(&is_nil/1)
+            |> Enum.uniq()
+            |> Enum.map(&to_string/1)
 
-        promoted_ats =
-          source_rows
-          |> Enum.map(&Enum.at(&1, col_index["promoted_at"]))
-          |> Enum.map(&normalize_datetime/1)
-          |> Enum.reject(&is_nil/1)
+          promoted_ats =
+            source_rows
+            |> Enum.map(&Enum.at(&1, col_index["promoted_at"]))
+            |> Enum.map(&normalize_datetime/1)
+            |> Enum.reject(&is_nil/1)
 
-        # Oldest promotion among active snapshots for this source (conservative age).
-        snapshot_at =
-          case promoted_ats do
-            [] -> nil
-            dts -> Enum.min(dts, DateTime)
-          end
+          # Oldest promotion among active snapshots for this source (conservative age).
+          snapshot_at =
+            case promoted_ats do
+              [] -> nil
+              dts -> Enum.min(dts, DateTime)
+            end
 
-        acc
-        |> Map.put(source, ids)
-        |> Map.put({:promoted_at, source}, snapshot_at)
+          acc
+          |> Map.put(source, ids)
+          |> Map.put({:promoted_at, source}, snapshot_at)
+        else
+          acc
+        end
       end)
 
     {:ok, by_source, snapshot_ids_by_source}
@@ -537,17 +489,17 @@ defmodule ServiceRadar.PrefixTags.Loader do
 
   defp emit_snapshot_age_for_sources(sources_meta) when is_map(sources_meta) do
     Enum.each(sources_meta, fn {source, meta} ->
-      age_seconds =
-        case Map.get(meta, :snapshot_at) || Map.get(meta, :loaded_at) do
-          %DateTime{} = dt -> max(DateTime.diff(DateTime.utc_now(), dt, :second), 0)
-          _ -> 0
-        end
+      case Map.get(meta, :snapshot_at) do
+        %DateTime{} = dt ->
+          :telemetry.execute(
+            [:serviceradar, :prefix_tags, :snapshot_age],
+            %{age_seconds: max(DateTime.diff(DateTime.utc_now(), dt, :second), 0)},
+            %{source: source}
+          )
 
-      :telemetry.execute(
-        [:serviceradar, :prefix_tags, :snapshot_age],
-        %{age_seconds: age_seconds},
-        %{source: source}
-      )
+        _ ->
+          :ok
+      end
     end)
   rescue
     _ -> :ok
@@ -636,7 +588,8 @@ defmodule ServiceRadar.PrefixTags.Loader do
         if Code.ensure_loaded?(mod) and function_exported?(mod, :reload, 1) do
           # broadcast?: false — we are already handling a broadcast (or boot).
           case mod.reload(broadcast?: false) do
-            {:ok, count} ->
+            {:ok, %{row_count: count, snapshot_at: snapshot_at}}
+            when is_integer(count) and count >= 0 ->
               Logger.debug("PrefixTags.Loader external source reloaded",
                 source: source,
                 rows: count
@@ -651,13 +604,23 @@ defmodule ServiceRadar.PrefixTags.Loader do
                     Map.put(state.sources, source, %{
                       row_count: count,
                       loaded_at: now,
-                      snapshot_at: now,
+                      snapshot_at: snapshot_at,
                       stats: Store.stats(source)
                     })
               }
 
-              maybe_emit_snapshot_age(source, count)
+              emit_snapshot_age_for_sources(Map.take(state.sources, [source]))
               {state, :ok}
+
+            {:ok, result} ->
+              msg = "invalid_reload_result: #{inspect(result)}"
+
+              Logger.warning("PrefixTags.Loader external source returned invalid result",
+                source: source,
+                result: inspect(result)
+              )
+
+              {put_external_error(state, source, msg), {:error, msg}}
 
             {:error, reason} ->
               msg = inspect(reason)
@@ -694,18 +657,6 @@ defmodule ServiceRadar.PrefixTags.Loader do
 
   defp clear_external_error(state, source) do
     %{state | external_errors: Map.delete(state.external_errors || %{}, source)}
-  end
-
-  defp maybe_emit_snapshot_age(source, _count) do
-    # External materializers: age is 0 at successful rebuild; periodic tick
-    # re-emits from Loader state once the source is tracked there.
-    :telemetry.execute(
-      [:serviceradar, :prefix_tags, :snapshot_age],
-      %{age_seconds: 0},
-      %{source: source}
-    )
-  rescue
-    _ -> :ok
   end
 
   defp schedule_snapshot_age_tick do

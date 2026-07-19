@@ -365,6 +365,53 @@ defmodule ServiceRadar.EventWriter.FlowEnrichmentTest do
       refute "ti:expired-feed" in tags
       refute "ti:severity:5" in tags
       assert "ti:severity:2" in tags
+      assert enriched.src_prefix_tags_source == "ti"
+    end
+
+    test "expired CTI matches do not remain in prefix-tag provenance" do
+      Application.put_env(:serviceradar_core, :prefix_tag_enrichment_enabled, true)
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_core, :prefix_tag_enrichment_enabled, false)
+      end)
+
+      Store.put_rows("manual", [
+        %{prefix: "203.0.113.0/24", tags: ["site:lab"], source: "manual"}
+      ])
+
+      Store.put_rows("ti", [
+        %{
+          prefix: "203.0.113.0/24",
+          tags: ["ti:expired-feed", "ti:severity:5"],
+          source: "ti",
+          severity: 5,
+          indicator_count: 1,
+          expires_at: ~U[2020-01-01 00:00:00Z],
+          feed_sources: ["expired-feed"]
+        }
+      ])
+
+      enriched =
+        FlowEnrichment.enrich(%{
+          protocol_num: 6,
+          src_ip: "203.0.113.10",
+          dst_ip: "198.51.100.1"
+        })
+
+      assert enriched.src_prefix_tags == ["site:lab"]
+      assert enriched.src_prefix_tags_source == "manual"
+
+      Store.clear("manual")
+
+      expired_only =
+        FlowEnrichment.enrich(%{
+          protocol_num: 6,
+          src_ip: "203.0.113.10",
+          dst_ip: "198.51.100.1"
+        })
+
+      assert expired_only.src_prefix_tags == nil
+      assert expired_only.src_prefix_tags_source == nil
     end
   end
 

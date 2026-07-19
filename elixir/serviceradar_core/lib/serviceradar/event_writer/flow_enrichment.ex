@@ -270,10 +270,10 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
     {provider, provider_source} = provider_from_chain_or_sql(chain, ip)
 
     if tags_enabled? do
-      trie_tags = flatten_tag_chain(chain)
+      {trie_tags, trie_sources} = flatten_tag_chain(chain)
       geo_tags = geo_tags_for_ip(ip)
       tags = Enum.uniq(trie_tags ++ geo_tags)
-      tags_source = chain_sources_label(chain, geo_tags)
+      tags_source = chain_sources_label(trie_sources, geo_tags)
 
       %{
         tags: if(tags == [], do: nil, else: tags),
@@ -291,11 +291,10 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
     end
   end
 
-  # Comma-joined unique source ids from the match chain (multi-source provenance).
-  defp chain_sources_label(chain, geo_tags) when is_list(chain) do
+  # Comma-joined source ids that contributed at least one persisted tag.
+  defp chain_sources_label(sources, geo_tags) when is_list(sources) do
     sources =
-      chain
-      |> Enum.map(&Map.get(&1, :source))
+      sources
       |> Enum.filter(&(is_binary(&1) and &1 != ""))
       |> Enum.uniq()
 
@@ -399,22 +398,35 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   defp flatten_tag_chain(chain) when is_list(chain) do
     now = DateTime.utc_now()
 
-    chain
-    |> Enum.flat_map(fn match ->
-      case match do
-        %{source: "ti"} = m ->
-          # Derive TI display tags from still-active members so expired feed
-          # provenance/severity never lands on newly enriched flows.
-          tags_from_active_ti_match(m, now)
+    contributions =
+      Enum.map(chain, fn match ->
+        tags =
+          case match do
+            %{source: "ti"} = m ->
+              # Derive TI display tags from still-active members so expired feed
+              # provenance/severity never lands on newly enriched flows.
+              tags_from_active_ti_match(m, now)
 
-        %{tags: tags} when is_list(tags) ->
-          if ThreatIntelSource.match_expired?(match, now), do: [], else: tags
+            %{tags: tags} when is_list(tags) ->
+              if ThreatIntelSource.match_expired?(match, now), do: [], else: tags
 
-        _ ->
-          []
-      end
-    end)
-    |> Enum.uniq()
+            _ ->
+              []
+          end
+
+        source = if is_map(match), do: Map.get(match, :source)
+        {source, tags}
+      end)
+
+    tags = contributions |> Enum.flat_map(&elem(&1, 1)) |> Enum.uniq()
+
+    sources =
+      contributions
+      |> Enum.filter(fn {_source, tags} -> tags != [] end)
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.uniq()
+
+    {tags, sources}
   end
 
   defp tags_from_active_ti_match(match, now) do

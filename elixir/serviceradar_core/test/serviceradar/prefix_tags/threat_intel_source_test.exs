@@ -171,4 +171,27 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSourceTest do
     assert match.severity == 3
     assert match.feed_sources == ["otx"] or "ti:otx" in match.tags
   end
+
+  test "query parser returns durable table freshness instead of rebuild time" do
+    snapshot_at = ~N[2026-07-18 09:15:00]
+
+    parsed =
+      ThreatIntelSource.parse_query_result(%{
+        rows: [
+          ["203.0.113.0/24", "otx", "C2", 4, nil, snapshot_at]
+        ]
+      })
+
+    assert parsed.snapshot_at == ~U[2026-07-18 09:15:00Z]
+    assert [%{prefix: "203.0.113.0/24", source: "ti"}] = parsed.rows
+  end
+
+  test "query parser keeps freshness when there are no active indicators" do
+    snapshot_at = ~U[2026-07-18 09:15:00Z]
+
+    assert %{rows: [], snapshot_at: ^snapshot_at} =
+             ThreatIntelSource.parse_query_result(%{
+               rows: [[nil, nil, nil, nil, nil, snapshot_at]]
+             })
+  end
 end

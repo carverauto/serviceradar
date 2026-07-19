@@ -9,12 +9,12 @@ defmodule ServiceRadar.PrefixTags.Store do
   """
 
   alias ServiceRadar.PrefixTags.Engine
+  alias ServiceRadar.PrefixTags.Registry
   alias ServiceRadar.PrefixTags.Trie
 
-  # Enumerable registry of registered source names. Owned by
-  # ServiceRadar.PrefixTags.Registry so ephemeral callers cannot delete it on exit.
-  @sources_table __MODULE__.Sources
-  # Single atomic handle: one persistent_term get returns {version, trie}.
+  # Single atomic handle: one persistent_term get returns
+  # {version, trie, :registered | :cleared}. Keeping registration in the same
+  # handle lets Registry reconstruct its enumerable ETS index after a restart.
   @active_handle_key_prefix {__MODULE__, :active_handle}
   # Previous handles kept briefly so a concurrent reader that already held the
   # old term can finish; not used for lookup indirection.
@@ -71,7 +71,11 @@ defmodule ServiceRadar.PrefixTags.Store do
   """
   @spec loaded?(source()) :: boolean()
   def loaded?(source) when is_binary(source) do
-    match?({_v, _trie}, active_handle(source))
+    case active_handle(source) do
+      {_version, _trie} -> true
+      {_version, _trie, _registration} -> true
+      _other -> false
+    end
   end
 
   @doc """
@@ -137,21 +141,21 @@ defmodule ServiceRadar.PrefixTags.Store do
   @spec put_trie(source(), Engine.t()) :: version()
   def put_trie(source, trie) when is_binary(source) do
     started = System.monotonic_time(:microsecond)
-    version = next_version(source)
-    previous_handle = active_handle(source)
-    handle = {version, trie}
 
-    # One put: readers do a single get of the active handle (atomic swap).
-    :persistent_term.put(active_handle_key(source), handle)
-    register_source(source)
+    {version, previous_handle} =
+      Registry.with_source_lock(source, fn ->
+        version = next_version(source)
+        previous_handle = active_handle(source)
 
-    case previous_handle do
-      {prev_v, _prev_trie} when prev_v != version ->
-        schedule_erase_stale(source, prev_v, previous_handle)
+        # Registration and the trie swap share one persistent handle, so a
+        # Registry restart can recover the exact source state.
+        :persistent_term.put(active_handle_key(source), {version, trie, :registered})
+        Registry.sync_source(source, true)
 
-      _ ->
-        :ok
-    end
+        {version, previous_handle}
+      end)
+
+    schedule_previous_handle_erase(source, version, previous_handle)
 
     duration_us = System.monotonic_time(:microsecond) - started
     s = engine().stats(trie)
@@ -180,21 +184,20 @@ defmodule ServiceRadar.PrefixTags.Store do
   @doc "Clear one source's trie."
   @spec clear(source()) :: :ok
   def clear(source) when is_binary(source) do
-    previous_handle = active_handle(source)
     empty = engine().build([])
-    version = next_version(source)
-    handle = {version, empty}
-    :persistent_term.put(active_handle_key(source), handle)
 
-    case previous_handle do
-      {prev_v, _} when prev_v != version ->
-        schedule_erase_stale(source, prev_v, previous_handle)
+    {version, previous_handle} =
+      Registry.with_source_lock(source, fn ->
+        version = next_version(source)
+        previous_handle = active_handle(source)
 
-      _ ->
-        :ok
-    end
+        :persistent_term.put(active_handle_key(source), {version, empty, :cleared})
+        Registry.sync_source(source, false)
 
-    unregister_source(source)
+        {version, previous_handle}
+      end)
+
+    schedule_previous_handle_erase(source, version, previous_handle)
     :ok
   end
 
@@ -208,21 +211,14 @@ defmodule ServiceRadar.PrefixTags.Store do
   discoverable by aggregate `lookup/1` (not only the built-in catalog).
   """
   @spec sources() :: [source()]
-  def sources do
-    ensure_sources_table()
-
-    @sources_table
-    |> :ets.tab2list()
-    |> Enum.map(fn {source} -> source end)
-  rescue
-    _ -> []
-  end
+  def sources, do: Registry.sources()
 
   @doc "Current active version for a source, or nil."
   @spec active_version(source()) :: version() | nil
   def active_version(source) when is_binary(source) do
     case active_handle(source) do
       {version, _} -> version
+      {version, _, _registration} -> version
       _ -> nil
     end
   end
@@ -232,6 +228,7 @@ defmodule ServiceRadar.PrefixTags.Store do
   def active_trie(source) when is_binary(source) do
     case active_handle(source) do
       {_version, trie} -> trie
+      {_version, trie, _registration} -> trie
       _ -> nil
     end
   end
@@ -312,6 +309,22 @@ defmodule ServiceRadar.PrefixTags.Store do
     end
   end
 
+  defp schedule_previous_handle_erase(source, version, previous_handle) do
+    case handle_version(previous_handle) do
+      previous_version when is_integer(previous_version) and previous_version != version ->
+        schedule_erase_stale(source, previous_version, previous_handle)
+
+      _other ->
+        :ok
+    end
+  end
+
+  defp handle_version({version, _trie}) when is_integer(version), do: version
+
+  defp handle_version({version, _trie, _registration}) when is_integer(version), do: version
+
+  defp handle_version(_other), do: nil
+
   # Park the previous handle under a short-lived key so GC of the large term is
   # delayed (readers may still hold the old term). Not used for lookups.
   defp schedule_erase_stale(source, previous_version, previous_handle)
@@ -338,27 +351,6 @@ defmodule ServiceRadar.PrefixTags.Store do
 
   defp erase_delay_ms do
     Application.get_env(:serviceradar_core, :prefix_tags_erase_delay_ms, @erase_delay_ms)
-  end
-
-  defp register_source(source) when is_binary(source) do
-    ensure_sources_table()
-    true = :ets.insert(@sources_table, {source})
-    :ok
-  end
-
-  defp unregister_source(source) when is_binary(source) do
-    try do
-      ensure_sources_table()
-      :ets.delete(@sources_table, source)
-    rescue
-      ArgumentError -> :ok
-    end
-
-    :ok
-  end
-
-  defp ensure_sources_table do
-    ServiceRadar.PrefixTags.Registry.ensure!()
   end
 
   defp engine do

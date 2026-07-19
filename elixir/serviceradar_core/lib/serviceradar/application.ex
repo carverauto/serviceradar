@@ -92,6 +92,10 @@ defmodule ServiceRadar.Application do
         # Runtime publications for agent-gateway-served auxiliary artifacts
         ServiceRadar.Edge.AgentArtifacts,
 
+        # Owns the Store source-name ETS registry. Start it before Oban so due
+        # materializer jobs cannot race the supervised owner during boot.
+        prefix_tags_registry_child(),
+
         # Oban job processor (can be disabled for standalone tests)
         oban_child(),
         oban_failure_event_reporter_child(),
@@ -132,10 +136,6 @@ defmodule ServiceRadar.Application do
         # Short-TTL ETS cache for event-writer device correlation (one DB
         # lookup per device instead of per event under load)
         device_correlation_cache_child(),
-
-        # Owns the Store source-name ETS registry (must outlive ephemeral
-        # materializer processes that call put_trie/sources).
-        prefix_tags_registry_child(),
 
         # Per-node prefix-tag LPM trie loader (core-elx + web-ng when repo is on;
         # agent-gateway excluded via repo_enabled? false). Hosting-provider LPM

@@ -167,25 +167,31 @@ defmodule ServiceRadar.PrefixTags.Manual do
   """
   @spec reconcile_record_count!(term()) :: non_neg_integer()
   def reconcile_record_count!(snapshot_id) do
-    case Ecto.Adapters.SQL.query(
-           ServiceRadar.Repo,
-           """
-           UPDATE platform.prefix_tag_snapshots s
-           SET record_count = sub.cnt,
-               updated_at = NOW()
-           FROM (
-             SELECT COUNT(*)::bigint AS cnt
-             FROM platform.prefix_tags
-             WHERE snapshot_id = $1
-           ) sub
-           WHERE s.id = $1
-           RETURNING s.record_count
-           """,
-           [snapshot_id]
-         ) do
-      {:ok, %{rows: [[n]]}} when is_integer(n) -> n
-      {:ok, %{rows: [[n]]}} -> String.to_integer(to_string(n))
-      _ -> 0
+    case Ecto.UUID.dump(snapshot_id) do
+      {:ok, dumped_snapshot_id} ->
+        case Ecto.Adapters.SQL.query(
+               ServiceRadar.Repo,
+               """
+               UPDATE platform.prefix_tag_snapshots s
+               SET record_count = sub.cnt,
+                   updated_at = NOW()
+               FROM (
+                 SELECT COUNT(*)::bigint AS cnt
+                 FROM platform.prefix_tags
+                 WHERE snapshot_id = $1
+               ) sub
+               WHERE s.id = $1
+               RETURNING s.record_count
+               """,
+               [dumped_snapshot_id]
+             ) do
+          {:ok, %{rows: [[n]]}} when is_integer(n) -> n
+          {:ok, %{rows: [[n]]}} -> String.to_integer(to_string(n))
+          _ -> 0
+        end
+
+      :error ->
+        0
     end
   rescue
     _ -> 0
@@ -290,7 +296,7 @@ defmodule ServiceRadar.PrefixTags.Manual do
   end
 
   defp rebuild_local_manual_trie do
-    case list(source: @source, limit: 10_000) do
+    case list_all_for_rebuild(@source) do
       {:ok, tags} ->
         rows =
           Enum.map(tags, fn tag ->
@@ -311,6 +317,25 @@ defmodule ServiceRadar.PrefixTags.Manual do
 
       {:error, _} ->
         :ok
+    end
+  end
+
+  # `list/1` intentionally returns one UI page. A query-level limit does not
+  # override the read action's required pagination/max page size, so using it
+  # here silently rebuilt the trie from only the first page. Rebuilds
+  # inherently need the complete active dataset, hence the dedicated internal
+  # unpaginated action.
+  defp list_all_for_rebuild(source) do
+    query =
+      PrefixTag
+      |> Ash.Query.for_read(:list_active_for_rebuild, %{})
+      |> Ash.Query.filter(snapshot.source == ^source)
+      |> Ash.Query.sort(prefix: :asc, vrf: :asc, id: :asc)
+
+    case Ash.read(query) do
+      {:ok, tags} when is_list(tags) -> {:ok, tags}
+      {:ok, page} -> {:ok, page_results(page)}
+      {:error, err} -> {:error, err}
     end
   end
 

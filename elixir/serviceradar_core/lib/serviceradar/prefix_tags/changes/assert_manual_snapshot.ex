@@ -1,7 +1,8 @@
 defmodule ServiceRadar.PrefixTags.Changes.AssertManualSnapshot do
   @moduledoc """
-  Reject update/destroy of prefix tags that do not belong to the `manual`
-  snapshot source. Imported rows (netbox, custom, …) are read-only.
+  Reject create/update/destroy actions intended for operators when the prefix
+  tag does not belong to the `manual` snapshot source. Imported rows (netbox,
+  custom, …) are read-only.
   """
 
   use Ash.Resource.Change
@@ -21,7 +22,8 @@ defmodule ServiceRadar.PrefixTags.Changes.AssertManualSnapshot do
         other when is_binary(other) ->
           Ash.Changeset.add_error(cs,
             field: :snapshot_id,
-            message: "only manual prefix tags may be updated or destroyed (source=#{other})"
+            message:
+              "only manual prefix tags may be created, updated, or destroyed (source=#{other})"
           )
 
         :error ->
@@ -57,14 +59,20 @@ defmodule ServiceRadar.PrefixTags.Changes.AssertManualSnapshot do
   end
 
   defp query_source(snapshot_id) do
-    case SQL.query(
-           Repo,
-           "SELECT source FROM platform.prefix_tag_snapshots WHERE id = $1",
-           [snapshot_id]
-         ) do
-      {:ok, %{rows: [[source]]}} when is_binary(source) -> source
-      {:ok, %{rows: []}} -> :error
-      _ -> :error
+    case Ecto.UUID.dump(snapshot_id) do
+      {:ok, dumped_snapshot_id} ->
+        case SQL.query(
+               Repo,
+               "SELECT source FROM platform.prefix_tag_snapshots WHERE id = $1",
+               [dumped_snapshot_id]
+             ) do
+          {:ok, %{rows: [[source]]}} when is_binary(source) -> source
+          {:ok, %{rows: []}} -> :error
+          _ -> :error
+        end
+
+      :error ->
+        :error
     end
   rescue
     _ -> :error

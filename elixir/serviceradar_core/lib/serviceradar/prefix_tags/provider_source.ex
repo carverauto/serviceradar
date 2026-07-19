@@ -8,7 +8,10 @@ defmodule ServiceRadar.PrefixTags.ProviderSource do
   `provider:<name>`.
   """
 
+  @behaviour ServiceRadar.PrefixTags.ExternalSources
+
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.PrefixTags.ExternalSources
   alias ServiceRadar.PrefixTags.Loader
   alias ServiceRadar.PrefixTags.Store
   alias ServiceRadar.Repo
@@ -17,20 +20,19 @@ defmodule ServiceRadar.PrefixTags.ProviderSource do
 
   @source "provider"
 
-  @active_snapshot_sql """
-  SELECT id
-  FROM platform.netflow_provider_dataset_snapshots
-  WHERE is_active = TRUE
-  LIMIT 1
-  """
-
-  @load_cidrs_sql """
-  SELECT host(c.cidr) || '/' || masklen(c.cidr) AS prefix, c.provider
-  FROM platform.netflow_provider_cidrs c
-  WHERE c.snapshot_id = $1
+  @load_active_sql """
+  SELECT
+    s.id AS snapshot_id,
+    COALESCE(s.promoted_at, s.fetched_at, s.inserted_at) AS snapshot_at,
+    host(c.cidr) || '/' || masklen(c.cidr) AS prefix,
+    c.provider
+  FROM platform.netflow_provider_dataset_snapshots s
+  LEFT JOIN platform.netflow_provider_cidrs c ON c.snapshot_id = s.id
+  WHERE s.is_active = TRUE
   """
 
   @doc "Canonical Store source name for hosting-provider tags."
+  @impl true
   @spec source_name() :: String.t()
   def source_name, do: @source
 
@@ -41,31 +43,34 @@ defmodule ServiceRadar.PrefixTags.ProviderSource do
   - `:broadcast?` (default `true`) — notify peer nodes. Loaders that invoke
     this on invalidation must pass `broadcast?: false` to avoid a PubSub loop.
   """
-  @spec reload(keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  @impl true
+  @spec reload(keyword()) ::
+          {:ok, ExternalSources.reload_result()} | {:error, term()}
   def reload(opts \\ []) do
     broadcast? = Keyword.get(opts, :broadcast?, true)
 
-    case fetch_active_snapshot_id() do
-      {:ok, nil} ->
-        Store.clear(@source)
-        maybe_broadcast(broadcast?)
-        {:ok, 0}
+    case SQL.query(Repo, @load_active_sql, []) do
+      {:ok, result} ->
+        %{active_snapshot?: active_snapshot?, rows: rows, snapshot_at: snapshot_at} =
+          parse_query_result(result)
 
-      {:ok, snapshot_id} ->
-        case fetch_rows(snapshot_id) do
-          {:ok, rows} ->
-            _ = Store.put_rows(@source, rows)
-            maybe_broadcast(broadcast?)
-            Logger.info("PrefixTags.ProviderSource loaded provider trie", rows: length(rows))
-            {:ok, length(rows)}
-
-          {:error, reason} ->
-            {:error, reason}
+        if active_snapshot? do
+          # An active, authoritative zero-row snapshot must remain registered
+          # as loaded so callers do not fall back to an older SQL cache.
+          _ = Store.put_rows(@source, rows)
+        else
+          Store.clear(@source)
         end
+
+        maybe_broadcast(broadcast?)
+        Logger.info("PrefixTags.ProviderSource loaded provider trie", rows: length(rows))
+        {:ok, ExternalSources.reload_result(length(rows), snapshot_at)}
 
       {:error, reason} ->
         {:error, reason}
     end
+  rescue
+    e -> {:error, e}
   end
 
   defp maybe_broadcast(true), do: Loader.broadcast_invalidation(%{source: @source})
@@ -90,38 +95,44 @@ defmodule ServiceRadar.PrefixTags.ProviderSource do
     _ -> nil
   end
 
-  defp fetch_active_snapshot_id do
-    case SQL.query(Repo, @active_snapshot_sql, []) do
-      {:ok, %{rows: [[id]]}} -> {:ok, id}
-      {:ok, %{rows: []}} -> {:ok, nil}
-      {:error, reason} -> {:error, reason}
-    end
-  rescue
-    e -> {:error, e}
-  end
+  @doc false
+  @spec parse_query_result(map()) :: %{
+          active_snapshot?: boolean(),
+          rows: [map()],
+          snapshot_at: DateTime.t() | nil
+        }
+  def parse_query_result(%{rows: rows}) when is_list(rows) do
+    active_snapshot? =
+      Enum.any?(rows, fn
+        [snapshot_id, _snapshot_at, _prefix, _provider] -> not is_nil(snapshot_id)
+        _ -> false
+      end)
 
-  defp fetch_rows(snapshot_id) do
-    case SQL.query(Repo, @load_cidrs_sql, [snapshot_id]) do
-      {:ok, %{rows: rows}} ->
-        parsed =
-          rows
-          |> Enum.map(fn [prefix, provider] ->
-            if is_binary(prefix) and is_binary(provider) and provider != "" do
-              %{
-                prefix: prefix,
-                tags: ["provider:#{provider}"],
-                source: @source
-              }
-            end
-          end)
-          |> Enum.reject(&is_nil/1)
+    snapshot_at =
+      Enum.find_value(rows, fn
+        [_snapshot_id, value, _prefix, _provider] ->
+          ExternalSources.normalize_datetime(value)
 
-        {:ok, parsed}
+        _ ->
+          nil
+      end)
 
-      {:error, reason} ->
-        {:error, reason}
-    end
-  rescue
-    e -> {:error, e}
+    parsed =
+      Enum.flat_map(rows, fn
+        [_snapshot_id, _snapshot_at, prefix, provider]
+        when is_binary(prefix) and is_binary(provider) and provider != "" ->
+          [
+            %{
+              prefix: prefix,
+              tags: ["provider:#{provider}"],
+              source: @source
+            }
+          ]
+
+        _ ->
+          []
+      end)
+
+    %{active_snapshot?: active_snapshot?, rows: parsed, snapshot_at: snapshot_at}
   end
 end

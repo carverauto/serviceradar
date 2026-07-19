@@ -24,4 +24,36 @@ defmodule ServiceRadar.PrefixTags.ProviderSourceTest do
   test "source_name is provider" do
     assert ProviderSource.source_name() == "provider"
   end
+
+  test "query parser preserves the durable active snapshot timestamp" do
+    snapshot_at = ~N[2026-07-18 10:30:00]
+
+    parsed =
+      ProviderSource.parse_query_result(%{
+        rows: [
+          ["snapshot-id", snapshot_at, "203.0.113.0/24", "aws"],
+          ["snapshot-id", snapshot_at, "2001:db8::/32", "gcp"]
+        ]
+      })
+
+    assert parsed.active_snapshot?
+    assert parsed.snapshot_at == ~U[2026-07-18 10:30:00Z]
+    assert Enum.map(parsed.rows, & &1.tags) == [["provider:aws"], ["provider:gcp"]]
+  end
+
+  test "query parser distinguishes an active empty snapshot from no active snapshot" do
+    snapshot_at = ~U[2026-07-18 10:30:00Z]
+
+    assert %{
+             active_snapshot?: true,
+             rows: [],
+             snapshot_at: ^snapshot_at
+           } =
+             ProviderSource.parse_query_result(%{
+               rows: [["snapshot-id", snapshot_at, nil, nil]]
+             })
+
+    assert %{active_snapshot?: false, rows: [], snapshot_at: nil} =
+             ProviderSource.parse_query_result(%{rows: []})
+  end
 end

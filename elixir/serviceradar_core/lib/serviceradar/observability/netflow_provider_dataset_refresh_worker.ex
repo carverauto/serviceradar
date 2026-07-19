@@ -14,6 +14,7 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Observability.OutboundFeedPolicy
+  alias ServiceRadar.PrefixTags.ProviderSource
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadar.Types.Cidr
@@ -279,9 +280,9 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   end
 
   defp maybe_reload_prefix_tag_provider_source do
-    if Code.ensure_loaded?(ServiceRadar.PrefixTags.ProviderSource) do
-      case ServiceRadar.PrefixTags.ProviderSource.reload() do
-        {:ok, count} ->
+    if Code.ensure_loaded?(ProviderSource) do
+      case ProviderSource.reload() do
+        {:ok, %{row_count: count}} ->
           Logger.info("Prefix-tag provider trie refreshed from provider dataset", rows: count)
           :ok
 

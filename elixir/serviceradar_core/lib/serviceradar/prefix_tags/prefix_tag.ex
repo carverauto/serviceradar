@@ -4,7 +4,8 @@ defmodule ServiceRadar.PrefixTags.PrefixTag do
 
   Manual entries live under the permanent `manual` snapshot source and support
   create/update/destroy. Imported snapshot rows are read-only for operators —
-  update/destroy actions assert the related snapshot source is `manual`.
+  manual mutation actions assert the related snapshot source is `manual`, and
+  the generic importer create action is reserved for system actors.
   """
 
   use Ash.Resource,
@@ -69,8 +70,10 @@ defmodule ServiceRadar.PrefixTags.PrefixTag do
     create :create_manual do
       description "Create a manual prefix tag under the active manual snapshot"
       accept @prefix_tag_fields
-      # Callers ensure the manual snapshot exists and pass its id; the importer
-      # and engine use :create for bulk snapshot loads.
+      # Manual.create/2 derives the active manual snapshot id. Keep this guard
+      # on the resource action as well so direct code-interface callers cannot
+      # write through this action into an imported snapshot.
+      change {AssertManualSnapshot, []}
       # +1 inside the same transaction as the row insert (after_action).
       change {AdjustManualRecordCount, delta: 1}
       change {BroadcastManualInvalidation, []}
@@ -97,6 +100,12 @@ defmodule ServiceRadar.PrefixTags.PrefixTag do
       pagination keyset?: true, default_limit: 1000
     end
 
+    read :list_active_for_rebuild do
+      description "Internal unpaginated active-tag read used for complete trie rebuilds"
+      prepare build(load: [:snapshot])
+      filter expr(snapshot.is_active == true)
+    end
+
     read :list do
       primary? true
       pagination keyset?: true, default_limit: 200
@@ -112,7 +121,13 @@ defmodule ServiceRadar.PrefixTags.PrefixTag do
       authorize_if always()
     end
 
-    policy action_type([:create, :update, :destroy]) do
+    # Generic create is the snapshot-import path. Operators use create_manual,
+    # whose source guard and counter/invalidation hooks preserve invariants.
+    policy action(:create) do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
+    policy action([:create_manual, :update, :destroy]) do
       authorize_if @manage_check
     end
   end
