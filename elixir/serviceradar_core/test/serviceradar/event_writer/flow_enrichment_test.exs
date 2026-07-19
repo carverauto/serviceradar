@@ -160,6 +160,24 @@ defmodule ServiceRadar.EventWriter.FlowEnrichmentTest do
       assert FlowEnrichment.provider_for_ip("198.51.100.1") == nil
     end
 
+    test "ready provider trie leaves snapshot id lazy (no CNPG round-trip)" do
+      Application.put_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, true)
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, false)
+      end)
+
+      Store.put_rows("provider", [
+        %{prefix: "203.0.113.0/24", tags: ["provider:ExampleCloud"], source: "provider"}
+      ])
+
+      FlowEnrichment.with_provider_cache(fn ->
+        assert FlowEnrichment.provider_for_ip("203.0.113.10") == "ExampleCloud"
+        # SQL fallback snapshot is only resolved when the GiST path is taken.
+        assert Process.get({FlowEnrichment, :provider_active_snapshot_id}) == :lazy
+      end)
+    end
+
     test "geo tag derivation is fail-open when MMDB absent" do
       Application.put_env(:serviceradar_core, :prefix_tag_enrichment_enabled, true)
       Application.put_env(:serviceradar_core, :geo_tag_derivation_enabled, true)

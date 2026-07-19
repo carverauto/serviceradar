@@ -13,9 +13,12 @@ defmodule ServiceRadar.PrefixTags.Store do
 
   @sources_key {__MODULE__, :active_sources}
   @active_key_prefix {__MODULE__, :active_version}
+  # Single-read active trie handle — lookups must not do version-then-get
+  # (two independent reads race with erase of the old generation).
+  @active_trie_key_prefix {__MODULE__, :active_trie}
   @version_key_prefix {__MODULE__, :trie}
-  # Delay erase so concurrent lookups that already observed the previous
-  # active version can still materialize the trie (spec concurrent-swap).
+  # Delayed erase of superseded version keys only (memory reclaim). Readers
+  # always use the active-trie key, which is swapped atomically in one put.
   @erase_delay_ms 1_000
 
   @type source :: String.t()
@@ -120,10 +123,13 @@ defmodule ServiceRadar.PrefixTags.Store do
   def put_trie(source, trie) when is_binary(source) do
     started = System.monotonic_time(:microsecond)
     version = next_version(source)
-    # Build-then-flip: install the new term before pointing active at it.
-    :persistent_term.put(version_key(source, version), trie)
     previous = active_version(source)
+
+    # Versioned copy retained briefly for reclaim; active_trie key is the
+    # single atomic indirection readers use (one persistent_term get).
+    :persistent_term.put(version_key(source, version), trie)
     :persistent_term.put(active_key(source), version)
+    :persistent_term.put(active_trie_key(source), trie)
     register_source(source)
 
     if is_integer(previous) and previous != version do
@@ -163,6 +169,7 @@ defmodule ServiceRadar.PrefixTags.Store do
     version = next_version(source)
     :persistent_term.put(version_key(source, version), empty)
     :persistent_term.put(active_key(source), version)
+    :persistent_term.put(active_trie_key(source), empty)
 
     if is_integer(previous) and previous != version do
       schedule_erase(source, previous)
@@ -196,10 +203,8 @@ defmodule ServiceRadar.PrefixTags.Store do
   @doc false
   @spec active_trie(source()) :: Engine.t() | nil
   def active_trie(source) when is_binary(source) do
-    case active_version(source) do
-      nil -> nil
-      version -> :persistent_term.get(version_key(source, version), nil)
-    end
+    # One get: never version-then-key (erase can race the second hop).
+    :persistent_term.get(active_trie_key(source), nil)
   rescue
     ArgumentError -> nil
   end
@@ -240,6 +245,7 @@ defmodule ServiceRadar.PrefixTags.Store do
   defp masklen(_), do: 0
 
   defp active_key(source), do: {@active_key_prefix, source}
+  defp active_trie_key(source), do: {@active_trie_key_prefix, source}
   defp version_key(source, version), do: {@version_key_prefix, source, version}
 
   defp next_version(source) do

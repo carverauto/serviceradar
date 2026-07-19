@@ -63,15 +63,32 @@ WHERE is_active;
 6. **After** migrations are applied on every EventWriter / core-elx node, enable
    tag columns:
 
-```elixir
-# runtime config / env-backed Application env
-config :serviceradar_core, prefix_tag_enrichment_enabled: true
+```bash
+# core-elx (and any node running EventWriter) — runtime.exs
+export SERVICERADAR_PREFIX_TAG_ENRICHMENT_ENABLED=true
 ```
 
+Helm: set under `core.extraEnv` (or the chart value for core-elx env):
+
+```yaml
+core:
+  extraEnv:
+    SERVICERADAR_PREFIX_TAG_ENRICHMENT_ENABLED: "true"
+```
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `SERVICERADAR_PREFIX_TAG_ENRICHMENT_ENABLED` | `false` | Write `src/dst_prefix_tags` on flow ingest |
+| `SERVICERADAR_PREFIX_TAG_PROVIDER_TRIE_ENABLED` | `true` | Provider LPM via in-memory trie |
+| `SERVICERADAR_THREAT_INTEL_ENGINE_MATCH_ENABLED` | `true` | CTI match via `ti` trie |
+| `SERVICERADAR_GEO_TAG_DERIVATION_ENABLED` | `false` | Derive `geo:*` tags from Geolix |
+| `SERVICERADAR_PREFIX_TAGS_LOADER_ENABLED` | `true` | Boot per-node Loader |
+
 Do not enable enrichment before migration `20260718010000` (prefix-tag columns)
-is present — inserts and SRQL `in:flows` will fail. Provider and CTI engine
-matching are already on by default once the Loader / materializers have
-populated tries. Empty tries are a no-op for tag columns.
+is present on every EventWriter and SRQL query path. Apply the migration
+**before** rolling images that select the new columns. Provider and CTI engine
+matching are on by default once the Loader / materializers have populated
+tries. Empty tries are a no-op for tag columns.
 
 7. Verify new flow rows carry tags:
 

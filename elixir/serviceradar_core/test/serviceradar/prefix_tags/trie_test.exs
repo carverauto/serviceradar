@@ -152,7 +152,8 @@ defmodule ServiceRadar.PrefixTags.TrieTest do
 
         for chain <- results do
           tags = Enum.flat_map(chain, & &1.tags)
-          assert tags in [["v1"], ["v2"], []]
+          # Spec: concurrent swap never yields an empty chain for a covered IP.
+          assert tags in [["v1"], ["v2"]]
         end
       end
 

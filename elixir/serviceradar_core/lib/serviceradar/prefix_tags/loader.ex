@@ -145,8 +145,22 @@ defmodule ServiceRadar.PrefixTags.Loader do
   end
 
   @impl true
-  def handle_call({:reload, source}, _from, state) do
-    new_state = do_reload(state, source)
+  def handle_call({:reload, :all}, _from, state) do
+    new_state = do_reload(state, :all)
+    _ = reload_all_external_sources()
+    reply = if new_state.last_error, do: {:error, new_state.last_error}, else: :ok
+    {:reply, reply, new_state}
+  end
+
+  def handle_call({:reload, source}, _from, state) when is_binary(source) do
+    new_state =
+      if external_source?(source) do
+        _ = reload_external_source(source)
+        state
+      else
+        do_reload(state, source)
+      end
+
     reply = if new_state.last_error, do: {:error, new_state.last_error}, else: :ok
     {:reply, reply, new_state}
   end
@@ -155,6 +169,8 @@ defmodule ServiceRadar.PrefixTags.Loader do
 
   @impl true
   def handle_info({:retry_initial_load, delay_ms}, state) when is_integer(delay_ms) do
+    # Only `loaded_at` set by a successful :all reload marks boot recovery done.
+    # Targeted source reloads must not cancel the initial full-load retry loop.
     if is_nil(state.loaded_at) do
       Logger.info("PrefixTags.Loader retrying initial load after failure")
       state = do_reload(state, :all)
@@ -195,11 +211,15 @@ defmodule ServiceRadar.PrefixTags.Loader do
 
   def handle_info({:nodeup, _node, _info}, state) do
     Logger.debug("PrefixTags.Loader re-checking active snapshots after nodeup")
-    {:noreply, do_reload(state, :all)}
+    state = do_reload(state, :all)
+    _ = reload_all_external_sources()
+    {:noreply, state}
   end
 
   def handle_info({:nodeup, _node}, state) do
-    {:noreply, do_reload(state, :all)}
+    state = do_reload(state, :all)
+    _ = reload_all_external_sources()
+    {:noreply, state}
   end
 
   def handle_info({:nodedown, _node, _info}, state), do: {:noreply, state}
@@ -270,9 +290,17 @@ defmodule ServiceRadar.PrefixTags.Loader do
             source when is_binary(source) -> Map.merge(state.sources, sources_meta)
           end
 
+        # Mark boot complete only after a successful full (:all) load so a
+        # targeted PubSub reload cannot cancel the initial-recovery timer.
+        loaded_at =
+          case scope do
+            :all -> DateTime.utc_now()
+            _ -> state.loaded_at
+          end
+
         %{
           state
-          | loaded_at: DateTime.utc_now(),
+          | loaded_at: loaded_at,
             sources: merged_sources,
             last_error: nil
         }

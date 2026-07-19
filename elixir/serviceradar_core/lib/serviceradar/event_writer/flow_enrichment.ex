@@ -91,7 +91,9 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
         Process.put(@provider_lookup_fun_key, lookup_fun)
 
       :error ->
-        Process.put(@active_snapshot_key, fetch_active_snapshot_id())
+        # Lazy: do not hit CNPG unless the SQL fallback path is actually used
+        # (provider trie ready is the steady-state path).
+        Process.put(@active_snapshot_key, :lazy)
     end
 
     try do
@@ -451,12 +453,27 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   end
 
   defp query_provider_for_inet(%Postgrex.INET{} = inet) do
-    case Process.get(@active_snapshot_key) do
+    case resolve_active_snapshot_id() do
       nil ->
         nil
 
       snapshot_id ->
         query_provider_for_inet(inet, snapshot_id)
+    end
+  end
+
+  defp resolve_active_snapshot_id do
+    case Process.get(@active_snapshot_key) do
+      :lazy ->
+        id = fetch_active_snapshot_id()
+        Process.put(@active_snapshot_key, id)
+        id
+
+      :__serviceradar_unset__ ->
+        nil
+
+      other ->
+        other
     end
   end
 

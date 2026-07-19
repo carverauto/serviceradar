@@ -1216,6 +1216,18 @@ if config_env() == :prod do
     run_startup_migrations:
       System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
 
+  # Prefix-tag flow enrichment (LPM trie). Defaults match config.exs; operators
+  # enable enrichment only after migration 20260718010000 is applied everywhere.
+  config :serviceradar_core,
+    prefix_tag_enrichment_enabled:
+      parse_bool.("SERVICERADAR_PREFIX_TAG_ENRICHMENT_ENABLED", false),
+    prefix_tag_provider_trie_enabled:
+      parse_bool.("SERVICERADAR_PREFIX_TAG_PROVIDER_TRIE_ENABLED", true),
+    threat_intel_engine_match_enabled:
+      parse_bool.("SERVICERADAR_THREAT_INTEL_ENGINE_MATCH_ENABLED", true),
+    geo_tag_derivation_enabled: parse_bool.("SERVICERADAR_GEO_TAG_DERIVATION_ENABLED", false),
+    prefix_tags_loader_enabled: parse_bool.("SERVICERADAR_PREFIX_TAGS_LOADER_ENABLED", true)
+
   # Status handler for agent-gateway push results (core-elx only)
   config :serviceradar_core,
     status_handler_enabled: System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)

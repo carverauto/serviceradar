@@ -62,6 +62,19 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLiveTest do
     refute html =~ "Add prefix"
   end
 
+  test "external materializer tab shows trie stats not empty CNPG table", %{conn: conn} do
+    Store.put_rows("provider", [
+      %{prefix: "203.0.113.0/24", tags: ["provider:ExampleCloud"], source: "provider"}
+    ])
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/prefix-tags")
+    html = render_click(lv, "select_source", %{"source" => "provider"})
+
+    assert html =~ "In-memory materializer"
+    assert html =~ "provider"
+    refute html =~ "No prefixes for this source yet."
+  end
+
   defp register_and_log_in_admin_user(%{conn: conn}) do
     user = AccountsFixtures.user_fixture(%{role: :admin})
     scope = Scope.for_user(user)

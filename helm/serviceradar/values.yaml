@@ -402,6 +402,12 @@ core:
     ociDigest: ""
     artifacts: {}
   # Extra environment variables for the core-elx pod.
+  # Prefix-tag flow enrichment (requires migration 20260718010000 first):
+  #   SERVICERADAR_PREFIX_TAG_ENRICHMENT_ENABLED: "true"
+  #   SERVICERADAR_PREFIX_TAG_PROVIDER_TRIE_ENABLED: "true"
+  #   SERVICERADAR_THREAT_INTEL_ENGINE_MATCH_ENABLED: "true"
+  #   SERVICERADAR_GEO_TAG_DERIVATION_ENABLED: "false"
+  #   SERVICERADAR_PREFIX_TAGS_LOADER_ENABLED: "true"
   extraEnv: {}
   # Extra environment variables sourced from Kubernetes secrets/configmaps.
   # OpenBao providers can also use Kubernetes auth with the pod service account

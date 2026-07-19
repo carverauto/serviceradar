@@ -24,7 +24,7 @@ use self::{
     order::apply_ordering,
     params::collect_filter_params,
     query::build_query,
-    row::FlowRow,
+    row::{FlowRow, FlowRowLegacy},
     scope::flow_device_scope_expr,
     snmp::apply_snmp_index_filter,
     stats::{execute_stats, to_sql_and_params_stats},
@@ -57,16 +57,51 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
         return execute_stats(conn, plan).await;
     }
 
-    let query = build_query(plan)?;
-    let rows: Vec<FlowRow> = query
+    // Prefer the full projection (includes prefix-tag columns). If the
+    // migration has not been applied yet, fall back so plain in:flows stays up.
+    match load_flow_rows_full(conn, plan).await {
+        Ok(rows) => Ok(rows),
+        Err(err) if is_missing_prefix_tag_column_error(&err) => {
+            load_flow_rows_legacy(conn, plan).await
+        }
+        Err(err) => Err(err),
+    }
+}
+
+async fn load_flow_rows_full(
+    conn: &mut AsyncPgConnection,
+    plan: &QueryPlan,
+) -> Result<Vec<Value>> {
+    let rows: Vec<FlowRow> = build_query(plan)?
         .select(FlowRow::as_select())
         .limit(plan.limit)
         .offset(plan.offset)
         .load::<FlowRow>(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
-
     Ok(rows.into_iter().map(FlowRow::into_json).collect())
+}
+
+async fn load_flow_rows_legacy(
+    conn: &mut AsyncPgConnection,
+    plan: &QueryPlan,
+) -> Result<Vec<Value>> {
+    let rows: Vec<FlowRowLegacy> = build_query(plan)?
+        .select(FlowRowLegacy::as_select())
+        .limit(plan.limit)
+        .offset(plan.offset)
+        .load::<FlowRowLegacy>(conn)
+        .await
+        .map_err(|err| ServiceError::Internal(err.into()))?;
+    Ok(rows.into_iter().map(FlowRowLegacy::into_json).collect())
+}
+
+fn is_missing_prefix_tag_column_error(err: &ServiceError) -> bool {
+    let msg = err.to_string().to_ascii_lowercase();
+    msg.contains("src_prefix_tags")
+        || msg.contains("dst_prefix_tags")
+        || msg.contains("src_prefix_tags_source")
+        || msg.contains("dst_prefix_tags_source")
 }
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {

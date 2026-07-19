@@ -16,6 +16,9 @@ defmodule ServiceRadar.PrefixTags.Manual do
   require Logger
 
   @source "manual"
+  # Align with rust/srql flows::literals::normalize_tag_literal
+  @max_tag_bytes 128
+  @tag_char_re ~r/^[A-Za-z0-9:._\/@+\-]+$/
 
   @doc "Canonical source name for manually authored tags."
   @spec source_name() :: String.t()
@@ -26,15 +29,24 @@ defmodule ServiceRadar.PrefixTags.Manual do
   """
   @spec ensure_active_snapshot!(keyword()) :: Snapshot.t()
   def ensure_active_snapshot!(opts \\ []) do
-    actor = Keyword.get(opts, :actor) || Keyword.get(opts, :scope)
     ash_opts = ash_opts(opts)
 
     case Snapshot.active_for_source(%{source: @source}, ash_opts) do
       {:ok, %Snapshot{} = snap} ->
         snap
 
-      {:error, _} ->
-        create_active_manual_snapshot!(ash_opts, actor)
+      {:error, %Ash.Error.Query.NotFound{}} ->
+        create_active_manual_snapshot!(ash_opts)
+
+      {:error, %Ash.Error.Invalid{errors: errors}} ->
+        if Enum.any?(errors, &match?(%Ash.Error.Query.NotFound{}, &1)) do
+          create_active_manual_snapshot!(ash_opts)
+        else
+          raise "PrefixTags.Manual ensure_active_snapshot failed: #{inspect(errors)}"
+        end
+
+      {:error, reason} ->
+        raise "PrefixTags.Manual ensure_active_snapshot failed: #{inspect(reason)}"
     end
   end
 
@@ -78,22 +90,18 @@ defmodule ServiceRadar.PrefixTags.Manual do
   @spec create(map(), keyword()) :: {:ok, PrefixTag.t()} | {:error, term()}
   def create(attrs, opts \\ []) when is_map(attrs) do
     ash_opts = ash_opts(opts)
-    snapshot = ensure_active_snapshot!(opts)
 
-    attrs =
-      attrs
-      |> stringify_keys()
-      |> Map.put("snapshot_id", snapshot.id)
-      |> normalize_tags_attr()
-
-    case PrefixTag.create_manual(attrs, ash_opts) do
-      {:ok, tag} ->
-        _ = bump_record_count!(snapshot, ash_opts)
-        invalidate!()
-        {:ok, tag}
-
-      {:error, err} ->
-        {:error, err}
+    with {:ok, snapshot} <- ensure_active_snapshot(opts),
+         attrs <-
+           attrs
+           |> stringify_keys()
+           |> Map.put("snapshot_id", snapshot.id)
+           |> normalize_tags_attr(),
+         :ok <- validate_tags(Map.get(attrs, "tags")),
+         {:ok, tag} <- PrefixTag.create_manual(attrs, ash_opts) do
+      _ = bump_record_count!(snapshot, ash_opts)
+      invalidate!()
+      {:ok, tag}
     end
   end
 
@@ -109,13 +117,10 @@ defmodule ServiceRadar.PrefixTags.Manual do
         |> normalize_tags_attr()
         |> Map.drop(["snapshot_id", :snapshot_id])
 
-      case PrefixTag.update(tag, attrs, ash_opts) do
-        {:ok, updated} ->
-          invalidate!()
-          {:ok, updated}
-
-        {:error, err} ->
-          {:error, err}
+      with :ok <- validate_tags(Map.get(attrs, "tags")),
+           {:ok, updated} <- PrefixTag.update(tag, attrs, ash_opts) do
+        invalidate!()
+        {:ok, updated}
       end
     end
   end
@@ -161,30 +166,48 @@ defmodule ServiceRadar.PrefixTags.Manual do
 
   # -- internals --------------------------------------------------------------
 
-  defp create_active_manual_snapshot!(ash_opts, _actor) do
+  defp ensure_active_snapshot(opts) do
+    {:ok, ensure_active_snapshot!(opts)}
+  rescue
+    e -> {:error, e}
+  end
+
+  defp create_active_manual_snapshot!(ash_opts) do
     now = DateTime.utc_now()
 
-    {:ok, building} =
-      Snapshot.create(
-        %{
-          source: @source,
-          status: "building",
-          is_active: false,
-          record_count: 0,
-          fetched_at: now,
-          metadata: %{"managed_by" => "manual_ui"}
-        },
-        ash_opts
-      )
+    case Snapshot.create(
+           %{
+             source: @source,
+             status: "building",
+             is_active: false,
+             record_count: 0,
+             fetched_at: now,
+             metadata: %{"managed_by" => "manual_ui"}
+           },
+           ash_opts
+         ) do
+      {:ok, building} ->
+        case Snapshot.promote(
+               building,
+               %{record_count: 0, metadata: %{"managed_by" => "manual_ui"}},
+               ash_opts
+             ) do
+          {:ok, active} ->
+            active
 
-    {:ok, active} =
-      Snapshot.promote(
-        building,
-        %{record_count: 0, metadata: %{"managed_by" => "manual_ui"}},
-        ash_opts
-      )
+          {:error, _} ->
+            case Snapshot.active_for_source(%{source: @source}, ash_opts) do
+              {:ok, %Snapshot{} = snap} -> snap
+              {:error, err} -> raise "PrefixTags.Manual promote race: #{inspect(err)}"
+            end
+        end
 
-    active
+      {:error, _} ->
+        case Snapshot.active_for_source(%{source: @source}, ash_opts) do
+          {:ok, %Snapshot{} = snap} -> snap
+          {:error, err} -> raise "PrefixTags.Manual create race: #{inspect(err)}"
+        end
+    end
   end
 
   defp assert_manual!(%PrefixTag{} = tag, ash_opts) do
@@ -205,11 +228,18 @@ defmodule ServiceRadar.PrefixTags.Manual do
   end
 
   defp bump_record_count!(%Snapshot{} = snapshot, ash_opts) do
-    query = Ash.Query.for_read(PrefixTag, :by_snapshot, %{snapshot_id: snapshot.id}, ash_opts)
-
     count =
-      case Ash.read(query, ash_opts) do
-        {:ok, page} -> length(page_results(page))
+      case Ecto.Adapters.SQL.query(
+             ServiceRadar.Repo,
+             """
+             SELECT COUNT(*)::bigint
+             FROM platform.prefix_tags
+             WHERE snapshot_id = $1
+             """,
+             [snapshot.id]
+           ) do
+        {:ok, %{rows: [[n]]}} when is_integer(n) -> n
+        {:ok, %{rows: [[n]]}} -> String.to_integer(to_string(n))
         _ -> 0
       end
 
@@ -312,6 +342,38 @@ defmodule ServiceRadar.PrefixTags.Manual do
     |> Enum.reject(&(&1 == ""))
     |> Enum.uniq()
   end
+
+  defp validate_tags(nil), do: {:error, :tags_required}
+  defp validate_tags([]), do: {:error, :tags_required}
+
+  defp validate_tags(tags) when is_list(tags) do
+    Enum.reduce_while(tags, :ok, fn tag, :ok ->
+      case validate_tag_literal(tag) do
+        :ok -> {:cont, :ok}
+        {:error, _} = err -> {:halt, err}
+      end
+    end)
+  end
+
+  defp validate_tags(_), do: {:error, :tags_invalid}
+
+  defp validate_tag_literal(tag) when is_binary(tag) do
+    cond do
+      tag == "" ->
+        {:error, :tag_empty}
+
+      byte_size(tag) > @max_tag_bytes ->
+        {:error, :tag_too_long}
+
+      not Regex.match?(@tag_char_re, tag) ->
+        {:error, {:tag_invalid_chars, tag}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_tag_literal(_), do: {:error, :tag_invalid}
 
   defp page_results(%Ash.Page.Keyset{results: results}), do: results
   defp page_results(%Ash.Page.Offset{results: results}), do: results

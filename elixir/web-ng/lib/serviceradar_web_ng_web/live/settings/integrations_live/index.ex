@@ -241,43 +241,46 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   end
 
   def handle_event("prefix_tag_preview", params, socket) do
-    # Authorize every LiveView event (web-ng iron law) — mount already gates
-    # the page, but events must not rely on that alone.
-    if not RBAC.can?(socket.assigns.current_scope, "settings.integrations.manage") do
-      {:noreply,
-       socket
-       |> put_flash(:error, "Not authorized to manage integrations")
-       |> redirect(to: ~p"/settings/profile")}
-    else
-      ip =
-        params
-        |> Map.get("ip", Map.get(params, "prefix_tag_preview", %{}) |> Map.get("ip", ""))
-        |> to_string()
-        |> String.trim()
-
-      if ip == "" do
+    # Rebuild current authority — cached mount permissions are not evidence.
+    case RBAC.authorize_current(socket.assigns.current_scope, ["settings.integrations.manage"]) do
+      {:error, _} ->
         {:noreply,
          socket
-         |> assign(:prefix_tag_preview_ip, "")
-         |> assign(:prefix_tag_preview_result, nil)
-         |> assign(:prefix_tag_preview_error, "Enter an IP address")}
-      else
-        case preview_prefix_tags(ip) do
-          {:ok, chain} ->
-            {:noreply,
-             socket
-             |> assign(:prefix_tag_preview_ip, ip)
-             |> assign(:prefix_tag_preview_result, chain)
-             |> assign(:prefix_tag_preview_error, nil)}
+         |> put_flash(:error, "Not authorized to manage integrations")
+         |> redirect(to: ~p"/settings/profile")}
 
-          {:error, reason} ->
-            {:noreply,
-             socket
-             |> assign(:prefix_tag_preview_ip, ip)
-             |> assign(:prefix_tag_preview_result, nil)
-             |> assign(:prefix_tag_preview_error, reason)}
+      {:ok, scope} ->
+        socket = assign(socket, :current_scope, scope)
+
+        ip =
+          params
+          |> Map.get("ip", Map.get(params, "prefix_tag_preview", %{}) |> Map.get("ip", ""))
+          |> to_string()
+          |> String.trim()
+
+        if ip == "" do
+          {:noreply,
+           socket
+           |> assign(:prefix_tag_preview_ip, "")
+           |> assign(:prefix_tag_preview_result, nil)
+           |> assign(:prefix_tag_preview_error, "Enter an IP address")}
+        else
+          case preview_prefix_tags(ip) do
+            {:ok, chain} ->
+              {:noreply,
+               socket
+               |> assign(:prefix_tag_preview_ip, ip)
+               |> assign(:prefix_tag_preview_result, chain)
+               |> assign(:prefix_tag_preview_error, nil)}
+
+            {:error, reason} ->
+              {:noreply,
+               socket
+               |> assign(:prefix_tag_preview_ip, ip)
+               |> assign(:prefix_tag_preview_result, nil)
+               |> assign(:prefix_tag_preview_error, reason)}
+          end
         end
-      end
     end
   end
 

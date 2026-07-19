@@ -14,34 +14,44 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
 
   @current_path "/settings/networks/prefix-tags"
   @permission "settings.prefix_tags.manage"
-  @source_tabs ~w(manual netbox provider ti dns-policy)
+  # Snapshot-backed tabs list CNPG rows. External materializers only show trie stats.
+  @snapshot_tabs ~w(manual netbox)
+  @external_tabs ~w(provider ti dns-policy)
+  @source_tabs @snapshot_tabs ++ @external_tabs
+  # Stay under the LiveView "streams for >100" iron law without full pagination UX.
+  @list_limit 100
 
   @impl true
   def mount(_params, _session, socket) do
-    scope = socket.assigns.current_scope
+    case RBAC.authorize_current(socket.assigns.current_scope, [@permission]) do
+      {:ok, scope} ->
+        {:ok,
+         socket
+         |> assign(:current_scope, scope)
+         |> assign(:page_title, "Prefix Tags")
+         |> assign(:current_path, @current_path)
+         |> assign(:source_tab, "manual")
+         |> assign(:source_tabs, @source_tabs)
+         |> assign(:snapshot_backed?, true)
+         |> assign(:tags, [])
+         |> assign(:tag_count, 0)
+         |> assign(:list_truncated?, false)
+         |> assign(:form_mode, nil)
+         |> assign(:editing, nil)
+         |> assign(:form, empty_form())
+         |> assign(:preview_ip, "")
+         |> assign(:preview_chain, nil)
+         |> assign(:preview_error, nil)
+         |> assign(:store_stats, Store.stats())
+         |> assign(:sources_label, "—")
+         |> assign(:external_source_stats, nil)
+         |> assign(:loading?, true)}
 
-    if RBAC.can?(scope, @permission) do
-      {:ok,
-       socket
-       |> assign(:page_title, "Prefix Tags")
-       |> assign(:current_path, @current_path)
-       |> assign(:source_tab, "manual")
-       |> assign(:source_tabs, @source_tabs)
-       |> assign(:tags, [])
-       |> assign(:form_mode, nil)
-       |> assign(:editing, nil)
-       |> assign(:form, empty_form())
-       |> assign(:preview_ip, "")
-       |> assign(:preview_chain, nil)
-       |> assign(:preview_error, nil)
-       |> assign(:store_stats, Store.stats())
-       |> assign(:sources_label, "—")
-       |> assign(:loading?, true)}
-    else
-      {:ok,
-       socket
-       |> put_flash(:error, "Not authorized to manage prefix tags")
-       |> redirect(to: ~p"/settings/profile")}
+      {:error, _} ->
+        {:ok,
+         socket
+         |> put_flash(:error, "Not authorized to manage prefix tags")
+         |> redirect(to: ~p"/settings/profile")}
     end
   end
 
@@ -52,12 +62,16 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
     socket =
       socket
       |> assign(:source_tab, tab)
+      |> assign(:snapshot_backed?, tab in @snapshot_tabs)
       |> assign(:form_mode, nil)
       |> assign(:editing, nil)
       |> assign(:form, empty_form())
 
     if connected?(socket) do
-      {:noreply, reload_tags(socket)}
+      case authorize_socket(socket) do
+        {:ok, socket} -> {:noreply, reload_tags(socket)}
+        {:error, socket} -> {:noreply, socket}
+      end
     else
       {:noreply, assign(socket, :loading?, false)}
     end
@@ -65,60 +79,64 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
 
   @impl true
   def handle_event("select_source", %{"source" => source}, socket) do
-    {:noreply, push_patch(socket, to: ~p"/settings/networks/prefix-tags?source=#{normalize_tab(source)}")}
+    with {:ok, socket} <- authorize_socket(socket) do
+      {:noreply,
+       push_patch(socket, to: ~p"/settings/networks/prefix-tags?source=#{normalize_tab(source)}")}
+    end
   end
 
   def handle_event("new", _params, socket) do
-    if socket.assigns.source_tab == "manual" do
-      {:noreply,
-       socket
-       |> assign(:form_mode, :new)
-       |> assign(:editing, nil)
-       |> assign(:form, empty_form())}
-    else
-      {:noreply, put_flash(socket, :error, "Only the manual source is editable")}
+    with {:ok, socket} <- authorize_socket(socket) do
+      if socket.assigns.source_tab == "manual" do
+        {:noreply,
+         socket
+         |> assign(:form_mode, :new)
+         |> assign(:editing, nil)
+         |> assign(:form, empty_form())}
+      else
+        {:noreply, put_flash(socket, :error, "Only the manual source is editable")}
+      end
     end
   end
 
   def handle_event("edit", %{"id" => id}, socket) do
-    case Enum.find(socket.assigns.tags, &(to_string(&1.id) == to_string(id))) do
-      nil ->
-        {:noreply, put_flash(socket, :error, "Tag not found")}
+    with {:ok, socket} <- authorize_socket(socket) do
+      case Enum.find(socket.assigns.tags, &(to_string(&1.id) == to_string(id))) do
+        nil ->
+          {:noreply, put_flash(socket, :error, "Tag not found")}
 
-      %PrefixTag{} = tag ->
-        if manual_tag?(tag) do
-          {:noreply,
-           socket
-           |> assign(:form_mode, :edit)
-           |> assign(:editing, tag)
-           |> assign(:form, tag_to_form(tag))}
-        else
-          {:noreply, put_flash(socket, :error, "Imported tags are read-only")}
-        end
+        %PrefixTag{} = tag ->
+          if manual_tag?(tag) do
+            {:noreply,
+             socket
+             |> assign(:form_mode, :edit)
+             |> assign(:editing, tag)
+             |> assign(:form, tag_to_form(tag))}
+          else
+            {:noreply, put_flash(socket, :error, "Imported tags are read-only")}
+          end
+      end
     end
   end
 
   def handle_event("cancel_form", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:form_mode, nil)
-     |> assign(:editing, nil)
-     |> assign(:form, empty_form())}
+    with {:ok, socket} <- authorize_socket(socket) do
+      {:noreply,
+       socket
+       |> assign(:form_mode, nil)
+       |> assign(:editing, nil)
+       |> assign(:form, empty_form())}
+    end
   end
 
   def handle_event("save", %{"prefix_tag" => params}, socket) do
-    if RBAC.can?(socket.assigns.current_scope, @permission) do
+    with {:ok, socket} <- authorize_socket(socket) do
       do_save(socket, params)
-    else
-      {:noreply,
-       socket
-       |> put_flash(:error, "Not authorized")
-       |> redirect(to: ~p"/settings/profile")}
     end
   end
 
   def handle_event("delete", %{"id" => id}, socket) do
-    if RBAC.can?(socket.assigns.current_scope, @permission) do
+    with {:ok, socket} <- authorize_socket(socket) do
       case Enum.find(socket.assigns.tags, &(to_string(&1.id) == to_string(id))) do
         nil ->
           {:noreply, put_flash(socket, :error, "Tag not found")}
@@ -140,13 +158,11 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
               {:noreply, put_flash(socket, :error, "Delete failed: #{format_error(reason)}")}
           end
       end
-    else
-      {:noreply, put_flash(socket, :error, "Not authorized")}
     end
   end
 
   def handle_event("preview", params, socket) do
-    if RBAC.can?(socket.assigns.current_scope, @permission) do
+    with {:ok, socket} <- authorize_socket(socket) do
       ip =
         params
         |> Map.get("ip", "")
@@ -183,21 +199,25 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
              |> assign(:preview_error, nil)}
         end
       end
-    else
-      {:noreply, put_flash(socket, :error, "Not authorized")}
     end
   end
 
   def handle_event("reload_trie", _params, socket) do
-    if RBAC.can?(socket.assigns.current_scope, @permission) do
-      _ = ServiceRadar.PrefixTags.Loader.reload()
+    with {:ok, socket} <- authorize_socket(socket) do
+      case ServiceRadar.PrefixTags.Loader.reload() do
+        :ok ->
+          {:noreply,
+           socket
+           |> assign(:store_stats, Store.stats())
+           |> reload_tags()
+           |> put_flash(:info, "Prefix-tag tries reloaded on this node (all sources)")}
 
-      {:noreply,
-       socket
-       |> assign(:store_stats, Store.stats())
-       |> put_flash(:info, "Prefix-tag tries reloaded on this node")}
-    else
-      {:noreply, put_flash(socket, :error, "Not authorized")}
+        {:error, reason} ->
+          {:noreply,
+           socket
+           |> assign(:store_stats, Store.stats())
+           |> put_flash(:error, "Reload failed: #{inspect(reason)}")}
+      end
     end
   end
 
@@ -425,14 +445,18 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
             <:header>
               <div class="flex items-center justify-between gap-2">
                 <div class="text-sm font-semibold">
-                  {@source_tab} prefixes
-                  <span class="font-normal text-base-content/50">({length(@tags)})</span>
+                  {@source_tab}
+                  <span :if={@snapshot_backed?} class="font-normal text-base-content/50">
+                    ({@tag_count}{if @list_truncated?, do: "+", else: ""})
+                  </span>
                 </div>
                 <div
                   :if={@source_tab != "manual"}
                   class="text-xs text-base-content/50"
                 >
-                  Read-only imported source
+                  {if @snapshot_backed?,
+                    do: "Read-only imported source",
+                    else: "In-memory materializer (no CNPG prefix_tags rows)"}
                 </div>
               </div>
             </:header>
@@ -442,14 +466,46 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
             </div>
 
             <div
-              :if={not @loading? and @tags == []}
+              :if={not @loading? and not @snapshot_backed? and is_map(@external_source_stats)}
+              class="space-y-2 text-sm"
+            >
+              <p class="text-base-content/70">
+                This source is compiled into the local LPM trie from its platform
+                table (not <code class="font-mono text-xs">platform.prefix_tags</code>).
+                Use IP preview above to exercise lookups.
+              </p>
+              <div class="grid grid-cols-3 gap-3 font-mono text-xs">
+                <div>
+                  <div class="uppercase text-base-content/50">IPv4</div>
+                  <div>{Map.get(@external_source_stats, :ipv4_prefixes, 0)}</div>
+                </div>
+                <div>
+                  <div class="uppercase text-base-content/50">IPv6</div>
+                  <div>{Map.get(@external_source_stats, :ipv6_prefixes, 0)}</div>
+                </div>
+                <div>
+                  <div class="uppercase text-base-content/50">Total</div>
+                  <div>{Map.get(@external_source_stats, :total_prefixes, 0)}</div>
+                </div>
+              </div>
+            </div>
+
+            <div
+              :if={not @loading? and @snapshot_backed? and @tags == []}
               class="py-8 text-center text-sm text-base-content/60"
             >
               No prefixes for this source yet.
               <span :if={@source_tab == "manual"}>Use “Add prefix” to create one.</span>
             </div>
 
-            <div :if={not @loading? and @tags != []} class="overflow-x-auto">
+            <div
+              :if={not @loading? and @snapshot_backed? and @list_truncated?}
+              class="mb-2 text-xs text-base-content/60"
+            >
+              Showing first {@list_limit} of {@tag_count}+ rows.
+            </div>
+
+            <div :if={not @loading? and @snapshot_backed? and @tags != []} class="overflow-x-auto">
               <table class="table table-sm table-zebra w-full">
                 <thead>
                   <tr>
@@ -546,16 +602,22 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
     end
   end
 
+  defp authorize_socket(socket) do
+    case RBAC.authorize_current(socket.assigns.current_scope, [@permission]) do
+      {:ok, scope} ->
+        {:ok, assign(socket, :current_scope, scope)}
+
+      {:error, _} ->
+        {:error,
+         socket
+         |> put_flash(:error, "Not authorized")
+         |> redirect(to: ~p"/settings/profile")}
+    end
+  end
+
   defp reload_tags(socket) do
     scope = socket.assigns.current_scope
     source = socket.assigns.source_tab
-
-    tags =
-      case Manual.list(source: source, scope: scope, limit: 500) do
-        {:ok, list} -> list
-        {:error, _} -> []
-      end
-
     stats = Store.stats()
 
     sources_label =
@@ -568,11 +630,41 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
           "—"
       end
 
-    socket
-    |> assign(:tags, tags)
-    |> assign(:store_stats, stats)
-    |> assign(:sources_label, sources_label)
-    |> assign(:loading?, false)
+    socket =
+      socket
+      |> assign(:store_stats, stats)
+      |> assign(:sources_label, sources_label)
+      |> assign(:loading?, false)
+
+    if source in @snapshot_tabs do
+      {tags, truncated?} =
+        case Manual.list(source: source, scope: scope, limit: @list_limit + 1) do
+          {:ok, list} when length(list) > @list_limit ->
+            {Enum.take(list, @list_limit), true}
+
+          {:ok, list} ->
+            {list, false}
+
+          {:error, _} ->
+            {[], false}
+        end
+
+      socket
+      |> assign(:tags, tags)
+      |> assign(:tag_count, length(tags))
+      |> assign(:list_truncated?, truncated?)
+      |> assign(:list_limit, @list_limit)
+      |> assign(:external_source_stats, nil)
+      |> assign(:snapshot_backed?, true)
+    else
+      socket
+      |> assign(:tags, [])
+      |> assign(:tag_count, 0)
+      |> assign(:list_truncated?, false)
+      |> assign(:list_limit, @list_limit)
+      |> assign(:external_source_stats, Store.stats(source))
+      |> assign(:snapshot_backed?, false)
+    end
   end
 
   defp site_role_label(%PrefixTag{} = tag) do
