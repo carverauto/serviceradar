@@ -67,6 +67,39 @@ fn builds_query_with_tag_filter() {
         sql.contains("@>") && sql.contains("site:austin"),
         "tag filter should use jsonb containment: {sql}"
     );
+    assert!(
+        sql.contains("COALESCE") && sql.contains("'[]'::jsonb"),
+        "tag filter must COALESCE NULL columns so NOT tag keeps untagged rows: {sql}"
+    );
+}
+
+#[test]
+fn negative_tag_filter_coalesces_null_columns() {
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: vec![Filter {
+            field: "tag".into(),
+            op: FilterOp::NotEq,
+            value: FilterValue::Scalar("ti:otx".to_string()),
+        }],
+        order: Vec::new(),
+        limit: 50,
+        offset: 0,
+        time_range: None,
+        stats: None,
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let (sql, _params) = to_sql_and_params(&plan).expect("negative tag filter should translate");
+    assert!(
+        sql.contains("COALESCE") && sql.contains("ti:otx"),
+        "negative tag filter must COALESCE NULL so untagged rows match: {sql}"
+    );
+    // Diesel not() wraps the predicate; ensure containment is still present.
+    assert!(sql.contains("@>"), "containment predicate missing: {sql}");
 }
 
 #[test]

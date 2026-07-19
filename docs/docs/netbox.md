@@ -67,8 +67,8 @@ rearchitecture; only Armis was ported to the embedded sync runtime at that time.
 2. Confirm import: check Oban for `NetboxImportWorker`, or query
    `platform.prefix_tag_snapshots` for an active `netbox` row.
 3. Preview an IP under the Integrations CRM/IPAM **Prefix tag preview** panel.
-4. Flow enrichment defaults on (`prefix_tag_enrichment_enabled`); set `false`
-   only to freeze tag-column writes.
+4. After migrations, enable flow enrichment (`prefix_tag_enrichment_enabled: true`
+   on core-elx). Keep it off until the prefix-tag columns exist everywhere.
    See [Prefix Tags](./prefix-tags.md#enable-enrichment).
 
 ## Tag mapping

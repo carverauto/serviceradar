@@ -72,11 +72,12 @@ defmodule ServiceRadar.PrefixTags.Snapshot do
 
     update :promote do
       accept [:record_count, :metadata, :source_etag, :source_sha256]
-      require_atomic? false
-
+      # Field updates are static / DB-now — keep this action fully atomic.
+      # Multi-snapshot supersede of the previous active row lives in the
+      # importer transaction (NetboxImportWorker.promote_snapshot/3).
       change set_attribute(:is_active, true)
       change set_attribute(:status, "active")
-      change set_attribute(:promoted_at, &DateTime.utc_now/0)
+      change atomic_update(:promoted_at, expr(now()))
     end
 
     update :mark_failed do

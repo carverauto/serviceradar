@@ -32,6 +32,7 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
   @default_reschedule_seconds 15 * 60
   @default_failure_reschedule_seconds 30 * 60
   @default_max_tags_per_prefix 32
+  @default_max_pages 500
   @successor_unique [period: :infinity, states: [:available, :scheduled, :retryable]]
   @insert_chunk_size 250
   @db_timeout_ms 120_000
@@ -223,6 +224,7 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
     http_get = Keyword.get(config, :http_get, &default_http_get/2)
     page_limit = Keyword.get(config, :page_limit, @default_page_limit)
     timeout_ms = Keyword.get(config, :timeout_ms, @default_timeout_ms)
+    max_pages = Keyword.get(config, :max_pages, @default_max_pages)
     namespaces = Keyword.get(config, :dimension_namespaces, @default_dimension_namespaces)
     max_tags = Keyword.get(config, :max_tags_per_prefix, @default_max_tags_per_prefix)
 
@@ -230,9 +232,9 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
     aggregates_url = "#{creds.url}/api/ipam/aggregates/?limit=#{page_limit}"
 
     with {:ok, prefix_results, prefix_count} <-
-           paginate(prefixes_url, creds, http_get, timeout_ms, [], nil),
+           paginate(prefixes_url, creds, http_get, timeout_ms, [], nil, 0, max_pages),
          {:ok, aggregate_results, aggregate_count} <-
-           paginate_optional(aggregates_url, creds, http_get, timeout_ms) do
+           paginate_optional(aggregates_url, creds, http_get, timeout_ms, max_pages) do
       if length(prefix_results) != prefix_count do
         {:error, {:count_mismatch, length(prefix_results), prefix_count}}
       else
@@ -263,42 +265,112 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
   end
 
   # Aggregates are optional — 404 means the NetBox build has no aggregates API.
-  defp paginate_optional(url, creds, http_get, timeout_ms) do
-    case paginate(url, creds, http_get, timeout_ms, [], nil) do
+  defp paginate_optional(url, creds, http_get, timeout_ms, max_pages) do
+    case paginate(url, creds, http_get, timeout_ms, [], nil, 0, max_pages) do
       {:ok, results, count} -> {:ok, results, count}
       {:error, {:http_status, 404}} -> {:ok, [], 0}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp paginate(nil, _creds, _http_get, _timeout, acc, count), do: {:ok, acc, count || length(acc)}
+  defp paginate(nil, _creds, _http_get, _timeout, acc, count, _pages, _max),
+    do: {:ok, acc, count || length(acc)}
 
-  defp paginate(url, creds, http_get, timeout_ms, acc, count) do
-    headers = [
-      {"authorization", "Token #{creds.token}"},
-      {"accept", "application/json"}
-    ]
+  defp paginate(_url, _creds, _http_get, _timeout, _acc, _count, pages, max_pages)
+       when is_integer(pages) and is_integer(max_pages) and pages >= max_pages do
+    {:error, {:too_many_pages, max_pages}}
+  end
 
-    opts =
-      [headers: headers, receive_timeout: timeout_ms]
-      |> maybe_insecure(creds.verify_ssl)
+  defp paginate(url, creds, http_get, timeout_ms, acc, count, pages, max_pages)
+       when is_binary(url) do
+    with {:ok, safe_url} <- validate_request_url(url, creds.url) do
+      headers = [
+        {"authorization", "Token #{creds.token}"},
+        {"accept", "application/json"}
+      ]
 
-    case http_get.(url, opts) do
-      {:ok, %{status: 200, body: body}} ->
-        with {:ok, decoded} <- decode_body(body),
-             {:ok, page_results, next, page_count} <- extract_page(decoded) do
-          new_acc = acc ++ page_results
-          reported = count || page_count
-          paginate(next, creds, http_get, timeout_ms, new_acc, reported)
-        end
+      opts =
+        [headers: headers, receive_timeout: timeout_ms]
+        |> maybe_insecure(creds.verify_ssl)
 
-      {:ok, %{status: status}} ->
-        {:error, {:http_status, status}}
+      case http_get.(safe_url, opts) do
+        {:ok, %{status: 200, body: body}} ->
+          with {:ok, decoded} <- decode_body(body),
+               {:ok, page_results, next, page_count} <- extract_page(decoded),
+               {:ok, next_url} <- validate_next_url(next, creds.url) do
+            new_acc = acc ++ page_results
+            reported = count || page_count
+            paginate(next_url, creds, http_get, timeout_ms, new_acc, reported, pages + 1, max_pages)
+          end
 
-      {:error, reason} ->
-        {:error, reason}
+        {:ok, %{status: status}} ->
+          {:error, {:http_status, status}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
+
+  # Never follow pagination (or re-send the token) to a different origin than
+  # the configured NetBox base URL — same defense as the NetBox Wasm plugin.
+  @doc false
+  def validate_next_url(nil, _base_url), do: {:ok, nil}
+  def validate_next_url("", _base_url), do: {:ok, nil}
+
+  def validate_next_url(next, base_url) when is_binary(next) and is_binary(base_url) do
+    validate_request_url(next, base_url)
+  end
+
+  def validate_next_url(_, _), do: {:error, :invalid_next_url}
+
+  @doc false
+  def validate_request_url(url, base_url) when is_binary(url) and is_binary(base_url) do
+    with {:ok, base} <- parse_uri(base_url),
+         {:ok, target} <- resolve_against_base(url, base),
+         true <- same_origin?(base, target) do
+      {:ok, URI.to_string(target)}
+    else
+      false -> {:error, {:next_url_host_mismatch, url}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp resolve_against_base(url, %URI{} = base) when is_binary(url) do
+    case parse_uri(url) do
+      {:ok, uri} ->
+        {:ok, uri}
+
+      {:error, _} ->
+        # Relative next path (NetBox may emit path-only pagination links).
+        merged = URI.merge(base, url)
+        parse_uri(URI.to_string(merged))
+    end
+  end
+
+  defp parse_uri(url) when is_binary(url) do
+    case URI.new(url) do
+      {:ok, %URI{host: host, scheme: scheme} = uri}
+      when is_binary(host) and host != "" and scheme in ["http", "https"] ->
+        {:ok, uri}
+
+      {:ok, _} ->
+        {:error, :invalid_url}
+
+      {:error, reason} ->
+        {:error, {:invalid_url, reason}}
+    end
+  end
+
+  defp same_origin?(%URI{} = base, %URI{} = target) do
+    String.downcase(base.host || "") == String.downcase(target.host || "") and
+      (base.scheme || "https") == (target.scheme || "https") and
+      normalize_port(base) == normalize_port(target)
+  end
+
+  defp normalize_port(%URI{port: port, scheme: "https"}) when port in [nil, 443], do: 443
+  defp normalize_port(%URI{port: port, scheme: "http"}) when port in [nil, 80], do: 80
+  defp normalize_port(%URI{port: port}), do: port
 
   defp maybe_insecure(opts, true), do: opts
 

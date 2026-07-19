@@ -154,4 +154,57 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorkerTest do
                )
     end
   end
+
+  describe "validate_next_url/2" do
+    test "allows same-origin pagination" do
+      base = "https://netbox.example"
+      next = "https://netbox.example/api/ipam/prefixes/?limit=2&offset=2"
+      assert {:ok, ^next} = NetboxImportWorker.validate_next_url(next, base)
+    end
+
+    test "rejects cross-host next links (token exfiltration)" do
+      base = "https://netbox.example"
+      evil = "https://evil.example/api/ipam/prefixes/?limit=2"
+
+      assert {:error, {:next_url_host_mismatch, ^evil}} =
+               NetboxImportWorker.validate_next_url(evil, base)
+    end
+
+    test "rejects scheme changes" do
+      assert {:error, {:next_url_host_mismatch, _}} =
+               NetboxImportWorker.validate_next_url(
+                 "http://netbox.example/api/ipam/prefixes/",
+                 "https://netbox.example"
+               )
+    end
+
+    test "nil next is ok" do
+      assert {:ok, nil} = NetboxImportWorker.validate_next_url(nil, "https://netbox.example")
+    end
+  end
+
+  describe "fetch_all_prefixes/2 next-host guard" do
+    test "aborts when next points off-origin" do
+      page = %{
+        "count" => 2,
+        "next" => "https://evil.example/steal",
+        "results" => [
+          %{"prefix" => "10.0.0.0/8", "tags" => []}
+        ]
+      }
+
+      http_get = fn url, _opts ->
+        if String.contains?(url, "/aggregates/") do
+          {:ok, %{status: 404, body: "not found"}}
+        else
+          {:ok, %{status: 200, body: page}}
+        end
+      end
+
+      creds = %{url: "https://netbox.example", token: "t", verify_ssl: true}
+
+      assert {:error, {:next_url_host_mismatch, "https://evil.example/steal"}} =
+               NetboxImportWorker.fetch_all_prefixes(creds, http_get: http_get)
+    end
+  end
 end

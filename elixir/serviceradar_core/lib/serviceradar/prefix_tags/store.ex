@@ -14,6 +14,9 @@ defmodule ServiceRadar.PrefixTags.Store do
   @sources_key {__MODULE__, :active_sources}
   @active_key_prefix {__MODULE__, :active_version}
   @version_key_prefix {__MODULE__, :trie}
+  # Delay erase so concurrent lookups that already observed the previous
+  # active version can still materialize the trie (spec concurrent-swap).
+  @erase_delay_ms 1_000
 
   @type source :: String.t()
   @type version :: non_neg_integer()
@@ -117,13 +120,14 @@ defmodule ServiceRadar.PrefixTags.Store do
   def put_trie(source, trie) when is_binary(source) do
     started = System.monotonic_time(:microsecond)
     version = next_version(source)
+    # Build-then-flip: install the new term before pointing active at it.
     :persistent_term.put(version_key(source, version), trie)
     previous = active_version(source)
     :persistent_term.put(active_key(source), version)
     register_source(source)
 
     if is_integer(previous) and previous != version do
-      :persistent_term.erase(version_key(source, previous))
+      schedule_erase(source, previous)
     end
 
     duration_us = System.monotonic_time(:microsecond) - started
@@ -161,7 +165,7 @@ defmodule ServiceRadar.PrefixTags.Store do
     :persistent_term.put(active_key(source), version)
 
     if is_integer(previous) and previous != version do
-      :persistent_term.erase(version_key(source, previous))
+      schedule_erase(source, previous)
     end
 
     unregister_source(source)
@@ -236,6 +240,33 @@ defmodule ServiceRadar.PrefixTags.Store do
       nil -> 1
       n when is_integer(n) -> n + 1
     end
+  end
+
+  defp schedule_erase(source, previous_version)
+       when is_binary(source) and is_integer(previous_version) do
+    key = version_key(source, previous_version)
+    delay = erase_delay_ms()
+
+    # Detached task: never block the swap path. If the BEAM exits sooner the
+    # term dies with the VM. Only erase if this version is still not active.
+    _ =
+      Task.start(fn ->
+        Process.sleep(delay)
+
+        case active_version(source) do
+          ^previous_version ->
+            :ok
+
+          _ ->
+            :persistent_term.erase(key)
+        end
+      end)
+
+    :ok
+  end
+
+  defp erase_delay_ms do
+    Application.get_env(:serviceradar_core, :prefix_tags_erase_delay_ms, @erase_delay_ms)
   end
 
   defp register_source(source) do

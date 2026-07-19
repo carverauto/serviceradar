@@ -22,7 +22,7 @@ feature. Design background lives in OpenSpec change
 | Replication | Per-node `PrefixTags.Loader` on core-elx and web-ng; PubSub topic `prefix_tags:snapshot` |
 | Import | Oban `:maintenance` worker `ServiceRadar.PrefixTags.NetboxImportWorker` |
 | Enrichment | EventWriter `FlowEnrichment` → columns `src_prefix_tags` / `dst_prefix_tags` (+ provenance) |
-| Feature flag | `:prefix_tag_enrichment_enabled` (default **on**, fail-open) |
+| Feature flag | `:prefix_tag_enrichment_enabled` (default **off**; enable after migrations) |
 
 Device inventory sync is a separate track (Wasm plugin / agent sync). This
 feature only imports IPAM **prefixes and tags** for flow enrichment.
@@ -31,7 +31,7 @@ feature only imports IPAM **prefixes and tags** for flow enrichment.
 
 | Flag | Default | Purpose |
 |------|---------|---------|
-| `prefix_tag_enrichment_enabled` | **true** | Write `src/dst_prefix_tags` on flow ingest (fail-open; empty tries leave rows untagged) |
+| `prefix_tag_enrichment_enabled` | **false** | Write `src/dst_prefix_tags` on flow ingest. Keep off until migrations land on every EventWriter node (deploy-before-migration fails inserts). Fail-open when enabled. |
 | `prefix_tag_provider_trie_enabled` | **true** | Hosting-provider LPM via `provider` trie (SQL/`ProviderCidrCache` only if trie empty or flag off) |
 | `threat_intel_engine_match_enabled` | **true** | CTI `IpThreatIntelCache` current-match via `ti` trie incl. `ti:severity:N` (SQL if trie empty) |
 | `geo_tag_derivation_enabled` | **false** | Merge `geo:country:` / `geo:asn:` from Geolix into tag columns |
@@ -59,16 +59,18 @@ WHERE is_active;
 
 5. Preview tags for an IP in **Settings → Integrations → CRM/IPAM → Prefix tag
    preview** (reads the local node's trie; no DB hop).
-6. Enrichment defaults **on**. To freeze tag-column writes (rollback without
-   dropping tries):
+6. **After** migrations are applied on every EventWriter / core-elx node, enable
+   tag columns:
 
 ```elixir
 # runtime config / env-backed Application env
-config :serviceradar_core, prefix_tag_enrichment_enabled: false
+config :serviceradar_core, prefix_tag_enrichment_enabled: true
 ```
 
-Provider and CTI engine matching are already on by default once the Loader /
-materializers have populated tries. Empty tries are a no-op for tag columns.
+Do not enable enrichment before migration `20260718010000` (prefix-tag columns)
+is present — inserts and SRQL `in:flows` will fail. Provider and CTI engine
+matching are already on by default once the Loader / materializers have
+populated tries. Empty tries are a no-op for tag columns.
 
 7. Verify new flow rows carry tags:
 

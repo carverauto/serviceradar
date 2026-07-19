@@ -25,7 +25,8 @@ defmodule ServiceRadar.PrefixTags.Trie do
   @type node_t :: %{
           optional(0) => node_t(),
           optional(1) => node_t(),
-          optional(:entry) => entry()
+          # Multiple entries per mask: same CIDR, distinct VRF (or merged tags).
+          optional(:entries) => [entry()]
         }
 
   @type t :: %{
@@ -81,48 +82,98 @@ defmodule ServiceRadar.PrefixTags.Trie do
   # -- internal ---------------------------------------------------------------
 
   defp insert(acc, :ipv4, bits, mask, entry) do
+    {node, added?} = put_bits(acc.ipv4, bits, mask, entry)
+
     %{
       acc
-      | ipv4: put_bits(acc.ipv4, bits, mask, entry),
-        ipv4_count: acc.ipv4_count + 1
+      | ipv4: node,
+        ipv4_count: if(added?, do: acc.ipv4_count + 1, else: acc.ipv4_count)
     }
   end
 
   defp insert(acc, :ipv6, bits, mask, entry) do
+    {node, added?} = put_bits(acc.ipv6, bits, mask, entry)
+
     %{
       acc
-      | ipv6: put_bits(acc.ipv6, bits, mask, entry),
-        ipv6_count: acc.ipv6_count + 1
+      | ipv6: node,
+        ipv6_count: if(added?, do: acc.ipv6_count + 1, else: acc.ipv6_count)
     }
   end
 
-  defp put_bits(node, _bits, 0, entry), do: Map.put(node, :entry, entry)
+  # Returns {node, added?} — added? is false when an existing same-prefix+vrf
+  # entry was updated in place (no new leaf).
+  defp put_bits(node, _bits, 0, entry) do
+    existing = Map.get(node, :entries, [])
+    {entries, added?} = upsert_entry(existing, entry)
+    {Map.put(node, :entries, entries), added?}
+  end
 
   defp put_bits(node, [bit | rest], remaining, entry) do
     child = Map.get(node, bit, @empty_node)
-    Map.put(node, bit, put_bits(child, rest, remaining - 1, entry))
+    {new_child, added?} = put_bits(child, rest, remaining - 1, entry)
+    {Map.put(node, bit, new_child), added?}
   end
 
-  # Prepend matches as we descend so the deepest (most-specific) entry ends up
-  # at the head of the list. Always check :entry on the current node, including
-  # the terminal node when no bits remain (host /32 and /128 prefixes).
-  defp walk(node, [], acc) do
-    case Map.get(node, :entry) do
-      nil -> acc
-      entry -> [entry | acc]
+  defp upsert_entry(entries, entry) when is_list(entries) do
+    vrf_key = entry_vrf_key(entry)
+
+    case Enum.find_index(entries, &(entry_vrf_key(&1) == vrf_key)) do
+      nil ->
+        {[entry | entries], true}
+
+      idx ->
+        prev = Enum.at(entries, idx)
+        merged = merge_entry(prev, entry)
+        {List.replace_at(entries, idx, merged), false}
     end
   end
 
+  defp entry_vrf_key(%{vrf: vrf}) when is_binary(vrf) and vrf != "", do: vrf
+  defp entry_vrf_key(_), do: ""
+
+  defp merge_entry(prev, new) do
+    tags =
+      (List.wrap(prev[:tags]) ++ List.wrap(new[:tags]))
+      |> Enum.map(&to_string/1)
+      |> Enum.uniq()
+
+    %{
+      prefix: new.prefix || prev.prefix,
+      tags: tags,
+      source: new[:source] || prev[:source],
+      vrf: new[:vrf] || prev[:vrf]
+    }
+  end
+
+  # Prepend matches as we descend so the deepest (most-specific) entries end up
+  # at the head of the list. Nodes may hold multiple VRF variants of a prefix.
+  defp walk(node, [], acc) do
+    prepend_entries(node, acc)
+  end
+
   defp walk(node, [bit | rest], acc) do
-    acc =
-      case Map.get(node, :entry) do
-        nil -> acc
-        entry -> [entry | acc]
-      end
+    acc = prepend_entries(node, acc)
 
     case Map.get(node, bit) do
       nil -> acc
       child -> walk(child, rest, acc)
+    end
+  end
+
+  defp prepend_entries(node, acc) do
+    case Map.get(node, :entries) do
+      entries when is_list(entries) and entries != [] ->
+        # Keep most-recently-inserted first within the same mask; overall
+        # most-specific-first ordering still comes from walk depth.
+        entries ++ acc
+
+      _ ->
+        # Backward-compat: older tries stored a single :entry.
+        case Map.get(node, :entry) do
+          nil -> acc
+          entry -> [entry | acc]
+        end
     end
   end
 

@@ -17,6 +17,8 @@ defmodule ServiceRadar.PrefixTags.Loader do
   require Logger
 
   @pubsub_topic "prefix_tags:snapshot"
+  @initial_load_retry_ms 5_000
+  @initial_load_retry_max_ms 60_000
 
   @load_active_sql """
   SELECT
@@ -138,6 +140,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
     # External sources (provider/ti/dns-policy) are compiled from other tables,
     # not platform.prefix_tags — reload them after snapshot-backed sources.
     _ = reload_all_external_sources()
+    state = maybe_schedule_initial_retry(state, @initial_load_retry_ms)
     {:noreply, state}
   end
 
@@ -151,6 +154,19 @@ defmodule ServiceRadar.PrefixTags.Loader do
   def handle_call(:status, _from, state), do: {:reply, state, state}
 
   @impl true
+  def handle_info({:retry_initial_load, delay_ms}, state) when is_integer(delay_ms) do
+    if is_nil(state.loaded_at) do
+      Logger.info("PrefixTags.Loader retrying initial load after failure")
+      state = do_reload(state, :all)
+      _ = reload_all_external_sources()
+      next_delay = min(delay_ms * 2, @initial_load_retry_max_ms)
+      state = maybe_schedule_initial_retry(state, next_delay)
+      {:noreply, state}
+    else
+      {:noreply, state}
+    end
+  end
+
   def handle_info({:prefix_tags_snapshot_changed, meta}, state) when is_map(meta) do
     source = Map.get(meta, :source) || Map.get(meta, "source")
 
@@ -213,14 +229,16 @@ defmodule ServiceRadar.PrefixTags.Loader do
              }}
           end)
 
-        # Empty source after targeted reload: clear that source's trie.
+        # Drop tries for snapshot-backed sources that are no longer active.
+        # External materializers (provider/ti/dns-policy) are never cleared here.
         sources_meta =
           case scope do
             source when is_binary(source) ->
               if Map.has_key?(sources_meta, source) do
                 sources_meta
               else
-                Store.clear(source)
+                unless external_source?(source), do: Store.clear(source)
+
                 Map.put(sources_meta, source, %{
                   version: nil,
                   row_count: 0,
@@ -231,6 +249,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
               end
 
             :all ->
+              clear_stale_snapshot_sources(Map.keys(sources_meta))
               sources_meta
           end
 
@@ -365,6 +384,28 @@ defmodule ServiceRadar.PrefixTags.Loader do
   }
 
   defp external_source?(source), do: Map.has_key?(@external_source_modules, source)
+
+  defp clear_stale_snapshot_sources(active_sources) when is_list(active_sources) do
+    active = MapSet.new(active_sources)
+
+    Store.sources()
+    |> Enum.reject(&external_source?/1)
+    |> Enum.reject(&MapSet.member?(active, &1))
+    |> Enum.each(fn stale ->
+      Logger.info("PrefixTags.Loader clearing deactivated snapshot source", source: stale)
+      Store.clear(stale)
+    end)
+
+    :ok
+  end
+
+  defp maybe_schedule_initial_retry(%{loaded_at: nil, last_error: err} = state, delay_ms)
+       when is_binary(err) and is_integer(delay_ms) and delay_ms > 0 do
+    Process.send_after(self(), {:retry_initial_load, delay_ms}, delay_ms)
+    state
+  end
+
+  defp maybe_schedule_initial_retry(state, _delay_ms), do: state
 
   defp reload_all_external_sources do
     Enum.each(Map.keys(@external_source_modules), &reload_external_source/1)

@@ -65,6 +65,35 @@ defmodule ServiceRadar.PrefixTags.TrieTest do
       trie = Trie.build([%{prefix: "10.0.0.0/8", tags: ["a"]}])
       assert Trie.lookup(trie, "not-an-ip") == []
     end
+
+    test "same prefix with distinct VRFs both match (no clobber)" do
+      trie =
+        Trie.build([
+          %{prefix: "10.0.0.0/8", tags: ["vrf:a"], vrf: "corp", source: "netbox"},
+          %{prefix: "10.0.0.0/8", tags: ["vrf:b"], vrf: "guest", source: "netbox"}
+        ])
+
+      chain = Trie.lookup(trie, "10.1.2.3")
+      tags = Enum.flat_map(chain, & &1.tags) |> Enum.sort()
+      vrfs = Enum.map(chain, & &1.vrf) |> Enum.sort()
+
+      assert tags == ["vrf:a", "vrf:b"]
+      assert vrfs == ["corp", "guest"]
+      assert Trie.stats(trie).ipv4_prefixes == 2
+    end
+
+    test "same prefix+vrf merges tags instead of dropping" do
+      trie =
+        Trie.build([
+          %{prefix: "10.0.0.0/8", tags: ["a"], vrf: "corp"},
+          %{prefix: "10.0.0.0/8", tags: ["b"], vrf: "corp"}
+        ])
+
+      chain = Trie.lookup(trie, "10.1.2.3")
+      assert length(chain) == 1
+      assert Enum.sort(hd(chain).tags) == ["a", "b"]
+      assert Trie.stats(trie).ipv4_prefixes == 1
+    end
   end
 
   describe "LPM equivalence vs SQL masklen oracle" do

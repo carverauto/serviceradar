@@ -67,7 +67,11 @@ pub(in crate::query::flows) fn normalize_tag_literal(raw: &str) -> Result<String
     Ok(trimmed.to_string())
 }
 
-/// Build a SQL boolean expression: `column @> '["tag"]'::jsonb`.
+/// Build a SQL boolean expression: `COALESCE(column, '[]') @> '["tag"]'::jsonb`.
+///
+/// COALESCE is required so `NOT (tag_contains …)` keeps untagged rows (NULL
+/// columns). Without it, SQL three-valued logic makes `NOT (NULL @> …)` drop
+/// the untagged majority of flow rows.
 pub(in crate::query::flows) fn tag_contains_sql(column: &str, tag: &str) -> Result<String> {
     let tag = normalize_tag_literal(tag)?;
     let json = serde_json::to_string(&vec![&tag]).map_err(|err| {
@@ -76,7 +80,9 @@ pub(in crate::query::flows) fn tag_contains_sql(column: &str, tag: &str) -> Resu
     // JSON encoding never emits single quotes for our validated charset, but
     // escape defensively so the SQL string literal stays well-formed.
     let escaped = json.replace('\'', "''");
-    Ok(format!("({column} @> '{escaped}'::jsonb)"))
+    Ok(format!(
+        "(COALESCE({column}, '[]'::jsonb) @> '{escaped}'::jsonb)"
+    ))
 }
 
 /// OR of `tag_contains_sql` for each tag. Empty list yields `TRUE` (no-op).

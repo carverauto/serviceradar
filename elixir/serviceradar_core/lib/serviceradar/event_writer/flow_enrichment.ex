@@ -56,6 +56,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   @provider_cache_key {__MODULE__, :provider_lookup_cache}
   @provider_lookup_fun_key {__MODULE__, :provider_lookup_fun}
   @active_snapshot_key {__MODULE__, :provider_active_snapshot_id}
+  @prefix_tag_cache_key {__MODULE__, :prefix_tag_lookup_cache}
 
   @type enrichment_input :: %{
           optional(:protocol_num) => integer() | String.t() | nil,
@@ -77,8 +78,11 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
     previous_cache = Process.get(@provider_cache_key, :__serviceradar_unset__)
     previous_lookup_fun = Process.get(@provider_lookup_fun_key, :__serviceradar_unset__)
     previous_snapshot = Process.get(@active_snapshot_key, :__serviceradar_unset__)
+    previous_prefix_tag = Process.get(@prefix_tag_cache_key, :__serviceradar_unset__)
 
     Process.put(@provider_cache_key, %{})
+    # Memoize prefix-tag LPM lookups for the batch (src/dst IPs often repeat).
+    Process.put(@prefix_tag_cache_key, %{})
 
     case Keyword.fetch(opts, :provider_lookup) do
       {:ok, lookup_fun} when is_function(lookup_fun, 1) ->
@@ -94,6 +98,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
       restore_process_value(@provider_cache_key, previous_cache)
       restore_process_value(@provider_lookup_fun_key, previous_lookup_fun)
       restore_process_value(@active_snapshot_key, previous_snapshot)
+      restore_process_value(@prefix_tag_cache_key, previous_prefix_tag)
     end
   end
 
@@ -164,13 +169,14 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   @doc """
   Whether prefix-tag enrichment is enabled.
 
-  Controlled by Application env `:prefix_tag_enrichment_enabled` (default true).
-  Fail-open: lookup errors yield untagged fields and never raise to the caller.
-  Empty tries leave rows untagged (cheap no-op).
+  Controlled by Application env `:prefix_tag_enrichment_enabled` (default false).
+  Keep off until `prefix_tag` migrations are applied everywhere EventWriter
+  inserts; enabling with a pre-migration schema fails inserts. Fail-open when
+  enabled: lookup errors / empty tries leave rows untagged.
   """
   @spec prefix_tag_enrichment_enabled?() :: boolean()
   def prefix_tag_enrichment_enabled? do
-    Application.get_env(:serviceradar_core, :prefix_tag_enrichment_enabled, true) == true
+    Application.get_env(:serviceradar_core, :prefix_tag_enrichment_enabled, false) == true
   end
 
   @doc false
@@ -179,6 +185,24 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   def prefix_tags_for_ip(nil), do: %{tags: nil, source: nil}
 
   def prefix_tags_for_ip(ip) when is_binary(ip) do
+    case Process.get(@prefix_tag_cache_key) do
+      %{} = cache ->
+        case Map.fetch(cache, ip) do
+          {:ok, cached} ->
+            cached
+
+          :error ->
+            result = do_prefix_tags_for_ip(ip)
+            Process.put(@prefix_tag_cache_key, Map.put(cache, ip, result))
+            result
+        end
+
+      _ ->
+        do_prefix_tags_for_ip(ip)
+    end
+  end
+
+  defp do_prefix_tags_for_ip(ip) when is_binary(ip) do
     chain = PrefixTagStore.lookup(ip)
     trie_tags = flatten_tag_chain(chain)
     geo_tags = geo_tags_for_ip(ip)
