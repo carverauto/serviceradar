@@ -11,9 +11,10 @@ defmodule ServiceRadar.PrefixTags.Store do
   alias ServiceRadar.PrefixTags.Engine
   alias ServiceRadar.PrefixTags.Trie
 
-  @sources_key {__MODULE__, :active_sources}
+  # Per-source membership markers (no shared MapSet RMW race). A source is
+  # "registered" when this key exists; put_trie/clear create/erase it.
+  @source_member_key_prefix {__MODULE__, :source_member}
   # Single atomic handle: one persistent_term get returns {version, trie}.
-  # Do NOT also store a full second copy under a version-only key (doubles memory).
   @active_handle_key_prefix {__MODULE__, :active_handle}
   # Previous handles kept briefly so a concurrent reader that already held the
   # old term can finish; not used for lookup indirection.
@@ -173,7 +174,6 @@ defmodule ServiceRadar.PrefixTags.Store do
   @spec clear() :: :ok
   def clear do
     Enum.each(sources(), &clear/1)
-    :persistent_term.put(@sources_key, MapSet.new())
     :ok
   end
 
@@ -203,12 +203,21 @@ defmodule ServiceRadar.PrefixTags.Store do
 
   Unordered (hot path). Use `Enum.sort/1` at call sites that need deterministic
   ordering for display.
+
+  Membership is per-source keys (not a shared MapSet), so concurrent first-time
+  registrations cannot drop a peer source.
   """
   @spec sources() :: [source()]
   def sources do
-    @sources_key |> :persistent_term.get(MapSet.new()) |> MapSet.to_list()
+    candidates =
+      ServiceRadar.PrefixTags.ExternalSources.by_name()
+      |> Map.keys()
+      |> Kernel.++(["manual", "netbox"])
+      |> Enum.uniq()
+
+    Enum.filter(candidates, &source_registered?/1)
   rescue
-    ArgumentError -> []
+    _ -> []
   end
 
   @doc "Current active version for a source, or nil."
@@ -333,20 +342,26 @@ defmodule ServiceRadar.PrefixTags.Store do
     Application.get_env(:serviceradar_core, :prefix_tags_erase_delay_ms, @erase_delay_ms)
   end
 
-  defp register_source(source) do
-    set = :persistent_term.get(@sources_key, MapSet.new())
-    :persistent_term.put(@sources_key, MapSet.put(set, source))
-  rescue
-    ArgumentError ->
-      :persistent_term.put(@sources_key, MapSet.new([source]))
+  defp register_source(source) when is_binary(source) do
+    # Atomic single-key put — concurrent puts for different sources never race.
+    :persistent_term.put(source_member_key(source), true)
+    :ok
   end
 
-  defp unregister_source(source) do
-    set = :persistent_term.get(@sources_key, MapSet.new())
-    :persistent_term.put(@sources_key, MapSet.delete(set, source))
+  defp unregister_source(source) when is_binary(source) do
+    :persistent_term.erase(source_member_key(source))
+    :ok
   rescue
     ArgumentError -> :ok
   end
+
+  defp source_registered?(source) when is_binary(source) do
+    :persistent_term.get(source_member_key(source), false) == true
+  rescue
+    ArgumentError -> false
+  end
+
+  defp source_member_key(source), do: {@source_member_key_prefix, source}
 
   defp engine do
     Application.get_env(:serviceradar_core, :prefix_tags_engine, Trie)

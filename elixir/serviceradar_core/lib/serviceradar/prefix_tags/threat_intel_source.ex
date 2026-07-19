@@ -27,7 +27,8 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
     host(indicator) || '/' || masklen(indicator) AS prefix,
     source,
     label,
-    severity
+    severity,
+    expires_at
   FROM platform.threat_intel_indicators
   WHERE (expires_at IS NULL OR expires_at > now())
   """
@@ -65,9 +66,9 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
   end
 
   @doc false
-  def map_indicator_row(prefix, source, label, severity \\ nil)
+  def map_indicator_row(prefix, source, label, severity \\ nil, expires_at \\ nil)
 
-  def map_indicator_row(prefix, source, label, severity) when is_binary(prefix) do
+  def map_indicator_row(prefix, source, label, severity, expires_at) when is_binary(prefix) do
     source_slug = Slug.slugify(source || "unknown", empty: "unknown")
     tags = ["ti:#{source_slug}"]
     sev = normalize_severity(severity)
@@ -94,7 +95,10 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
       prefix: prefix,
       tags: tags |> Enum.reverse() |> Enum.uniq() |> Enum.take(@max_tags_per_prefix),
       source: @source,
-      severity: sev
+      severity: sev,
+      # One indicator row contributes 1 toward SQL-parity match_count.
+      indicator_count: 1,
+      expires_at: expires_at
     }
   end
 
@@ -157,17 +161,21 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
         parsed =
           rows
           |> Enum.map(fn
+            [prefix, source, label, severity, expires_at] when is_binary(prefix) ->
+              map_indicator_row(prefix, source, label, severity, expires_at)
+
             [prefix, source, label, severity] when is_binary(prefix) ->
-              map_indicator_row(prefix, source, label, severity)
+              map_indicator_row(prefix, source, label, severity, nil)
 
             [prefix, source, label] when is_binary(prefix) ->
-              map_indicator_row(prefix, source, label, nil)
+              map_indicator_row(prefix, source, label, nil, nil)
 
             _ ->
               nil
           end)
           |> Enum.reject(&is_nil/1)
-          # Collapse duplicate prefixes: merge tags, keep highest severity
+          # Collapse duplicate prefixes: merge tags, sum indicator counts,
+          # keep highest severity and earliest expiry.
           |> Enum.group_by(& &1.prefix)
           |> Enum.map(fn {prefix, group} ->
             tags =
@@ -177,7 +185,33 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
               |> Enum.uniq()
               |> Enum.take(@max_tags_per_prefix)
 
-            %{prefix: prefix, tags: tags, source: @source}
+            sev =
+              group
+              |> Enum.map(& &1[:severity])
+              |> Enum.reject(&is_nil/1)
+              |> Enum.max(fn -> nil end)
+
+            count =
+              group
+              |> Enum.map(&(&1[:indicator_count] || 1))
+              |> Enum.sum()
+
+            expires_at =
+              case group
+                   |> Enum.map(& &1[:expires_at])
+                   |> Enum.reject(&is_nil/1) do
+                [] -> nil
+                dts -> Enum.min(dts, DateTime)
+              end
+
+            %{
+              prefix: prefix,
+              tags: tags,
+              source: @source,
+              severity: sev,
+              indicator_count: count,
+              expires_at: expires_at
+            }
           end)
 
         {:ok, parsed}

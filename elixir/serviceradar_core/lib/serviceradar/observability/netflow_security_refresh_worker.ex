@@ -22,6 +22,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.PrefixTags.Store, as: PrefixTagStore
+  alias ServiceRadar.PrefixTags.ThreatIntelSource
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -433,22 +434,41 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   # Severity is a first-class match field (with ti:severity:N tags for SRQL).
   # Authoritative retro-matching remains the SQL/match-pipeline path.
   defp engine_threat_matches(ips) when is_list(ips) do
+    now = DateTime.utc_now()
+
     Enum.map(ips, fn ip ->
-      chain = PrefixTagStore.lookup(ip, "ti")
+      chain =
+        ip
+        |> PrefixTagStore.lookup("ti")
+        |> Enum.reject(&ti_match_expired?(&1, now))
 
       all_tags =
-        chain
-        |> Enum.flat_map(fn
+        Enum.flat_map(chain, fn
           %{tags: tags} when is_list(tags) -> tags
           _ -> []
         end)
 
-      sources = ServiceRadar.PrefixTags.ThreatIntelSource.sources_from_tags(all_tags)
-      max_severity = ServiceRadar.PrefixTags.ThreatIntelSource.max_severity_from_match(chain)
-      match_count = length(chain)
+      sources = ThreatIntelSource.sources_from_tags(all_tags)
+      max_severity = ThreatIntelSource.max_severity_from_match(chain)
+
+      # SQL path counts indicators (COUNT(ti.id)); preserve that via indicator_count
+      # collapsed at materialize time (default 1 per match when unset).
+      match_count =
+        chain
+        |> Enum.map(fn
+          %{indicator_count: n} when is_integer(n) and n > 0 -> n
+          _ -> 1
+        end)
+        |> Enum.sum()
+
       {ip, match_count, max_severity, sources}
     end)
   end
+
+  defp ti_match_expired?(%{expires_at: %DateTime{} = exp}, now),
+    do: DateTime.compare(exp, now) != :gt
+
+  defp ti_match_expired?(_, _), do: false
 
   defp run_threat_match_query(ips) when is_list(ips) do
     # Fallback / full-fidelity path: Postgres GIST on indicator (+ severity).

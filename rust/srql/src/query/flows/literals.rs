@@ -85,13 +85,17 @@ pub(in crate::query::flows) fn tag_contains_sql(column: &str, tag: &str) -> Resu
     ))
 }
 
-/// OR of `tag_contains_sql` for each tag. Empty list yields `TRUE` (no-op).
+/// OR of `tag_contains_sql` for each tag.
+///
+/// Empty list yields `FALSE` so `tag in ()` matches no rows. Callers that
+/// wrap with NOT (NotIn) then match every row — same convention as
+/// `trace_summaries` empty-list handling.
 pub(in crate::query::flows) fn tag_any_contains_sql(
     column: &str,
     tags: &[String],
 ) -> Result<String> {
     if tags.is_empty() {
-        return Ok("TRUE".to_string());
+        return Ok("FALSE".to_string());
     }
     let parts: Result<Vec<String>> = tags.iter().map(|t| tag_contains_sql(column, t)).collect();
     Ok(format!("({})", parts?.join(" OR ")))
@@ -244,6 +248,7 @@ pub(in crate::query::flows) fn near_exists_sql(point: NearPoint, side: NearSide)
                     SELECT 1 FROM ip_geo_enrichment_cache {alias} \
                     WHERE {alias}.ip = NULLIF({ip_col}, '') \
                       AND {alias}.location IS NOT NULL \
+                      AND ({alias}.expires_at IS NULL OR {alias}.expires_at > now()) \
                       AND ST_DWithin(\
                             {alias}.location, \
                             ST_SetSRID(ST_MakePoint({lng}, {lat}), 4326)::geography, \

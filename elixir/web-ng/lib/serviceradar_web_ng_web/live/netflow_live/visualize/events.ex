@@ -96,21 +96,25 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.Events do
         _ -> "in:flows"
       end
 
-    next_q = PrefixTagQuery.apply_tag_filter(current_q, tag)
-    # Tag lives in `q` only — do not mirror into nf state (derivable).
-    state = socket.assigns.netflow_viz_state
+    case PrefixTagQuery.apply_tag_filter(current_q, tag) do
+      {:ok, next_q} ->
+        state = socket.assigns.netflow_viz_state
 
-    {:noreply,
-     socket
-     |> assign(:netflow_viz_state, state)
-     |> push_patch(
-       to:
-         build_patch_url(socket, %{
-           "nf" => nf_param(state),
-           "q" => next_q,
-           "cursor" => nil
-         })
-     )}
+        {:noreply,
+         socket
+         |> assign(:netflow_viz_state, state)
+         |> push_patch(
+           to:
+             build_patch_url(socket, %{
+               "nf" => nf_param(state),
+               "q" => next_q,
+               "cursor" => nil
+             })
+         )}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Invalid prefix tag (use letters, digits, :._@+/-)")}
+    end
   end
 
   def handle_event("netflow_open", %{"idx" => idx_raw}, socket) do

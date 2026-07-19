@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNGWeb.Components.PrefixTagChips
   alias ServiceRadarWebNGWeb.MetricSeries
   alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
+  alias ServiceRadarWebNGWeb.Netflow.PrefixTagQuery
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.LocalAnchor
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.MapMarkers
@@ -351,10 +352,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         Map.get(socket.assigns, :netflow_view, "overview")
       )
 
-    next_q = ServiceRadarWebNGWeb.Netflow.PrefixTagQuery.apply_tag_filter(query, tag)
+    case PrefixTagQuery.apply_tag_filter(query, tag) do
+      {:ok, next_q} ->
+        href = base_path <> "?" <> URI.encode_query(netflow_params(next_q, limit, patch_opts))
+        {:noreply, push_patch(socket, to: href)}
 
-    href = base_path <> "?" <> URI.encode_query(netflow_params(next_q, limit, patch_opts))
-    {:noreply, push_patch(socket, to: href)}
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Invalid prefix tag (use letters, digits, :._@+/-)")}
+    end
   end
 
   def handle_event("netflow_lookup_asn", %{"asn" => asn_raw}, socket) do
@@ -3190,21 +3195,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:toggle_variant, if(assigns.live?, do: "primary", else: "outline"))
 
     current_tag =
-      case Regex.run(~r/(?:^|\s)tag:(?:"([^"]+)"|(\S+))/, query) do
-        [_, quoted, unquoted] ->
-          cond do
-            is_binary(quoted) and quoted != "" -> quoted
-            is_binary(unquoted) and unquoted != "" -> unquoted
-            true -> ""
-          end
+      PrefixTagQuery.tag_from_query(query) || ""
 
-        _ ->
-          ""
-      end
-
-    assigns =
-      assigns
-      |> assign(:current_tag, current_tag)
+    assigns = assign(assigns, :current_tag, current_tag)
 
     ~H"""
     <div class="flex flex-col items-end gap-2">
@@ -4640,17 +4633,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 >
                   AS{asn}
                 </div>
-                <PrefixTagChips.linked
-                  items={
-                    netflow_linked_tag_items(
-                      netflow_prefix_tags(flow, :src),
-                      @base_path,
-                      @query,
-                      @limit,
-                      patch_opts
-                    )
-                  }
-                />
+                <PrefixTagChips.linked items={
+                  netflow_linked_tag_items(
+                    netflow_prefix_tags(flow, :src),
+                    @base_path,
+                    @query,
+                    @limit,
+                    patch_opts
+                  )
+                } />
               </td>
               <td class="text-xs align-top">
                 <% dst_ip = netflow_addr(flow, :dst) %>
@@ -4701,17 +4692,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                   >
                     {hostname}
                   </div>
-                  <PrefixTagChips.linked
-                    items={
-                      netflow_linked_tag_items(
-                        netflow_prefix_tags(flow, :dst),
-                        @base_path,
-                        @query,
-                        @limit,
-                        patch_opts
-                      )
-                    }
-                  />
+                  <PrefixTagChips.linked items={
+                    netflow_linked_tag_items(
+                      netflow_prefix_tags(flow, :dst),
+                      @base_path,
+                      @query,
+                      @limit,
+                      patch_opts
+                    )
+                  } />
                   <div
                     :if={asn = netflow_asn(flow, :dst)}
                     class="text-[11px] text-base-content/50 font-mono"
@@ -5154,7 +5143,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     >
                       Provider: <span class="font-mono">{@src_provider}</span>
                     </div>
-                    <PrefixTagChips.static tags={@src_prefix_tags} wrapper_class="mt-1 flex flex-wrap gap-1" />
+                    <PrefixTagChips.static
+                      tags={@src_prefix_tags}
+                      wrapper_class="mt-1 flex flex-wrap gap-1"
+                    />
                     <div class="mt-2 flex flex-wrap gap-2">
                       <.ui_button
                         size="xs"
@@ -5193,7 +5185,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     >
                       Provider: <span class="font-mono">{@dst_provider}</span>
                     </div>
-                    <PrefixTagChips.static tags={@dst_prefix_tags} wrapper_class="mt-1 flex flex-wrap gap-1" />
+                    <PrefixTagChips.static
+                      tags={@dst_prefix_tags}
+                      wrapper_class="mt-1 flex flex-wrap gap-1"
+                    />
                     <div class="mt-2 flex flex-wrap gap-2">
                       <.ui_button
                         size="xs"

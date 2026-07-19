@@ -5,18 +5,59 @@ defmodule ServiceRadarWebNGWeb.Netflow.PrefixTagQuery do
 
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.Filters
 
+  @max_tag_bytes 128
+  @tag_char_re ~r/^[A-Za-z0-9:._@+\-\/]+$/
+
+  @doc """
+  Validate a free-typed tag for SRQL splicing (charset + length).
+
+  Returns `{:ok, tag}` or `{:error, reason}`.
+  """
+  @spec validate_tag(term()) :: {:ok, String.t()} | {:error, :empty | :too_long | :invalid_chars}
+  def validate_tag(nil), do: {:error, :empty}
+
+  def validate_tag(raw) do
+    tag = raw |> to_string() |> String.trim()
+
+    cond do
+      tag == "" -> {:error, :empty}
+      byte_size(tag) > @max_tag_bytes -> {:error, :too_long}
+      not Regex.match?(@tag_char_re, tag) -> {:error, :invalid_chars}
+      true -> {:ok, tag}
+    end
+  end
+
   @doc """
   Set or clear the primary `tag:` filter and clear `src_tag` / `dst_tag`
   so the sidebar tag control does not fight side-specific filters.
+
+  Invalid tags are rejected (query unchanged) — callers should surface errors.
+  Empty string clears the filter.
   """
-  @spec apply_tag_filter(String.t(), String.t()) :: String.t()
+  @spec apply_tag_filter(String.t(), String.t()) ::
+          {:ok, String.t()} | {:error, :empty | :too_long | :invalid_chars}
   def apply_tag_filter(query, tag) when is_binary(query) do
     tag = tag |> to_string() |> String.trim()
 
-    query
-    |> Filters.upsert_query_filter("tag", tag)
-    |> Filters.upsert_query_filter("src_tag", "")
-    |> Filters.upsert_query_filter("dst_tag", "")
+    if tag == "" do
+      next =
+        query
+        |> Filters.upsert_query_filter("tag", "")
+        |> Filters.upsert_query_filter("src_tag", "")
+        |> Filters.upsert_query_filter("dst_tag", "")
+
+      {:ok, next}
+    else
+      with {:ok, tag} <- validate_tag(tag) do
+        next =
+          query
+          |> Filters.upsert_query_filter("tag", quote_if_needed(tag))
+          |> Filters.upsert_query_filter("src_tag", "")
+          |> Filters.upsert_query_filter("dst_tag", "")
+
+        {:ok, next}
+      end
+    end
   end
 
   def apply_tag_filter(_query, tag), do: apply_tag_filter("in:flows", tag)
@@ -27,8 +68,9 @@ defmodule ServiceRadarWebNGWeb.Netflow.PrefixTagQuery do
   def tag_from_query(""), do: nil
 
   def tag_from_query(query) when is_binary(query) do
-    # Match tag:value without pulling src_tag/dst_tag (word boundary before tag:).
+    # Regex.run drops trailing unmatched groups, so handle 2- and 3-element lists.
     case Regex.run(~r/(?:^|\s)tag:(?:"([^"]+)"|(\S+))/, query) do
+      [_, quoted] when quoted != "" -> quoted
       [_, quoted, ""] when quoted != "" -> quoted
       [_, "", bare] when bare != "" -> bare
       [_, quoted, bare] when quoted != "" -> quoted
@@ -38,4 +80,8 @@ defmodule ServiceRadarWebNGWeb.Netflow.PrefixTagQuery do
   end
 
   def tag_from_query(_), do: nil
+
+  defp quote_if_needed(tag) do
+    if String.contains?(tag, " "), do: "\"#{tag}\"", else: tag
+  end
 end

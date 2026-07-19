@@ -20,7 +20,9 @@ defmodule ServiceRadar.PrefixTags.Trie do
           required(:tags) => [String.t()],
           optional(:source) => String.t() | nil,
           optional(:vrf) => String.t() | nil,
-          optional(:severity) => non_neg_integer() | nil
+          optional(:severity) => non_neg_integer() | nil,
+          optional(:indicator_count) => non_neg_integer() | nil,
+          optional(:expires_at) => DateTime.t() | nil
         }
 
   @type node_t :: %{
@@ -191,14 +193,16 @@ defmodule ServiceRadar.PrefixTags.Trie do
     source = row[:source] || row["source"]
     vrf = row[:vrf] || row["vrf"]
     severity = normalize_severity(row[:severity] || row["severity"])
+    indicator_count = row[:indicator_count] || row["indicator_count"]
+    expires_at = row[:expires_at] || row["expires_at"]
 
     with true <- is_binary(prefix),
          {:ok, family, bits, mask} <- parse_prefix(prefix) do
       entry =
-        maybe_put_severity(
-          %{prefix: format_prefix(bits, mask, family), tags: tags, source: source, vrf: vrf},
-          severity
-        )
+        %{prefix: format_prefix(bits, mask, family), tags: tags, source: source, vrf: vrf}
+        |> maybe_put_severity(severity)
+        |> maybe_put(:indicator_count, indicator_count)
+        |> maybe_put(:expires_at, expires_at)
 
       {:ok, family, bits, mask, entry}
     else
@@ -218,6 +222,9 @@ defmodule ServiceRadar.PrefixTags.Trie do
 
   defp maybe_put_severity(entry, nil), do: entry
   defp maybe_put_severity(entry, n) when is_integer(n), do: Map.put(entry, :severity, n)
+
+  defp maybe_put(entry, _k, nil), do: entry
+  defp maybe_put(entry, k, v), do: Map.put(entry, k, v)
 
   defp parse_prefix(prefix) when is_binary(prefix) do
     prefix = String.trim(prefix)
@@ -251,6 +258,16 @@ defmodule ServiceRadar.PrefixTags.Trie do
           do: bit
 
     {:ok, :ipv4, bits}
+  end
+
+  # IPv4-mapped IPv6 (::ffff:a.b.c.d) — unmap to the IPv4 trie so netbox/provider
+  # IPv4 prefixes still match when collectors stringify mapped addresses.
+  defp bits_for_address({0, 0, 0, 0, 0, 0xFFFF, hi, lo}) do
+    a = hi >>> 8 &&& 0xFF
+    b = hi &&& 0xFF
+    c = lo >>> 8 &&& 0xFF
+    d = lo &&& 0xFF
+    bits_for_address({a, b, c, d})
   end
 
   defp bits_for_address({a, b, c, d, e, f, g, h}) do

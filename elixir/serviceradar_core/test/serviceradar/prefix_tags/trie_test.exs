@@ -74,8 +74,8 @@ defmodule ServiceRadar.PrefixTags.TrieTest do
         ])
 
       chain = Trie.lookup(trie, "10.1.2.3")
-      tags = Enum.flat_map(chain, & &1.tags) |> Enum.sort()
-      vrfs = Enum.map(chain, & &1.vrf) |> Enum.sort()
+      tags = chain |> Enum.flat_map(& &1.tags) |> Enum.sort()
+      vrfs = chain |> Enum.map(& &1.vrf) |> Enum.sort()
 
       assert tags == ["vrf:a", "vrf:b"]
       assert vrfs == ["corp", "guest"]
@@ -124,6 +124,34 @@ defmodule ServiceRadar.PrefixTags.TrieTest do
     test "lookup hits active snapshot" do
       Store.put_rows([%{prefix: "10.0.0.0/8", tags: ["internal"], source: "manual"}])
       assert [%{tags: ["internal"]}] = Store.lookup("10.1.2.3")
+    end
+
+    test "IPv4-mapped IPv6 addresses match IPv4 prefixes" do
+      Store.put_rows("manual", [
+        %{prefix: "10.1.2.0/24", tags: ["site:lab"], source: "manual"}
+      ])
+
+      assert [%{tags: ["site:lab"]}] = Store.lookup("::ffff:10.1.2.3")
+    end
+
+    test "concurrent first-time source registrations keep all sources" do
+      parent = self()
+
+      for src <- ["manual", "provider", "ti"] do
+        spawn(fn ->
+          Store.put_rows(src, [%{prefix: "10.0.0.0/8", tags: [src], source: src}])
+          send(parent, :done)
+        end)
+      end
+
+      for _ <- 1..3, do: assert_receive(:done, 2_000)
+
+      sources = MapSet.new(Store.sources())
+      assert MapSet.subset?(MapSet.new(["manual", "provider", "ti"]), sources)
+
+      chain = Store.lookup("10.1.2.3")
+      assert length(chain) == 3
+      assert Enum.sort(Enum.map(chain, & &1.source)) == ["manual", "provider", "ti"]
     end
 
     test "snapshot swap under concurrent lookups" do

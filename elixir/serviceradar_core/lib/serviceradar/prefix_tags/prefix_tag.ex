@@ -11,6 +11,7 @@ defmodule ServiceRadar.PrefixTags.PrefixTag do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.PrefixTags.Loader
   alias ServiceRadar.Types.Cidr
   alias ServiceRadar.Types.Jsonb
 
@@ -46,7 +47,12 @@ defmodule ServiceRadar.PrefixTags.PrefixTag do
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
+
+    destroy :destroy do
+      primary? true
+      change {ServiceRadar.PrefixTags.Changes.BroadcastManualInvalidation, []}
+    end
 
     create :create do
       accept @prefix_tag_fields
@@ -57,10 +63,12 @@ defmodule ServiceRadar.PrefixTags.PrefixTag do
       accept @prefix_tag_fields
       # Callers ensure the manual snapshot exists and pass its id; the importer
       # and engine use :create for bulk snapshot loads.
+      change {ServiceRadar.PrefixTags.Changes.BroadcastManualInvalidation, []}
     end
 
     update :update do
       accept [:prefix, :vrf, :tags, :site, :role, :tenant, :status, :partition]
+      change {ServiceRadar.PrefixTags.Changes.BroadcastManualInvalidation, []}
     end
 
     read :by_snapshot do
@@ -155,4 +163,5 @@ defmodule ServiceRadar.PrefixTags.PrefixTag do
       allow_nil? false
     end
   end
+
 end
