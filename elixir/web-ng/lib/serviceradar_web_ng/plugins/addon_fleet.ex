@@ -5,9 +5,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   Joins the desired state (`addon_packages` catalog + `addon_assignments`) against
   the observed runtime state (`addon_statuses`) so operators can see, across the
   whole fleet, which agent runs which add-on and whether the effective state is
-  healthy. The model is one row per (agent, add-on): the effective assignment
-  (enabled first, then newest package version) wins the row and every other
-  assignment for the same pair is kept as drill-in detail instead of a peer row.
+  healthy. The model is one row per (agent, add-on): only an enabled assignment
+  can define current desired state. Disabled assignments remain drill-in audit
+  history and never masquerade as a current assignment.
 
   Catalog-only inventory (packages imported but assigned to no agent and reported
   by no agent) is returned separately via `overview/1` so the fleet table never
@@ -42,8 +42,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   Version comparison state for a fleet row. Computed only from values that are
   actually present — a missing side never fabricates a comparison:
 
-    * `{:up_to_date, version, latest?}` — running == assigned; `latest?` is true
-      when that version is also the latest approved version of the add-on
+    * `{:up_to_date, version, current?}` — running == assigned; `current?` is true
+      when no newer approved version of the add-on exists
     * `{:drift, running, assigned}` — both sides present and different
     * `{:required_runtime, version_or_nil}` — platform-required runtime without
       an explicit assignment row
@@ -139,11 +139,19 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       now: now
     }
 
+    assignment_groups = Enum.group_by(assignments, &{&1.agent_uid, &1.addon_id})
+
+    enabled_assignment_groups =
+      Map.new(assignment_groups, fn {key, group} ->
+        {key, Enum.filter(group, & &1.enabled)}
+      end)
+
     assigned_rows =
-      assignments
-      |> Enum.group_by(&{&1.agent_uid, &1.addon_id})
-      |> Enum.map(fn {{agent_uid, addon_id}, group} ->
-        {assignment, stale} = effective_assignment(group, package_index)
+      enabled_assignment_groups
+      |> Enum.reject(fn {_key, enabled} -> enabled == [] end)
+      |> Enum.map(fn {{agent_uid, addon_id}, enabled} ->
+        {assignment, superseded_enabled} = effective_assignment(enabled, package_index)
+        history = Map.fetch!(assignment_groups, {agent_uid, addon_id}) -- [assignment]
         package_id = assignment.rollout_package_id || assignment.addon_package_id
         package = package_id && Map.get(package_index.by_id, package_id)
         status = find_status(statuses, agent_uid, addon_id)
@@ -154,18 +162,25 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
           package,
           assignment,
           status,
-          stale_assignment_infos(stale, package_index),
+          stale_assignment_infos(
+            Enum.uniq_by(superseded_enabled ++ history, & &1.id),
+            package_index
+          ),
           row_context
         )
       end)
 
-    assigned_keys = MapSet.new(assignments, &{&1.agent_uid, &1.addon_id})
+    assigned_keys =
+      enabled_assignment_groups
+      |> Enum.reject(fn {_key, enabled} -> enabled == [] end)
+      |> MapSet.new(fn {key, _enabled} -> key end)
 
     observed_only_rows =
       statuses
       |> Enum.reject(&MapSet.member?(assigned_keys, {&1.agent_uid, &1.addon_id}))
       |> Enum.map(fn status ->
         package = latest_package_for_addon(package_index, status.addon_id)
+        history = Map.get(assignment_groups, {status.agent_uid, status.addon_id}, [])
 
         build_row(
           status.agent_uid,
@@ -173,7 +188,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
           package,
           nil,
           status,
-          [],
+          stale_assignment_infos(history, package_index),
           row_context
         )
       end)
@@ -184,7 +199,12 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
         &{String.downcase(&1.agent_label), &1.addon_id}
       )
 
-    %{rows: rows, catalog_only: catalog_only_entries(packages, assignments, statuses)}
+    enabled_assignments = Enum.filter(assignments, & &1.enabled)
+
+    %{
+      rows: rows,
+      catalog_only: catalog_only_entries(packages, enabled_assignments, statuses)
+    }
   end
 
   @doc """
@@ -263,7 +283,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   def version_status(%{assigned?: true, assigned_version: assigned, running_version: running} = row)
       when is_binary(assigned) and is_binary(running) do
     if assigned == running do
-      {:up_to_date, running, running == Map.get(row, :latest_approved_version)}
+      latest = Map.get(row, :latest_approved_version)
+      {:up_to_date, running, compare_versions(latest, running) != :gt}
     else
       {:drift, running, assigned}
     end
@@ -396,9 +417,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     |> Map.put(:attention?, category == :action_required)
   end
 
-  # The effective assignment for an (agent, add-on) pair: enabled beats disabled,
-  # then the newest package version (semver), then the most recently updated row.
-  # Everything else becomes drill-in detail instead of a peer fleet row.
+  # The effective assignment for an (agent, add-on) pair. Callers pass enabled
+  # assignments only; disabled rows are historical evidence, never desired state.
+  # Newest package version (semver), then most recently updated, wins.
   defp effective_assignment(group, package_index) do
     [effective | stale] = Enum.sort_by(group, &assignment_rank(&1, package_index), :desc)
     {effective, stale}
@@ -408,7 +429,6 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     package = assignment.addon_package_id && Map.get(package_index.by_id, assignment.addon_package_id)
 
     {
-      if(assignment.enabled, do: 1, else: 0),
       version_rank(package && package.version),
       timestamp_rank(Map.get(assignment, :updated_at))
     }

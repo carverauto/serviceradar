@@ -160,12 +160,32 @@ defmodule ServiceRadar.ProcessRegistry do
   defaults to `"serviceradar_core"`.
   """
   @spec core_node() :: node() | nil
-  def core_node do
-    prefix = core_node_basename() <> "@"
+  def core_node, do: List.first(core_nodes())
 
-    [:visible]
-    |> Node.list()
-    |> Enum.find(fn node -> node |> Atom.to_string() |> String.starts_with?(prefix) end)
+  @doc "Connected core nodes that can satisfy registry read RPCs."
+  @spec core_nodes() :: [node()]
+  def core_nodes do
+    Enum.filter(registry_nodes(), &node_has_basename?(&1, core_node_basename()))
+  end
+
+  @doc """
+  Connected nodes that host the Horde registry.
+
+  Agent gateways own the live control-session registrations and core nodes
+  receive them through Horde CRDT replication. Querying every connected
+  registry member prevents a newly connected session from being missed merely
+  because the first core node selected for an RPC has not converged yet.
+  """
+  @spec registry_nodes([node()]) :: [node()]
+  def registry_nodes(nodes \\ Node.list(:visible)) when is_list(nodes) do
+    basenames = MapSet.new([core_node_basename(), gateway_node_basename()])
+
+    nodes
+    |> Enum.filter(fn node ->
+      Enum.any?(basenames, &node_has_basename?(node, &1))
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   @doc "Cluster basename for core nodes (default `serviceradar_core`)."
@@ -175,6 +195,25 @@ defmodule ServiceRadar.ProcessRegistry do
       value when is_binary(value) and value != "" -> value
       _ -> "serviceradar_core"
     end
+  end
+
+  @doc "Cluster basename for agent-gateway nodes (default `serviceradar_agent_gateway`)."
+  @spec gateway_node_basename() :: String.t()
+  def gateway_node_basename do
+    case Application.get_env(
+           :serviceradar_core,
+           :gateway_node_basename,
+           "serviceradar_agent_gateway"
+         ) do
+      value when is_binary(value) and value != "" -> value
+      _ -> "serviceradar_agent_gateway"
+    end
+  end
+
+  defp node_has_basename?(node, basename) when is_atom(node) and is_binary(basename) do
+    node
+    |> Atom.to_string()
+    |> String.starts_with?(basename <> "@")
   end
 
   @doc """

@@ -13,9 +13,11 @@ blocked because two different signed bundle digests were published as version
 
 ## What Changes
 
-- Make unattended native add-on sync consume only the newest indexed release as
-  one authoritative release set. Older release indexes remain available only
-  through an explicit `release_tag` request.
+- Make unattended native add-on and Wasm plugin sync use the exact deployed
+  `SERVICERADAR_RELEASE_VERSION` tag as the authoritative release set. The
+  recent-release feed remains a compatibility fallback only when no deployed
+  release tag is available; delayed feed indexing can no longer make a v1.4.24
+  deployment repeatedly import v1.4.23.
 - Keep immutable source conflicts fail-closed. Signed first-party provenance is
   necessary but does not authorize replacing different bytes under the same
   semantic version.
@@ -34,6 +36,9 @@ blocked because two different signed bundle digests were published as version
 - Affected specs: `agent-feature-sets`
 - Affected code:
   - `elixir/web-ng/lib/serviceradar_web_ng/plugins/native_addon_sync.ex`
+  - `elixir/web-ng/lib/serviceradar_web_ng/plugins/native_addon_sync_worker.ex`
+  - `elixir/web-ng/lib/serviceradar_web_ng/plugins/first_party_sync_worker.ex`
+  - `elixir/web-ng/lib/serviceradar_web_ng/plugins/packages.ex`
   - `elixir/web-ng/test/app_domain/plugins/native_addon_sync_test.exs`
   - `addons/anomaly-addon/addon.yaml`
   - `rust/anomaly-addon/Cargo.toml`

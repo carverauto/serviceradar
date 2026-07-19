@@ -1301,16 +1301,30 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   def list_control_session_entries(_agent_id), do: []
 
   defp registry_rpc(function, args) do
-    case ProcessRegistry.core_node() do
-      nil ->
-        []
+    ProcessRegistry.registry_nodes()
+    |> Task.async_stream(
+      &registry_rpc_call(&1, function, args),
+      ordered: false,
+      max_concurrency: 8,
+      timeout: 5_500,
+      on_timeout: :kill_task
+    )
+    |> Enum.flat_map(fn
+      {:ok, entries} when is_list(entries) -> entries
+      _ -> []
+    end)
+    |> Enum.uniq()
+  end
 
-      node ->
-        case :erpc.call(node, ProcessRegistry, function, args, 5_000) do
-          entries when is_list(entries) -> entries
-          _ -> []
-        end
+  defp registry_rpc_call(node, function, args) do
+    case :erpc.call(node, ProcessRegistry, function, args, 5_000) do
+      entries when is_list(entries) -> entries
+      _ -> []
     end
+  rescue
+    _ -> []
+  catch
+    _, _ -> []
   end
 
   defp unique_control_partition(agent_id) when is_binary(agent_id) do
@@ -1828,7 +1842,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp present_blob_value?(_value), do: true
 
   defp registry_available? do
-    ProcessRegistry.registry_present?() or ProcessRegistry.core_node() != nil
+    ProcessRegistry.registry_present?() or ProcessRegistry.registry_nodes() != []
   end
 
   # web-ng left the Horde mesh (`join_process_registry: false`), so it must only

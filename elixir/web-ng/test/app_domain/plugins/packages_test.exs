@@ -5,9 +5,11 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0, system_actor: 0]
 
   alias Oban.Job
+  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Plugins.FirstPartySyncWorker
@@ -64,6 +66,11 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     def get(url, _opts) do
       cond do
         String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases?per_page=") ->
+          Process.put(
+            :first_party_recent_release_requests,
+            Process.get(:first_party_recent_release_requests, 0) + 1
+          )
+
           releases =
             if Process.get(:first_party_duplicate_releases) do
               [
@@ -153,6 +160,7 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     Process.put(:first_party_package_bundle, nil)
     Process.put(:first_party_package_signature, nil)
     Process.put(:first_party_duplicate_releases, false)
+    Process.put(:first_party_recent_release_requests, 0)
 
     on_exit(fn ->
       File.rm_rf(tmp)
@@ -291,7 +299,9 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     opts = [actor: system_actor(), repo_url: @repo_url, limit: 10]
 
     assert {:ok, %{imported: 1, failed: []}} = Packages.sync_first_party_plugins(opts)
-    assert {:ok, %{imported: 1, failed: []}} = Packages.sync_first_party_plugins(opts)
+
+    assert {:ok, %{imported: 0, skipped: 1, failed: []}} =
+             Packages.sync_first_party_plugins(opts)
 
     packages = Packages.list(%{"plugin_id" => "first-party-dedupe"}, actor: system_actor())
     assert [%PluginPackage{} = package] = packages
@@ -364,6 +374,25 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     assert package.source_release_tag == "v1.0.2"
     assert package.source_bundle_digest == Storage.sha256(first_party_bundle("v1.0.2"))
     assert package.content_hash == Storage.sha256(first_party_wasm("v1.0.2"))
+  end
+
+  test "periodic first-party sync anchors discovery to the deployed release" do
+    original_release_version = System.get_env("SERVICERADAR_RELEASE_VERSION")
+    System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.0.1")
+
+    on_exit(fn -> restore_system_env("SERVICERADAR_RELEASE_VERSION", original_release_version) end)
+
+    assert :ok =
+             FirstPartySyncWorker.perform(%Job{
+               args: %{"force" => true, "repo_url" => @repo_url, "limit" => 10}
+             })
+
+    assert Process.get(:first_party_recent_release_requests) == 0
+
+    assert [%PluginPackage{} = package] =
+             Packages.list(%{"plugin_id" => "first-party-dedupe"}, actor: system_actor())
+
+    assert package.source_release_tag == "v1.0.1"
   end
 
   test "periodic first-party sync schedules a successor while the current job executes" do
@@ -449,31 +478,46 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
 
     assert {:ok, approved_old} = Packages.approve(old_package.id, %{}, actor: system_actor())
 
-    assignment =
-      PluginAssignment
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          agent_uid: agent_uid,
-          plugin_package_id: approved_old.id,
-          enabled: true,
-          interval_seconds: 60,
-          timeout_seconds: 10,
-          params: %{}
-        },
-        actor: system_actor()
-      )
-      |> Ash.create!()
+    # This test owns package approval behavior, not assignment creation. Insert
+    # the already-existing row directly so the fixture does not dispatch an
+    # unrelated asynchronous agent-config rebuild after the sandbox owner exits.
+    assignment_id = Ecto.UUID.generate()
+    now = DateTime.utc_now()
+
+    assert {1, nil} =
+             Repo.insert_all(
+               "plugin_assignments",
+               [
+                 %{
+                   id: Ecto.UUID.dump!(assignment_id),
+                   agent_uid: agent_uid,
+                   partition_id: "packages-test",
+                   plugin_id: plugin_id,
+                   plugin_package_id: Ecto.UUID.dump!(approved_old.id),
+                   source: "manual",
+                   enabled: true,
+                   interval_seconds: 60,
+                   timeout_seconds: 10,
+                   params: %{},
+                   permissions_override: %{},
+                   resources_override: %{},
+                   inserted_at: now,
+                   updated_at: now
+                 }
+               ],
+               prefix: "platform"
+             )
 
     assert {:ok, approved_new} = Packages.approve(new_package.id, %{}, actor: system_actor())
 
     reloaded_assignment =
       PluginAssignment
       |> Ash.Query.for_read(:read)
-      |> Ash.Query.filter(id == ^assignment.id)
+      |> Ash.Query.filter(id == ^assignment_id)
       |> Ash.read_one!(actor: system_actor())
 
     assert reloaded_assignment.enabled == true
+    register_control_session!(agent_uid, "packages-test")
 
     assert {:error, error} =
              PluginAssignment
@@ -492,6 +536,44 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
              |> Ash.create()
 
     assert Exception.message(error) =~ "plugin is already enabled for this agent"
+  end
+
+  defp register_control_session!(agent_uid, partition_id) do
+    if !ProcessRegistry.registry_present?() do
+      start_supervised!(
+        {Horde.Registry,
+         name: ProcessRegistry.registry_name(),
+         keys: :unique,
+         members: :auto,
+         delta_crdt_options: [sync_interval: 100, max_sync_size: 200]}
+      )
+    end
+
+    assert {:ok, _pid} =
+             ProcessRegistry.register(
+               {:agent_control, partition_id, agent_uid, node()},
+               %{
+                 agent_id: agent_uid,
+                 partition_id: partition_id,
+                 gateway_node: node(),
+                 capabilities: ["wasm"]
+               }
+             )
+
+    assert_control_partition(agent_uid, partition_id, 40)
+  end
+
+  defp assert_control_partition(_agent_uid, _partition_id, 0), do: flunk("control-session partition did not converge")
+
+  defp assert_control_partition(agent_uid, partition_id, attempts) do
+    case AgentCommandBus.resolve_control_session_evidence(partition_id, agent_uid, nil) do
+      {:ok, %{agent_id: ^agent_uid, partition_id: ^partition_id}} ->
+        :ok
+
+      _other ->
+        Process.sleep(10)
+        assert_control_partition(agent_uid, partition_id, attempts - 1)
+    end
   end
 
   def first_party_release(tag \\ "v1.0.1") do
@@ -628,4 +710,7 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     )
     |> Ash.create!()
   end
+
+  defp restore_system_env(key, nil), do: System.delete_env(key)
+  defp restore_system_env(key, value), do: System.put_env(key, value)
 end

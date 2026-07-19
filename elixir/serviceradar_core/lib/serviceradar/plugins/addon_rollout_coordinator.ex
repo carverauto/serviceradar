@@ -37,6 +37,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     now = Keyword.get(opts, :now, DateTime.utc_now())
 
     with {:ok, packages} <- read_all(AddonPackage, actor),
+         {:ok, recovered_sources} <- restore_non_explicit_managed_sources(packages, actor),
          {:ok, assignments} <- managed_assignments(actor),
          {:ok, profiles} <- managed_profiles(actor),
          {:ok, rollouts} <- read_all(AddonRollout, actor) do
@@ -50,7 +51,11 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         end)
 
       advanced = advance_active_rollouts(actor: actor, now: now)
-      {:ok, Map.put(created, :advanced, advanced)}
+
+      {:ok,
+       created
+       |> Map.put(:advanced, advanced)
+       |> Map.put(:recovered_sources, recovered_sources)}
     end
   end
 
@@ -890,6 +895,84 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         explicit_version_pin == false
     )
     |> Ash.read(actor: actor)
+  end
+
+  # Older releases could leave verified first-party sources on `manual_pin`
+  # even though no operator selected a pin. Recover only those non-explicit
+  # sources, and only once a genuinely newer approved package exists. The
+  # approved candidate's capabilities become the ceiling, so a later
+  # permission expansion remains blocked for review.
+  defp restore_non_explicit_managed_sources(packages, actor) do
+    with {:ok, assignments} <- recoverable_assignments(actor),
+         {:ok, profiles} <- recoverable_profiles(actor) do
+      assignments
+      |> Enum.concat(profiles)
+      |> Enum.reduce_while({:ok, 0}, fn source, {:ok, count} ->
+        case restore_non_explicit_source(source, packages, actor) do
+          :unchanged -> {:cont, {:ok, count}}
+          {:ok, _source} -> {:cont, {:ok, count + 1}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+    end
+  end
+
+  defp recoverable_assignments(actor) do
+    AddonAssignment
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(
+      enabled == true and source != :profile and update_policy == :manual_pin and
+        explicit_version_pin == false
+    )
+    |> Ash.read(actor: actor)
+  end
+
+  defp recoverable_profiles(actor) do
+    AddonProfile
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(
+      enabled == true and update_policy == :manual_pin and explicit_version_pin == false
+    )
+    |> Ash.read(actor: actor)
+  end
+
+  defp restore_non_explicit_source(source, packages, actor) do
+    current = Enum.find(packages, &(to_string(&1.id) == to_string(source.addon_package_id)))
+
+    if recoverable_first_party_package?(current) do
+      ceiling = recovery_capability_ceiling(current, packages)
+      source_with_ceiling = Map.put(source, :capability_ceiling, ceiling)
+
+      case Eligibility.latest_candidate(current, packages, source_with_ceiling) do
+        {:ok, candidate} ->
+          source
+          |> Ash.Changeset.for_update(:restore_managed_update_policy, %{
+            update_policy: :track_latest_approved,
+            capability_ceiling: candidate.approved_capabilities || []
+          })
+          |> Ash.update(actor: actor, authorize?: true)
+
+        _ ->
+          :unchanged
+      end
+    else
+      :unchanged
+    end
+  end
+
+  defp recoverable_first_party_package?(%AddonPackage{} = package) do
+    package.source_type == :first_party and package.verification_status == "verified" and
+      is_nil(package.verification_error)
+  end
+
+  defp recoverable_first_party_package?(_package), do: false
+
+  defp recovery_capability_ceiling(current, packages) do
+    packages
+    |> Enum.filter(&Eligibility.trusted_approved?/1)
+    |> Enum.filter(&(&1.addon_id == current.addon_id))
+    |> Enum.flat_map(&(&1.approved_capabilities || []))
+    |> Enum.uniq()
   end
 
   defp managed_profiles(actor) do

@@ -112,6 +112,12 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       accept [:last_reconciled_at, :last_reconcile_summary]
     end
 
+    update :restore_managed_update_policy do
+      description "Restore a non-explicit trusted first-party source to managed updates."
+      require_atomic? false
+      accept [:update_policy, :capability_ceiling]
+    end
+
     update :promote_rollout do
       description "Promote a successfully health-gated rollout into stable profile state."
       require_atomic? false
