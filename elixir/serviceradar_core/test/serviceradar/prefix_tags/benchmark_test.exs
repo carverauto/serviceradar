@@ -44,8 +44,8 @@ defmodule ServiceRadar.PrefixTags.BenchmarkTest do
 
     swap_us =
       timed_us(fn ->
-        Store.put_trie(trie)
-        Store.put_rows(Enum.take(rows, min(100, prefix_count)))
+        Store.put_trie("bench", trie)
+        Store.put_rows("bench", Enum.take(rows, min(100, prefix_count)))
       end)
 
     # Soft gates: pure Elixir should easily clear these on modern hardware.

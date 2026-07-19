@@ -98,7 +98,7 @@ defmodule ServiceRadar.PrefixTags.TrieTest do
     end
 
     test "snapshot swap under concurrent lookups" do
-      Store.put_rows([%{prefix: "10.0.0.0/8", tags: ["v1"]}])
+      Store.put_rows("manual", [%{prefix: "10.0.0.0/8", tags: ["v1"], source: "manual"}])
 
       parent = self()
 
@@ -116,7 +116,7 @@ defmodule ServiceRadar.PrefixTags.TrieTest do
 
       # Mid-flight swap
       Process.sleep(5)
-      Store.put_rows([%{prefix: "10.0.0.0/8", tags: ["v2"]}])
+      Store.put_rows("manual", [%{prefix: "10.0.0.0/8", tags: ["v2"], source: "manual"}])
 
       for _ <- readers do
         assert_receive {:done, _i, results}, 5_000
@@ -128,6 +128,41 @@ defmodule ServiceRadar.PrefixTags.TrieTest do
       end
 
       assert [%{tags: ["v2"]}] = Store.lookup("10.1.2.3")
+    end
+
+    test "per-source swap leaves other sources untouched" do
+      Store.put_rows("provider", [
+        %{prefix: "10.0.0.0/8", tags: ["provider:aws"], source: "provider"}
+      ])
+
+      Store.put_rows("netbox", [
+        %{prefix: "10.1.2.0/24", tags: ["site:austin"], source: "netbox"}
+      ])
+
+      before_provider = Store.active_version("provider")
+
+      Store.put_rows("netbox", [
+        %{prefix: "10.1.2.0/24", tags: ["site:austin-dc"], source: "netbox"}
+      ])
+
+      assert Store.active_version("provider") == before_provider
+
+      chain = Store.lookup("10.1.2.3")
+      tags = Enum.flat_map(chain, & &1.tags)
+      assert "site:austin-dc" in tags
+      assert "provider:aws" in tags
+      # More-specific /24 before /8
+      assert hd(tags) == "site:austin-dc"
+    end
+
+    test "stats report per-source breakdown" do
+      Store.put_rows("manual", [%{prefix: "10.0.0.0/8", tags: ["a"], source: "manual"}])
+      Store.put_rows("netbox", [%{prefix: "2001:db8::/32", tags: ["b"], source: "netbox"}])
+
+      stats = Store.stats()
+      assert stats.total_prefixes == 2
+      assert stats.sources["manual"].ipv4_prefixes == 1
+      assert stats.sources["netbox"].ipv6_prefixes == 1
     end
   end
 

@@ -206,6 +206,10 @@ config :serviceradar_core,
 # Prefix-tag flow enrichment (LPM trie). Default off until dogfood exit criteria pass.
 config :serviceradar_core,
   prefix_tag_enrichment_enabled: false,
+  # Serve hosting-provider lookups from the provider: trie (after ProviderSource loads).
+  prefix_tag_provider_trie_enabled: false,
+  # Derive geo:country:/geo:asn: tags from Geolix (not stored in the trie).
+  geo_tag_derivation_enabled: false,
   prefix_tags_loader_enabled: true
 
 config :serviceradar_core,

@@ -1,113 +1,256 @@
 defmodule ServiceRadar.PrefixTags.Store do
   @moduledoc """
-  `:persistent_term` snapshot storage for the active prefix-tag trie.
+  Per-source `:persistent_term` snapshot storage for prefix-tag LPM tries.
 
-  Reads are lock-free and invisible to process GC. Updates use atomic snapshot
-  swap: build a new versioned term, flip the active-version pointer, erase the
-  previous term. Never write per-entry — only full snapshot swaps.
+  Each tag source (netbox, manual, provider, ti, dns-policy, …) has its own
+  versioned trie and swaps independently. Lookups merge most-specific-first
+  chains across all active sources with per-tag source provenance. Never write
+  per-entry — only full snapshot swaps per source.
   """
 
   alias ServiceRadar.PrefixTags.Engine
   alias ServiceRadar.PrefixTags.Trie
 
-  @active_key {__MODULE__, :active_version}
+  @sources_key {__MODULE__, :active_sources}
+  @active_key_prefix {__MODULE__, :active_version}
   @version_key_prefix {__MODULE__, :trie}
 
+  @type source :: String.t()
   @type version :: non_neg_integer()
 
-  @doc "Look up the most-specific-first tag chain for an IP against the active trie."
+  @doc """
+  Look up the most-specific-first tag chain for an IP across all active sources.
+
+  Chains from each source are merged by prefix mask length (descending). Each
+  match retains its `source` field for provenance.
+  """
   @spec lookup(Engine.ip()) :: [Engine.tag_match()]
   def lookup(ip) do
     result =
-      case active_trie() do
-        nil -> []
-        trie -> engine().lookup(trie, ip)
-      end
+      sources()
+      |> Enum.flat_map(fn source ->
+        case active_trie(source) do
+          nil ->
+            []
+
+          trie ->
+            engine().lookup(trie, ip)
+            |> Enum.map(&ensure_source(&1, source))
+        end
+      end)
+      |> merge_by_specificity()
 
     emit_lookup_telemetry(result)
     result
   end
 
-  @doc "Return stats for the active trie, or zeros when none is loaded."
-  @spec stats() :: Engine.stats()
-  def stats do
-    case active_trie() do
-      nil -> %{ipv4_prefixes: 0, ipv6_prefixes: 0, total_prefixes: 0}
-      trie -> engine().stats(trie)
+  @doc "Look up against a single source (empty if that source has no trie)."
+  @spec lookup(Engine.ip(), source()) :: [Engine.tag_match()]
+  def lookup(ip, source) when is_binary(source) do
+    case active_trie(source) do
+      nil -> []
+      trie -> Enum.map(engine().lookup(trie, ip), &ensure_source(&1, source))
     end
   end
 
   @doc """
-  Build a trie from rows and install it as the active snapshot.
+  Aggregated stats plus per-source breakdown.
 
-  Returns the new version number.
+  Returns `%{ipv4_prefixes:, ipv6_prefixes:, total_prefixes:, sources: %{src => stats}}`.
   """
-  @spec put_rows([Engine.prefix_row()]) :: version()
-  def put_rows(rows) when is_list(rows) do
-    trie = engine().build(rows)
-    put_trie(trie)
+  @spec stats() :: map()
+  def stats do
+    per_source =
+      Map.new(sources(), fn source ->
+        case active_trie(source) do
+          nil -> {source, empty_stats()}
+          trie -> {source, engine().stats(trie)}
+        end
+      end)
+
+    totals =
+      Enum.reduce(per_source, empty_stats(), fn {_src, s}, acc ->
+        %{
+          ipv4_prefixes: acc.ipv4_prefixes + s.ipv4_prefixes,
+          ipv6_prefixes: acc.ipv6_prefixes + s.ipv6_prefixes,
+          total_prefixes: acc.total_prefixes + s.total_prefixes
+        }
+      end)
+
+    Map.put(totals, :sources, per_source)
   end
 
-  @doc "Install a pre-built trie as the active snapshot. Returns the new version."
-  @spec put_trie(Engine.t()) :: version()
-  def put_trie(trie) do
-    version = next_version()
-    :persistent_term.put(version_key(version), trie)
-    previous = active_version()
-    :persistent_term.put(@active_key, version)
+  @doc "Stats for one source."
+  @spec stats(source()) :: Engine.stats()
+  def stats(source) when is_binary(source) do
+    case active_trie(source) do
+      nil -> empty_stats()
+      trie -> engine().stats(trie)
+    end
+  end
+
+  @doc "Build and install rows for a single source. Returns the new version."
+  @spec put_rows(source(), [Engine.prefix_row()]) :: version()
+  def put_rows(source, rows) when is_binary(source) and is_list(rows) do
+    put_trie(source, engine().build(rows))
+  end
+
+  @doc """
+  Install rows partitioned by each row's `:source` field (default `"manual"`).
+
+  Convenience for tests and callers that pass mixed rows. Each distinct source
+  is swapped independently.
+  """
+  @spec put_rows([Engine.prefix_row()]) :: %{source() => version()}
+  def put_rows(rows) when is_list(rows) do
+    rows
+    |> Enum.group_by(fn row ->
+      to_string(row[:source] || row["source"] || "manual")
+    end)
+    |> Map.new(fn {source, source_rows} ->
+      {source, put_rows(source, source_rows)}
+    end)
+  end
+
+  @doc "Install a pre-built trie for a source. Returns the new version."
+  @spec put_trie(source(), Engine.t()) :: version()
+  def put_trie(source, trie) when is_binary(source) do
+    started = System.monotonic_time(:microsecond)
+    version = next_version(source)
+    :persistent_term.put(version_key(source, version), trie)
+    previous = active_version(source)
+    :persistent_term.put(active_key(source), version)
+    register_source(source)
 
     if is_integer(previous) and previous != version do
-      :persistent_term.erase(version_key(previous))
+      :persistent_term.erase(version_key(source, previous))
     end
+
+    duration_us = System.monotonic_time(:microsecond) - started
+    s = engine().stats(trie)
+
+    :telemetry.execute(
+      [:serviceradar, :prefix_tags, :swap],
+      %{
+        duration_us: duration_us,
+        ipv4_prefixes: s.ipv4_prefixes,
+        ipv6_prefixes: s.ipv6_prefixes,
+        total_prefixes: s.total_prefixes
+      },
+      %{source: source, version: version}
+    )
 
     version
   end
 
-  @doc "Clear the active trie (empty snapshot). Used in tests."
+  @doc "Clear every source trie (tests)."
   @spec clear() :: :ok
   def clear do
-    previous = active_version()
-    empty = engine().build([])
-    version = next_version()
-    :persistent_term.put(version_key(version), empty)
-    :persistent_term.put(@active_key, version)
-
-    if is_integer(previous) and previous != version do
-      :persistent_term.erase(version_key(previous))
-    end
-
+    Enum.each(sources(), &clear/1)
+    :persistent_term.put(@sources_key, MapSet.new())
     :ok
   end
 
-  @doc "Current active version, or nil if none has been installed."
-  @spec active_version() :: version() | nil
-  def active_version do
-    :persistent_term.get(@active_key, nil)
+  @doc "Clear one source's trie."
+  @spec clear(source()) :: :ok
+  def clear(source) when is_binary(source) do
+    previous = active_version(source)
+    empty = engine().build([])
+    version = next_version(source)
+    :persistent_term.put(version_key(source, version), empty)
+    :persistent_term.put(active_key(source), version)
+
+    if is_integer(previous) and previous != version do
+      :persistent_term.erase(version_key(source, previous))
+    end
+
+    unregister_source(source)
+    :ok
+  end
+
+  @doc "Active sources that currently have a registered trie."
+  @spec sources() :: [source()]
+  def sources do
+    :persistent_term.get(@sources_key, MapSet.new()) |> MapSet.to_list() |> Enum.sort()
+  rescue
+    ArgumentError -> []
+  end
+
+  @doc "Current active version for a source, or nil."
+  @spec active_version(source()) :: version() | nil
+  def active_version(source) when is_binary(source) do
+    :persistent_term.get(active_key(source), nil)
   rescue
     ArgumentError -> nil
   end
 
   @doc false
-  @spec active_trie() :: Engine.t() | nil
-  def active_trie do
-    case active_version() do
-      nil ->
-        nil
-
-      version ->
-        :persistent_term.get(version_key(version), nil)
+  @spec active_trie(source()) :: Engine.t() | nil
+  def active_trie(source) when is_binary(source) do
+    case active_version(source) do
+      nil -> nil
+      version -> :persistent_term.get(version_key(source, version), nil)
     end
   rescue
     ArgumentError -> nil
   end
 
-  defp version_key(version), do: {@version_key_prefix, version}
+  # -- internals --------------------------------------------------------------
 
-  defp next_version do
-    case active_version() do
+  defp empty_stats, do: %{ipv4_prefixes: 0, ipv6_prefixes: 0, total_prefixes: 0}
+
+  defp ensure_source(%{source: s} = match, _fallback) when is_binary(s) and s != "", do: match
+  defp ensure_source(match, source), do: Map.put(match, :source, source)
+
+  defp merge_by_specificity([]), do: []
+
+  defp merge_by_specificity(matches) do
+    matches
+    |> Enum.map(fn match ->
+      Map.put(match, :__mask__, masklen(Map.get(match, :prefix)))
+    end)
+    |> Enum.sort_by(fn m -> {-m.__mask__, Map.get(m, :source) || ""} end)
+    |> Enum.map(&Map.delete(&1, :__mask__))
+  end
+
+  defp masklen(prefix) when is_binary(prefix) do
+    case String.split(prefix, "/", parts: 2) do
+      [_, mask] ->
+        case Integer.parse(mask) do
+          {n, ""} -> n
+          _ -> 0
+        end
+
+      _ ->
+        0
+    end
+  end
+
+  defp masklen(_), do: 0
+
+  defp active_key(source), do: {@active_key_prefix, source}
+  defp version_key(source, version), do: {@version_key_prefix, source, version}
+
+  defp next_version(source) do
+    case active_version(source) do
       nil -> 1
       n when is_integer(n) -> n + 1
     end
+  end
+
+  defp register_source(source) do
+    set = :persistent_term.get(@sources_key, MapSet.new())
+    :persistent_term.put(@sources_key, MapSet.put(set, source))
+  rescue
+    ArgumentError ->
+      :persistent_term.put(@sources_key, MapSet.new([source]))
+  end
+
+  defp unregister_source(source) do
+    set = :persistent_term.get(@sources_key, MapSet.new())
+    :persistent_term.put(@sources_key, MapSet.delete(set, source))
+  rescue
+    ArgumentError -> :ok
   end
 
   defp engine do

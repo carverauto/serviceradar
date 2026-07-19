@@ -104,20 +104,20 @@
 
 ## 9. Per-source trie namespaces (amendment 2026-07-18)
 
-- [ ] 9.1 Split the engine store into per-source versioned tries
+- [x] 9.1 Split the engine store into per-source versioned tries
       (netbox/manual/provider/ti/dns-policy) with independent atomic swap;
       lookup merges most-specific-first chains across sources with per-tag
       source provenance
-- [ ] 9.2 Loader + PubSub invalidation carry the source identifier so one
+- [x] 9.2 Loader + PubSub invalidation carry the source identifier so one
       source's promotion rebuilds only its own trie
-- [ ] 9.3 Telemetry: per-source trie size, swap duration, snapshot age; tests
+- [x] 9.3 Telemetry: per-source trie size, swap duration, snapshot age; tests
       covering concurrent per-source swaps
 
 ## 10. Hosting-provider consolidation (amendment)
 
-- [ ] 10.1 Provider source adapter: compile the active
+- [x] 10.1 Provider source adapter: compile the active
       `netflow_provider_cidrs` snapshot into a `provider:` trie namespace
-- [ ] 10.2 Serve `FlowEnrichment` provider lookups from the engine behind a
+- [x] 10.2 Serve `FlowEnrichment` provider lookups from the engine behind a
       flag; preserve `src/dst_hosting_provider` column semantics (parity test
       against the SQL oracle on the live dataset shape)
 - [ ] 10.3 Retire `ProviderCidrCache` and the per-IP GiST query path once the
@@ -127,7 +127,7 @@
 
 ## 11. Geo-derived tags + PostGIS proximity (amendment)
 
-- [ ] 11.1 Enrichment hook derives `geo:country:`/`geo:asn:` tags from the
+- [x] 11.1 Enrichment hook derives `geo:country:`/`geo:asn:` tags from the
       resident Geolix lookup behind `:geo_tag_derivation_enabled`; fail-open
       when MMDB absent
 - [ ] 11.2 Migration: `geometry(Point, 4326)` column on

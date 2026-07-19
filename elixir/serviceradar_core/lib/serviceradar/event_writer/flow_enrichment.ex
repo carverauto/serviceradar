@@ -9,6 +9,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.PrefixTags.ProviderSource
   alias ServiceRadar.PrefixTags.Store, as: PrefixTagStore
   alias ServiceRadar.ReferenceData.ServicePorts
   alias ServiceRadar.Repo
@@ -178,8 +179,10 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
 
   def prefix_tags_for_ip(ip) when is_binary(ip) do
     chain = PrefixTagStore.lookup(ip)
-    tags = flatten_tag_chain(chain)
-    source = chain_source(chain)
+    trie_tags = flatten_tag_chain(chain)
+    geo_tags = geo_tags_for_ip(ip)
+    tags = merge_unique_tags(trie_tags, geo_tags)
+    source = chain_source(chain) || if(geo_tags != [], do: "geo", else: nil)
 
     if tags == [] do
       %{tags: nil, source: nil}
@@ -194,6 +197,17 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
       )
 
       %{tags: nil, source: nil}
+  end
+
+  defp merge_unique_tags(a, b) do
+    Enum.reduce(a ++ b, {[], MapSet.new()}, fn tag, {acc, seen} ->
+      if MapSet.member?(seen, tag) do
+        {acc, seen}
+      else
+        {acc ++ [tag], MapSet.put(seen, tag)}
+      end
+    end)
+    |> elem(0)
   end
 
   defp prefix_tag_fields(src_ip, dst_ip) do
@@ -211,6 +225,52 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
       %{}
     end
   end
+
+  @doc """
+  Whether geo-derived tags (`geo:country:`, `geo:asn:`) are merged into the
+  prefix-tag columns. Uses the resident Geolix MMDB; never imports MMDB into
+  the trie. Default false.
+  """
+  @spec geo_tag_derivation_enabled?() :: boolean()
+  def geo_tag_derivation_enabled? do
+    Application.get_env(:serviceradar_core, :geo_tag_derivation_enabled, false) == true
+  end
+
+  @doc false
+  @spec geo_tags_for_ip(String.t() | nil) :: [String.t()]
+  def geo_tags_for_ip(nil), do: []
+
+  def geo_tags_for_ip(ip) when is_binary(ip) do
+    if geo_tag_derivation_enabled?() do
+      case ServiceRadar.Observability.GeoIP.lookup(ip) do
+        {:ok, geo} when is_map(geo) ->
+          []
+          |> maybe_geo_tag("geo:country:", Map.get(geo, :country_iso2))
+          |> maybe_geo_tag("geo:asn:", Map.get(geo, :asn))
+
+        _ ->
+          []
+      end
+    else
+      []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp maybe_geo_tag(acc, _prefix, nil), do: acc
+  defp maybe_geo_tag(acc, _prefix, ""), do: acc
+
+  defp maybe_geo_tag(acc, prefix, value) when is_integer(value) do
+    acc ++ [prefix <> Integer.to_string(value)]
+  end
+
+  defp maybe_geo_tag(acc, prefix, value) when is_binary(value) do
+    v = value |> String.trim() |> String.downcase()
+    if v == "", do: acc, else: acc ++ [prefix <> v]
+  end
+
+  defp maybe_geo_tag(acc, _, _), do: acc
 
   defp flatten_tag_chain(chain) when is_list(chain) do
     chain
@@ -283,15 +343,33 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
 
   def direction_label(_, _), do: "unknown"
 
+  @doc """
+  Whether hosting-provider lookups should use the in-memory prefix-tag engine.
+
+  When true, skips per-IP GiST SQL and `ProviderCidrCache`. Default false until
+  the provider trie is loaded and parity is verified.
+  """
+  @spec provider_trie_enabled?() :: boolean()
+  def provider_trie_enabled? do
+    Application.get_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, false) == true
+  end
+
   @spec provider_for_ip(String.t() | nil) :: String.t() | nil
   def provider_for_ip(nil), do: nil
 
   def provider_for_ip(ip) when is_binary(ip) do
-    with normalized_ip when is_binary(normalized_ip) <- trim_or_nil(ip),
-         {:ok, %Postgrex.INET{} = inet} <- Cidr.dump_to_native(normalized_ip, []) do
-      cached_provider_for_inet(inet)
+    if provider_trie_enabled?() do
+      case trim_or_nil(ip) do
+        nil -> nil
+        normalized -> ProviderSource.provider_for_ip(normalized)
+      end
     else
-      _ -> nil
+      with normalized_ip when is_binary(normalized_ip) <- trim_or_nil(ip),
+           {:ok, %Postgrex.INET{} = inet} <- Cidr.dump_to_native(normalized_ip, []) do
+        cached_provider_for_inet(inet)
+      else
+        _ -> nil
+      end
     end
   end
 

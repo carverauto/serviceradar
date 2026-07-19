@@ -1,11 +1,11 @@
 defmodule ServiceRadar.PrefixTags.Loader do
   @moduledoc """
-  Per-node loader for the prefix-tag LPM trie.
+  Per-node loader for per-source prefix-tag LPM tries.
 
-  Builds the trie from active CNPG snapshots at boot, reloads on
-  `prefix_tags:snapshot` PubSub invalidation, and re-checks after cluster
-  reconnect (`:nodeup`). CNPG remains the source of truth; the trie is a
-  derived cache stored in `:persistent_term` via `ServiceRadar.PrefixTags.Store`.
+  Builds tries from active CNPG snapshots at boot (one trie per snapshot
+  source), reloads a single source on `prefix_tags:snapshot` PubSub invalidation
+  when metadata carries `:source`, and re-checks all sources after cluster
+  reconnect (`:nodeup`). CNPG remains the source of truth.
   """
 
   use GenServer
@@ -17,6 +17,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
   require Logger
 
   @pubsub_topic "prefix_tags:snapshot"
+
   @load_active_sql """
   SELECT
     host(p.prefix) || '/' || masklen(p.prefix) AS prefix,
@@ -34,10 +35,26 @@ defmodule ServiceRadar.PrefixTags.Loader do
   WHERE s.is_active = TRUE
   """
 
+  @load_active_for_source_sql """
+  SELECT
+    host(p.prefix) || '/' || masklen(p.prefix) AS prefix,
+    p.tags,
+    p.vrf,
+    p.site,
+    p.role,
+    p.tenant,
+    p.status,
+    s.source,
+    s.id AS snapshot_id,
+    s.promoted_at
+  FROM platform.prefix_tags p
+  JOIN platform.prefix_tag_snapshots s ON s.id = p.snapshot_id
+  WHERE s.is_active = TRUE AND s.source = $1
+  """
+
   @type state :: %{
           loaded_at: DateTime.t() | nil,
-          snapshot_ids: [String.t()],
-          row_count: non_neg_integer(),
+          sources: %{String.t() => map()},
           last_error: String.t() | nil
         }
 
@@ -53,7 +70,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
   @doc """
   Broadcast a snapshot invalidation so every node reloads from CNPG.
 
-  Call after promoting a snapshot (import worker or manual promote).
+  Prefer including `%{source: "netbox"}` so peers rebuild only that source.
   """
   @spec broadcast_invalidation(map()) :: :ok | {:error, term()}
   def broadcast_invalidation(metadata \\ %{}) when is_map(metadata) do
@@ -68,10 +85,18 @@ defmodule ServiceRadar.PrefixTags.Loader do
     end
   end
 
-  @doc "Force a reload from CNPG on this node (synchronous)."
+  @doc "Force a full reload from CNPG on this node (synchronous)."
   @spec reload() :: :ok | {:error, term()}
   def reload do
-    GenServer.call(__MODULE__, :reload, to_timeout(second: 60))
+    GenServer.call(__MODULE__, {:reload, :all}, to_timeout(second: 60))
+  catch
+    :exit, reason -> {:error, reason}
+  end
+
+  @doc "Force a single-source reload from CNPG on this node (synchronous)."
+  @spec reload(String.t()) :: :ok | {:error, term()}
+  def reload(source) when is_binary(source) do
+    GenServer.call(__MODULE__, {:reload, source}, to_timeout(second: 60))
   catch
     :exit, reason -> {:error, reason}
   end
@@ -96,8 +121,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
 
     state = %{
       loaded_at: nil,
-      snapshot_ids: [],
-      row_count: 0,
+      sources: %{},
       last_error: nil
     }
 
@@ -110,12 +134,16 @@ defmodule ServiceRadar.PrefixTags.Loader do
 
   @impl true
   def handle_continue(:initial_load, state) do
-    {:noreply, do_reload(state)}
+    state = do_reload(state, :all)
+    # Provider CIDRs live in a separate snapshot table; compile into the
+    # `provider` source trie when that consolidation path is available.
+    _ = maybe_reload_provider_source()
+    {:noreply, state}
   end
 
   @impl true
-  def handle_call(:reload, _from, state) do
-    new_state = do_reload(state)
+  def handle_call({:reload, source}, _from, state) do
+    new_state = do_reload(state, source)
     reply = if new_state.last_error, do: {:error, new_state.last_error}, else: :ok
     {:reply, reply, new_state}
   end
@@ -123,18 +151,31 @@ defmodule ServiceRadar.PrefixTags.Loader do
   def handle_call(:status, _from, state), do: {:reply, state, state}
 
   @impl true
+  def handle_info({:prefix_tags_snapshot_changed, meta}, state) when is_map(meta) do
+    source = Map.get(meta, :source) || Map.get(meta, "source")
+
+    scope =
+      if is_binary(source) and source != "" do
+        source
+      else
+        :all
+      end
+
+    Logger.info("PrefixTags.Loader reloading after snapshot invalidation", source: inspect(scope))
+    {:noreply, do_reload(state, scope)}
+  end
+
   def handle_info({:prefix_tags_snapshot_changed, _meta}, state) do
-    Logger.info("PrefixTags.Loader reloading after snapshot invalidation")
-    {:noreply, do_reload(state)}
+    {:noreply, do_reload(state, :all)}
   end
 
   def handle_info({:nodeup, _node, _info}, state) do
-    Logger.debug("PrefixTags.Loader re-checking active snapshot after nodeup")
-    {:noreply, do_reload(state)}
+    Logger.debug("PrefixTags.Loader re-checking active snapshots after nodeup")
+    {:noreply, do_reload(state, :all)}
   end
 
   def handle_info({:nodeup, _node}, state) do
-    {:noreply, do_reload(state)}
+    {:noreply, do_reload(state, :all)}
   end
 
   def handle_info({:nodedown, _node, _info}, state), do: {:noreply, state}
@@ -144,28 +185,68 @@ defmodule ServiceRadar.PrefixTags.Loader do
 
   # --- load path -------------------------------------------------------------
 
-  defp do_reload(state) do
+  defp do_reload(state, scope) do
     started = System.monotonic_time(:microsecond)
 
-    case fetch_active_rows() do
-      {:ok, rows, snapshot_ids} ->
-        version = Store.put_rows(rows)
-        duration_us = System.monotonic_time(:microsecond) - started
-        stats = Store.stats()
+    case fetch_active_rows(scope) do
+      {:ok, rows_by_source, snapshot_ids_by_source} ->
+        sources_meta =
+          Map.new(rows_by_source, fn {source, rows} ->
+            version = Store.put_rows(source, rows)
+            stats = Store.stats(source)
 
-        emit_rebuild_telemetry(stats, duration_us, length(rows), :ok)
+            {source,
+             %{
+               version: version,
+               row_count: length(rows),
+               snapshot_ids: Map.get(snapshot_ids_by_source, source, []),
+               stats: stats,
+               loaded_at: DateTime.utc_now()
+             }}
+          end)
+
+        # Empty source after targeted reload: clear that source's trie.
+        sources_meta =
+          case scope do
+            source when is_binary(source) ->
+              if Map.has_key?(sources_meta, source) do
+                sources_meta
+              else
+                Store.clear(source)
+                Map.put(sources_meta, source, %{
+                  version: nil,
+                  row_count: 0,
+                  snapshot_ids: [],
+                  stats: %{ipv4_prefixes: 0, ipv6_prefixes: 0, total_prefixes: 0},
+                  loaded_at: DateTime.utc_now()
+                })
+              end
+
+            :all ->
+              sources_meta
+          end
+
+        duration_us = System.monotonic_time(:microsecond) - started
+        agg = Store.stats()
+        total_rows = sources_meta |> Map.values() |> Enum.map(& &1.row_count) |> Enum.sum()
+
+        emit_rebuild_telemetry(agg, duration_us, total_rows, :ok, scope)
 
         Logger.info(
-          "PrefixTags.Loader installed trie version=#{version} rows=#{length(rows)} " <>
-            "ipv4=#{stats.ipv4_prefixes} ipv6=#{stats.ipv6_prefixes} " <>
-            "duration_us=#{duration_us}"
+          "PrefixTags.Loader installed sources=#{inspect(Map.keys(sources_meta))} " <>
+            "rows=#{total_rows} total_prefixes=#{agg.total_prefixes} duration_us=#{duration_us}"
         )
+
+        merged_sources =
+          case scope do
+            :all -> sources_meta
+            source when is_binary(source) -> Map.merge(state.sources, sources_meta)
+          end
 
         %{
           state
           | loaded_at: DateTime.utc_now(),
-            snapshot_ids: snapshot_ids,
-            row_count: length(rows),
+            sources: merged_sources,
             last_error: nil
         }
 
@@ -173,67 +254,86 @@ defmodule ServiceRadar.PrefixTags.Loader do
         duration_us = System.monotonic_time(:microsecond) - started
         message = Exception.message(reason)
 
-        # Keep previous trie if any; only clear when nothing was ever loaded.
-        if is_nil(state.loaded_at) do
+        if is_nil(state.loaded_at) and scope == :all do
           Store.clear()
         end
 
-        emit_rebuild_telemetry(Store.stats(), duration_us, 0, :error)
+        emit_rebuild_telemetry(Store.stats(), duration_us, 0, :error, scope)
 
-        Logger.warning("PrefixTags.Loader failed to load active prefixes: #{message}")
+        Logger.warning("PrefixTags.Loader failed to load active prefixes: #{message}",
+          source: inspect(scope)
+        )
 
         %{state | last_error: message}
     end
   end
 
-  defp fetch_active_rows do
+  defp fetch_active_rows(:all) do
     case SQL.query(Repo, @load_active_sql, []) do
-      {:ok, %{rows: rows, columns: columns}} ->
-        col_index = columns |> Enum.with_index() |> Map.new()
+      {:ok, result} -> parse_rows(result)
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    e -> {:error, e}
+  end
 
-        parsed =
-          Enum.map(rows, fn row ->
-            tags = normalize_tags(Enum.at(row, col_index["tags"]))
+  defp fetch_active_rows(source) when is_binary(source) do
+    case SQL.query(Repo, @load_active_for_source_sql, [source]) do
+      {:ok, result} -> parse_rows(result)
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    e -> {:error, e}
+  end
 
-            %{
-              prefix: Enum.at(row, col_index["prefix"]),
-              tags: tags,
-              vrf: Enum.at(row, col_index["vrf"]),
-              site: Enum.at(row, col_index["site"]),
-              role: Enum.at(row, col_index["role"]),
-              tenant: Enum.at(row, col_index["tenant"]),
-              status: Enum.at(row, col_index["status"]),
-              source: Enum.at(row, col_index["source"])
-            }
-          end)
+  defp parse_rows(%{rows: rows, columns: columns}) do
+    col_index = columns |> Enum.with_index() |> Map.new()
 
-        snapshot_ids =
-          rows
+    parsed =
+      Enum.map(rows, fn row ->
+        tags = normalize_tags(Enum.at(row, col_index["tags"]))
+
+        %{
+          prefix: Enum.at(row, col_index["prefix"]),
+          tags: tags,
+          vrf: Enum.at(row, col_index["vrf"]),
+          site: Enum.at(row, col_index["site"]),
+          role: Enum.at(row, col_index["role"]),
+          tenant: Enum.at(row, col_index["tenant"]),
+          status: Enum.at(row, col_index["status"]),
+          source: Enum.at(row, col_index["source"])
+        }
+      end)
+
+    by_source = Enum.group_by(parsed, & &1.source)
+
+    snapshot_ids_by_source =
+      rows
+      |> Enum.group_by(&Enum.at(&1, col_index["source"]))
+      |> Map.new(fn {source, source_rows} ->
+        ids =
+          source_rows
           |> Enum.map(&Enum.at(&1, col_index["snapshot_id"]))
           |> Enum.uniq()
           |> Enum.map(&to_string/1)
 
-        {:ok, parsed, snapshot_ids}
+        {source, ids}
+      end)
 
-      {:error, reason} ->
-        {:error, reason}
-    end
-  rescue
-    e -> {:error, e}
+    {:ok, by_source, snapshot_ids_by_source}
   end
 
   defp normalize_tags(nil), do: []
   defp normalize_tags(tags) when is_list(tags), do: Enum.map(tags, &to_string/1)
 
   defp normalize_tags(tags) when is_map(tags) do
-    # Defensive: some JSONB paths return objects; ignore keys, keep values.
     tags |> Map.values() |> Enum.map(&to_string/1)
   end
 
   defp normalize_tags(tag) when is_binary(tag), do: [tag]
   defp normalize_tags(_), do: []
 
-  defp emit_rebuild_telemetry(stats, duration_us, row_count, outcome) do
+  defp emit_rebuild_telemetry(stats, duration_us, row_count, outcome, scope) do
     :telemetry.execute(
       [:serviceradar, :prefix_tags, :rebuild],
       %{
@@ -243,8 +343,31 @@ defmodule ServiceRadar.PrefixTags.Loader do
         ipv6_prefixes: stats.ipv6_prefixes,
         total_prefixes: stats.total_prefixes
       },
-      %{outcome: outcome}
+      %{outcome: outcome, scope: scope}
     )
+  end
+
+  defp maybe_reload_provider_source do
+    if Code.ensure_loaded?(ServiceRadar.PrefixTags.ProviderSource) do
+      case ServiceRadar.PrefixTags.ProviderSource.reload() do
+        {:ok, _} -> :ok
+        {:error, reason} ->
+          Logger.debug("PrefixTags.Loader provider source reload skipped",
+            reason: inspect(reason)
+          )
+
+          :ok
+      end
+    else
+      :ok
+    end
+  rescue
+    e ->
+      Logger.debug("PrefixTags.Loader provider source reload failed",
+        error: Exception.message(e)
+      )
+
+      :ok
   end
 
   defp pubsub_available? do

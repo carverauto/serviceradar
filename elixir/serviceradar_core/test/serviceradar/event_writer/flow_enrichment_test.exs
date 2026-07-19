@@ -132,7 +132,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichmentTest do
       end)
 
       # Install a version so active_trie is non-nil and engine is consulted.
-      Store.put_trie(:boom)
+      Store.put_trie("manual", :boom)
 
       enriched =
         FlowEnrichment.enrich(%{
@@ -143,6 +143,42 @@ defmodule ServiceRadar.EventWriter.FlowEnrichmentTest do
 
       assert enriched.src_prefix_tags == nil
       assert enriched.dst_prefix_tags == nil
+    end
+
+    test "provider trie flag serves hosting provider without SQL path" do
+      Application.put_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, true)
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, false)
+      end)
+
+      Store.put_rows("provider", [
+        %{prefix: "203.0.113.0/24", tags: ["provider:ExampleCloud"], source: "provider"}
+      ])
+
+      assert FlowEnrichment.provider_for_ip("203.0.113.10") == "ExampleCloud"
+      assert FlowEnrichment.provider_for_ip("198.51.100.1") == nil
+    end
+
+    test "geo tag derivation is fail-open when MMDB absent" do
+      Application.put_env(:serviceradar_core, :prefix_tag_enrichment_enabled, true)
+      Application.put_env(:serviceradar_core, :geo_tag_derivation_enabled, true)
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_core, :geo_tag_derivation_enabled, false)
+      end)
+
+      # No MMDB in unit tests — must not raise and must leave untagged or trie-only.
+      enriched =
+        FlowEnrichment.enrich(%{
+          protocol_num: 6,
+          src_ip: "8.8.8.8",
+          dst_ip: "1.1.1.1"
+        })
+
+      assert is_map(enriched)
+      # geo tags may be nil/absent when lookup fails
+      refute Map.get(enriched, :src_prefix_tags) in [["geo:country:us"]]
     end
   end
 
