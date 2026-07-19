@@ -86,7 +86,7 @@
 - [x] 7.2 Tag filter control on the flow listing wired to the SRQL tag filter
 - [x] 7.3 IP tag-preview input in Integrations settings served from the local
       node's trie; authorized per integrations-settings visibility
-- [ ] 7.4 LiveView tests for chips, filter, preview, and RBAC denial
+- [x] 7.4 LiveView tests for chips, filter, preview, and RBAC denial
 
 ## 8. Verification and docs
 
