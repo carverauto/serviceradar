@@ -7,7 +7,7 @@ description: Cut a ServiceRadar release and roll the Kubernetes `demo` namespace
 
 ## Overview
 
-Use this skill for the formal release path: update release metadata, cut the release commit and tag, publish the refs, confirm that the release artifacts exist, and then roll `demo` to the released semver image tag, such as `v1.2.41`. Prefer the repo's existing release script, CI publish path, guarded `demo/prod-release` branch, and explicit reviewed ArgoCD sync over ad hoc local image pushes.
+Use this skill for the formal release path: update release metadata, cut the release commit and tag, publish the refs, confirm that the release artifacts exist, and then verify the automatic `demo` rollout to the released semver image tag, such as `v1.2.41`. Prefer the repo's existing release script, CI publish path, guarded `demo/prod-release` branch, and conservative ArgoCD auto-sync over ad hoc local image pushes.
 
 ## Workflow
 
@@ -19,9 +19,9 @@ Use this skill for the formal release path: update release metadata, cut the rel
 6. Fetch `origin/staging`, prove the local tag commit is now an ancestor, and publish the tag with an explicit tag refspec.
 7. Wait for the published release artifacts to exist for the target semver tag.
 8. Confirm the release workflow advanced `demo/prod-release` and its Argo source file to `v<version>`.
-9. Review the Argo diff, then explicitly sync `serviceradar-demo-prod`; automated sync is intentionally disabled while live drift is under review.
-10. Watch Argo until `demo` reaches `Synced|Healthy|Succeeded`.
-11. Report the release version, release commit, release tag, release-branch revision, manual-sync result, and final demo rollout status.
+9. Confirm `serviceradar-demo-prod` still has automated sync enabled with prune and self-heal disabled, and observe Argo pick up the guarded branch without an operator-triggered sync.
+10. Review any residual drift and watch Argo until `demo` reaches `Synced|Healthy|Succeeded`; use a manual sync only as an investigated recovery action.
+11. Report the release version, release commit, release tag, release-branch revision, automatic-sync result, and final demo rollout status.
 
 ## Guardrails
 
@@ -30,9 +30,9 @@ Use this skill for the formal release path: update release metadata, cut the rel
 - Do not treat the release as deployable until the published artifacts for the release version actually exist.
 - Prefer published release artifacts over rebuilding images locally in this workflow.
 - Roll formal releases with the semver image tag, for example `v1.2.41`. The `sha-<commit>` path is for unpublished local demo testing only.
-- Do not re-enable Image Updater or automated self-heal until the generated-secret, CNPG, and deployment drift called out in `k8s/argocd/applications/demo-prod.yaml` has been reviewed and normalized.
+- Do not re-enable Image Updater, prune, or automated self-heal until the generated-secret, CNPG, and deployment drift called out in `k8s/argocd/applications/demo-prod.yaml` has been reviewed and normalized.
 - While that hold is active, `serviceradar-demo-image-updater` is expected to report zero matched applications and zero managed images. Treat `0|0|NoErrors:False` as the configured hold state, not a failed release.
-- Never sync before reviewing the diff. Generated secrets and CNPG resources require explicit operator judgment; a published release alone is not approval to reconcile unrelated live drift.
+- Automatic sync is authorized only for the guarded, publication-verified `demo/prod-release` branch and must remain non-pruning and non-self-healing. Generated secrets, CNPG resources, and unrelated live drift still require explicit operator judgment.
 
 ## Update Release Metadata
 
@@ -110,14 +110,21 @@ git fetch origin \
 git show origin/demo/prod-release:helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml
 ```
 
-The source file must set `global.imageTag` to `v<version>`. Check the Image Updater hold state for context:
+The source file must set `global.imageTag` to `v<version>`. Confirm the conservative automatic-sync policy is still active:
+
+```bash
+kubectl get application -n argocd serviceradar-demo-prod \
+  -o jsonpath='{.spec.syncPolicy.automated.enabled}{"|"}{.spec.syncPolicy.automated.prune}{"|"}{.spec.syncPolicy.automated.selfHeal}{"\n"}'
+```
+
+Expect `true|false|false`. Then check the Image Updater hold state for context:
 
 ```bash
 kubectl get imageupdater -n argocd serviceradar-demo-image-updater \
   -o jsonpath='{.status.applicationsMatched}{"|"}{.status.imagesManaged}{"|"}{range .status.conditions[?(@.type=="Error")]}{.reason}{":"}{.status}{":"}{.message}{end}{"\n"}'
 ```
 
-Expect zero matched applications, zero managed images, and an `Error` condition with reason `NoErrors` and status `False` while the manual-sync hold is active.
+Expect zero matched applications, zero managed images, and an `Error` condition with reason `NoErrors` and status `False` while the Image Updater hold is active.
 
 Use an authenticated Argo CLI context or the Argo UI. The usual local CLI context expects the Argo server on `127.0.0.1:18443`; start its port-forward in a separate shell when it is not already reachable:
 
@@ -128,7 +135,7 @@ argocd app get serviceradar-demo-prod --refresh
 
 Do not use `--core`: it looks for `argocd-cm` in the active namespace and does not work with this cluster layout.
 
-List the complete drift set, then refresh and review the application before changing live state:
+Refresh the application and inspect any residual drift while the guarded automatic sync progresses:
 
 ```bash
 kubectl get application -n argocd serviceradar-demo-prod -o json |
@@ -137,9 +144,9 @@ argocd app diff serviceradar-demo-prod --hard-refresh
 kubectl get application -n argocd serviceradar-demo-prod -o yaml
 ```
 
-`argocd app diff` exits 1 when a diff exists and intentionally omits Kubernetes Secrets. Inspect every non-release change in its output, inspect each OutOfSync Secret's owner/hook annotations separately, and review CNPG resources explicitly. Remove or account for stale live-only Application parameters before approving the sync.
+`argocd app diff` exits 1 when a diff exists and intentionally omits Kubernetes Secrets. Inspect every non-release change in its output, inspect each OutOfSync Secret's owner/hook annotations separately, and review CNPG resources explicitly. Remove or account for stale live-only Application parameters rather than broadening the automatic policy.
 
-Dry-run and then perform the initial operator-triggered reconcile without prune. Deletion is unrelated to advancing the release tag and requires a separate explicit review:
+Do not run an operator-triggered sync while the guarded automatic operation is progressing or has succeeded. If automatic sync fails or remains stuck after investigation, a reviewed recovery sync may be dry-run and executed without prune:
 
 ```bash
 argocd app sync serviceradar-demo-prod --dry-run
@@ -184,6 +191,6 @@ Close with:
 - whether release artifacts were confirmed published
 - `demo/prod-release` revision and image tag
 - Image Updater hold status
-- reviewed manual-sync result
+- automatic-sync result, or the investigated manual recovery result when one was required
 - final `demo` rollout status
 - any residual risk or follow-up needed
