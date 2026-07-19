@@ -113,7 +113,7 @@ defmodule ServiceRadar.PrefixTags.IntegrationTest do
       assert active.status == "active"
       assert active.is_active == true
       assert active.record_count == 1
-      assert active.promoted_at != nil
+      assert active.promoted_at
 
       assert {:ok, fetched} =
                Snapshot.active_for_source(%{source: "manual"}, actor: @system)
@@ -226,7 +226,7 @@ defmodule ServiceRadar.PrefixTags.IntegrationTest do
       assert length(tags) == 3
 
       guest = Enum.find(tags, &(&1.prefix == "10.1.2.0/24"))
-      assert guest != nil
+      assert guest
       assert "role:guest-wifi" in List.wrap(guest.tags)
       assert "site:austin-dc" in List.wrap(guest.tags)
 
@@ -342,6 +342,7 @@ defmodule ServiceRadar.PrefixTags.IntegrationTest do
       oracle = sql_lpm_oracle("10.1.2.3")
       assert oracle != []
       assert hd(oracle).prefix == most_specific.prefix
+
       assert MapSet.new(List.wrap(hd(oracle).tags)) ==
                MapSet.new(List.wrap(most_specific.tags))
 
@@ -427,5 +428,5 @@ defmodule ServiceRadar.PrefixTags.IntegrationTest do
   defp normalize_tags(tags) when is_list(tags), do: Enum.map(tags, &to_string/1)
   defp normalize_tags(%{} = map), do: map |> Map.values() |> Enum.map(&to_string/1)
   defp normalize_tags(nil), do: []
-  defp normalize_tags(other), do: List.wrap(other) |> Enum.map(&to_string/1)
+  defp normalize_tags(other), do: other |> List.wrap() |> Enum.map(&to_string/1)
 end

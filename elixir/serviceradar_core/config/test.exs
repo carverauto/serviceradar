@@ -269,16 +269,6 @@ config :serviceradar_core,
     ServiceRadar.Security
   ]
 
-# Prefix-tag enrichment off by default in tests; enable per-test when needed.
-# Loader stays off so unit tests don't hit CNPG on application start.
-config :serviceradar_core,
-  prefix_tag_enrichment_enabled: false,
-  # Keep provider SQL/injection path available for unit tests unless a test opts in.
-  prefix_tag_provider_trie_enabled: false,
-  threat_intel_engine_match_enabled: true,
-  geo_tag_derivation_enabled: false,
-  prefix_tags_loader_enabled: false
-
 # Disable cluster in tests by default
 config :serviceradar_core,
   env: :test,
@@ -296,6 +286,16 @@ config :serviceradar_core,
   control_repo_enabled: false,
   seeders_enabled: false,
   log_promotion_consumer_enabled: false
+
+# Prefix-tag enrichment off by default in tests; enable per-test when needed.
+# Loader stays off so unit tests don't hit CNPG on application start.
+config :serviceradar_core,
+  prefix_tag_enrichment_enabled: false,
+  # Keep provider SQL/injection path available for unit tests unless a test opts in.
+  prefix_tag_provider_trie_enabled: false,
+  threat_intel_engine_match_enabled: true,
+  geo_tag_derivation_enabled: false,
+  prefix_tags_loader_enabled: false
 
 # Disable Swoosh API client in tests (no hackney needed)
 config :swoosh, :api_client, false
