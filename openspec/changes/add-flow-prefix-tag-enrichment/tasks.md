@@ -91,8 +91,9 @@
 ## 8. Verification and docs
 
 - [x] 8.1 `openspec validate add-flow-prefix-tag-enrichment --strict` passes
-- [ ] 8.2 Integration run on the srql-fixtures scratch DB: migrations, Ash actions,
+- [x] 8.2 Integration run on the srql-fixtures scratch DB: migrations, Ash actions,
       importer fixtures
+      (`test/serviceradar/prefix_tags/integration_test.exs` — fixture HTTP, no live NetBox)
 - [ ] 8.3 E2E dogfood: importer pointed at the internal NetBox instance in the
       local/dev stack; verify tagged rows in `ocsf_network_activity`, SRQL
       `in:flows tag:...` results, and UI chips end to end
