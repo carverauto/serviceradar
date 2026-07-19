@@ -195,13 +195,10 @@ defmodule ServiceRadar.PrefixTags.Trie do
     with true <- is_binary(prefix),
          {:ok, family, bits, mask} <- parse_prefix(prefix) do
       entry =
-        %{
-          prefix: format_prefix(bits, mask, family),
-          tags: tags,
-          source: source,
-          vrf: vrf
-        }
-        |> maybe_put_severity(severity)
+        maybe_put_severity(
+          %{prefix: format_prefix(bits, mask, family), tags: tags, source: source, vrf: vrf},
+          severity
+        )
 
       {:ok, family, bits, mask, entry}
     else

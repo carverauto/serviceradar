@@ -11,6 +11,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
   use GenServer
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.PrefixTags.ExternalSources
   alias ServiceRadar.PrefixTags.Store
   alias ServiceRadar.Repo
 
@@ -57,7 +58,9 @@ defmodule ServiceRadar.PrefixTags.Loader do
   @type state :: %{
           loaded_at: DateTime.t() | nil,
           sources: %{String.t() => map()},
-          last_error: String.t() | nil
+          last_error: String.t() | nil,
+          external_errors: %{String.t() => String.t()},
+          initial_boot_complete?: boolean()
         }
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -90,7 +93,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
   @doc "Force a full reload from CNPG on this node (synchronous)."
   @spec reload() :: :ok | {:error, term()}
   def reload do
-    GenServer.call(__MODULE__, {:reload, :all}, to_timeout(second: 60))
+    GenServer.call(__MODULE__, {:reload, :all}, to_timeout(minute: 1))
   catch
     :exit, reason -> {:error, reason}
   end
@@ -98,7 +101,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
   @doc "Force a single-source reload from CNPG on this node (synchronous)."
   @spec reload(String.t()) :: :ok | {:error, term()}
   def reload(source) when is_binary(source) do
-    GenServer.call(__MODULE__, {:reload, source}, to_timeout(second: 60))
+    GenServer.call(__MODULE__, {:reload, source}, to_timeout(minute: 1))
   catch
     :exit, reason -> {:error, reason}
   end
@@ -124,7 +127,9 @@ defmodule ServiceRadar.PrefixTags.Loader do
     state = %{
       loaded_at: nil,
       sources: %{},
-      last_error: nil
+      last_error: nil,
+      external_errors: %{},
+      initial_boot_complete?: false
     }
 
     if Keyword.get(opts, :load_on_init, true) do
@@ -137,9 +142,8 @@ defmodule ServiceRadar.PrefixTags.Loader do
   @impl true
   def handle_continue(:initial_load, state) do
     state = do_reload(state, :all)
-    # External sources (provider/ti/dns-policy) are compiled from other tables,
-    # not platform.prefix_tags — reload them after snapshot-backed sources.
-    _ = reload_all_external_sources()
+    state = reload_all_external_sources(state)
+    state = finalize_boot_state(state)
     state = maybe_schedule_initial_retry(state, @initial_load_retry_ms)
     {:noreply, state}
   end
@@ -147,21 +151,22 @@ defmodule ServiceRadar.PrefixTags.Loader do
   @impl true
   def handle_call({:reload, :all}, _from, state) do
     new_state = do_reload(state, :all)
-    _ = reload_all_external_sources()
-    reply = if new_state.last_error, do: {:error, new_state.last_error}, else: :ok
+    new_state = reload_all_external_sources(new_state)
+    new_state = finalize_boot_state(new_state)
+    reply = reload_reply(new_state, :all)
     {:reply, reply, new_state}
   end
 
   def handle_call({:reload, source}, _from, state) when is_binary(source) do
-    new_state =
+    {new_state, reply} =
       if external_source?(source) do
-        _ = reload_external_source(source)
-        state
+        {st, result} = reload_external_source(state, source)
+        {st, result}
       else
-        do_reload(state, source)
+        st = do_reload(state, source)
+        {st, reload_reply(st, source)}
       end
 
-    reply = if new_state.last_error, do: {:error, new_state.last_error}, else: :ok
     {:reply, reply, new_state}
   end
 
@@ -169,16 +174,17 @@ defmodule ServiceRadar.PrefixTags.Loader do
 
   @impl true
   def handle_info({:retry_initial_load, delay_ms}, state) when is_integer(delay_ms) do
-    # Only `loaded_at` set by a successful :all reload marks boot recovery done.
-    # Targeted source reloads must not cancel the initial full-load retry loop.
-    if is_nil(state.loaded_at) do
-      Logger.info("PrefixTags.Loader retrying initial load after failure")
-      state = do_reload(state, :all)
-      _ = reload_all_external_sources()
-      next_delay = min(delay_ms * 2, @initial_load_retry_max_ms)
-      state = maybe_schedule_initial_retry(state, next_delay)
+    # Boot complete only when snapshot :all succeeded AND externals have no
+    # pending errors. Targeted reloads must not cancel this loop.
+    if state.initial_boot_complete? do
       {:noreply, state}
     else
+      Logger.info("PrefixTags.Loader retrying initial load after failure")
+      state = do_reload(state, :all)
+      state = reload_all_external_sources(state)
+      state = finalize_boot_state(state)
+      next_delay = min(delay_ms * 2, @initial_load_retry_max_ms)
+      state = maybe_schedule_initial_retry(state, next_delay)
       {:noreply, state}
     end
   end
@@ -186,11 +192,13 @@ defmodule ServiceRadar.PrefixTags.Loader do
   def handle_info({:prefix_tags_snapshot_changed, meta}, state) when is_map(meta) do
     source = Map.get(meta, :source) || Map.get(meta, "source")
 
-    Logger.info("PrefixTags.Loader reloading after snapshot invalidation", source: inspect(source))
+    Logger.info("PrefixTags.Loader reloading after snapshot invalidation",
+      source: inspect(source)
+    )
 
     cond do
       is_binary(source) and external_source?(source) ->
-        _ = reload_external_source(source)
+        {state, _} = reload_external_source(state, source)
         {:noreply, state}
 
       is_binary(source) and source != "" ->
@@ -198,27 +206,27 @@ defmodule ServiceRadar.PrefixTags.Loader do
 
       true ->
         state = do_reload(state, :all)
-        _ = reload_all_external_sources()
+        state = reload_all_external_sources(state)
         {:noreply, state}
     end
   end
 
   def handle_info({:prefix_tags_snapshot_changed, _meta}, state) do
     state = do_reload(state, :all)
-    _ = reload_all_external_sources()
+    state = reload_all_external_sources(state)
     {:noreply, state}
   end
 
   def handle_info({:nodeup, _node, _info}, state) do
     Logger.debug("PrefixTags.Loader re-checking active snapshots after nodeup")
     state = do_reload(state, :all)
-    _ = reload_all_external_sources()
+    state = reload_all_external_sources(state)
     {:noreply, state}
   end
 
   def handle_info({:nodeup, _node}, state) do
     state = do_reload(state, :all)
-    _ = reload_all_external_sources()
+    state = reload_all_external_sources(state)
     {:noreply, state}
   end
 
@@ -257,7 +265,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
               if Map.has_key?(sources_meta, source) do
                 sources_meta
               else
-                unless external_source?(source), do: Store.clear(source)
+                if !external_source?(source), do: Store.clear(source)
 
                 Map.put(sources_meta, source, %{
                   version: nil,
@@ -426,7 +434,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
   # Sources compiled from tables other than prefix_tag_snapshots/prefix_tags.
   # Invalidating these must re-run the materializer, never a prefix_tags SELECT
   # (which would be empty and wipe the trie). See PrefixTags.ExternalSources.
-  defp external_source?(source), do: ServiceRadar.PrefixTags.ExternalSources.external?(source)
+  defp external_source?(source), do: ExternalSources.external?(source)
 
   defp clear_stale_snapshot_sources(active_sources) when is_list(active_sources) do
     active = MapSet.new(active_sources)
@@ -442,23 +450,63 @@ defmodule ServiceRadar.PrefixTags.Loader do
     :ok
   end
 
-  defp maybe_schedule_initial_retry(%{loaded_at: nil, last_error: err} = state, delay_ms)
-       when is_binary(err) and is_integer(delay_ms) and delay_ms > 0 do
-    Process.send_after(self(), {:retry_initial_load, delay_ms}, delay_ms)
+  defp finalize_boot_state(state) do
+    complete? =
+      is_nil(state.last_error) and map_size(state.external_errors) == 0 and
+        not is_nil(state.loaded_at)
+
+    %{state | initial_boot_complete?: complete?}
+  end
+
+  defp maybe_schedule_initial_retry(%{initial_boot_complete?: false} = state, delay_ms)
+       when is_integer(delay_ms) and delay_ms > 0 do
+    # Retry while snapshot load failed or any external materializer is unhealthy.
+    if is_binary(state.last_error) or map_size(state.external_errors) > 0 do
+      Process.send_after(self(), {:retry_initial_load, delay_ms}, delay_ms)
+    end
+
     state
   end
 
   defp maybe_schedule_initial_retry(state, _delay_ms), do: state
 
-  defp reload_all_external_sources do
-    Enum.each(ServiceRadar.PrefixTags.ExternalSources.by_name() |> Map.keys(), &reload_external_source/1)
-    :ok
+  defp reload_reply(state, :all) do
+    cond do
+      is_binary(state.last_error) ->
+        {:error, state.last_error}
+
+      map_size(state.external_errors) > 0 ->
+        {:error, {:external_errors, state.external_errors}}
+
+      true ->
+        :ok
+    end
   end
 
-  defp reload_external_source(source) when is_binary(source) do
-    case ServiceRadar.PrefixTags.ExternalSources.module_for(source) do
-      nil ->
+  defp reload_reply(state, source) when is_binary(source) do
+    cond do
+      err = Map.get(state.external_errors, source) ->
+        {:error, err}
+
+      is_binary(state.last_error) and not external_source?(source) ->
+        {:error, state.last_error}
+
+      true ->
         :ok
+    end
+  end
+
+  defp reload_all_external_sources(state) do
+    Enum.reduce(Map.keys(ExternalSources.by_name()), state, fn source, acc ->
+      {acc, _} = reload_external_source(acc, source)
+      acc
+    end)
+  end
+
+  defp reload_external_source(state, source) when is_binary(source) do
+    case ExternalSources.module_for(source) do
+      nil ->
+        {clear_external_error(state, source), :ok}
 
       mod ->
         if Code.ensure_loaded?(mod) and function_exported?(mod, :reload, 1) do
@@ -471,33 +519,44 @@ defmodule ServiceRadar.PrefixTags.Loader do
               )
 
               maybe_emit_snapshot_age(source, count)
-              :ok
+              {clear_external_error(state, source), :ok}
 
             {:error, reason} ->
-              Logger.debug("PrefixTags.Loader external source reload skipped",
+              msg = inspect(reason)
+
+              Logger.warning("PrefixTags.Loader external source reload failed",
                 source: source,
-                reason: inspect(reason)
+                reason: msg
               )
 
-              :ok
+              {put_external_error(state, source, msg), {:error, msg}}
           end
         else
-          :ok
+          msg = "module_unavailable"
+          {put_external_error(state, source, msg), {:error, msg}}
         end
     end
   rescue
     e ->
-      Logger.debug("PrefixTags.Loader external source reload failed",
+      msg = Exception.message(e)
+
+      Logger.warning("PrefixTags.Loader external source reload crashed",
         source: source,
-        error: Exception.message(e)
+        error: msg
       )
 
-      :ok
+      {put_external_error(state, source, msg), {:error, msg}}
+  end
+
+  defp put_external_error(state, source, msg) do
+    %{state | external_errors: Map.put(state.external_errors || %{}, source, msg)}
+  end
+
+  defp clear_external_error(state, source) do
+    %{state | external_errors: Map.delete(state.external_errors || %{}, source)}
   end
 
   defp maybe_emit_snapshot_age(source, _count) do
-    # Age gauge: 0 immediately after a successful materialize (operators alert
-    # when age exceeds a threshold between refreshes).
     :telemetry.execute(
       [:serviceradar, :prefix_tags, :snapshot_age],
       %{age_seconds: 0},

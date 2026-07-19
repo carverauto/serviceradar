@@ -14,8 +14,7 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
     max_attempts: 3,
     unique: [period: :infinity, states: :incomplete]
 
-  require Ash.Query
-
+  alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Observability.OutboundFeedPolicy
@@ -26,6 +25,7 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
   alias ServiceRadar.PrefixTags.Snapshot
   alias ServiceRadar.Repo
 
+  require Ash.Query
   require Logger
 
   @source_name "netbox"
@@ -76,6 +76,7 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
           emit_import_telemetry(:ok, length(rows), duration_us)
           _ = Loader.broadcast_invalidation(%{source: @source_name, record_count: length(rows)})
           Logger.info("NetBox prefix-tag snapshot promoted", rows: length(rows))
+
           ObanSchedule.schedule_next(
             __MODULE__,
             Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
@@ -195,7 +196,8 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
 
   # Prefer Map.fetch so boolean false is preserved (unlike || / find_value).
   defp cred_fetch(map, keys, default \\ nil) do
-    Enum.reduce_while(keys, :__miss__, fn key, _acc ->
+    keys
+    |> Enum.reduce_while(:__miss__, fn key, _acc ->
       case Map.fetch(map, key) do
         {:ok, value} -> {:halt, value}
         :error -> {:cont, :__miss__}
@@ -227,31 +229,29 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
            paginate(prefixes_url, creds, http_get, timeout_ms, [], nil, 0, max_pages),
          {:ok, aggregate_results, aggregate_count} <-
            paginate_optional(aggregates_url, creds, http_get, timeout_ms, max_pages) do
-      if length(prefix_results) != prefix_count do
-        {:error, {:count_mismatch, length(prefix_results), prefix_count}}
-      else
+      if length(prefix_results) == prefix_count do
         # Aggregates may 404 on older NetBox; when present, validate count too.
-        cond do
-          is_integer(aggregate_count) and length(aggregate_results) != aggregate_count ->
-            {:error, {:aggregate_count_mismatch, length(aggregate_results), aggregate_count}}
+        if is_integer(aggregate_count) and length(aggregate_results) != aggregate_count do
+          {:error, {:aggregate_count_mismatch, length(aggregate_results), aggregate_count}}
+        else
+          rows =
+            (prefix_results ++ aggregate_results)
+            |> Enum.map(&map_prefix_row(&1, namespaces, max_tags))
+            |> Enum.reject(&is_nil/1)
+            # Prefer more-specific prefix rows if both lists share a CIDR
+            |> Enum.uniq_by(&{&1.prefix, &1.vrf})
 
-          true ->
-            rows =
-              (prefix_results ++ aggregate_results)
-              |> Enum.map(&map_prefix_row(&1, namespaces, max_tags))
-              |> Enum.reject(&is_nil/1)
-              # Prefer more-specific prefix rows if both lists share a CIDR
-              |> Enum.uniq_by(&{&1.prefix, &1.vrf})
+          meta = %{
+            reported_count: prefix_count,
+            aggregate_count: aggregate_count || 0,
+            imported_count: length(rows),
+            source_url: prefixes_url
+          }
 
-            meta = %{
-              reported_count: prefix_count,
-              aggregate_count: aggregate_count || 0,
-              imported_count: length(rows),
-              source_url: prefixes_url
-            }
-
-            {:ok, rows, meta}
+          {:ok, rows, meta}
         end
+      else
+        {:error, {:count_mismatch, length(prefix_results), prefix_count}}
       end
     end
   end
@@ -285,7 +285,8 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
       ]
 
       opts =
-        OutboundFeedPolicy.req_opts(timeout_ms)
+        timeout_ms
+        |> OutboundFeedPolicy.req_opts()
         |> Keyword.put(:headers, headers)
         |> maybe_insecure(creds.verify_ssl)
 
@@ -398,9 +399,10 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
     next = Map.get(body, "next")
     count = Map.get(body, "count")
 
-    cond do
-      is_integer(count) -> {:ok, results, next, count}
-      true -> {:ok, results, next, length(results)}
+    if is_integer(count) do
+      {:ok, results, next, count}
+    else
+      {:ok, results, next, length(results)}
     end
   end
 
@@ -409,7 +411,11 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
   # -- tag mapping ------------------------------------------------------------
 
   @doc false
-  def map_prefix_row(item, namespaces \\ @default_dimension_namespaces, max_tags \\ @default_max_tags_per_prefix)
+  def map_prefix_row(
+        item,
+        namespaces \\ @default_dimension_namespaces,
+        max_tags \\ @default_max_tags_per_prefix
+      )
       when is_map(item) do
     prefix = item["prefix"] || item[:prefix]
 
@@ -442,8 +448,6 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
         status: status,
         source: @source_name
       }
-    else
-      nil
     end
   end
 
@@ -488,7 +492,9 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
 
   defp status_value(item) do
     case Map.get(item, "status") do
-      %{"value" => value} when is_binary(value) -> value
+      %{"value" => value} when is_binary(value) ->
+        value
+
       %{"label" => label} when is_binary(label) ->
         Slug.slugify(label) || label
 
@@ -508,36 +514,34 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
     content_hash = content_hash(rows)
     now = DateTime.utc_now()
 
-    Repo.transaction(
-      fn ->
-        {:ok, snapshot} =
-          Snapshot.create(
-            %{
-              source: @source_name,
-              status: "building",
-              source_url: source_url,
-              source_sha256: content_hash,
-              fetched_at: now,
-              is_active: false,
-              record_count: 0,
-              metadata: meta || %{}
-            },
-            actor: actor,
-            domain: ServiceRadar.PrefixTags
-          )
+    fn ->
+      {:ok, snapshot} =
+        Snapshot.create(
+          %{
+            source: @source_name,
+            status: "building",
+            source_url: source_url,
+            source_sha256: content_hash,
+            fetched_at: now,
+            is_active: false,
+            record_count: 0,
+            metadata: meta || %{}
+          },
+          actor: actor,
+          domain: ServiceRadar.PrefixTags
+        )
 
-        count = bulk_insert_prefix_tags!(snapshot.id, rows, actor)
+      count = bulk_insert_prefix_tags!(snapshot.id, rows, actor)
 
-        if count == 0 and rows != [] do
-          Repo.rollback(:no_rows_inserted)
-        else
-          supersede_previous_active!(actor, snapshot.id)
-          promote_active!(snapshot, count, actor)
-          :ok
-        end
-      end,
-      timeout: @db_timeout_ms
-    )
+      if count == 0 and rows != [] do
+        Repo.rollback(:no_rows_inserted)
+      else
+        supersede_previous_active!(actor, snapshot.id)
+        promote_active!(snapshot, count, actor)
+        :ok
+      end
+    end
+    |> Repo.transaction(timeout: @db_timeout_ms)
     |> case do
       {:ok, :ok} -> :ok
       {:error, reason} -> {:error, reason}
@@ -600,13 +604,13 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
         :ok
 
       {:error, %Ash.Error.Invalid{errors: errors}} ->
-        if Enum.any?(errors, &match?(%Ash.Error.Query.NotFound{}, &1)) do
+        if Enum.any?(errors, &match?(%NotFound{}, &1)) do
           :ok
         else
           Repo.rollback({:supersede_failed, errors})
         end
 
-      {:error, %Ash.Error.Query.NotFound{}} ->
+      {:error, %NotFound{}} ->
         :ok
 
       {:error, err} ->

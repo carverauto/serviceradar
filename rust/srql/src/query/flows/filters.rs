@@ -384,10 +384,7 @@ pub(super) fn apply_filter<'a>(
     Ok(query)
 }
 
-fn apply_near_filter<'a>(
-    mut query: FlowsQuery<'a>,
-    filter: &Filter,
-) -> Result<FlowsQuery<'a>> {
+fn apply_near_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQuery<'a>> {
     let side = match filter.field.as_str() {
         "src_near" => NearSide::Src,
         "dst_near" => NearSide::Dst,

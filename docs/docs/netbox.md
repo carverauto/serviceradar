@@ -6,14 +6,14 @@ title: NetBox Integration
 
 ServiceRadar integrates with NetBox in two complementary ways:
 
-1. **Device inventory sync** — the `netbox-inventory` Wasm plugin (agent-side)
-   walks `/api/dcim/devices/` and feeds the standard discovery → DIRE pipeline.
-2. **IPAM prefix tags for NetFlow** — a core Oban worker imports
+1. **Device inventory sync** - the `netbox-inventory` Wasm plugin (agent-side)
+   walks `/api/dcim/devices/` and feeds the standard discovery -> DIRE pipeline.
+2. **IPAM prefix tags for NetFlow** - a core Oban worker imports
    `/api/ipam/prefixes/` into the prefix-tag snapshot store for flow enrichment
    (tracked in OpenSpec `add-flow-prefix-tag-enrichment`; product fetch will move
    to a plugin under #4650).
 
-Credentials may still be stored under **Settings → Integrations** (type
+Credentials may still be stored under **Settings -> Integrations** (type
 **Netbox**) for the prefix-import path. Device inventory uses **plugin
 assignment parameters**, not that form, today.
 
@@ -25,7 +25,7 @@ The NetBox inventory integration keeps ServiceRadar's device inventory
 synchronized with your source-of-truth IPAM/DCIM. It ships as the
 `netbox-inventory` Wasm plugin: a sandboxed, signed plugin that runs on an
 agent, walks NetBox's `/api/dcim/devices/` listing, and emits device-discovery
-snapshots into the standard agent → gateway → DIRE pipeline.
+snapshots into the standard agent -> gateway -> DIRE pipeline.
 
 Devices appear with `source=netbox`, carry `netbox_device_id` as a strong
 identity signal, and surface role, site, status, manufacturer, and model in the
@@ -40,7 +40,7 @@ device metadata card.
 
 ### Installation
 
-1. Import the `netbox-inventory` plugin in **Admin → Plugin Packages** (it is
+1. Import the `netbox-inventory` plugin in **Admin -> Plugin Packages** (it is
    published and signed with every ServiceRadar release).
 2. Approve the package. The wasm artifact is mirrored to the data service so
    agents can fetch it.
@@ -104,7 +104,7 @@ Assignment parameters (see the plugin's config schema):
 
 - The legacy NetBox connector that ran inside the agent's embedded sync
   runtime was removed in the January 2026 sync rearchitecture; the Wasm plugin
-  above is its replacement. The NetBox source form under **Integrations →
+  above is its replacement. The NetBox source form under **Integrations ->
   New Source** configures the legacy/prefix path and does **not** drive this
   plugin yet.
 - Prefix and IPAM tag import (for NetFlow prefix tagging) is described next
@@ -120,12 +120,12 @@ An Oban maintenance worker (`ServiceRadar.PrefixTags.NetboxImportWorker`) pulls:
 - `/api/ipam/prefixes/` (required, paginated to exhaustion, same-origin `next`)
 - `/api/ipam/aggregates/` (optional; 404 is ignored)
 
-…maps site/role/tenant/status/VRF/tags into namespaced tag strings, and promotes
+...maps site/role/tenant/status/VRF/tags into namespaced tag strings, and promotes
 an atomic snapshot used by the prefix-tag LPM engine.
 
 | Capability | Status |
 |------------|--------|
-| Prefix → tag snapshot in CNPG | Supported |
+| Prefix -> tag snapshot in CNPG | Supported |
 | Flow enrichment (`src_prefix_tags` / `dst_prefix_tags`) | Supported behind feature flag (default **off**) |
 | SRQL `tag:` / `src_tag:` / `dst_tag:` | Supported (requires migration columns) |
 | Settings UI: Prefix Tags + IP preview | Supported |
@@ -144,10 +144,10 @@ Operational detail: [Prefix Tags runbook](./prefix-tags.md).
 
 ### Configuration steps (prefix import)
 
-1. **Settings → Integrations → New Source → Netbox.** Enter URL, token, TLS verify.
+1. **Settings -> Integrations -> New Source -> Netbox.** Enter URL, token, TLS verify.
 2. Confirm import: check Oban for `NetboxImportWorker`, or query
    `platform.prefix_tag_snapshots` for an active `netbox` row.
-3. Manage / preview under **Settings → Network Services → Prefix Tags**.
+3. Manage / preview under **Settings -> Network Services -> Prefix Tags**.
 4. After migrations are applied on every core-elx **and** SRQL/web-ng node,
    enable flow enrichment via runtime env (see [Prefix Tags](./prefix-tags.md)):
 
@@ -188,7 +188,7 @@ LIMIT 5;
 | Preview returns empty | Loader not running / empty snapshots; wrong IP family |
 | Flows untagged | flag not enabled; empty tries; traffic outside imported prefixes |
 | Partial NetBox pages | Importer refuses partial promote; check logs for count mismatch |
-| SRQL `column src_prefix_tags does not exist` | Migration not applied before SRQL roll — apply `20260718010000` first |
+| SRQL `column src_prefix_tags does not exist` | Migration not applied before SRQL roll - apply `20260718010000` first |
 
 Import always follows NetBox pagination and refuses to promote incomplete pulls
 (lessons from the archived NetBox pagination fix).

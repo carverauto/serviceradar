@@ -28,8 +28,7 @@ defmodule ServiceRadar.PrefixTags.ObanSchedule do
 
   @doc "Schedule a unique successor job after `seconds`."
   @spec schedule_next(module(), pos_integer()) :: :ok
-  def schedule_next(worker_mod, seconds)
-      when is_atom(worker_mod) and is_integer(seconds) do
+  def schedule_next(worker_mod, seconds) when is_atom(worker_mod) and is_integer(seconds) do
     _ =
       %{}
       |> worker_mod.new(schedule_in: max(seconds, 60), unique: @successor_unique)

@@ -12,13 +12,12 @@ defmodule ServiceRadar.PrefixTags.Store do
   alias ServiceRadar.PrefixTags.Trie
 
   @sources_key {__MODULE__, :active_sources}
-  @active_key_prefix {__MODULE__, :active_version}
-  # Single-read active trie handle — lookups must not do version-then-get
-  # (two independent reads race with erase of the old generation).
-  @active_trie_key_prefix {__MODULE__, :active_trie}
-  @version_key_prefix {__MODULE__, :trie}
-  # Delayed erase of superseded version keys only (memory reclaim). Readers
-  # always use the active-trie key, which is swapped atomically in one put.
+  # Single atomic handle: one persistent_term get returns {version, trie}.
+  # Do NOT also store a full second copy under a version-only key (doubles memory).
+  @active_handle_key_prefix {__MODULE__, :active_handle}
+  # Previous handles kept briefly so a concurrent reader that already held the
+  # old term can finish; not used for lookup indirection.
+  @stale_handle_key_prefix {__MODULE__, :stale_handle}
   @erase_delay_ms 1_000
 
   @type source :: String.t()
@@ -71,7 +70,7 @@ defmodule ServiceRadar.PrefixTags.Store do
   """
   @spec loaded?(source()) :: boolean()
   def loaded?(source) when is_binary(source) do
-    not is_nil(active_trie(source)) or is_integer(active_version(source))
+    match?({_v, _trie}, active_handle(source))
   end
 
   @doc """
@@ -138,17 +137,19 @@ defmodule ServiceRadar.PrefixTags.Store do
   def put_trie(source, trie) when is_binary(source) do
     started = System.monotonic_time(:microsecond)
     version = next_version(source)
-    previous = active_version(source)
+    previous_handle = active_handle(source)
+    handle = {version, trie}
 
-    # Versioned copy retained briefly for reclaim; active_trie key is the
-    # single atomic indirection readers use (one persistent_term get).
-    :persistent_term.put(version_key(source, version), trie)
-    :persistent_term.put(active_key(source), version)
-    :persistent_term.put(active_trie_key(source), trie)
+    # One put: readers do a single get of the active handle (atomic swap).
+    :persistent_term.put(active_handle_key(source), handle)
     register_source(source)
 
-    if is_integer(previous) and previous != version do
-      schedule_erase(source, previous)
+    case previous_handle do
+      {prev_v, _prev_trie} when prev_v != version ->
+        schedule_erase_stale(source, prev_v, previous_handle)
+
+      _ ->
+        :ok
     end
 
     duration_us = System.monotonic_time(:microsecond) - started
@@ -179,15 +180,18 @@ defmodule ServiceRadar.PrefixTags.Store do
   @doc "Clear one source's trie."
   @spec clear(source()) :: :ok
   def clear(source) when is_binary(source) do
-    previous = active_version(source)
+    previous_handle = active_handle(source)
     empty = engine().build([])
     version = next_version(source)
-    :persistent_term.put(version_key(source, version), empty)
-    :persistent_term.put(active_key(source), version)
-    :persistent_term.put(active_trie_key(source), empty)
+    handle = {version, empty}
+    :persistent_term.put(active_handle_key(source), handle)
 
-    if is_integer(previous) and previous != version do
-      schedule_erase(source, previous)
+    case previous_handle do
+      {prev_v, _} when prev_v != version ->
+        schedule_erase_stale(source, prev_v, previous_handle)
+
+      _ ->
+        :ok
     end
 
     unregister_source(source)
@@ -202,7 +206,7 @@ defmodule ServiceRadar.PrefixTags.Store do
   """
   @spec sources() :: [source()]
   def sources do
-    :persistent_term.get(@sources_key, MapSet.new()) |> MapSet.to_list()
+    @sources_key |> :persistent_term.get(MapSet.new()) |> MapSet.to_list()
   rescue
     ArgumentError -> []
   end
@@ -210,16 +214,23 @@ defmodule ServiceRadar.PrefixTags.Store do
   @doc "Current active version for a source, or nil."
   @spec active_version(source()) :: version() | nil
   def active_version(source) when is_binary(source) do
-    :persistent_term.get(active_key(source), nil)
-  rescue
-    ArgumentError -> nil
+    case active_handle(source) do
+      {version, _} -> version
+      _ -> nil
+    end
   end
 
   @doc false
   @spec active_trie(source()) :: Engine.t() | nil
   def active_trie(source) when is_binary(source) do
-    # One get: never version-then-key (erase can race the second hop).
-    :persistent_term.get(active_trie_key(source), nil)
+    case active_handle(source) do
+      {_version, trie} -> trie
+      _ -> nil
+    end
+  end
+
+  defp active_handle(source) do
+    :persistent_term.get(active_handle_key(source), nil)
   rescue
     ArgumentError -> nil
   end
@@ -284,9 +295,8 @@ defmodule ServiceRadar.PrefixTags.Store do
 
   defp masklen(_), do: 0
 
-  defp active_key(source), do: {@active_key_prefix, source}
-  defp active_trie_key(source), do: {@active_trie_key_prefix, source}
-  defp version_key(source, version), do: {@version_key_prefix, source, version}
+  defp active_handle_key(source), do: {@active_handle_key_prefix, source}
+  defp stale_handle_key(source, version), do: {@stale_handle_key_prefix, source, version}
 
   defp next_version(source) do
     case active_version(source) do
@@ -295,13 +305,14 @@ defmodule ServiceRadar.PrefixTags.Store do
     end
   end
 
-  defp schedule_erase(source, previous_version)
+  # Park the previous handle under a short-lived key so GC of the large term is
+  # delayed (readers may still hold the old term). Not used for lookups.
+  defp schedule_erase_stale(source, previous_version, previous_handle)
        when is_binary(source) and is_integer(previous_version) do
-    key = version_key(source, previous_version)
+    key = stale_handle_key(source, previous_version)
+    :persistent_term.put(key, previous_handle)
     delay = erase_delay_ms()
 
-    # Detached task: never block the swap path. If the BEAM exits sooner the
-    # term dies with the VM. Only erase if this version is still not active.
     _ =
       Task.start(fn ->
         Process.sleep(delay)

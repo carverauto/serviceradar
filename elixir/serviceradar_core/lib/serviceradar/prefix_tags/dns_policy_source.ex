@@ -79,9 +79,7 @@ defmodule ServiceRadar.PrefixTags.DnsPolicySource do
     prefix = host_prefix(client_ip)
     policy_slug = Slug.slugify(policy_name || "unknown", empty: "unknown")
 
-    tags =
-      ["dns-policy:hit", "dns-policy:#{policy_slug}"]
-      |> Enum.uniq()
+    tags = Enum.uniq(["dns-policy:hit", "dns-policy:#{policy_slug}"])
 
     %{
       prefix: prefix,

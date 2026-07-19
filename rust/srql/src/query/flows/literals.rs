@@ -199,11 +199,7 @@ pub(in crate::query::flows) fn normalize_near_literal(raw: &str) -> Result<NearP
         ));
     }
 
-    Ok(NearPoint {
-        lat,
-        lng,
-        radius_m,
-    })
+    Ok(NearPoint { lat, lng, radius_m })
 }
 
 fn parse_radius_meters(raw: &str) -> Result<f64> {
@@ -219,9 +215,9 @@ fn parse_radius_meters(raw: &str) -> Result<f64> {
         (s.as_str(), 1_000.0)
     };
 
-    let value: f64 = num_str.parse().map_err(|_| {
-        ServiceError::InvalidRequest(format!("near radius is not a number: {raw}"))
-    })?;
+    let value: f64 = num_str
+        .parse()
+        .map_err(|_| ServiceError::InvalidRequest(format!("near radius is not a number: {raw}")))?;
     Ok(value * factor)
 }
 

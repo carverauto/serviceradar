@@ -305,7 +305,7 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
 }
 
 fn build_stats_near_filter(filter: &Filter) -> Result<String> {
-    use crate::query::flows::literals::{near_exists_sql, normalize_near_literal, NearSide};
+    use crate::query::flows::literals::{NearSide, near_exists_sql, normalize_near_literal};
 
     let side = match filter.field.as_str() {
         "src_near" => NearSide::Src,
@@ -331,7 +331,10 @@ fn build_stats_near_filter(filter: &Filter) -> Result<String> {
         }
         FilterOp::NotEq => {
             let point = normalize_near_literal(filter.value.as_scalar()?)?;
-            Ok(format!("(NOT {})", rewrite_ip(near_exists_sql(point, side))))
+            Ok(format!(
+                "(NOT {})",
+                rewrite_ip(near_exists_sql(point, side))
+            ))
         }
         _ => Err(ServiceError::InvalidRequest(
             "near filter only supports equality (e.g. near:30.27,-97.74,50km)".into(),

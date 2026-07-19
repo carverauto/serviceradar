@@ -7,6 +7,7 @@ defmodule ServiceRadar.PrefixTags.Manual do
   refresh cluster-wide.
   """
 
+  alias Ash.Error.Query.NotFound
   alias ServiceRadar.PrefixTags.Loader
   alias ServiceRadar.PrefixTags.PrefixTag
   alias ServiceRadar.PrefixTags.Snapshot
@@ -35,11 +36,11 @@ defmodule ServiceRadar.PrefixTags.Manual do
       {:ok, %Snapshot{} = snap} ->
         snap
 
-      {:error, %Ash.Error.Query.NotFound{}} ->
+      {:error, %NotFound{}} ->
         create_active_manual_snapshot!(ash_opts)
 
       {:error, %Ash.Error.Invalid{errors: errors}} ->
-        if Enum.any?(errors, &match?(%Ash.Error.Query.NotFound{}, &1)) do
+        if Enum.any?(errors, &match?(%NotFound{}, &1)) do
           create_active_manual_snapshot!(ash_opts)
         else
           raise "PrefixTags.Manual ensure_active_snapshot failed: #{inspect(errors)}"
@@ -55,17 +56,37 @@ defmodule ServiceRadar.PrefixTags.Manual do
   def list(opts \\ []) do
     source = Keyword.get(opts, :source, @source)
     ash_opts = ash_opts(opts)
+    limit = Keyword.get(opts, :limit, 500)
+    offset = Keyword.get(opts, :offset, 0)
 
     query =
       PrefixTag
       |> Ash.Query.for_read(:list_active, %{}, ash_opts)
       |> Ash.Query.filter(snapshot.source == ^source)
       |> Ash.Query.sort(prefix: :asc)
-      |> Ash.Query.limit(Keyword.get(opts, :limit, 500))
+      |> Ash.Query.limit(limit)
+      |> Ash.Query.offset(offset)
 
     case Ash.read(query, ash_opts) do
       {:ok, page} -> {:ok, page_results(page)}
       {:error, err} -> {:error, err}
+    end
+  end
+
+  @doc "Fetch one prefix tag by id (for edit/delete outside the current page)."
+  @spec get(term(), keyword()) :: {:ok, PrefixTag.t()} | {:error, term()}
+  def get(id, opts \\ []) do
+    ash_opts = ash_opts(opts)
+
+    case Ash.get(PrefixTag, id, ash_opts) do
+      {:ok, %PrefixTag{} = tag} ->
+        case Ash.load(tag, [:snapshot], ash_opts) do
+          {:ok, loaded} -> {:ok, loaded}
+          {:error, _} -> {:ok, tag}
+        end
+
+      {:error, err} ->
+        {:error, err}
     end
   end
 
@@ -92,7 +113,7 @@ defmodule ServiceRadar.PrefixTags.Manual do
     ash_opts = ash_opts(opts)
 
     with {:ok, snapshot} <- ensure_active_snapshot(opts),
-         attrs <-
+         attrs =
            attrs
            |> stringify_keys()
            |> Map.put("snapshot_id", snapshot.id)
@@ -227,28 +248,48 @@ defmodule ServiceRadar.PrefixTags.Manual do
     end
   end
 
-  defp bump_record_count!(%Snapshot{} = snapshot, ash_opts) do
-    count =
-      case Ecto.Adapters.SQL.query(
-             ServiceRadar.Repo,
-             """
-             SELECT COUNT(*)::bigint
+  defp bump_record_count!(%Snapshot{} = snapshot, _ash_opts) do
+    # Single statement: COUNT + UPDATE so concurrent CRUD cannot persist a
+    # stale counter. Never write 0 on query failure.
+    case Ecto.Adapters.SQL.query(
+           ServiceRadar.Repo,
+           """
+           UPDATE platform.prefix_tag_snapshots s
+           SET record_count = sub.cnt,
+               updated_at = NOW()
+           FROM (
+             SELECT COUNT(*)::bigint AS cnt
              FROM platform.prefix_tags
              WHERE snapshot_id = $1
-             """,
-             [snapshot.id]
-           ) do
-        {:ok, %{rows: [[n]]}} when is_integer(n) -> n
-        {:ok, %{rows: [[n]]}} -> String.to_integer(to_string(n))
-        _ -> 0
-      end
+           ) sub
+           WHERE s.id = $1
+           RETURNING s.record_count
+           """,
+           [snapshot.id]
+         ) do
+      {:ok, %{rows: [[n]]}} when is_integer(n) ->
+        n
 
-    _ = Snapshot.update_record_count(snapshot, %{record_count: count}, ash_opts)
-    count
+      {:ok, %{rows: [[n]]}} ->
+        String.to_integer(to_string(n))
+
+      {:error, reason} ->
+        Logger.warning("PrefixTags.Manual record_count bump failed",
+          error: inspect(reason)
+        )
+
+        snapshot.record_count || 0
+
+      _ ->
+        snapshot.record_count || 0
+    end
   rescue
     e ->
-      Logger.debug("PrefixTags.Manual record_count bump failed", error: Exception.message(e))
-      0
+      Logger.warning("PrefixTags.Manual record_count bump crashed",
+        error: Exception.message(e)
+      )
+
+      snapshot.record_count || 0
   end
 
   defp invalidate! do

@@ -254,7 +254,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
         ip =
           params
-          |> Map.get("ip", Map.get(params, "prefix_tag_preview", %{}) |> Map.get("ip", ""))
+          |> Map.get("ip", params |> Map.get("prefix_tag_preview", %{}) |> Map.get("ip", ""))
           |> to_string()
           |> String.trim()
 

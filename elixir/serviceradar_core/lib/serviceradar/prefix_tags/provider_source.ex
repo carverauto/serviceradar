@@ -78,8 +78,7 @@ defmodule ServiceRadar.PrefixTags.ProviderSource do
   def provider_for_ip(ip) when is_binary(ip) do
     case Store.lookup(ip, @source) do
       [%{tags: tags} | _] ->
-        tags
-        |> Enum.find_value(fn
+        Enum.find_value(tags, fn
           "provider:" <> name when name != "" -> name
           _ -> nil
         end)

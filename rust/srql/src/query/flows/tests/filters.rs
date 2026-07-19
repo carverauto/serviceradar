@@ -201,7 +201,10 @@ fn near_composes_with_tag_filter() {
     };
 
     let (sql, _params) = to_sql_and_params(&plan).expect("composed filters should translate");
-    assert!(sql.contains("@>") && sql.contains("ti:otx"), "tag missing: {sql}");
+    assert!(
+        sql.contains("@>") && sql.contains("ti:otx"),
+        "tag missing: {sql}"
+    );
     assert!(sql.contains("ST_DWithin"), "near missing: {sql}");
 }
 
@@ -226,10 +229,7 @@ fn rejects_invalid_near_literal() {
     };
 
     let err = to_sql_and_params(&plan).expect_err("invalid near should fail");
-    assert!(
-        err.to_string().contains("near"),
-        "unexpected error: {err}"
-    );
+    assert!(err.to_string().contains("near"), "unexpected error: {err}");
 }
 
 #[test]
