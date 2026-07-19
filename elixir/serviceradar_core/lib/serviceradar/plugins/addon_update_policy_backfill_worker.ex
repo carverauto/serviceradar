@@ -89,7 +89,7 @@ defmodule ServiceRadar.Plugins.AddonUpdatePolicyBackfillWorker do
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
-      if scheduled?() do
+      if backfill_scheduled?() do
         {:ok, :already_scheduled}
       else
         %{"migration_version" => @backfill_version}
@@ -137,17 +137,28 @@ defmodule ServiceRadar.Plugins.AddonUpdatePolicyBackfillWorker do
     end)
   end
 
-  defp scheduled? do
-    successful_states = Oban.Job.unique_states(:successful)
-
+  @doc false
+  @spec backfill_scheduled?() :: boolean()
+  def backfill_scheduled? do
     query =
       from(job in Oban.Job,
         where: job.worker == ^to_string(__MODULE__),
-        where: job.state in ^successful_states,
+        where: job.state in ^successful_state_names(),
         where: fragment("?->>'migration_version' = ?", job.args, ^@backfill_version),
         limit: 1
       )
 
     Repo.exists?(query, prefix: ObanSupport.prefix())
+  end
+
+  # Oban.Job.unique_states/1 returns atoms, but Oban.Job.state is a :string
+  # field - interpolating the atoms raises Ecto.Query.CastError at runtime
+  # (crash-looped every core in v1.4.24; see issue #4645).
+  @doc false
+  @spec successful_state_names() :: [String.t()]
+  def successful_state_names do
+    :successful
+    |> Oban.Job.unique_states()
+    |> Enum.map(&to_string/1)
   end
 end
