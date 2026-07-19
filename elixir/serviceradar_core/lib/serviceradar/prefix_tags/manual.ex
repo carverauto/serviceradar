@@ -345,15 +345,17 @@ defmodule ServiceRadar.PrefixTags.Manual do
   defp default_mask(_), do: 32
 
   defp ash_opts(opts) do
+    # Resource declares domain: ServiceRadar.PrefixTags; code-interface
+    # Create/Update/Destroy opts explicitly reject a second :domain key.
     cond do
       scope = Keyword.get(opts, :scope) ->
-        [scope: scope, domain: ServiceRadar.PrefixTags]
+        [scope: scope]
 
       actor = Keyword.get(opts, :actor) ->
-        [actor: actor, domain: ServiceRadar.PrefixTags]
+        [actor: actor]
 
       true ->
-        [domain: ServiceRadar.PrefixTags]
+        []
     end
   end
 

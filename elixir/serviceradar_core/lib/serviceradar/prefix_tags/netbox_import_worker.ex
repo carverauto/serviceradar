@@ -527,7 +527,9 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
     now = DateTime.utc_now()
 
     fn ->
-      {:ok, snapshot} =
+      # Code-interface CreateOpts do not accept :domain (resource already declares it).
+      # return_notifications?: true so we can flush after the outer transaction commits.
+      {:ok, snapshot, notes} =
         Snapshot.create(
           %{
             source: @source_name,
@@ -540,23 +542,28 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
             metadata: meta || %{}
           },
           actor: actor,
-          domain: ServiceRadar.PrefixTags
+          return_notifications?: true
         )
 
-      count = bulk_insert_prefix_tags!(snapshot.id, rows, actor)
+      {count, bulk_notes} = bulk_insert_prefix_tags!(snapshot.id, rows, actor)
 
       if count == 0 and rows != [] do
         Repo.rollback(:no_rows_inserted)
       else
-        supersede_previous_active!(actor, snapshot.id)
-        promote_active!(snapshot, count, actor)
-        :ok
+        supersede_notes = supersede_previous_active!(actor, snapshot.id)
+        promote_notes = promote_active!(snapshot, count, actor)
+
+        {notes ++ bulk_notes ++ supersede_notes ++ promote_notes, :ok}
       end
     end
     |> Repo.transaction(timeout: @db_timeout_ms)
     |> case do
-      {:ok, :ok} -> :ok
-      {:error, reason} -> {:error, reason}
+      {:ok, {notifications, :ok}} ->
+        _ = Ash.Notifier.notify(notifications)
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -580,18 +587,19 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
 
     inputs
     |> Enum.chunk_every(@insert_chunk_size)
-    |> Enum.reduce(0, fn chunk, acc ->
+    |> Enum.reduce({0, []}, fn chunk, {acc, notes_acc} ->
       case Ash.bulk_create(chunk, PrefixTag, :create,
              actor: actor,
              domain: ServiceRadar.PrefixTags,
              return_records?: false,
              return_errors?: true,
+             return_notifications?: true,
              stop_on_error?: true,
              batch_size: @insert_chunk_size,
              timeout: @db_timeout_ms
            ) do
-        %Ash.BulkResult{status: :success} ->
-          acc + length(chunk)
+        %Ash.BulkResult{status: :success, notifications: notes} ->
+          {acc + length(chunk), notes_acc ++ List.wrap(notes)}
 
         %Ash.BulkResult{status: status, errors: errors} = result ->
           Repo.rollback({:bulk_create_failed, status, errors || result})
@@ -607,23 +615,24 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
       {:ok, %Snapshot{id: id} = previous} when id != keep_id ->
         case previous
              |> Ash.Changeset.for_update(:supersede, %{}, actor: actor)
-             |> Ash.update(domain: ServiceRadar.PrefixTags) do
-          {:ok, _} -> :ok
+             |> Ash.update(domain: ServiceRadar.PrefixTags, return_notifications?: true) do
+          {:ok, _, notes} -> List.wrap(notes)
+          {:ok, _} -> []
           {:error, err} -> Repo.rollback({:supersede_failed, err})
         end
 
       {:ok, _} ->
-        :ok
+        []
 
       {:error, %Ash.Error.Invalid{errors: errors}} ->
         if Enum.any?(errors, &match?(%NotFound{}, &1)) do
-          :ok
+          []
         else
           Repo.rollback({:supersede_failed, errors})
         end
 
       {:error, %NotFound{}} ->
-        :ok
+        []
 
       {:error, err} ->
         Repo.rollback({:supersede_failed, err})
@@ -633,9 +642,10 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
   defp promote_active!(snapshot, count, actor) do
     case Snapshot.promote(snapshot, %{record_count: count},
            actor: actor,
-           domain: ServiceRadar.PrefixTags
+           return_notifications?: true
          ) do
-      {:ok, _} -> :ok
+      {:ok, _, notes} -> List.wrap(notes)
+      {:ok, _} -> []
       {:error, err} -> Repo.rollback({:promote_failed, err})
     end
   end
