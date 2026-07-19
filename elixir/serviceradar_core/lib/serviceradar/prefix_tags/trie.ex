@@ -22,7 +22,9 @@ defmodule ServiceRadar.PrefixTags.Trie do
           optional(:vrf) => String.t() | nil,
           optional(:severity) => non_neg_integer() | nil,
           optional(:indicator_count) => non_neg_integer() | nil,
-          optional(:expires_at) => DateTime.t() | nil
+          optional(:expires_at) => DateTime.t() | nil,
+          optional(:feed_sources) => [String.t()] | nil,
+          optional(:indicators) => [map()] | nil
         }
 
   @type node_t :: %{
@@ -148,13 +150,62 @@ defmodule ServiceRadar.PrefixTags.Trie do
       |> Enum.map(&to_string/1)
       |> Enum.uniq()
 
+    severity = max_optional_int(prev[:severity], new[:severity])
+
+    indicator_count =
+      case {prev[:indicator_count], new[:indicator_count]} do
+        {a, b} when is_integer(a) and is_integer(b) -> a + b
+        {a, _} when is_integer(a) -> a
+        {_, b} when is_integer(b) -> b
+        _ -> nil
+      end
+
+    indicators =
+      case {List.wrap(prev[:indicators]), List.wrap(new[:indicators])} do
+        {[], []} -> nil
+        {a, b} -> a ++ b
+      end
+
+    feed_sources =
+      (List.wrap(prev[:feed_sources]) ++ List.wrap(new[:feed_sources]))
+      |> Enum.map(&to_string/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    # Prefer permanent (nil) expiry; otherwise keep the later expiry so a
+    # finite member does not drop a longer-lived peer early.
+    expires_at =
+      case {prev[:expires_at], new[:expires_at]} do
+        {nil, nil} -> nil
+        {nil, _} -> nil
+        {_, nil} -> nil
+        {a, b} -> later_datetime(a, b)
+      end
+
     %{
       prefix: new.prefix || prev.prefix,
       tags: tags,
       source: new[:source] || prev[:source],
       vrf: new[:vrf] || prev[:vrf]
     }
+    |> maybe_put_severity(severity)
+    |> maybe_put(:indicator_count, indicator_count)
+    |> maybe_put(:expires_at, expires_at)
+    |> maybe_put(:feed_sources, if(feed_sources == [], do: nil, else: feed_sources))
+    |> maybe_put(:indicators, indicators)
   end
+
+  defp max_optional_int(a, b) when is_integer(a) and is_integer(b), do: max(a, b)
+  defp max_optional_int(a, _) when is_integer(a), do: a
+  defp max_optional_int(_, b) when is_integer(b), do: b
+  defp max_optional_int(_, _), do: nil
+
+  defp later_datetime(%DateTime{} = a, %DateTime{} = b) do
+    if DateTime.after?(a, b), do: a, else: b
+  end
+
+  defp later_datetime(a, _) when not is_nil(a), do: a
+  defp later_datetime(_, b), do: b
 
   # Prepend matches as we descend so the deepest (most-specific) entries end up
   # at the head of the list. Nodes may hold multiple VRF variants of a prefix.
@@ -195,6 +246,8 @@ defmodule ServiceRadar.PrefixTags.Trie do
     severity = normalize_severity(row[:severity] || row["severity"])
     indicator_count = row[:indicator_count] || row["indicator_count"]
     expires_at = row[:expires_at] || row["expires_at"]
+    feed_sources = row[:feed_sources] || row["feed_sources"]
+    indicators = row[:indicators] || row["indicators"]
 
     with true <- is_binary(prefix),
          {:ok, family, bits, mask} <- parse_prefix(prefix) do
@@ -203,6 +256,8 @@ defmodule ServiceRadar.PrefixTags.Trie do
         |> maybe_put_severity(severity)
         |> maybe_put(:indicator_count, indicator_count)
         |> maybe_put(:expires_at, expires_at)
+        |> maybe_put(:feed_sources, feed_sources)
+        |> maybe_put(:indicators, indicators)
 
       {:ok, family, bits, mask, entry}
     else

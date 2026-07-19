@@ -118,7 +118,7 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorkerTest do
     end
 
     test "count mismatch fails" do
-      bad_page = Map.put(@page1, "count", 99) |> Map.put("next", nil)
+      bad_page = @page1 |> Map.put("count", 99) |> Map.put("next", nil)
 
       http_get = fn url, _opts ->
         if String.contains?(url, "/aggregates/") do
@@ -152,6 +152,20 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorkerTest do
                NetboxImportWorker.resolve_credentials(
                  credentials: %{"url" => "https://nb.example"}
                )
+    end
+  end
+
+  describe "request_opts/2" do
+    test "verify_ssl true keeps the named Finch pool" do
+      opts = NetboxImportWorker.request_opts(5_000, true)
+      assert Keyword.get(opts, :finch) == ServiceRadar.Finch
+      refute Keyword.has_key?(opts, :connect_options)
+    end
+
+    test "verify_ssl false drops Finch and sets transport_opts (Req 0.6 contract)" do
+      opts = NetboxImportWorker.request_opts(5_000, false)
+      refute Keyword.has_key?(opts, :finch)
+      assert Keyword.get(opts, :connect_options) == [transport_opts: [verify: :verify_none]]
     end
   end
 

@@ -286,9 +286,8 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
 
       opts =
         timeout_ms
-        |> OutboundFeedPolicy.req_opts()
+        |> request_opts(creds.verify_ssl)
         |> Keyword.put(:headers, headers)
-        |> maybe_insecure(creds.verify_ssl)
 
       case http_get.(safe_url, opts) do
         {:ok, %{status: 200, body: body}} ->
@@ -381,7 +380,20 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
   defp maybe_insecure(opts, true), do: opts
 
   defp maybe_insecure(opts, false) do
-    Keyword.put(opts, :connect_options, transport_opts: [verify: :verify_none])
+    # Req 0.6 refuses :finch and :connect_options together. Drop the named
+    # pool when dynamic TLS options are required (self-signed NetBox).
+    opts
+    |> Keyword.delete(:finch)
+    |> Keyword.put(:connect_options, transport_opts: [verify: :verify_none])
+  end
+
+  @doc false
+  @spec request_opts(pos_integer(), boolean()) :: keyword()
+  def request_opts(timeout_ms, verify_ssl)
+      when is_integer(timeout_ms) and timeout_ms > 0 and is_boolean(verify_ssl) do
+    timeout_ms
+    |> OutboundFeedPolicy.req_opts()
+    |> maybe_insecure(verify_ssl)
   end
 
   defp decode_body(body) when is_map(body), do: {:ok, body}

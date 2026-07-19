@@ -73,8 +73,8 @@ defmodule ServiceRadarWebNGWeb.Netflow.PrefixTagQuery do
       [_, quoted] when quoted != "" -> quoted
       [_, quoted, ""] when quoted != "" -> quoted
       [_, "", bare] when bare != "" -> bare
-      [_, quoted, bare] when quoted != "" -> quoted
-      [_, quoted, bare] when bare != "" -> bare
+      [_, quoted, _bare] when quoted != "" -> quoted
+      [_, _quoted, bare] when bare != "" -> bare
       _ -> nil
     end
   end

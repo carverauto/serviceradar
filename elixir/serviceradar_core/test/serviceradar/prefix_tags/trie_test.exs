@@ -154,6 +154,21 @@ defmodule ServiceRadar.PrefixTags.TrieTest do
       assert Enum.sort(Enum.map(chain, & &1.source)) == ["manual", "provider", "ti"]
     end
 
+    test "dynamically named sources appear in sources/0 and aggregate lookup" do
+      Store.put_rows("custom", [
+        %{prefix: "203.0.113.0/24", tags: ["custom:zone"], source: "custom"}
+      ])
+
+      assert Store.loaded?("custom")
+      assert "custom" in Store.sources()
+      assert [%{tags: ["custom:zone"], source: "custom"}] = Store.lookup("203.0.113.10")
+      assert Store.lookup("203.0.113.10", "custom") != []
+
+      Store.clear()
+      refute "custom" in Store.sources()
+      assert Store.lookup("203.0.113.10") == []
+    end
+
     test "snapshot swap under concurrent lookups" do
       Store.put_rows("manual", [%{prefix: "10.0.0.0/8", tags: ["v1"], source: "manual"}])
 

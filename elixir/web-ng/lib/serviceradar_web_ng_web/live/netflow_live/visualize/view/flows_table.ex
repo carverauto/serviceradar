@@ -101,17 +101,15 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
                   >
                     {hostname}
                   </div>
-                  <PrefixTagChips.linked
-                    items={
-                      linked_prefix_tag_items(
-                        flow_prefix_tags(flow, :src),
-                        @base_path,
-                        @query,
-                        @limit,
-                        @nf_param
-                      )
-                    }
-                  />
+                  <PrefixTagChips.linked items={
+                    linked_prefix_tag_items(
+                      flow_prefix_tags(flow, :src),
+                      @base_path,
+                      @query,
+                      @limit,
+                      @nf_param
+                    )
+                  } />
                 </div>
               </td>
               <td class="text-xs font-mono min-w-0">
@@ -151,17 +149,15 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
                   >
                     {hostname}
                   </div>
-                  <PrefixTagChips.linked
-                    items={
-                      linked_prefix_tag_items(
-                        flow_prefix_tags(flow, :dst),
-                        @base_path,
-                        @query,
-                        @limit,
-                        @nf_param
-                      )
-                    }
-                  />
+                  <PrefixTagChips.linked items={
+                    linked_prefix_tag_items(
+                      flow_prefix_tags(flow, :dst),
+                      @base_path,
+                      @query,
+                      @limit,
+                      @nf_param
+                    )
+                  } />
                 </div>
               </td>
               <td class="whitespace-nowrap text-xs text-right font-mono align-top">

@@ -9,6 +9,11 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
 
   Does **not** retro-tag historical flows — only subsequent enrichment lookups
   see the refreshed trie.
+
+  Per-prefix aggregation keeps a structured `indicators` list so CTI matching
+  can apply per-member expiry (SQL parity: permanent + finite members on the
+  same CIDR). Display tags are capped; raw source provenance and severity live
+  on structured fields and are not subject to the display budget.
   """
 
   alias Ecto.Adapters.SQL
@@ -69,13 +74,16 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
   def map_indicator_row(prefix, source, label, severity \\ nil, expires_at \\ nil)
 
   def map_indicator_row(prefix, source, label, severity, expires_at) when is_binary(prefix) do
-    source_slug = Slug.slugify(source || "unknown", empty: "unknown")
-    tags = ["ti:#{source_slug}"]
+    source_raw = source_string(source)
+    source_slug = slug_source(source_raw)
     sev = normalize_severity(severity)
+    exp = normalize_expires_at(expires_at)
+
+    tags = ["ti:#{source_slug}"]
 
     tags =
       if is_binary(label) and String.trim(label) != "" do
-        case Slug.slugify(label) do
+        case slugify_label(label) do
           nil -> tags
           label_slug -> ["ti:label:#{label_slug}" | tags]
         end
@@ -91,33 +99,68 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
         n -> ["ti:severity:#{n}" | tags]
       end
 
+    display_tags = tags |> Enum.reverse() |> Enum.uniq() |> take_display_tags()
+
     %{
       prefix: prefix,
-      tags: tags |> Enum.reverse() |> Enum.uniq() |> Enum.take(@max_tags_per_prefix),
+      tags: display_tags,
       source: @source,
       severity: sev,
       # One indicator row contributes 1 toward SQL-parity match_count.
       indicator_count: 1,
-      expires_at: expires_at
+      expires_at: exp,
+      # Raw provenance for CTI (not subject to the display-tag cap).
+      feed_sources: [source_raw],
+      indicators: [
+        %{
+          source: source_raw,
+          source_slug: source_slug,
+          severity: sev,
+          expires_at: exp,
+          indicator_count: 1,
+          tags: display_tags
+        }
+      ]
     }
   end
 
   @doc """
   Highest severity from a Store match chain (prefers first-class `:severity`,
-  falls back to `ti:severity:N` tags).
+  falls back to `ti:severity:N` tags). Honors per-indicator expiry when
+  `indicators` metadata is present.
   """
-  @spec max_severity_from_match([map()]) :: non_neg_integer()
-  def max_severity_from_match(chain) when is_list(chain) do
+  @spec max_severity_from_match([map()], DateTime.t() | nil) :: non_neg_integer()
+  def max_severity_from_match(chain, now \\ nil)
+
+  def max_severity_from_match(chain, now) when is_list(chain) do
+    now = now || DateTime.utc_now()
+
     Enum.reduce(chain, 0, fn match, acc ->
-      case match do
-        %{severity: n} when is_integer(n) and n > acc -> n
-        %{tags: tags} when is_list(tags) -> max(acc, max_severity_from_tags(tags))
-        _ -> acc
+      case active_indicators(match, now) do
+        [_ | _] = inds ->
+          sev =
+            inds
+            |> Enum.map(& &1[:severity])
+            |> Enum.reject(&is_nil/1)
+            |> Enum.max(fn -> 0 end)
+
+          max(acc, sev)
+
+        [] ->
+          if match_expired?(match, now) do
+            acc
+          else
+            case match do
+              %{severity: n} when is_integer(n) and n > acc -> n
+              %{tags: tags} when is_list(tags) -> max(acc, max_severity_from_tags(tags))
+              _ -> acc
+            end
+          end
       end
     end)
   end
 
-  def max_severity_from_match(_), do: 0
+  def max_severity_from_match(_, _), do: 0
 
   @doc """
   Extract the highest `ti:severity:N` value from a list of tags (0 if none).
@@ -155,6 +198,104 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
 
   def sources_from_tags(_), do: []
 
+  @doc """
+  Raw feed sources for an active (non-expired) match chain.
+
+  Prefer structured `feed_sources` / `indicators` over display tags so the
+  eight-tag cap cannot drop provenance.
+  """
+  @spec sources_from_match([map()], DateTime.t() | nil) :: [String.t()]
+  def sources_from_match(chain, now \\ nil)
+
+  def sources_from_match(chain, now) when is_list(chain) do
+    now = now || DateTime.utc_now()
+
+    chain
+    |> Enum.flat_map(fn match ->
+      case active_indicators(match, now) do
+        [_ | _] = inds ->
+          Enum.map(inds, fn ind ->
+            ind[:source] || ind[:source_slug] || ""
+          end)
+
+        [] ->
+          if match_expired?(match, now) do
+            []
+          else
+            case match do
+              %{feed_sources: srcs} when is_list(srcs) -> srcs
+              %{tags: tags} when is_list(tags) -> sources_from_tags(tags)
+              _ -> []
+            end
+          end
+      end
+    end)
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  def sources_from_match(_, _), do: []
+
+  @doc "SQL-parity match count from active indicators on a chain."
+  @spec indicator_count_from_match([map()], DateTime.t() | nil) :: non_neg_integer()
+  def indicator_count_from_match(chain, now \\ nil)
+
+  def indicator_count_from_match(chain, now) when is_list(chain) do
+    now = now || DateTime.utc_now()
+
+    Enum.reduce(chain, 0, fn match, acc ->
+      case active_indicators(match, now) do
+        [_ | _] = inds ->
+          sum =
+            inds
+            |> Enum.map(fn
+              %{indicator_count: n} when is_integer(n) and n > 0 -> n
+              _ -> 1
+            end)
+            |> Enum.sum()
+
+          acc + sum
+
+        [] ->
+          if match_expired?(match, now) do
+            acc
+          else
+            case match do
+              %{indicator_count: n} when is_integer(n) and n > 0 -> acc + n
+              _ -> acc + 1
+            end
+          end
+      end
+    end)
+  end
+
+  def indicator_count_from_match(_, _), do: 0
+
+  @doc false
+  @spec match_expired?(map(), DateTime.t()) :: boolean()
+  def match_expired?(match, now) when is_map(match) do
+    case normalize_expires_at(Map.get(match, :expires_at)) do
+      %DateTime{} = exp -> DateTime.compare(exp, now) != :gt
+      _ -> false
+    end
+  end
+
+  def match_expired?(_, _), do: false
+
+  @doc false
+  @spec active_indicators(map(), DateTime.t()) :: [map()]
+  def active_indicators(%{indicators: inds}, now) when is_list(inds) do
+    Enum.filter(inds, fn ind ->
+      case normalize_expires_at(ind[:expires_at] || ind["expires_at"]) do
+        %DateTime{} = exp -> DateTime.after?(exp, now)
+        _ -> true
+      end
+    end)
+  end
+
+  def active_indicators(_, _), do: []
+
   defp fetch_rows do
     case SQL.query(Repo, @load_active_sql, []) do
       {:ok, %{rows: rows}} ->
@@ -174,45 +315,10 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
               nil
           end)
           |> Enum.reject(&is_nil/1)
-          # Collapse duplicate prefixes: merge tags, sum indicator counts,
-          # keep highest severity and earliest expiry.
+          # Collapse duplicate prefixes for the display trie, but keep each
+          # indicator's own expiry/severity/source for CTI parity.
           |> Enum.group_by(& &1.prefix)
-          |> Enum.map(fn {prefix, group} ->
-            tags =
-              group
-              |> Enum.flat_map(& &1.tags)
-              |> collapse_severity_tags()
-              |> Enum.uniq()
-              |> Enum.take(@max_tags_per_prefix)
-
-            sev =
-              group
-              |> Enum.map(& &1[:severity])
-              |> Enum.reject(&is_nil/1)
-              |> Enum.max(fn -> nil end)
-
-            count =
-              group
-              |> Enum.map(&(&1[:indicator_count] || 1))
-              |> Enum.sum()
-
-            expires_at =
-              case group
-                   |> Enum.map(& &1[:expires_at])
-                   |> Enum.reject(&is_nil/1) do
-                [] -> nil
-                dts -> Enum.min(dts, DateTime)
-              end
-
-            %{
-              prefix: prefix,
-              tags: tags,
-              source: @source,
-              severity: sev,
-              indicator_count: count,
-              expires_at: expires_at
-            }
-          end)
+          |> Enum.map(fn {prefix, group} -> merge_prefix_group(prefix, group) end)
 
         {:ok, parsed}
 
@@ -223,16 +329,109 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
     e -> {:error, e}
   end
 
-  defp collapse_severity_tags(tags) do
+  defp merge_prefix_group(prefix, group) when is_list(group) do
+    indicators =
+      Enum.flat_map(group, fn row ->
+        case row do
+          %{indicators: inds} when is_list(inds) and inds != [] -> inds
+          row -> [row_as_indicator(row)]
+        end
+      end)
+
+    feed_sources =
+      indicators
+      |> Enum.map(&(&1[:source] || ""))
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    # Display tags: merge labels/sources under the cap, but always preserve
+    # the canonical max severity tag (reserved outside the budget).
+    raw_tags = Enum.flat_map(group, &List.wrap(&1.tags))
+    display_tags = build_display_tags(raw_tags)
+
+    # Aggregate expires_at is only used as a coarse gate when indicators list
+    # is missing; never min-across-all (that would drop permanent members).
+    # Leave nil when any member is permanent; otherwise use the latest expiry
+    # so the coarse gate does not drop later members early.
+    expires_at = aggregate_expires_at(indicators)
+
+    sev =
+      indicators
+      |> Enum.map(& &1[:severity])
+      |> Enum.reject(&is_nil/1)
+      |> Enum.max(fn -> nil end)
+
+    count =
+      indicators
+      |> Enum.map(&(&1[:indicator_count] || 1))
+      |> Enum.sum()
+
+    %{
+      prefix: prefix,
+      tags: display_tags,
+      source: @source,
+      severity: sev,
+      indicator_count: count,
+      expires_at: expires_at,
+      feed_sources: feed_sources,
+      indicators: indicators
+    }
+  end
+
+  defp row_as_indicator(row) do
+    %{
+      source: List.first(List.wrap(row[:feed_sources])) || source_from_tags(row[:tags]),
+      source_slug: nil,
+      severity: row[:severity],
+      expires_at: row[:expires_at],
+      indicator_count: row[:indicator_count] || 1,
+      tags: List.wrap(row[:tags])
+    }
+  end
+
+  defp source_from_tags(tags) when is_list(tags) do
+    case sources_from_tags(tags) do
+      [s | _] -> s
+      _ -> "unknown"
+    end
+  end
+
+  defp source_from_tags(_), do: "unknown"
+
+  # Never expire the whole prefix at the earliest member: if any indicator has
+  # no expiry (permanent), coarse gate is nil. Otherwise use the *latest*
+  # expiry so permanent-style late members survive intermediate ones.
+  defp aggregate_expires_at(indicators) do
+    expiries = Enum.map(indicators, &normalize_expires_at(&1[:expires_at]))
+
+    if Enum.any?(expiries, &is_nil/1) do
+      nil
+    else
+      case Enum.reject(expiries, &is_nil/1) do
+        [] -> nil
+        dts -> Enum.max(dts, DateTime)
+      end
+    end
+  end
+
+  defp build_display_tags(tags) do
     max_sev = max_severity_from_tags(tags)
 
     rest =
-      Enum.reject(tags, fn
+      tags
+      |> Enum.reject(fn
         "ti:severity:" <> _ -> true
         _ -> false
       end)
+      |> Enum.uniq()
+      # Reserve one slot for the severity tag when present.
+      |> Enum.take(if(max_sev > 0, do: @max_tags_per_prefix - 1, else: @max_tags_per_prefix))
 
     if max_sev > 0, do: rest ++ ["ti:severity:#{max_sev}"], else: rest
+  end
+
+  defp take_display_tags(tags) do
+    build_display_tags(tags)
   end
 
   defp normalize_severity(n) when is_integer(n) and n > 0, do: n
@@ -246,4 +445,43 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
   end
 
   defp normalize_severity(_), do: nil
+
+  # platform.threat_intel_indicators.expires_at is timestamp without time zone.
+  # Raw SQL returns NaiveDateTime; normalize to UTC DateTime at the parse boundary.
+  @doc false
+  @spec normalize_expires_at(term()) :: DateTime.t() | nil
+  def normalize_expires_at(%DateTime{} = dt), do: DateTime.shift_zone!(dt, "Etc/UTC")
+
+  def normalize_expires_at(%NaiveDateTime{} = ndt) do
+    DateTime.from_naive!(ndt, "Etc/UTC")
+  end
+
+  def normalize_expires_at(bin) when is_binary(bin) do
+    case DateTime.from_iso8601(bin) do
+      {:ok, dt, _} ->
+        DateTime.shift_zone!(dt, "Etc/UTC")
+
+      _ ->
+        case NaiveDateTime.from_iso8601(bin) do
+          {:ok, ndt} -> DateTime.from_naive!(ndt, "Etc/UTC")
+          _ -> nil
+        end
+    end
+  rescue
+    _ -> nil
+  end
+
+  def normalize_expires_at(_), do: nil
+
+  defp source_string(nil), do: "unknown"
+  defp source_string(s) when is_binary(s), do: String.trim(s)
+  defp source_string(s), do: to_string(s)
+
+  defp slug_source(source) do
+    Slug.slugify(source || "unknown", empty: "unknown")
+  end
+
+  defp slugify_label(label) do
+    Slug.slugify(label)
+  end
 end

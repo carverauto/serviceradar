@@ -233,9 +233,16 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   end
 
   defp do_ip_enrichment(ip) when is_binary(ip) do
+    tags_enabled? = prefix_tag_enrichment_enabled?()
+
+    # When tag enrichment is off, only walk the provider trie (not every source).
     chain =
       try do
-        PrefixTagStore.lookup(ip)
+        if tags_enabled? do
+          PrefixTagStore.lookup(ip)
+        else
+          provider_chain_for_ip(ip)
+        end
       rescue
         e ->
           Logger.debug("FlowEnrichment prefix tag lookup failed",
@@ -246,19 +253,36 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
           []
       end
 
-    trie_tags = flatten_tag_chain(chain)
-    geo_tags = geo_tags_for_ip(ip)
-    tags = Enum.uniq(trie_tags ++ geo_tags)
-    tags_source = chain_sources_label(chain, geo_tags)
-
     {provider, provider_source} = provider_from_chain_or_sql(chain, ip)
 
-    %{
-      tags: if(tags == [], do: nil, else: tags),
-      tags_source: tags_source,
-      provider: provider,
-      provider_source: provider_source
-    }
+    if tags_enabled? do
+      trie_tags = flatten_tag_chain(chain)
+      geo_tags = geo_tags_for_ip(ip)
+      tags = Enum.uniq(trie_tags ++ geo_tags)
+      tags_source = chain_sources_label(chain, geo_tags)
+
+      %{
+        tags: if(tags == [], do: nil, else: tags),
+        tags_source: tags_source,
+        provider: provider,
+        provider_source: provider_source
+      }
+    else
+      %{
+        tags: nil,
+        tags_source: nil,
+        provider: provider,
+        provider_source: provider_source
+      }
+    end
+  end
+
+  defp provider_chain_for_ip(ip) when is_binary(ip) do
+    if provider_trie_enabled?() do
+      PrefixTagStore.lookup(ip, "provider")
+    else
+      []
+    end
   end
 
   # Comma-joined unique source ids from the match chain (multi-source provenance).
@@ -283,29 +307,32 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   end
 
   defp provider_from_chain_or_sql(chain, ip) do
-    case provider_name_from_chain(chain) do
-      name when is_binary(name) and name != "" ->
-        {name, "provider_trie"}
+    # Operational rollback: when the provider trie flag is off, never consume
+    # trie hits — always take SQL / injected lookup.
+    if provider_trie_enabled?() do
+      case provider_name_from_chain(chain) do
+        name when is_binary(name) and name != "" ->
+          {name, "provider_trie"}
 
-      _ ->
-        if provider_trie_enabled?() and provider_trie_ready?() do
-          # Trie loaded: miss is authoritative (no SQL).
-          {nil, "cloud_provider_db"}
-        else
-          {sql_provider_for_ip(ip), "cloud_provider_db"}
-        end
+        _ ->
+          if provider_trie_ready?() do
+            # Loaded (including empty): miss is authoritative (no SQL).
+            {nil, "cloud_provider_db"}
+          else
+            {sql_provider_for_ip(ip), "cloud_provider_db"}
+          end
+      end
+    else
+      {sql_provider_for_ip(ip), "cloud_provider_db"}
     end
   end
 
+  # Hosting-provider columns only accept matches from the authoritative
+  # `provider` source — manual/netbox tags may use `provider:` syntax without
+  # overriding cloud-provider attribution.
   defp provider_name_from_chain(chain) when is_list(chain) do
     Enum.find_value(chain, fn
       %{source: "provider", tags: tags} when is_list(tags) ->
-        Enum.find_value(tags, fn
-          "provider:" <> name when name != "" -> name
-          _ -> nil
-        end)
-
-      %{tags: tags} when is_list(tags) ->
         Enum.find_value(tags, fn
           "provider:" <> name when name != "" -> name
           _ -> nil
@@ -450,9 +477,10 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   end
 
   defp provider_trie_ready? do
-    # Loaded (even empty) vs never installed — empty after load is a true miss.
-    PrefixTagStore.loaded?("provider") and
-      Map.get(PrefixTagStore.stats("provider"), :total_prefixes, 0) > 0
+    # Loaded (even empty) is authoritative. Never-installed falls back to SQL.
+    # Requiring total_prefixes > 0 treated an empty successful load as "booting"
+    # and hammered SQL on every batch.
+    PrefixTagStore.loaded?("provider")
   end
 
   defp sql_provider_for_ip(ip) when is_binary(ip) do

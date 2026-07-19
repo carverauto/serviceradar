@@ -160,6 +160,54 @@ defmodule ServiceRadar.EventWriter.FlowEnrichmentTest do
       assert FlowEnrichment.provider_for_ip("198.51.100.1") == nil
     end
 
+    test "provider trie flag off ignores trie hits and uses SQL/injected path" do
+      Application.put_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, false)
+
+      on_exit(fn ->
+        Application.delete_env(:serviceradar_core, :prefix_tag_provider_trie_enabled)
+      end)
+
+      Store.put_rows("provider", [
+        %{prefix: "203.0.113.0/24", tags: ["provider:TrieCloud"], source: "provider"}
+      ])
+
+      FlowEnrichment.with_provider_cache(
+        fn ->
+          assert FlowEnrichment.provider_for_ip("203.0.113.10") == "SQLCloud"
+        end,
+        provider_lookup: fn _inet -> "SQLCloud" end
+      )
+    end
+
+    test "manual provider: tags do not override hosting-provider columns" do
+      Application.put_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, true)
+      Application.put_env(:serviceradar_core, :prefix_tag_enrichment_enabled, true)
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, false)
+        Application.put_env(:serviceradar_core, :prefix_tag_enrichment_enabled, false)
+      end)
+
+      Store.put_rows("provider", [
+        %{prefix: "10.0.0.0/8", tags: ["provider:RealCloud"], source: "provider"}
+      ])
+
+      Store.put_rows("manual", [
+        %{prefix: "10.1.0.0/16", tags: ["provider:SpoofCloud", "site:lab"], source: "manual"}
+      ])
+
+      enriched =
+        FlowEnrichment.enrich(%{
+          protocol_num: 6,
+          src_ip: "10.1.2.3",
+          dst_ip: "198.51.100.1"
+        })
+
+      assert enriched.src_hosting_provider == "RealCloud"
+      assert "provider:SpoofCloud" in (enriched.src_prefix_tags || [])
+      assert "site:lab" in (enriched.src_prefix_tags || [])
+    end
+
     test "ready provider trie leaves snapshot id lazy (no CNPG round-trip)" do
       Application.put_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, true)
 
@@ -234,6 +282,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichmentTest do
   end
 
   defmodule BoomEngine do
+    @moduledoc false
     @behaviour ServiceRadar.PrefixTags.Engine
 
     def build(_), do: :boom

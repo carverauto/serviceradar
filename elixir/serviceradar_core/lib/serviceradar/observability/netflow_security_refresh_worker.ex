@@ -426,12 +426,13 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   end
 
   defp ti_trie_ready? do
-    PrefixTagStore.loaded?("ti") and
-      Map.get(PrefixTagStore.stats("ti"), :total_prefixes, 0) > 0
+    # Loaded (even empty) is authoritative; never-installed falls back to SQL.
+    PrefixTagStore.loaded?("ti")
   end
 
   # Current-matching via the shared prefix-tag LPM engine (ti: source).
-  # Severity is a first-class match field (with ti:severity:N tags for SRQL).
+  # Severity/sources/count use structured per-indicator metadata with expiry
+  # filtering so permanent + finite members on one CIDR stay SQL-parity.
   # Authoritative retro-matching remains the SQL/match-pipeline path.
   defp engine_threat_matches(ips) when is_list(ips) do
     now = DateTime.utc_now()
@@ -440,35 +441,15 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
       chain =
         ip
         |> PrefixTagStore.lookup("ti")
-        |> Enum.reject(&ti_match_expired?(&1, now))
+        |> Enum.reject(&ThreatIntelSource.match_expired?(&1, now))
 
-      all_tags =
-        Enum.flat_map(chain, fn
-          %{tags: tags} when is_list(tags) -> tags
-          _ -> []
-        end)
-
-      sources = ThreatIntelSource.sources_from_tags(all_tags)
-      max_severity = ThreatIntelSource.max_severity_from_match(chain)
-
-      # SQL path counts indicators (COUNT(ti.id)); preserve that via indicator_count
-      # collapsed at materialize time (default 1 per match when unset).
-      match_count =
-        chain
-        |> Enum.map(fn
-          %{indicator_count: n} when is_integer(n) and n > 0 -> n
-          _ -> 1
-        end)
-        |> Enum.sum()
+      sources = ThreatIntelSource.sources_from_match(chain, now)
+      max_severity = ThreatIntelSource.max_severity_from_match(chain, now)
+      match_count = ThreatIntelSource.indicator_count_from_match(chain, now)
 
       {ip, match_count, max_severity, sources}
     end)
   end
-
-  defp ti_match_expired?(%{expires_at: %DateTime{} = exp}, now),
-    do: DateTime.compare(exp, now) != :gt
-
-  defp ti_match_expired?(_, _), do: false
 
   defp run_threat_match_query(ips) when is_list(ips) do
     # Fallback / full-fidelity path: Postgres GIST on indicator (+ severity).

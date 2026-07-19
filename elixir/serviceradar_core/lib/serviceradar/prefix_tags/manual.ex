@@ -63,7 +63,8 @@ defmodule ServiceRadar.PrefixTags.Manual do
       PrefixTag
       |> Ash.Query.for_read(:list_active, %{}, ash_opts)
       |> Ash.Query.filter(snapshot.source == ^source)
-      |> Ash.Query.sort(prefix: :asc)
+      # Unique order for stable offset pagination (same prefix may exist in many VRFs).
+      |> Ash.Query.sort(prefix: :asc, vrf: :asc, id: :asc)
       |> Ash.Query.limit(limit)
       |> Ash.Query.offset(offset)
 
@@ -120,8 +121,8 @@ defmodule ServiceRadar.PrefixTags.Manual do
            |> normalize_tags_attr(),
          :ok <- validate_tags(Map.get(attrs, "tags")),
          {:ok, tag} <- PrefixTag.create_manual(attrs, ash_opts) do
-      _ = bump_record_count!(snapshot, ash_opts)
-      invalidate!()
+      # Invalidation is post-commit via BroadcastManualInvalidation.
+      _ = adjust_record_count!(snapshot.id, 1)
       {:ok, tag}
     end
   end
@@ -138,10 +139,9 @@ defmodule ServiceRadar.PrefixTags.Manual do
         |> normalize_tags_attr()
         |> Map.drop(["snapshot_id", :snapshot_id])
 
-      with :ok <- validate_tags(Map.get(attrs, "tags")),
-           {:ok, updated} <- PrefixTag.update(tag, attrs, ash_opts) do
-        invalidate!()
-        {:ok, updated}
+      with :ok <- validate_tags(Map.get(attrs, "tags")) do
+        PrefixTag.update(tag, attrs, ash_opts)
+        # Invalidation is post-commit via BroadcastManualInvalidation.
       end
     end
   end
@@ -154,16 +154,11 @@ defmodule ServiceRadar.PrefixTags.Manual do
     with :ok <- assert_manual!(tag, ash_opts) do
       case PrefixTag.destroy(tag, ash_opts) do
         :ok ->
-          case Snapshot.by_id(%{id: tag.snapshot_id}, ash_opts) do
-            {:ok, snap} -> _ = bump_record_count!(snap, ash_opts)
-            _ -> :ok
-          end
-
-          invalidate!()
+          _ = adjust_record_count!(tag.snapshot_id, -1)
           :ok
 
         {:ok, _} ->
-          invalidate!()
+          _ = adjust_record_count!(tag.snapshot_id, -1)
           :ok
 
         {:error, err} ->
@@ -248,24 +243,19 @@ defmodule ServiceRadar.PrefixTags.Manual do
     end
   end
 
-  defp bump_record_count!(%Snapshot{} = snapshot, _ash_opts) do
-    # Single statement: COUNT + UPDATE so concurrent CRUD cannot persist a
-    # stale counter. Never write 0 on query failure.
+  # Atomic increment/decrement keeps concurrent create/destroy from racing a
+  # full COUNT recompute. Floor at 0 so over-delete cannot go negative.
+  defp adjust_record_count!(snapshot_id, delta) when is_integer(delta) and delta != 0 do
     case Ecto.Adapters.SQL.query(
            ServiceRadar.Repo,
            """
-           UPDATE platform.prefix_tag_snapshots s
-           SET record_count = sub.cnt,
+           UPDATE platform.prefix_tag_snapshots
+           SET record_count = GREATEST(0, COALESCE(record_count, 0) + $2),
                updated_at = NOW()
-           FROM (
-             SELECT COUNT(*)::bigint AS cnt
-             FROM platform.prefix_tags
-             WHERE snapshot_id = $1
-           ) sub
-           WHERE s.id = $1
-           RETURNING s.record_count
+           WHERE id = $1
+           RETURNING record_count
            """,
-           [snapshot.id]
+           [snapshot_id, delta]
          ) do
       {:ok, %{rows: [[n]]}} when is_integer(n) ->
         n
@@ -274,25 +264,30 @@ defmodule ServiceRadar.PrefixTags.Manual do
         String.to_integer(to_string(n))
 
       {:error, reason} ->
-        Logger.warning("PrefixTags.Manual record_count bump failed",
-          error: inspect(reason)
+        Logger.warning("PrefixTags.Manual record_count adjust failed",
+          error: inspect(reason),
+          delta: delta
         )
 
-        snapshot.record_count || 0
+        0
 
       _ ->
-        snapshot.record_count || 0
+        0
     end
   rescue
     e ->
-      Logger.warning("PrefixTags.Manual record_count bump crashed",
+      Logger.warning("PrefixTags.Manual record_count adjust crashed",
         error: Exception.message(e)
       )
 
-      snapshot.record_count || 0
+      0
   end
 
-  defp invalidate! do
+  defp adjust_record_count!(_, _), do: 0
+
+  @doc false
+  @spec invalidate!() :: :ok
+  def invalidate! do
     # Prefer Loader (CNPG → Store); fall back to rebuilding from the active
     # manual snapshot when the GenServer is not running (unit tests / partial boot).
     case safe_loader_reload() do

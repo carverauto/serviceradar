@@ -246,6 +246,10 @@ defmodule ServiceRadar.PrefixTags.Loader do
           Map.new(rows_by_source, fn {source, rows} ->
             version = Store.put_rows(source, rows)
             stats = Store.stats(source)
+            # Prefer snapshot promoted_at for age telemetry (not rebuild wall time).
+            freshness =
+              Map.get(snapshot_ids_by_source, {:promoted_at, source}) ||
+                DateTime.utc_now()
 
             {source,
              %{
@@ -253,7 +257,8 @@ defmodule ServiceRadar.PrefixTags.Loader do
                row_count: length(rows),
                snapshot_ids: Map.get(snapshot_ids_by_source, source, []),
                stats: stats,
-               loaded_at: DateTime.utc_now()
+               loaded_at: DateTime.utc_now(),
+               snapshot_at: freshness
              }}
           end)
 
@@ -272,7 +277,8 @@ defmodule ServiceRadar.PrefixTags.Loader do
                   row_count: 0,
                   snapshot_ids: [],
                   stats: %{ipv4_prefixes: 0, ipv6_prefixes: 0, total_prefixes: 0},
-                  loaded_at: DateTime.utc_now()
+                  loaded_at: DateTime.utc_now(),
+                  snapshot_at: DateTime.utc_now()
                 })
               end
 
@@ -374,18 +380,41 @@ defmodule ServiceRadar.PrefixTags.Loader do
     snapshot_ids_by_source =
       rows
       |> Enum.group_by(&Enum.at(&1, col_index["source"]))
-      |> Map.new(fn {source, source_rows} ->
+      |> Enum.reduce(%{}, fn {source, source_rows}, acc ->
         ids =
           source_rows
           |> Enum.map(&Enum.at(&1, col_index["snapshot_id"]))
           |> Enum.uniq()
           |> Enum.map(&to_string/1)
 
-        {source, ids}
+        promoted_ats =
+          source_rows
+          |> Enum.map(&Enum.at(&1, col_index["promoted_at"]))
+          |> Enum.map(&normalize_datetime/1)
+          |> Enum.reject(&is_nil/1)
+
+        # Oldest promotion among active snapshots for this source (conservative age).
+        snapshot_at =
+          case promoted_ats do
+            [] -> nil
+            dts -> Enum.min(dts, DateTime)
+          end
+
+        acc
+        |> Map.put(source, ids)
+        |> Map.put({:promoted_at, source}, snapshot_at)
       end)
 
     {:ok, by_source, snapshot_ids_by_source}
   end
+
+  defp normalize_datetime(%DateTime{} = dt), do: dt
+
+  defp normalize_datetime(%NaiveDateTime{} = ndt) do
+    DateTime.from_naive!(ndt, "Etc/UTC")
+  end
+
+  defp normalize_datetime(_), do: nil
 
   defp normalize_tags(nil), do: []
   defp normalize_tags(tags) when is_list(tags), do: Enum.map(tags, &to_string/1)
@@ -414,7 +443,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
   defp emit_snapshot_age_for_sources(sources_meta) when is_map(sources_meta) do
     Enum.each(sources_meta, fn {source, meta} ->
       age_seconds =
-        case Map.get(meta, :loaded_at) do
+        case Map.get(meta, :snapshot_at) || Map.get(meta, :loaded_at) do
           %DateTime{} = dt -> max(DateTime.diff(DateTime.utc_now(), dt, :second), 0)
           _ -> 0
         end
@@ -557,6 +586,8 @@ defmodule ServiceRadar.PrefixTags.Loader do
   end
 
   defp maybe_emit_snapshot_age(source, _count) do
+    # External materializers rebuild "now"; age is zero at the emit boundary.
+    # Subsequent rebuilds re-emit; there is no separate freshness column yet.
     :telemetry.execute(
       [:serviceradar, :prefix_tags, :snapshot_age],
       %{age_seconds: 0},

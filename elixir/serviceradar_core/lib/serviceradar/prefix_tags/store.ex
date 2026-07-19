@@ -11,9 +11,9 @@ defmodule ServiceRadar.PrefixTags.Store do
   alias ServiceRadar.PrefixTags.Engine
   alias ServiceRadar.PrefixTags.Trie
 
-  # Per-source membership markers (no shared MapSet RMW race). A source is
-  # "registered" when this key exists; put_trie/clear create/erase it.
-  @source_member_key_prefix {__MODULE__, :source_member}
+  # Enumerable registry of registered source names (atomic insert/delete).
+  # Probing only a hard-coded catalog drops dynamic/plugin sources from lookup/1.
+  @sources_table __MODULE__.Sources
   # Single atomic handle: one persistent_term get returns {version, trie}.
   @active_handle_key_prefix {__MODULE__, :active_handle}
   # Previous handles kept briefly so a concurrent reader that already held the
@@ -204,18 +204,16 @@ defmodule ServiceRadar.PrefixTags.Store do
   Unordered (hot path). Use `Enum.sort/1` at call sites that need deterministic
   ordering for display.
 
-  Membership is per-source keys (not a shared MapSet), so concurrent first-time
-  registrations cannot drop a peer source.
+  Backed by an ETS set so dynamically loaded snapshot/plugin sources are
+  discoverable by aggregate `lookup/1` (not only the built-in catalog).
   """
   @spec sources() :: [source()]
   def sources do
-    candidates =
-      ServiceRadar.PrefixTags.ExternalSources.by_name()
-      |> Map.keys()
-      |> Kernel.++(["manual", "netbox"])
-      |> Enum.uniq()
+    ensure_sources_table()
 
-    Enum.filter(candidates, &source_registered?/1)
+    @sources_table
+    |> :ets.tab2list()
+    |> Enum.map(fn {source} -> source end)
   rescue
     _ -> []
   end
@@ -343,25 +341,43 @@ defmodule ServiceRadar.PrefixTags.Store do
   end
 
   defp register_source(source) when is_binary(source) do
-    # Atomic single-key put — concurrent puts for different sources never race.
-    :persistent_term.put(source_member_key(source), true)
+    ensure_sources_table()
+    true = :ets.insert(@sources_table, {source})
     :ok
   end
 
   defp unregister_source(source) when is_binary(source) do
-    :persistent_term.erase(source_member_key(source))
+    try do
+      ensure_sources_table()
+      :ets.delete(@sources_table, source)
+    rescue
+      ArgumentError -> :ok
+    end
+
     :ok
-  rescue
-    ArgumentError -> :ok
   end
 
-  defp source_registered?(source) when is_binary(source) do
-    :persistent_term.get(source_member_key(source), false) == true
-  rescue
-    ArgumentError -> false
-  end
+  defp ensure_sources_table do
+    case :ets.whereis(@sources_table) do
+      :undefined ->
+        try do
+          :ets.new(@sources_table, [
+            :set,
+            :public,
+            :named_table,
+            read_concurrency: true,
+            write_concurrency: true
+          ])
+        rescue
+          ArgumentError -> :ok
+        end
 
-  defp source_member_key(source), do: {@source_member_key_prefix, source}
+      _tid ->
+        :ok
+    end
+
+    :ok
+  end
 
   defp engine do
     Application.get_env(:serviceradar_core, :prefix_tags_engine, Trie)

@@ -9,9 +9,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FiltersTest do
   end
 
   test "upsert_query_filter replaces existing tag filter" do
-    q =
-      "in:flows tag:site:austin src_ip:10.0.0.1"
-      |> Filters.upsert_query_filter("tag", "role:guest-wifi")
+    q = Filters.upsert_query_filter("in:flows tag:site:austin src_ip:10.0.0.1", "tag", "role:guest-wifi")
 
     assert q =~ "tag:role:guest-wifi"
     assert q =~ "src_ip:10.0.0.1"
@@ -19,9 +17,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FiltersTest do
   end
 
   test "upsert_query_filter clears tag when value empty" do
-    q =
-      "in:flows tag:site:austin"
-      |> Filters.upsert_query_filter("tag", "")
+    q = Filters.upsert_query_filter("in:flows tag:site:austin", "tag", "")
 
     assert q == "in:flows"
   end

@@ -176,7 +176,6 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.State do
   defp validate_bool("false"), do: {:ok, false}
   defp validate_bool(_), do: {:error, :invalid_bool}
 
-  defp validate_optional_tag(nil), do: {:ok, nil}
   # For now we accept either a relative token (last_1h, last_24h, etc.) or an absolute
   # bracket range (delegated to SRQL). We don't parse it here; we just bound size.
   defp validate_time(value) when is_binary(value) do
