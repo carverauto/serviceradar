@@ -20,9 +20,11 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.PrefixTags.Loader
+  alias ServiceRadar.PrefixTags.PrefixTag
+  alias ServiceRadar.PrefixTags.Slug
+  alias ServiceRadar.PrefixTags.Snapshot
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
-  alias ServiceRadar.Types.Cidr
 
   require Logger
 
@@ -421,7 +423,7 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
         |> maybe_ns_tag(namespaces, :role, role && "role:#{role}")
         |> maybe_ns_tag(namespaces, :tenant, tenant && "tenant:#{tenant}")
         |> maybe_ns_tag(namespaces, :status, status && "status:#{status}")
-        |> maybe_ns_tag(namespaces, :vrf, vrf && "vrf:#{slugify(vrf)}")
+        |> maybe_ns_tag(namespaces, :vrf, vrf && "vrf:#{Slug.slugify(vrf) || vrf}")
         |> maybe_netbox_tags(namespaces, item)
         |> Enum.reject(&is_nil/1)
         |> Enum.uniq()
@@ -484,124 +486,139 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
   defp status_value(item) do
     case Map.get(item, "status") do
       %{"value" => value} when is_binary(value) -> value
-      %{"label" => label} when is_binary(label) -> slugify(label)
-      value when is_binary(value) -> value
-      _ -> nil
-    end
-  end
+      %{"label" => label} when is_binary(label) ->
+        Slug.slugify(label) || label
 
-  defp slugify(value) when is_binary(value) do
-    value
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9]+/u, "-")
-    |> String.trim("-")
+      value when is_binary(value) ->
+        value
+
+      _ ->
+        nil
+    end
   end
 
   # -- promote ----------------------------------------------------------------
 
   @doc false
   def promote_snapshot(source_url, rows, meta) when is_list(rows) do
-    snapshot_id = Ecto.UUID.dump!(Ecto.UUID.generate())
-    now = DateTime.truncate(DateTime.utc_now(), :second)
+    actor = SystemActor.system(:prefix_tags_netbox_import)
     content_hash = content_hash(rows)
+    now = DateTime.utc_now()
 
-    fn ->
-      {1, _} =
-        Repo.insert_all(
-          "prefix_tag_snapshots",
-          [
+    Repo.transaction(
+      fn ->
+        {:ok, snapshot} =
+          Snapshot.create(
             %{
-              id: snapshot_id,
               source: @source_name,
               status: "building",
               source_url: source_url,
-              source_etag: nil,
               source_sha256: content_hash,
               fetched_at: now,
-              promoted_at: nil,
               is_active: false,
-              record_count: length(rows),
-              metadata: meta || %{},
-              inserted_at: now,
-              updated_at: now
-            }
-          ],
-          prefix: "platform",
-          timeout: @db_timeout_ms
-        )
+              record_count: 0,
+              metadata: meta || %{}
+            },
+            actor: actor,
+            domain: ServiceRadar.PrefixTags
+          )
 
-      count = insert_prefix_rows(snapshot_id, rows, now)
+        count = bulk_insert_prefix_tags!(snapshot.id, rows, actor)
 
-      if count == 0 and rows != [] do
-        Repo.rollback(:no_rows_inserted)
-      else
-        # Deactivate other active snapshots for this source only
-        Repo.query!(
-          """
-          UPDATE platform.prefix_tag_snapshots
-          SET is_active = FALSE, status = 'superseded', updated_at = now()
-          WHERE source = $1 AND is_active = TRUE AND id <> $2
-          """,
-          [@source_name, snapshot_id],
-          timeout: @db_timeout_ms
-        )
-
-        Repo.query!(
-          """
-          UPDATE platform.prefix_tag_snapshots
-          SET is_active = TRUE, status = 'active', promoted_at = now(),
-              record_count = $2, updated_at = now()
-          WHERE id = $1
-          """,
-          [snapshot_id, count],
-          timeout: @db_timeout_ms
-        )
-
-        :ok
-      end
-    end
-    |> Repo.transaction(timeout: @db_timeout_ms)
+        if count == 0 and rows != [] do
+          Repo.rollback(:no_rows_inserted)
+        else
+          supersede_previous_active!(actor, snapshot.id)
+          promote_active!(snapshot, count, actor)
+          :ok
+        end
+      end,
+      timeout: @db_timeout_ms
+    )
     |> case do
       {:ok, :ok} -> :ok
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp insert_prefix_rows(snapshot_id, rows, now) do
-    rows
+  defp bulk_insert_prefix_tags!(snapshot_id, rows, actor) do
+    inputs =
+      rows
+      |> Enum.map(fn row ->
+        %{
+          snapshot_id: snapshot_id,
+          prefix: row.prefix,
+          vrf: row[:vrf],
+          tags: row[:tags] || [],
+          site: row[:site],
+          role: row[:role],
+          tenant: row[:tenant],
+          status: row[:status],
+          partition: nil
+        }
+      end)
+      |> Enum.filter(&(is_binary(&1.prefix) and &1.prefix != ""))
+
+    inputs
     |> Enum.chunk_every(@insert_chunk_size)
     |> Enum.reduce(0, fn chunk, acc ->
-      insert_rows =
-        Enum.flat_map(chunk, fn row ->
-          case Cidr.dump_to_native(row.prefix, []) do
-            {:ok, %Postgrex.INET{} = inet} ->
-              [
-                %{
-                  id: Ecto.UUID.dump!(Ecto.UUID.generate()),
-                  snapshot_id: snapshot_id,
-                  prefix: inet,
-                  vrf: row[:vrf],
-                  tags: row[:tags] || [],
-                  site: row[:site],
-                  role: row[:role],
-                  tenant: row[:tenant],
-                  status: row[:status],
-                  partition: nil,
-                  inserted_at: now,
-                  updated_at: now
-                }
-              ]
+      case Ash.bulk_create(chunk, PrefixTag, :create,
+             actor: actor,
+             domain: ServiceRadar.PrefixTags,
+             return_records?: false,
+             return_errors?: true,
+             stop_on_error?: true,
+             batch_size: @insert_chunk_size,
+             timeout: @db_timeout_ms
+           ) do
+        %Ash.BulkResult{status: :success} ->
+          acc + length(chunk)
 
-            _ ->
-              []
-          end
-        end)
+        %Ash.BulkResult{status: status, errors: errors} = result ->
+          Repo.rollback({:bulk_create_failed, status, errors || result})
 
-      {count, _} =
-        Repo.insert_all("prefix_tags", insert_rows, prefix: "platform", timeout: @db_timeout_ms)
-
-      acc + count
+        other ->
+          Repo.rollback({:bulk_create_failed, other})
+      end
     end)
+  end
+
+  defp supersede_previous_active!(actor, keep_id) do
+    case Snapshot.active_for_source(%{source: @source_name}, actor: actor) do
+      {:ok, %Snapshot{id: id} = previous} when id != keep_id ->
+        case previous
+             |> Ash.Changeset.for_update(:supersede, %{}, actor: actor)
+             |> Ash.update(domain: ServiceRadar.PrefixTags) do
+          {:ok, _} -> :ok
+          {:error, err} -> Repo.rollback({:supersede_failed, err})
+        end
+
+      {:ok, _} ->
+        :ok
+
+      {:error, %Ash.Error.Invalid{errors: errors}} ->
+        if Enum.any?(errors, &match?(%Ash.Error.Query.NotFound{}, &1)) do
+          :ok
+        else
+          Repo.rollback({:supersede_failed, errors})
+        end
+
+      {:error, %Ash.Error.Query.NotFound{}} ->
+        :ok
+
+      {:error, err} ->
+        Repo.rollback({:supersede_failed, err})
+    end
+  end
+
+  defp promote_active!(snapshot, count, actor) do
+    case Snapshot.promote(snapshot, %{record_count: count},
+           actor: actor,
+           domain: ServiceRadar.PrefixTags
+         ) do
+      {:ok, _} -> :ok
+      {:error, err} -> Repo.rollback({:promote_failed, err})
+    end
   end
 
   defp content_hash(rows) do

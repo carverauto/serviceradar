@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Components.PrefixTagComponentsTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadarWebNGWeb.Components.PrefixTagChips
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.Endpoints
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable
 
@@ -20,31 +21,36 @@ defmodule ServiceRadarWebNGWeb.Components.PrefixTagComponentsTest do
     end
   end
 
-  test "prefix_tag_chips renders tag badges as filter links" do
+  test "shared PrefixTagChips.linked renders filter links" do
     html =
-      render_component(&FlowsTable.prefix_tag_chips/1, %{
-        tags: ["netbox:tag:iot", "site:austin"],
-        base_path: "/observability",
-        query: "in:flows",
-        limit: 50,
-        nf_param: nil
+      render_component(&PrefixTagChips.linked/1, %{
+        items: [
+          %{tag: "netbox:tag:iot", path: "/observability?q=in%3Aflows+tag%3Anetbox%3Atag%3Aiot"},
+          %{tag: "site:austin", path: "/observability?q=in%3Aflows+tag%3Asite%3Aaustin"}
+        ]
       })
 
     assert html =~ "netbox:tag:iot"
     assert html =~ "site:austin"
     assert html =~ "Filter flows with tag netbox:tag:iot"
-    assert html =~ "tag"
     assert html =~ "href="
+  end
+
+  test "shared PrefixTagChips.static renders badges without links" do
+    html =
+      render_component(&PrefixTagChips.static/1, %{
+        tags: ["provider:cloudflare"]
+      })
+
+    assert html =~ "provider:cloudflare"
+    assert html =~ "Prefix tag: provider:cloudflare"
+    refute html =~ "href="
   end
 
   test "prefix_tag_chips is empty when there are no tags" do
     html =
-      render_component(&FlowsTable.prefix_tag_chips/1, %{
-        tags: [],
-        base_path: "/observability",
-        query: "in:flows",
-        limit: 50,
-        nf_param: nil
+      render_component(&PrefixTagChips.linked/1, %{
+        items: []
       })
 
     refute html =~ "badge"

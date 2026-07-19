@@ -13,6 +13,7 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.PrefixTags.Loader
+  alias ServiceRadar.PrefixTags.Slug
   alias ServiceRadar.PrefixTags.Store
   alias ServiceRadar.Repo
 
@@ -67,12 +68,15 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
   def map_indicator_row(prefix, source, label, severity \\ nil)
 
   def map_indicator_row(prefix, source, label, severity) when is_binary(prefix) do
-    source_slug = slugify(source || "unknown")
+    source_slug = Slug.slugify(source || "unknown", empty: "unknown")
     tags = ["ti:#{source_slug}"]
 
     tags =
       if is_binary(label) and String.trim(label) != "" do
-        tags ++ ["ti:label:#{slugify(label)}"]
+        case Slug.slugify(label) do
+          nil -> tags
+          label_slug -> tags ++ ["ti:label:#{label_slug}"]
+        end
       else
         tags
       end
@@ -188,15 +192,4 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
   end
 
   defp normalize_severity(_), do: nil
-
-  defp slugify(value) when is_binary(value) do
-    value
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9]+/u, "-")
-    |> String.trim("-")
-    |> case do
-      "" -> "unknown"
-      s -> s
-    end
-  end
 end

@@ -172,10 +172,15 @@ defmodule ServiceRadar.PrefixTags.Store do
     :ok
   end
 
-  @doc "Active sources that currently have a registered trie."
+  @doc """
+  Active sources that currently have a registered trie.
+
+  Unordered (hot path). Use `Enum.sort/1` at call sites that need deterministic
+  ordering for display.
+  """
   @spec sources() :: [source()]
   def sources do
-    :persistent_term.get(@sources_key, MapSet.new()) |> MapSet.to_list() |> Enum.sort()
+    :persistent_term.get(@sources_key, MapSet.new()) |> MapSet.to_list()
   rescue
     ArgumentError -> []
   end
@@ -206,15 +211,17 @@ defmodule ServiceRadar.PrefixTags.Store do
   defp ensure_source(%{source: s} = match, _fallback) when is_binary(s) and s != "", do: match
   defp ensure_source(match, source), do: Map.put(match, :source, source)
 
+  # Skip sort work for the common 0/1-match cases (single-source or empty).
   defp merge_by_specificity([]), do: []
+  defp merge_by_specificity([_] = one), do: one
 
   defp merge_by_specificity(matches) do
     matches
     |> Enum.map(fn match ->
-      Map.put(match, :__mask__, masklen(Map.get(match, :prefix)))
+      {{-masklen(Map.get(match, :prefix)), Map.get(match, :source) || ""}, match}
     end)
-    |> Enum.sort_by(fn m -> {-m.__mask__, Map.get(m, :source) || ""} end)
-    |> Enum.map(&Map.delete(&1, :__mask__))
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.map(&elem(&1, 1))
   end
 
   defp masklen(prefix) when is_binary(prefix) do

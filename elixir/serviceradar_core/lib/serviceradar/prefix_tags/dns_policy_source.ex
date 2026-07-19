@@ -13,6 +13,7 @@ defmodule ServiceRadar.PrefixTags.DnsPolicySource do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.PrefixTags.Loader
+  alias ServiceRadar.PrefixTags.Slug
   alias ServiceRadar.PrefixTags.Store
   alias ServiceRadar.Repo
 
@@ -76,7 +77,7 @@ defmodule ServiceRadar.PrefixTags.DnsPolicySource do
   @doc false
   def map_client_row(client_ip, policy_name) when is_binary(client_ip) do
     prefix = host_prefix(client_ip)
-    policy_slug = slugify(policy_name || "unknown")
+    policy_slug = Slug.slugify(policy_name || "unknown", empty: "unknown")
 
     tags =
       ["dns-policy:hit", "dns-policy:#{policy_slug}"]
@@ -127,17 +128,6 @@ defmodule ServiceRadar.PrefixTags.DnsPolicySource do
       String.contains?(ip, "/") -> ip
       String.contains?(ip, ":") -> "#{ip}/128"
       true -> "#{ip}/32"
-    end
-  end
-
-  defp slugify(value) when is_binary(value) do
-    value
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9]+/u, "-")
-    |> String.trim("-")
-    |> case do
-      "" -> "unknown"
-      s -> s
     end
   end
 end

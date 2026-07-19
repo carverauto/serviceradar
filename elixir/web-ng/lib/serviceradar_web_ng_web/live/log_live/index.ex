@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.Observability.NetflowPortScanFlag
   alias ServiceRadar.ReferenceData.ServicePorts
   alias ServiceRadarWebNG.Repo
+  alias ServiceRadarWebNGWeb.Components.PrefixTagChips
   alias ServiceRadarWebNGWeb.MetricSeries
   alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext
@@ -4643,12 +4644,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 >
                   AS{asn}
                 </div>
-                <.netflow_prefix_tag_chips
-                  tags={netflow_prefix_tags(flow, :src)}
-                  base_path={@base_path}
-                  query={@query}
-                  limit={@limit}
-                  patch_opts={patch_opts}
+                <PrefixTagChips.linked
+                  items={
+                    netflow_linked_tag_items(
+                      netflow_prefix_tags(flow, :src),
+                      @base_path,
+                      @query,
+                      @limit,
+                      patch_opts
+                    )
+                  }
                 />
               </td>
               <td class="text-xs align-top">
@@ -4700,12 +4705,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                   >
                     {hostname}
                   </div>
-                  <.netflow_prefix_tag_chips
-                    tags={netflow_prefix_tags(flow, :dst)}
-                    base_path={@base_path}
-                    query={@query}
-                    limit={@limit}
-                    patch_opts={patch_opts}
+                  <PrefixTagChips.linked
+                    items={
+                      netflow_linked_tag_items(
+                        netflow_prefix_tags(flow, :dst),
+                        @base_path,
+                        @query,
+                        @limit,
+                        patch_opts
+                      )
+                    }
                   />
                   <div
                     :if={asn = netflow_asn(flow, :dst)}
@@ -5149,15 +5158,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     >
                       Provider: <span class="font-mono">{@src_provider}</span>
                     </div>
-                    <div :if={@src_prefix_tags != []} class="mt-1 flex flex-wrap gap-1">
-                      <span
-                        :for={tag <- @src_prefix_tags}
-                        class="badge badge-outline badge-xs font-mono"
-                        title={"Prefix tag: #{tag}"}
-                      >
-                        {tag}
-                      </span>
-                    </div>
+                    <PrefixTagChips.static tags={@src_prefix_tags} wrapper_class="mt-1 flex flex-wrap gap-1" />
                     <div class="mt-2 flex flex-wrap gap-2">
                       <.ui_button
                         size="xs"
@@ -5196,15 +5197,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     >
                       Provider: <span class="font-mono">{@dst_provider}</span>
                     </div>
-                    <div :if={@dst_prefix_tags != []} class="mt-1 flex flex-wrap gap-1">
-                      <span
-                        :for={tag <- @dst_prefix_tags}
-                        class="badge badge-outline badge-xs font-mono"
-                        title={"Prefix tag: #{tag}"}
-                      >
-                        {tag}
-                      </span>
-                    </div>
+                    <PrefixTagChips.static tags={@dst_prefix_tags} wrapper_class="mt-1 flex flex-wrap gap-1" />
                     <div class="mt-2 flex flex-wrap gap-2">
                       <.ui_button
                         size="xs"
@@ -6176,38 +6169,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       flow_get(flow, ["#{prefix}_prefix_tags"]) ||
         flow_get_in(flow, ["ocsf_payload", "enrichment", "#{prefix}_prefix_tags"])
 
-    case tags do
-      list when is_list(list) ->
-        list
-        |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
-        |> Enum.map(&String.trim/1)
-        |> Enum.uniq()
-        |> Enum.take(4)
-
-      _ ->
-        []
-    end
+    PrefixTagChips.normalize_tags(tags, 4)
   end
 
-  attr(:tags, :list, default: [])
-  attr(:base_path, :string, required: true)
-  attr(:query, :string, required: true)
-  attr(:limit, :integer, required: true)
-  attr(:patch_opts, :map, default: %{})
-
-  defp netflow_prefix_tag_chips(assigns) do
-    ~H"""
-    <div :if={@tags != []} class="mt-0.5 flex flex-wrap gap-0.5">
-      <.link
-        :for={tag <- @tags}
-        patch={netflow_filter_patch(@base_path, @query, @limit, "tag", tag, @patch_opts)}
-        class="badge badge-outline badge-xs font-mono hover:badge-primary"
-        title={"Filter flows with tag #{tag}"}
-      >
-        {tag}
-      </.link>
-    </div>
-    """
+  defp netflow_linked_tag_items(tags, base_path, query, limit, patch_opts) do
+    Enum.map(tags, fn tag ->
+      %{
+        tag: tag,
+        path: netflow_filter_patch(base_path, query, limit, "tag", tag, patch_opts)
+      }
+    end)
   end
 
   defp upsert_query_filter(query, field, value) when is_binary(query) and is_binary(field) do

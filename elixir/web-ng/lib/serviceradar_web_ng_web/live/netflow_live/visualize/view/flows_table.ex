@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowAccess
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.Format
 
+  alias ServiceRadarWebNGWeb.Components.PrefixTagChips
+
   attr(:flows, :list, default: [])
   attr(:rdns_map, :map, default: %{})
   attr(:geo_iso2_map, :map, default: %{})
@@ -99,12 +101,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
                   >
                     {hostname}
                   </div>
-                  <.prefix_tag_chips
-                    tags={flow_prefix_tags(flow, :src)}
-                    base_path={@base_path}
-                    query={@query}
-                    limit={@limit}
-                    nf_param={@nf_param}
+                  <PrefixTagChips.linked
+                    items={
+                      linked_prefix_tag_items(
+                        flow_prefix_tags(flow, :src),
+                        @base_path,
+                        @query,
+                        @limit,
+                        @nf_param
+                      )
+                    }
                   />
                 </div>
               </td>
@@ -145,12 +151,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
                   >
                     {hostname}
                   </div>
-                  <.prefix_tag_chips
-                    tags={flow_prefix_tags(flow, :dst)}
-                    base_path={@base_path}
-                    query={@query}
-                    limit={@limit}
-                    nf_param={@nf_param}
+                  <PrefixTagChips.linked
+                    items={
+                      linked_prefix_tag_items(
+                        flow_prefix_tags(flow, :dst),
+                        @base_path,
+                        @query,
+                        @limit,
+                        @nf_param
+                      )
+                    }
                   />
                 </div>
               </td>
@@ -311,25 +321,18 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
     """
   end
 
-  attr(:tags, :list, default: [])
-  attr(:base_path, :string, required: true)
-  attr(:query, :string, required: true)
-  attr(:limit, :integer, required: true)
-  attr(:nf_param, :string, default: nil)
-
+  # Kept as a thin wrapper for unit tests that still call the table module API.
   def prefix_tag_chips(assigns) do
-    ~H"""
-    <div :if={@tags != []} class="mt-0.5 flex flex-wrap gap-0.5">
-      <.link
-        :for={tag <- @tags}
-        patch={flows_filter_patch(@base_path, @query, @limit, @nf_param, "tag", tag)}
-        class="badge badge-outline badge-xs font-mono hover:badge-primary"
-        title={"Filter flows with tag #{tag}"}
-      >
-        {tag}
-      </.link>
-    </div>
-    """
+    items =
+      linked_prefix_tag_items(
+        assigns[:tags] || [],
+        assigns.base_path,
+        assigns.query,
+        assigns.limit,
+        assigns[:nf_param]
+      )
+
+    PrefixTagChips.linked(%{items: items})
   end
 
   defp flow_prefix_tags(flow, side) when side in [:src, :dst] do
@@ -339,17 +342,15 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
       flow_get(flow, ["#{prefix}_prefix_tags"]) ||
         flow_get_in(flow, ["ocsf_payload", "enrichment", "#{prefix}_prefix_tags"])
 
-    case tags do
-      list when is_list(list) ->
-        list
-        |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
-        |> Enum.map(&String.trim/1)
-        |> Enum.uniq()
-        # Keep listing compact
-        |> Enum.take(4)
+    PrefixTagChips.normalize_tags(tags, 4)
+  end
 
-      _ ->
-        []
-    end
+  defp linked_prefix_tag_items(tags, base_path, query, limit, nf_param) do
+    Enum.map(tags, fn tag ->
+      %{
+        tag: tag,
+        path: flows_filter_patch(base_path, query, limit, nf_param, "tag", tag)
+      }
+    end)
   end
 end
