@@ -184,6 +184,7 @@ config :serviceradar_core,
     ServiceRadar.Infrastructure,
     ServiceRadar.Monitoring,
     ServiceRadar.Observability,
+    ServiceRadar.PrefixTags,
     ServiceRadar.Edge,
     ServiceRadar.Integrations,
     ServiceRadar.Jobs,
@@ -201,6 +202,11 @@ config :serviceradar_core,
     ServiceRadar.Automation.Callbacks,
     ServiceRadar.Security
   ]
+
+# Prefix-tag flow enrichment (LPM trie). Default off until dogfood exit criteria pass.
+config :serviceradar_core,
+  prefix_tag_enrichment_enabled: false,
+  prefix_tags_loader_enabled: true
 
 config :serviceradar_core,
   endpoint_inventory_ingestor_async: true,

@@ -90,6 +90,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.Endpoints do
       flow_get(assigns.flow, ["#{prefix}_hosting_provider"]) ||
         flow_get_in(ocsf, ["enrichment", "#{prefix}_hosting_provider"])
 
+    prefix_tags =
+      normalize_prefix_tags(
+        flow_get(assigns.flow, ["#{prefix}_prefix_tags"]) ||
+          flow_get_in(ocsf, ["enrichment", "#{prefix}_prefix_tags"])
+      )
+
     port = flow_get(assigns.flow, ["#{prefix}_endpoint_port", "#{prefix}_port"])
     hostname = Map.get(assigns.rdns_map || %{}, ip)
 
@@ -103,6 +109,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.Endpoints do
       |> assign(:mac, mac)
       |> assign(:mac_vendor, mac_vendor)
       |> assign(:provider, provider)
+      |> assign(:prefix_tags, prefix_tags)
       |> assign(:port, port)
       |> assign(:hostname, hostname)
 
@@ -169,8 +176,26 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.Endpoints do
         <div :if={is_binary(@provider) and @provider != ""}>
           provider: <span class="font-mono">{@provider}</span>
         </div>
+        <div :if={@prefix_tags != []} class="flex flex-wrap gap-1 pt-1">
+          <span
+            :for={tag <- @prefix_tags}
+            class="badge badge-outline badge-xs font-mono"
+            title={"Prefix tag: #{tag}"}
+          >
+            {tag}
+          </span>
+        </div>
       </div>
     </div>
     """
   end
+
+  defp normalize_prefix_tags(tags) when is_list(tags) do
+    tags
+    |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+    |> Enum.map(&String.trim/1)
+    |> Enum.uniq()
+  end
+
+  defp normalize_prefix_tags(_), do: []
 end

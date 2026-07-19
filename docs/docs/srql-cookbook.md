@@ -209,6 +209,23 @@ in:flows src_cidr:10.0.0.0/8 time:last_1h sort:bytes_total:desc
 
 `src_cidr` / `dst_cidr` match flows inside a CIDR block.
 
+### Prefix tags (site / role / tenant)
+
+```
+in:flows tag:site:austin time:last_1h
+```
+
+```
+in:flows dst_tag:role:guest-wifi time:last_1h sort:bytes_total:desc
+```
+
+```
+in:flows tag:tenant:acme src_cidr:10.0.0.0/8 time:last_6h
+```
+
+`tag:` matches either side; `src_tag:` / `dst_tag:` are directional. Tags come from
+IPAM prefix enrichment (see [Prefix Tags](./prefix-tags.md)).
+
 ### Traffic broken down by application
 
 ```srql

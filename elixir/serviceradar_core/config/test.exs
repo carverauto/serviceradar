@@ -255,6 +255,7 @@ config :serviceradar_core,
     ServiceRadar.Jobs,
     ServiceRadar.Monitoring,
     ServiceRadar.Observability,
+    ServiceRadar.PrefixTags,
     ServiceRadar.SNMPProfiles,
     ServiceRadar.SweepJobs,
     ServiceRadar.SysmonProfiles,
@@ -267,6 +268,12 @@ config :serviceradar_core,
     ServiceRadar.Automation.Callbacks,
     ServiceRadar.Security
   ]
+
+# Prefix-tag enrichment off by default in tests; enable per-test when needed.
+# Loader stays off so unit tests don't hit CNPG on application start.
+config :serviceradar_core,
+  prefix_tag_enrichment_enabled: false,
+  prefix_tags_loader_enabled: false
 
 # Disable cluster in tests by default
 config :serviceradar_core,

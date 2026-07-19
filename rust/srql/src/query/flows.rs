@@ -17,7 +17,10 @@ mod tests;
 pub(super) use self::expressions::*;
 use self::{
     filters::apply_filter,
-    literals::{normalize_cidr_literal, normalize_device_uid_literal},
+    literals::{
+        normalize_cidr_literal, normalize_device_uid_literal, tag_any_contains_sql,
+        tag_contains_sql,
+    },
     order::apply_ordering,
     params::collect_filter_params,
     query::build_query,

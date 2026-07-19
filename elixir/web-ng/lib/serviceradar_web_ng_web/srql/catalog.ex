@@ -898,6 +898,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "dst_country_iso2",
         "src_cidr",
         "dst_cidr",
+        "tag",
+        "src_tag",
+        "dst_tag",
         "as_path",
         "bgp_communities"
       ],
@@ -969,7 +972,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "protocol_group",
         "direction",
         "app",
-        "sampler_address"
+        "sampler_address",
+        "tag",
+        "src_tag",
+        "dst_tag"
       ],
       numeric_fields: ["pid", "uid", "src_endpoint_port", "dst_endpoint_port", "protocol_num"],
       downsample: false

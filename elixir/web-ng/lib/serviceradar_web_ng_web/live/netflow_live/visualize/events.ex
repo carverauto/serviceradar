@@ -81,6 +81,43 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.Events do
      )}
   end
 
+  def handle_event("nf_prefix_tag_filter", params, socket) do
+    tag =
+      params
+      |> Map.get("tag", "")
+      |> to_string()
+      |> String.trim()
+
+    current_q =
+      case socket.assigns do
+        %{srql: %{query: q}} when is_binary(q) and q != "" -> q
+        %{query: q} when is_binary(q) and q != "" -> q
+        _ -> "in:flows"
+      end
+
+    next_q =
+      current_q
+      |> upsert_query_filter("tag", tag)
+      |> upsert_query_filter("src_tag", "")
+      |> upsert_query_filter("dst_tag", "")
+
+    state =
+      socket.assigns.netflow_viz_state
+      |> Map.put("prefix_tag", if(tag == "", do: nil, else: tag))
+
+    {:noreply,
+     socket
+     |> assign(:netflow_viz_state, state)
+     |> push_patch(
+       to:
+         build_patch_url(socket, %{
+           "nf" => nf_param(state),
+           "q" => next_q,
+           "cursor" => nil
+         })
+     )}
+  end
+
   def handle_event("netflow_open", %{"idx" => idx_raw}, socket) do
     idx =
       case Integer.parse(to_string(idx_raw || "")) do

@@ -26,7 +26,9 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.State do
       "truncate_v4" => 32,
       "truncate_v6" => 128,
       "bidirectional" => false,
-      "previous_period" => false
+      "previous_period" => false,
+      # Optional SRQL tag: filter mirrored in the sidebar input (not a chart dim).
+      "prefix_tag" => nil
     }
   end
 
@@ -92,7 +94,8 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.State do
          {:ok, t6} <- validate_int(state["truncate_v6"], 0, 128),
          {:ok, bidirectional} <- validate_bool(state["bidirectional"]),
          {:ok, previous_period} <- validate_bool(state["previous_period"]),
-         {:ok, time} <- validate_time(state["time"]) do
+         {:ok, time} <- validate_time(state["time"]),
+         {:ok, prefix_tag} <- validate_optional_tag(state["prefix_tag"]) do
       {:ok,
        %{
          "graph" => graph,
@@ -104,7 +107,8 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.State do
          "truncate_v4" => t4,
          "truncate_v6" => t6,
          "bidirectional" => bidirectional,
-         "previous_period" => previous_period
+         "previous_period" => previous_period,
+         "prefix_tag" => prefix_tag
        }}
     end
   end
@@ -174,6 +178,29 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.State do
   defp validate_bool("true"), do: {:ok, true}
   defp validate_bool("false"), do: {:ok, false}
   defp validate_bool(_), do: {:error, :invalid_bool}
+
+  defp validate_optional_tag(nil), do: {:ok, nil}
+  defp validate_optional_tag(""), do: {:ok, nil}
+
+  defp validate_optional_tag(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    cond do
+      trimmed == "" ->
+        {:ok, nil}
+
+      String.length(trimmed) > 128 ->
+        {:error, :invalid_prefix_tag}
+
+      not String.match?(trimmed, ~r/^[A-Za-z0-9:._@+\-\/]+$/) ->
+        {:error, :invalid_prefix_tag}
+
+      true ->
+        {:ok, trimmed}
+    end
+  end
+
+  defp validate_optional_tag(_), do: {:error, :invalid_prefix_tag}
 
   # For now we accept either a relative token (last_1h, last_24h, etc.) or an absolute
   # bracket range (delegated to SRQL). We don't parse it here; we just bound size.

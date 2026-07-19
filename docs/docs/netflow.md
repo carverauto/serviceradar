@@ -408,6 +408,7 @@ Navigate to **http://localhost/netflows** to view:
 - Top destinations
 - Protocol distribution
 - Bandwidth over time
+- Prefix tag chips and filters (when [prefix-tag enrichment](./prefix-tags.md) is enabled)
 
 ## Common Issues
 

@@ -99,6 +99,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
                   >
                     {hostname}
                   </div>
+                  <.prefix_tag_chips
+                    tags={flow_prefix_tags(flow, :src)}
+                    base_path={@base_path}
+                    query={@query}
+                    limit={@limit}
+                    nf_param={@nf_param}
+                  />
                 </div>
               </td>
               <td class="text-xs font-mono min-w-0">
@@ -138,6 +145,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
                   >
                     {hostname}
                   </div>
+                  <.prefix_tag_chips
+                    tags={flow_prefix_tags(flow, :dst)}
+                    base_path={@base_path}
+                    query={@query}
+                    limit={@limit}
+                    nf_param={@nf_param}
+                  />
                 </div>
               </td>
               <td class="whitespace-nowrap text-xs text-right font-mono align-top">
@@ -295,5 +309,47 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
       </div>
     </div>
     """
+  end
+
+  attr(:tags, :list, default: [])
+  attr(:base_path, :string, required: true)
+  attr(:query, :string, required: true)
+  attr(:limit, :integer, required: true)
+  attr(:nf_param, :string, default: nil)
+
+  def prefix_tag_chips(assigns) do
+    ~H"""
+    <div :if={@tags != []} class="mt-0.5 flex flex-wrap gap-0.5">
+      <.link
+        :for={tag <- @tags}
+        patch={flows_filter_patch(@base_path, @query, @limit, @nf_param, "tag", tag)}
+        class="badge badge-outline badge-xs font-mono hover:badge-primary"
+        title={"Filter flows with tag #{tag}"}
+      >
+        {tag}
+      </.link>
+    </div>
+    """
+  end
+
+  defp flow_prefix_tags(flow, side) when side in [:src, :dst] do
+    prefix = to_string(side)
+
+    tags =
+      flow_get(flow, ["#{prefix}_prefix_tags"]) ||
+        flow_get_in(flow, ["ocsf_payload", "enrichment", "#{prefix}_prefix_tags"])
+
+    case tags do
+      list when is_list(list) ->
+        list
+        |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+        |> Enum.map(&String.trim/1)
+        |> Enum.uniq()
+        # Keep listing compact
+        |> Enum.take(4)
+
+      _ ->
+        []
+    end
   end
 end

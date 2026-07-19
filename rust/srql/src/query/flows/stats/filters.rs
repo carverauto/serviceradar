@@ -296,8 +296,72 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
         "dst_country_iso2" | "dst_country" => {
             build_stats_text_filter("COALESCE(dst_geo.country_iso2, 'Unknown')", filter, binds)
         }
+        "tag" | "src_tag" | "dst_tag" => build_stats_tag_filter(filter),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field for flows stats: '{other}'"
         ))),
+    }
+}
+
+fn build_stats_tag_filter(filter: &Filter) -> Result<String> {
+    use crate::query::flows::literals::{tag_any_contains_sql, tag_contains_sql};
+
+    let expr = match filter.field.as_str() {
+        "src_tag" => match filter.op {
+            FilterOp::Eq | FilterOp::NotEq => {
+                tag_contains_sql("f.src_prefix_tags", filter.value.as_scalar()?)?
+            }
+            FilterOp::In | FilterOp::NotIn => {
+                tag_any_contains_sql("f.src_prefix_tags", filter.value.as_list()?)?
+            }
+            _ => {
+                return Err(ServiceError::InvalidRequest(
+                    "src_tag filter only supports equality or list matching".into(),
+                ));
+            }
+        },
+        "dst_tag" => match filter.op {
+            FilterOp::Eq | FilterOp::NotEq => {
+                tag_contains_sql("f.dst_prefix_tags", filter.value.as_scalar()?)?
+            }
+            FilterOp::In | FilterOp::NotIn => {
+                tag_any_contains_sql("f.dst_prefix_tags", filter.value.as_list()?)?
+            }
+            _ => {
+                return Err(ServiceError::InvalidRequest(
+                    "dst_tag filter only supports equality or list matching".into(),
+                ));
+            }
+        },
+        "tag" => match filter.op {
+            FilterOp::Eq | FilterOp::NotEq => {
+                let tag = filter.value.as_scalar()?;
+                let src = tag_contains_sql("f.src_prefix_tags", tag)?;
+                let dst = tag_contains_sql("f.dst_prefix_tags", tag)?;
+                format!("({src} OR {dst})")
+            }
+            FilterOp::In | FilterOp::NotIn => {
+                let values = filter.value.as_list()?;
+                let src = tag_any_contains_sql("f.src_prefix_tags", values)?;
+                let dst = tag_any_contains_sql("f.dst_prefix_tags", values)?;
+                format!("({src} OR {dst})")
+            }
+            _ => {
+                return Err(ServiceError::InvalidRequest(
+                    "tag filter only supports equality or list matching".into(),
+                ));
+            }
+        },
+        other => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported tag filter field: '{other}'"
+            )));
+        }
+    };
+
+    match filter.op {
+        FilterOp::Eq | FilterOp::In => Ok(expr),
+        FilterOp::NotEq | FilterOp::NotIn => Ok(format!("(NOT {expr})")),
+        _ => unreachable!(),
     }
 }

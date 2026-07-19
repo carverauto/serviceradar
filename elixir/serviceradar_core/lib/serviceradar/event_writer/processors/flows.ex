@@ -376,16 +376,18 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
       "protocol_name" => protocol_name,
       "protocol_num" => protocol_num,
       "flow_source" => flow_source,
-      "enrichment" => %{
-        "protocol_source" => enrichment.protocol_source,
-        "tcp_flags_labels" => enrichment.tcp_flags_labels,
-        "dst_service_label" => enrichment.dst_service_label,
-        "direction_label" => enrichment.direction_label,
-        "src_hosting_provider" => enrichment.src_hosting_provider,
-        "dst_hosting_provider" => enrichment.dst_hosting_provider,
-        "src_mac_vendor" => enrichment.src_mac_vendor,
-        "dst_mac_vendor" => enrichment.dst_mac_vendor
-      },
+      "enrichment" =>
+        %{
+          "protocol_source" => enrichment.protocol_source,
+          "tcp_flags_labels" => enrichment.tcp_flags_labels,
+          "dst_service_label" => enrichment.dst_service_label,
+          "direction_label" => enrichment.direction_label,
+          "src_hosting_provider" => enrichment.src_hosting_provider,
+          "dst_hosting_provider" => enrichment.dst_hosting_provider,
+          "src_mac_vendor" => enrichment.src_mac_vendor,
+          "dst_mac_vendor" => enrichment.dst_mac_vendor
+        }
+        |> maybe_put_prefix_tags(enrichment),
       "metadata" =>
         OCSF.build_metadata(
           product_name: "FlowCollector",
@@ -443,7 +445,27 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
       partition: "default",
       created_at: DateTime.utc_now()
     }
+    |> maybe_put_prefix_tag_columns(enrichment)
   end
+
+  defp maybe_put_prefix_tags(enrichment_map, enrichment) do
+    enrichment_map
+    |> maybe_put("src_prefix_tags", Map.get(enrichment, :src_prefix_tags))
+    |> maybe_put("dst_prefix_tags", Map.get(enrichment, :dst_prefix_tags))
+    |> maybe_put("src_prefix_tags_source", Map.get(enrichment, :src_prefix_tags_source))
+    |> maybe_put("dst_prefix_tags_source", Map.get(enrichment, :dst_prefix_tags_source))
+  end
+
+  defp maybe_put_prefix_tag_columns(row, enrichment) do
+    row
+    |> maybe_put(:src_prefix_tags, Map.get(enrichment, :src_prefix_tags))
+    |> maybe_put(:dst_prefix_tags, Map.get(enrichment, :dst_prefix_tags))
+    |> maybe_put(:src_prefix_tags_source, Map.get(enrichment, :src_prefix_tags_source))
+    |> maybe_put(:dst_prefix_tags_source, Map.get(enrichment, :dst_prefix_tags_source))
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp parse_flow_fields(json) do
     %{

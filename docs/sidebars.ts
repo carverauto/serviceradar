@@ -66,6 +66,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'sync', label: 'Sync Runtime'},
         {type: 'doc', id: 'armis', label: 'Armis'},
         {type: 'doc', id: 'netbox', label: 'NetBox'},
+        {type: 'doc', id: 'prefix-tags', label: 'Prefix Tags'},
         {type: 'doc', id: 'ansible', label: 'Ansible'},
         {type: 'doc', id: 'proxmox', label: 'Proxmox VE'},
         {type: 'doc', id: 'remote-access', label: 'Remote Access'},

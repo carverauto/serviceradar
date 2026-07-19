@@ -9,6 +9,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.PrefixTags.Store, as: PrefixTagStore
   alias ServiceRadar.ReferenceData.ServicePorts
   alias ServiceRadar.Repo
   alias ServiceRadar.Types.Cidr
@@ -131,7 +132,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
     dst_vendor = oui_vendor_for_mac(dst_mac)
     dst_service = service_lookup(protocol_num, dst_port)
 
-    %{
+    base = %{
       protocol_name: protocol_name,
       protocol_source: if(is_integer(protocol_num), do: "iana", else: "unknown"),
       tcp_flags: tcp_flags,
@@ -152,10 +153,84 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
       dst_mac_vendor: dst_vendor,
       dst_mac_vendor_source: source_for_lookup(dst_vendor, "ieee_oui")
     }
+
+    Map.merge(base, prefix_tag_fields(src_ip, dst_ip))
   end
 
   defp source_for_lookup(nil, _), do: "unknown"
   defp source_for_lookup(_val, source), do: source
+
+  @doc """
+  Whether prefix-tag enrichment is enabled.
+
+  Controlled by Application env `:prefix_tag_enrichment_enabled` (default false).
+  Fail-open: lookup errors yield untagged fields and never raise to the caller.
+  """
+  @spec prefix_tag_enrichment_enabled?() :: boolean()
+  def prefix_tag_enrichment_enabled? do
+    Application.get_env(:serviceradar_core, :prefix_tag_enrichment_enabled, false) == true
+  end
+
+  @doc false
+  @spec prefix_tags_for_ip(String.t() | nil) ::
+          %{tags: [String.t()] | nil, source: String.t() | nil}
+  def prefix_tags_for_ip(nil), do: %{tags: nil, source: nil}
+
+  def prefix_tags_for_ip(ip) when is_binary(ip) do
+    chain = PrefixTagStore.lookup(ip)
+    tags = flatten_tag_chain(chain)
+    source = chain_source(chain)
+
+    if tags == [] do
+      %{tags: nil, source: nil}
+    else
+      %{tags: tags, source: source}
+    end
+  rescue
+    e ->
+      Logger.debug("FlowEnrichment prefix tag lookup failed",
+        ip: ip,
+        error: Exception.message(e)
+      )
+
+      %{tags: nil, source: nil}
+  end
+
+  defp prefix_tag_fields(src_ip, dst_ip) do
+    if prefix_tag_enrichment_enabled?() do
+      src = prefix_tags_for_ip(src_ip)
+      dst = prefix_tags_for_ip(dst_ip)
+
+      %{
+        src_prefix_tags: src.tags,
+        src_prefix_tags_source: src.source,
+        dst_prefix_tags: dst.tags,
+        dst_prefix_tags_source: dst.source
+      }
+    else
+      %{}
+    end
+  end
+
+  defp flatten_tag_chain(chain) when is_list(chain) do
+    chain
+    |> Enum.flat_map(fn
+      %{tags: tags} when is_list(tags) -> tags
+      _ -> []
+    end)
+    |> Enum.reduce({[], MapSet.new()}, fn tag, {acc, seen} ->
+      if MapSet.member?(seen, tag) do
+        {acc, seen}
+      else
+        {acc ++ [tag], MapSet.put(seen, tag)}
+      end
+    end)
+    |> elem(0)
+  end
+
+  defp chain_source([%{source: source} | _]) when is_binary(source) and source != "", do: source
+  defp chain_source([_ | rest]), do: chain_source(rest)
+  defp chain_source([]), do: nil
 
   @spec decode_tcp_flags(integer() | nil) :: [String.t()]
   def decode_tcp_flags(nil), do: []

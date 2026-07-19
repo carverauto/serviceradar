@@ -137,6 +137,10 @@ defmodule ServiceRadar.Application do
         # probe per distinct IP per snapshot instead of per batch)
         provider_cidr_cache_child(),
 
+        # Per-node prefix-tag LPM trie loader (core-elx + web-ng when repo is on;
+        # agent-gateway excluded via repo_enabled? false)
+        prefix_tags_loader_child(),
+
         # Horde registries (always started for registration support)
         registry_children(),
 
@@ -332,6 +336,13 @@ defmodule ServiceRadar.Application do
   defp provider_cidr_cache_child do
     if repo_enabled?() do
       ServiceRadar.EventWriter.ProviderCidrCache
+    end
+  end
+
+  defp prefix_tags_loader_child do
+    if repo_enabled?() and
+         Application.get_env(:serviceradar_core, :prefix_tags_loader_enabled, true) do
+      ServiceRadar.PrefixTags.Loader
     end
   end
 

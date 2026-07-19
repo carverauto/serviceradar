@@ -1,0 +1,230 @@
+defmodule ServiceRadar.PrefixTags.TrieTest do
+  use ExUnit.Case, async: true
+
+  alias ServiceRadar.PrefixTags.Store
+  alias ServiceRadar.PrefixTags.Trie
+
+  describe "lookup/2 LPM chain" do
+    test "overlapping prefixes return full chain most-specific first" do
+      trie =
+        Trie.build([
+          %{prefix: "10.1.0.0/16", tags: ["site:austin"], source: "manual"},
+          %{prefix: "10.1.2.0/24", tags: ["role:guest-wifi"], source: "manual"}
+        ])
+
+      chain = Trie.lookup(trie, "10.1.2.3")
+      tags = Enum.flat_map(chain, & &1.tags)
+
+      assert tags == ["role:guest-wifi", "site:austin"]
+      assert hd(chain).prefix == "10.1.2.0/24"
+      assert List.last(chain).prefix == "10.1.0.0/16"
+    end
+
+    test "no matching prefix returns empty list" do
+      trie = Trie.build([%{prefix: "10.0.0.0/8", tags: ["internal"]}])
+      assert Trie.lookup(trie, "192.168.1.1") == []
+    end
+
+    test "exact host /32 match" do
+      trie = Trie.build([%{prefix: "203.0.113.10/32", tags: ["host:lab-gw"]}])
+      assert [%{tags: ["host:lab-gw"]}] = Trie.lookup(trie, "203.0.113.10")
+      assert Trie.lookup(trie, "203.0.113.11") == []
+    end
+
+    test "IPv6 LPM" do
+      trie =
+        Trie.build([
+          %{prefix: "2001:db8::/32", tags: ["lab"]},
+          %{prefix: "2001:db8:1::/48", tags: ["site:dc1"]}
+        ])
+
+      chain = Trie.lookup(trie, "2001:db8:1::5")
+      assert Enum.flat_map(chain, & &1.tags) == ["site:dc1", "lab"]
+    end
+
+    test "default route /0 matches everything in family" do
+      trie = Trie.build([%{prefix: "0.0.0.0/0", tags: ["any"]}])
+      assert [%{tags: ["any"]}] = Trie.lookup(trie, "8.8.8.8")
+    end
+
+    test "stats report counts" do
+      trie =
+        Trie.build([
+          %{prefix: "10.0.0.0/8", tags: ["a"]},
+          %{prefix: "2001:db8::/32", tags: ["b"]}
+        ])
+
+      assert Trie.stats(trie) == %{
+               ipv4_prefixes: 1,
+               ipv6_prefixes: 1,
+               total_prefixes: 2
+             }
+    end
+
+    test "invalid IP yields empty" do
+      trie = Trie.build([%{prefix: "10.0.0.0/8", tags: ["a"]}])
+      assert Trie.lookup(trie, "not-an-ip") == []
+    end
+  end
+
+  describe "LPM equivalence vs SQL masklen oracle" do
+    test "randomized IPv4 prefix sets match oracle ordering" do
+      # Pure Elixir oracle mirrors: inet <<= cidr ORDER BY masklen DESC
+      for seed <- 1..20 do
+        :rand.seed(:exsss, {seed, seed * 2, seed * 3})
+        rows = random_ipv4_rows(8)
+        trie = Trie.build(rows)
+        ip = random_ipv4()
+
+        trie_prefixes = Enum.map(Trie.lookup(trie, ip), & &1.prefix)
+        oracle_prefixes = oracle_match(rows, ip)
+
+        assert trie_prefixes == oracle_prefixes,
+               "seed=#{seed} ip=#{ip}\ntrie=#{inspect(trie_prefixes)}\noracle=#{inspect(oracle_prefixes)}"
+      end
+    end
+  end
+
+  describe "Store persistent_term swap" do
+    setup do
+      on_exit(fn -> Store.clear() end)
+      Store.clear()
+      :ok
+    end
+
+    test "lookup hits active snapshot" do
+      Store.put_rows([%{prefix: "10.0.0.0/8", tags: ["internal"], source: "manual"}])
+      assert [%{tags: ["internal"]}] = Store.lookup("10.1.2.3")
+    end
+
+    test "snapshot swap under concurrent lookups" do
+      Store.put_rows([%{prefix: "10.0.0.0/8", tags: ["v1"]}])
+
+      parent = self()
+
+      readers =
+        for i <- 1..20 do
+          spawn(fn ->
+            results =
+              for _ <- 1..200 do
+                Store.lookup("10.1.2.3")
+              end
+
+            send(parent, {:done, i, results})
+          end)
+        end
+
+      # Mid-flight swap
+      Process.sleep(5)
+      Store.put_rows([%{prefix: "10.0.0.0/8", tags: ["v2"]}])
+
+      for _ <- readers do
+        assert_receive {:done, _i, results}, 5_000
+
+        for chain <- results do
+          tags = Enum.flat_map(chain, & &1.tags)
+          assert tags in [["v1"], ["v2"], []]
+        end
+      end
+
+      assert [%{tags: ["v2"]}] = Store.lookup("10.1.2.3")
+    end
+  end
+
+  # -- helpers ----------------------------------------------------------------
+
+  defp random_ipv4_rows(n) do
+    for i <- 1..n do
+      a = :rand.uniform(223)
+      b = :rand.uniform(255) - 1
+      c = :rand.uniform(255) - 1
+      mask = Enum.random([8, 12, 16, 20, 24])
+      prefix = network_string({a, b, c, 0}, mask)
+      %{prefix: prefix, tags: ["t#{i}"], source: "test"}
+    end
+  end
+
+  defp random_ipv4 do
+    a = :rand.uniform(223)
+    b = :rand.uniform(256) - 1
+    c = :rand.uniform(256) - 1
+    d = :rand.uniform(256) - 1
+    {a, b, c, d} |> :inet.ntoa() |> to_string()
+  end
+
+  defp oracle_match(rows, ip_str) do
+    {:ok, ip} = :inet.parse_address(String.to_charlist(ip_str))
+
+    rows
+    |> Enum.filter(fn %{prefix: p} -> ip_in_prefix?(ip, p) end)
+    |> Enum.sort_by(fn %{prefix: p} -> -masklen(p) end)
+    |> Enum.map(fn %{prefix: p} -> normalize_prefix_string(p) end)
+  end
+
+  defp ip_in_prefix?(ip, prefix) do
+    {net, mask} = parse_prefix_parts(prefix)
+    {:ok, net_bits} = address_bits(net)
+    {:ok, ip_bits} = address_bits(ip)
+    Enum.take(net_bits, mask) == Enum.take(ip_bits, mask)
+  end
+
+  defp masklen(prefix) do
+    {_net, mask} = parse_prefix_parts(prefix)
+    mask
+  end
+
+  defp parse_prefix_parts(prefix) do
+    [addr, mask_s] = String.split(prefix, "/", parts: 2)
+    {:ok, net} = :inet.parse_address(String.to_charlist(addr))
+    {mask, ""} = Integer.parse(mask_s)
+    {net, mask}
+  end
+
+  defp normalize_prefix_string(prefix) do
+    {net, mask} = parse_prefix_parts(prefix)
+    network_string(net, mask)
+  end
+
+  defp network_string(addr, mask) do
+    {:ok, bits} = address_bits(addr)
+    family = if tuple_size(addr) == 4, do: :ipv4, else: :ipv6
+    width = if family == :ipv4, do: 32, else: 128
+    net_bits = Enum.take(bits, mask) ++ List.duplicate(0, width - mask)
+    net_addr = bits_to_tuple(net_bits, family)
+    ip = net_addr |> :inet.ntoa() |> to_string()
+    "#{ip}/#{mask}"
+  end
+
+  defp address_bits({a, b, c, d}) do
+    bits =
+      for byte <- [a, b, c, d],
+          shift <- 7..0//-1,
+          do: Bitwise.&&&(Bitwise.>>>(byte, shift), 1)
+
+    {:ok, bits}
+  end
+
+  defp address_bits({a, b, c, d, e, f, g, h}) do
+    bits =
+      for part <- [a, b, c, d, e, f, g, h],
+          byte <- [Bitwise.&&&(Bitwise.>>>(part, 8), 0xFF), Bitwise.&&&(part, 0xFF)],
+          shift <- 7..0//-1,
+          do: Bitwise.&&&(Bitwise.>>>(byte, shift), 1)
+
+    {:ok, bits}
+  end
+
+  defp bits_to_tuple(bits, :ipv4) do
+    bits
+    |> Enum.chunk_every(8)
+    |> Enum.map(fn chunk -> Enum.reduce(chunk, 0, fn bit, acc -> acc * 2 + bit end) end)
+    |> List.to_tuple()
+  end
+
+  defp bits_to_tuple(bits, :ipv6) do
+    bits
+    |> Enum.chunk_every(16)
+    |> Enum.map(fn chunk -> Enum.reduce(chunk, 0, fn bit, acc -> acc * 2 + bit end) end)
+    |> List.to_tuple()
+  end
+end

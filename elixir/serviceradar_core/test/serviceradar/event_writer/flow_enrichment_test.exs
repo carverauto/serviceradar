@@ -1,7 +1,20 @@
 defmodule ServiceRadar.EventWriter.FlowEnrichmentTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.EventWriter.FlowEnrichment
+  alias ServiceRadar.PrefixTags.Store
+
+  setup do
+    previous_flag = Application.get_env(:serviceradar_core, :prefix_tag_enrichment_enabled)
+
+    on_exit(fn ->
+      restore_env(:prefix_tag_enrichment_enabled, previous_flag)
+      Store.clear()
+    end)
+
+    Store.clear()
+    :ok
+  end
 
   describe "decode_tcp_flags/1" do
     test "decodes SYN+ACK" do
@@ -73,6 +86,8 @@ defmodule ServiceRadar.EventWriter.FlowEnrichmentTest do
       assert enriched.direction_label == "bidirectional"
       assert enriched.src_mac == "001122334455"
       assert enriched.dst_mac == "66778899AABB"
+      refute Map.has_key?(enriched, :src_prefix_tags)
+      refute Map.has_key?(enriched, :dst_prefix_tags)
     end
 
     test "does not mark unknown numeric ports as IANA service matches" do
@@ -85,6 +100,58 @@ defmodule ServiceRadar.EventWriter.FlowEnrichmentTest do
       assert enriched.dst_service_label == nil
       assert enriched.dst_service_source == "unknown"
     end
+
+    test "when flag is on, attaches most-specific-first prefix tags with provenance" do
+      Application.put_env(:serviceradar_core, :prefix_tag_enrichment_enabled, true)
+
+      Store.put_rows([
+        %{prefix: "10.1.0.0/16", tags: ["site:austin"], source: "netbox"},
+        %{prefix: "10.1.2.0/24", tags: ["role:guest-wifi"], source: "netbox"}
+      ])
+
+      enriched =
+        FlowEnrichment.enrich(%{
+          protocol_num: 6,
+          dst_port: 443,
+          src_ip: "192.0.2.1",
+          dst_ip: "10.1.2.3"
+        })
+
+      assert enriched.dst_prefix_tags == ["role:guest-wifi", "site:austin"]
+      assert enriched.dst_prefix_tags_source == "netbox"
+      assert enriched.src_prefix_tags == nil
+      assert enriched.src_prefix_tags_source == nil
+    end
+
+    test "lookup engine error is fail-open (untagged, no raise)" do
+      Application.put_env(:serviceradar_core, :prefix_tag_enrichment_enabled, true)
+      Application.put_env(:serviceradar_core, :prefix_tags_engine, __MODULE__.BoomEngine)
+
+      on_exit(fn ->
+        Application.delete_env(:serviceradar_core, :prefix_tags_engine)
+      end)
+
+      # Install a version so active_trie is non-nil and engine is consulted.
+      Store.put_trie(:boom)
+
+      enriched =
+        FlowEnrichment.enrich(%{
+          protocol_num: 6,
+          src_ip: "10.0.0.1",
+          dst_ip: "10.0.0.2"
+        })
+
+      assert enriched.src_prefix_tags == nil
+      assert enriched.dst_prefix_tags == nil
+    end
+  end
+
+  defmodule BoomEngine do
+    @behaviour ServiceRadar.PrefixTags.Engine
+
+    def build(_), do: :boom
+    def lookup(_trie, _ip), do: raise("boom")
+    def stats(_), do: %{ipv4_prefixes: 0, ipv6_prefixes: 0, total_prefixes: 0}
   end
 
   describe "with_provider_cache/2" do
@@ -130,4 +197,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichmentTest do
   defp inet_key(%Postgrex.INET{address: address, netmask: netmask}) do
     "#{address |> :inet.ntoa() |> to_string()}/#{netmask}"
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
 end

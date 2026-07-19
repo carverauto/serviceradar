@@ -37,6 +37,8 @@ pub(super) fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter
         "input_snmp" | "in_if_index" | "output_snmp" | "out_if_index" => Ok(()),
         "src_country_iso2" | "src_country" | "dst_country_iso2" | "dst_country" => Ok(()),
         "src_cidr" | "dst_cidr" => Ok(()),
+        // Tag filters inline validated JSONB literals (no binds).
+        "tag" | "src_tag" | "dst_tag" => Ok(()),
         "protocol_num" | "proto" => {
             let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
                 ServiceError::InvalidRequest(format!("{} must be an integer", filter.field))
