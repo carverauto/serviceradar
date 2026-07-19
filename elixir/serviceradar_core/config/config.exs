@@ -203,11 +203,14 @@ config :serviceradar_core,
     ServiceRadar.Security
   ]
 
-# Prefix-tag flow enrichment (LPM trie). Default off until dogfood exit criteria pass.
+# Prefix-tag flow enrichment (LPM trie). NetBox/manual tags default off until dogfood.
+# Provider trie defaults ON (SQL/ProviderCidrCache is legacy fallback only).
 config :serviceradar_core,
   prefix_tag_enrichment_enabled: false,
-  # Serve hosting-provider lookups from the provider: trie (after ProviderSource loads).
-  prefix_tag_provider_trie_enabled: false,
+  # Serve hosting-provider lookups from the provider: trie (ProviderSource loads at boot).
+  prefix_tag_provider_trie_enabled: true,
+  # CTI IpThreatIntelCache current-match via ti: trie (SQL fallback if trie empty).
+  threat_intel_engine_match_enabled: true,
   # Derive geo:country:/geo:asn: tags from Geolix (not stored in the trie).
   geo_tag_derivation_enabled: false,
   prefix_tags_loader_enabled: true

@@ -27,9 +27,20 @@ feature. Design background lives in OpenSpec change
 Device inventory sync is a separate track (Wasm plugin / agent sync). This
 feature only imports IPAM **prefixes and tags** for flow enrichment.
 
+## Feature flags
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `prefix_tag_enrichment_enabled` | **false** | Write `src/dst_prefix_tags` on flow ingest |
+| `prefix_tag_provider_trie_enabled` | **true** | Hosting-provider LPM via `provider` trie (SQL/`ProviderCidrCache` only if trie empty or flag off) |
+| `threat_intel_engine_match_enabled` | **true** | CTI `IpThreatIntelCache` current-match via `ti` trie (SQL if trie empty) |
+| `geo_tag_derivation_enabled` | **false** | Merge `geo:country:` / `geo:asn:` from Geolix into tag columns |
+| `prefix_tags_loader_enabled` | **true** | Boot the per-node Loader |
+
 ## Enable enrichment
 
-1. Apply migrations (includes prefix-tag tables and additive flow columns).
+1. Apply migrations (includes prefix-tag tables, additive flow columns, geo-cache
+   `location`).
 2. Configure a NetBox integration source under **Settings → Integrations**
    (type Netbox: `url`, `token`, `verify_ssl`). Ensure an agent is registered
    so the Integrations UI allows create.
@@ -48,15 +59,16 @@ WHERE is_active;
 
 5. Preview tags for an IP in **Settings → Integrations → CRM/IPAM → Prefix tag
    preview** (reads the local node's trie; no DB hop).
-6. Enable the flag on core-elx (and any process that runs the EventWriter):
+6. Enable flow tag columns on core-elx (and any process that runs the EventWriter):
 
 ```elixir
 # runtime config / env-backed Application env
 config :serviceradar_core, prefix_tag_enrichment_enabled: true
 ```
 
-Or set the equivalent env/config key used by your release. Reload or roll the
-core-elx deployment so the Application env is picked up.
+Provider and CTI engine matching are already on by default once the Loader /
+materializers have populated tries. Reload or roll core-elx so Application env
+is picked up.
 
 7. Verify new flow rows carry tags:
 
@@ -169,11 +181,17 @@ Permission: `settings.prefix_tags.manage` (operator+ by default).
 
 - Lookups are local and GC-friendly (`:persistent_term`).
 - Synthetic bench (default 5k prefixes): well above 10k lookups/s on developer
-  hardware. Full gate: `PREFIX_TAG_BENCH_SIZE=500000 mix test
-  test/serviceradar/prefix_tags/benchmark_test.exs --include benchmark --no-start`.
+  hardware.
+  - Full size: `PREFIX_TAG_BENCH_SIZE=400000 mix test
+    test/serviceradar/prefix_tags/benchmark_test.exs --include benchmark --no-start`
+  - Multi-source (bench + provider co-resident): add
+    `PREFIX_TAG_BENCH_MULTI_SOURCE=1`
 - M1 design gate: if EventWriter P99 batch latency rises more than ~5% with the
   flag on at production volume, evaluate a Rustler NIF behind the same
   `PrefixTags.Engine` behaviour (no API change).
+- Rollback provider path: set `prefix_tag_provider_trie_enabled: false` to
+  restore GiST + `ProviderCidrCache` (cache GenServer starts only when the flag
+  is false).
 
 ## Proximity queries (geo cache)
 

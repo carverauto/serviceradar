@@ -120,9 +120,9 @@
 - [x] 10.2 Serve `FlowEnrichment` provider lookups from the engine behind a
       flag; preserve `src/dst_hosting_provider` column semantics (parity test
       against the SQL oracle on the live dataset shape)
-- [ ] 10.3 Retire `ProviderCidrCache` and the per-IP GiST query path once the
+- [x] 10.3 Retire `ProviderCidrCache` and the per-IP GiST query path once the
       flag defaults on; remove dead cache config
-- [ ] 10.4 Re-run the benchmark gate with the provider trie loaded (~400k
+- [x] 10.4 Re-run the benchmark gate with the provider trie loaded (~400k
       prefixes) alongside NetBox tags
 
 ## 11. Geo-derived tags + PostGIS proximity (amendment)
@@ -145,7 +145,7 @@
       into high-cadence snapshots with expiry handling
 - [x] 12.2 Advisory semantics enforced in UI copy and docs (point-in-time
       evidence; authority stays with threat_intel_matches)
-- [ ] 12.3 Engine adoption by the CTI current-matching path (coordinate with
+- [x] 12.3 Engine adoption by the CTI current-matching path (coordinate with
       improve-threat-intel-investigation; no second LPM implementation)
 - [x] 12.4 Tests: active-indicator tagging, no retro-tagging, expiry stops
       tagging

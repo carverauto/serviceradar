@@ -334,7 +334,13 @@ defmodule ServiceRadar.Application do
   end
 
   defp provider_cidr_cache_child do
-    if repo_enabled?() do
+    # Legacy GiST/ETS path — only needed while prefix_tag_provider_trie_enabled is off
+    # (or during the empty-trie SQL fallback window, where Process-dict caching still helps).
+    # When the provider trie is the default path, skip starting the ETS process.
+    trie_default? =
+      Application.get_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, true) == true
+
+    if repo_enabled?() and not trie_default? do
       ServiceRadar.EventWriter.ProviderCidrCache
     end
   end

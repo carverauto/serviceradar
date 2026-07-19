@@ -21,6 +21,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   alias ServiceRadar.Observability.NetflowPortScanFlag
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Observability.SRQLRunner
+  alias ServiceRadar.PrefixTags.Store, as: PrefixTagStore
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -407,11 +408,54 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
       |> Enum.map(&String.trim/1)
       |> Enum.filter(&valid_ip?/1)
 
-    if ips == [], do: [], else: run_threat_match_query(ips)
+    cond do
+      ips == [] ->
+        []
+
+      threat_intel_engine_match_enabled?() and ti_trie_ready?() ->
+        engine_threat_matches(ips)
+
+      true ->
+        run_threat_match_query(ips)
+    end
+  end
+
+  defp threat_intel_engine_match_enabled? do
+    Application.get_env(:serviceradar_core, :threat_intel_engine_match_enabled, true) == true
+  end
+
+  defp ti_trie_ready? do
+    stats = PrefixTagStore.stats("ti")
+    is_map(stats) and Map.get(stats, :total_prefixes, 0) > 0
+  end
+
+  # Current-matching via the shared prefix-tag LPM engine (ti: source).
+  # Severity is not stored on trie tags; max_severity is 0 on this path.
+  # Authoritative retro-matching remains the SQL/match-pipeline path.
+  defp engine_threat_matches(ips) when is_list(ips) do
+    Enum.map(ips, fn ip ->
+      chain = PrefixTagStore.lookup(ip, "ti")
+
+      sources =
+        chain
+        |> Enum.flat_map(fn
+          %{tags: tags} when is_list(tags) -> tags
+          _ -> []
+        end)
+        |> Enum.flat_map(fn
+          "ti:label:" <> _ -> []
+          "ti:" <> source when source != "" -> [source]
+          _ -> []
+        end)
+        |> Enum.uniq()
+
+      match_count = length(chain)
+      {ip, match_count, 0, sources}
+    end)
   end
 
   defp run_threat_match_query(ips) when is_list(ips) do
-    # We keep the query in SQL so Postgres can use the GIST index on indicator.
+    # Fallback / full-fidelity path: Postgres GIST on indicator (+ severity).
     sql = """
     WITH ips AS (
       SELECT unnest($1::text[]) AS ip

@@ -1,22 +1,17 @@
 defmodule ServiceRadar.EventWriter.ProviderCidrCache do
   @moduledoc """
-  Cross-batch ETS cache for FlowEnrichment hosting-provider lookups.
+  Legacy cross-batch ETS cache for FlowEnrichment hosting-provider lookups.
 
-  FlowEnrichment resolves a hosting provider for every flow src_ip/dst_ip via a
-  GiST longest-prefix-match against platform.netflow_provider_cidrs (~388k CIDRs
-  in the active snapshot). The existing per-batch Process-dict cache only dedups
-  within one batch_size=100 batch, so the same hot IPs re-query batch after batch
-  (~186,800 round-trips / 18h in pg_stat_statements). This ETS cache keys on
-  {snapshot_id, ip_key} and persists the resolution across batches so each distinct
-  IP costs ONE cheap single-literal GiST probe per snapshot lifetime instead of one
-  per batch.
+  **Deprecated path.** Prefer `ServiceRadar.PrefixTags.ProviderSource` and
+  `:prefix_tag_provider_trie_enabled` (default true). This module remains for
+  rollback when the trie flag is disabled; `Application` only starts it in that
+  case.
 
-  Keyed by snapshot_id so promotion of a new provider dataset snapshot naturally
-  invalidates (new key space); entries also carry a TTL so a stale snapshot's
-  entries age out. Negative caching (non-cloud IPs that resolve to nil — the common
-  case) is where most of the savings come from. Fail-open: any ETS error degrades to
-  a miss and the caller performs the live lookup. Modeled on
-  `ServiceRadar.EventWriter.DeviceCorrelationCache`.
+  Historical context: FlowEnrichment resolved a hosting provider for every flow
+  src/dst IP via GiST LPM against `platform.netflow_provider_cidrs` (~388k
+  CIDRs). The per-batch Process-dict cache only deduped within one batch, so
+  this ETS layer absorbed cross-batch repeats. The in-memory prefix-tag trie
+  removes the SQL hot path entirely when loaded.
   """
 
   use GenServer

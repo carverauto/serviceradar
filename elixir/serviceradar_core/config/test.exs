@@ -273,7 +273,9 @@ config :serviceradar_core,
 # Loader stays off so unit tests don't hit CNPG on application start.
 config :serviceradar_core,
   prefix_tag_enrichment_enabled: false,
+  # Keep provider SQL/injection path available for unit tests unless a test opts in.
   prefix_tag_provider_trie_enabled: false,
+  threat_intel_engine_match_enabled: true,
   geo_tag_derivation_enabled: false,
   prefix_tags_loader_enabled: false
 

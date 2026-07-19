@@ -346,30 +346,47 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   @doc """
   Whether hosting-provider lookups should use the in-memory prefix-tag engine.
 
-  When true, skips per-IP GiST SQL and `ProviderCidrCache`. Default false until
-  the provider trie is loaded and parity is verified.
+  When true (default), uses the `provider` trie and skips per-IP GiST SQL /
+  `ProviderCidrCache`. Falls back to SQL only while the provider trie is empty
+  (not yet loaded), then treats misses as true negatives.
   """
   @spec provider_trie_enabled?() :: boolean()
   def provider_trie_enabled? do
-    Application.get_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, false) == true
+    Application.get_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, true) == true
   end
 
   @spec provider_for_ip(String.t() | nil) :: String.t() | nil
   def provider_for_ip(nil), do: nil
 
   def provider_for_ip(ip) when is_binary(ip) do
-    if provider_trie_enabled?() do
-      case trim_or_nil(ip) do
-        nil -> nil
-        normalized -> ProviderSource.provider_for_ip(normalized)
-      end
+    normalized = trim_or_nil(ip)
+
+    cond do
+      is_nil(normalized) ->
+        nil
+
+      provider_trie_enabled?() and provider_trie_ready?() ->
+        ProviderSource.provider_for_ip(normalized)
+
+      provider_trie_enabled?() ->
+        # Trie enabled but not loaded yet — temporary SQL fallback.
+        sql_provider_for_ip(normalized)
+
+      true ->
+        sql_provider_for_ip(normalized)
+    end
+  end
+
+  defp provider_trie_ready? do
+    stats = PrefixTagStore.stats("provider")
+    is_map(stats) and Map.get(stats, :total_prefixes, 0) > 0
+  end
+
+  defp sql_provider_for_ip(ip) when is_binary(ip) do
+    with {:ok, %Postgrex.INET{} = inet} <- Cidr.dump_to_native(ip, []) do
+      cached_provider_for_inet(inet)
     else
-      with normalized_ip when is_binary(normalized_ip) <- trim_or_nil(ip),
-           {:ok, %Postgrex.INET{} = inet} <- Cidr.dump_to_native(normalized_ip, []) do
-        cached_provider_for_inet(inet)
-      else
-        _ -> nil
-      end
+      _ -> nil
     end
   end
 
