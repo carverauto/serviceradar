@@ -14,17 +14,17 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
     max_attempts: 3,
     unique: [period: :infinity, states: :incomplete]
 
-  import Ecto.Query, only: [from: 2]
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Observability.OutboundFeedPolicy
   alias ServiceRadar.PrefixTags.Loader
+  alias ServiceRadar.PrefixTags.ObanSchedule
   alias ServiceRadar.PrefixTags.PrefixTag
   alias ServiceRadar.PrefixTags.Slug
   alias ServiceRadar.PrefixTags.Snapshot
   alias ServiceRadar.Repo
-  alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
 
@@ -35,10 +35,12 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
   @default_failure_reschedule_seconds 30 * 60
   @default_max_tags_per_prefix 32
   @default_max_pages 500
-  @successor_unique [period: :infinity, states: [:available, :scheduled, :retryable]]
   @insert_chunk_size 250
   @db_timeout_ms 120_000
 
+  # Dimension namespaces control which NetBox fields become LPM tags.
+  # site/role/tenant/status columns on prefix_tags are denormalized mirrors for
+  # list UI; tags remain the LPM/query source of truth.
   @default_dimension_namespaces %{
     site: true,
     role: true,
@@ -50,32 +52,11 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
 
   @doc "Schedules the import job if not already scheduled."
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
-  def ensure_scheduled do
-    if ObanSupport.available?() do
-      if check_existing_job() do
-        {:ok, :already_scheduled}
-      else
-        %{} |> new() |> ObanSupport.safe_insert()
-      end
-    else
-      {:error, :oban_unavailable}
-    end
-  end
-
-  defp check_existing_job do
-    query =
-      from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
-        where: j.state in ["available", "scheduled", "executing", "retryable"],
-        limit: 1
-      )
-
-    Repo.exists?(query, prefix: ObanSupport.prefix())
-  end
+  def ensure_scheduled, do: ObanSchedule.ensure_scheduled(__MODULE__)
 
   @impl Oban.Worker
   def perform(_job) do
-    if scheduler_node?() do
+    if ObanSchedule.scheduler_node?() do
       do_perform()
     else
       Logger.debug("Skipping NetBox prefix-tag import on non-scheduler node", node: Node.self())
@@ -95,7 +76,10 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
           emit_import_telemetry(:ok, length(rows), duration_us)
           _ = Loader.broadcast_invalidation(%{source: @source_name, record_count: length(rows)})
           Logger.info("NetBox prefix-tag snapshot promoted", rows: length(rows))
-          schedule_next(Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds))
+          ObanSchedule.schedule_next(
+            __MODULE__,
+            Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
+          )
 
         {:error, reason} ->
           duration_us = System.monotonic_time(:microsecond) - started
@@ -103,14 +87,19 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
 
           Logger.warning("NetBox prefix-tag promotion failed", reason: inspect(reason))
 
-          schedule_next(
+          ObanSchedule.schedule_next(
+            __MODULE__,
             Keyword.get(config, :failure_reschedule_seconds, @default_failure_reschedule_seconds)
           )
       end
     else
       {:error, :no_credentials} ->
         Logger.info("NetBox prefix-tag import skipped: no credentials configured")
-        schedule_next(Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds))
+
+        ObanSchedule.schedule_next(
+          __MODULE__,
+          Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
+        )
 
       {:error, reason} ->
         duration_us = System.monotonic_time(:microsecond) - started
@@ -118,7 +107,8 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
 
         Logger.warning("NetBox prefix-tag import failed", reason: inspect(reason))
 
-        schedule_next(
+        ObanSchedule.schedule_next(
+          __MODULE__,
           Keyword.get(config, :failure_reschedule_seconds, @default_failure_reschedule_seconds)
         )
     end
@@ -275,8 +265,11 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
     end
   end
 
-  defp paginate(nil, _creds, _http_get, _timeout, acc, count, _pages, _max),
-    do: {:ok, acc, count || length(acc)}
+  # `acc` is a reverse list of page chunks; flattened once at the end (O(n)).
+  defp paginate(nil, _creds, _http_get, _timeout, acc, count, _pages, _max) do
+    results = acc |> Enum.reverse() |> Enum.concat()
+    {:ok, results, count || length(results)}
+  end
 
   defp paginate(_url, _creds, _http_get, _timeout, _acc, _count, pages, max_pages)
        when is_integer(pages) and is_integer(max_pages) and pages >= max_pages do
@@ -292,7 +285,8 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
       ]
 
       opts =
-        [headers: headers, receive_timeout: timeout_ms]
+        OutboundFeedPolicy.req_opts(timeout_ms)
+        |> Keyword.put(:headers, headers)
         |> maybe_insecure(creds.verify_ssl)
 
       case http_get.(safe_url, opts) do
@@ -300,9 +294,18 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
           with {:ok, decoded} <- decode_body(body),
                {:ok, page_results, next, page_count} <- extract_page(decoded),
                {:ok, next_url} <- validate_next_url(next, creds.url) do
-            new_acc = acc ++ page_results
             reported = count || page_count
-            paginate(next_url, creds, http_get, timeout_ms, new_acc, reported, pages + 1, max_pages)
+
+            paginate(
+              next_url,
+              creds,
+              http_get,
+              timeout_ms,
+              [page_results | acc],
+              reported,
+              pages + 1,
+              max_pages
+            )
           end
 
         {:ok, %{status: status}} ->
@@ -621,36 +624,25 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
     end
   end
 
-  defp content_hash(rows) do
+  # Streaming hash — avoid Jason-encoding the entire import as one binary.
+  defp content_hash(rows) when is_list(rows) do
     rows
-    |> Jason.encode!()
-    |> then(&:crypto.hash(:sha256, &1))
+    |> Enum.reduce(:crypto.hash_init(:sha256), fn row, acc ->
+      iodata = [
+        to_string(row[:prefix] || row["prefix"] || ""),
+        0,
+        to_string(row[:vrf] || row["vrf"] || ""),
+        0,
+        Enum.join(List.wrap(row[:tags] || row["tags"] || []), ",")
+      ]
+
+      :crypto.hash_update(acc, iodata)
+    end)
+    |> :crypto.hash_final()
     |> Base.encode16(case: :lower)
   end
 
   # -- scheduling / config ----------------------------------------------------
-
-  defp schedule_next(seconds) when is_integer(seconds) do
-    _ =
-      %{}
-      |> successor_job(schedule_in: max(seconds, 60))
-      |> ObanSupport.safe_insert()
-
-    :ok
-  end
-
-  defp successor_job(args, opts) do
-    new(args, Keyword.put(opts, :unique, @successor_unique))
-  end
-
-  defp scheduler_node? do
-    cluster_enabled = Application.get_env(:serviceradar_core, :cluster_enabled, false)
-
-    cluster_coordinator =
-      Application.get_env(:serviceradar_core, :cluster_coordinator, cluster_enabled)
-
-    if cluster_enabled, do: cluster_coordinator == true, else: true
-  end
 
   defp config, do: Application.get_env(:serviceradar_core, __MODULE__, [])
 

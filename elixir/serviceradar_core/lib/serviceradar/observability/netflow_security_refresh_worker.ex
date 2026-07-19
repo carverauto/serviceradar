@@ -425,12 +425,12 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   end
 
   defp ti_trie_ready? do
-    stats = PrefixTagStore.stats("ti")
-    is_map(stats) and Map.get(stats, :total_prefixes, 0) > 0
+    PrefixTagStore.loaded?("ti") and
+      Map.get(PrefixTagStore.stats("ti"), :total_prefixes, 0) > 0
   end
 
   # Current-matching via the shared prefix-tag LPM engine (ti: source).
-  # Severity is materialized as `ti:severity:N` tags by ThreatIntelSource.
+  # Severity is a first-class match field (with ti:severity:N tags for SRQL).
   # Authoritative retro-matching remains the SQL/match-pipeline path.
   defp engine_threat_matches(ips) when is_list(ips) do
     Enum.map(ips, fn ip ->
@@ -444,7 +444,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
         end)
 
       sources = ServiceRadar.PrefixTags.ThreatIntelSource.sources_from_tags(all_tags)
-      max_severity = ServiceRadar.PrefixTags.ThreatIntelSource.max_severity_from_tags(all_tags)
+      max_severity = ServiceRadar.PrefixTags.ThreatIntelSource.max_severity_from_match(chain)
       match_count = length(chain)
       {ip, match_count, max_severity, sources}
     end)

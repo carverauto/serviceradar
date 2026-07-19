@@ -24,10 +24,7 @@ defmodule ServiceRadar.PrefixTags.MaterializeWorker do
         max_attempts: 3,
         unique: [period: :infinity, states: :incomplete]
 
-      import Ecto.Query, only: [from: 2]
-
-      alias ServiceRadar.Repo
-      alias ServiceRadar.SweepJobs.ObanSupport
+      alias ServiceRadar.PrefixTags.ObanSchedule
 
       require Logger
 
@@ -35,36 +32,14 @@ defmodule ServiceRadar.PrefixTags.MaterializeWorker do
       @reload_mod unquote(reload_mod)
       @default_reschedule_seconds unquote(reschedule)
       @default_failure_reschedule_seconds unquote(failure_reschedule)
-      @successor_unique [period: :infinity, states: [:available, :scheduled, :retryable]]
 
       @spec ensure_scheduled() ::
               {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
-      def ensure_scheduled do
-        if ObanSupport.available?() do
-          if check_existing_job() do
-            {:ok, :already_scheduled}
-          else
-            %{} |> new() |> ObanSupport.safe_insert()
-          end
-        else
-          {:error, :oban_unavailable}
-        end
-      end
-
-      defp check_existing_job do
-        query =
-          from(j in Oban.Job,
-            where: j.worker == ^to_string(__MODULE__),
-            where: j.state in ["available", "scheduled", "executing", "retryable"],
-            limit: 1
-          )
-
-        Repo.exists?(query, prefix: ObanSupport.prefix())
-      end
+      def ensure_scheduled, do: ObanSchedule.ensure_scheduled(__MODULE__)
 
       @impl Oban.Worker
       def perform(_job) do
-        if scheduler_node?() do
+        if ObanSchedule.scheduler_node?() do
           do_perform()
         else
           :ok
@@ -79,7 +54,11 @@ defmodule ServiceRadar.PrefixTags.MaterializeWorker do
           {:ok, count} ->
             duration_us = System.monotonic_time(:microsecond) - started
             emit(:ok, count, duration_us)
-            schedule_next(Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds))
+
+            ObanSchedule.schedule_next(
+              __MODULE__,
+              Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
+            )
 
           {:error, reason} ->
             duration_us = System.monotonic_time(:microsecond) - started
@@ -90,7 +69,8 @@ defmodule ServiceRadar.PrefixTags.MaterializeWorker do
               reason: inspect(reason)
             )
 
-            schedule_next(
+            ObanSchedule.schedule_next(
+              __MODULE__,
               Keyword.get(
                 config,
                 :failure_reschedule_seconds,
@@ -98,24 +78,6 @@ defmodule ServiceRadar.PrefixTags.MaterializeWorker do
               )
             )
         end
-      end
-
-      defp schedule_next(seconds) when is_integer(seconds) do
-        _ =
-          %{}
-          |> new(schedule_in: max(seconds, 60), unique: @successor_unique)
-          |> ObanSupport.safe_insert()
-
-        :ok
-      end
-
-      defp scheduler_node? do
-        cluster_enabled = Application.get_env(:serviceradar_core, :cluster_enabled, false)
-
-        cluster_coordinator =
-          Application.get_env(:serviceradar_core, :cluster_coordinator, cluster_enabled)
-
-        if cluster_enabled, do: cluster_coordinator == true, else: true
       end
 
       defp emit(outcome, count, duration_us) do

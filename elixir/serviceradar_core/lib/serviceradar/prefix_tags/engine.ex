@@ -22,7 +22,8 @@ defmodule ServiceRadar.PrefixTags.Engine do
           required(:prefix) => String.t(),
           required(:tags) => [String.t()],
           optional(:source) => String.t() | nil,
-          optional(:vrf) => String.t() | nil
+          optional(:vrf) => String.t() | nil,
+          optional(:severity) => non_neg_integer() | nil
         }
 
   @type stats :: %{
@@ -43,6 +44,19 @@ defmodule ServiceRadar.PrefixTags.Engine do
   """
   @callback lookup(t(), ip()) :: [tag_match()]
 
+  @doc """
+  Look up using a pre-parsed address (family + bit list).
+
+  Callers that hit multiple source tries for one IP SHOULD parse once and reuse
+  bits via this callback when implemented.
+  """
+  @callback lookup_bits(t(), :ipv4 | :ipv6, [0 | 1]) :: [tag_match()]
+
+  @doc "Parse an IP into family + bit list for multi-trie reuse."
+  @callback parse_ip(ip()) :: {:ok, :ipv4 | :ipv6, [0 | 1]} | :error
+
   @doc "Return size stats for the built trie."
   @callback stats(t()) :: stats()
+
+  @optional_callbacks lookup_bits: 3, parse_ip: 1
 end

@@ -70,35 +70,55 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
   def map_indicator_row(prefix, source, label, severity) when is_binary(prefix) do
     source_slug = Slug.slugify(source || "unknown", empty: "unknown")
     tags = ["ti:#{source_slug}"]
+    sev = normalize_severity(severity)
 
     tags =
       if is_binary(label) and String.trim(label) != "" do
         case Slug.slugify(label) do
           nil -> tags
-          label_slug -> tags ++ ["ti:label:#{label_slug}"]
+          label_slug -> ["ti:label:#{label_slug}" | tags]
         end
       else
         tags
       end
 
+    # Keep one advisory severity tag for SRQL; structured field is authoritative
+    # for CTI matching (max_severity_from_match/1).
     tags =
-      case normalize_severity(severity) do
+      case sev do
         nil -> tags
-        n -> tags ++ ["ti:severity:#{n}"]
+        n -> ["ti:severity:#{n}" | tags]
       end
 
     %{
       prefix: prefix,
-      tags: tags |> Enum.uniq() |> Enum.take(@max_tags_per_prefix),
-      source: @source
+      tags: tags |> Enum.reverse() |> Enum.uniq() |> Enum.take(@max_tags_per_prefix),
+      source: @source,
+      severity: sev
     }
   end
 
   @doc """
+  Highest severity from a Store match chain (prefers first-class `:severity`,
+  falls back to `ti:severity:N` tags).
+  """
+  @spec max_severity_from_match([map()]) :: non_neg_integer()
+  def max_severity_from_match(chain) when is_list(chain) do
+    Enum.reduce(chain, 0, fn match, acc ->
+      case match do
+        %{severity: n} when is_integer(n) and n > acc -> n
+        %{tags: tags} when is_list(tags) -> max(acc, max_severity_from_tags(tags))
+        _ -> acc
+      end
+    end)
+  end
+
+  def max_severity_from_match(_), do: 0
+
+  @doc """
   Extract the highest `ti:severity:N` value from a list of tags (0 if none).
 
-  Used by the CTI engine match path so IpThreatIntelCache.max_severity stays
-  populated when matching via the trie instead of SQL.
+  Prefer `max_severity_from_match/1` when a full match chain is available.
   """
   @spec max_severity_from_tags([String.t()]) :: non_neg_integer()
   def max_severity_from_tags(tags) when is_list(tags) do

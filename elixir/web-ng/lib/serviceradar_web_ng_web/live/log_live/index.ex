@@ -351,11 +351,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         Map.get(socket.assigns, :netflow_view, "overview")
       )
 
-    next_q =
-      query
-      |> upsert_query_filter("tag", tag)
-      |> upsert_query_filter("src_tag", "")
-      |> upsert_query_filter("dst_tag", "")
+    next_q = ServiceRadarWebNGWeb.Netflow.PrefixTagQuery.apply_tag_filter(query, tag)
 
     href = base_path <> "?" <> URI.encode_query(netflow_params(next_q, limit, patch_opts))
     {:noreply, push_patch(socket, to: href)}

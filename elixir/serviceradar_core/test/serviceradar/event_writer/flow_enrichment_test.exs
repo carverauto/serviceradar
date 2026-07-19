@@ -178,6 +178,39 @@ defmodule ServiceRadar.EventWriter.FlowEnrichmentTest do
       end)
     end
 
+    test "enrich reuses one multi-source lookup for provider and tags" do
+      Application.put_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, true)
+      Application.put_env(:serviceradar_core, :prefix_tag_enrichment_enabled, true)
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, false)
+        Application.put_env(:serviceradar_core, :prefix_tag_enrichment_enabled, false)
+      end)
+
+      Store.put_rows("provider", [
+        %{prefix: "203.0.113.0/24", tags: ["provider:ExampleCloud"], source: "provider"}
+      ])
+
+      Store.put_rows("manual", [
+        %{prefix: "203.0.113.0/24", tags: ["site:lab"], source: "manual"}
+      ])
+
+      enriched =
+        FlowEnrichment.with_provider_cache(fn ->
+          FlowEnrichment.enrich(%{
+            protocol_num: 6,
+            src_ip: "203.0.113.10",
+            dst_ip: "198.51.100.1"
+          })
+        end)
+
+      assert enriched.src_hosting_provider == "ExampleCloud"
+      assert "site:lab" in (enriched.src_prefix_tags || [])
+      assert "provider:ExampleCloud" in (enriched.src_prefix_tags || [])
+      assert is_binary(enriched.src_prefix_tags_source)
+      assert String.contains?(enriched.src_prefix_tags_source, "provider")
+    end
+
     test "geo tag derivation is fail-open when MMDB absent" do
       Application.put_env(:serviceradar_core, :prefix_tag_enrichment_enabled, true)
       Application.put_env(:serviceradar_core, :geo_tag_derivation_enabled, true)

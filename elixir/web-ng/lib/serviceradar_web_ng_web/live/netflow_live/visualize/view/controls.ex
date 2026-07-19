@@ -109,7 +109,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
                 <input
                   type="text"
                   name="tag"
-                  value={Map.get(@netflow_viz_state, "prefix_tag") || ""}
+                  value={
+                    ServiceRadarWebNGWeb.Netflow.PrefixTagQuery.tag_from_query(
+                      (Map.get(assigns, :srql) || %{})[:query] ||
+                        Map.get(assigns, :query) ||
+                        ""
+                    ) || ""
+                  }
                   placeholder="site:austin"
                   class="input input-bordered input-sm w-full font-mono text-xs"
                   autocomplete="off"

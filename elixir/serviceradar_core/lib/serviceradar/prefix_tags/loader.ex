@@ -278,6 +278,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
         total_rows = sources_meta |> Map.values() |> Enum.map(& &1.row_count) |> Enum.sum()
 
         emit_rebuild_telemetry(agg, duration_us, total_rows, :ok, scope)
+        emit_snapshot_age_for_sources(sources_meta)
 
         Logger.info(
           "PrefixTags.Loader installed sources=#{inspect(Map.keys(sources_meta))} " <>
@@ -402,16 +403,30 @@ defmodule ServiceRadar.PrefixTags.Loader do
     )
   end
 
+  defp emit_snapshot_age_for_sources(sources_meta) when is_map(sources_meta) do
+    Enum.each(sources_meta, fn {source, meta} ->
+      age_seconds =
+        case Map.get(meta, :loaded_at) do
+          %DateTime{} = dt -> max(DateTime.diff(DateTime.utc_now(), dt, :second), 0)
+          _ -> 0
+        end
+
+      :telemetry.execute(
+        [:serviceradar, :prefix_tags, :snapshot_age],
+        %{age_seconds: age_seconds},
+        %{source: source}
+      )
+    end)
+  rescue
+    _ -> :ok
+  end
+
+  defp emit_snapshot_age_for_sources(_), do: :ok
+
   # Sources compiled from tables other than prefix_tag_snapshots/prefix_tags.
   # Invalidating these must re-run the materializer, never a prefix_tags SELECT
-  # (which would be empty and wipe the trie).
-  @external_source_modules %{
-    "provider" => ServiceRadar.PrefixTags.ProviderSource,
-    "ti" => ServiceRadar.PrefixTags.ThreatIntelSource,
-    "dns-policy" => ServiceRadar.PrefixTags.DnsPolicySource
-  }
-
-  defp external_source?(source), do: Map.has_key?(@external_source_modules, source)
+  # (which would be empty and wipe the trie). See PrefixTags.ExternalSources.
+  defp external_source?(source), do: ServiceRadar.PrefixTags.ExternalSources.external?(source)
 
   defp clear_stale_snapshot_sources(active_sources) when is_list(active_sources) do
     active = MapSet.new(active_sources)
@@ -436,12 +451,12 @@ defmodule ServiceRadar.PrefixTags.Loader do
   defp maybe_schedule_initial_retry(state, _delay_ms), do: state
 
   defp reload_all_external_sources do
-    Enum.each(Map.keys(@external_source_modules), &reload_external_source/1)
+    Enum.each(ServiceRadar.PrefixTags.ExternalSources.by_name() |> Map.keys(), &reload_external_source/1)
     :ok
   end
 
   defp reload_external_source(source) when is_binary(source) do
-    case Map.get(@external_source_modules, source) do
+    case ServiceRadar.PrefixTags.ExternalSources.module_for(source) do
       nil ->
         :ok
 
@@ -455,6 +470,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
                 rows: count
               )
 
+              maybe_emit_snapshot_age(source, count)
               :ok
 
             {:error, reason} ->
@@ -477,6 +493,18 @@ defmodule ServiceRadar.PrefixTags.Loader do
       )
 
       :ok
+  end
+
+  defp maybe_emit_snapshot_age(source, _count) do
+    # Age gauge: 0 immediately after a successful materialize (operators alert
+    # when age exceeds a threshold between refreshes).
+    :telemetry.execute(
+      [:serviceradar, :prefix_tags, :snapshot_age],
+      %{age_seconds: 0},
+      %{source: source}
+    )
+  rescue
+    _ -> :ok
   end
 
   defp pubsub_available? do

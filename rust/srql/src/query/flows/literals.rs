@@ -97,6 +97,57 @@ pub(in crate::query::flows) fn tag_any_contains_sql(
     Ok(format!("({})", parts?.join(" OR ")))
 }
 
+/// Shared tag filter SQL for both row and stats paths.
+///
+/// `src_col` / `dst_col` are the fully qualified column expressions
+/// (e.g. `src_prefix_tags` or `f.src_prefix_tags`).
+pub(in crate::query::flows) fn tag_filter_sql(
+    field: &str,
+    op: &crate::parser::FilterOp,
+    value: &crate::parser::FilterValue,
+    src_col: &str,
+    dst_col: &str,
+) -> Result<String> {
+    use crate::parser::FilterOp;
+
+    match field {
+        "src_tag" => match op {
+            FilterOp::Eq | FilterOp::NotEq => tag_contains_sql(src_col, value.as_scalar()?),
+            FilterOp::In | FilterOp::NotIn => tag_any_contains_sql(src_col, value.as_list()?),
+            _ => Err(ServiceError::InvalidRequest(
+                "src_tag filter only supports equality or list matching".into(),
+            )),
+        },
+        "dst_tag" => match op {
+            FilterOp::Eq | FilterOp::NotEq => tag_contains_sql(dst_col, value.as_scalar()?),
+            FilterOp::In | FilterOp::NotIn => tag_any_contains_sql(dst_col, value.as_list()?),
+            _ => Err(ServiceError::InvalidRequest(
+                "dst_tag filter only supports equality or list matching".into(),
+            )),
+        },
+        "tag" => match op {
+            FilterOp::Eq | FilterOp::NotEq => {
+                let tag = value.as_scalar()?;
+                let src = tag_contains_sql(src_col, tag)?;
+                let dst = tag_contains_sql(dst_col, tag)?;
+                Ok(format!("({src} OR {dst})"))
+            }
+            FilterOp::In | FilterOp::NotIn => {
+                let values = value.as_list()?;
+                let src = tag_any_contains_sql(src_col, values)?;
+                let dst = tag_any_contains_sql(dst_col, values)?;
+                Ok(format!("({src} OR {dst})"))
+            }
+            _ => Err(ServiceError::InvalidRequest(
+                "tag filter only supports equality or list matching".into(),
+            )),
+        },
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported tag filter field: '{other}'"
+        ))),
+    }
+}
+
 /// Parsed proximity term: latitude, longitude, radius in meters.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(in crate::query::flows) struct NearPoint {

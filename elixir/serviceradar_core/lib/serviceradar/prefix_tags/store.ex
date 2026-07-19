@@ -32,31 +32,46 @@ defmodule ServiceRadar.PrefixTags.Store do
   """
   @spec lookup(Engine.ip()) :: [Engine.tag_match()]
   def lookup(ip) do
+    eng = engine()
+    parsed = parse_ip(eng, ip)
+
     result =
       sources()
       |> Enum.flat_map(fn source ->
         case active_trie(source) do
-          nil ->
-            []
-
-          trie ->
-            engine().lookup(trie, ip)
-            |> Enum.map(&ensure_source(&1, source))
+          nil -> []
+          trie -> lookup_trie(eng, trie, ip, parsed, source)
         end
       end)
       |> merge_by_specificity()
 
-    emit_lookup_telemetry(result)
+    # Sampled telemetry: full rate is too hot on the EventWriter path.
+    if :erlang.phash2(ip, 32) == 0 do
+      emit_lookup_telemetry(result)
+    end
+
     result
   end
 
   @doc "Look up against a single source (empty if that source has no trie)."
   @spec lookup(Engine.ip(), source()) :: [Engine.tag_match()]
   def lookup(ip, source) when is_binary(source) do
+    eng = engine()
+
     case active_trie(source) do
       nil -> []
-      trie -> Enum.map(engine().lookup(trie, ip), &ensure_source(&1, source))
+      trie -> lookup_trie(eng, trie, ip, parse_ip(eng, ip), source)
     end
+  end
+
+  @doc """
+  True when a source has an installed trie (even if empty after an explicit clear).
+
+  Distinguishes "never loaded" (nil active handle) from "loaded with zero prefixes".
+  """
+  @spec loaded?(source()) :: boolean()
+  def loaded?(source) when is_binary(source) do
+    not is_nil(active_trie(source)) or is_integer(active_version(source))
   end
 
   @doc """
@@ -212,6 +227,31 @@ defmodule ServiceRadar.PrefixTags.Store do
   # -- internals --------------------------------------------------------------
 
   defp empty_stats, do: %{ipv4_prefixes: 0, ipv6_prefixes: 0, total_prefixes: 0}
+
+  defp parse_ip(eng, ip) do
+    if function_exported?(eng, :parse_ip, 1) do
+      eng.parse_ip(ip)
+    else
+      :error
+    end
+  end
+
+  defp lookup_trie(eng, trie, ip, parsed, source) do
+    matches =
+      case parsed do
+        {:ok, family, bits} when is_list(bits) ->
+          if function_exported?(eng, :lookup_bits, 3) do
+            eng.lookup_bits(trie, family, bits)
+          else
+            eng.lookup(trie, ip)
+          end
+
+        _ ->
+          eng.lookup(trie, ip)
+      end
+
+    Enum.map(matches, &ensure_source(&1, source))
+  end
 
   defp ensure_source(%{source: s} = match, _fallback) when is_binary(s) and s != "", do: match
   defp ensure_source(match, source), do: Map.put(match, :source, source)

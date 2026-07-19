@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.Events do
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.Params
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.QueryState
 
+  alias ServiceRadarWebNGWeb.Netflow.PrefixTagQuery
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.Config
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.Events.Bgp
   alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
@@ -95,15 +96,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.Events do
         _ -> "in:flows"
       end
 
-    next_q =
-      current_q
-      |> upsert_query_filter("tag", tag)
-      |> upsert_query_filter("src_tag", "")
-      |> upsert_query_filter("dst_tag", "")
-
-    state =
-      socket.assigns.netflow_viz_state
-      |> Map.put("prefix_tag", if(tag == "", do: nil, else: tag))
+    next_q = PrefixTagQuery.apply_tag_filter(current_q, tag)
+    # Tag lives in `q` only — do not mirror into nf state (derivable).
+    state = socket.assigns.netflow_viz_state
 
     {:noreply,
      socket

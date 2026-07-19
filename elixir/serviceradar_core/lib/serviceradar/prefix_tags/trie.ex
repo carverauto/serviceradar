@@ -19,7 +19,8 @@ defmodule ServiceRadar.PrefixTags.Trie do
           required(:prefix) => String.t(),
           required(:tags) => [String.t()],
           optional(:source) => String.t() | nil,
-          optional(:vrf) => String.t() | nil
+          optional(:vrf) => String.t() | nil,
+          optional(:severity) => non_neg_integer() | nil
         }
 
   @type node_t :: %{
@@ -52,15 +53,22 @@ defmodule ServiceRadar.PrefixTags.Trie do
   end
 
   @impl true
-  def lookup(%{ipv4: v4, ipv6: v6}, ip) do
+  def lookup(%{} = trie, ip) do
     case parse_ip(ip) do
-      {:ok, :ipv4, bits} -> walk(v4, bits, [])
-      {:ok, :ipv6, bits} -> walk(v6, bits, [])
+      {:ok, family, bits} -> lookup_bits(trie, family, bits)
       :error -> []
     end
   end
 
   def lookup(_invalid, _ip), do: []
+
+  @impl true
+  def lookup_bits(%{ipv4: v4}, :ipv4, bits) when is_list(bits), do: walk(v4, bits, [])
+  def lookup_bits(%{ipv6: v6}, :ipv6, bits) when is_list(bits), do: walk(v6, bits, [])
+  def lookup_bits(_, _, _), do: []
+
+  @impl true
+  def parse_ip(ip), do: parse_ip_bits(ip)
 
   @impl true
   def stats(%{ipv4_count: v4, ipv6_count: v6}) do
@@ -182,15 +190,18 @@ defmodule ServiceRadar.PrefixTags.Trie do
     tags = normalize_tags(row[:tags] || row["tags"])
     source = row[:source] || row["source"]
     vrf = row[:vrf] || row["vrf"]
+    severity = normalize_severity(row[:severity] || row["severity"])
 
     with true <- is_binary(prefix),
          {:ok, family, bits, mask} <- parse_prefix(prefix) do
-      entry = %{
-        prefix: format_prefix(bits, mask, family),
-        tags: tags,
-        source: source,
-        vrf: vrf
-      }
+      entry =
+        %{
+          prefix: format_prefix(bits, mask, family),
+          tags: tags,
+          source: source,
+          vrf: vrf
+        }
+        |> maybe_put_severity(severity)
 
       {:ok, family, bits, mask, entry}
     else
@@ -205,6 +216,12 @@ defmodule ServiceRadar.PrefixTags.Trie do
   defp normalize_tags(tag) when is_binary(tag), do: [tag]
   defp normalize_tags(_), do: []
 
+  defp normalize_severity(n) when is_integer(n) and n >= 0, do: n
+  defp normalize_severity(_), do: nil
+
+  defp maybe_put_severity(entry, nil), do: entry
+  defp maybe_put_severity(entry, n) when is_integer(n), do: Map.put(entry, :severity, n)
+
   defp parse_prefix(prefix) when is_binary(prefix) do
     prefix = String.trim(prefix)
 
@@ -214,21 +231,21 @@ defmodule ServiceRadar.PrefixTags.Trie do
         [addr, mask] -> {addr, mask}
       end
 
-    with {:ok, family, bits} <- parse_ip(addr_str),
+    with {:ok, family, bits} <- parse_ip_bits(addr_str),
          {:ok, mask} <- parse_mask(family, mask_str) do
       {:ok, family, bits, mask}
     end
   end
 
-  defp parse_ip(ip) when is_binary(ip) do
+  defp parse_ip_bits(ip) when is_binary(ip) do
     case :inet.parse_address(String.to_charlist(String.trim(ip))) do
       {:ok, addr} -> bits_for_address(addr)
       {:error, _} -> :error
     end
   end
 
-  defp parse_ip(addr) when is_tuple(addr), do: bits_for_address(addr)
-  defp parse_ip(_), do: :error
+  defp parse_ip_bits(addr) when is_tuple(addr), do: bits_for_address(addr)
+  defp parse_ip_bits(_), do: :error
 
   defp bits_for_address({a, b, c, d}) do
     bits =

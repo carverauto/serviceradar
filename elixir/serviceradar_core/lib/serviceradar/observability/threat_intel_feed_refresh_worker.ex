@@ -97,6 +97,9 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
         refresh_feed(url, actor, now, expires_at, timeout_ms, max_indicators_per_feed)
       end)
 
+      # One trie rebuild per refresh cycle, not once per feed URL.
+      _ = maybe_reload_ti_trie()
+
       ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 3_600)))
       :ok
     end
@@ -122,9 +125,6 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
       body
       |> parse_feed_indicators(max_indicators_per_feed)
       |> Enum.each(&upsert_indicator(&1, source, actor, now, expires_at))
-
-      # Refresh advisory ti: trie after feed upserts (best-effort).
-      _ = maybe_reload_ti_trie()
     end
 
     :ok

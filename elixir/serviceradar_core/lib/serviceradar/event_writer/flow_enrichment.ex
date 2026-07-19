@@ -11,7 +11,6 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.EventWriter.OCSF
-  alias ServiceRadar.PrefixTags.ProviderSource
   alias ServiceRadar.PrefixTags.Store, as: PrefixTagStore
   alias ServiceRadar.ReferenceData.ServicePorts
   alias ServiceRadar.Repo
@@ -132,8 +131,9 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
     src_ip = trim_or_nil(Map.get(attrs, :src_ip))
     dst_ip = trim_or_nil(Map.get(attrs, :dst_ip))
 
-    src_provider = provider_for_ip(src_ip)
-    dst_provider = provider_for_ip(dst_ip)
+    # One multi-source LPM walk per IP covers hosting-provider + prefix tags.
+    src_ip_enrichment = ip_enrichment(src_ip)
+    dst_ip_enrichment = ip_enrichment(dst_ip)
 
     src_mac = normalize_mac(Map.get(attrs, :src_mac))
     dst_mac = normalize_mac(Map.get(attrs, :dst_mac))
@@ -152,10 +152,12 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
       dst_service_source: source_from_service(dst_service),
       direction_label: direction_label(bytes_in, bytes_out),
       direction_source: "heuristic",
-      src_hosting_provider: src_provider,
-      src_hosting_provider_source: source_for_lookup(src_provider, "cloud_provider_db"),
-      dst_hosting_provider: dst_provider,
-      dst_hosting_provider_source: source_for_lookup(dst_provider, "cloud_provider_db"),
+      src_hosting_provider: src_ip_enrichment.provider,
+      src_hosting_provider_source:
+        source_for_lookup(src_ip_enrichment.provider, src_ip_enrichment.provider_source),
+      dst_hosting_provider: dst_ip_enrichment.provider,
+      dst_hosting_provider_source:
+        source_for_lookup(dst_ip_enrichment.provider, dst_ip_enrichment.provider_source),
       src_mac: src_mac,
       dst_mac: dst_mac,
       src_mac_vendor: src_vendor,
@@ -164,7 +166,16 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
       dst_mac_vendor_source: source_for_lookup(dst_vendor, "ieee_oui")
     }
 
-    Map.merge(base, prefix_tag_fields(src_ip, dst_ip))
+    if prefix_tag_enrichment_enabled?() do
+      Map.merge(base, %{
+        src_prefix_tags: src_ip_enrichment.tags,
+        src_prefix_tags_source: src_ip_enrichment.tags_source,
+        dst_prefix_tags: dst_ip_enrichment.tags,
+        dst_prefix_tags_source: dst_ip_enrichment.tags_source
+      })
+    else
+      base
+    end
   end
 
   defp source_for_lookup(nil, _), do: "unknown"
@@ -189,6 +200,21 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   def prefix_tags_for_ip(nil), do: %{tags: nil, source: nil}
 
   def prefix_tags_for_ip(ip) when is_binary(ip) do
+    e = ip_enrichment(ip)
+    %{tags: e.tags, source: e.tags_source}
+  end
+
+  # Combined LPM + geo + provider extraction for one IP (batch-memoized).
+  defp ip_enrichment(nil) do
+    %{
+      tags: nil,
+      tags_source: nil,
+      provider: nil,
+      provider_source: "cloud_provider_db"
+    }
+  end
+
+  defp ip_enrichment(ip) when is_binary(ip) do
     case Process.get(@prefix_tag_cache_key) do
       %{} = cache ->
         case Map.fetch(cache, ip) do
@@ -196,64 +222,98 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
             cached
 
           :error ->
-            result = do_prefix_tags_for_ip(ip)
+            result = do_ip_enrichment(ip)
             Process.put(@prefix_tag_cache_key, Map.put(cache, ip, result))
             result
         end
 
       _ ->
-        do_prefix_tags_for_ip(ip)
+        do_ip_enrichment(ip)
     end
   end
 
-  defp do_prefix_tags_for_ip(ip) when is_binary(ip) do
-    chain = PrefixTagStore.lookup(ip)
+  defp do_ip_enrichment(ip) when is_binary(ip) do
+    chain =
+      try do
+        PrefixTagStore.lookup(ip)
+      rescue
+        e ->
+          Logger.debug("FlowEnrichment prefix tag lookup failed",
+            ip: ip,
+            error: Exception.message(e)
+          )
+
+          []
+      end
+
     trie_tags = flatten_tag_chain(chain)
     geo_tags = geo_tags_for_ip(ip)
-    tags = merge_unique_tags(trie_tags, geo_tags)
-    source = chain_source(chain) || if(geo_tags == [], do: nil, else: "geo")
+    tags = Enum.uniq(trie_tags ++ geo_tags)
+    tags_source = chain_sources_label(chain, geo_tags)
 
-    if tags == [] do
-      %{tags: nil, source: nil}
-    else
-      %{tags: tags, source: source}
-    end
-  rescue
-    e ->
-      Logger.debug("FlowEnrichment prefix tag lookup failed",
-        ip: ip,
-        error: Exception.message(e)
-      )
+    {provider, provider_source} = provider_from_chain_or_sql(chain, ip)
 
-      %{tags: nil, source: nil}
+    %{
+      tags: if(tags == [], do: nil, else: tags),
+      tags_source: tags_source,
+      provider: provider,
+      provider_source: provider_source
+    }
   end
 
-  defp merge_unique_tags(a, b) do
-    (a ++ b)
-    |> Enum.reduce({[], MapSet.new()}, fn tag, {acc, seen} ->
-      if MapSet.member?(seen, tag) do
-        {acc, seen}
+  # Comma-joined unique source ids from the match chain (multi-source provenance).
+  defp chain_sources_label(chain, geo_tags) when is_list(chain) do
+    sources =
+      chain
+      |> Enum.map(&Map.get(&1, :source))
+      |> Enum.filter(&(is_binary(&1) and &1 != ""))
+      |> Enum.uniq()
+
+    sources =
+      if geo_tags != [] and "geo" not in sources do
+        sources ++ ["geo"]
       else
-        {acc ++ [tag], MapSet.put(seen, tag)}
+        sources
       end
-    end)
-    |> elem(0)
+
+    case sources do
+      [] -> nil
+      list -> Enum.join(list, ",")
+    end
   end
 
-  defp prefix_tag_fields(src_ip, dst_ip) do
-    if prefix_tag_enrichment_enabled?() do
-      src = prefix_tags_for_ip(src_ip)
-      dst = prefix_tags_for_ip(dst_ip)
+  defp provider_from_chain_or_sql(chain, ip) do
+    case provider_name_from_chain(chain) do
+      name when is_binary(name) and name != "" ->
+        {name, "provider_trie"}
 
-      %{
-        src_prefix_tags: src.tags,
-        src_prefix_tags_source: src.source,
-        dst_prefix_tags: dst.tags,
-        dst_prefix_tags_source: dst.source
-      }
-    else
-      %{}
+      _ ->
+        if provider_trie_enabled?() and provider_trie_ready?() do
+          # Trie loaded: miss is authoritative (no SQL).
+          {nil, "cloud_provider_db"}
+        else
+          {sql_provider_for_ip(ip), "cloud_provider_db"}
+        end
     end
+  end
+
+  defp provider_name_from_chain(chain) when is_list(chain) do
+    Enum.find_value(chain, fn
+      %{source: "provider", tags: tags} when is_list(tags) ->
+        Enum.find_value(tags, fn
+          "provider:" <> name when name != "" -> name
+          _ -> nil
+        end)
+
+      %{tags: tags} when is_list(tags) ->
+        Enum.find_value(tags, fn
+          "provider:" <> name when name != "" -> name
+          _ -> nil
+        end)
+
+      _ ->
+        nil
+    end)
   end
 
   @doc """
@@ -277,6 +337,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
           []
           |> maybe_geo_tag("geo:country:", Map.get(geo, :country_iso2))
           |> maybe_geo_tag("geo:asn:", Map.get(geo, :asn))
+          |> Enum.reverse()
 
         _ ->
           []
@@ -292,12 +353,12 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   defp maybe_geo_tag(acc, _prefix, ""), do: acc
 
   defp maybe_geo_tag(acc, prefix, value) when is_integer(value) do
-    acc ++ [prefix <> Integer.to_string(value)]
+    [prefix <> Integer.to_string(value) | acc]
   end
 
   defp maybe_geo_tag(acc, prefix, value) when is_binary(value) do
     v = value |> String.trim() |> String.downcase()
-    if v == "", do: acc, else: acc ++ [prefix <> v]
+    if v == "", do: acc, else: [prefix <> v | acc]
   end
 
   defp maybe_geo_tag(acc, _, _), do: acc
@@ -308,19 +369,8 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
       %{tags: tags} when is_list(tags) -> tags
       _ -> []
     end)
-    |> Enum.reduce({[], MapSet.new()}, fn tag, {acc, seen} ->
-      if MapSet.member?(seen, tag) do
-        {acc, seen}
-      else
-        {acc ++ [tag], MapSet.put(seen, tag)}
-      end
-    end)
-    |> elem(0)
+    |> Enum.uniq()
   end
-
-  defp chain_source([%{source: source} | _]) when is_binary(source) and source != "", do: source
-  defp chain_source([_ | rest]), do: chain_source(rest)
-  defp chain_source([]), do: nil
 
   @spec decode_tcp_flags(integer() | nil) :: [String.t()]
   def decode_tcp_flags(nil), do: []
@@ -392,25 +442,17 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   def provider_for_ip(ip) when is_binary(ip) do
     normalized = trim_or_nil(ip)
 
-    cond do
-      is_nil(normalized) ->
-        nil
-
-      provider_trie_enabled?() and provider_trie_ready?() ->
-        ProviderSource.provider_for_ip(normalized)
-
-      provider_trie_enabled?() ->
-        # Trie enabled but not loaded yet — temporary SQL fallback.
-        sql_provider_for_ip(normalized)
-
-      true ->
-        sql_provider_for_ip(normalized)
+    if is_nil(normalized) do
+      nil
+    else
+      ip_enrichment(normalized).provider
     end
   end
 
   defp provider_trie_ready? do
-    stats = PrefixTagStore.stats("provider")
-    is_map(stats) and Map.get(stats, :total_prefixes, 0) > 0
+    # Loaded (even empty) vs never installed — empty after load is a true miss.
+    PrefixTagStore.loaded?("provider") and
+      Map.get(PrefixTagStore.stats("provider"), :total_prefixes, 0) > 0
   end
 
   defp sql_provider_for_ip(ip) when is_binary(ip) do
