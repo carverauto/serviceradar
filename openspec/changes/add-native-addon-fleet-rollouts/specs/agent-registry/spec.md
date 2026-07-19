@@ -26,6 +26,20 @@ from the agent heartbeat/status cadence with a configurable floor.
 - **THEN** the row SHALL record an observed-only management origin
 - **AND** absence of an assignment SHALL NOT by itself be recorded as a failure
 
+### Requirement: Control-session evidence tolerates registry convergence
+Control-plane nodes that do not host the Horde registry SHALL query all connected
+trusted registry-bearing core and agent-gateway nodes for control-session evidence
+and merge the results. A lagging replica SHALL NOT cause a live authenticated agent
+to appear partitionless when another connected registry member has the session.
+
+#### Scenario: First core replica has not observed a new session
+- **GIVEN** web-ng does not host the registry mesh
+- **AND** one connected core replica has not yet converged a newly authenticated agent session
+- **AND** a connected gateway or another core replica has the session evidence
+- **WHEN** an assignment resolves the agent's authenticated partition
+- **THEN** the control plane SHALL resolve the partition from the available trusted evidence
+- **AND** the operator SHALL NOT need to close and reopen the assignment modal
+
 ### Requirement: Native add-on fleet health categories are mutually exclusive
 Each native add-on fleet row SHALL have exactly one summary category:
 `action_required`, `updating`, `unavailable`, `expected_inactive`, `observed_only`, or

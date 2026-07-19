@@ -35,6 +35,7 @@
 - [x] 5.1 Enrich the fleet read model with agent availability, observation freshness, management origin, supervision model, expected activity, rollout state, and evidence timestamps
 - [x] 5.2 Implement mutually exclusive `healthy`, `updating`, `action_required`, `unavailable`, `expected_inactive`, and `observed_only` categories with stable reason codes
 - [x] 5.3 Exclude stale/offline evidence, healthy observed-only built-ins, dormant ephemeral helpers, and in-grace rollout targets from `needs_attention`
+- [x] 5.3a Treat disabled assignments as audit history rather than current desired state and compare approved/runtime versions semantically before labeling an upgrade newer
 - [ ] 5.4 Keep explicit unhealthy observed-only runtimes and incompatible/invalid desired assignments actionable
 - [ ] 5.5 Expose category/reason/freshness fields through supported API and SRQL surfaces
 
@@ -45,6 +46,7 @@
 - [x] 6.3 Add canary, batch size, soak, timeout, and failure-tolerance controls and create a rollout instead of bulk-updating assignments
 - [ ] 6.4 Add rollout progress/detail with per-target evidence, pause/resume/cancel, retry, and rollback actions
 - [x] 6.5 Replace the single fleet summary with managed, healthy/running, updating, needs-attention, unavailable/stale, expected-inactive, and observed-only counters/filters
+- [x] 6.5a Group fleet rows into one card per agent with add-on rows and aggregate alert counts
 - [ ] 6.6 Show stable reason text and evidence age on every non-healthy row and show track-latest rollout impact during package approval
 
 ## 7. Verification
@@ -54,6 +56,8 @@
 - [ ] 7.3 Test profile reconciliation during canary, paused, failed, rolled-back, and completed rollouts, including direct overrides and dynamic membership
 - [x] 7.4 Test fleet classification for real runtime failure, stale disconnected agent, never-reported assignment, healthy built-in observed-only runtime, dormant ephemeral helper, incompatible target, and in-progress convergence
 - [x] 7.4a Persist failed profile reconciliation summaries independently of desired-state package validation
+- [x] 7.4b Cover disabled-only assignment history, approved-version downgrade labeling, and non-explicit staged-profile recovery
+- [x] 7.4c Cover release-envelope catalog reuse, grouped agent cards, and decimal JSON Schema controls
 - [ ] 7.5 Add LiveView and Playwright coverage for bulk preview, policy controls, rollout operations, counters/filters, reason visibility, authorization, and responsive layout
 - [ ] 7.6 Run mixed-version demo rollouts against at least one continuous service, one systemd timer, and one ephemeral helper; verify first-party managed sources auto-roll and explicit/non-first-party pins do not
 

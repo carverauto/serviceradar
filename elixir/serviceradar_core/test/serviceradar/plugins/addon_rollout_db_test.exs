@@ -201,6 +201,48 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
              )
   end
 
+  test "reconcile repairs a non-explicit first-party profile stranded on a staged package" do
+    actor = SystemActor.system(:addon_rollout_profile_recovery_test)
+    unique = System.unique_integer([:positive])
+    addon_id = "rollout-profile-recovery-#{unique}"
+    previous = approved_package(addon_id, "1.0.0", actor, ["network-observe"])
+    stranded = staged_package(addon_id, "1.1.0", actor)
+    candidate = approved_package(addon_id, "1.2.0", actor, ["network-observe"])
+
+    {:ok, profile} =
+      AddonProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Stranded first-party profile #{unique}",
+          addon_package_id: previous.id,
+          target_query: "in:agents"
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    Repo.query!(
+      """
+      UPDATE platform.addon_profiles
+      SET addon_package_id = ($1::text)::uuid,
+          update_policy = 'manual_pin',
+          explicit_version_pin = FALSE,
+          capability_ceiling = ARRAY[]::text[]
+      WHERE id = ($2::text)::uuid
+      """,
+      [stranded.id, profile.id]
+    )
+
+    assert {:ok, %{recovered_sources: 1, started: 1}} =
+             AddonRolloutCoordinator.reconcile(actor: actor)
+
+    {:ok, profile} = AddonProfile.get_by_id(profile.id, actor: actor)
+    assert profile.update_policy == :track_latest_approved
+    assert profile.capability_ceiling == ["network-observe"]
+    assert profile.addon_package_id == candidate.id
+  end
+
   test "pause, resume, and cancel preserve the stable package and clear the candidate override" do
     actor = SystemActor.system(:addon_rollout_pause_test)
     fixture = rollout_fixture(actor)
@@ -367,6 +409,24 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
   end
 
   defp approved_package(addon_id, version, actor, approved_capabilities \\ []) do
+    package = staged_package(addon_id, version, actor)
+
+    {:ok, package} =
+      package
+      |> Ash.Changeset.for_update(
+        :approve,
+        %{
+          approved_capabilities: approved_capabilities,
+          approved_by: "system:addon_rollout_db_test"
+        },
+        actor: actor
+      )
+      |> Ash.update(actor: actor)
+
+    package
+  end
+
+  defp staged_package(addon_id, version, actor) do
     {:ok, package} =
       AddonPackage
       |> Ash.Changeset.for_create(
@@ -391,18 +451,6 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
         actor: actor
       )
       |> Ash.create(actor: actor)
-
-    {:ok, package} =
-      package
-      |> Ash.Changeset.for_update(
-        :approve,
-        %{
-          approved_capabilities: approved_capabilities,
-          approved_by: "system:addon_rollout_db_test"
-        },
-        actor: actor
-      )
-      |> Ash.update(actor: actor)
 
     package
   end

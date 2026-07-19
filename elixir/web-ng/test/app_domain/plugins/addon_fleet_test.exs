@@ -373,7 +373,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
   end
 
   describe "version_status/1" do
-    test "assigned and running the same version is up to date; latest flagged explicitly" do
+    test "assigned and running the same version is up to date; only a greater approved version is newer" do
       assert AddonFleet.version_status(
                row(
                  assigned_version: "0.1.20",
@@ -389,6 +389,14 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
                  latest_approved_version: "0.1.20"
                )
              ) == {:up_to_date, "0.1.19", false}
+
+      assert AddonFleet.version_status(
+               row(
+                 assigned_version: "0.3.0",
+                 running_version: "0.3.0",
+                 latest_approved_version: "0.2.0"
+               )
+             ) == {:up_to_date, "0.3.0", true}
     end
 
     test "assigned and running different versions is a two-sided drift comparison" do

@@ -42,6 +42,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
     args =
       %{"force" => true}
       |> maybe_put("repo_url", Keyword.get(opts, :repo_url))
+      |> maybe_put("release_tag", Keyword.get(opts, :release_tag))
       |> maybe_put("limit", Keyword.get(opts, :limit))
 
     args
@@ -70,7 +71,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
 
   defp run_sync(args) do
     actor = SystemActor.system(:first_party_plugin_sync)
-    opts = [actor: actor, repo_url: repo_url(args), limit: release_limit(args)]
+
+    opts =
+      Keyword.put([actor: actor, repo_url: repo_url(args), limit: release_limit(args)], :release_tag, release_tag(args))
 
     case Packages.sync_first_party_plugins(opts) do
       {:ok, summary} ->
@@ -123,6 +126,12 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
     Map.get(args, "repo_url") || Keyword.get(config(), :repo_url)
   end
 
+  defp release_tag(args) do
+    normalize_optional_string(Map.get(args, "release_tag")) ||
+      normalize_optional_string(Keyword.get(config(), :release_tag)) ||
+      normalize_optional_string(System.get_env("SERVICERADAR_RELEASE_VERSION"))
+  end
+
   defp release_limit(args) do
     args
     |> Map.get("limit")
@@ -146,6 +155,15 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   end
 
   defp normalize_positive_integer(_value, default), do: default
+
+  defp normalize_optional_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_optional_string(_value), do: nil
 
   defp config do
     Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])

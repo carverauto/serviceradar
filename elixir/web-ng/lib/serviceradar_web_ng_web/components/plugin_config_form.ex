@@ -205,6 +205,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
             value={value_for(@params, @name)}
             min={Map.get(@prop, "minimum")}
             max={Map.get(@prop, "maximum")}
+            step={number_step(@prop)}
             class="input input-bordered w-full"
           />
         <% :text -> %>
@@ -259,6 +260,14 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   defp input_type_from_type(%{"type" => "number"}), do: :number
   defp input_type_from_type(%{"type" => "array"}), do: :textarea
   defp input_type_from_type(_), do: :text
+
+  # HTML number inputs default to step=1. JSON Schema `number` values are not
+  # integers, so omitting the step rejects perfectly valid defaults such as 0.5
+  # before the form ever reaches server-side schema validation.
+  defp number_step(%{"multipleOf" => step}) when is_number(step) and step > 0, do: step
+  defp number_step(%{"type" => "integer"}), do: 1
+  defp number_step(%{"type" => "number"}), do: "any"
+  defp number_step(_prop), do: nil
 
   defp internal_property?(name, %{} = prop) do
     Map.get(prop, "x-serviceradar-internal") == true or

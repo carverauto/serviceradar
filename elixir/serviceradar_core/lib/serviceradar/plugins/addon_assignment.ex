@@ -118,12 +118,28 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
       validate AddonPackageApproved
       validate AddonAssignmentParams
     end
+
+    update :restore_managed_update_policy do
+      description "Restore a non-explicit trusted first-party source to managed updates."
+      require_atomic? false
+      accept [:update_policy, :capability_ceiling]
+    end
   end
 
   policies do
     import ServiceRadar.Plugins.Policies
 
-    manage_action_types()
+    # The managed-policy repair action is coordinator-internal and therefore
+    # relies on the SystemActor bypass. Human/API plugin managers retain the
+    # ordinary assignment and explicit rollout actions only.
+    manage_actions([
+      :create,
+      :update,
+      :destroy,
+      :apply_rollout_override,
+      :clear_rollout_override,
+      :promote_rollout
+    ])
   end
 
   attributes do

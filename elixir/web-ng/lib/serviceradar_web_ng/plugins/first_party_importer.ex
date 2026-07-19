@@ -83,6 +83,31 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
 
   def list_recent_plugins_with_summary(_attrs, _limit), do: {:error, "Plugin import settings are invalid"}
 
+  @doc """
+  Lists Wasm plugins from one exact Forgejo release.
+
+  Automatic synchronization uses this path so the catalog is anchored to the
+  immutable ServiceRadar release currently running, rather than depending on the
+  ordering or completeness of Forgejo's recent-release feed.
+  """
+  @spec list_release_plugins(map(), String.t()) :: {:ok, [map()]} | {:error, term()}
+  def list_release_plugins(attrs, release_tag) when is_map(attrs) do
+    with {:ok, repo} <- import_repo(attrs),
+         {:ok, release_tag} <- require_value(release_tag, "Release tag is required"),
+         {:ok, release} <- fetch_release(repo, release_tag),
+         {:ok, index} <- fetch_release_index(repo, release, attrs) do
+      plugins =
+        index
+        |> index_entries()
+        |> Enum.map(&summarize_entry(repo, release, &1))
+        |> Enum.reject(&is_nil/1)
+
+      {:ok, plugins}
+    end
+  end
+
+  def list_release_plugins(_attrs, _release_tag), do: {:error, "Plugin import settings are invalid"}
+
   @spec import(map()) :: {:ok, map()} | {:error, term()}
   def import(attrs) when is_map(attrs) do
     with {:ok, repo} <- import_repo(attrs),

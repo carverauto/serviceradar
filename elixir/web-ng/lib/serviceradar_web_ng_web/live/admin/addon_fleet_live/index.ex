@@ -4,12 +4,13 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   4384).
 
   Where Admin.AddonPackageLive.Index is catalog/assignment-centric, this page is
-  operations-centric: one row per (agent, add-on) showing the effective state —
-  assigned version, running version, health — with drift rendered as an honest
-  comparison of the two present sides. Historical/superseded assignments and long
-  runtime diagnostics live in an expandable per-row detail instead of peer rows
-  or truncated cells, and catalog-only inventory (imported but assigned nowhere)
-  is a separate section rather than agentless fleet rows.
+  operations-centric: one card per agent, with one compact row per add-on showing
+  the effective state — assigned version, running version, health — and drift
+  rendered as an honest comparison of the two present sides. Historical or
+  superseded assignments and long runtime diagnostics live in an expandable
+  per-add-on detail instead of peer rows or truncated cells, and catalog-only
+  inventory (imported but assigned nowhere) is a separate section rather than
+  agentless fleet rows.
 
   Read-only; gated by `plugins.view` (same permission as the add-on catalog page).
   All data comes from the ServiceRadarWebNG.Plugins.AddonFleet context, which reads
@@ -130,6 +131,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     socket
     |> assign(:filters, filters)
     |> assign(:rows, rows)
+    |> assign(:agent_groups, group_rows_by_agent(rows))
     |> assign(:summary, AddonFleet.summary(rows))
   end
 
@@ -143,6 +145,22 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   end
 
   defp row_key(row), do: "#{row.agent_uid}|#{row.addon_id}"
+
+  defp group_rows_by_agent(rows) do
+    rows
+    |> Enum.group_by(& &1.agent_uid)
+    |> Enum.map(fn {agent_uid, agent_rows} ->
+      %{
+        agent_uid: agent_uid,
+        agent_label: agent_rows |> List.first() |> Map.get(:agent_label, agent_uid),
+        rows: Enum.sort_by(agent_rows, &{String.downcase(to_string(&1.addon_name)), &1.addon_id}),
+        managed: Enum.count(agent_rows, & &1.assigned?),
+        attention: Enum.count(agent_rows, & &1.attention?),
+        unavailable: Enum.count(agent_rows, &(&1.category == :unavailable))
+      }
+    end)
+    |> Enum.sort_by(&{String.downcase(to_string(&1.agent_label)), to_string(&1.agent_uid)})
+  end
 
   @impl true
   def render(assigns) do
@@ -162,8 +180,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
           <div>
             <h1 class="text-2xl font-semibold text-base-content">Add-on Fleet</h1>
             <p class="text-sm text-base-content/60">
-              One row per agent and add-on: assigned version vs. what is actually
-              running, approval, and runtime health across the fleet.
+              Each agent is grouped once with its assigned and observed add-ons,
+              versions, approval state, and runtime health.
             </p>
           </div>
           <.ui_button variant="ghost" size="sm" phx-click="refresh">
@@ -330,12 +348,19 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
         <.ui_panel>
           <:header>
             <div class="flex flex-wrap items-center justify-between gap-3">
-              <div class="text-sm font-semibold">Fleet matrix</div>
-              <div class="text-xs text-base-content/60">{length(@rows)} row(s)</div>
+              <div>
+                <div class="text-sm font-semibold">Agent add-on inventory</div>
+                <p class="text-xs text-base-content/60">
+                  Agent identity and aggregate health appear once; expand an add-on for diagnostics.
+                </p>
+              </div>
+              <div class="text-xs text-base-content/60">
+                {length(@agent_groups)} agent(s) · {length(@rows)} add-on(s)
+              </div>
             </div>
           </:header>
 
-          <%= if @rows == [] do %>
+          <%= if @agent_groups == [] do %>
             <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-6 text-center">
               <div class="text-sm font-semibold text-base-content">
                 No matching add-on deployments
@@ -343,117 +368,155 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
               <p class="mt-1 text-xs text-base-content/60">Adjust the filters above.</p>
             </div>
           <% else %>
-            <div id="addon-fleet-table" class="overflow-x-auto">
-              <table class="table table-sm table-pin-rows">
-                <thead>
-                  <tr class="text-xs uppercase tracking-wide text-base-content/60">
-                    <th class="w-8"></th>
-                    <th>Agent</th>
-                    <th>Add-on</th>
-                    <th>Version</th>
-                    <th>Status</th>
-                    <th>Runtime</th>
-                    <th>Last seen</th>
-                    <th>Health</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <%= for row <- @rows do %>
-                    <% expanded? = MapSet.member?(@expanded_rows, row_key(row)) %>
-                    <tr
-                      data-role="fleet-row"
-                      class={["hover:bg-base-200/30", row.attention? && "bg-error/5"]}
+            <div id="addon-fleet-table" class="space-y-4">
+              <article
+                :for={group <- @agent_groups}
+                data-role="agent-addon-card"
+                data-agent-uid={group.agent_uid}
+                class="overflow-hidden rounded-xl border border-base-200 bg-base-100"
+              >
+                <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 bg-base-200/30 px-4 py-3">
+                  <div class="min-w-0">
+                    <h2
+                      data-role="agent-card-label"
+                      class="truncate text-base font-semibold text-base-content"
+                      title={group.agent_label}
                     >
-                      <td class="align-top">
-                        <button
-                          type="button"
-                          class="btn btn-ghost btn-xs btn-square"
-                          phx-click="toggle_details"
-                          phx-value-row={row_key(row)}
-                          aria-expanded={to_string(expanded?)}
-                          aria-label={"Toggle details for #{row.addon_id} on #{row.agent_label}"}
+                      {group.agent_label}
+                    </h2>
+                    <div class="font-mono text-[11px] text-base-content/50">{group.agent_uid}</div>
+                  </div>
+                  <div class="flex flex-wrap items-center justify-end gap-2 text-xs">
+                    <span class="badge badge-ghost badge-sm">{length(group.rows)} add-ons</span>
+                    <span class="badge badge-ghost badge-sm">{group.managed} managed</span>
+                    <span :if={group.unavailable > 0} class="badge badge-warning badge-sm">
+                      {group.unavailable} unavailable
+                    </span>
+                    <span :if={group.attention > 0} class="badge badge-error badge-sm">
+                      {group.attention} need attention
+                    </span>
+                    <span
+                      :if={group.attention == 0 and group.unavailable == 0}
+                      class="badge badge-success badge-soft badge-sm"
+                    >
+                      no active alerts
+                    </span>
+                  </div>
+                </header>
+
+                <div class="overflow-x-auto">
+                  <table class="table table-sm">
+                    <thead>
+                      <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                        <th class="w-8"></th>
+                        <th>Add-on</th>
+                        <th>Version</th>
+                        <th>Desired</th>
+                        <th>Runtime</th>
+                        <th>Last observed</th>
+                        <th>Health</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <%= for row <- group.rows do %>
+                        <% expanded? = MapSet.member?(@expanded_rows, row_key(row)) %>
+                        <tr
+                          data-role="fleet-row"
+                          class={["hover:bg-base-200/30", row.attention? && "bg-error/5"]}
                         >
-                          <.icon
-                            name={if expanded?, do: "hero-chevron-down", else: "hero-chevron-right"}
-                            class="size-4"
-                          />
-                        </button>
-                      </td>
-                      <td class="max-w-[16rem] align-top">
-                        <div class="truncate font-medium" title={row.agent_label}>
-                          {row.agent_label}
-                        </div>
-                      </td>
-                      <td class="align-top">
-                        <div class="font-medium">{row.addon_name}</div>
-                        <div class="text-xs font-mono text-base-content/60">{row.addon_id}</div>
-                        <span :if={row.collector?} class="badge badge-ghost badge-xs">collector</span>
-                      </td>
-                      <td class="align-top">
-                        <.version_cell row={row} />
-                      </td>
-                      <td class="align-top">
-                        <div class="flex flex-col items-start gap-1">
-                          <span class={["badge badge-sm", package_status_badge(row.package_status)]}>
-                            {package_status_label(row.package_status)}
-                          </span>
-                          <span
-                            data-role={"assignment-#{row.management_mode}"}
-                            class={["badge badge-sm", assigned_badge(row)]}
-                          >
-                            {assigned_label(row)}
-                          </span>
-                        </div>
-                      </td>
-                      <td class="align-top">
-                        <span class={["badge badge-sm", running_badge(row)]}>
-                          {running_label(row)}
-                        </span>
-                        <button
-                          :if={row.degradation_reason}
-                          type="button"
-                          class={[
-                            "mt-1 block text-left text-xs underline decoration-dotted",
-                            diagnostic_link_class(row.degradation_reason)
-                          ]}
-                          phx-click="toggle_details"
-                          phx-value-row={row_key(row)}
-                        >
-                          diagnostics
-                        </button>
-                      </td>
-                      <td class="align-top text-xs text-base-content/70">
-                        <div>{format_time(row.reported_at)}</div>
-                        <div :if={row.collector? and row.last_scan_at} class="text-base-content/50">
-                          scan {format_time(row.last_scan_at)}
-                        </div>
-                      </td>
-                      <td class="align-top">
-                        <div class="flex max-w-[14rem] flex-wrap gap-1">
-                          <span class={[
-                            "badge badge-xs h-auto whitespace-normal py-0.5 text-left leading-tight",
-                            category_badge(row.category)
-                          ]}>
-                            {category_label(row.category)}
-                          </span>
-                          <span class="basis-full text-xs text-base-content/50">
-                            {reason_label(row.reason_code)}
-                            <span :if={row.evidence_age_seconds}>
-                              · evidence {format_age(row.evidence_age_seconds)} old
+                          <td class="align-top">
+                            <button
+                              type="button"
+                              class="btn btn-ghost btn-xs btn-square"
+                              phx-click="toggle_details"
+                              phx-value-row={row_key(row)}
+                              aria-expanded={to_string(expanded?)}
+                              aria-label={"Toggle details for #{row.addon_id} on #{row.agent_label}"}
+                            >
+                              <.icon
+                                name={
+                                  if expanded?, do: "hero-chevron-down", else: "hero-chevron-right"
+                                }
+                                class="size-4"
+                              />
+                            </button>
+                          </td>
+                          <td class="min-w-[13rem] align-top">
+                            <div class="font-medium">{row.addon_name}</div>
+                            <div class="text-xs font-mono text-base-content/60">{row.addon_id}</div>
+                            <span :if={row.collector?} class="badge badge-ghost badge-xs">
+                              collector
                             </span>
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
-                    <tr :if={expanded?} class="bg-base-200/20">
-                      <td></td>
-                      <td colspan="7" class="py-3">
-                        <.row_details row={row} />
-                      </td>
-                    </tr>
-                  <% end %>
-                </tbody>
-              </table>
+                          </td>
+                          <td class="min-w-[10rem] align-top"><.version_cell row={row} /></td>
+                          <td class="align-top">
+                            <div class="flex flex-col items-start gap-1">
+                              <span class={[
+                                "badge badge-sm",
+                                package_status_badge(row.package_status)
+                              ]}>
+                                {package_status_label(row.package_status)}
+                              </span>
+                              <span
+                                data-role={"assignment-#{row.management_mode}"}
+                                class={["badge badge-sm", assigned_badge(row)]}
+                              >
+                                {assigned_label(row)}
+                              </span>
+                            </div>
+                          </td>
+                          <td class="align-top">
+                            <span class={["badge badge-sm", running_badge(row)]}>
+                              {running_label(row)}
+                            </span>
+                            <button
+                              :if={row.degradation_reason}
+                              type="button"
+                              class={[
+                                "mt-1 block text-left text-xs underline decoration-dotted",
+                                diagnostic_link_class(row.degradation_reason)
+                              ]}
+                              phx-click="toggle_details"
+                              phx-value-row={row_key(row)}
+                            >
+                              diagnostics
+                            </button>
+                          </td>
+                          <td class="align-top text-xs text-base-content/70">
+                            <div>{format_time(row.reported_at)}</div>
+                            <div
+                              :if={row.collector? and row.last_scan_at}
+                              class="text-base-content/50"
+                            >
+                              scan {format_time(row.last_scan_at)}
+                            </div>
+                          </td>
+                          <td class="min-w-[12rem] align-top">
+                            <div class="flex max-w-[14rem] flex-wrap gap-1">
+                              <span class={[
+                                "badge badge-xs h-auto whitespace-normal py-0.5 text-left leading-tight",
+                                category_badge(row.category)
+                              ]}>
+                                {category_label(row.category)}
+                              </span>
+                              <span class="basis-full text-xs text-base-content/50">
+                                {reason_label(row.reason_code)}
+                                <span :if={row.evidence_age_seconds}>
+                                  · evidence {format_age(row.evidence_age_seconds)} old
+                                </span>
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                        <tr :if={expanded?} class="bg-base-200/20">
+                          <td></td>
+                          <td colspan="6" class="py-3"><.row_details row={row} /></td>
+                        </tr>
+                      <% end %>
+                    </tbody>
+                  </table>
+                </div>
+              </article>
             </div>
           <% end %>
         </.ui_panel>

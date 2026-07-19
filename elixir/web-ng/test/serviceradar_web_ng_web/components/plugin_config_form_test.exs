@@ -98,4 +98,33 @@ defmodule ServiceRadarWebNGWeb.PluginConfigFormTest do
     assert html =~ "base_url"
     assert html =~ ~s(<span class="text-error">*</span>)
   end
+
+  test "number fields accept decimal defaults while integer fields retain integral steps" do
+    schema = %{
+      "type" => "object",
+      "properties" => %{
+        "cusum_slack" => %{"type" => "number", "default" => 0.5},
+        "confirmation_multiplier" => %{"type" => "number", "multipleOf" => 0.1, "default" => 1.5},
+        "confirmation_window" => %{"type" => "integer", "default" => 5}
+      }
+    }
+
+    html =
+      render_fields(%{
+        schema: schema,
+        params: %{
+          "cusum_slack" => 0.5,
+          "confirmation_multiplier" => 1.5,
+          "confirmation_window" => 5
+        }
+      })
+
+    assert html =~ ~s(name="params[cusum_slack]")
+    assert html =~ ~s(value="0.5")
+    assert html =~ ~s(step="any")
+    assert html =~ ~s(name="params[confirmation_multiplier]")
+    assert html =~ ~s(step="0.1")
+    assert html =~ ~s(name="params[confirmation_window]")
+    assert html =~ ~s(step="1")
+  end
 end
