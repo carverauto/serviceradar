@@ -169,6 +169,14 @@ defmodule ServiceRadar.PrefixTags.TrieTest do
       assert Store.lookup("203.0.113.10") == []
     end
 
+    test "an explicit clear is not loaded while a registered empty snapshot is" do
+      Store.put_rows("provider", [])
+      assert Store.loaded?("provider")
+
+      Store.clear("provider")
+      refute Store.loaded?("provider")
+    end
+
     test "source registry survives the process that first registered a source" do
       parent = self()
 

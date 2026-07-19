@@ -44,6 +44,26 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
     assert_receive {:prefix_tags_snapshot_changed, %{source: "test"}}, 1_000
   end
 
+  test "self-origin invalidation skips a duplicate local reload" do
+    loader_name = :prefix_tags_self_origin_test
+
+    pid =
+      start_supervised!(
+        {Loader, load_on_init: false, name: loader_name},
+        id: loader_name
+      )
+
+    initial_state = :sys.get_state(pid)
+
+    for metadata <- [
+          %{source: "manual", reloaded_on: node()},
+          %{"source" => "manual", "reloaded_on" => node()}
+        ] do
+      send(pid, {:prefix_tags_snapshot_changed, metadata})
+      assert :sys.get_state(pid) == initial_state
+    end
+  end
+
   test "loader installs empty trie when DB is unavailable" do
     # load_on_init true will hit Repo; with no DB this should fail-open to empty.
     pid =
@@ -116,5 +136,60 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
   test "single-query parser handles no active snapshots" do
     assert {:ok, %{}, %{}} =
              Loader.parse_active_rows(%{columns: @active_columns, rows: []})
+  end
+
+  test "snapshot telemetry reports unknown freshness without inventing an age" do
+    handler_id = "prefix-tags-snapshot-freshness-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    :telemetry.attach_many(
+      handler_id,
+      [
+        [:serviceradar, :prefix_tags, :snapshot_age],
+        [:serviceradar, :prefix_tags, :snapshot_freshness]
+      ],
+      fn event, measurements, metadata, _config ->
+        send(test_pid, {:telemetry, event, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    loader_name = :prefix_tags_snapshot_freshness_test
+
+    pid =
+      start_supervised!(
+        {Loader, load_on_init: false, name: loader_name},
+        id: loader_name
+      )
+
+    known_at = DateTime.add(DateTime.utc_now(), -90, :second)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | sources: %{
+            "manual" => %{snapshot_at: known_at},
+            "provider" => %{snapshot_at: nil}
+          }
+      }
+    end)
+
+    send(pid, :emit_snapshot_ages)
+
+    assert_receive {:telemetry, [:serviceradar, :prefix_tags, :snapshot_freshness], %{known: 1},
+                    %{source: "manual"}}
+
+    assert_receive {:telemetry, [:serviceradar, :prefix_tags, :snapshot_freshness], %{known: 0},
+                    %{source: "provider"}}
+
+    assert_receive {:telemetry, [:serviceradar, :prefix_tags, :snapshot_age],
+                    %{age_seconds: age_seconds}, %{source: "manual"}}
+
+    assert age_seconds >= 90
+
+    refute_receive {:telemetry, [:serviceradar, :prefix_tags, :snapshot_age], _,
+                    %{source: "provider"}}
   end
 end

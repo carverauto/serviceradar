@@ -283,7 +283,10 @@ defmodule ServiceRadar.PrefixTags.Manual do
       {:error, _} -> rebuild_local_manual_trie()
     end
 
-    _ = Loader.broadcast_invalidation(%{source: @source})
+    # The local trie is current before we publish. Mark the origin so its
+    # subscribed Loader can ignore the PubSub echo while peer nodes still
+    # reload the committed snapshot.
+    _ = Loader.broadcast_invalidation(%{source: @source, reloaded_on: node()})
     :ok
   end
 

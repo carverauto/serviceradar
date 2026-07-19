@@ -20,7 +20,8 @@ defmodule ServiceRadar.PrefixTags.Loader do
   @pubsub_topic "prefix_tags:snapshot"
   @initial_load_retry_ms 5_000
   @initial_load_retry_max_ms 60_000
-  # Re-emit snapshot age even when reloads fail so last-value gauges age.
+  # Re-emit snapshot age/freshness even when reloads fail so last-value gauges
+  # age and sources without a durable timestamp remain observable.
   @snapshot_age_tick_ms 60_000
 
   @load_active_sql """
@@ -193,24 +194,32 @@ defmodule ServiceRadar.PrefixTags.Loader do
   end
 
   def handle_info({:prefix_tags_snapshot_changed, meta}, state) when is_map(meta) do
-    source = Map.get(meta, :source) || Map.get(meta, "source")
+    if locally_reloaded?(meta) do
+      Logger.debug("PrefixTags.Loader skipping locally completed snapshot reload",
+        source: inspect(Map.get(meta, :source) || Map.get(meta, "source"))
+      )
 
-    Logger.info("PrefixTags.Loader reloading after snapshot invalidation",
-      source: inspect(source)
-    )
+      {:noreply, state}
+    else
+      source = Map.get(meta, :source) || Map.get(meta, "source")
 
-    cond do
-      is_binary(source) and external_source?(source) ->
-        {state, _} = reload_external_source(state, source)
-        {:noreply, state}
+      Logger.info("PrefixTags.Loader reloading after snapshot invalidation",
+        source: inspect(source)
+      )
 
-      is_binary(source) and source != "" ->
-        {:noreply, do_reload(state, source)}
+      cond do
+        is_binary(source) and external_source?(source) ->
+          {state, _} = reload_external_source(state, source)
+          {:noreply, state}
 
-      true ->
-        state = do_reload(state, :all)
-        state = reload_all_external_sources(state)
-        {:noreply, state}
+        is_binary(source) and source != "" ->
+          {:noreply, do_reload(state, source)}
+
+        true ->
+          state = do_reload(state, :all)
+          state = reload_all_external_sources(state)
+          {:noreply, state}
+      end
     end
   end
 
@@ -497,8 +506,10 @@ defmodule ServiceRadar.PrefixTags.Loader do
             %{source: source}
           )
 
+          emit_snapshot_freshness(source, 1)
+
         _ ->
-          :ok
+          emit_snapshot_freshness(source, 0)
       end
     end)
   rescue
@@ -506,6 +517,18 @@ defmodule ServiceRadar.PrefixTags.Loader do
   end
 
   defp emit_snapshot_age_for_sources(_), do: :ok
+
+  defp emit_snapshot_freshness(source, known) when known in [0, 1] do
+    :telemetry.execute(
+      [:serviceradar, :prefix_tags, :snapshot_freshness],
+      %{known: known},
+      %{source: source}
+    )
+  end
+
+  defp locally_reloaded?(metadata) do
+    (Map.get(metadata, :reloaded_on) || Map.get(metadata, "reloaded_on")) == node()
+  end
 
   # Sources compiled from tables other than prefix_tag_snapshots/prefix_tags.
   # Invalidating these must re-run the materializer, never a prefix_tags SELECT

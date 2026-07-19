@@ -179,6 +179,32 @@ defmodule ServiceRadar.EventWriter.FlowEnrichmentTest do
       )
     end
 
+    test "cleared provider trie falls back to SQL when the trie flag is on" do
+      previous_flag =
+        Application.get_env(:serviceradar_core, :prefix_tag_provider_trie_enabled)
+
+      Application.put_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, true)
+
+      on_exit(fn ->
+        restore_env(:prefix_tag_provider_trie_enabled, previous_flag)
+      end)
+
+      Store.put_rows("provider", [
+        %{prefix: "203.0.113.0/24", tags: ["provider:TrieCloud"], source: "provider"}
+      ])
+
+      assert Store.loaded?("provider")
+      assert :ok = Store.clear("provider")
+      refute Store.loaded?("provider")
+
+      FlowEnrichment.with_provider_cache(
+        fn ->
+          assert FlowEnrichment.provider_for_ip("203.0.113.10") == "SQLCloud"
+        end,
+        provider_lookup: fn _inet -> "SQLCloud" end
+      )
+    end
+
     test "provider trie flag off excludes provider tags from prefix_tags columns" do
       Application.put_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, false)
       Application.put_env(:serviceradar_core, :prefix_tag_enrichment_enabled, true)

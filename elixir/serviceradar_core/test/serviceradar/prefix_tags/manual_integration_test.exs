@@ -9,6 +9,8 @@ defmodule ServiceRadar.PrefixTags.ManualIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.PrefixTags.Changes.BroadcastManualInvalidation
+  alias ServiceRadar.PrefixTags.Loader
   alias ServiceRadar.PrefixTags.Manual
   alias ServiceRadar.PrefixTags.PrefixTag
   alias ServiceRadar.PrefixTags.Snapshot
@@ -139,12 +141,19 @@ defmodule ServiceRadar.PrefixTags.ManualIntegrationTest do
 
     assert snapshot_count(imported_snapshot.id) == 0
     assert snapshot_count(manual_snapshot.id) == 1
+
+    # Destroy actions return bare :ok, so their invalidation hook must recover
+    # the source from changeset.data.snapshot_id rather than guess "manual".
+    changeset = Ash.Changeset.new(%PrefixTag{snapshot_id: imported_snapshot.id})
+
+    assert BroadcastManualInvalidation.source_for_invalidation(changeset, nil) == "netbox"
   end
 
   test "Loader-disabled invalidation rebuilds every row beyond the first Ash page" do
     snapshot = Manual.ensure_active_snapshot!(actor: @system)
 
-    assert Process.whereis(ServiceRadar.PrefixTags.Loader) == nil
+    assert Process.whereis(Loader) == nil
+    assert :ok = Phoenix.PubSub.subscribe(ServiceRadar.PubSub, Loader.pubsub_topic())
 
     Repo.query!(
       """
@@ -163,6 +172,10 @@ defmodule ServiceRadar.PrefixTags.ManualIntegrationTest do
     )
 
     assert :ok = Manual.invalidate!()
+
+    assert_receive {:prefix_tags_snapshot_changed, %{source: "manual", reloaded_on: reloaded_on}}
+
+    assert reloaded_on == node()
     assert Store.stats("manual").total_prefixes == 300
 
     assert [%{prefix: "10.230.1.43/32", tags: ["bulk:299"]}] =

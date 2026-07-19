@@ -3,8 +3,10 @@ defmodule ServiceRadar.PrefixTags.ManualTest do
 
   alias Ash.Resource.Info
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.PrefixTags.Changes.BroadcastManualInvalidation
   alias ServiceRadar.PrefixTags.Manual
   alias ServiceRadar.PrefixTags.PrefixTag
+  alias ServiceRadar.PrefixTags.Snapshot
 
   @manager %{
     id: "prefix-tag-manager",
@@ -53,5 +55,19 @@ defmodule ServiceRadar.PrefixTags.ManualTest do
     assert ui_action.pagination.required?
     assert ui_action.pagination.max_page_size == 250
     refute rebuild_action.pagination
+  end
+
+  test "invalidation derives a destroy source from changeset data without a result record" do
+    snapshot = %Snapshot{id: Ash.UUID.generate(), source: "netbox"}
+
+    changeset = Ash.Changeset.new(%PrefixTag{snapshot_id: snapshot.id, snapshot: snapshot})
+
+    assert BroadcastManualInvalidation.source_for_invalidation(changeset, nil) == "netbox"
+  end
+
+  test "invalidation does not guess manual when no source evidence exists" do
+    changeset = Ash.Changeset.new(%PrefixTag{})
+
+    assert BroadcastManualInvalidation.source_for_invalidation(changeset, nil) == nil
   end
 end

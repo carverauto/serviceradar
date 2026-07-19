@@ -30,6 +30,7 @@ defmodule ServiceRadarWebNGWeb.TelemetryTest do
     assert [:serviceradar, :prefix_tags, :swap, :duration] in metric_names
     assert [:serviceradar, :prefix_tags, :rebuild, :duration] in metric_names
     assert [:serviceradar, :prefix_tags, :snapshot_age, :age_seconds] in metric_names
+    assert [:serviceradar, :prefix_tags, :snapshot_freshness, :known] in metric_names
     assert [:serviceradar, :prefix_tags, :import, :record_count] in metric_names
   end
 end

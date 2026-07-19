@@ -435,6 +435,13 @@ defmodule ServiceRadar.Telemetry do
         unit: :second,
         description: "Age of durable backing data for each prefix-tag source"
       ),
+      last_value("serviceradar.prefix_tags.snapshot_freshness.known",
+        event_name: [:serviceradar, :prefix_tags, :snapshot_freshness],
+        measurement: :known,
+        tags: [:source],
+        description:
+          "Whether durable freshness is known for a prefix-tag source (1 known, 0 unknown)"
+      ),
       distribution("serviceradar.prefix_tags.import.duration",
         event_name: [:serviceradar, :prefix_tags, :import],
         measurement: :duration_us,

@@ -3,9 +3,12 @@ defmodule ServiceRadar.PrefixTags.RegistryTest do
 
   alias ServiceRadar.PrefixTags.Registry
   alias ServiceRadar.PrefixTags.Store
+  alias ServiceRadar.PrefixTags.Trie
 
   @registry Registry
   @table ServiceRadar.PrefixTags.Store.Sources
+  @active_handle_key_prefix {Store, :active_handle}
+  @source_catalog_key {Registry, :source_catalog}
 
   setup do
     Store.clear()
@@ -67,6 +70,64 @@ defmodule ServiceRadar.PrefixTags.RegistryTest do
     assert Process.whereis(@registry) == registry_pid
     assert :ets.info(@table, :owner) == registry_pid
     assert source in Store.sources()
+  end
+
+  test "a Registry gap enumerates the source catalog instead of scanning persistent_term" do
+    supervision = stop_application_registry()
+    on_exit(fn -> restore_application_registry(supervision) end)
+
+    catalogued_source = "catalogued-during-gap"
+    uncatalogued_source = "uncatalogued-persistent-term-handle"
+    uncatalogued_key = {@active_handle_key_prefix, uncatalogued_source}
+
+    Store.put_rows(catalogued_source, [
+      %{prefix: "203.0.113.0/24", tags: ["registry:catalogued"], source: catalogued_source}
+    ])
+
+    # A registered-looking term outside the dedicated source catalog would be
+    # discovered by the old full-VM :persistent_term.get/0 scan.
+    trie = Trie.build([])
+    :persistent_term.put(uncatalogued_key, {1, trie, :registered})
+    on_exit(fn -> :persistent_term.erase(uncatalogued_key) end)
+
+    assert :ets.whereis(@table) == :undefined
+    assert catalogued_source in Store.sources()
+    refute uncatalogued_source in Store.sources()
+  end
+
+  test "cold no-start access discovers pre-catalog two- and three-tuple handles" do
+    supervision = stop_application_registry()
+    original_catalog = :persistent_term.get(@source_catalog_key, :missing)
+    :persistent_term.erase(@source_catalog_key)
+
+    legacy_source = "legacy-two-tuple"
+    registered_source = "pre-catalog-three-tuple"
+    cleared_source = "pre-catalog-cleared"
+
+    handles = [
+      {{@active_handle_key_prefix, legacy_source}, {1, Trie.build([])}},
+      {{@active_handle_key_prefix, registered_source}, {1, Trie.build([]), :registered}},
+      {{@active_handle_key_prefix, cleared_source}, {1, Trie.build([]), :cleared}}
+    ]
+
+    Enum.each(handles, fn {key, handle} -> :persistent_term.put(key, handle) end)
+
+    on_exit(fn ->
+      Enum.each(handles, fn {key, _handle} -> :persistent_term.erase(key) end)
+
+      case original_catalog do
+        :missing -> :persistent_term.erase(@source_catalog_key)
+        sources -> :persistent_term.put(@source_catalog_key, sources)
+      end
+
+      restore_application_registry(supervision)
+    end)
+
+    assert :ets.whereis(@table) == :undefined
+    sources = Store.sources()
+    assert legacy_source in sources
+    assert registered_source in sources
+    refute cleared_source in sources
   end
 
   test "concurrent clear and install serialize their handle and membership changes" do

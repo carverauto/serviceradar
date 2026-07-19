@@ -65,15 +65,16 @@ defmodule ServiceRadar.PrefixTags.Store do
   end
 
   @doc """
-  True when a source has an installed trie (even if empty after an explicit clear).
+  True when a source has an installed, registered trie.
 
-  Distinguishes "never loaded" (nil active handle) from "loaded with zero prefixes".
+  An explicitly cleared source is not loaded. A registered empty trie is loaded,
+  which distinguishes a successfully loaded empty snapshot from a missing one.
   """
   @spec loaded?(source()) :: boolean()
   def loaded?(source) when is_binary(source) do
     case active_handle(source) do
       {_version, _trie} -> true
-      {_version, _trie, _registration} -> true
+      {_version, _trie, :registered} -> true
       _other -> false
     end
   end

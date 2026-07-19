@@ -13,6 +13,8 @@ defmodule ServiceRadar.PrefixTags.Changes.BroadcastManualInvalidation do
   alias ServiceRadar.PrefixTags.Loader
   alias ServiceRadar.PrefixTags.Manual
 
+  require Logger
+
   @impl true
   def change(changeset, _opts, _context) do
     Ash.Changeset.after_transaction(changeset, fn cs, result ->
@@ -39,25 +41,39 @@ defmodule ServiceRadar.PrefixTags.Changes.BroadcastManualInvalidation do
   @impl true
   def atomic(_changeset, _opts, _context), do: :ok
 
-  defp source_for_invalidation(changeset, record) do
-    cond do
-      is_map(record) and match?(%{snapshot: %{source: src}} when is_binary(src), record) ->
-        record.snapshot.source
+  @doc false
+  @spec source_for_invalidation(Ash.Changeset.t(), map() | nil) :: String.t() | nil
+  def source_for_invalidation(changeset, record) do
+    source_from_record(record) ||
+      source_from_record(changeset.data) ||
+      source_from_snapshot_id(Ash.Changeset.get_attribute(changeset, :snapshot_id)) ||
+      source_from_argument(changeset)
+  end
 
-      is_map(record) and is_binary(Map.get(record, :source)) ->
-        record.source
+  defp source_from_record(%{snapshot: %{source: source}}) when is_binary(source) and source != "",
+    do: source
 
-      is_map(record) and not is_nil(Map.get(record, :snapshot_id)) ->
-        case query_snapshot_source(record.snapshot_id) do
-          src when is_binary(src) -> src
-          _ -> "manual"
-        end
+  defp source_from_record(record) when is_map(record) do
+    case Map.get(record, :source) do
+      source when is_binary(source) and source != "" ->
+        source
 
-      true ->
-        case Ash.Changeset.get_argument(changeset, :source) do
-          src when is_binary(src) and src != "" -> src
-          _ -> "manual"
-        end
+      _ ->
+        record
+        |> Map.get(:snapshot_id)
+        |> source_from_snapshot_id()
+    end
+  end
+
+  defp source_from_record(_record), do: nil
+
+  defp source_from_snapshot_id(nil), do: nil
+  defp source_from_snapshot_id(snapshot_id), do: query_snapshot_source(snapshot_id)
+
+  defp source_from_argument(changeset) do
+    case Ash.Changeset.get_argument(changeset, :source) do
+      source when is_binary(source) and source != "" -> source
+      _ -> nil
     end
   end
 
@@ -96,6 +112,14 @@ defmodule ServiceRadar.PrefixTags.Changes.BroadcastManualInvalidation do
       end
 
     _ = Loader.broadcast_invalidation(%{source: source})
+    :ok
+  end
+
+  defp invalidate_source(nil) do
+    Logger.warning(
+      "PrefixTags invalidation skipped because snapshot source could not be resolved"
+    )
+
     :ok
   end
 end
