@@ -22,6 +22,14 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     :ok
   end
 
+  test "backfill dedupe query executes against the oban table without raising" do
+    # Regression for issue #4645: Oban.Job.unique_states/1 returns atoms while
+    # Oban.Job.state is a :string field; interpolating the atoms raised
+    # Ecto.Query.CastError on every ensure_scheduled/0 call and crash-looped
+    # the core supervision tree in v1.4.24.
+    assert is_boolean(AddonUpdatePolicyBackfillWorker.backfill_scheduled?())
+  end
+
   test "a trusted direct assignment advances through an override and promotes only after health" do
     actor = SystemActor.system(:addon_rollout_db_test)
     unique = System.unique_integer([:positive])
