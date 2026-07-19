@@ -1,3 +1,34 @@
+# ServiceRadar v1.4.24
+
+Made verified releases and trusted extension maintenance zero-touch, added
+health-gated add-on fleet updates, stabilized recurring reconciliation, and
+improved cross-subnet topology discovery.
+
+## Whats New
+
+**1.4.24**
+- Zero-touch releases: cached publication retries now recover immutable OCI
+  digests and sign the verified registry artifact. Complete signed releases
+  advance the guarded `demo/prod-release` branch, where conservative ArgoCD
+  auto-sync deploys them without prune or self-heal. (PRs #4627, #4629, #4631)
+- Native add-ons: the catalog converges on the latest verified first-party
+  release, safely auto-approves trusted packages, and advances compatible
+  fleet assignments through canaries, bounded batches, health gates, soak
+  windows, and rollback. Legacy policy backfill runs asynchronously so startup
+  is never blocked. The anomaly add-on advances to 0.3.1. (PRs #4633, #4636)
+- Wasm plugins: canonical signed packages import automatically, trusted legacy
+  assignments recover from current mTLS and authoritative policy evidence, and
+  the UI reports the actual deployed release instead of stale catalog data.
+  (PR #4632)
+- Runtime reconciliation: invalid Proxmox credential rules become stable,
+  fail-closed skips instead of repeated grant failures, while stale Oban
+  execution recovery uses row locking and enum-safe schema updates. (PR #4638)
+- Automation packaging: AWX launch sanitization accepts pending controller
+  evidence, and TinyGo argument allowlists remain reproducible in CI. (PR #4628)
+- Topology mapping: cross-subnet attachment evidence, Q-BRIDGE forwarding
+  discovery, UniFi management identity, and identifier-aware binding improve
+  device placement across routed networks. (PR #4640)
+
 # ServiceRadar v1.4.23
 
 Restored first-party add-on and plugin imports, removed impossible legacy
