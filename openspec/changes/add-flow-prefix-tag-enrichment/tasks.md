@@ -101,3 +101,58 @@
 - [x] 8.5 Update `docs/docs/netbox.md` to reflect what the integration actually
       does after this change (prefix/tag import; device sync status called out
       honestly)
+
+## 9. Per-source trie namespaces (amendment 2026-07-18)
+
+- [ ] 9.1 Split the engine store into per-source versioned tries
+      (netbox/manual/provider/ti/dns-policy) with independent atomic swap;
+      lookup merges most-specific-first chains across sources with per-tag
+      source provenance
+- [ ] 9.2 Loader + PubSub invalidation carry the source identifier so one
+      source's promotion rebuilds only its own trie
+- [ ] 9.3 Telemetry: per-source trie size, swap duration, snapshot age; tests
+      covering concurrent per-source swaps
+
+## 10. Hosting-provider consolidation (amendment)
+
+- [ ] 10.1 Provider source adapter: compile the active
+      `netflow_provider_cidrs` snapshot into a `provider:` trie namespace
+- [ ] 10.2 Serve `FlowEnrichment` provider lookups from the engine behind a
+      flag; preserve `src/dst_hosting_provider` column semantics (parity test
+      against the SQL oracle on the live dataset shape)
+- [ ] 10.3 Retire `ProviderCidrCache` and the per-IP GiST query path once the
+      flag defaults on; remove dead cache config
+- [ ] 10.4 Re-run the benchmark gate with the provider trie loaded (~400k
+      prefixes) alongside NetBox tags
+
+## 11. Geo-derived tags + PostGIS proximity (amendment)
+
+- [ ] 11.1 Enrichment hook derives `geo:country:`/`geo:asn:` tags from the
+      resident Geolix lookup behind `:geo_tag_derivation_enabled`; fail-open
+      when MMDB absent
+- [ ] 11.2 Migration: `geometry(Point, 4326)` column on
+      `platform.ip_geo_enrichment_cache` derived from latitude/longitude
+      (FieldSurvey/WiFi-map pattern) + GiST index; backfill + refresh-worker
+      population
+- [ ] 11.3 SRQL proximity filter for `in:flows`: parse coordinate+radius term,
+      translate to `ST_DWithin` IP-set subquery against the geo cache,
+      compose with tag/CIDR/time filters; translation + integration tests
+- [ ] 11.4 Docs: SRQL cookbook entries for proximity + tag compositions
+
+## 12. Threat-intel tag source (amendment)
+
+- [ ] 12.1 `ti:` source importer materializing current OTX IP/CIDR indicators
+      into high-cadence snapshots with expiry handling
+- [ ] 12.2 Advisory semantics enforced in UI copy and docs (point-in-time
+      evidence; authority stays with threat_intel_matches)
+- [ ] 12.3 Engine adoption by the CTI current-matching path (coordinate with
+      improve-threat-intel-investigation; no second LPM implementation)
+- [ ] 12.4 Tests: active-indicator tagging, no retro-tagging, expiry stops
+      tagging
+
+## 13. DNS-policy (RPZ) tag source (amendment)
+
+- [ ] 13.1 Periodic materializer from ingested PowerDNS/RPZ hostile-IP
+      triggers into a `dns-policy:` snapshot source
+- [ ] 13.2 Tests: trigger tagging, expiry/removal on feed update, advisory
+      provenance

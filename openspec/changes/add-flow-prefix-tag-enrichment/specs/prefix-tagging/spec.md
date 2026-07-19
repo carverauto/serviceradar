@@ -159,6 +159,119 @@ receive, available to users authorized to view integrations settings.
 - **THEN** the UI shows the most-specific-first tag chain the enrichment path would
   apply, served from the local node's trie without a database lookup
 
+### Requirement: Per-source trie instances with independent cadence
+
+The system SHALL compile each tag source (netbox, manual, provider, ti,
+dns-policy) into its own versioned trie instance that swaps atomically and
+independently of every other source, and lookups SHALL merge the
+most-specific-first chains across all active sources with per-tag source
+provenance. Refreshing a high-churn source SHALL NOT rebuild or block any
+other source's trie.
+
+#### Scenario: One source refreshes without rebuilding others
+
+- **WHEN** the threat-intel source promotes a new snapshot while the provider
+  source's trie holds hundreds of thousands of prefixes
+- **THEN** only the threat-intel trie is rebuilt and swapped, and provider
+  lookups proceed uninterrupted against the untouched provider trie
+
+#### Scenario: Lookup merges chains across sources
+
+- **WHEN** an address matches a NetBox prefix tagged `site:austin` and a
+  provider prefix tagged `provider:aws`
+- **THEN** the lookup result contains both tags, each attributed to its
+  source, ordered most-specific first
+
+### Requirement: Hosting-provider dataset consolidation
+
+The system SHALL serve the hosting-provider CIDR lookup from the prefix-tag
+engine as a `provider:` tag namespace compiled from the active
+`netflow_provider_cidrs` snapshot. Once enabled, the per-IP SQL
+longest-prefix-match queries and the cross-batch provider cache layer SHALL be
+retired from the flow hot path, and the existing `src_hosting_provider` /
+`dst_hosting_provider` column semantics SHALL be preserved.
+
+#### Scenario: Provider lookup without database round trips
+
+- **WHEN** flow enrichment resolves the hosting provider for an uncached IP
+  with provider consolidation enabled
+- **THEN** the result comes from the in-memory provider trie with no per-IP
+  SQL query, and the persisted provider columns match what the SQL path would
+  have produced
+
+#### Scenario: Provider snapshot promotion flows through the engine
+
+- **WHEN** the provider dataset refresh promotes a new snapshot
+- **THEN** the provider trie rebuilds from it via the standard invalidation
+  broadcast and subsequent lookups reflect the new dataset
+
+### Requirement: Geo-derived tags at enrichment
+
+When geo tag derivation is enabled, the flow enrichment hook SHALL derive
+`geo:country:<iso2>` and `geo:asn:<asn>` tags from the node-resident Geolix
+MMDB lookup and persist them through the same tag columns as prefix tags. The
+system SHALL NOT import MMDB datasets into the prefix-tag tables or tries;
+Geolix remains the geo lookup engine.
+
+#### Scenario: Geo tags persisted alongside prefix tags
+
+- **WHEN** geo derivation is enabled and a flow's destination IP resolves to
+  country US and ASN 15169
+- **THEN** the persisted destination tags include `geo:country:us` and
+  `geo:asn:15169` with geo provenance, alongside any prefix-derived tags
+
+#### Scenario: Missing geo data is not an error
+
+- **WHEN** the MMDB has no record for an address or the MMDB is not yet
+  downloaded on the node
+- **THEN** the flow persists without geo tags and enrichment continues
+
+### Requirement: Threat-intelligence tag source
+
+The system SHALL support a threat-intelligence tag source that materializes
+current IP/CIDR indicators (AlienVault OTX first) into a `ti:` tag namespace
+on a configurable high-frequency cadence, honoring indicator expiry on each
+refresh. Ingest-time `ti:` tags SHALL be presented as point-in-time advisory
+evidence wherever they surface; authoritative threat matching, including
+retro-matching new indicators against historical flows, SHALL remain with the
+threat-intel match pipeline, which SHALL use this engine for its IP/CIDR
+current-matching rather than a second LPM implementation.
+
+#### Scenario: Flow observed while indicator is active
+
+- **WHEN** an IP is covered by an active OTX indicator and a flow to it is
+  ingested
+- **THEN** the flow persists with the corresponding `ti:` tag and provenance
+  recording the indicator source
+
+#### Scenario: Flow observed before the indicator existed
+
+- **WHEN** an indicator is imported after a flow to its IP was already
+  persisted
+- **THEN** the historical flow row is not re-tagged, and the flow remains
+  discoverable through the threat-intel match pipeline rather than the tag
+  columns
+
+#### Scenario: Expired indicators stop tagging
+
+- **WHEN** an indicator expires and the next threat-intel snapshot is promoted
+- **THEN** subsequently ingested flows to that IP carry no `ti:` tag from the
+  expired indicator
+
+### Requirement: DNS-policy tag source
+
+The system SHALL support a `dns-policy:` tag source materialized periodically
+from the hostile-IP triggers of ingested PowerDNS/RPZ policy feeds, using the
+same snapshot promotion, advisory semantics, and expiry handling as the
+threat-intelligence source.
+
+#### Scenario: RPZ hostile IP tags subsequent flows
+
+- **WHEN** an RPZ feed lists an IP trigger and the dns-policy source has been
+  materialized
+- **THEN** subsequently ingested flows to that IP carry the corresponding
+  `dns-policy:` tag with provenance
+
 ### Requirement: Prefix tagging operational telemetry
 
 The system SHALL emit telemetry for lookup volume, trie size per address family,

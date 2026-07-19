@@ -42,14 +42,44 @@ PRD with full background and build-approach analysis: forgejo issue #4641.
     map to namespaced tags.
   - RBAC entry for managing prefix tags; operational telemetry (lookup counters,
     trie size, snapshot age, import outcomes).
-- `srql`: `in:flows` gains tag filtering over the new columns.
+- `srql`: `in:flows` gains tag filtering over the new columns, and (by
+  amendment) a PostGIS-backed proximity filter: `ip_geo_enrichment_cache` gains
+  a `geometry(Point, 4326)` column + GiST index (the FieldSurvey/WiFi-map
+  pattern), and the translator resolves proximity terms via `ST_DWithin` on the
+  cache into an IP-set filter on flows - giving CTI workflows queries like
+  `in:flows tag:ti:otx near:"<lat>,<lng>,50km"`.
 - `build-web-ui`: flow investigation surfaces render tag chips and tag filters; the
   Integrations settings page gains an IP tag-preview lookup.
+- Enrichment consolidation (added by amendment, 2026-07-18):
+  - Per-source trie instances with independent snapshot cadences, merged at
+    lookup time - swapping one source's snapshot never rebuilds the others.
+  - Hosting-provider CIDR consolidation: the `netflow_provider_cidrs` dataset
+    becomes a `provider:` tag source served by the engine; the per-IP SQL LPM
+    and the `ProviderCidrCache` ETS layer are retired, and the existing
+    `src/dst_hosting_provider` column behavior is preserved.
+  - Geo-derived tags: the enrichment hook derives `geo:country:` and
+    `geo:asn:` tags from the already-resident Geolix MMDB lookup (flagged).
+    The MMDB itself is NOT imported into the trie - Geolix remains the geo
+    engine; only the derived tags land in the tag columns for SRQL parity.
+  - Threat-intelligence tag source: IP/CIDR indicators (AlienVault OTX first)
+    become a `ti:` tag namespace with a high-churn snapshot cadence, and the
+    CTI current-matching path adopts the shared engine. This absorbs the
+    IP/CIDR-matching portion of `improve-threat-intel-investigation`; the
+    investigation UX and the `threat_intel_matches` surface stay in that
+    change. Ingest-time `ti:` tags are advisory point-in-time evidence -
+    retro-matching of new indicators against historical flows remains the
+    match table's job, never the tag columns'.
+  - DNS-policy tag source: hostile-IP triggers from the PowerDNS/RPZ feeds we
+    already ingest are periodically materialized into a `dns-policy:` tag
+    namespace with the same advisory semantics.
 
-Explicitly out of scope (follow-up changes): migrating the hosting-provider CIDR
-lookup and `netflow_local_cidrs` classification into the trie (consolidation),
-Infoblox import, NetBox device-inventory sync restoration in the agent sync runtime,
-device-level tags, and retroactive re-tagging of historical flow rows.
+Explicitly out of scope (follow-up changes): `netflow_local_cidrs`
+direction-classification consolidation (evaluated after provider consolidation
+lands), Infoblox import, importing GeoIP/ipinfo MMDB datasets into the trie,
+retro-matching or re-tagging of historical flow rows (stays with
+`improve-threat-intel-investigation` / the match table), threat-investigation
+UX, and device-level tags. NetBox device-inventory sync restoration shipped
+separately as the `netbox-inventory` wasm plugin (PR #4643).
 
 ## Impact
 
@@ -71,3 +101,9 @@ device-level tags, and retroactive re-tagging of historical flow rows.
   processors remain core-owned platform primitives per that proposal); UI work lands
   on the same surfaces as `improve-attributed-flow-investigation` (additive columns);
   attribution semantics remain owned by `add-netprobe-fleet-attribution`.
+  `improve-threat-intel-investigation` keeps the investigation UX and the
+  `threat_intel_matches` authority surface but SHALL adopt this change's engine
+  for IP/CIDR current-matching instead of a second LPM implementation; its
+  planned threat filters on `in:flows` can ride the `ti:` tag columns for the
+  ingest-time-evidence view while authoritative matching stays on the match
+  table.

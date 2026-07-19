@@ -30,3 +30,38 @@ protocol, device scope).
   range
 - **THEN** the translated query applies the tag predicate, the CIDR predicate, and
   the time range together and returns only rows satisfying all of them
+
+### Requirement: Flow geographic proximity filtering
+
+SRQL flow queries SHALL support a proximity filter that accepts a coordinate
+and radius and matches flows whose source or destination IP geolocates within
+that radius. The translation SHALL evaluate the spatial predicate
+(`ST_DWithin`) against the PostGIS-indexed geometry column on
+`platform.ip_geo_enrichment_cache` to produce an IP set, and SHALL apply that
+set as a membership filter on the flow columns - it SHALL NOT require or
+evaluate per-row geometry on the flow hypertable. Proximity SHALL compose
+with tag, CIDR, and time-range filters. Addresses absent from the geo cache
+are excluded from proximity matches without error.
+
+#### Scenario: Proximity filter returns nearby flows
+
+- **WHEN** a user queries flows with a proximity term for a coordinate and a
+  50 km radius, and the geo cache places a flow's destination IP 10 km from
+  that coordinate
+- **THEN** the flow is returned, and flows whose cached coordinates fall
+  outside the radius are not
+
+#### Scenario: Proximity composes with threat tags
+
+- **WHEN** a user combines a `ti:` tag filter with a proximity term and a time
+  range
+- **THEN** the query returns only flows satisfying all three predicates, with
+  the spatial predicate evaluated against the geo cache index rather than the
+  flow rows
+
+#### Scenario: Un-geolocated addresses do not error
+
+- **WHEN** a proximity-filtered query scans flows whose IPs have no geo cache
+  entry
+- **THEN** those flows are simply excluded from proximity matches and the
+  query completes normally

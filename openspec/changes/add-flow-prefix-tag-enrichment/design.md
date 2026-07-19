@@ -42,14 +42,23 @@ index-based links.
   - Import prefix tags from NetBox on a schedule, with manual entries supported.
   - Make tags queryable in SRQL and visible/filterable in the flow UI.
   - Keep the engine swappable (pure Elixir now, Rustler NIF if benchmarks demand).
+  - (Amendment 2026-07-18) Make the engine the single LPM implementation for
+    every prefix-shaped enrichment: hosting-provider CIDRs, threat-intel
+    IP/CIDR indicators, RPZ hostile-IP triggers - one engine, many tag
+    sources with independent cadences.
 - Non-Goals:
-  - Consolidating the hosting-provider CIDR lookup or `netflow_local_cidrs`
-    classification into the trie (planned follow-up change, not this one).
+  - Consolidating `netflow_local_cidrs` direction classification (evaluated as
+    a follow-up once provider consolidation lands).
+  - Importing GeoIP/ipinfo MMDB datasets into the trie (Geolix stays the geo
+    engine; only derived tags are emitted).
   - Infoblox import (the snapshot/source model is built source-agnostic; the
     importer ships later).
-  - Restoring NetBox device-inventory sync in the agent sync runtime.
-  - Retroactive re-tagging of historical flow rows (ingest-time tags are
-    point-in-time truth by design).
+  - Restoring NetBox device-inventory sync (shipped separately as the
+    netbox-inventory wasm plugin, PR #4643).
+  - Retroactive re-tagging of historical flow rows and retro-matching of new
+    threat indicators against history (ingest-time tags are point-in-time
+    truth; retro-matching stays with the threat-intel match table).
+  - Threat-investigation UX (stays in `improve-threat-intel-investigation`).
   - Collector-side tagging or any change to the Rust flow-collector.
   - Multitenancy features (single-deployment rule).
 
@@ -130,6 +139,61 @@ index-based links.
     The mapping (which dimensions to import, namespace allowlist, max tags per
     prefix) is configurable with sensible defaults.
 
+- Decision (amendment 2026-07-18): Per-source trie instances, merged at lookup
+  time. Each tag source (netbox, manual, provider, ti, dns-policy) compiles
+  into its own versioned `:persistent_term` trie and swaps independently;
+  `lookup/2` concatenates the most-specific-first chains across sources. This
+  keeps a high-churn CTI refresh from paying the rebuild cost of the large,
+  slow-moving provider dataset, and lets each source carry its own cadence,
+  TTL, and telemetry.
+  - Alternatives considered: one merged trie per import (simplest, but every
+    CTI refresh rebuilds ~400k provider prefixes and the persistent_term swap
+    cost scales with the union); DB-side merge views (reintroduces the SQL hot
+    path this change removes).
+- Decision (amendment): The hosting-provider dataset becomes a `provider:` tag
+  source. The existing snapshot tables (`netflow_provider_dataset_snapshots` /
+  `netflow_provider_cidrs`) remain the import pipeline; a source adapter
+  compiles the active snapshot into a provider trie. `FlowEnrichment`'s
+  provider lookup is served from the engine, the `ProviderCidrCache` ETS layer
+  and per-IP GiST queries are retired, and the `src/dst_hosting_provider`
+  columns keep their exact semantics (populated from the provider tag chain).
+- Decision (amendment): Geo tags are derived, not stored. At the enrichment
+  hook, the existing Geolix MMDB lookup (already per-node, in-memory LPM)
+  yields `geo:country:<iso>` and `geo:asn:<asn>` tags behind a separate flag.
+  Rationale: MMDB is a purpose-built prefix database with millions of rows and
+  rich records; duplicating it into CNPG snapshot tables would add massive
+  churn for zero lookup-latency win. This follows the wrap-don't-reimplement
+  rule - the trie and Geolix are two engines behind one hook.
+- Decision (amendment): Threat-intel indicators are a `ti:` tag source with
+  advisory semantics. An importer materializes current IP/CIDR indicators
+  (AlienVault OTX first, via the existing feed plumbing) into a high-cadence
+  snapshot; expired indicators drop out on refresh. Ingest-time `ti:` tags are
+  point-in-time evidence ("this IP was on a blocklist when the flow was
+  observed") and are documented as such everywhere they surface. Authoritative
+  threat matching - including retro-matching new indicators against historical
+  flows - remains the `threat_intel_matches` path owned by
+  `improve-threat-intel-investigation`; that path adopts this engine for its
+  current-matching LPM instead of maintaining a second implementation.
+- Decision (amendment): RPZ/PowerDNS hostile-IP triggers become a
+  `dns-policy:` tag source via periodic materialization (stream-to-reference
+  inversion done on a schedule, not per-event), reusing the same snapshot
+  promotion and advisory semantics as `ti:`.
+- Decision (amendment): PostGIS proximity on the geo cache, not the
+  hypertable. Today geo reaches the UI by joining flows against
+  `platform.ip_geo_enrichment_cache` (ip -> asn/country/city + plain float
+  lat/lng, populated from observed IPs) at the presentation layer. PostGIS is
+  already loaded and used by the FieldSurvey/WiFi-map tables
+  (`geometry(Point, 4326)` + GiST). This change adds the same pattern to the
+  geo cache: a geometry column derived from lat/lng plus a GiST index, so
+  proximity queries (`ST_DWithin` joined to flows by IP) work server-side.
+  Per-row geometry on `ocsf_network_activity` is rejected (hypertable bloat;
+  the join surface is the right home). SRQL gains an in-scope proximity
+  filter for flows: the translation runs `ST_DWithin` against the indexed
+  cache to produce an IP set, then filters flows by src/dst IP membership -
+  spatial cost scales with the cache, flow cost rides existing indexes.
+  Composed with tag filters this is the CTI shape the change is for:
+  `in:flows tag:ti:otx near:"<lat>,<lng>,50km"`.
+
 ## Risks / Trade-offs
 
 - Tag cardinality bloats the hypertable -> cap tags per prefix, importer namespace
@@ -143,8 +207,21 @@ index-based links.
   (multi-page success, mid-pagination failure); snapshot age telemetry alerts on
   staleness rather than silently serving old tags.
 - Added work on the singleton EventWriter -> benchmark gate; trie lookups are
-  orders faster than the SQL LPM they sit beside, and the consolidation follow-up
-  makes the hot path a net win.
+  orders faster than the SQL LPM they replace, and provider consolidation makes
+  the hot path a net win.
+- High-churn `ti:`/`dns-policy:` snapshots pay a persistent_term swap per
+  refresh -> per-source tries keep the swap proportional to the source's own
+  size; cadence floors are configurable and telemetry tracks swap duration.
+- Ingest-time `ti:` tags read as detection coverage they do not provide ->
+  advisory framing in UI copy, docs, and spec scenarios; authoritative matching
+  stays on `threat_intel_matches`, and investigation surfaces never source from
+  tag columns alone.
+- Namespace growth (provider/geo/ti/dns-policy) inflates tag-column
+  cardinality -> per-namespace enable flags, tags-per-prefix caps, and
+  compression measurement before defaults flip on.
+- Proximity queries could tempt per-flow geometry -> rejected by design; the
+  spatial predicate always runs on the geo cache (GiST) and reaches flows as an
+  IP-set filter, so cost scales with cache size, not flow volume.
 
 ## Migration Plan
 
