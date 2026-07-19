@@ -381,6 +381,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
   def launch_error_message(:playbook_not_found), do: "Playbook not found."
   def launch_error_message(:awx_playbook_required), do: "Only reviewed AWX playbooks can run here."
 
+  def launch_error_message({:target_held, _device_uid}),
+    do: "This target is under an active automation hold and cannot launch until cleared."
+
+  def launch_error_message({:target_hold_lookup_failed, _reason}),
+    do: "Could not verify target-hold state for this device."
+
+  def launch_error_message(:authenticated_edge_principal_unavailable),
+    do: "The controller edge principal is not currently available for launch."
+
+  def launch_error_message(:awx_preflight_unavailable),
+    do: "Live AWX launch preflight is not available on this deployment."
+
   def launch_error_message(_other), do: "Launch failed because current approval or authorization could not be verified."
 
   defp secure_launch_success(%{operation: %{id: id}}) when is_binary(id) do

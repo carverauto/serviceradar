@@ -209,6 +209,18 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     assert plugin.import_ready?
   end
 
+  test "lists plugins from an exact release without consulting recent releases" do
+    Process.put(:first_party_releases_without_index, true)
+
+    assert {:ok, [plugin]} =
+             FirstPartyImporter.list_release_plugins(%{"repo_url" => @repo_url}, "v1.2.3")
+
+    assert plugin.plugin_id == "hello-wasm"
+    assert plugin.version == "1.2.3"
+    assert plugin.release_tag == "v1.2.3"
+    assert plugin.import_ready?
+  end
+
   test "summarizes recent releases without first-party plugin index assets" do
     Process.put(:first_party_releases_without_index, true)
 

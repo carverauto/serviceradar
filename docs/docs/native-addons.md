@@ -108,12 +108,22 @@ agent release page. The base agent release catalog only rolls the `serviceradar-
 runtime. Add-on packages have their own package state, approval, version, artifact
 digest, and target assignment lifecycle.
 
-When first-party native add-on sync is enabled, ServiceRadar imports every
-import-ready add-on found in the official release index as a staged package, similar
-to first-party Wasm plugin import. Helm is not an add-on catalog allowlist; operators
-use the Add-ons UI to review, approve, and assign the staged packages they want.
-`autoApproveAddonIds` is an optional deployment policy for trusted packages that
-should move from staged to approved automatically, not a visibility gate.
+When first-party native add-on sync is enabled, ServiceRadar converges the newest
+signed release index into the package catalog. Verified first-party packages covered
+by deployment trust policy are approved automatically. Helm is not an add-on catalog
+allowlist, and importing or approving a package does not immediately change any
+agent. Existing managed assignments and profiles track the newest approved compatible
+package through a health-gated rollout. Explicit pins and non-first-party packages
+remain manual.
+
+This boundary is deliberate:
+
+- **Import and approval** answer whether an immutable package digest is trusted and
+  eligible for use.
+- **Assignment policy** answers whether a source is pinned or tracks the latest
+  approved package.
+- **Rollout** delivers a candidate to canaries and bounded batches, then promotes
+  the authoritative assignment only after fresh candidate-version health evidence.
 
 ### Kubernetes agent boundary
 
@@ -247,20 +257,30 @@ operations; manual edits are overwritten by the next reconciliation.
 
 ## Operator quick start
 
-Use this path for a normal rollout:
+Use this path for a normal first-party deployment:
 
-1. Confirm the base agents are on a release new enough to install and report
-   systemd-backed add-ons.
-2. Import or sync the signed native add-on package from the release catalog.
-3. Open **Settings > Agents > Add-ons** and verify the package is `verified`.
-4. Review the manifest, required privileges, supported platforms, OCI digest, and
-   granted capabilities.
-5. Approve the package.
-6. Assign the approved package to one canary agent or cohort before broad rollout.
-7. Confirm add-on drift and health from the agent detail page.
-8. Confirm host service state with `systemctl` for systemd-backed add-ons.
-9. Validate the add-on's data surface, such as `in:addon_statuses`,
-   `in:attributed_flows`, process listeners, or workload inventory.
+1. Confirm the base agents are new enough to install and report the package's
+   supervision model.
+2. Assign the approved package to an agent or profile. Verified first-party packages
+   default to **Track latest approved**; choose **Manual pin** only when the source
+   must stay on that exact version.
+3. Set the canary count, batch size, maximum parallel targets, soak time, and health
+   timeout. Capability grants form a ceiling: a later package that asks for more
+   privilege is blocked instead of silently expanding access.
+4. Publish future signed ServiceRadar releases normally. Catalog sync imports and
+   approves trusted first-party packages, and managed sources create rollouts without
+   per-agent clicks.
+5. Watch **Add-on Fleet** only when a rollout pauses or a row is classified as
+   **Action required**. Healthy, updating, unavailable, expected-inactive, and
+   observed-only rows are separate states and are not all treated as failures.
+6. For a systemd-backed add-on, use `systemctl` only when the fleet evidence calls
+   for host-level diagnosis.
+
+For a third-party package, approval and the initial version selection remain
+explicit. Approval makes a signed digest eligible; it does not opt a source into
+automatic updates. An operator can subsequently enable **Track latest approved**
+for that source. Automatic candidates remain bound to the same package origin and
+capability ceiling.
 
 The base **Agent Releases** page should show only base `serviceradar-agent` releases.
 If add-on packages appear there, that is a catalog/UI bug: add-ons belong in the
@@ -398,10 +418,13 @@ versions. The expected release path is:
 3. Include payload schemas and display contracts for every emitted log or event in
    the bundle and list them in `signal_schemas`.
 4. Publish the add-on discovery index and artifact metadata with the release.
-5. Import the package into ServiceRadar as `staged`. Automatic first-party sync
-   imports every import-ready add-on in the official release index.
-6. Review and approve the package in **Settings > Agents > Add-ons**.
-7. Assign the approved package to agents or cohorts.
+5. Sync the package into ServiceRadar. A verified package covered by first-party
+   trust policy is approved automatically; other packages remain staged for review.
+6. Assign the approved package to agents or profiles and select **Track latest
+   approved** or **Manual pin**. First-party assignments default to tracking.
+7. For a tracking source, let the rollout coordinator canary, health-gate, batch,
+   and promote newer approved packages. Approval alone never rewrites the stable
+   package selection.
 
 Every change to an add-on payload, config schema, manifest requirements, systemd unit,
 or runtime behavior must bump that add-on's manifest version. The release build has a
@@ -490,13 +513,18 @@ Mirror the Wasm plugin author flow:
 
 ## Lifecycle
 
-1. Build a signed, per-arch bundle + discovery index (release workflow).
-2. Import/approve the `AddonPackage` (`staged -> approved`) in the admin UI.
-3. Assign to agents/cohort with config validated against `config.schema.json`.
-4. The control plane pushes the typed add-on section in the versioned agent config.
-5. The agent fetches/verifies/activates and supervises the add-on per its model.
-6. Per-add-on `installed/active/unhealthy` status is reported back and reconciled
-   against the desired assignment in the UI.
+1. The release workflow builds a signed, per-architecture bundle and discovery
+   index.
+2. Catalog sync imports the immutable digest and applies package trust policy.
+3. An assignment or profile selects **Manual pin** or **Track latest approved**.
+4. A newer eligible package creates a persisted rollout. The stable package remains
+   authoritative while per-target candidate overrides advance through canary and
+   bounded batches.
+5. The agent fetches, verifies, activates, supervises, and reports the exact candidate
+   version.
+6. Fresh post-advance evidence must pass the configured health gate and soak. Success
+   promotes the source; failure removes the candidate override, restores the prior
+   desired state, pauses the rollout, and blocks immediate retriggering.
 
 ## Fleet-scale targeting
 
@@ -543,9 +571,19 @@ sudo systemctl status serviceradar-workload-identity.service --no-pager
 sudo systemctl status serviceradar.slice --no-pager
 ```
 
-The ServiceRadar UI should surface the same drift in operator terms: assigned but not
-installed, installed but inactive, unhealthy, unsupported architecture, unassigned
-observed add-on, or stale status.
+The ServiceRadar UI classifies each effective row into exactly one operator state:
+
+| Category | Meaning |
+| --- | --- |
+| Healthy / running | Fresh evidence matches the stable desired package. |
+| Updating | An active rollout is converging and remains inside its health window. |
+| Action required | Fresh evidence proves a runtime failure, desired state is invalid/incompatible, or a rollout paused/failed. |
+| Unavailable / stale | The agent is offline or evidence is too old to prove current health. |
+| Expected inactive | A disabled config toggle or dormant ephemeral helper is behaving as designed. |
+| Observed only | No assignment owns the reported built-in or historical runtime. Healthy observed-only rows are informational. |
+
+Every non-healthy row includes a stable reason code and evidence age. Offline or
+stale evidence is never mislabeled as a current runtime failure.
 
 You can also inspect current add-on status through SRQL:
 
@@ -570,19 +608,23 @@ symlink changed but the running executable still points at an older version, the
 systemd restart step failed or the host is running an older base agent that does not
 fully reconcile systemd-backed add-ons.
 
-## Rollback
+## Pause, pin, and rollback
 
-Rollback add-ons through assignment state, not by hand-editing files under
+Operate add-ons through assignment and rollout state, not by hand-editing files under
 `/var/lib/serviceradar/agent/addons`.
 
-Preferred rollback order:
+- **Pause** stops new batches while preserving already-converged targets for
+  diagnosis. **Resume** continues from persisted rollout state.
+- **Cancel** removes candidate overrides that have not become authoritative and
+  leaves the stable source unchanged.
+- **Rollback** removes candidate overrides first, restores prior desired package and
+  parameters, and waits for fresh recovery evidence before more targets advance.
+- **Manual pin** opts a source out of future automatic candidates. Pinning is the
+  normal way to hold a known version; it should not require deleting assignments.
 
-1. Disable the add-on assignment or retarget the previous approved package version in
-   **Settings > Agents > Add-ons**.
-2. Wait for the agent to receive the new compiled config and reconcile the unit.
-3. Confirm observed status in the agent detail page and `in:addon_statuses`.
-4. Verify the host unit state and running executable path with `systemctl` and
-   `readlink`.
+After recovery, confirm observed status in **Add-on Fleet** or `in:addon_statuses`.
+Use `systemctl` and `readlink` only when reported evidence indicates a host service or
+activation failure.
 
 Manual host intervention should be reserved for break-glass recovery when the agent
 control stream is offline or systemd cannot start the service. If manual recovery is

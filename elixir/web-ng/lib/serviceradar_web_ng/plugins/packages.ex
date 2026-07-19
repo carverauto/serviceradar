@@ -228,7 +228,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
     discovery_attrs = maybe_put(%{}, :repo_url, repo_url)
 
-    with {:ok, plugins} <- FirstPartyImporter.list_recent_plugins(discovery_attrs, limit) do
+    with {:ok, plugins} <- discover_first_party_plugins(discovery_attrs, limit, release_tag) do
       existing = existing_import_keys(opts)
 
       candidates =
@@ -282,6 +282,15 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
          failed: failed
        }}
     end
+  end
+
+  defp discover_first_party_plugins(discovery_attrs, _limit, release_tag)
+       when is_binary(release_tag) and release_tag != "" do
+    FirstPartyImporter.list_release_plugins(discovery_attrs, release_tag)
+  end
+
+  defp discover_first_party_plugins(discovery_attrs, limit, _release_tag) do
+    FirstPartyImporter.list_recent_plugins(discovery_attrs, limit)
   end
 
   # (plugin_id, version, release_tag) keys of already-imported packages, read

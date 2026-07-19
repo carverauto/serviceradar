@@ -1,8 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
   @moduledoc """
   DB-backed LiveView tests for the add-on fleet page (issue 4384):
-  one row per (agent, add-on), honest drift rendering for every presence
-  combination, and catalog-only inventory separated from fleet rows.
+  one card per agent with an add-on row group, honest drift rendering for every
+  presence combination, and catalog-only inventory separated from fleet rows.
   """
 
   use ServiceRadarWebNGWeb.ConnCase, async: false
@@ -46,7 +46,6 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert html =~ "0.1.20"
     assert html =~ "→ assigned"
     refute html =~ "drift:"
-    assert html =~ "version drift"
 
     # The superseded assignment is reachable via the row detail, not a peer row.
     html = render_click(lv, "toggle_details", %{"row" => "#{agent.uid}|#{addon_id}"})
@@ -77,20 +76,56 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
 
     {:ok, _lv, html} = live(conn, ~p"/settings/agents/addons/fleet")
 
+    assert count_occurrences(html, ~s(data-role="agent-addon-card")) == 1
+    assert count_occurrences(html, ~s(data-role="agent-card-label")) == 1
+    assert count_occurrences(html, ~s(data-role="fleet-row")) == 3
     assert html =~ ~s(data-role="version-up-to-date")
     assert html =~ "up to date"
 
     assert html =~ ~s(data-role="version-running-unassigned")
     assert html =~ "(unassigned)"
-    assert html =~ "running, unassigned"
 
     assert html =~ ~s(data-role="version-not-reported")
     assert html =~ "not reported"
-    assert html =~ "assigned, not running"
 
     # No fabricated comparisons anywhere.
     refute html =~ "drift:"
     refute html =~ "0.0.0"
+  end
+
+  test "disabled assignment history never becomes current desired state", %{
+    conn: conn,
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    addon_id = "fleet-disabled-history-#{unique}"
+    gateway = gateway_fixture(%{id: "fleet-disabled-gw-#{unique}", component_id: "fleet-disabled-#{unique}"})
+
+    agent =
+      agent_fixture(gateway, %{
+        uid: "fleet-disabled-agent-#{unique}",
+        name: "Disabled History Agent"
+      })
+
+    old_approved = create_addon_package!(actor, addon_id, "0.2.0")
+    newer_historical = create_addon_package!(actor, addon_id, "0.3.0")
+
+    create_assignment!(actor, agent.uid, old_approved.id, enabled: false)
+    create_assignment!(actor, agent.uid, newer_historical.id, enabled: false)
+    report_status!(agent.uid, addon_id, state: "running", active: true, version: "0.3.0")
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/addons/fleet")
+    fleet_html = fleet_table_html(html)
+
+    assert count_occurrences(fleet_html, ~s(data-role="fleet-row")) == 1
+    assert fleet_html =~ ~s(data-role="version-running-unassigned")
+    refute fleet_html =~ "newer approved: 0.2.0"
+    refute fleet_html =~ "assignment disabled"
+
+    html = render_click(lv, "toggle_details", %{"row" => "#{agent.uid}|#{addon_id}"})
+    assert html =~ "Other assignments on this agent"
+    assert html =~ "0.2.0"
+    assert html =~ "0.3.0"
   end
 
   test "catalog-only packages appear in the inventory section, never as fleet rows",

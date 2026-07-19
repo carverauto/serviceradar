@@ -41,6 +41,11 @@ defmodule ServiceRadar.Credentials.CredentialProviderProfile do
   """
   @callback rule_has_purpose?(rule :: map(), purpose()) :: boolean()
 
+  @doc "Validate provider-specific fail-closed policy before issuing a broker grant."
+  @callback validate_rule(purpose(), rule :: map()) :: :ok | {:error, term()}
+
+  @optional_callbacks validate_rule: 2
+
   @doc """
   Build the credential-broker grant attrs + `to_payload` extras for a purpose.
 

@@ -54,6 +54,18 @@ defmodule ServiceRadarWebNG.Plugins.AddonProfiles do
 
   def create(_attrs, _opts), do: {:error, :invalid_attributes}
 
+  @spec update(String.t(), map(), keyword()) :: {:ok, AddonProfile.t()} | {:error, term()}
+  def update(id, attrs, opts \\ []) when is_binary(id) and is_map(attrs) do
+    scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+
+    with {:ok, profile} <- get(id, scope: scope) do
+      profile
+      |> Ash.Changeset.for_update(:update, drop_nil_values(attrs))
+      |> Ash.update(ash_opts(scope, actor))
+    end
+  end
+
   @spec reconcile(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def reconcile(id, opts \\ [])
 

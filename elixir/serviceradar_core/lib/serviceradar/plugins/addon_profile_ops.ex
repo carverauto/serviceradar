@@ -47,7 +47,7 @@ defmodule ServiceRadar.Plugins.AddonProfileOps do
     }
 
     profile
-    |> Ash.Changeset.for_update(:update, attrs)
+    |> Ash.Changeset.for_update(:record_reconcile_result, attrs)
     |> Ash.update(actor: actor)
   end
 

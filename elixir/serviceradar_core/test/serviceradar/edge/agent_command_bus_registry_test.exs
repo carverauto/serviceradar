@@ -80,6 +80,22 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
              AgentCommandBus.resolve_control_session_evidence(agent_id)
   end
 
+  test "registry node discovery includes every core and gateway but excludes web nodes" do
+    nodes = [
+      :serviceradar_web_ng@web,
+      :serviceradar_core@core_b,
+      :serviceradar_agent_gateway@gateway_a,
+      :serviceradar_core@core_a,
+      :unrelated@other
+    ]
+
+    assert ProcessRegistry.registry_nodes(nodes) == [
+             :serviceradar_agent_gateway@gateway_a,
+             :serviceradar_core@core_a,
+             :serviceradar_core@core_b
+           ]
+  end
+
   defp start_session(agent_id, partition_id, gateway_node, marker) do
     start_supervised!(
       {Session,

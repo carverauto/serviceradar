@@ -105,7 +105,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     refute html =~ "0.2.0"
   end
 
-  test "catalog matches an exact OCI package whose release provenance is nil", %{
+  test "catalog matches an imported bundle reused through a newer release envelope", %{
     conn: conn,
     actor: actor
   } do
@@ -113,8 +113,11 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     addon_id = "oci-catalog-addon-#{unique}"
     version = "1.0.0"
     release_tag = "v#{20_000 + rem(unique, 100_000)}.0.0"
-    oci_ref = "registry.carverauto.dev/serviceradar/#{addon_id}:#{version}"
-    oci_digest = "sha256:" <> String.duplicate("a", 64)
+    imported_oci_ref = "registry.carverauto.dev/serviceradar/#{addon_id}:previous-release"
+    imported_oci_digest = "sha256:" <> String.duplicate("a", 64)
+    discovered_oci_ref = "registry.carverauto.dev/serviceradar/#{addon_id}:#{release_tag}"
+    discovered_oci_digest = "sha256:" <> String.duplicate("e", 64)
+    bundle_digest = "sha256:" <> String.duplicate("d", 64)
     tarball_sha256 = String.duplicate("b", 64)
 
     package =
@@ -122,9 +125,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
         addon_id: addon_id,
         name: "OCI Catalog Add-on #{unique}",
         version: version,
-        source_oci_ref: oci_ref,
-        source_oci_digest: oci_digest,
+        source_oci_ref: imported_oci_ref,
+        source_oci_digest: imported_oci_digest,
         source_release_tag: nil,
+        source_metadata: %{"bundle_digest" => bundle_digest},
         artifacts: %{
           "linux/amd64" => %{
             "object_key" =>
@@ -162,9 +166,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
           "addon_id" => addon_id,
           "name" => package.name,
           "version" => version,
-          "oci_ref" => oci_ref,
-          "oci_digest" => oci_digest,
-          "bundle_digest" => "sha256:" <> String.duplicate("d", 64),
+          "oci_ref" => discovered_oci_ref,
+          "oci_digest" => discovered_oci_digest,
+          "bundle_digest" => bundle_digest,
           "artifacts" => [
             %{
               "os" => "linux",

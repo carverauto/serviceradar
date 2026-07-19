@@ -5,9 +5,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   Joins the desired state (`addon_packages` catalog + `addon_assignments`) against
   the observed runtime state (`addon_statuses`) so operators can see, across the
   whole fleet, which agent runs which add-on and whether the effective state is
-  healthy. The model is one row per (agent, add-on): the effective assignment
-  (enabled first, then newest package version) wins the row and every other
-  assignment for the same pair is kept as drill-in detail instead of a peer row.
+  healthy. The model is one row per (agent, add-on): only an enabled assignment
+  can define current desired state. Disabled assignments remain drill-in audit
+  history and never masquerade as a current assignment.
 
   Catalog-only inventory (packages imported but assigned to no agent and reported
   by no agent) is returned separately via `overview/1` so the fleet table never
@@ -23,6 +23,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   alias ServiceRadar.Inventory.EndpointInventoryScan
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.AddonRollout
+  alias ServiceRadar.Plugins.AddonRolloutEligibility
+  alias ServiceRadar.Plugins.AddonRolloutTarget
   alias ServiceRadar.Plugins.AddonStatus
   alias ServiceRadar.Plugins.RetiredNativeAddons
   alias ServiceRadarWebNG.Plugins.AddonRuntimePolicy
@@ -32,13 +35,15 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   @collector_addon_ids MapSet.new(["scalibr-endpoint-inventory"])
 
   @max_rows 2000
+  @default_freshness_seconds 180
+  @default_convergence_seconds 900
 
   @typedoc """
   Version comparison state for a fleet row. Computed only from values that are
   actually present — a missing side never fabricates a comparison:
 
-    * `{:up_to_date, version, latest?}` — running == assigned; `latest?` is true
-      when that version is also the latest approved version of the add-on
+    * `{:up_to_date, version, current?}` — running == assigned; `current?` is true
+      when no newer approved version of the add-on exists
     * `{:drift, running, assigned}` — both sides present and different
     * `{:required_runtime, version_or_nil}` — platform-required runtime without
       an explicit assignment row
@@ -85,6 +90,10 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
           collector?: boolean(),
           version_status: version_status(),
           stale_assignments: [stale_assignment()],
+          category: atom(),
+          reason_code: String.t(),
+          evidence_age_seconds: non_neg_integer() | nil,
+          rollout_state: atom() | nil,
           attention: [atom()],
           attention?: boolean()
         }
@@ -115,21 +124,36 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     assignments = scope |> list_assignments() |> reject_retired_addon_ids()
     statuses = scope |> list_statuses() |> reject_retired_addon_ids()
     scans_by_agent = list_collector_scans(scope)
-    agent_labels = agent_labels(scope)
+    agents_by_uid = agents_by_uid(scope)
+    agent_labels = Map.new(agents_by_uid, fn {uid, agent} -> {uid, agent_label(agent)} end)
     package_index = index_packages(packages)
+    rollout_index = rollout_index(scope)
+    now = Keyword.get(opts, :now, DateTime.utc_now())
 
     row_context = %{
       agent_labels: agent_labels,
+      agents_by_uid: agents_by_uid,
       package_index: package_index,
-      scans_by_agent: scans_by_agent
+      scans_by_agent: scans_by_agent,
+      rollout_index: rollout_index,
+      now: now
     }
 
+    assignment_groups = Enum.group_by(assignments, &{&1.agent_uid, &1.addon_id})
+
+    enabled_assignment_groups =
+      Map.new(assignment_groups, fn {key, group} ->
+        {key, Enum.filter(group, & &1.enabled)}
+      end)
+
     assigned_rows =
-      assignments
-      |> Enum.group_by(&{&1.agent_uid, &1.addon_id})
-      |> Enum.map(fn {{agent_uid, addon_id}, group} ->
-        {assignment, stale} = effective_assignment(group, package_index)
-        package = assignment.addon_package_id && Map.get(package_index.by_id, assignment.addon_package_id)
+      enabled_assignment_groups
+      |> Enum.reject(fn {_key, enabled} -> enabled == [] end)
+      |> Enum.map(fn {{agent_uid, addon_id}, enabled} ->
+        {assignment, superseded_enabled} = effective_assignment(enabled, package_index)
+        history = Map.fetch!(assignment_groups, {agent_uid, addon_id}) -- [assignment]
+        package_id = assignment.rollout_package_id || assignment.addon_package_id
+        package = package_id && Map.get(package_index.by_id, package_id)
         status = find_status(statuses, agent_uid, addon_id)
 
         build_row(
@@ -138,18 +162,25 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
           package,
           assignment,
           status,
-          stale_assignment_infos(stale, package_index),
+          stale_assignment_infos(
+            Enum.uniq_by(superseded_enabled ++ history, & &1.id),
+            package_index
+          ),
           row_context
         )
       end)
 
-    assigned_keys = MapSet.new(assignments, &{&1.agent_uid, &1.addon_id})
+    assigned_keys =
+      enabled_assignment_groups
+      |> Enum.reject(fn {_key, enabled} -> enabled == [] end)
+      |> MapSet.new(fn {key, _enabled} -> key end)
 
     observed_only_rows =
       statuses
       |> Enum.reject(&MapSet.member?(assigned_keys, {&1.agent_uid, &1.addon_id}))
       |> Enum.map(fn status ->
         package = latest_package_for_addon(package_index, status.addon_id)
+        history = Map.get(assignment_groups, {status.agent_uid, status.addon_id}, [])
 
         build_row(
           status.agent_uid,
@@ -157,7 +188,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
           package,
           nil,
           status,
-          [],
+          stale_assignment_infos(history, package_index),
           row_context
         )
       end)
@@ -168,7 +199,12 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
         &{String.downcase(&1.agent_label), &1.addon_id}
       )
 
-    %{rows: rows, catalog_only: catalog_only_entries(packages, assignments, statuses)}
+    enabled_assignments = Enum.filter(assignments, & &1.enabled)
+
+    %{
+      rows: rows,
+      catalog_only: catalog_only_entries(packages, enabled_assignments, statuses)
+    }
   end
 
   @doc """
@@ -202,18 +238,16 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   @doc """
   Aggregate counts for the summary stat strip.
   """
-  @spec summary([row()]) :: %{
-          total: non_neg_integer(),
-          attention: non_neg_integer(),
-          running: non_neg_integer(),
-          staged: non_neg_integer()
-        }
+  @spec summary([row()]) :: map()
   def summary(rows) do
     %{
-      total: length(rows),
-      attention: Enum.count(rows, & &1.attention?),
-      running: Enum.count(rows, & &1.active?),
-      staged: Enum.count(rows, &(&1.package_status == :staged))
+      managed: Enum.count(rows, &(&1.assigned? and &1.enabled?)),
+      healthy: Enum.count(rows, &(&1.category == :healthy)),
+      updating: Enum.count(rows, &(&1.category == :updating)),
+      action_required: Enum.count(rows, &(&1.category == :action_required)),
+      unavailable: Enum.count(rows, &(&1.category == :unavailable)),
+      expected_inactive: Enum.count(rows, &(&1.category == :expected_inactive)),
+      observed_only: Enum.count(rows, &(&1.category == :observed_only))
     }
   end
 
@@ -225,11 +259,13 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   def filter(rows, filters) when is_map(filters) do
     agent_uid = present(Map.get(filters, "agent_uid"))
     addon_id = present(Map.get(filters, "addon_id"))
+    category = present(Map.get(filters, "category"))
     attention_only? = Map.get(filters, "attention_only") in [true, "true", "on"]
 
     rows
     |> maybe_filter(agent_uid, fn row -> row.agent_uid == agent_uid end)
     |> maybe_filter(addon_id, fn row -> row.addon_id == addon_id end)
+    |> maybe_filter(category, fn row -> to_string(row.category) == category end)
     |> then(fn rows ->
       if attention_only?, do: Enum.filter(rows, & &1.attention?), else: rows
     end)
@@ -247,7 +283,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   def version_status(%{assigned?: true, assigned_version: assigned, running_version: running} = row)
       when is_binary(assigned) and is_binary(running) do
     if assigned == running do
-      {:up_to_date, running, running == Map.get(row, :latest_approved_version)}
+      latest = Map.get(row, :latest_approved_version)
+      {:up_to_date, running, compare_versions(latest, running) != :gt}
     else
       {:drift, running, assigned}
     end
@@ -334,6 +371,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     collector? = MapSet.member?(@collector_addon_ids, addon_id)
     last_scan_at = if collector?, do: Map.get(row_context.scans_by_agent, agent_uid)
     management_mode = AddonRuntimePolicy.management_mode(addon_id, not is_nil(assignment))
+    agent = Map.get(row_context.agents_by_uid, agent_uid)
+    rollout = rollout_for(assignment, row_context.rollout_index)
 
     base = %{
       agent_uid: agent_uid,
@@ -361,17 +400,26 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     }
 
     version_status = version_status(base)
-    attention = attention_flags(package, assignment, status, version_status, management_mode)
+
+    {category, reason_code} =
+      classify(base, package, assignment, status, agent, rollout, row_context.now)
+
+    attention = if category == :action_required, do: [reason_code], else: []
 
     base
     |> Map.put(:version_status, version_status)
+    |> Map.put(:category, category)
+    |> Map.put(:reason_code, reason_code)
+    |> Map.put(:evidence_age_seconds, evidence_age(status, row_context.now))
+    |> Map.put(:rollout_state, rollout && rollout.state)
+    |> Map.put(:update_policy, assignment && assignment.update_policy)
     |> Map.put(:attention, attention)
-    |> Map.put(:attention?, attention != [])
+    |> Map.put(:attention?, category == :action_required)
   end
 
-  # The effective assignment for an (agent, add-on) pair: enabled beats disabled,
-  # then the newest package version (semver), then the most recently updated row.
-  # Everything else becomes drill-in detail instead of a peer fleet row.
+  # The effective assignment for an (agent, add-on) pair. Callers pass enabled
+  # assignments only; disabled rows are historical evidence, never desired state.
+  # Newest package version (semver), then most recently updated, wins.
   defp effective_assignment(group, package_index) do
     [effective | stale] = Enum.sort_by(group, &assignment_rank(&1, package_index), :desc)
     {effective, stale}
@@ -381,7 +429,6 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     package = assignment.addon_package_id && Map.get(package_index.by_id, assignment.addon_package_id)
 
     {
-      if(assignment.enabled, do: 1, else: 0),
       version_rank(package && package.version),
       timestamp_rank(Map.get(assignment, :updated_at))
     }
@@ -438,44 +485,145 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     |> Enum.sort_by(&String.downcase(&1.addon_name))
   end
 
-  # --- "needs attention" classification -------------------------------------
+  # --- mutually exclusive fleet health classification -----------------------
 
-  defp attention_flags(package, assignment, status, version_status, management_mode) do
-    []
-    |> staged_not_approved(package, assignment)
-    |> assigned_not_running(assignment, status)
-    |> stopped_or_inactive(assignment, status)
-    |> version_drift(version_status)
-    |> observed_unassigned(assignment, status, management_mode)
+  @doc false
+  def classify(base, package, assignment, status, agent, rollout, now \\ DateTime.utc_now()) do
+    cond do
+      invalid_desired_package?(assignment, package) ->
+        {:action_required, "desired_package_not_approved"}
+
+      failed_rollout?(rollout) ->
+        {:action_required, rollout.reason_code || "rollout_failed"}
+
+      active_rollout?(rollout) ->
+        {:updating, rollout.reason_code || "rollout_in_progress"}
+
+      not is_nil(assignment) and assignment.enabled == false ->
+        {:expected_inactive, "assignment_disabled"}
+
+      is_nil(assignment) ->
+        classify_observed_only(status, now)
+
+      agent_unavailable?(agent, now) ->
+        {:unavailable, "agent_unavailable_or_stale"}
+
+      is_nil(status) ->
+        {:unavailable, "desired_runtime_not_yet_reported"}
+
+      stale_observation?(status, now) ->
+        {:unavailable, "runtime_observation_stale"}
+
+      explicitly_unhealthy?(status) ->
+        {:action_required, "runtime_reported_unhealthy"}
+
+      expected_inactive?(package, status) ->
+        {:expected_inactive, "ephemeral_helper_ready"}
+
+      converged?(base, package, status) ->
+        {:healthy, "desired_runtime_healthy"}
+
+      convergence_grace?(assignment, now) ->
+        {:updating, "desired_state_converging"}
+
+      true ->
+        {:action_required, "desired_state_not_converged"}
+    end
   end
 
-  defp staged_not_approved(flags, %AddonPackage{status: status}, _assignment)
-       when status in [:staged, :denied, :revoked] do
-    [:staged_not_approved | flags]
+  defp classify_observed_only(nil, _now), do: {:observed_only, "no_managed_assignment"}
+
+  defp classify_observed_only(status, now) do
+    cond do
+      stale_observation?(status, now) ->
+        {:observed_only, "observed_only_stale"}
+
+      explicitly_unhealthy?(status) ->
+        {:action_required, "runtime_reported_unhealthy"}
+
+      true ->
+        {:observed_only, "healthy_observed_only_runtime"}
+    end
   end
 
-  defp staged_not_approved(flags, _package, _assignment), do: flags
+  defp explicitly_unhealthy?(nil), do: false
 
-  defp assigned_not_running(flags, %AddonAssignment{enabled: true}, nil) do
-    [:assigned_not_running | flags]
+  defp explicitly_unhealthy?(status) do
+    state = status.state |> to_string() |> String.downcase()
+
+    present(status.degradation_reason) != nil or
+      state in ["circuit_open", "failed", "unhealthy", "verification_failed"]
   end
 
-  defp assigned_not_running(flags, _assignment, _status), do: flags
+  defp invalid_desired_package?(%AddonAssignment{enabled: true}, package),
+    do: is_nil(package) or package.status != :approved
 
-  defp stopped_or_inactive(flags, %AddonAssignment{enabled: true}, %AddonStatus{active: false}) do
-    [:stopped_or_inactive | flags]
+  defp invalid_desired_package?(_assignment, _package), do: false
+
+  defp active_rollout?(%{rollout_state: rollout_state, state: state})
+       when rollout_state in [:pending, :running, :rolling_back] and
+              state in [:pending, :waiting_health, :healthy_soak, :succeeded, :rollback_pending], do: true
+
+  defp active_rollout?(_), do: false
+
+  defp failed_rollout?(%{rollout_state: state}) when state in [:paused, :failed, :rolled_back], do: true
+
+  defp failed_rollout?(%{state: state}) when state in [:failed, :rolled_back], do: true
+
+  defp failed_rollout?(_), do: false
+
+  defp agent_unavailable?(nil, _now), do: true
+
+  defp agent_unavailable?(agent, now) do
+    agent.status != :connected or agent.is_healthy == false or
+      is_nil(agent.last_seen_time) or
+      stale_timestamp?(agent.last_seen_time, now, freshness_seconds())
   end
 
-  defp stopped_or_inactive(flags, _assignment, _status), do: flags
+  defp stale_observation?(status, now), do: stale_timestamp?(status.reported_at, now, freshness_seconds())
 
-  # Drift is only flagged when the read model produced a real comparison — an
-  # absent assignment or an unreported running version never counts as drift.
-  defp version_drift(flags, {:drift, _running, _assigned}), do: [:version_drift | flags]
-  defp version_drift(flags, _version_status), do: flags
+  defp stale_timestamp?(nil, _now, _seconds), do: false
 
-  defp observed_unassigned(flags, nil, %AddonStatus{}, :observed), do: [:observed_unassigned | flags]
+  defp stale_timestamp?(%DateTime{} = observed_at, %DateTime{} = now, seconds),
+    do: DateTime.diff(now, observed_at, :second) > seconds
 
-  defp observed_unassigned(flags, _assignment, _status, _management_mode), do: flags
+  defp expected_inactive?(%AddonPackage{supervision: :ephemeral_helper} = package, status),
+    do: AddonRolloutEligibility.supervision_ready?(package, status)
+
+  defp expected_inactive?(_package, _status), do: false
+
+  defp converged?(base, %AddonPackage{} = package, status) do
+    base.assigned_version == status.version and
+      AddonRolloutEligibility.supervision_ready?(package, status)
+  end
+
+  defp converged?(_base, _package, _status), do: false
+
+  defp convergence_grace?(assignment, now) do
+    changed_at = assignment.rollout_started_at || assignment.updated_at || assignment.inserted_at
+
+    match?(%DateTime{}, changed_at) and
+      DateTime.diff(now, changed_at, :second) <= convergence_seconds()
+  end
+
+  defp freshness_seconds do
+    Application.get_env(:serviceradar_web_ng, :addon_status_freshness_seconds, @default_freshness_seconds)
+  end
+
+  defp convergence_seconds do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :addon_convergence_grace_seconds,
+      @default_convergence_seconds
+    )
+  end
+
+  defp evidence_age(nil, _now), do: nil
+
+  defp evidence_age(%AddonStatus{reported_at: %DateTime{} = reported_at}, now),
+    do: max(DateTime.diff(now, reported_at, :second), 0)
+
+  defp evidence_age(_status, _now), do: nil
 
   # --- data loading ---------------------------------------------------------
 
@@ -502,6 +650,45 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     |> read(scope)
   end
 
+  defp rollout_index(scope) do
+    rollouts =
+      AddonRollout
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.sort(updated_at: :desc)
+      |> Ash.Query.limit(@max_rows)
+      |> read(scope)
+      |> Map.new(&{&1.id, &1})
+
+    targets =
+      AddonRolloutTarget
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.sort(updated_at: :desc)
+      |> Ash.Query.limit(@max_rows)
+      |> read(scope)
+
+    targets
+    |> Enum.uniq_by(& &1.assignment_id)
+    |> Map.new(fn target ->
+      rollout = Map.get(rollouts, target.rollout_id)
+
+      value = %{
+        id: target.rollout_id,
+        state: target.state,
+        reason_code: (rollout && rollout.blocked_reason) || target.reason_code,
+        rollout_state: rollout && rollout.state,
+        updated_at: target.updated_at
+      }
+
+      {target.assignment_id, value}
+    end)
+  rescue
+    _ -> %{}
+  end
+
+  defp rollout_for(nil, _rollout_index), do: nil
+
+  defp rollout_for(assignment, rollout_index), do: Map.get(rollout_index, assignment.id)
+
   defp list_collector_scans(scope) do
     EndpointInventoryScan
     |> Ash.Query.for_read(:read)
@@ -521,12 +708,12 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     end)
   end
 
-  defp agent_labels(scope) do
+  defp agents_by_uid(scope) do
     Agent
     |> Ash.Query.for_read(:read)
     |> Ash.Query.limit(@max_rows)
     |> read(scope)
-    |> Map.new(fn agent -> {agent.uid, agent_label(agent)} end)
+    |> Map.new(fn agent -> {agent.uid, agent} end)
   rescue
     _ -> %{}
   end

@@ -128,6 +128,41 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     assert policy.params_template["auto_discovery_enabled"] == false
   end
 
+  test "reconcile_rules reports insecure Proxmox policy as a stable skip before grant issuance" do
+    rules = [
+      credential_rule(%{
+        id: "insecure-proxmox",
+        tls_policy: :skip_verify
+      })
+    ]
+
+    grant_issuer = fn _attrs ->
+      send(self(), :grant_issued)
+      {:error, :unexpected_grant}
+    end
+
+    assert {:ok, summary} =
+             PluginAssignmentMaterializer.reconcile_rules(rules, "agent-a", %{id: "pkg-proxmox"},
+               reconciler: FakeReconciler,
+               actor: %{id: "system"},
+               grant_issuer: grant_issuer,
+               test_pid: self()
+             )
+
+    assert summary == %{
+             rules: 1,
+             resolved_inputs: 0,
+             desired_assignments: 0,
+             upserted: 0,
+             unchanged: 0,
+             disabled: 0,
+             skips: %{proxmox_tls_verification_required: 1}
+           }
+
+    refute_receive :grant_issued
+    refute_receive {:reconcile, _policy, _input_defs, _opts}
+  end
+
   test "reconcile_rules builds Proxmox console plugin policies from console credential rules" do
     rules = [
       credential_rule(%{

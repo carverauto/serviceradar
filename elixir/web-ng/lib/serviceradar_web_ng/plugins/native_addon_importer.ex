@@ -82,6 +82,34 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
 
   def list_recent_addons_with_summary(_attrs, _limit), do: {:error, :invalid_attributes}
 
+  @doc """
+  Lists native add-ons from one exact Forgejo release.
+
+  Automatic synchronization uses this path so the catalog is anchored to the
+  immutable ServiceRadar release currently running, rather than depending on the
+  ordering or completeness of Forgejo's recent-release feed.
+  """
+  @spec list_release_addons(map(), String.t()) :: {:ok, [map()]} | {:error, term()}
+  def list_release_addons(attrs, release_tag) when is_map(attrs) do
+    with {:ok, repo} <- import_repo(attrs),
+         {:ok, release_tag} <-
+           Client.require_value(release_tag, "Release tag is required"),
+         {:ok, release} <- Client.fetch_release(repo, release_tag),
+         {:ok, index} <- fetch_release_index(repo, release, attrs) do
+      addons =
+        index
+        |> index_entries()
+        |> Enum.map(&summarize_entry(repo, release, &1))
+        |> Enum.reject(fn addon ->
+          is_nil(addon) or RetiredNativeAddons.retired?(addon.addon_id)
+        end)
+
+      {:ok, addons}
+    end
+  end
+
+  def list_release_addons(_attrs, _release_tag), do: {:error, :invalid_attributes}
+
   @spec import(map()) :: {:ok, AddonPackage.t()} | {:error, term()}
   def import(attrs) when is_map(attrs) do
     with {:ok, package, _disposition} <- import_with_disposition(attrs) do

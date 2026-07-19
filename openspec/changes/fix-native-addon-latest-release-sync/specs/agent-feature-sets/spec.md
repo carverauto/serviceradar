@@ -2,17 +2,20 @@
 
 ### Requirement: Unattended native add-on sync follows one authoritative release
 
-The control plane SHALL treat the newest import-ready signed native add-on release
-index as the complete unattended synchronization set. It SHALL NOT retry packages
-from historical release indexes unless an authorized operation explicitly selects
-that historical release tag.
+The control plane SHALL treat the exact deployed ServiceRadar release tag as the
+complete unattended synchronization set for native add-ons and first-party Wasm
+plugins. It SHALL fetch that tag directly and SHALL NOT depend on the tag being
+present in a paginated or eventually consistent recent-release feed. When no
+deployed tag is configured, it MAY use the newest import-ready signed index as a
+compatibility fallback. It SHALL NOT combine packages from historical indexes.
 
-#### Scenario: Scheduled sync selects the newest indexed release
+#### Scenario: Scheduled sync selects the deployed release directly
 
-- **GIVEN** discovery returns import-ready native add-ons from several releases in newest-first order
-- **WHEN** unattended synchronization runs without a release tag
-- **THEN** only entries belonging to the newest import-ready release SHALL be candidates
-- **AND** omitted add-ons or older versions SHALL NOT be filled from historical releases
+- **GIVEN** the running control plane declares release `v1.4.24`
+- **AND** the recent-release feed currently ends at `v1.4.23`
+- **WHEN** unattended native add-on or Wasm synchronization runs
+- **THEN** it SHALL fetch and import the exact `v1.4.24` release index
+- **AND** it SHALL NOT fall back to or merge entries from `v1.4.23`
 
 #### Scenario: Operator explicitly selects a historical release
 
@@ -42,6 +45,15 @@ semantic version before automatic import or approval can proceed.
 - **WHEN** synchronization verifies its manifest, bundle, and artifact signatures
 - **THEN** it SHALL import the new package as a distinct immutable version
 - **AND** existing historical versions SHALL remain available for audit and rollback
+
+#### Scenario: Unchanged bundle is republished through a new release envelope
+
+- **GIVEN** an imported add-on version records a verified bundle digest
+- **AND** a newer ServiceRadar release lists that same add-on version and bundle under a different OCI ref or manifest digest
+- **WHEN** synchronization and the catalog evaluate the newer release entry
+- **THEN** synchronization SHALL reuse the existing immutable package
+- **AND** the catalog SHALL show the entry as already imported rather than offering a contradictory import action
+- **AND** existing assignments SHALL continue to reference the reused package
 
 ### Requirement: Trusted native add-on repair converges through deployment policy
 

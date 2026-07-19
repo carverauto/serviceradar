@@ -76,13 +76,19 @@ defmodule ServiceRadar.SweepJobs.ObanSupport do
       |> DateTime.add(-cutoff_seconds, :second)
       |> DateTime.to_naive()
 
-    Oban.Job
-    |> where([j], j.id == ^id)
-    |> where([j], j.state == "executing")
-    |> where([j], not is_nil(j.attempted_at) and j.attempted_at < ^cutoff)
-    |> Repo.update_all(set: [state: "discarded", discarded_at: now], prefix: prefix())
+    query =
+      Oban.Job
+      |> where([j], j.id == ^id)
+      |> where([j], j.state == "executing")
+      |> where([j], not is_nil(j.attempted_at) and j.attempted_at < ^cutoff)
+      |> lock("FOR UPDATE")
+
+    case Repo.transaction(fn -> discard_stale_job(query, now) end) do
+      {:ok, result} -> result
+      {:error, reason} -> {0, [{:stale_oban_recovery_failed, reason}]}
+    end
   rescue
-    _ -> {0, nil}
+    error -> {0, [{:stale_oban_recovery_failed, error}]}
   end
 
   def recover_stale_executing_conflict(_conflict_job, _now, _cutoff_seconds), do: {0, nil}
@@ -109,13 +115,14 @@ defmodule ServiceRadar.SweepJobs.ObanSupport do
 
           insert_fun(opts).(original_job)
 
-        _ ->
+        {_count, recovery_errors} ->
           Logger.warning("Oban insert hit a stale executing conflict that was not recovered",
             stale_oban_job_id: conflict_job.id,
             worker: conflict_job.worker,
             queue: conflict_job.queue,
             attempted_at: inspect(conflict_job.attempted_at),
-            stale_conflict_cutoff_seconds: cutoff_seconds
+            stale_conflict_cutoff_seconds: cutoff_seconds,
+            recovery_errors: inspect(recovery_errors)
           )
 
           {:error, stale_conflict_error(conflict_job, opts)}
@@ -126,6 +133,22 @@ defmodule ServiceRadar.SweepJobs.ObanSupport do
   end
 
   defp maybe_retry_stale_executing_conflict(result, _original_job, _opts), do: result
+
+  defp discard_stale_job(query, now) do
+    case Repo.one(query, prefix: prefix()) do
+      nil ->
+        {0, nil}
+
+      %Oban.Job{} = job ->
+        job
+        |> Ecto.Changeset.change(state: "discarded", discarded_at: now)
+        |> Repo.update(prefix: prefix())
+        |> case do
+          {:ok, _discarded} -> {1, nil}
+          {:error, changeset} -> Repo.rollback({:invalid_stale_oban_job_update, changeset.errors})
+        end
+    end
+  end
 
   defp stale_executing_conflict?(
          %Oban.Job{attempted_at: %DateTime{} = attempted_at},

@@ -46,6 +46,8 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
     "ServiceRadar.Observability.StatefulAlertCleanupWorker",
     "ServiceRadar.Observability.ThreatIntelFeedRefreshWorker",
     "ServiceRadar.Plugins.AddonProfileReconcileWorker",
+    "ServiceRadar.Plugins.AddonRolloutWorker",
+    "ServiceRadar.Plugins.AddonUpdatePolicyBackfillWorker",
     "ServiceRadar.Plugins.PluginPolicyAssignmentRecoveryDispatchWorker",
     "ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker",
     "ServiceRadar.SweepJobs.SweepDataCleanupWorker",

@@ -65,6 +65,11 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
           {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_release)}}
 
         String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases?per_page=") ->
+          Process.put(
+            :native_addon_recent_release_requests,
+            Process.get(:native_addon_recent_release_requests, 0) + 1
+          )
+
           Process.get(:native_addon_recent_releases_result) ||
             {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_recent_releases, [])}}
 
@@ -189,6 +194,39 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert addon.oci_ref == @oci_ref
     assert addon.oci_digest == @oci_digest
     assert addon.import_ready? == true
+  end
+
+  test "lists native add-ons from an exact release without consulting recent releases", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+    Process.put(:native_addon_recent_releases, [])
+    Process.put(:native_addon_recent_release_requests, 0)
+
+    assert {:ok, [addon]} =
+             NativeAddonImporter.list_release_addons(%{"repo_url" => @repo_url}, "v1.0.0")
+
+    assert addon.addon_id == "sample-addon"
+    assert addon.version == "1.0.0"
+    assert addon.release_tag == "v1.0.0"
+    assert Process.get(:native_addon_recent_release_requests) == 0
+  end
+
+  test "sync worker anchors automatic discovery to the deployed release", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+    configure_sync_worker()
+    Process.put(:native_addon_recent_releases, [])
+    Process.put(:native_addon_recent_release_requests, 0)
+    original_release_version = System.get_env("SERVICERADAR_RELEASE_VERSION")
+    System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.0.0")
+
+    on_exit(fn -> restore_system_env("SERVICERADAR_RELEASE_VERSION", original_release_version) end)
+
+    assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true}})
+    assert Process.get(:native_addon_recent_release_requests) == 0
+    assert [%AddonPackage{source_release_tag: "v1.0.0"}] = sample_packages()
   end
 
   test "sync worker imports every discovered native add-on and only auto-approves configured ids", %{
@@ -1644,6 +1682,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
       fun
     )
   end
+
+  defp restore_system_env(key, nil), do: System.delete_env(key)
+  defp restore_system_env(key, value), do: System.put_env(key, value)
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)

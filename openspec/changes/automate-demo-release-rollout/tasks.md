@@ -8,4 +8,4 @@
 
 - [x] 2.1 Validate the OpenSpec change strictly.
 - [x] 2.2 Run the release publication contract test locally and through Bazel.
-- [ ] 2.3 Verify the live demo application remains healthy after the policy update.
+- [x] 2.3 Verify the live demo application remains healthy after the policy update.

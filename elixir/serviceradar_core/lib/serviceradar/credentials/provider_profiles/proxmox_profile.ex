@@ -44,6 +44,17 @@ defmodule ServiceRadar.Credentials.ProviderProfiles.ProxmoxProfile do
   end
 
   @impl true
+  def validate_rule(@console_purpose, rule) do
+    case RuleAccessors.auth_method(rule) do
+      "proxmox_api_token" -> require_verified_tls(rule)
+      "ssh_private_key" -> require_verified_ssh_host_key(rule)
+      _unsupported_auth_method -> {:error, :unsupported_proxmox_console_auth_method}
+    end
+  end
+
+  def validate_rule(_purpose, rule), do: require_verified_tls(rule)
+
+  @impl true
   def grant_spec(@console_purpose, rule, secret_id, agent_id) do
     attrs = %{
       secret_id: secret_id,
