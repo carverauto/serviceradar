@@ -443,6 +443,13 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
           {:ok, result} ->
             {:cont, {:ok, merge_summary(acc, result)}}
 
+          {:error, reason} when profile == ProxmoxProfile ->
+            if stable_policy_rejection?(reason) do
+              {:cont, {:ok, merge_summary(acc, skip_summary(reason))}}
+            else
+              {:halt, {:error, reason}}
+            end
+
           {:error, reason} ->
             {:halt, {:error, reason}}
         end
@@ -451,7 +458,8 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   end
 
   defp reconcile_rule(profile, rule, agent_id, package, purpose, actor, reconciler, opts) do
-    with {:ok, policy} <- policy_for_rule(profile, rule, package, purpose, agent_id, actor, opts),
+    with :ok <- validate_rule(profile, purpose, rule),
+         {:ok, policy} <- policy_for_rule(profile, rule, package, purpose, agent_id, actor, opts),
          {:ok, input_defs} <- input_defs_for_rule(rule, purpose) do
       reconcile_opts =
         opts
@@ -465,6 +473,22 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
 
       reconciler.reconcile(policy, input_defs, reconcile_opts)
     end
+  end
+
+  defp validate_rule(profile, purpose, rule) do
+    if function_exported?(profile, :validate_rule, 2) do
+      profile.validate_rule(purpose, rule)
+    else
+      :ok
+    end
+  end
+
+  defp stable_policy_rejection?(reason) do
+    reason in [
+      :proxmox_tls_verification_required,
+      :proxmox_ssh_host_key_verification_required,
+      :unsupported_proxmox_console_auth_method
+    ]
   end
 
   defp policy_for_rule(profile, rule, package, purpose, agent_id, actor, opts) do
