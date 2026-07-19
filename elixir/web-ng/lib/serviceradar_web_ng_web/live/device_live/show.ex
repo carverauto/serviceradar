@@ -265,6 +265,141 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  def handle_async({:device_interfaces, device_uid, request_ref}, {:ok, assigns}, socket) do
+    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.interfaces_request_ref do
+      interfaces = Map.get(assigns, :network_interfaces, [])
+      error = Map.get(assigns, :interfaces_error)
+
+      availability =
+        cond do
+          is_binary(error) -> :unknown
+          interfaces != [] -> :available
+          not is_nil(socket.assigns.discovery_job) -> :available
+          true -> :unavailable
+        end
+
+      socket =
+        socket
+        |> assign(assigns)
+        |> assign(:interfaces_loading, false)
+        |> assign(:interfaces_request_ref, nil)
+        |> assign(:interface_availability, availability)
+        |> assign(:has_ifaces, availability != :unavailable)
+
+      socket = maybe_leave_unavailable_tab(socket, "interfaces", availability)
+
+      socket =
+        if socket.assigns.active_tab == "interfaces" and availability != :unavailable do
+          DeviceTabRuntime.begin_interface_metrics_refresh(socket, device_uid, srql_module())
+        else
+          socket
+        end
+
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:device_interfaces, device_uid, request_ref}, {:exit, reason}, socket) do
+    Logger.warning("Device interfaces task failed for #{device_uid}: #{inspect(reason)}")
+
+    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.interfaces_request_ref do
+      {:noreply,
+       socket
+       |> assign(:interfaces_error, "Interface availability could not be confirmed. Retry this tab.")
+       |> assign(:interfaces_loading, false)
+       |> assign(:interfaces_request_ref, nil)
+       |> assign(:interface_availability, :unknown)
+       |> assign(:has_ifaces, true)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:interface_metrics, device_uid, request_ref}, {:ok, metrics}, socket) do
+    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.interface_metrics_request_ref do
+      {:noreply,
+       socket
+       |> assign(:interface_metrics, metrics)
+       |> assign(:interface_metrics_loading, false)
+       |> assign(:interface_metrics_request_ref, nil)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:interface_metrics, device_uid, request_ref}, {:exit, reason}, socket) do
+    Logger.warning("Interface metrics task failed for #{device_uid}: #{inspect(reason)}")
+
+    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.interface_metrics_request_ref do
+      {:noreply,
+       socket
+       |> assign(:interface_metrics, %{
+         has_favorited: socket.assigns.favorited_interfaces != MapSet.new(),
+         panels: [],
+         error: "Failed to load favorited interface metrics",
+         favorited_count: MapSet.size(socket.assigns.favorited_interfaces)
+       })
+       |> assign(:interface_metrics_loading, false)
+       |> assign(:interface_metrics_request_ref, nil)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:device_flows, device_uid, request_ref}, {:ok, {flows, pagination, error}}, socket) do
+    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.flows_request_ref do
+      availability =
+        cond do
+          is_binary(error) -> :unknown
+          flows != [] -> :available
+          true -> :unavailable
+        end
+
+      socket =
+        socket
+        |> assign(:device_flows, flows)
+        |> assign(:flows_pagination, pagination)
+        |> assign(:flows_error, error)
+        |> assign(:flows_loading, false)
+        |> assign(:flows_request_ref, nil)
+        |> assign(:flow_availability, availability)
+        |> assign(:has_flows, availability != :unavailable)
+
+      socket = maybe_leave_unavailable_tab(socket, "flows", availability)
+
+      socket =
+        if socket.assigns.active_tab == "flows" and availability != :unavailable do
+          socket
+          |> FlowRuntime.begin_stats_refresh(device_uid, srql_module())
+          |> FlowRuntime.begin_ip_enrichment(device_uid, flows)
+        else
+          socket
+        end
+
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:device_flows, device_uid, request_ref}, {:exit, reason}, socket) do
+    Logger.warning("Device flows task failed for #{device_uid}: #{inspect(reason)}")
+
+    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.flows_request_ref do
+      {:noreply,
+       socket
+       |> assign(:flows_error, "Flow availability could not be confirmed. Retry this tab.")
+       |> assign(:flows_loading, false)
+       |> assign(:flows_request_ref, nil)
+       |> assign(:flow_availability, :unknown)
+       |> assign(:has_flows, true)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_async({:flow_stats, device_uid, request_ref}, {:ok, stats_bundle}, socket) do
     current_ref = Map.get(socket.assigns, :flow_stats_request_ref)
 
@@ -446,6 +581,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     socket
     |> assign(:active_tab, active_tab)
     |> assign(:srql, srql)
+    |> maybe_begin_interface_metrics_refresh(active_tab, socket.assigns.device_uid, srql_module)
     |> DeviceTabRuntime.maybe_load_mtr_for_active_tab(active_tab)
     |> DeviceTabRuntime.maybe_reload_logs_for_active_tab(
       active_tab,
@@ -462,6 +598,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       preserve_rendered: refresh?
     )
   end
+
+  defp maybe_begin_interface_metrics_refresh(socket, "interfaces", uid, srql_module) do
+    DeviceTabRuntime.begin_interface_metrics_refresh(socket, uid, srql_module)
+  end
+
+  defp maybe_begin_interface_metrics_refresh(socket, _active_tab, _uid, _srql_module), do: socket
+
+  defp maybe_leave_unavailable_tab(socket, tab, :unavailable) do
+    if socket.assigns.active_tab == tab do
+      socket
+      |> assign(:active_tab, "details")
+      |> push_patch(to: ~p"/devices/#{socket.assigns.device_uid}", replace: true)
+    else
+      socket
+    end
+  end
+
+  defp maybe_leave_unavailable_tab(socket, _tab, _availability), do: socket
 
   defp apply_device_metrics_assigns(socket, assigns) do
     assigns = annotate_metric_section_assigns(assigns, Map.get(socket.assigns, :anomaly_capacity_detail))
@@ -779,7 +933,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     device_ip = get_device_ip(results)
     show_stale = socket.assigns.show_stale_aliases
-    include_metrics? = requested_tab != "details"
     request_ref = make_ref()
 
     supplemental_context = %{
@@ -791,7 +944,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       device_row: device_row,
       device_ip: device_ip,
       show_stale: show_stale,
-      include_metrics?: include_metrics?,
+      include_metrics?: false,
       current_scope: socket.assigns.current_scope
     }
 
@@ -825,26 +978,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> AnsiblePanelRuntime.assign_device_ansible(device_row, uid, scope, refresh?)
     |> assign(:device_details_request_ref, request_ref)
     |> assign(:details_loading, true)
-    |> maybe_begin_metrics_refresh(include_metrics?, uid, srql_module, device_row, scope)
-    |> begin_device_details_refresh(uid, request_ref, supplemental_context)
-    |> then(&{:noreply, &1})
-  end
-
-  # The details tab loads sysmon/anomaly metrics in its own async path
-  # (begin_device_metrics_refresh). Other tabs fold metrics into the
-  # supplemental batch (include_metrics? == true), so we skip the separate
-  # refresh there.
-  defp maybe_begin_metrics_refresh(socket, false, uid, srql_module, device_row, scope) do
-    begin_device_metrics_refresh(
-      socket,
+    |> begin_device_metrics_refresh(
       uid,
       srql_module,
       SysmonMetrics.sysmon_identity(device_row, uid),
       scope
     )
+    |> begin_device_details_refresh(uid, request_ref, supplemental_context)
+    |> then(&{:noreply, &1})
   end
-
-  defp maybe_begin_metrics_refresh(socket, true, _uid, _srql_module, _device_row, _scope), do: socket
 
   # On a same-device refresh (mode: :refresh) keep the currently rendered
   # supplemental data on screen — the async batch swaps in fresh values
@@ -865,10 +1007,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:network_interfaces, [])
     |> assign(:interfaces_error, nil)
     |> assign(:has_ifaces, false)
+    |> assign(:interface_availability, :checking)
+    |> assign(:interfaces_loading, false)
+    |> assign(:interfaces_request_ref, nil)
     |> assign(:device_flows, [])
     |> assign(:flows_error, nil)
     |> assign(:flows_pagination, %{})
     |> assign(:has_flows, false)
+    |> assign(:flow_availability, :checking)
+    |> assign(:flows_loading, false)
+    |> assign(:flows_request_ref, nil)
     |> assign(:device_logs, [])
     |> assign(:logs_error, nil)
     |> assign(:logs_pagination, %{})
@@ -880,6 +1028,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:discovery_job, nil)
     |> assign(:favorited_interfaces, MapSet.new())
     |> assign(:interface_metrics, nil)
+    |> assign(:interface_metrics_loading, false)
+    |> assign(:interface_metrics_request_ref, nil)
+    |> assign(:metrics_enabled_interfaces, MapSet.new())
     |> assign(:ip_aliases, [])
     |> assign(:ip_alias_error, nil)
     |> assign(:availability, nil)
@@ -941,7 +1092,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       uid: uid,
       scope: scope,
       device_row: device_row,
-      include_metrics?: include_metrics?
+      requested_tab: requested_tab
     } = context
 
     virtualization_summary = VirtualizationData.load_virtualization_summary(scope, uid)
@@ -956,7 +1107,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       CameraData.load_sources(scope, uid, device_row, &DeviceActionRuntime.format_ash_error/1)
 
     timeout_ms =
-      if include_metrics?, do: @tab_supplemental_timeout_ms, else: @details_supplemental_timeout_ms
+      if requested_tab == "details", do: @details_supplemental_timeout_ms, else: @tab_supplemental_timeout_ms
 
     load_context =
       context

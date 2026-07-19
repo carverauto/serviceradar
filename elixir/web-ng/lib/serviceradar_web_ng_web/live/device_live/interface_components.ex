@@ -15,6 +15,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
   attr(:favorited_interfaces, :any, required: true)
   attr(:device_uid, :string, required: true)
   attr(:interface_metrics, :map, default: nil)
+  attr(:loading, :boolean, default: false)
+  attr(:metrics_loading, :boolean, default: false)
   attr(:discovery_job, :any, default: nil)
   attr(:northbound_actions, :list, default: [])
   attr(:northbound_actions_loading, :boolean, default: false)
@@ -59,14 +61,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
       |> assign(:run_task_title, run_task_title)
 
     ~H"""
+    <div :if={@loading} class="rounded-xl border border-base-200 bg-base-100 p-8 text-center">
+      <span class="loading loading-spinner loading-md text-primary"></span>
+      <p class="mt-3 text-sm font-semibold">Loading network interfaces</p>
+      <p class="mt-1 text-xs text-base-content/60">
+        You can keep using the rest of this device page.
+      </p>
+    </div>
+
+    <div
+      :if={!@loading && @metrics_loading}
+      class="mb-4 rounded-xl border border-base-200 bg-base-100 p-5"
+    >
+      <div class="flex items-center gap-3 text-sm text-base-content/70">
+        <span class="loading loading-spinner loading-sm text-primary"></span>
+        Loading favorited interface metrics&hellip;
+      </div>
+    </div>
+
     <%!-- Interface Metrics Visualization for Favorited Interfaces --%>
     <.interface_metrics_section
-      :if={@interface_metrics}
+      :if={!@loading && @interface_metrics}
       metrics={@interface_metrics}
       device_uid={@device_uid}
     />
 
-    <%= if @interfaces == [] and is_nil(@error) do %>
+    <%= if !@loading && @interfaces == [] and is_nil(@error) do %>
       <div class="rounded-xl border border-base-200 bg-base-100 p-6 text-center">
         <.icon name="hero-arrows-right-left" class="size-8 text-base-content/30 mx-auto" />
         <p class="text-sm font-semibold text-base-content/80 mt-3">
@@ -104,7 +124,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
         </div>
       </div>
     <% else %>
-      <div class="rounded-xl border border-base-200 bg-base-100">
+      <div :if={!@loading} class="rounded-xl border border-base-200 bg-base-100">
         <div class="px-4 py-3 border-b border-base-200">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
@@ -146,8 +166,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
           </div>
         </div>
         <div class="p-4">
-          <div :if={is_binary(@error)} class="mb-3 text-xs text-error">
-            {@error}
+          <div :if={is_binary(@error)} class="mb-3 flex items-center gap-2 text-xs text-error">
+            <span>{@error}</span>
+            <button
+              type="button"
+              phx-click="switch_tab"
+              phx-value-tab="interfaces"
+              class="btn btn-error btn-outline btn-xs"
+            >
+              Retry
+            </button>
           </div>
           <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
             <table class="table table-xs w-full">

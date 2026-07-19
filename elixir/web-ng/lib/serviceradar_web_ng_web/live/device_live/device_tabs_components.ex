@@ -9,6 +9,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents do
   attr(:has_virtualization_guests, :boolean, default: false)
   attr(:has_ifaces, :boolean, default: false)
   attr(:has_flows, :boolean, default: false)
+  attr(:details_loading, :boolean, default: false)
+  attr(:interface_availability, :atom, default: :unavailable)
+  attr(:flow_availability, :atom, default: :unavailable)
   attr(:has_logs, :boolean, default: false)
   attr(:sysmon_presence, :boolean, default: false)
   attr(:active_fingerprint_tab_visible, :boolean, default: false)
@@ -48,22 +51,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents do
         <.icon name="hero-squares-2x2" class="size-4 mr-1.5" /> Guests
       </button>
       <button
-        :if={@has_ifaces}
+        :if={@has_ifaces or @details_loading}
         type="button"
         phx-click="switch_tab"
         phx-value-tab="interfaces"
-        class={["tab", @active_tab == "interfaces" && "tab-active"]}
+        disabled={!@has_ifaces}
+        title={availability_title("Interfaces", @interface_availability, @details_loading)}
+        class={[
+          "tab",
+          @active_tab == "interfaces" && "tab-active",
+          !@has_ifaces && "opacity-60"
+        ]}
       >
-        <.icon name="hero-server-stack" class="size-4 mr-1.5" /> Interfaces
+        <span :if={!@has_ifaces} class="loading loading-spinner loading-xs mr-1.5"></span>
+        <.icon :if={@has_ifaces} name="hero-server-stack" class="size-4 mr-1.5" /> Interfaces
       </button>
       <button
-        :if={@has_flows}
+        :if={@has_flows or @details_loading}
         type="button"
         phx-click="switch_tab"
         phx-value-tab="flows"
-        class={["tab", @active_tab == "flows" && "tab-active"]}
+        disabled={!@has_flows}
+        title={availability_title("Flows", @flow_availability, @details_loading)}
+        class={[
+          "tab",
+          @active_tab == "flows" && "tab-active",
+          !@has_flows && "opacity-60"
+        ]}
       >
-        <.icon name="hero-arrows-right-left" class="size-4 mr-1.5" /> Flows
+        <span :if={!@has_flows} class="loading loading-spinner loading-xs mr-1.5"></span>
+        <.icon :if={@has_flows} name="hero-arrows-right-left" class="size-4 mr-1.5" /> Flows
       </button>
       <button
         :if={@has_logs}
@@ -113,4 +130,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents do
     </div>
     """
   end
+
+  defp availability_title(label, _availability, true), do: "Checking #{availability_subject(label)} availability"
+
+  defp availability_title(label, :unknown, false) do
+    "#{String.capitalize(availability_subject(label))} availability was inconclusive; open to retry"
+  end
+
+  defp availability_title(label, _availability, false), do: "Open #{String.downcase(label)}"
+
+  defp availability_subject("Interfaces"), do: "interface"
+  defp availability_subject(label), do: String.downcase(label)
 end

@@ -169,6 +169,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             has_virtualization_guests={@has_virtualization_guests}
             has_ifaces={@has_ifaces}
             has_flows={@has_flows}
+            details_loading={@details_loading}
+            interface_availability={@interface_availability}
+            flow_availability={@flow_availability}
             has_logs={@has_logs}
             sysmon_presence={@sysmon_presence}
             active_fingerprint_tab_visible={@active_fingerprint_tab_visible}
@@ -348,7 +351,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             <.virtualization_guests_tab summary={@virtualization_summary} />
           </div>
 
-          <div :if={@active_tab == "interfaces" and @has_ifaces}>
+          <div :if={@active_tab == "interfaces" and (@has_ifaces or @details_loading)}>
             <.interfaces_tab_content
               interfaces={@network_interfaces}
               error={@interfaces_error}
@@ -356,6 +359,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               favorited_interfaces={@favorited_interfaces}
               device_uid={@device_uid}
               interface_metrics={@interface_metrics}
+              loading={@interfaces_loading or @details_loading}
+              metrics_loading={@interface_metrics_loading}
               discovery_job={@discovery_job}
               northbound_actions={@northbound_interface_actions}
               northbound_actions_loading={@northbound_interface_actions_loading}
@@ -363,7 +368,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             />
           </div>
 
-          <div :if={@active_tab == "flows" and @has_flows}>
+          <div :if={@active_tab == "flows" and (@has_flows or @details_loading)}>
             <.flows_tab_content
               flows={@device_flows}
               error={@flows_error}
@@ -374,6 +379,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               query={QueryData.default_flows_query(@device_uid)}
               limit={@flows_limit}
               flow_stats={@flow_stats}
+              loading={@flows_loading or @details_loading}
               flow_stats_loading={@flow_stats_loading}
               sparkline_json={@flow_sparkline_json}
               proto_json={@flow_proto_json}
