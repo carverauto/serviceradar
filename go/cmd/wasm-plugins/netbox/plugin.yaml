@@ -1,0 +1,39 @@
+id: netbox-inventory
+name: NetBox Inventory Sync
+version: 0.1.0
+description: >
+  Scheduled assignment that walks one or more NetBox instances' device
+  inventories (/api/dcim/devices/ with DRF pagination) and emits
+  DeviceDiscovery snapshots (discovery_source=netbox) into the existing
+  agent -> gateway -> DIRE pipeline. Envelopes carry snapshot_complete +
+  source_instance + reference_hash bookkeeping so complete snapshots mark
+  missing devices absent; a pull that fails during pagination emits nothing,
+  and rows that fail to parse mark the snapshot incomplete.
+entrypoint: inventory_sync
+runtime: wasi-preview1
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+  - http_request
+permissions:
+  allowed_domains:
+    - "*"
+  # Domain wildcards never match literal-IP destinations; RFC1918 ranges
+  # cover lab NetBox instances addressed by private IP. A NetBox reached via
+  # a public IP literal needs a hostname (or an operator-adjusted manifest).
+  allowed_networks:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+  allowed_ports:
+    - 80
+    - 443
+    - 8000
+    - 8080
+    - 8443
+resources:
+  requested_memory_mb: 128
+  requested_cpu_ms: 60000
+  max_open_connections: 2
