@@ -430,27 +430,23 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   end
 
   # Current-matching via the shared prefix-tag LPM engine (ti: source).
-  # Severity is not stored on trie tags; max_severity is 0 on this path.
+  # Severity is materialized as `ti:severity:N` tags by ThreatIntelSource.
   # Authoritative retro-matching remains the SQL/match-pipeline path.
   defp engine_threat_matches(ips) when is_list(ips) do
     Enum.map(ips, fn ip ->
       chain = PrefixTagStore.lookup(ip, "ti")
 
-      sources =
+      all_tags =
         chain
         |> Enum.flat_map(fn
           %{tags: tags} when is_list(tags) -> tags
           _ -> []
         end)
-        |> Enum.flat_map(fn
-          "ti:label:" <> _ -> []
-          "ti:" <> source when source != "" -> [source]
-          _ -> []
-        end)
-        |> Enum.uniq()
 
+      sources = ServiceRadar.PrefixTags.ThreatIntelSource.sources_from_tags(all_tags)
+      max_severity = ServiceRadar.PrefixTags.ThreatIntelSource.max_severity_from_tags(all_tags)
       match_count = length(chain)
-      {ip, match_count, 0, sources}
+      {ip, match_count, max_severity, sources}
     end)
   end
 

@@ -67,7 +67,8 @@ rearchitecture; only Armis was ported to the embedded sync runtime at that time.
 2. Confirm import: check Oban for `NetboxImportWorker`, or query
    `platform.prefix_tag_snapshots` for an active `netbox` row.
 3. Preview an IP under the Integrations CRM/IPAM **Prefix tag preview** panel.
-4. Enable flow enrichment (`prefix_tag_enrichment_enabled: true` on core-elx).
+4. Flow enrichment defaults on (`prefix_tag_enrichment_enabled`); set `false`
+   only to freeze tag-column writes.
    See [Prefix Tags](./prefix-tags.md#enable-enrichment).
 
 ## Tag mapping
@@ -111,7 +112,7 @@ Expect empty or stale results until the device-inventory track lands.
 |---------|----------------|
 | No active snapshot | Missing/invalid credentials; import job failing; count mismatch on paginated pull |
 | Preview returns empty | Loader not running / empty snapshots; wrong IP family |
-| Flows untagged | `prefix_tag_enrichment_enabled` still false; traffic outside imported prefixes |
+| Flows untagged | flag explicitly set false; empty tries; or traffic outside imported prefixes |
 | Partial NetBox pages | Fixed by fail-fast importer (no partial promote); check logs for count mismatch |
 | "Device sync from NetBox" expected | Not implemented yet — see Wasm/plugin restore work |
 

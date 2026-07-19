@@ -22,7 +22,7 @@ feature. Design background lives in OpenSpec change
 | Replication | Per-node `PrefixTags.Loader` on core-elx and web-ng; PubSub topic `prefix_tags:snapshot` |
 | Import | Oban `:maintenance` worker `ServiceRadar.PrefixTags.NetboxImportWorker` |
 | Enrichment | EventWriter `FlowEnrichment` → columns `src_prefix_tags` / `dst_prefix_tags` (+ provenance) |
-| Feature flag | `:prefix_tag_enrichment_enabled` (default **off**) |
+| Feature flag | `:prefix_tag_enrichment_enabled` (default **on**, fail-open) |
 
 Device inventory sync is a separate track (Wasm plugin / agent sync). This
 feature only imports IPAM **prefixes and tags** for flow enrichment.
@@ -31,9 +31,9 @@ feature only imports IPAM **prefixes and tags** for flow enrichment.
 
 | Flag | Default | Purpose |
 |------|---------|---------|
-| `prefix_tag_enrichment_enabled` | **false** | Write `src/dst_prefix_tags` on flow ingest |
+| `prefix_tag_enrichment_enabled` | **true** | Write `src/dst_prefix_tags` on flow ingest (fail-open; empty tries leave rows untagged) |
 | `prefix_tag_provider_trie_enabled` | **true** | Hosting-provider LPM via `provider` trie (SQL/`ProviderCidrCache` only if trie empty or flag off) |
-| `threat_intel_engine_match_enabled` | **true** | CTI `IpThreatIntelCache` current-match via `ti` trie (SQL if trie empty) |
+| `threat_intel_engine_match_enabled` | **true** | CTI `IpThreatIntelCache` current-match via `ti` trie incl. `ti:severity:N` (SQL if trie empty) |
 | `geo_tag_derivation_enabled` | **false** | Merge `geo:country:` / `geo:asn:` from Geolix into tag columns |
 | `prefix_tags_loader_enabled` | **true** | Boot the per-node Loader |
 
@@ -59,16 +59,16 @@ WHERE is_active;
 
 5. Preview tags for an IP in **Settings → Integrations → CRM/IPAM → Prefix tag
    preview** (reads the local node's trie; no DB hop).
-6. Enable flow tag columns on core-elx (and any process that runs the EventWriter):
+6. Enrichment defaults **on**. To freeze tag-column writes (rollback without
+   dropping tries):
 
 ```elixir
 # runtime config / env-backed Application env
-config :serviceradar_core, prefix_tag_enrichment_enabled: true
+config :serviceradar_core, prefix_tag_enrichment_enabled: false
 ```
 
 Provider and CTI engine matching are already on by default once the Loader /
-materializers have populated tries. Reload or roll core-elx so Application env
-is picked up.
+materializers have populated tries. Empty tries are a no-op for tag columns.
 
 7. Verify new flow rows carry tags:
 
@@ -109,7 +109,7 @@ Mapping namespaces and max tags per prefix are configurable on
 |--------|------|---------|-----------|
 | Provider CIDRs | `provider:<name>` | After provider dataset refresh | Hosting-provider columns (same chain) |
 | Geo (Geolix) | `geo:country:`, `geo:asn:` | Per-flow derivation | MMDB only; not stored in trie |
-| Threat intel | `ti:<feed>`, `ti:label:…` | High (default ~5m) | **Advisory** — authoritative matching stays on `threat_intel_matches` / match pipeline |
+| Threat intel | `ti:<feed>`, `ti:label:…`, `ti:severity:N` | High (default ~5m) | **Advisory** — authoritative matching stays on `threat_intel_matches` / match pipeline; CTI cache current-match uses the same trie and severity tags |
 | DNS policy (RPZ) | `dns-policy:hit`, `dns-policy:<policy>` | Default ~15m | **Advisory** — clients that recently triggered RPZ |
 
 Threat and DNS-policy tags are **point-in-time evidence** at flow ingest. They

@@ -44,7 +44,8 @@
 
 ## 4. Flow enrichment
 
-- [x] 4.1 Feature flag `:prefix_tag_enrichment_enabled` (default off)
+- [x] 4.1 Feature flag `:prefix_tag_enrichment_enabled` (default **on** after
+      fail-open validation; still disable-able for rollback)
 - [x] 4.2 Hook in `FlowEnrichment` beside `provider_for_ip/1`: src/dst lookups per
       row, results into the row map (columns + provenance) and
       `ocsf_payload.enrichment`; fail-open on any engine error

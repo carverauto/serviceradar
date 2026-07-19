@@ -164,12 +164,13 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   @doc """
   Whether prefix-tag enrichment is enabled.
 
-  Controlled by Application env `:prefix_tag_enrichment_enabled` (default false).
+  Controlled by Application env `:prefix_tag_enrichment_enabled` (default true).
   Fail-open: lookup errors yield untagged fields and never raise to the caller.
+  Empty tries leave rows untagged (cheap no-op).
   """
   @spec prefix_tag_enrichment_enabled?() :: boolean()
   def prefix_tag_enrichment_enabled? do
-    Application.get_env(:serviceradar_core, :prefix_tag_enrichment_enabled, false) == true
+    Application.get_env(:serviceradar_core, :prefix_tag_enrichment_enabled, true) == true
   end
 
   @doc false

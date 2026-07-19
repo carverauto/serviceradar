@@ -10,13 +10,23 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSourceTest do
     :ok
   end
 
-  test "map_indicator_row builds ti: source and optional label tags" do
-    row = ThreatIntelSource.map_indicator_row("203.0.113.0/24", "alienvault-otx", "Malware C2")
+  test "map_indicator_row builds ti: source, optional label, and severity tags" do
+    row =
+      ThreatIntelSource.map_indicator_row("203.0.113.0/24", "alienvault-otx", "Malware C2", 4)
 
     assert row.source == "ti"
     assert row.prefix == "203.0.113.0/24"
     assert "ti:alienvault-otx" in row.tags
     assert "ti:label:malware-c2" in row.tags
+    assert "ti:severity:4" in row.tags
+    assert ThreatIntelSource.max_severity_from_tags(row.tags) == 4
+    assert ThreatIntelSource.sources_from_tags(row.tags) == ["alienvault-otx"]
+  end
+
+  test "max_severity_from_tags picks the highest severity meta-tag" do
+    tags = ["ti:otx", "ti:severity:2", "ti:severity:5", "ti:label:c2"]
+    assert ThreatIntelSource.max_severity_from_tags(tags) == 5
+    assert ThreatIntelSource.sources_from_tags(tags) == ["otx"]
   end
 
   test "ti tags appear in merged lookup after put_rows" do

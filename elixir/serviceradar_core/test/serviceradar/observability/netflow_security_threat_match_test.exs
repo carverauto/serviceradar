@@ -18,30 +18,25 @@ defmodule ServiceRadar.Observability.NetflowSecurityThreatMatchTest do
     :ok
   end
 
-  test "engine match path reports sources from ti: tags" do
+  test "engine match path reports sources and max severity from ti: tags" do
     Application.put_env(:serviceradar_core, :threat_intel_engine_match_enabled, true)
 
     Store.put_rows("ti", [
-      ThreatIntelSource.map_indicator_row("203.0.113.0/24", "otx", "c2"),
-      ThreatIntelSource.map_indicator_row("198.51.100.0/24", "spamhaus", nil)
+      ThreatIntelSource.map_indicator_row("203.0.113.0/24", "otx", "c2", 4),
+      ThreatIntelSource.map_indicator_row("198.51.100.0/24", "spamhaus", nil, 2)
     ])
 
-    # Call the private matcher via a thin public wrapper pattern: exercise Store
-    # the same way the worker does (lookup + tag extraction).
+    # Same extraction path NetflowSecurityRefreshWorker.engine_threat_matches uses.
     chain = Store.lookup("203.0.113.10", "ti")
     assert length(chain) >= 1
 
-    sources =
-      chain
-      |> Enum.flat_map(& &1.tags)
-      |> Enum.flat_map(fn
-        "ti:label:" <> _ -> []
-        "ti:" <> s when s != "" -> [s]
-        _ -> []
-      end)
-      |> Enum.uniq()
+    all_tags = Enum.flat_map(chain, & &1.tags)
+    sources = ThreatIntelSource.sources_from_tags(all_tags)
+    max_severity = ThreatIntelSource.max_severity_from_tags(all_tags)
 
     assert "otx" in sources
+    refute "severity:4" in sources
+    assert max_severity == 4
     assert Store.lookup("8.8.8.8", "ti") == []
   end
 

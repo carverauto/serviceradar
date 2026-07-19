@@ -25,7 +25,8 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
   SELECT
     host(indicator) || '/' || masklen(indicator) AS prefix,
     source,
-    label
+    label,
+    severity
   FROM platform.threat_intel_indicators
   WHERE (expires_at IS NULL OR expires_at > now())
   """
@@ -63,23 +64,68 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
   end
 
   @doc false
-  def map_indicator_row(prefix, source, label) when is_binary(prefix) do
+  def map_indicator_row(prefix, source, label, severity \\ nil)
+
+  def map_indicator_row(prefix, source, label, severity) when is_binary(prefix) do
     source_slug = slugify(source || "unknown")
     tags = ["ti:#{source_slug}"]
 
     tags =
       if is_binary(label) and String.trim(label) != "" do
-        (tags ++ ["ti:label:#{slugify(label)}"]) |> Enum.uniq() |> Enum.take(@max_tags_per_prefix)
+        tags ++ ["ti:label:#{slugify(label)}"]
       else
         tags
       end
 
+    tags =
+      case normalize_severity(severity) do
+        nil -> tags
+        n -> tags ++ ["ti:severity:#{n}"]
+      end
+
     %{
       prefix: prefix,
-      tags: tags,
+      tags: tags |> Enum.uniq() |> Enum.take(@max_tags_per_prefix),
       source: @source
     }
   end
+
+  @doc """
+  Extract the highest `ti:severity:N` value from a list of tags (0 if none).
+
+  Used by the CTI engine match path so IpThreatIntelCache.max_severity stays
+  populated when matching via the trie instead of SQL.
+  """
+  @spec max_severity_from_tags([String.t()]) :: non_neg_integer()
+  def max_severity_from_tags(tags) when is_list(tags) do
+    Enum.reduce(tags, 0, fn
+      "ti:severity:" <> rest, acc ->
+        case Integer.parse(rest) do
+          {n, ""} when n > acc -> n
+          _ -> acc
+        end
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  def max_severity_from_tags(_), do: 0
+
+  @doc "Feed source slugs from ti: tags (excludes label/severity meta-tags)."
+  @spec sources_from_tags([String.t()]) :: [String.t()]
+  def sources_from_tags(tags) when is_list(tags) do
+    tags
+    |> Enum.flat_map(fn
+      "ti:label:" <> _ -> []
+      "ti:severity:" <> _ -> []
+      "ti:" <> source when source != "" -> [source]
+      _ -> []
+    end)
+    |> Enum.uniq()
+  end
+
+  def sources_from_tags(_), do: []
 
   defp fetch_rows do
     case SQL.query(Repo, @load_active_sql, []) do
@@ -87,19 +133,23 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
         parsed =
           rows
           |> Enum.map(fn
+            [prefix, source, label, severity] when is_binary(prefix) ->
+              map_indicator_row(prefix, source, label, severity)
+
             [prefix, source, label] when is_binary(prefix) ->
-              map_indicator_row(prefix, source, label)
+              map_indicator_row(prefix, source, label, nil)
 
             _ ->
               nil
           end)
           |> Enum.reject(&is_nil/1)
-          # Collapse duplicate prefixes: merge tags
+          # Collapse duplicate prefixes: merge tags, keep highest severity
           |> Enum.group_by(& &1.prefix)
           |> Enum.map(fn {prefix, group} ->
             tags =
               group
               |> Enum.flat_map(& &1.tags)
+              |> collapse_severity_tags()
               |> Enum.uniq()
               |> Enum.take(@max_tags_per_prefix)
 
@@ -114,6 +164,30 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
   rescue
     e -> {:error, e}
   end
+
+  defp collapse_severity_tags(tags) do
+    max_sev = max_severity_from_tags(tags)
+
+    rest =
+      Enum.reject(tags, fn
+        "ti:severity:" <> _ -> true
+        _ -> false
+      end)
+
+    if max_sev > 0, do: rest ++ ["ti:severity:#{max_sev}"], else: rest
+  end
+
+  defp normalize_severity(n) when is_integer(n) and n > 0, do: n
+  defp normalize_severity(n) when is_float(n) and n > 0, do: trunc(n)
+
+  defp normalize_severity(n) when is_binary(n) do
+    case Integer.parse(String.trim(n)) do
+      {v, ""} when v > 0 -> v
+      _ -> nil
+    end
+  end
+
+  defp normalize_severity(_), do: nil
 
   defp slugify(value) when is_binary(value) do
     value
