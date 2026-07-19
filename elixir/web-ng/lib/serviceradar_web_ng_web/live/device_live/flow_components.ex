@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
   attr(:query, :string, required: true)
   attr(:limit, :integer, required: true)
   attr(:flow_stats, :map, default: %{})
+  attr(:loading, :boolean, default: false)
   attr(:flow_stats_loading, :boolean, default: true)
   attr(:sparkline_json, :string, default: "[]")
   attr(:proto_json, :string, default: "[]")
@@ -64,8 +65,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
 
     ~H"""
     <div class="space-y-4">
+      <div :if={@loading} class="rounded-xl border border-base-200 bg-base-100 p-8 text-center">
+        <span class="loading loading-spinner loading-md text-primary"></span>
+        <p class="mt-3 text-sm font-semibold">Loading recent flows</p>
+        <p class="mt-1 text-xs text-base-content/60">
+          Searching this device's last 24 hours of flow data.
+        </p>
+      </div>
+
       <%!-- Stats overview row --%>
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div :if={!@loading} class="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <.stat_card
           title="Total Bandwidth"
           value={@total_bw}
@@ -239,6 +248,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
       </div>
 
       <.flow_table
+        :if={!@loading}
         flows={@flows}
         error={@error}
         pagination={@pagination}

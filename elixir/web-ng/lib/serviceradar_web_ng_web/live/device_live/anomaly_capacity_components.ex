@@ -401,6 +401,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       assigns
       |> assign(:detail_chart_sections, detail_chart_sections(assigns.detail, assigns.metric_sections))
       |> assign(:detail_chart_focus, detail_chart_focus(assigns.detail))
+      |> assign(:lifecycle_notice, detail_lifecycle_notice(assigns.detail))
 
     ~H"""
     <dialog id="anomaly-capacity-detail-modal" class="modal modal-open">
@@ -426,7 +427,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
         <div class="mt-5 grid gap-3 sm:grid-cols-2">
           <.detail_item label="Finding UID" value={detail_finding_uid(@detail)} />
           <.detail_item label="Metric" value={detail_metric(@detail)} />
-          <.detail_item label="Severity / Status" value={detail_status(@detail)} />
+          <.detail_item label="Severity" value={detail_severity(@detail)} />
+          <.detail_item label="Lifecycle" value={detail_lifecycle(@detail)} />
           <.detail_item label="Interface" value={detail_interface(@detail)} />
           <.detail_item label="Value / Score" value={detail_value_score(@detail)} />
           <.detail_item
@@ -443,6 +445,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
           <.detail_item label="Confidence" value={detail_confidence(@detail)} />
         </div>
 
+        <div
+          :if={@lifecycle_notice}
+          class="mt-4 rounded-xl border border-success/30 bg-success/10 p-4"
+        >
+          <div class="flex items-start gap-3">
+            <.icon name="hero-check-circle" class="mt-0.5 size-5 shrink-0 text-success" />
+            <div class="min-w-0">
+              <p class="text-sm font-semibold">{@lifecycle_notice.title}</p>
+              <p class="mt-1 text-sm text-base-content/75">{@lifecycle_notice.body}</p>
+              <.link
+                href="https://docs.serviceradar.cloud/docs/anomaly-detection#episode-lifecycle"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="mt-2 inline-flex text-xs font-semibold text-primary hover:underline"
+              >
+                How anomaly episode lifecycle works
+                <.icon name="hero-arrow-top-right-on-square" class="ml-1 size-3.5" />
+              </.link>
+            </div>
+          </div>
+        </div>
+
         <div :if={detail_related_query(@detail)} class="mt-3 rounded-lg border border-base-200 p-3">
           <div class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
             Related finding
@@ -457,10 +481,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
         <div :if={detail_reason(@detail)} class="mt-5 rounded-lg bg-base-200 p-3">
           <div class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
-            Reason
+            {detail_reason_label(@detail)}
           </div>
           <p class="mt-1 whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">
             {detail_reason(@detail)}
+          </p>
+        </div>
+
+        <div :if={detail_opening_reason(@detail)} class="mt-3 rounded-lg border border-base-200 p-3">
+          <div class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
+            Original detection trigger
+          </div>
+          <p class="mt-1 whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">
+            {detail_opening_reason(@detail)}
           </p>
         </div>
 
@@ -1141,6 +1174,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     finding_title(row)
   end
 
+  defp detail_title(%{kind: "anomaly", row: row}, _device_uid, _device_display_name) do
+    if resolved_anomaly?(row) do
+      "Resolved: #{finding_metric_name(row) || metric_class_label(row) || "anomaly episode"}"
+    else
+      finding_title(row)
+    end
+  end
+
   defp detail_title(%{row: row}, _device_uid, _device_display_name), do: finding_title(row)
   defp detail_title(_detail, _device_uid, _device_display_name), do: "Detail"
 
@@ -1160,23 +1201,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp detail_finding_uid(_), do: nil
 
-  defp detail_status(%{kind: "capacity", row: row}), do: value(row, "status")
+  defp detail_severity(%{kind: "capacity"}), do: nil
 
-  defp detail_status(%{kind: "capacity_notice", row: row}) do
-    [value(row, "severity"), finding_state_label(row), value(row, "status")]
-    |> Enum.reject(&blank?/1)
-    |> Enum.uniq()
-    |> Enum.join(" / ")
+  defp detail_severity(%{row: row}) do
+    value(row, "effective_severity") || value(row, "severity")
   end
 
-  defp detail_status(%{row: row}) do
-    [value(row, "effective_severity") || value(row, "severity"), finding_state_label(row), value(row, "disposition")]
-    |> Enum.reject(&blank?/1)
-    |> Enum.uniq()
-    |> Enum.join(" / ")
+  defp detail_severity(_), do: nil
+
+  defp detail_lifecycle(%{kind: "capacity", row: row}), do: value(row, "status")
+
+  defp detail_lifecycle(%{row: row}) do
+    finding_state_label(row) || value(row, "status") || value(row, "disposition")
   end
 
-  defp detail_status(_), do: nil
+  defp detail_lifecycle(_), do: nil
 
   defp detail_interface(%{row: row}), do: interface_label(row)
   defp detail_interface(_), do: nil
@@ -1250,6 +1289,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp detail_time_label(%{kind: "capacity"}), do: "Forecasted"
   defp detail_time_label(%{kind: "capacity_notice"}), do: "Event time"
+
+  defp detail_time_label(%{kind: "anomaly", row: row}) do
+    if resolved_anomaly?(row), do: "Resolved", else: "Observed"
+  end
+
   defp detail_time_label(_), do: "Observed"
 
   defp detail_time(%{kind: "capacity", row: row}) do
@@ -1262,6 +1306,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     row
     |> first_present([["time"], ["forecasted_at"], ["window_ended_at"]])
     |> format_timestamp()
+  end
+
+  defp detail_time(%{kind: "anomaly", row: row}) do
+    timestamp =
+      if resolved_anomaly?(row) do
+        first_present(row, [["window_ended_at"], ["cleared_at"], ["time"]])
+      else
+        value(row, "time")
+      end
+
+    format_timestamp(timestamp)
   end
 
   defp detail_time(%{row: row}), do: format_timestamp(value(row, "time"))
@@ -1336,8 +1391,98 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp detail_reason(%{kind: "capacity_notice", row: row}), do: finding_reason(row)
 
+  defp detail_reason(%{kind: "anomaly", row: row}) do
+    if resolved_anomaly?(row) do
+      resolution_reason_copy(row)
+    else
+      finding_reason(row)
+    end
+  end
+
   defp detail_reason(%{row: row}), do: finding_reason(row)
   defp detail_reason(_), do: nil
+
+  defp detail_reason_label(%{kind: "anomaly", row: row}) do
+    if resolved_anomaly?(row), do: "Resolution", else: "Detection trigger"
+  end
+
+  defp detail_reason_label(_), do: "Reason"
+
+  defp detail_opening_reason(%{kind: "anomaly", row: row}) do
+    if resolved_anomaly?(row) do
+      first_present(row, [
+        ["opening_reason"],
+        ["metadata", "anomaly", "opening_reason"],
+        ["metadata", "finding_info", "dimensions", "opening_reason"]
+      ])
+    end
+  end
+
+  defp detail_opening_reason(_), do: nil
+
+  defp detail_lifecycle_notice(%{kind: "anomaly", row: row}) do
+    if resolved_anomaly?(row) do
+      if flap_merged_reason?(resolution_reason(row)) do
+        %{
+          title: "Resolved episode with a merged brief recurrence",
+          body:
+            "The signal briefly cleared and reopened inside the flap window, so ServiceRadar kept those transitions in one incident. This episode is now resolved."
+        }
+      else
+        %{
+          title: "This anomaly episode is resolved",
+          body: resolution_reason_copy(row)
+        }
+      end
+    end
+  end
+
+  defp detail_lifecycle_notice(_), do: nil
+
+  defp resolved_anomaly?(row) do
+    finding_state(row) == "cleared" or normalize_text(value(row, "status")) in ["cleared", "stale_closed"]
+  end
+
+  defp resolution_reason(row) do
+    first_present(row, [
+      ["resolution_reason"],
+      ["metadata", "anomaly", "resolution_reason"],
+      ["metadata", "anomaly", "reason"],
+      ["reason"],
+      ["message"]
+    ])
+  end
+
+  defp resolution_reason_copy(row) do
+    reason = resolution_reason(row)
+
+    cond do
+      flap_merged_reason?(reason) ->
+        "Resolved after a brief clear and reopen were grouped into the same anomaly episode."
+
+      normalize_text(reason) in ["recovered", "anomaly cleared: recovered"] ->
+        "Resolved after the signal returned to its expected range."
+
+      normalize_text(reason) in ["adopted", "anomaly cleared: adopted"] ->
+        "Resolved after the sustained new level was adopted as the baseline."
+
+      normalize_text(reason) in ["stale", "stale_closed", "anomaly cleared: stale"] ->
+        "Resolved because no fresh producer update arrived before the stale-close window."
+
+      present?(reason) ->
+        to_string(reason)
+
+      true ->
+        "The signal no longer meets the anomaly criteria."
+    end
+  end
+
+  defp flap_merged_reason?(reason) do
+    reason
+    |> normalize_text()
+    |> String.replace("_", " ")
+    |> String.contains?("flap merged")
+  end
 
   defp status_badge_class(status) do
     case normalize_text(status) do

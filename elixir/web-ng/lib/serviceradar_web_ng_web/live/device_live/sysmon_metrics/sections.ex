@@ -89,17 +89,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
       when is_list(overall_results) and is_list(core_results) ->
         base
 
-      {{:ok, other}, _} ->
-        %{base | error: "unexpected CPU overall SRQL response: #{inspect(other)}"}
-
-      {_, {:ok, other}} ->
-        %{base | error: "unexpected CPU core SRQL response: #{inspect(other)}"}
-
       {{:error, reason}, _} ->
         %{base | error: "CPU overall SRQL error: #{format_error(reason)}"}
 
       {_, {:error, reason}} ->
         %{base | error: "CPU core SRQL error: #{format_error(reason)}"}
+
+      {{:ok, other}, _} ->
+        %{base | error: "unexpected CPU overall SRQL response: #{inspect(other)}"}
+
+      {_, {:ok, other}} ->
+        %{base | error: "unexpected CPU core SRQL response: #{inspect(other)}"}
     end
   end
 

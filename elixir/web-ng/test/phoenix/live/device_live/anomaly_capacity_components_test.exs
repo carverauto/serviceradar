@@ -284,6 +284,52 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     refute html =~ "value partition:agent:cpu0"
   end
 
+  test "explains a cleared flap-merged episode without presenting the opening breach as active" do
+    anomaly = %{
+      "id" => "episode-cleared-1",
+      "finding_uid" => "finding-cleared-1",
+      "finding_title" => "breach confirmed after 5/5 consecutive anomalous slots",
+      "metric_class" => "interface",
+      "metric_name" => "ifOutUcastPkts",
+      "severity" => "High",
+      "status" => "cleared",
+      "state" => "cleared",
+      "opening_reason" => "breach confirmed after 5/5 consecutive anomalous slots",
+      "resolution_reason" => "anomaly cleared: flap merged",
+      "reason" => "anomaly cleared: flap merged",
+      "message" => "anomaly cleared: flap merged",
+      "time" => "2026-07-18T08:36:00Z",
+      "window_ended_at" => "2026-07-18T08:36:00Z"
+    }
+
+    overview = %{
+      status: :ok,
+      anomaly_rows: [anomaly],
+      capacity_rows: [],
+      anomaly_query: "in:events limit:20",
+      capacity_query: "in:capacity_forecasts limit:12",
+      anomaly_filter: %{field: "service_radar_device_uid", label: "device", value: "router-1"},
+      capacity_filter: %{field: "resource_id", label: "device", value: "router-1"},
+      anomaly_error: nil,
+      capacity_error: nil,
+      metric_statuses: []
+    }
+
+    html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        overview: overview,
+        detail: %{kind: "anomaly", row: anomaly}
+      )
+
+    assert html =~ "Resolved: ifOutUcastPkts"
+    assert html =~ "This episode is now resolved."
+    assert html =~ "briefly cleared and reopened inside the flap window"
+    assert html =~ "Original detection trigger"
+    assert html =~ "breach confirmed after 5/5 consecutive anomalous slots"
+    assert html =~ "How anomaly episode lifecycle works"
+    assert html =~ "anomaly-detection#episode-lifecycle"
+  end
+
   test "renders bounded percent forecast values with current headroom" do
     capacity = %{
       "resource_label" => "Filesystem /",
