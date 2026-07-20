@@ -692,6 +692,36 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
       ]
     },
     %{
+      section: "scans",
+      label: "Ad-hoc Scans",
+      permissions: [
+        %{
+          key: "scans.execute",
+          label: "Run ad-hoc scans",
+          description: "Start ad-hoc ICMP/TCP/MTR scans against a target list from a chosen agent",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "scans.read",
+          label: "View scans",
+          description: "View ad-hoc scan runs and their results",
+          default_roles: @all_roles
+        },
+        %{
+          key: "scans.export",
+          label: "Export scan results",
+          description: "Export ad-hoc scan results to CSV or XLSX",
+          default_roles: @all_roles
+        },
+        %{
+          key: "scans.manage",
+          label: "Manage scan policy",
+          description: "Toggle the inventory-scoping guardrail for ad-hoc scans",
+          default_roles: @admin_roles
+        }
+      ]
+    },
+    %{
       section: "cli",
       label: "CLI Sessions",
       permissions: [
