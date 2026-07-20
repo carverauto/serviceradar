@@ -80,6 +80,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
         "resume" -> AddonRollouts.resume(id, scope: socket.assigns.current_scope)
         "cancel" -> AddonRollouts.cancel(id, scope: socket.assigns.current_scope)
         "rollback" -> AddonRollouts.rollback(id, scope: socket.assigns.current_scope)
+        "retry" -> AddonRollouts.retry(id, scope: socket.assigns.current_scope)
         _ -> {:error, :unsupported_operation}
       end
 
@@ -90,11 +91,27 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
           |> put_flash(:info, "Rollout #{operation} accepted.")
           |> load_fleet(socket.assigns.filters)
 
+        {:ok, _rollout} ->
+          socket
+          |> put_flash(:info, "Rollout #{operation} accepted.")
+          |> load_fleet(socket.assigns.filters)
+
         {:error, reason} ->
           put_flash(socket, :error, "Rollout action failed: #{inspect(reason)}")
       end
 
     {:noreply, socket}
+  end
+
+  def handle_event("toggle_rollout_details", %{"id" => id}, socket) do
+    expanded = socket.assigns.expanded_rollouts
+
+    expanded =
+      if MapSet.member?(expanded, id),
+        do: MapSet.delete(expanded, id),
+        else: MapSet.put(expanded, id)
+
+    {:noreply, assign(socket, :expanded_rollouts, expanded)}
   end
 
   def handle_event("toggle_details", %{"row" => key}, socket) do
@@ -119,6 +136,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     |> assign(:catalog_only, catalog_only)
     |> assign(:rollouts, AddonRollouts.list(scope: socket.assigns.current_scope))
     |> assign(:expanded_rows, MapSet.new())
+    |> assign(:expanded_rollouts, MapSet.new())
     |> assign(:categories, @categories)
     |> assign(:agent_options, AddonFleet.agents(rows))
     |> assign(:addon_options, AddonFleet.addon_ids(rows))
@@ -278,68 +296,96 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                 </tr>
               </thead>
               <tbody>
-                <tr :for={rollout <- @rollouts} data-role="addon-rollout-row">
-                  <td>
-                    <div class="font-medium">{rollout.addon_id}</div>
-                    <div class="font-mono text-[11px] text-base-content/50">
-                      {rollout.source_type} · {rollout.source_id}
-                    </div>
-                  </td>
-                  <td class="font-mono text-xs">
-                    {rollout.previous_package.version} → {rollout.candidate_package.version}
-                  </td>
-                  <td class="text-xs">{rollout_progress(rollout.targets)}</td>
-                  <td>
-                    <span class={["badge badge-sm", rollout_state_badge(rollout.state)]}>
-                      {rollout.state}
-                    </span>
-                    <div :if={rollout.blocked_reason} class="mt-1 text-xs text-error">
-                      {rollout.blocked_reason}
-                    </div>
-                  </td>
-                  <td class="text-right">
-                    <div :if={@can_manage_rollouts} class="flex justify-end gap-1">
-                      <button
-                        :if={rollout.state in [:pending, :running]}
-                        class="btn btn-ghost btn-xs"
-                        phx-click="rollout_action"
-                        phx-value-id={rollout.id}
-                        phx-value-operation="pause"
-                      >
-                        Pause
-                      </button>
-                      <button
-                        :if={rollout.state == :paused}
-                        class="btn btn-ghost btn-xs"
-                        phx-click="rollout_action"
-                        phx-value-id={rollout.id}
-                        phx-value-operation="resume"
-                      >
-                        Resume
-                      </button>
-                      <button
-                        :if={rollout.state in [:pending, :running, :paused]}
-                        class="btn btn-ghost btn-xs text-warning"
-                        phx-click="rollout_action"
-                        phx-value-id={rollout.id}
-                        phx-value-operation="rollback"
-                        data-confirm="Roll every advanced target back to the prior package?"
-                      >
-                        Roll back
-                      </button>
-                      <button
-                        :if={rollout.state in [:pending, :running, :paused]}
-                        class="btn btn-ghost btn-xs text-error"
-                        phx-click="rollout_action"
-                        phx-value-id={rollout.id}
-                        phx-value-operation="cancel"
-                        data-confirm="Cancel this rollout and restore stable desired state?"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                <%= for rollout <- @rollouts do %>
+                  <% expanded? = MapSet.member?(@expanded_rollouts, rollout.id) %>
+                  <tr data-role="addon-rollout-row">
+                    <td>
+                      <div class="font-medium">{rollout.addon_id}</div>
+                      <div class="font-mono text-[11px] text-base-content/50">
+                        {rollout.source_type} · {rollout.source_id}
+                      </div>
+                    </td>
+                    <td class="font-mono text-xs">
+                      {rollout.previous_package.version} → {rollout.candidate_package.version}
+                    </td>
+                    <td class="text-xs">{rollout_progress(rollout.targets)}</td>
+                    <td>
+                      <span class={["badge badge-sm", rollout_state_badge(rollout.state)]}>
+                        {rollout.state}
+                      </span>
+                      <div :if={rollout.blocked_reason} class="mt-1 text-xs text-error">
+                        {reason_label(rollout.blocked_reason)}
+                      </div>
+                    </td>
+                    <td class="text-right">
+                      <div class="flex justify-end gap-1">
+                        <button
+                          class="btn btn-ghost btn-xs"
+                          phx-click="toggle_rollout_details"
+                          phx-value-id={rollout.id}
+                          aria-expanded={to_string(expanded?)}
+                        >
+                          {if expanded?, do: "Hide details", else: "Details"}
+                        </button>
+                        <div :if={@can_manage_rollouts} class="flex justify-end gap-1">
+                          <button
+                            :if={rollout.state in [:pending, :running]}
+                            class="btn btn-ghost btn-xs"
+                            phx-click="rollout_action"
+                            phx-value-id={rollout.id}
+                            phx-value-operation="pause"
+                          >
+                            Pause
+                          </button>
+                          <button
+                            :if={rollout.state == :paused}
+                            class="btn btn-ghost btn-xs"
+                            phx-click="rollout_action"
+                            phx-value-id={rollout.id}
+                            phx-value-operation="resume"
+                          >
+                            Resume
+                          </button>
+                          <button
+                            :if={rollout.state in [:failed, :rolled_back]}
+                            class="btn btn-ghost btn-xs text-info"
+                            phx-click="rollout_action"
+                            phx-value-id={rollout.id}
+                            phx-value-operation="retry"
+                            data-confirm="Start a fresh health-gated attempt for this candidate?"
+                          >
+                            Retry
+                          </button>
+                          <button
+                            :if={rollout.state in [:pending, :running, :paused]}
+                            class="btn btn-ghost btn-xs text-warning"
+                            phx-click="rollout_action"
+                            phx-value-id={rollout.id}
+                            phx-value-operation="rollback"
+                            data-confirm="Roll every advanced target back to the prior package?"
+                          >
+                            Roll back
+                          </button>
+                          <button
+                            :if={rollout.state in [:pending, :running, :paused]}
+                            class="btn btn-ghost btn-xs text-error"
+                            phx-click="rollout_action"
+                            phx-value-id={rollout.id}
+                            phx-value-operation="cancel"
+                            data-confirm="Cancel this rollout and restore stable desired state?"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr :if={expanded?} data-role="addon-rollout-detail" class="bg-base-200/20">
+                    <td colspan="5" class="p-0">
+                      <.rollout_details rollout={rollout} />
+                    </td>
+                  </tr>
+                <% end %>
               </tbody>
             </table>
           </div>
@@ -634,6 +680,65 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     """
   end
 
+  attr :rollout, :map, required: true
+
+  defp rollout_details(assigns) do
+    targets = Enum.sort_by(assigns.rollout.targets, &{&1.batch_index, &1.agent_uid})
+    assigns = assign(assigns, :targets, targets)
+
+    ~H"""
+    <section class="p-4" aria-label={"Rollout evidence for #{@rollout.addon_id}"}>
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div class="text-sm font-semibold">Per-target rollout evidence</div>
+          <p class="text-xs text-base-content/60">
+            Fresh health evidence is required after the candidate override is applied.
+          </p>
+        </div>
+        <span class="badge badge-ghost badge-sm">{length(@targets)} target(s)</span>
+      </div>
+
+      <div :if={@targets == []} class="mt-3 text-sm text-base-content/60">
+        No agent targets were created. This candidate was blocked before delivery.
+      </div>
+
+      <div :if={@targets != []} class="mt-3 overflow-x-auto">
+        <table class="table table-xs">
+          <thead>
+            <tr class="text-xs uppercase tracking-wide text-base-content/60">
+              <th>Agent</th>
+              <th>Batch</th>
+              <th>Classification</th>
+              <th>State</th>
+              <th>Reason / error</th>
+              <th>Latest evidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={target <- @targets} data-role="addon-rollout-target">
+              <td class="font-mono text-xs">{target.agent_uid}</td>
+              <td>{target.batch_index}</td>
+              <td>{target.classification}</td>
+              <td>
+                <span class={["badge badge-xs", rollout_target_state_badge(target.state)]}>
+                  {target.state}
+                </span>
+              </td>
+              <td class="max-w-sm whitespace-normal">
+                <div>{reason_label(target.reason_code || "no_reason_recorded")}</div>
+                <div :if={target.error} class="mt-1 text-error">{target.error}</div>
+              </td>
+              <td class="whitespace-nowrap text-xs text-base-content/70">
+                {format_time(target_evidence_at(target))}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    """
+  end
+
   attr :row, :map, required: true
 
   defp row_details(assigns) do
@@ -781,6 +886,20 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   defp rollout_state_badge(:paused), do: "badge-warning"
   defp rollout_state_badge(state) when state in [:failed, :rolled_back], do: "badge-error"
   defp rollout_state_badge(_), do: "badge-ghost"
+
+  defp rollout_target_state_badge(state) when state in [:succeeded, :promoted], do: "badge-success"
+
+  defp rollout_target_state_badge(state) when state in [:waiting_health, :healthy_soak], do: "badge-info"
+
+  defp rollout_target_state_badge(state) when state in [:failed, :rollback_pending, :rolled_back], do: "badge-error"
+
+  defp rollout_target_state_badge(:excluded), do: "badge-warning"
+  defp rollout_target_state_badge(_), do: "badge-ghost"
+
+  defp target_evidence_at(target) do
+    target.health_observed_at || target.healthy_since || target.rollback_started_at ||
+      target.override_applied_at
+  end
 
   defp diagnostic_link_class(reason) do
     if AddonRuntimePolicy.resource_limit_warning?(reason), do: "text-warning", else: "text-error"

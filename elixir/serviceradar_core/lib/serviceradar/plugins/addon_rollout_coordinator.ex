@@ -88,6 +88,32 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
+  @doc """
+  Starts a fresh, manually authorized attempt for a terminal failed candidate.
+
+  The original rollout remains immutable evidence. The new attempt still passes
+  the normal provenance, compatibility, and capability-ceiling validation, so a
+  retry cannot turn a privilege-expanding candidate into an implicit approval.
+  """
+  @spec retry(Ecto.UUID.t(), keyword()) :: {:ok, AddonRollout.t()} | {:error, term()}
+  def retry(rollout_id, opts \\ []) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:addon_rollout_retry))
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+
+    with {:ok, rollout} <- get_rollout(rollout_id, actor),
+         true <- rollout.state in @failed_rollout_states,
+         {:ok, source} <- source_for_rollout(rollout, actor),
+         {:ok, candidate} <- get_package(rollout.candidate_package_id, actor),
+         {:ok, retried} <- start(source, candidate, actor: actor, now: now, trigger: :retry) do
+      audit(:retry, retried, %{retried_rollout_id: rollout.id})
+      emit(:retried, retried, %{retried_rollout_id: rollout.id})
+      {:ok, retried}
+    else
+      false -> {:error, :rollout_not_retryable}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   @spec advance(Ecto.UUID.t(), keyword()) :: :ok | {:error, term()}
   def advance(rollout_id, opts \\ []) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:addon_rollout_advance))
@@ -864,6 +890,12 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp deadline_elapsed?(_, _), do: false
 
   defp source_package(source, actor), do: get_package(source.addon_package_id, actor)
+
+  defp source_for_rollout(%AddonRollout{source_type: :assignment, source_id: source_id}, actor),
+    do: get_assignment(source_id, actor)
+
+  defp source_for_rollout(%AddonRollout{source_type: :profile, source_id: source_id}, actor),
+    do: get_profile(source_id, actor)
 
   defp packages_for_rollout(rollout, targets, actor) do
     ids =
