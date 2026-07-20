@@ -379,6 +379,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     post("/query", QueryController, :execute)
     get("/srql/catalog", SrqlCatalogController, :show)
+    get("/addon-fleet", AddonFleetController, :index)
     get("/devices", DeviceController, :index)
     get("/devices/ocsf/export", DeviceController, :ocsf_export)
     get("/devices/:uid", DeviceController, :show)

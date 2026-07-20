@@ -18,6 +18,10 @@ defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogControllerTest do
       assert is_map(response["entities"])
       assert is_map(response["entities"]["devices"])
       assert "hostname" in response["entities"]["devices"]["fields"]["filter"]
+      addon_fleet_fields = response["entities"]["addon_fleet"]["fields"]
+      assert "category" in addon_fleet_fields["filter"]
+      assert "reason_code" in addon_fleet_fields["filter"]
+      assert "evidence_age_seconds" in addon_fleet_fields["numeric"]
       attributed_flow_fields = response["entities"]["attributed_flows"]["fields"]
       assert "src_endpoint_ip" in attributed_flow_fields["filter"]
       assert "dst_endpoint_ip" in attributed_flow_fields["filter"]
@@ -90,7 +94,7 @@ defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogControllerTest do
     end
 
     test "rejects unauthenticated requests", %{conn: conn} do
-      conn = conn |> recycle() |> get(~p"/api/srql/catalog")
+      conn = conn |> delete_req_header("authorization") |> get(~p"/api/srql/catalog")
 
       assert json_response(conn, 401) == %{"error" => "authentication_required"}
     end

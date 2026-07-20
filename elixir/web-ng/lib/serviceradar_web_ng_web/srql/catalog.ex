@@ -106,6 +106,48 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       downsample: false
     },
     %{
+      id: "addon_fleet",
+      label: "Add-on Fleet",
+      route: "/settings/agents/addons/fleet",
+      default_time: "",
+      default_sort_field: "category",
+      default_sort_dir: "asc",
+      default_filter_field: "category",
+      filter_fields: [
+        "agent_uid",
+        "agent_label",
+        "addon_id",
+        "addon_name",
+        "assigned_version",
+        "observed_state",
+        "observed_version",
+        "category",
+        "reason_code",
+        "rollout_state",
+        "update_policy",
+        "package_status",
+        "degradation_reason",
+        "assigned",
+        "active",
+        "evidence_age_seconds"
+      ],
+      boolean_fields: ["assigned", "active"],
+      numeric_fields: ["evidence_age_seconds"],
+      known_values: %{
+        "category" => [
+          "healthy",
+          "updating",
+          "action_required",
+          "unavailable",
+          "expected_inactive",
+          "observed_only"
+        ],
+        "assigned" => ["true", "false"],
+        "active" => ["true", "false"]
+      },
+      downsample: false
+    },
+    %{
       id: "devices",
       label: "Devices",
       route: "/devices",

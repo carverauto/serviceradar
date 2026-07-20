@@ -8,6 +8,7 @@ mod sql;
 mod translate;
 mod types;
 
+mod addon_fleet;
 mod addon_statuses;
 mod agents;
 mod alerts;

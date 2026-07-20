@@ -68,6 +68,40 @@ pub(super) fn addon_statuses() -> VizMeta {
     }
 }
 
+pub(super) fn addon_fleet() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("agent_uid", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("agent_label", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("addon_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("addon_name", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("assigned", ColumnType::Bool, None),
+            col("assigned_version", ColumnType::Text, None),
+            col("observed_state", ColumnType::Text, None),
+            col("observed_version", ColumnType::Text, None),
+            col("active", ColumnType::Bool, None),
+            col("category", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("reason_code", ColumnType::Text, None),
+            col("evidence_age_seconds", ColumnType::Int, None),
+            col(
+                "reported_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("rollout_state", ColumnType::Text, None),
+            col("update_policy", ColumnType::Text, None),
+            col("package_status", ColumnType::Text, None),
+            col("degradation_reason", ColumnType::Text, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 pub(super) fn devices() -> VizMeta {
     VizMeta {
         columns: vec![

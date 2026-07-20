@@ -115,6 +115,7 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
             Ok(Entity::AttributedFlows)
         }
         "alerts" | "alert" => Ok(Entity::Alerts),
+        "addon_fleet" | "addon_fleets" => Ok(Entity::AddonFleet),
         "addon_statuses" | "addon_status" => Ok(Entity::AddonStatuses),
         "endpoint_inventory_scans"
         | "endpoint_inventory_scan"
