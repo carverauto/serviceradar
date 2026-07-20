@@ -34,6 +34,7 @@ defmodule ServiceRadarWebNGWeb.Stats do
   import Ecto.Query
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Repo, as: CoreRepo
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.Stats.Compute
   alias ServiceRadarWebNGWeb.Stats.Extract
@@ -175,7 +176,10 @@ defmodule ServiceRadarWebNGWeb.Stats do
   Fetch event severity counts from the hourly OCSF events aggregate.
 
   This summary intentionally ignores pagination so overview cards reflect the
-  selected time window rather than the currently visible page slice.
+  selected time window rather than the currently visible page slice. The hourly
+  aggregate only materializes completed hours, so current-hour events come
+  directly from `ocsf_events`; otherwise newly ingested events would be visible
+  in the list but missing from the severity cards.
   """
   @spec events_summary(keyword()) :: events_summary()
   def events_summary(opts \\ []) do
@@ -183,15 +187,8 @@ defmodule ServiceRadarWebNGWeb.Stats do
 
     case cutoff_for_time_window(time_window) do
       {:ok, cutoff} ->
-        query =
-          from(s in "ocsf_events_hourly_stats",
-            where: s.bucket >= ^cutoff,
-            group_by: s.severity_id,
-            select: {s.severity_id, sum(s.total_count)}
-          )
-
-        query
-        |> Repo.all()
+        cutoff
+        |> event_summary_rows()
         |> merge_event_stats(empty_events_summary())
 
       _ ->
@@ -465,7 +462,7 @@ defmodule ServiceRadarWebNGWeb.Stats do
   end
 
   defp relation_exists?(relation_name) when is_binary(relation_name) do
-    case SQL.query(Repo, "SELECT to_regclass($1) IS NOT NULL", [relation_name]) do
+    case SQL.query(CoreRepo, "SELECT to_regclass($1) IS NOT NULL", [relation_name]) do
       {:ok, %{rows: [[value]]}} -> value == true
       _ -> false
     end
@@ -475,11 +472,11 @@ defmodule ServiceRadarWebNGWeb.Stats do
   # process; the actual repo process is ServiceRadar.Repo. Checking the shim
   # name made this guard permanently false and silently disabled every
   # caller (the metrics cards were hardwired to zero for that reason).
-  defp repo_started?, do: is_pid(Process.whereis(ServiceRadar.Repo))
+  defp repo_started?, do: is_pid(Process.whereis(CoreRepo))
 
   defp traces_rollup_exists? do
     case SQL.query(
-           Repo,
+           CoreRepo,
            """
            SELECT EXISTS(
              SELECT 1
@@ -495,21 +492,21 @@ defmodule ServiceRadarWebNGWeb.Stats do
   end
 
   defp raw_traces_latest_timestamp do
-    case SQL.query(Repo, "SELECT max(timestamp) FROM otel_traces", []) do
+    case SQL.query(CoreRepo, "SELECT max(timestamp) FROM otel_traces", []) do
       {:ok, %{rows: [[value]]}} -> normalize_datetime(value)
       _ -> nil
     end
   end
 
   defp trace_summaries_latest_timestamp do
-    case SQL.query(Repo, "SELECT max(timestamp) FROM otel_trace_summaries", []) do
+    case SQL.query(CoreRepo, "SELECT max(timestamp) FROM otel_trace_summaries", []) do
       {:ok, %{rows: [[value]]}} -> normalize_datetime(value)
       _ -> nil
     end
   end
 
   defp traces_rollup_latest_bucket do
-    case SQL.query(Repo, "SELECT max(bucket) FROM traces_stats_5m", []) do
+    case SQL.query(CoreRepo, "SELECT max(bucket) FROM traces_stats_5m", []) do
       {:ok, %{rows: [[value]]}} -> normalize_datetime(value)
       _ -> nil
     end
@@ -553,6 +550,61 @@ defmodule ServiceRadarWebNGWeb.Stats do
 
   defp format_lag(seconds) when is_integer(seconds), do: "#{seconds}s"
   defp format_lag(_), do: "unknown"
+
+  # Read only closed hours from the CAGG and union in the current hour from the
+  # raw hypertable. Timescale's materialized CAGG does not contain the
+  # in-progress hour, which made the cards show zero while the raw event list
+  # already showed the same events.
+  defp event_summary_rows(cutoff) do
+    case SQL.query(CoreRepo, event_summary_rollup_sql(), [cutoff]) do
+      {:ok, %{rows: rows}} -> normalize_event_summary_rows(rows)
+      _ -> raw_event_summary_rows(cutoff)
+    end
+  end
+
+  defp raw_event_summary_rows(cutoff) do
+    case SQL.query(CoreRepo, raw_event_summary_sql(), [cutoff]) do
+      {:ok, %{rows: rows}} -> normalize_event_summary_rows(rows)
+      _ -> []
+    end
+  end
+
+  defp normalize_event_summary_rows(rows) do
+    Enum.flat_map(rows, fn
+      [severity_id, total_count] -> [{severity_id, total_count}]
+      {severity_id, total_count} -> [{severity_id, total_count}]
+      _ -> []
+    end)
+  end
+
+  defp event_summary_rollup_sql do
+    """
+    WITH hourly AS (
+      SELECT severity_id, total_count
+      FROM ocsf_events_hourly_stats
+      WHERE bucket >= $1 AND bucket < date_trunc('hour', NOW())
+
+      UNION ALL
+
+      SELECT COALESCE(severity_id, 0) AS severity_id, COUNT(*)::bigint AS total_count
+      FROM ocsf_events
+      WHERE time >= GREATEST($1::timestamptz, date_trunc('hour', NOW()))
+      GROUP BY 1
+    )
+    SELECT severity_id, SUM(total_count)::bigint AS total_count
+    FROM hourly
+    GROUP BY severity_id
+    """
+  end
+
+  defp raw_event_summary_sql do
+    """
+    SELECT COALESCE(severity_id, 0) AS severity_id, COUNT(*)::bigint AS total_count
+    FROM ocsf_events
+    WHERE time >= $1
+    GROUP BY 1
+    """
+  end
 
   defp merge_event_stats(rows, base) when is_list(rows) do
     Enum.reduce(rows, base, fn {severity_id, total_count}, acc ->
