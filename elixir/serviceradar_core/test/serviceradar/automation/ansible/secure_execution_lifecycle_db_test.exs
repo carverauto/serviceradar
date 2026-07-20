@@ -109,7 +109,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionLifecycleDbTest do
     assert Enum.all?(durable, &(&1["reason"] == "transport_failed"))
   end
 
-  test "a target update failure rolls back operation and execution state" do
+  test "a target update failure rolls back operation, execution, and hold state" do
     fixture = fixture(:running)
     missing_target = %{fixture.target | id: Ash.UUID.generate()}
 
@@ -126,13 +126,13 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionLifecycleDbTest do
     assert {:ok, execution} = AutomationExecution.get_by_id(fixture.execution.id, actor: @actor)
     assert {:ok, target} = AutomationExecutionTarget.get_by_id(fixture.target.id, actor: @actor)
 
-    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+    # Active-hold reads are optional lookups (not_found_error?: false).
+    assert {:ok, nil} =
              AutomationTargetHold.get_active_for_device(fixture.device_uid, actor: @actor)
 
     assert operation.state == :running
     assert execution.state == :running
     assert target.status == :pending
-    assert Enum.any?(errors, &match?(%Ash.Error.Query.NotFound{}, &1))
   end
 
   defp fixture(state) do
