@@ -281,6 +281,8 @@ core:
     consensusEnabled: false
     baselineTickMs: 60000
     consensusCohortRetentionMs: 300000
+  # Initial MTR history retention in days (1-395) for a fresh database. After
+  # bootstrap, change the persisted policy in Settings -> Networks -> MTR.
   mtrRetentionDays: 30
   observabilityRetention:
     # High-volume raw tables. Retention is reconciled at runtime and by the

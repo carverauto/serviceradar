@@ -147,6 +147,20 @@ export DEVICE_ENRICHMENT_RULES_DIR_HOST=/tmp/serviceradar-empty-rules
 docker compose up -d --force-recreate core-elx
 ```
 
+## MTR History Retention
+
+For a fresh Docker Compose database, set `MTR_RETENTION_DAYS` before the first
+startup to seed the MTR trace and hop retention policies. The supported range is
+1 to 395 days; the default is 30.
+
+```bash
+export MTR_RETENTION_DAYS=90
+docker compose up -d
+```
+
+After bootstrap, use **Settings -> Networks -> MTR** to change the persisted
+retention policy. This updates both `mtr_traces` and `mtr_hops` immediately.
+
 ## Optional NetFlow and IP Enrichment Jobs
 
 Docker Compose disables the heavyweight NetFlow/IP enrichment maintenance
