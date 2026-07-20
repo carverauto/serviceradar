@@ -185,9 +185,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute html =~ ~s(<option value="skip_verify">)
 
     html =
-      lv
-      |> form("#credential-rule-form",
-        credential_rule: %{
+      render_hook(lv, "save_rule", %{
+        "credential_rule" => %{
           "name" => "Insecure PVE",
           "provider" => "proxmox",
           "auth_method" => "proxmox_api_token",
@@ -200,8 +199,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
           "allowed_ports" => "8006",
           "tls_policy" => "skip_verify"
         }
-      )
-      |> render_submit()
+      })
 
     assert html =~ "Proxmox API access requires TLS certificate verification"
     refute get_rule_by_name!(scope, "Insecure PVE")

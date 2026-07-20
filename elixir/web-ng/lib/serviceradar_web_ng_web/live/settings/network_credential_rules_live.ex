@@ -2004,13 +2004,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp ssh_host_key_policy_param(_params, _auth_method), do: {:ok, :known_hosts}
 
-  defp validate_proxmox_transport(:proxmox, :proxmox_api_token, tls_policy, _ssh_policy),
+  defp validate_proxmox_transport("proxmox", :proxmox_api_token, tls_policy, _ssh_policy),
     do: require_proxmox_tls_verification(tls_policy)
 
-  defp validate_proxmox_transport(:proxmox, :ssh_private_key, _tls_policy, ssh_policy)
+  defp validate_proxmox_transport("proxmox", :ssh_private_key, _tls_policy, ssh_policy)
        when ssh_policy in [:known_hosts, :trust_on_first_use], do: :ok
 
-  defp validate_proxmox_transport(:proxmox, :ssh_private_key, _tls_policy, _ssh_policy),
+  defp validate_proxmox_transport("proxmox", :ssh_private_key, _tls_policy, _ssh_policy),
     do: {:error, "Proxmox SSH access requires host key verification"}
 
   defp validate_proxmox_transport(_provider, _auth_method, _tls_policy, _ssh_policy), do: :ok
