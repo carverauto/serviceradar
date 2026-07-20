@@ -43,7 +43,7 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
     end
   end
 
-  test "flow attribution persistence failures fail the stream for agent retry" do
+  test "flow attribution persistence failures are buffered without failing the stream" do
     parent = self()
 
     handler_pid =
@@ -57,19 +57,15 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
 
     Process.register(handler_pid, ServiceRadar.StatusHandler)
 
-    assert_raise GRPC.RPCError, ~r/flow-attribution forward failed/, fn ->
-      AgentGatewayServer.process_chunk_services([flow_attribution_service()], metadata())
-    end
+    assert AgentGatewayServer.process_chunk_services([flow_attribution_service()], metadata()) == []
 
     assert_receive {:flow_attribution_forwarded, status}
     assert status.partition == "cert-partition"
     assert status.agent_id == "agent-1"
   end
 
-  test "plugin-result forwarding failures fail the stream for agent retry" do
-    assert_raise GRPC.RPCError, ~r/plugin-result forward failed/, fn ->
-      AgentGatewayServer.process_chunk_services([plugin_result_service()], retained_plugin_result_metadata())
-    end
+  test "plugin-result forwarding failures are buffered without failing the stream" do
+    assert AgentGatewayServer.process_chunk_services([plugin_result_service()], retained_plugin_result_metadata()) == []
   end
 
   test "legacy plugin-result forwarding keeps buffered acknowledgement semantics" do

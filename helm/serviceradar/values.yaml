@@ -233,6 +233,8 @@ observability:
         scrapeDownFor: 5m
       agentGateway:
         scrapeDownFor: 5m
+        resultsBufferDroppedWindow: 5m
+        resultsBufferDroppedFor: 1m
   grafana:
     dashboards:
       enabled: true

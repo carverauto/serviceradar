@@ -1,6 +1,6 @@
 defmodule ServiceRadarAgentGateway.StatusBuffer do
   @moduledoc """
-  Buffers results and sysmon payloads when core processing is unavailable.
+  Buffers status payloads when their downstream consumer is unavailable.
 
   This is an in-memory, bounded queue intended to reduce data loss
   during short core outages. It is not durable across restarts.
@@ -16,19 +16,28 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
   @default_flush_interval_ms 5_000
   @default_flush_batch_size 100
 
-  def start_link(_opts) do
-    GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
+  def start_link(opts) do
+    case Keyword.get(opts, :name, __MODULE__) do
+      nil -> GenServer.start_link(__MODULE__, opts)
+      name -> GenServer.start_link(__MODULE__, opts, name: name)
+    end
   end
 
-  @spec enqueue(map()) :: :ok
+  @spec enqueue(map()) :: :ok | {:error, :unavailable}
   def enqueue(status) when is_map(status) do
     GenServer.call(__MODULE__, {:enqueue, status}, 1_000)
   catch
     :exit, {:noproc, _} ->
-      :ok
+      {:error, :unavailable}
 
     :exit, {:timeout, _} ->
-      :ok
+      {:error, :unavailable}
+  end
+
+  @doc false
+  @spec record_drop(map(), atom()) :: :ok
+  def record_drop(status, reason) when is_map(status) and is_atom(reason) do
+    emit_buffer_drop(status, reason)
   end
 
   @spec size() :: non_neg_integer()
@@ -37,11 +46,14 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
   end
 
   @impl true
-  def init(_opts) do
-    max_entries = env_int("GATEWAY_RESULTS_BUFFER_LIMIT", @default_max_entries)
-    flush_interval_ms = env_int("GATEWAY_RESULTS_BUFFER_FLUSH_MS", @default_flush_interval_ms)
+  def init(opts) do
+    max_entries = Keyword.get(opts, :max_entries, env_int("GATEWAY_RESULTS_BUFFER_LIMIT", @default_max_entries))
+
+    flush_interval_ms =
+      Keyword.get(opts, :flush_interval_ms, env_int("GATEWAY_RESULTS_BUFFER_FLUSH_MS", @default_flush_interval_ms))
 
     schedule_flush(flush_interval_ms)
+    emit_buffer_depth(0)
 
     {:ok,
      %{
@@ -54,15 +66,18 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
   @impl true
   def handle_call({:enqueue, status}, _from, state) do
     if state.max_entries <= 0 do
-      Logger.debug("Results buffer disabled; dropping status")
+      Logger.warning("Status buffer disabled; dropping status")
+      emit_buffer_drop(status, :disabled)
       {:reply, :ok, state}
     else
       {queue, dropped} = enqueue_status(state.queue, status, state.max_entries)
 
       if dropped do
-        Logger.warning("Results buffer full; dropping oldest status")
+        Logger.warning("Status buffer full; dropping oldest status")
+        emit_buffer_drop(status, :overflow)
       end
 
+      emit_buffer_depth(:queue.len(queue))
       {:reply, :ok, %{state | queue: queue}}
     end
   end
@@ -104,8 +119,13 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
         {state, false}
 
       {{:value, status}, rest} ->
-        case StatusProcessor.forward(status, buffer_on_failure: false, from_buffer: true) do
+        case StatusProcessor.process(status, buffer_on_failure: false, from_buffer: true) do
           :ok ->
+            emit_buffer_depth(:queue.len(rest))
+            flush_queue(%{state | queue: rest}, remaining - 1)
+
+          {:ok, _result} ->
+            emit_buffer_depth(:queue.len(rest))
             flush_queue(%{state | queue: rest}, remaining - 1)
 
           {:error, reason} ->
@@ -117,6 +137,30 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
 
   defp schedule_flush(flush_interval_ms) do
     Process.send_after(self(), :flush, max(flush_interval_ms, 1_000))
+  end
+
+  defp emit_buffer_drop(status, reason) do
+    :telemetry.execute(
+      [:serviceradar, :agent_gateway, :results, :buffer, :dropped],
+      %{count: 1},
+      buffer_metadata(status, reason)
+    )
+  end
+
+  defp emit_buffer_depth(depth) do
+    :telemetry.execute(
+      [:serviceradar, :agent_gateway, :results, :buffer, :depth],
+      %{depth: depth},
+      %{gateway_id: ServiceRadarAgentGateway.Config.gateway_id()}
+    )
+  end
+
+  defp buffer_metadata(status, reason) do
+    %{
+      reason: reason,
+      gateway_id: status[:gateway_id] || ServiceRadarAgentGateway.Config.gateway_id(),
+      partition: status[:partition] || "default"
+    }
   end
 
   defp env_int(var, default) do
