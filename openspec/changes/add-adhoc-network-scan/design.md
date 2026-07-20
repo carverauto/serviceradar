@@ -121,5 +121,5 @@ Migrate the on-demand MTR ingestion (`mtr.bulk_run` / `mtr.run` ->
 `StatusHandler` -> `MtrMetricsIngestor` direct Ash write) onto the same
 JetStream path this change establishes, so ICMP/TCP **and** MTR both satisfy
 the metrics-through-JetStream rule and MTR drops its direct-write exception.
-Tracked as its own OpenSpec change / issue; this change reuses the current
-MTR path unchanged in the interim and does not block on the migration.
+Tracked as forgejo issue #4669; this change reuses the current MTR path
+unchanged in the interim and does not block on the migration.

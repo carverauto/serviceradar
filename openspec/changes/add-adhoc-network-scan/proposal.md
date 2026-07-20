@@ -132,8 +132,8 @@ RBAC to drive it safely.
   (`mtr.bulk_run` / `mtr.run` -> `StatusHandler` -> `MtrMetricsIngestor`
   Ash write) onto the same JetStream path this change establishes, so both
   ICMP/TCP and MTR results converge on the metrics-through-JetStream rule
-  instead of MTR keeping its direct-write exception. Tracked separately;
-  this change does not block on it.
+  instead of MTR keeping its direct-write exception. Tracked as forgejo
+  issue #4669; this change does not block on it.
 - **Relationship to paused CLI work**: the `scan.execute` API scope and the
   external-tool auth path align with the paused
   `consolidate-serviceradar-cli` device-auth/`srclient` scope model; the
