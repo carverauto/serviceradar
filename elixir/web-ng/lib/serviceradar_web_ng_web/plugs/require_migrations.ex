@@ -1,8 +1,10 @@
 defmodule ServiceRadarWebNGWeb.Plugs.RequireMigrations do
   @moduledoc """
-  Blocks requests until database migrations are applied.
+  Blocks application requests until database migrations are applied.
 
   This prevents the UI from querying missing tables/views during startup.
+  The liveness probe bypasses this gate so Kubernetes can distinguish a running
+  endpoint from an instance that is ready to receive traffic.
   """
 
   import Plug.Conn
@@ -11,10 +13,19 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireMigrations do
 
   @cache_key {__MODULE__, :status}
   @default_cache_ttl_ms 5_000
+  @liveness_path "/health/live"
 
   def init(opts), do: opts
 
   def call(conn, opts) do
+    if conn.request_path == @liveness_path do
+      conn
+    else
+      require_migrations(conn, opts)
+    end
+  end
+
+  defp require_migrations(conn, opts) do
     if enabled?(opts) do
       case cached_status(opts) do
         :ok ->
