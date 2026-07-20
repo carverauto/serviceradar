@@ -120,6 +120,7 @@ type PushLoop struct {
 	mtrState                   *mtrCheckerState
 	mtrOnDemandSem             chan struct{}
 	mtrBulkJobSem              chan struct{}
+	adhocScanSem               chan struct{}
 	endpointInventoryFreshSem  chan struct{}
 	cameraRelayManager         *cameraRelayManager
 	remoteConsoleManager       *remoteConsoleManager
@@ -248,6 +249,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		mtrState:                       newMtrCheckerState(),
 		mtrOnDemandSem:                 make(chan struct{}, defaultMaxConcurrentOnDemandMtr),
 		mtrBulkJobSem:                  make(chan struct{}, 1),
+		adhocScanSem:                   make(chan struct{}, defaultMaxConcurrentAdhocScans),
 		endpointInventoryFreshSem:      make(chan struct{}, 1),
 		cameraRelayManager:             cameraRelayManager,
 		remoteConsoleManager:           remoteConsoleManager,
