@@ -312,10 +312,11 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecoveryTest do
     assert replacement.agent_uid == candidate.agent_uid
   end
 
-  test "automatic recovery leaves uploaded manual history quarantined", %{
-    actor: actor,
-    unique_id: unique_id
-  } do
+  test "automatic recovery records uploaded manual history as terminal quarantined audit history",
+       %{
+         actor: actor,
+         unique_id: unique_id
+       } do
     candidate = quarantined_manual_assignment!(actor, unique_id)
 
     assert {:ok, summary} = PluginAssignmentRecovery.recover_automatic()
@@ -324,10 +325,60 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecoveryTest do
     assert summary.deferred == 1
     assert summary.failed == 0
 
-    assert {:ok, []} = audits_for_legacy(candidate.assignment.id, actor)
+    assert {:ok, [audit]} = audits_for_legacy(candidate.assignment.id, actor)
+    assert audit.outcome == :package_unavailable
+    assert audit.reason == :plugin_package_not_trusted
+
+    assert {:ok, retry_summary} = PluginAssignmentRecovery.recover_automatic()
+    assert retry_summary.recovered == 0
+    assert retry_summary.deferred == 1
+    assert retry_summary.failed == 0
+
+    assert {:ok, [only_audit]} = audits_for_legacy(candidate.assignment.id, actor)
+    assert only_audit.id == audit.id
+
     assert {:ok, legacy} = assignment_by_id(candidate.assignment.id, actor)
     refute legacy.enabled
     assert is_nil(legacy.partition_id)
+  end
+
+  test "automatic recovery records a revoked package once instead of retrying it every sweep", %{
+    actor: actor,
+    unique_id: unique_id
+  } do
+    candidate =
+      quarantined_manual_assignment!(actor, unique_id,
+        source_type: :first_party,
+        verification_status: "verified",
+        signature: %{"key_id" => "release-test-key"},
+        wasm_object_key: "plugins/revoked/#{unique_id}.wasm"
+      )
+
+    assert {:ok, _revoked_package} =
+             candidate.package
+             |> Ash.Changeset.for_update(
+               :revoke,
+               %{denied_reason: "automatic recovery terminal-audit test"},
+               actor: actor
+             )
+             |> Ash.update(actor: actor)
+
+    assert {:ok, summary} = PluginAssignmentRecovery.recover_automatic()
+    assert summary.recovered == 0
+    assert summary.deferred == 1
+    assert summary.failed == 0
+
+    assert {:ok, [audit]} = audits_for_legacy(candidate.assignment.id, actor)
+    assert audit.outcome == :package_unavailable
+    assert audit.reason == :plugin_package_not_approved
+
+    assert {:ok, retry_summary} = PluginAssignmentRecovery.recover_automatic()
+    assert retry_summary.recovered == 0
+    assert retry_summary.deferred == 1
+    assert retry_summary.failed == 0
+
+    assert {:ok, [only_audit]} = audits_for_legacy(candidate.assignment.id, actor)
+    assert only_audit.id == audit.id
   end
 
   test "legacy detail is an actor-authorized, secret-free projection", %{
