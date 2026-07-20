@@ -104,6 +104,33 @@ fn addon_statuses_example_agent_and_state() {
 }
 
 #[test]
+fn addon_fleet_example_category_reason_and_freshness() {
+    let query = "in:addon_fleet category:action_required reason_code:unsupported_platform evidence_age_seconds:<180 sort:agent_uid:asc";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::AddonFleet));
+    let (sql, params) =
+        addon_fleet::to_sql_and_params(&plan).expect("should build addon_fleet SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("from platform.addon_fleet as fleet"),
+        "expected query against addon_fleet view, got: {sql}"
+    );
+    assert!(
+        lower.contains("fleet.category = $1")
+            && lower.contains("fleet.reason_code = $2")
+            && lower.contains("fleet.evidence_age_seconds < $3"),
+        "expected category, reason, and freshness filters, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by fleet.agent_uid asc"),
+        "expected agent ordering, got: {sql}"
+    );
+    assert_eq!(params.len(), 5);
+}
+
+#[test]
 fn endpoint_packages_example_name_manager_and_cpe() {
     let query = r#"in:endpoint_packages device_id:device-alpha name:nginx manager:dpkg cpe:"cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*" current:true sort:name:asc"#;
     let plan = plan_for(query);

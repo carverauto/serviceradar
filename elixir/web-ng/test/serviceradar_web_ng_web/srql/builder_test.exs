@@ -54,6 +54,20 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
     assert "all_server_groups" in wifi_sites.array_fields
   end
 
+  test "catalog exposes derived add-on fleet health fields" do
+    addon_fleet = Catalog.entity("addon_fleet")
+
+    assert addon_fleet.route == "/settings/agents/addons/fleet"
+    assert addon_fleet.default_sort_field == "category"
+    assert "reason_code" in addon_fleet.filter_fields
+    assert "evidence_age_seconds" in addon_fleet.numeric_fields
+    assert "action_required" in addon_fleet.known_values["category"]
+
+    query = addon_fleet |> then(&Builder.default_state(&1.id, 25)) |> Builder.build()
+    assert query =~ "in:addon_fleet"
+    assert query =~ "sort:category:asc"
+  end
+
   test "device catalog remains provider-neutral for external inventory plugins" do
     devices = Catalog.entity("devices")
 

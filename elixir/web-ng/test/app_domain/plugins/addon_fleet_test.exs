@@ -320,6 +320,25 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
     end
 
     test "shows incompatible and in-progress rollout targets truthfully", context do
+      incompatible_target = %{
+        rollout_state: :completed,
+        state: :excluded,
+        classification: :incompatible,
+        reason_code: "unsupported_platform"
+      }
+
+      offline_agent = %{context.agent | status: :disconnected, last_seen_time: DateTime.add(context.now, -600)}
+
+      assert AddonFleet.classify(
+               context.base,
+               context.package,
+               context.assignment,
+               context.status,
+               offline_agent,
+               incompatible_target,
+               context.now
+             ) == {:action_required, "unsupported_platform"}
+
       failed_rollout = %{
         rollout_state: :failed,
         state: :failed,

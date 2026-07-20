@@ -109,6 +109,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
 
     Some(match plan.entity {
         Entity::Agents => inventory::agents(),
+        Entity::AddonFleet => inventory::addon_fleet(),
         Entity::AddonStatuses => inventory::addon_statuses(),
         Entity::EndpointInventoryScans => sbom::endpoint_inventory_scans(),
         Entity::EndpointPackages => sbom::endpoint_packages(),

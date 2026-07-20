@@ -493,6 +493,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       invalid_desired_package?(assignment, package) ->
         {:action_required, "desired_package_not_approved"}
 
+      incompatible_rollout_target?(rollout) ->
+        {:action_required, rollout.reason_code || "rollout_target_incompatible"}
+
       failed_rollout?(rollout) ->
         {:action_required, rollout.reason_code || "rollout_failed"}
 
@@ -559,6 +562,13 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     do: is_nil(package) or package.status != :approved
 
   defp invalid_desired_package?(_assignment, _package), do: false
+
+  # An incompatible target is a desired-state error established during rollout
+  # snapshotting. It remains actionable even if the agent goes offline before a
+  # status report arrives; classifying it as merely unavailable hides an error
+  # an operator can resolve without waiting for more runtime evidence.
+  defp incompatible_rollout_target?(%{classification: :incompatible}), do: true
+  defp incompatible_rollout_target?(_rollout), do: false
 
   defp active_rollout?(%{rollout_state: rollout_state, state: state})
        when rollout_state in [:pending, :running, :rolling_back] and
@@ -674,6 +684,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       value = %{
         id: target.rollout_id,
         state: target.state,
+        classification: target.classification,
         reason_code: (rollout && rollout.blocked_reason) || target.reason_code,
         rollout_state: rollout && rollout.state,
         updated_at: target.updated_at

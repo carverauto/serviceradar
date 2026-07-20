@@ -36,8 +36,8 @@
 - [x] 5.2 Implement mutually exclusive `healthy`, `updating`, `action_required`, `unavailable`, `expected_inactive`, and `observed_only` categories with stable reason codes
 - [x] 5.3 Exclude stale/offline evidence, healthy observed-only built-ins, dormant ephemeral helpers, and in-grace rollout targets from `needs_attention`
 - [x] 5.3a Treat disabled assignments as audit history rather than current desired state and compare approved/runtime versions semantically before labeling an upgrade newer
-- [ ] 5.4 Keep explicit unhealthy observed-only runtimes and incompatible/invalid desired assignments actionable
-- [ ] 5.5 Expose category/reason/freshness fields through supported API and SRQL surfaces
+- [x] 5.4 Keep explicit unhealthy observed-only runtimes and incompatible/invalid desired assignments actionable
+- [x] 5.5 Expose category/reason/freshness fields through supported API and SRQL surfaces
 
 ## 6. Operator UI
 
