@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonRollouts do
   def resume(id, opts \\ []), do: transition(:resume, id, opts)
   def cancel(id, opts \\ []), do: transition(:cancel, id, opts)
   def rollback(id, opts \\ []), do: transition(:rollback, id, opts)
+  def retry(id, opts \\ []), do: transition(:retry, id, opts)
 
   defp transition(action, id, opts) when is_binary(id) do
     scope = Keyword.get(opts, :scope)

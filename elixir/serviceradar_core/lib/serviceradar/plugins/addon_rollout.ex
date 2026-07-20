@@ -82,7 +82,7 @@ defmodule ServiceRadar.Plugins.AddonRollout do
       allow_nil? false
       public? true
       default :track_latest
-      constraints one_of: [:track_latest, :manual]
+      constraints one_of: [:track_latest, :manual, :retry]
     end
 
     attribute :state, :atom do

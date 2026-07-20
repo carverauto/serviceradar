@@ -310,6 +310,44 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     assert get_assignment(fixture.assignment.id, actor).addon_package_id == fixture.current.id
   end
 
+  test "an authorized retry creates a fresh attempt without discarding failed rollout evidence" do
+    actor = SystemActor.system(:addon_rollout_retry_test)
+    fixture = rollout_fixture(actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.assignment, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    failed_at = DateTime.add(fixture.started_at, 1)
+    report_status(fixture, fixture.candidate.version, "unhealthy", false, failed_at, actor)
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: failed_at)
+
+    recovered_at = DateTime.add(failed_at, 1)
+    report_status(fixture, fixture.current.version, "running", true, recovered_at, actor)
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: recovered_at)
+    assert :ok = AddonRolloutCoordinator.resume(rollout.id, actor: actor, now: recovered_at)
+    assert get_rollout(rollout.id, actor).state == :failed
+
+    retry_at = DateTime.add(recovered_at, 1)
+
+    assert {:ok, retried} =
+             AddonRolloutCoordinator.retry(rollout.id, actor: actor, now: retry_at)
+
+    assert retried.id != rollout.id
+    assert retried.trigger == :retry
+    assert retried.state == :running
+    assert get_rollout(rollout.id, actor).state == :failed
+    assert get_rollout_target(retried.id, actor).state == :waiting_health
+
+    assignment = get_assignment(fixture.assignment.id, actor)
+    assert assignment.addon_package_id == fixture.current.id
+    assert assignment.rollout_package_id == fixture.candidate.id
+    assert assignment.rollout_id == retried.id
+  end
+
   test "whole-rollout rollback restores prior desired state before becoming terminal" do
     actor = SystemActor.system(:addon_rollout_whole_rollback_test)
     fixture = rollout_fixture(actor)
