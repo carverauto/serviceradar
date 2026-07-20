@@ -276,50 +276,35 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecovery do
   def classify(_assignment), do: :not_recoverable
 
   defp recover_automatic_candidate(assignment, opts) do
-    case recoverable_package(assignment.plugin_package_id, @automatic_recovery_actor, :automatic) do
-      {:ok, _package} ->
-        case automatic_terminal_audit(assignment.id) do
-          {:ok, %PluginAssignmentRecoveryAudit{outcome: :recovered} = audit} ->
-            {:ok,
-             %{
-               outcome: :recovered,
-               legacy_assignment_id: assignment.id,
-               replacement_assignment_id: audit.replacement_assignment_id,
-               idempotent?: true
-             }}
+    case automatic_terminal_audit(assignment.id) do
+      {:ok, %PluginAssignmentRecoveryAudit{outcome: :recovered} = audit} ->
+        {:ok,
+         %{
+           outcome: :recovered,
+           legacy_assignment_id: assignment.id,
+           replacement_assignment_id: audit.replacement_assignment_id,
+           idempotent?: true
+         }}
 
-          {:ok, %PluginAssignmentRecoveryAudit{} = audit} ->
-            {:ok,
-             %{
-               outcome: :deferred,
-               legacy_assignment_id: assignment.id,
-               reason: audit.reason
-             }}
-
-          {:ok, nil} ->
-            assignment.id
-            |> run_recovery_transaction(@automatic_recovery_actor, opts, :automatic)
-            |> normalize_automatic_recovery_result(assignment.id)
-
-          {:error, reason} ->
-            {:error, reason}
-        end
-
-      {:error, {:package_unavailable, :plugin_package_not_trusted}} ->
+      {:ok, %PluginAssignmentRecoveryAudit{} = audit} ->
         {:ok,
          %{
            outcome: :deferred,
            legacy_assignment_id: assignment.id,
-           reason: :plugin_package_not_trusted
+           reason: audit.reason
          }}
 
-      {:error, {_outcome, reason}} ->
-        {:ok,
-         %{
-           outcome: :deferred,
-           legacy_assignment_id: assignment.id,
-           reason: reason
-         }}
+      {:ok, nil} ->
+        # Run every first attempt through the transaction so terminal package
+        # trust and approval failures are recorded in the immutable audit.
+        # Returning them before the transaction made those rows eligible for
+        # every periodic sweep despite the documented terminal-outcome rule.
+        assignment.id
+        |> run_recovery_transaction(@automatic_recovery_actor, opts, :automatic)
+        |> normalize_automatic_recovery_result(assignment.id)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -353,6 +338,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecovery do
              :bound_manual_assignment_conflict,
              :params_not_recoverable,
              :plugin_package_not_found,
+             :plugin_package_not_approved,
              :plugin_package_not_trusted
            ] ->
         {:ok, audit}
