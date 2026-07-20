@@ -450,6 +450,88 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     )
   end
 
+  @doc """
+  Dispatch an ad-hoc network scan (ICMP/TCP/MTR) to a single agent.
+
+  Runs on the ephemeral `scan.run_adhoc` command path; the agent scans the
+  supplied targets with throwaway engine instances and never touches its
+  scheduled sweep config. `opts` accepts `:scan_run_id`, `:ports`, `:modes`,
+  `:timeout_ms`, `:concurrency`, `:icmp_count`, `:mtr_protocol`,
+  `:mtr_max_hops`, plus the usual `:actor`/`:context`/`:ttl_seconds`.
+  """
+  def dispatch_adhoc_scan(agent_id, targets, opts \\ []) when is_list(targets) do
+    normalized_targets =
+      targets
+      |> Enum.map(&to_string/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    modes =
+      opts
+      |> Keyword.get(:modes, ["icmp"])
+      |> List.wrap()
+      |> Enum.map(&(&1 |> to_string() |> String.downcase()))
+      |> Enum.filter(&(&1 in ["icmp", "tcp", "mtr"]))
+      |> Enum.uniq()
+
+    ports =
+      opts
+      |> Keyword.get(:ports, [])
+      |> List.wrap()
+      |> Enum.map(&normalize_port/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    payload =
+      %{
+        "targets" => normalized_targets,
+        "modes" => modes,
+        "ports" => ports
+      }
+      |> maybe_put("scan_run_id", normalize_optional_string(Keyword.get(opts, :scan_run_id)))
+      |> maybe_put("timeout_ms", Keyword.get(opts, :timeout_ms))
+      |> maybe_put("concurrency", Keyword.get(opts, :concurrency))
+      |> maybe_put("icmp_count", Keyword.get(opts, :icmp_count))
+      |> maybe_put("mtr_protocol", normalize_optional_string(Keyword.get(opts, :mtr_protocol)))
+      |> maybe_put("mtr_max_hops", Keyword.get(opts, :mtr_max_hops))
+
+    ttl_seconds =
+      opts
+      |> Keyword.get(:ttl_seconds, adhoc_scan_ttl_seconds(length(normalized_targets), modes))
+      |> max(60)
+
+    dispatch(agent_id, "scan.run_adhoc", payload,
+      ttl_seconds: ttl_seconds,
+      required_capability: "scan.run_adhoc",
+      context: Keyword.get(opts, :context, %{}),
+      actor: Keyword.get(opts, :actor)
+    )
+  end
+
+  defp normalize_port(value) do
+    port =
+      case value do
+        v when is_integer(v) -> v
+        v when is_binary(v) -> String.to_integer(String.trim(v))
+        _ -> nil
+      end
+
+    if is_integer(port) and port > 0 and port <= 65_535, do: port
+  rescue
+    ArgumentError -> nil
+  end
+
+  # Budget ~1s/target for ICMP/TCP and ~15s/target when MTR is requested, with a
+  # 10-minute ceiling matching the agent's default scan deadline.
+  defp adhoc_scan_ttl_seconds(target_count, modes) do
+    per_target = if "mtr" in modes, do: 15, else: 1
+
+    (target_count * per_target + 30)
+    |> min(600)
+    |> max(60)
+  end
+
   def dispatch_endpoint_inventory_cache_query(agent_id, payload, opts \\ [])
       when is_map(payload) do
     payload = normalize_endpoint_inventory_query_payload(payload)
