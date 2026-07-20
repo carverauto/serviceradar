@@ -21,30 +21,49 @@
   using resource-gating; confirm catalog key-existence test passes.
 
 ## 3. Agent side (Go)
+- [ ] 3.0 Add `ModeMTR` to `models.SweepMode` (`go/pkg/models/sweep.go`);
+  teach the sweep engine to run MTR per target via `mtr.Tracer` as a
+  first-class mode (used by both ad-hoc and scheduled sweeps).
 - [ ] 3.1 Add `commandTypeAdhocScan = "scan.run_adhoc"` +
   `handleAdhocScan` in `go/pkg/agent/control_stream.go` (payload
   `{scan_run_id, targets, ports, modes, timeout_ms, concurrency,
-  icmp_count}`), building `[]models.Target` and running an ephemeral
-  `NetworkSweeper.RunOnce` (ICMP `NewICMPSweeper`, TCP `NewTCPSweeper`).
-- [ ] 3.2 Progress batching (reuse `mtr.bulk_run` progress shape) +
-  `CommandAck`/TTL handling.
-- [ ] 3.3 `adhoc-scan-metrics` `MetricBatch` builder in
-  `metric_envelope.go` (carry `scan_run_id`, per-target/per-port fields);
-  emit on the `metrics.>` JetStream path (NOT a direct DB write, NOT the
-  CommandResult as source of truth).
+  icmp_count, mtr_protocol, mtr_max_hops}`), building `[]models.Target`
+  and running an ephemeral scan for all requested modes (ICMP
+  `NewICMPSweeper`, TCP `NewTCPSweeper`, MTR `mtr.Tracer`) in throwaway
+  instances. MUST NOT touch `MultiSweepService`/scheduled config or reuse
+  `sweep.run_group`.
+- [ ] 3.2 Progress batching (result rows per completed target/port) +
+  `CommandAck`/TTL handling; final summary CommandResult.
+- [ ] 3.3 Return structured result rows in the command channel for live UI;
+  the durable copy is published to JetStream by core (see 4.2/4.3), NOT a
+  direct agent/gateway DB write. MTR rows carry both the reachability
+  summary and the full trace payload.
 - [ ] 3.4 Advertise the `scan.run_adhoc` capability in the agent hello.
-- [ ] 3.5 Thread `scan_run_id` into the `mtr.bulk_run` payload (additive).
-- [ ] 3.6 Go tests: payload parse, target build, ICMP/TCP result mapping,
-  progress batching, envelope contents. `gofmt` + BUILD.bazel updates;
-  `bazel build //go/pkg/agent/...`.
+- [ ] 3.5 Go tests: payload parse, target build, ICMP/TCP/MTR result
+  mapping, progress batching. `gofmt` + BUILD.bazel updates;
+  `bazel build //go/pkg/agent/... //go/pkg/scan/... //go/pkg/sweeper/...`.
+
+## 3b. Scheduled sweep-profile MTR (Go engine + Elixir compiler + Settings UI)
+- [ ] 3b.1 Sweep engine accepts `mtr` in `SweepModes` for scheduled sweeps
+  (reuse the 3.0 engine work).
+- [ ] 3b.2 Elixir sweep-profile schema + the sweep-config compiler
+  (`SweepJobs`/sweep-config path) accept `mtr` in a profile's modes and emit
+  it into the compiled agent sweep config.
+- [ ] 3b.3 Settings sweep-profile editor LiveView: add an MTR mode option
+  alongside ICMP/TCP (+ MTR options: protocol, max hops).
 
 ## 4. Dispatch + ingestion (serviceradar_core)
 - [ ] 4.1 `AgentCommandBus.dispatch_adhoc_scan/3` (concurrency caps,
   `required_capability: "scan.run_adhoc"`), mirroring `dispatch_bulk_mtr`.
-- [ ] 4.2 `ResultsRouter` clause for `adhoc-scan-metrics`.
+- [ ] 4.2 On receiving `scan.run_adhoc` progress/result over the command
+  channel, core publishes the result rows onto a JetStream subject (so they
+  traverse JetStream before the DB, per the hard rule); the command channel
+  itself is live-UI only.
 - [ ] 4.3 EventWriter processor `event_writer/processors/adhoc_scan.ex` ->
-  `adhoc_scan_results`; wire into the processor registry.
-- [ ] 4.4 Update `ScanRun` status from progress/terminal events (PubSub).
+  `adhoc_scan_results`; MTR rows also persist the full trace to
+  `mtr_traces`/`mtr_hops`. Wire into the processor registry.
+- [ ] 4.4 Update `ScanRun` status/counters from progress/terminal events
+  (PubSub) so the LiveView reflects live state.
 - [ ] 4.5 ExUnit: dispatch gating, router routing, processor persistence
   (`:integration` where a DB is needed).
 

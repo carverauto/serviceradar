@@ -23,17 +23,46 @@ source to a new EventWriter processor that writes `adhoc_scan_results`. The
 never the system of record. This keeps results subscribable and
 rule-compliant while still feeling instant in the UI.
 
-### D2: `ScanRun` aggregate; reuse existing dispatch; MTR stays on its path
-One `ScanRun` row models a user's scan and fans out on the agent bus:
-- ICMP/TCP -> **new** `scan.run_adhoc` command (inline target+port list),
-  modeled byte-for-byte on `mtr.bulk_run`'s inline-list + progress-batch
-  shape, running an ephemeral `NetworkSweeper.RunOnce` (no `SweepGroupID`).
-- MTR -> the **existing** `mtr.bulk_run`, tagged with `scan_run_id`. No
-  second MTR implementation. MTR traces stay in `mtr_traces`/`mtr_hops`;
-  the UI and export join them to `adhoc_scan_results` on `scan_run_id`.
+### D2: `ScanRun` aggregate; one `scan.run_adhoc` command; MTR is a first-class sweep mode
+One `ScanRun` row models a user's scan and dispatches a **single** new
+`scan.run_adhoc` command (inline target + port list) to the chosen agent.
+The handler runs an **ephemeral** sweep supporting all requested modes and
+never mutates the agent's persisted/scheduled sweep config (see D4).
 
-Two result stores is the deliberate cost of reusing MTR wholesale; the join
-key makes it invisible to users.
+MTR is promoted to a first-class `SweepMode` (`ModeMTR`) rather than a
+separate command:
+- `models.SweepMode` gains `ModeMTR`; the sweep engine runs MTR per target
+  via the existing `mtr.Tracer` engine (reuse at the engine level).
+- A sweep/scan config carries `modes: [icmp, tcp, mtr]` uniformly — for
+  ad-hoc runs **and** scheduled sweep profiles (D5).
+
+MTR's richer result shape is handled by writing to two stores, keyed by
+`scan_run_id`:
+- a **reachability summary row** in `adhoc_scan_results` (`mode = "mtr"`,
+  `available` = target reached, `response_ms` = end-to-end RTT) so it sits
+  in the unified results table beside ICMP/TCP, and
+- the **full per-hop trace** into the existing `mtr_traces`/`mtr_hops`
+  hypertables (reusing that schema) so the UI can expand a row to the hop
+  path.
+
+Both traverse JetStream (D1). The join key makes the two stores invisible to
+users. This supersedes the earlier "dispatch a separate `mtr.bulk_run`" plan.
+
+### D4: Ephemeral runs never clobber the scheduled sweep config
+`scan.run_adhoc` constructs throwaway scanner/sweeper instances scoped to the
+command and returns results; it MUST NOT call the persistent
+`MultiSweepService` `UpdateConfig`/`UpdateSweepGroups` path, and MUST NOT
+reuse `sweep.run_group` (which operates on persisted group IDs). The agent's
+configured, scheduled sweep groups are therefore never touched by an ad-hoc
+run.
+
+### D5: MTR mode in scheduled sweep profiles + Settings UI
+Because `ModeMTR` is a first-class sweep mode, the scheduled sweep-profile
+schema (Elixir sweep-config resource + the compiler that emits agent sweep
+config) SHALL allow `mtr` in a profile's modes, and the Settings sweep-profile
+editor SHALL expose an MTR option alongside ICMP/TCP. A scheduled profile with
+MTR enabled runs MTR on its interval through the same engine path; its results
+follow the same JetStream + `mtr_traces` persistence as ad-hoc MTR.
 
 ## Data model
 
@@ -57,11 +86,12 @@ key makes it invisible to users.
 
 ## Command + subject names
 
-- Agent command type: `scan.run_adhoc` (new). Payload:
-  `{scan_run_id, targets []string, ports []int, modes []string,
-  timeout_ms, concurrency, icmp_count}`.
-- MTR: existing `mtr.bulk_run`, payload extended with `scan_run_id`
-  (additive; existing callers omit it).
+- Agent command type: `scan.run_adhoc` (new) — the single command for all
+  requested modes. Payload:
+  `{scan_run_id, targets []string, ports []int, modes []string ("icmp"/
+  "tcp"/"mtr"), timeout_ms, concurrency, icmp_count, mtr_protocol,
+  mtr_max_hops}`. The handler runs ICMP/TCP via the sweep scanners and MTR
+  via `mtr.Tracer`, all in one ephemeral pass.
 - JetStream: reuse the `metrics.>` stream; new `MetricBatch` `Source =
   "adhoc-scan-metrics"`. New `ResultsRouter` clause + EventWriter processor
   `event_writer/processors/adhoc_scan.ex` -> `adhoc_scan_results`.
@@ -115,11 +145,20 @@ builder. Both stream the joined result set for a `scan_run_id`.
   the optional inventory-scoping guardrail + agent capability, and every
   run is recorded as a `ScanRun` for audit.
 
-## Follow-up (separate change)
+## Target architecture: all MTR routes through the sweep engine
 
-Migrate the on-demand MTR ingestion (`mtr.bulk_run` / `mtr.run` ->
-`StatusHandler` -> `MtrMetricsIngestor` direct Ash write) onto the same
-JetStream path this change establishes, so ICMP/TCP **and** MTR both satisfy
-the metrics-through-JetStream rule and MTR drops its direct-write exception.
-Tracked as forgejo issue #4669; this change reuses the current MTR path
-unchanged in the interim and does not block on the migration.
+The intended end state is that **every** MTR execution — ad-hoc, scheduled
+sweep profile, and the existing dedicated MTR automation — runs as the `mtr`
+sweep mode through the shared sweep engine, and MTR results reach CNPG via
+JetStream + the event-writer pipeline (never a direct Ash write). This change
+establishes that path for ad-hoc + scheduled-profile MTR.
+
+Retiring the **standalone** MTR paths — the `check_type: "mtr"` scheduled
+checker (`mtr_checker.go`), the `mtr.run` / `mtr.bulk_run` on-demand commands,
+and the direct-write ingestion (`StatusHandler` -> `MtrMetricsIngestor`) — and
+re-pointing the existing MTR automation (baseline/consensus workers) at the
+sweep-engine path is a **phased follow-on**, because that machinery has its own
+baseline/trigger/consensus behavior that must be preserved. It folds in the
+JetStream migration tracked as forgejo issue #4669. Until then, the legacy MTR
+checker/automation continues on its current path unchanged; this change does
+not remove it.

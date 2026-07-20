@@ -22,28 +22,36 @@ RBAC to drive it safely.
 
 ## What Changes
 
-### Scan job model — a `ScanRun` aggregate that reuses existing dispatch
+### Scan job model — a `ScanRun` aggregate dispatched as one command
 - **ADD** an Ash aggregate `ServiceRadar.Scans.ScanRun` (schema `platform`)
   capturing one user-initiated scan: chosen `agent_id`, requested `modes`
   (`icmp` / `tcp` / `mtr`), `ports`, the normalized target list, options
   (timeouts/concurrency/ICMP count/MTR protocol+max-hops), `status`
   (`pending`/`running`/`partial`/`completed`/`failed`), counts, and
-  timestamps. One ScanRun fans out to the agent:
-  - ICMP and/or TCP -> a **new** `scan.run_adhoc` agent command carrying
-    the inline target+port list (modeled on `mtr.bulk_run`).
-  - MTR -> the **existing** `mtr.bulk_run` command, unchanged, tagged with
-    the `scan_run_id` so its traces correlate back to the ScanRun.
+  timestamps. One ScanRun dispatches a **single** `scan.run_adhoc` command
+  (all requested modes) to the chosen agent.
 - **ADD** `AgentCommandBus.dispatch_adhoc_scan/3` (+ concurrency caps and
   `required_capability` gating) mirroring `dispatch_bulk_mtr/3`.
 
-### Agent side (Go) — one new command handler
+### MTR becomes a first-class sweep mode
+- **ADD** `ModeMTR` to `models.SweepMode` so a sweep/scan config carries
+  `modes: [icmp, tcp, mtr]` uniformly. The sweep engine runs MTR per target
+  via the existing `mtr.Tracer` engine (reuse at the engine level, not a
+  second command). This supersedes dispatching a separate `mtr.bulk_run`.
+- **EXTEND** the scheduled sweep-profile schema + the Elixir sweep-config
+  compiler to allow `mtr` in a profile's modes, and **ADD** an MTR option to
+  the Settings sweep-profile editor (alongside ICMP/TCP). Scheduled profiles
+  with MTR run it on their interval through the same engine path.
+
+### Agent side (Go) — one ephemeral command handler
 - **ADD** `commandTypeAdhocScan = "scan.run_adhoc"` to
   `go/pkg/agent/control_stream.go`, with a handler that builds
-  `[]models.Target` from the payload and runs an **ephemeral**
-  `sweeper.NewNetworkSweeper` (ICMP via `NewICMPSweeper`, TCP via
-  `NewTCPSweeper`) `RunOnce`, bypassing the scheduled `SweepGroupID`
-  machinery. Streams `CommandProgress` batches for large lists (reusing the
-  `mtr.bulk_run` progress-batching shape) and emits results.
+  `[]models.Target` from the payload and runs an **ephemeral** sweep for all
+  requested modes — ICMP via `NewICMPSweeper`, TCP via `NewTCPSweeper`, MTR
+  via `mtr.Tracer` — in throwaway instances scoped to the command. It MUST
+  NOT touch the persistent `MultiSweepService`/scheduled sweep config and
+  MUST NOT reuse `sweep.run_group`. Streams `CommandProgress` result batches
+  for large lists and emits a final summary.
 - **ADD** the `scan.run_adhoc` capability to the agent's advertised
   capability set so dispatch can gate on it.
 
@@ -63,8 +71,10 @@ RBAC to drive it safely.
   hypertable (reusing `maybe_create_hypertable` + `add_retention_policy`,
   default 30-day retention) and a read-only Ash resource
   `ServiceRadar.Scans.ScanResult` (`migrate? false`) with `by_scan_run`,
-  `by_agent`, `recent` reads. MTR results continue to land in the existing
-  `mtr_traces`/`mtr_hops`; the UI and export join both under `scan_run_id`.
+  `by_agent`, `recent` reads. MTR mode writes a reachability summary row to
+  `adhoc_scan_results` (`mode="mtr"`) **and** the full per-hop trace to the
+  existing `mtr_traces`/`mtr_hops`; the UI and export join both under
+  `scan_run_id`.
 
 ### Web-ng UI — LiveView
 - **ADD** a `ScanLive` LiveView: paste a target list into a textarea, or

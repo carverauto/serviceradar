@@ -41,25 +41,45 @@ them before dispatch.
   the user confirms the scan
 
 ### Requirement: Reuse the on-demand agent command bus
-Ad-hoc scans SHALL be dispatched over the existing addressed-to-one-agent
-command bus. ICMP/TCP SHALL use a new inline-target-list command; MTR SHALL
-reuse the existing bulk-MTR command, correlated to the same `ScanRun`.
+Ad-hoc scans SHALL be dispatched as a single `scan.run_adhoc` command over
+the existing addressed-to-one-agent command bus, carrying all requested
+modes (icmp/tcp/mtr) with the inline target and port list. The command SHALL
+run in an ephemeral engine pass that never mutates the agent's scheduled
+sweep config.
 
-#### Scenario: ICMP/TCP dispatch
-- **WHEN** a `ScanRun` requests `icmp` and/or `tcp`
-- **THEN** the system SHALL dispatch a `scan.run_adhoc` command carrying the
-  inline target and port list to the chosen agent, subject to TTL and
-  per-agent concurrency limits
+#### Scenario: Single-command dispatch for all modes
+- **WHEN** a `ScanRun` requests any combination of `icmp`, `tcp`, and `mtr`
+- **THEN** the system SHALL dispatch one `scan.run_adhoc` command carrying
+  those modes, the target list, and (for tcp) the port list, subject to TTL
+  and per-agent concurrency limits
 
-#### Scenario: MTR dispatch reuses the existing command
-- **WHEN** a `ScanRun` requests `mtr`
-- **THEN** the system SHALL dispatch the existing bulk-MTR command tagged
-  with the `scan_run_id`, without introducing a second MTR implementation
+#### Scenario: Ephemeral run does not disturb scheduled sweeps
+- **WHEN** an agent receives a `scan.run_adhoc` command
+- **THEN** it SHALL run the scan using throwaway instances scoped to the
+  command and SHALL NOT modify or replace its persisted/scheduled sweep
+  configuration
 
 #### Scenario: Live progress during a large scan
 - **WHEN** an agent is running a scan over a large target list
 - **THEN** the agent SHALL stream progress updates over the command channel
   so the UI can show completion as targets finish
+
+### Requirement: MTR is a first-class sweep mode
+MTR SHALL be a first-class sweep mode (`mtr`) available to both ad-hoc scans
+and scheduled sweep profiles, running through the shared sweep engine rather
+than a separate command path.
+
+#### Scenario: MTR selectable in a scheduled sweep profile
+- **WHEN** an administrator edits a sweep profile in Settings
+- **THEN** `mtr` SHALL be selectable alongside `icmp` and `tcp`, and a saved
+  profile with `mtr` enabled SHALL run MTR on its interval through the sweep
+  engine
+
+#### Scenario: MTR results carry both a summary and the full trace
+- **WHEN** an ad-hoc or scheduled run executes `mtr` against a target
+- **THEN** the system SHALL record a reachability summary (target reached +
+  end-to-end RTT) in the unified results alongside ICMP/TCP, and SHALL retain
+  the full per-hop trace for that target
 
 ### Requirement: Durable results via JetStream
 Scan results SHALL be persisted by emitting them onto NATS JetStream and

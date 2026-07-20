@@ -120,11 +120,11 @@ defmodule ServiceRadar.Scans.ScanRun do
       public? true
     end
 
-    attribute :modes, {:array, :string} do
+    attribute :modes, {:array, ServiceRadar.Scans.ScanMode} do
       allow_nil? false
       public? true
-      constraints items: [one_of: ["icmp", "tcp", "mtr"]]
-      description "Requested scan modes"
+      constraints min_length: 1
+      description "Requested scan modes (icmp/tcp/mtr)"
     end
 
     attribute :ports, {:array, :integer} do
