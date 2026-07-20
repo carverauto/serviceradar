@@ -36,6 +36,27 @@ defmodule ServiceRadar.Cluster.StartupMigrationsUnitTest do
     refute sql =~ "AND p.prosecdef"
   end
 
+  test "continuous aggregate backing repair targets missing app-role SELECT privileges" do
+    assert StartupMigrations.continuous_aggregate_information_available_query_sql() ==
+             "SELECT to_regclass('timescaledb_information.continuous_aggregates') IS NOT NULL"
+
+    sql = StartupMigrations.continuous_aggregate_backing_privileges_query_sql()
+
+    assert sql =~ "timescaledb_information.continuous_aggregates"
+    assert sql =~ "ca.view_schema = 'platform'"
+    assert sql =~ "ca.view_owner = r.rolname"
+    assert sql =~ "NOT has_table_privilege(r.oid, materialization.oid, 'SELECT')"
+    assert sql =~ "ca.materialization_hypertable_schema"
+    assert sql =~ "ca.materialization_hypertable_name"
+
+    assert StartupMigrations.continuous_aggregate_backing_grant_statement(
+             "_timescaledb_internal",
+             "_materialized_hypertable_27",
+             "service\"radar"
+           ) ==
+             ~s{GRANT SELECT ON TABLE "_timescaledb_internal"."_materialized_hypertable_27" TO "service""radar"}
+  end
+
   test "function ownership repair excludes unrelated public functions" do
     sql = StartupMigrations.managed_function_ownership_query_sql()
 
