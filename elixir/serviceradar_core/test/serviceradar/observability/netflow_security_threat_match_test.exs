@@ -28,7 +28,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityThreatMatchTest do
 
     # Same extraction path NetflowSecurityRefreshWorker.engine_threat_matches uses.
     chain = Store.lookup("203.0.113.10", "ti")
-    assert length(chain) >= 1
+    assert chain != []
 
     all_tags = Enum.flat_map(chain, & &1.tags)
     sources = ThreatIntelSource.sources_from_tags(all_tags)
