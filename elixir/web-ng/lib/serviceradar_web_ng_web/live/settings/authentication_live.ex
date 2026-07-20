@@ -86,7 +86,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             <span class="loading loading-spinner loading-lg"></span>
           </div>
         <% else %>
-          <.form for={@form} phx-change="validate" phx-submit="save" class="space-y-6">
+          <% sso_enabled = sso_enabled?(@form[:is_enabled].value, @form[:mode].value) %>
+          <.form
+            for={@form}
+            id="authentication-settings-form"
+            phx-change="validate"
+            phx-submit="save"
+            class="space-y-6"
+          >
             <.ui_panel>
               <:header>
                 <div class="flex items-center justify-between w-full">
@@ -101,15 +108,21 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                     <input
                       type="checkbox"
                       name="settings[is_enabled]"
-                      checked={@form[:is_enabled].value}
+                      checked={sso_enabled}
+                      disabled={password_only_mode?(@form[:mode].value)}
                       class="toggle toggle-primary"
                     />
                   </label>
                 </div>
               </:header>
 
-              <%= if @form[:is_enabled].value do %>
-                <div class="alert alert-success">
+              <%= if sso_enabled do %>
+                <div
+                  id="authentication-status"
+                  class="alert alert-success"
+                  data-auth-mode={@form[:mode].value}
+                  data-sso-enabled="true"
+                >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     class="stroke-current shrink-0 h-6 w-6"
@@ -126,7 +139,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                   <span>SSO authentication is enabled.</span>
                 </div>
               <% else %>
-                <div class="alert">
+                <div
+                  id="authentication-status"
+                  class="alert"
+                  data-auth-mode={@form[:mode].value}
+                  data-sso-enabled="false"
+                >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     fill="none"
@@ -141,7 +159,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                     >
                     </path>
                   </svg>
-                  <span>SSO is disabled. Users will authenticate with password only.</span>
+                  <span>
+                    <%= if password_only_mode?(@form[:mode].value) do %>
+                      Password authentication is active. SSO is not configured.
+                    <% else %>
+                      SSO is disabled. Users will authenticate with password only.
+                    <% end %>
+                  </span>
                 </div>
               <% end %>
             </.ui_panel>
@@ -1032,7 +1056,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
   # Validate OIDC/SAML configuration before enabling
   defp validate_before_enable(params, update_params) do
-    is_enabling = params["is_enabled"] == "true"
+    is_enabling = update_params[:is_enabled]
     mode = update_params[:mode]
     provider_type = update_params[:provider_type]
 
@@ -1260,10 +1284,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   end
 
   defp settings_to_form_data(settings) when is_map(settings) do
+    mode = Map.get(settings, :mode, :password_only)
+
     %{
-      "is_enabled" => Map.get(settings, :is_enabled, false),
+      "is_enabled" => sso_enabled?(Map.get(settings, :is_enabled, false), mode),
       "sso_auto_provision" => Map.get(settings, :sso_auto_provision, false),
-      "mode" => Map.get(settings, :mode, :password_only),
+      "mode" => mode,
       "provider_type" => Map.get(settings, :provider_type),
       # OIDC settings
       "oidc_discovery_url" => Map.get(settings, :oidc_discovery_url),
@@ -1285,11 +1311,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   end
 
   defp merge_form_params(existing, new_params) do
-    existing
-    |> Map.merge(new_params)
+    form_data = Map.merge(existing, new_params)
+
+    form_data
     |> Map.put(
       "is_enabled",
-      new_params["is_enabled"] == "true" || new_params["is_enabled"] == true
+      sso_enabled?(
+        Map.get(new_params, "is_enabled", Map.get(existing, "is_enabled", false)),
+        Map.get(form_data, "mode")
+      )
     )
     |> Map.put(
       "sso_auto_provision",
@@ -1298,10 +1328,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   end
 
   defp build_update_params(params) do
+    mode = String.to_existing_atom(params["mode"] || "password_only")
+
     base = %{
-      is_enabled: params["is_enabled"] == "true",
+      is_enabled: sso_enabled?(params["is_enabled"], mode),
       sso_auto_provision: params["sso_auto_provision"] == "true",
-      mode: String.to_existing_atom(params["mode"] || "password_only")
+      mode: mode
     }
 
     base =
@@ -1355,6 +1387,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp sso_enabled?(enabled, mode)
+       when enabled in [true, "true"] and mode in [:active_sso, "active_sso", :passive_proxy, "passive_proxy"], do: true
+
+  defp sso_enabled?(_enabled, _mode), do: false
+
+  defp password_only_mode?(mode), do: not sso_enabled?(true, mode)
 
   defp update_settings(settings, params, user) when is_struct(settings) do
     AuthSettings.update(settings, params, actor: user)
