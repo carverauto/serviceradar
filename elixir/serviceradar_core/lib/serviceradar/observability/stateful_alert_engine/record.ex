@@ -95,11 +95,27 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Record do
   end
 
   def source_record_details(record) do
-    cond do
-      metric_record?(record) -> metric_source_details(record)
-      record_has_time?(record) -> event_source_details(record)
-      true -> log_source_details(record)
+    details =
+      cond do
+        metric_record?(record) -> metric_source_details(record)
+        record_has_time?(record) -> event_source_details(record)
+        true -> log_source_details(record)
+      end
+
+    if synthetic_liveness_check?(record) do
+      Map.put(details, "source_synthetic_liveness_check", true)
+    else
+      details
     end
+  end
+
+  def synthetic_liveness_check?(record) do
+    metadata = fetch_attr(record, :metadata) || %{}
+
+    service_radar =
+      map_value(metadata, "service_radar") || map_value(metadata, "serviceradar") || %{}
+
+    map_value(service_radar, "synthetic_liveness_check") == true
   end
 
   def event_source_details(record) do

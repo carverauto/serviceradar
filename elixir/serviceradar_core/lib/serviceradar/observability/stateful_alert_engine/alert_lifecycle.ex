@@ -27,13 +27,21 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
 
   def create_event_and_alert(rule, snapshot, record, now) do
     event = build_event(rule, snapshot, record, now)
+    synthetic_liveness_check? = synthetic_liveness_check?(record)
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:alert_engine)
 
     with {:ok, ocsf_event} <- record_event(event, actor) do
-      case AlertGenerator.from_event(ocsf_event, actor: actor, alert: rule.alert) do
+      case AlertGenerator.from_event(ocsf_event,
+             actor: actor,
+             alert: alert_config(rule, record),
+             notify?: not synthetic_liveness_check?
+           ) do
         {:ok, %Alert{} = alert} ->
-          record_history(rule, snapshot, :fired, now, alert.id, %{"event_id" => ocsf_event.id})
+          if !synthetic_liveness_check? do
+            record_history(rule, snapshot, :fired, now, alert.id, %{"event_id" => ocsf_event.id})
+          end
+
           {:ok, alert.id}
 
         {:ok, :skipped} ->
@@ -69,7 +77,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
         |> Ash.update()
         |> case do
           {:ok, _} ->
-            record_history(rule, snapshot, :recovered, now, alert_id, %{})
+            if !synthetic_liveness_snapshot?(snapshot) do
+              record_history(rule, snapshot, :recovered, now, alert_id, %{})
+            end
+
             :ok
 
           {:error, reason} ->
@@ -205,6 +216,17 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
     source = source_record_details(record)
     diagnostics = diagnostic_summary(rule, snapshot, now, source)
 
+    serviceradar_metadata =
+      maybe_mark_synthetic_liveness(
+        %{
+          stateful_rule: true,
+          rule_id: to_string(rule.id),
+          group_key: snapshot.group_key,
+          diagnostics: diagnostics
+        },
+        record
+      )
+
     Map.put(
       %{
         time: now,
@@ -224,12 +246,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
             correlation_uid: "stateful_rule:#{rule.id}:#{snapshot.group_key}"
           ]
           |> OCSF.build_metadata()
-          |> Map.put(:serviceradar, %{
-            stateful_rule: true,
-            rule_id: to_string(rule.id),
-            group_key: snapshot.group_key,
-            diagnostics: diagnostics
-          }),
+          |> Map.put(:serviceradar, serviceradar_metadata),
         actor: OCSF.build_actor(app_name: "serviceradar.core", process: "stateful_alert_engine"),
         log_name: rule.event["log_name"] || rule.event[:log_name] || "alert.rule.threshold",
         log_provider: "serviceradar.core",
@@ -238,6 +255,50 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
       :unmapped,
       build_unmapped(rule, snapshot, source, diagnostics)
     )
+  end
+
+  defp alert_config(rule, record) do
+    alert = rule.alert || %{}
+
+    if synthetic_liveness_check?(record) do
+      metadata =
+        alert
+        |> then(&(Map.get(&1, "metadata") || Map.get(&1, :metadata)))
+        |> case do
+          %{} = metadata -> metadata
+          _ -> %{}
+        end
+        |> Map.put("synthetic_liveness_check", true)
+        |> Map.put("synthetic_liveness_series_key", synthetic_liveness_series_key(record))
+
+      Map.put(alert, "metadata", metadata)
+    else
+      alert
+    end
+  end
+
+  defp maybe_mark_synthetic_liveness(metadata, record) do
+    if synthetic_liveness_check?(record) do
+      metadata
+      |> Map.put(:synthetic_liveness_check, true)
+      |> Map.put(:synthetic_liveness_series_key, synthetic_liveness_series_key(record))
+    else
+      metadata
+    end
+  end
+
+  defp synthetic_liveness_series_key(record) do
+    record
+    |> event_unmapped()
+    |> then(&(Map.get(&1, "anomaly") || Map.get(&1, :anomaly)))
+    |> case do
+      %{} = anomaly -> Map.get(anomaly, "series_key") || Map.get(anomaly, :series_key)
+      _ -> nil
+    end
+  end
+
+  defp synthetic_liveness_snapshot?(snapshot) do
+    get_in(snapshot, [:diagnostics, "latest_source", "source_synthetic_liveness_check"]) == true
   end
 
   defp build_unmapped(rule, snapshot, source, diagnostics) do

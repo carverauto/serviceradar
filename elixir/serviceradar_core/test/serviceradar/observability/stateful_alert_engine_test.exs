@@ -554,7 +554,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert resolved_alert.status == :resolved
   end
 
-  test "anomaly alert liveness check fires and resolves a synthetic drift episode", %{
+  test "anomaly alert liveness check fires, resolves, and discards synthetic artifacts", %{
     actor: actor
   } do
     now = DateTime.utc_now()
@@ -572,8 +572,18 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert result.device_uid == "sr:anomaly-alert-liveness"
     assert result.resolved_at
 
-    {:ok, alert} = Alert.get_by_id(result.alert_id, actor: actor)
-    assert alert.status == :resolved
+    assert {:error, _reason} = Alert.get_by_id(result.alert_id, actor: actor)
+
+    events =
+      OcsfEvent
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.read!()
+      |> Page.unwrap!()
+
+    refute Enum.any?(events, fn event ->
+             event.log_name == "alert.health.causal_prediction" and
+               get_in(event.unmapped || %{}, ["group_values", "anomaly.series_key"]) == series_key
+           end)
   end
 
   test "recovery on an already-terminal alert is an idempotent no-op (no KeyError, no re-resolve)",

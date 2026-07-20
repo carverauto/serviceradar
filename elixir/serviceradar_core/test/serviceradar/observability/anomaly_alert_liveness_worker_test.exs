@@ -38,7 +38,6 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessWorkerTest do
     assert check_opts[:series_key] == "synthetic:anomaly-alert-liveness:tripwire"
 
     assert_received {:health, "anomaly-alert-liveness", true, metadata}
-    assert metadata["alert_id"] == "alert-1"
     assert metadata["series_key"] == "synthetic:anomaly-alert-liveness:tripwire"
 
     refute_received {:cleanup, _series_key}
