@@ -5,6 +5,9 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessCheck do
   The check injects a synthetic confirmed anomaly open event directly into the
   stateful alert engine, verifies that the seeded anomaly rule created a
   persisted alert, injects a clear event, and verifies that the alert resolves.
+  Synthetic artifacts are marked as internal, excluded from outbound delivery,
+  and discarded after verification so the probe never surfaces as a customer
+  finding.
   It is designed for post-deploy smoke checks where a silent rule-shape or signal
   rename regression must fail the rollout.
   """
@@ -12,6 +15,7 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessCheck do
   alias Ash.Page.Keyset
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Monitoring.Alert
+  alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Observability.RuleSeeder
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.Observability.StatefulAlertRule
@@ -23,6 +27,7 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessCheck do
   @default_device_uid "sr:anomaly-alert-liveness"
   @default_timeout_ms 5_000
   @poll_ms 100
+  @probe_alert_scan_limit 25
 
   @type result :: %{
           rule_id: String.t(),
@@ -51,7 +56,8 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessCheck do
            StatefulAlertEngine.evaluate_events([
              event(:clear, clear_time, device_uid, series_key)
            ]),
-         {:ok, resolved} <- wait_for_resolved(actor, alert.id, timeout_ms) do
+         {:ok, resolved} <- wait_for_resolved(actor, alert.id, timeout_ms),
+         :ok <- discard_probe_artifacts(resolved) do
       {:ok,
        %{
          rule_id: to_string(rule.id),
@@ -66,16 +72,75 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessCheck do
 
   @doc """
   Best-effort cleanup after an interrupted run: injects the synthetic clear
-  transition for `series_key` so a lingering open liveness alert resolves.
-  Safe when nothing is open — the engine treats an unmatched clear as a no-op.
+  transition for `series_key`, resolves any lingering liveness alert, and
+  discards its internal alert/event artifacts. Safe when nothing is open — the
+  engine treats an unmatched clear as a no-op.
   """
   @spec emit_clear(String.t(), keyword()) :: :ok | {:error, term()}
   def emit_clear(series_key, opts \\ []) when is_binary(series_key) do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     device_uid = Keyword.get(opts, :device_uid, @default_device_uid)
+    timeout_ms = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
+    actor = Keyword.get(opts, :actor, SystemActor.system(:anomaly_alert_liveness))
+    alert = probe_alert_for_series(actor, series_key)
 
-    StatefulAlertEngine.evaluate_events([event(:clear, now, device_uid, series_key)])
+    with :ok <- StatefulAlertEngine.evaluate_events([event(:clear, now, device_uid, series_key)]) do
+      maybe_discard_active_probe(actor, alert, timeout_ms)
+    end
   end
+
+  defp maybe_discard_active_probe(_actor, nil, _timeout_ms), do: :ok
+
+  defp maybe_discard_active_probe(actor, alert, timeout_ms) do
+    with {:ok, resolved} <- wait_for_resolved(actor, alert.id, timeout_ms) do
+      discard_probe_artifacts(resolved)
+    end
+  end
+
+  defp discard_probe_artifacts(%Alert{} = alert) do
+    actor = SystemActor.system(:anomaly_alert_liveness_cleanup)
+
+    with :ok <- discard_probe_event(actor, alert) do
+      discard_probe_alert(actor, alert)
+    end
+  end
+
+  defp discard_probe_event(actor, %Alert{event_id: event_id, event_time: event_time})
+       when is_binary(event_id) and not is_nil(event_time) do
+    query =
+      OcsfEvent
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(id == ^event_id and time == ^event_time)
+
+    case Ash.read_one(query, actor: actor) do
+      {:ok, nil} ->
+        :ok
+
+      {:ok, event} ->
+        event
+        |> Ash.Changeset.for_destroy(:discard_internal_probe, %{}, actor: actor)
+        |> Ash.destroy()
+        |> normalize_discard_result(:event)
+
+      {:error, reason} ->
+        {:error, {:synthetic_event_lookup_failed, reason}}
+    end
+  end
+
+  defp discard_probe_event(_actor, _alert), do: {:error, :synthetic_event_identity_missing}
+
+  defp discard_probe_alert(actor, alert) do
+    alert
+    |> Ash.Changeset.for_destroy(:discard_internal_probe, %{}, actor: actor)
+    |> Ash.destroy()
+    |> normalize_discard_result(:alert)
+  end
+
+  defp normalize_discard_result(:ok, _artifact), do: :ok
+  defp normalize_discard_result({:ok, _record}, _artifact), do: :ok
+
+  defp normalize_discard_result({:error, reason}, artifact),
+    do: {:error, {:synthetic_artifact_cleanup_failed, artifact, reason}}
 
   defp seed_rules do
     case RuleSeeder.seed_all() do
@@ -181,6 +246,22 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessCheck do
       alert.title == @alert_title and
         get_in(alert.metadata || %{}, ["incident_group_values", "anomaly.series_key"]) ==
           series_key
+    end)
+  end
+
+  defp probe_alert_for_series(actor, series_key) do
+    Alert
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(title == @alert_title and source_type == :event)
+    |> Ash.Query.sort(event_time: :desc)
+    |> Ash.Query.limit(@probe_alert_scan_limit)
+    |> Ash.read(actor: actor)
+    |> unwrap_results()
+    |> Enum.find(fn alert ->
+      metadata = alert.metadata || %{}
+
+      metadata["synthetic_liveness_check"] == true and
+        metadata["synthetic_liveness_series_key"] == series_key
     end)
   end
 

@@ -96,6 +96,21 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
         AfterAction.after_action(changeset, &dispatch_northbound_event_handlers/1)
       end
     end
+
+    destroy :discard_internal_probe do
+      require_atomic? false
+
+      change fn changeset, _context ->
+        if synthetic_liveness_event?(changeset.data) do
+          changeset
+        else
+          Ash.Changeset.add_error(changeset,
+            field: :metadata,
+            message: "only synthetic liveness events can use this action"
+          )
+        end
+      end
+    end
   end
 
   policies do
@@ -116,7 +131,7 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
   end
 
   defp dispatch_northbound_event_handlers(event) do
-    if !northbound_handler_event?(event) do
+    if !northbound_handler_event?(event) and !synthetic_liveness_event?(event) do
       {:ok, _results} = EventHandlerRunner.handle_event(event)
       :ok
     end
@@ -136,6 +151,15 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
   end
 
   defp northbound_handler_event?(_event), do: false
+
+  defp synthetic_liveness_event?(%{metadata: %{} = metadata}) do
+    serviceradar = Map.get(metadata, "serviceradar") || Map.get(metadata, :serviceradar) || %{}
+
+    Map.get(serviceradar, "synthetic_liveness_check") == true ||
+      Map.get(serviceradar, :synthetic_liveness_check) == true
+  end
+
+  defp synthetic_liveness_event?(_event), do: false
 
   attributes do
     attribute :id, :uuid do
