@@ -117,6 +117,8 @@ pub(crate) mod runtime_graph_atoms {
         metadata,
         source,
         inference,
+        relation_type,
+        topology_plane,
         confidence_score
     }
 }

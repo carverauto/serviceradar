@@ -278,12 +278,28 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
         })
         .and_then(term_as_f64)
         .unwrap_or(0.0);
+    let metadata_relation_type = metadata_term
+        .and_then(|meta| map_get_any(meta, runtime_graph_atoms::relation_type(), "relation_type"))
+        .and_then(term_as_string)
+        .unwrap_or_default();
+    let metadata_topology_plane = metadata_term
+        .and_then(|meta| {
+            map_get_any(
+                meta,
+                runtime_graph_atoms::topology_plane(),
+                "topology_plane",
+            )
+        })
+        .and_then(term_as_string)
+        .unwrap_or_default();
 
     let metadata_json = json!({
         "source": metadata_source,
         "inference": metadata_inference,
         "confidence_tier": metadata_confidence_tier,
-        "confidence_score": metadata_confidence_score
+        "confidence_score": metadata_confidence_score,
+        "relation_type": metadata_relation_type,
+        "topology_plane": metadata_topology_plane
     })
     .to_string();
 

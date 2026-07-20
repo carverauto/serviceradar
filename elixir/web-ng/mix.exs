@@ -13,7 +13,17 @@ defmodule ServiceRadarWebNG.MixProject do
       deps: deps(),
       compilers: boundary_compilers() ++ [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
-      usage_rules: usage_rules()
+      usage_rules: usage_rules(),
+      # Keep Hex's advisory gate aligned with the documented, temporary
+      # exceptions in .deps_audit_ignore. See that file for mitigations and
+      # removal criteria for each advisory.
+      hex: [
+        ignore_advisories: [
+          "GHSA-4g2h-vm7x-747c",
+          "EEF-CVE-2026-43966",
+          "GHSA-g2wm-735q-3f56"
+        ]
+      ]
     ]
   end
 

@@ -1,3 +1,7 @@
+function isEndpointCensusSummary(node) {
+  return String(node?.details?.cluster_kind || "").trim() === "endpoint-summary"
+}
+
 export const godViewRenderingGraphDataMethods = {
   buildVisibleGraphData(effective) {
     const states = Uint8Array.from(effective.nodes.map((node) => node.state))
@@ -18,6 +22,15 @@ export const godViewRenderingGraphDataMethods = {
       const normalized = String(edge?.topologyClass || "").trim().toLowerCase()
       if (normalized === "endpoint") return "endpoints"
       return normalized || "unknown"
+    }
+
+    const attachmentCensusEdge = (edge) => {
+      if (effective.shape !== "local" || topologyLayers.backbone === false) return false
+      if (edgeTopologyClass(edge) !== "endpoints") return false
+
+      const source = effective.nodes[Number(edge?.source)]
+      const target = effective.nodes[Number(edge?.target)]
+      return isEndpointCensusSummary(source) || isEndpointCensusSummary(target)
     }
 
     if (endpointIncidentFlags) {
@@ -42,9 +55,12 @@ export const godViewRenderingGraphDataMethods = {
     for (let i = 0; i < effective.nodes.length; i += 1) {
       const stateVisible = stateMask[i] === 1
       const traversalVisible = !traversalMask || traversalMask[i] === 1
+      const attachmentCensusVisible =
+        topologyLayers.backbone !== false && isEndpointCensusSummary(effective.nodes[i])
       const endpointLayerVisible =
         !endpointIncidentFlags ||
         topologyLayers.endpoints !== false ||
+        attachmentCensusVisible ||
         endpointIncidentFlags[i].nonEndpoint ||
         !endpointIncidentFlags[i].endpoint
 
@@ -61,7 +77,7 @@ export const godViewRenderingGraphDataMethods = {
     const visibleById = new Map(visibleNodes.map((node) => [node.id, node]))
 
     const rawEdgeData = effective.edges
-      .filter((edge) => this.edgeEnabledByTopologyLayer(edge))
+      .filter((edge) => this.edgeEnabledByTopologyLayer(edge) || attachmentCensusEdge(edge))
       .map((edge, edgeIndex) => {
         const src =
           effective.shape === "local"

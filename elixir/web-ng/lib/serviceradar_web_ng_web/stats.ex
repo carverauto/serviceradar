@@ -42,6 +42,8 @@ defmodule ServiceRadarWebNGWeb.Stats do
 
   require Logger
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @type alerts_summary :: %{
           total: non_neg_integer(),
           pending: non_neg_integer(),
@@ -555,6 +557,8 @@ defmodule ServiceRadarWebNGWeb.Stats do
   # raw hypertable. Timescale's materialized CAGG does not contain the
   # in-progress hour, which made the cards show zero while the raw event list
   # already showed the same events.
+  # The query text is a fixed private function and `cutoff` is bound as $1.
+  @sobelow_skip ["SQL.Query"]
   defp event_summary_rows(cutoff) do
     case SQL.query(CoreRepo, event_summary_rollup_sql(), [cutoff]) do
       {:ok, %{rows: rows}} -> normalize_event_summary_rows(rows)
@@ -562,6 +566,8 @@ defmodule ServiceRadarWebNGWeb.Stats do
     end
   end
 
+  # The query text is a fixed private function and `cutoff` is bound as $1.
+  @sobelow_skip ["SQL.Query"]
   defp raw_event_summary_rows(cutoff) do
     case SQL.query(CoreRepo, raw_event_summary_sql(), [cutoff]) do
       {:ok, %{rows: rows}} -> normalize_event_summary_rows(rows)
