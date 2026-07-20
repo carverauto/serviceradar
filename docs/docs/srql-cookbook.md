@@ -209,6 +209,43 @@ in:flows src_cidr:10.0.0.0/8 time:last_1h sort:bytes_total:desc
 
 `src_cidr` / `dst_cidr` match flows inside a CIDR block.
 
+### Prefix tags (site / role / tenant)
+
+```
+in:flows tag:site:austin time:last_1h
+```
+
+```
+in:flows dst_tag:role:guest-wifi time:last_1h sort:bytes_total:desc
+```
+
+```
+in:flows tag:tenant:acme src_cidr:10.0.0.0/8 time:last_6h
+```
+
+`tag:` matches either side; `src_tag:` / `dst_tag:` are directional. Tags come from
+IPAM prefix enrichment (see [Prefix Tags](./prefix-tags.md)).
+
+### Proximity (geo cache)
+
+```
+in:flows near:30.2672,-97.7431,50km time:last_6h
+```
+
+```
+in:flows tag:ti:otx near:30.27,-97.74,50km time:last_24h
+```
+
+```
+in:flows dst_near:37.7749,-122.4194,25mi time:last_1h
+```
+
+`near:` matches if **either** endpoint's IP is within the radius of the coordinate
+according to `platform.ip_geo_enrichment_cache` (PostGIS `ST_DWithin` on the
+generated `location` geography). `src_near:` / `dst_near:` are directional.
+Radius units: `km` (default if omitted), `m`, `mi`. IPs missing from the geo
+cache are excluded from proximity matches without error.
+
 ### Traffic broken down by application
 
 ```srql

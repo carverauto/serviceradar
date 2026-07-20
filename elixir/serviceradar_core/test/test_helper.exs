@@ -6,10 +6,10 @@ if System.get_env("SRQL_TEST_DATABASE_URL") ||
      System.get_env("SERVICERADAR_TEST_DATABASE_URL") ||
      System.get_env("SRQL_TEST_DATABASE_URL_FILE") ||
      System.get_env("SERVICERADAR_TEST_DATABASE_URL_FILE") do
-  ExUnit.start(exclude: [:external, :cluster, :large_ingestion])
+  ExUnit.start(exclude: [:external, :cluster, :large_ingestion, :benchmark])
   ServiceRadar.TestSupport.start_core!(sandbox_owner?: false, sandbox_mode: :manual)
 else
-  ExUnit.start(exclude: [:integration, :external, :cluster, :large_ingestion])
+  ExUnit.start(exclude: [:integration, :external, :cluster, :large_ingestion, :benchmark])
 end
 
 # For integration tests that need the database, use:
@@ -31,3 +31,6 @@ end
 #
 # External tests call live third-party APIs and are excluded by default. Run them explicitly with:
 # mix test --include external --only <external_tag>
+#
+# Wall-clock prefix-tag benchmarks are excluded by default (flake under CI load). Run with:
+# mix test --include benchmark test/serviceradar/prefix_tags/benchmark_test.exs

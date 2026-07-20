@@ -376,16 +376,20 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
       "protocol_name" => protocol_name,
       "protocol_num" => protocol_num,
       "flow_source" => flow_source,
-      "enrichment" => %{
-        "protocol_source" => enrichment.protocol_source,
-        "tcp_flags_labels" => enrichment.tcp_flags_labels,
-        "dst_service_label" => enrichment.dst_service_label,
-        "direction_label" => enrichment.direction_label,
-        "src_hosting_provider" => enrichment.src_hosting_provider,
-        "dst_hosting_provider" => enrichment.dst_hosting_provider,
-        "src_mac_vendor" => enrichment.src_mac_vendor,
-        "dst_mac_vendor" => enrichment.dst_mac_vendor
-      },
+      "enrichment" =>
+        maybe_put_prefix_tags(
+          %{
+            "protocol_source" => enrichment.protocol_source,
+            "tcp_flags_labels" => enrichment.tcp_flags_labels,
+            "dst_service_label" => enrichment.dst_service_label,
+            "direction_label" => enrichment.direction_label,
+            "src_hosting_provider" => enrichment.src_hosting_provider,
+            "dst_hosting_provider" => enrichment.dst_hosting_provider,
+            "src_mac_vendor" => enrichment.src_mac_vendor,
+            "dst_mac_vendor" => enrichment.dst_mac_vendor
+          },
+          enrichment
+        ),
       "metadata" =>
         OCSF.build_metadata(
           product_name: "FlowCollector",
@@ -396,54 +400,76 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
     }
 
     # Flat row matching ocsf_network_activity table columns
-    %{
-      time: time,
-      class_uid: OCSF.class_network_activity(),
-      category_uid: OCSF.category_network_activity(),
-      activity_id: activity_id,
-      type_uid: OCSF.type_uid(OCSF.class_network_activity(), activity_id),
-      severity_id: OCSF.severity_informational(),
-      start_time: start_time,
-      end_time: end_time,
-      src_endpoint_ip: flow.src_ip,
-      src_endpoint_port: safe_int(flow.src_port),
-      src_as_number: safe_int(json["src_as"]),
-      dst_endpoint_ip: flow.dst_ip,
-      dst_endpoint_port: safe_int(flow.dst_port),
-      dst_as_number: safe_int(json["dst_as"]),
-      protocol_num: protocol_num,
-      protocol_name: protocol_name,
-      protocol_source: enrichment.protocol_source,
-      tcp_flags: json["tcp_flags"],
-      tcp_flags_labels: enrichment.tcp_flags_labels,
-      tcp_flags_source: enrichment.tcp_flags_source,
-      dst_service_label: enrichment.dst_service_label,
-      dst_service_source: enrichment.dst_service_source,
-      bytes_total: flow.octets,
-      packets_total: flow.packets,
-      bytes_in: flow.bytes_in,
-      bytes_out: flow.bytes_out,
-      packets_in: flow.packets_in,
-      packets_out: flow.packets_out,
-      sampling_rate: sampling_rate,
-      direction_label: enrichment.direction_label,
-      direction_source: enrichment.direction_source,
-      src_hosting_provider: enrichment.src_hosting_provider,
-      src_hosting_provider_source: enrichment.src_hosting_provider_source,
-      dst_hosting_provider: enrichment.dst_hosting_provider,
-      dst_hosting_provider_source: enrichment.dst_hosting_provider_source,
-      src_mac: enrichment.src_mac,
-      dst_mac: enrichment.dst_mac,
-      src_mac_vendor: enrichment.src_mac_vendor,
-      src_mac_vendor_source: enrichment.src_mac_vendor_source,
-      dst_mac_vendor: enrichment.dst_mac_vendor,
-      dst_mac_vendor_source: enrichment.dst_mac_vendor_source,
-      sampler_address: FieldParser.get_field(json, "sampler_address", "samplerAddress"),
-      ocsf_payload: ocsf_payload,
-      partition: "default",
-      created_at: DateTime.utc_now()
-    }
+    maybe_put_prefix_tag_columns(
+      %{
+        time: time,
+        class_uid: OCSF.class_network_activity(),
+        category_uid: OCSF.category_network_activity(),
+        activity_id: activity_id,
+        type_uid: OCSF.type_uid(OCSF.class_network_activity(), activity_id),
+        severity_id: OCSF.severity_informational(),
+        start_time: start_time,
+        end_time: end_time,
+        src_endpoint_ip: flow.src_ip,
+        src_endpoint_port: safe_int(flow.src_port),
+        src_as_number: safe_int(json["src_as"]),
+        dst_endpoint_ip: flow.dst_ip,
+        dst_endpoint_port: safe_int(flow.dst_port),
+        dst_as_number: safe_int(json["dst_as"]),
+        protocol_num: protocol_num,
+        protocol_name: protocol_name,
+        protocol_source: enrichment.protocol_source,
+        tcp_flags: json["tcp_flags"],
+        tcp_flags_labels: enrichment.tcp_flags_labels,
+        tcp_flags_source: enrichment.tcp_flags_source,
+        dst_service_label: enrichment.dst_service_label,
+        dst_service_source: enrichment.dst_service_source,
+        bytes_total: flow.octets,
+        packets_total: flow.packets,
+        bytes_in: flow.bytes_in,
+        bytes_out: flow.bytes_out,
+        packets_in: flow.packets_in,
+        packets_out: flow.packets_out,
+        sampling_rate: sampling_rate,
+        direction_label: enrichment.direction_label,
+        direction_source: enrichment.direction_source,
+        src_hosting_provider: enrichment.src_hosting_provider,
+        src_hosting_provider_source: enrichment.src_hosting_provider_source,
+        dst_hosting_provider: enrichment.dst_hosting_provider,
+        dst_hosting_provider_source: enrichment.dst_hosting_provider_source,
+        src_mac: enrichment.src_mac,
+        dst_mac: enrichment.dst_mac,
+        src_mac_vendor: enrichment.src_mac_vendor,
+        src_mac_vendor_source: enrichment.src_mac_vendor_source,
+        dst_mac_vendor: enrichment.dst_mac_vendor,
+        dst_mac_vendor_source: enrichment.dst_mac_vendor_source,
+        sampler_address: FieldParser.get_field(json, "sampler_address", "samplerAddress"),
+        ocsf_payload: ocsf_payload,
+        partition: "default",
+        created_at: DateTime.utc_now()
+      },
+      enrichment
+    )
   end
+
+  defp maybe_put_prefix_tags(enrichment_map, enrichment) do
+    enrichment_map
+    |> maybe_put("src_prefix_tags", Map.get(enrichment, :src_prefix_tags))
+    |> maybe_put("dst_prefix_tags", Map.get(enrichment, :dst_prefix_tags))
+    |> maybe_put("src_prefix_tags_source", Map.get(enrichment, :src_prefix_tags_source))
+    |> maybe_put("dst_prefix_tags_source", Map.get(enrichment, :dst_prefix_tags_source))
+  end
+
+  defp maybe_put_prefix_tag_columns(row, enrichment) do
+    row
+    |> maybe_put(:src_prefix_tags, Map.get(enrichment, :src_prefix_tags))
+    |> maybe_put(:dst_prefix_tags, Map.get(enrichment, :dst_prefix_tags))
+    |> maybe_put(:src_prefix_tags_source, Map.get(enrichment, :src_prefix_tags_source))
+    |> maybe_put(:dst_prefix_tags_source, Map.get(enrichment, :dst_prefix_tags_source))
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp parse_flow_fields(json) do
     %{

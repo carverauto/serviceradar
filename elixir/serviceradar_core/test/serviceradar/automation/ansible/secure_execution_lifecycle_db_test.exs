@@ -126,6 +126,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionLifecycleDbTest do
     assert {:ok, execution} = AutomationExecution.get_by_id(fixture.execution.id, actor: @actor)
     assert {:ok, target} = AutomationExecutionTarget.get_by_id(fixture.target.id, actor: @actor)
 
+    # Active-hold reads are optional lookups (not_found_error?: false).
     assert {:ok, nil} =
              AutomationTargetHold.get_active_for_device(fixture.device_uid, actor: @actor)
 

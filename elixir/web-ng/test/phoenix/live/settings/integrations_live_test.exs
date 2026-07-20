@@ -305,6 +305,66 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     refute html =~ "DateTime.truncate(utc_datetime, :second)"
   end
 
+  test "prefix tag preview panel is on the CRM/IPAM tab and accepts empty IP", %{conn: conn} do
+    {:ok, lv, html} = live(conn, ~p"/settings/networks/integrations?tab=crm_ipam")
+
+    assert html =~ "Prefix tag preview"
+    assert html =~ "local node"
+    assert has_element?(lv, ~s(form[phx-submit="prefix_tag_preview"] input[name="ip"]))
+
+    lv
+    |> form(~s(form[phx-submit="prefix_tag_preview"]), %{"ip" => "   "})
+    |> render_submit()
+
+    assert render(lv) =~ "Enter an IP address"
+  end
+
+  test "prefix tag preview looks up the local trie and shows matches", %{conn: conn} do
+    alias ServiceRadar.PrefixTags.Store
+
+    Store.put_rows("netbox", [
+      %{prefix: "10.1.0.0/16", tags: ["netbox:tag:corp", "site:hq"], source: "netbox"}
+    ])
+
+    on_exit(fn -> Store.clear("netbox") end)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations?tab=crm_ipam")
+
+    lv
+    |> form(~s(form[phx-submit="prefix_tag_preview"]), %{"ip" => "10.1.2.3"})
+    |> render_submit()
+
+    html = render(lv)
+    assert html =~ "Most-specific first"
+    assert html =~ "10.1.0.0/16"
+    assert html =~ "netbox:tag:corp"
+    assert html =~ "site:hq"
+    assert html =~ "netbox"
+  end
+
+  test "prefix tag preview reports no match for unmapped IPs", %{conn: conn} do
+    alias ServiceRadar.PrefixTags.Store
+
+    Store.clear()
+    on_exit(fn -> Store.clear() end)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations?tab=crm_ipam")
+
+    lv
+    |> form(~s(form[phx-submit="prefix_tag_preview"]), %{"ip" => "203.0.113.9"})
+    |> render_submit()
+
+    assert render(lv) =~ "No matching prefixes for this address."
+  end
+
+  test "viewer without integrations manage is redirected", %{conn: _conn} do
+    viewer = AccountsFixtures.user_fixture(%{role: :viewer})
+    viewer_conn = log_in_user(build_conn(), viewer)
+
+    assert {:error, {:redirect, %{to: "/settings/profile"}}} =
+             live(viewer_conn, ~p"/settings/networks/integrations")
+  end
+
   defp register_and_log_in_admin_user(%{conn: conn}) do
     user = AccountsFixtures.user_fixture(%{role: :admin})
     scope = Scope.for_user(user)

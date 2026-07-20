@@ -20,8 +20,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.Observability.NetflowPortScanFlag
   alias ServiceRadar.ReferenceData.ServicePorts
   alias ServiceRadarWebNG.Repo
+  alias ServiceRadarWebNGWeb.Components.PrefixTagChips
   alias ServiceRadarWebNGWeb.MetricSeries
   alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
+  alias ServiceRadarWebNGWeb.Netflow.PrefixTagQuery
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.LocalAnchor
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.MapMarkers
@@ -325,6 +327,39 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:selected_netflow, nil)
      |> assign(:netflow_context, nil)
      |> assign(:netflow_arin_lookup, %{})}
+  end
+
+  def handle_event("netflow_prefix_tag_filter", params, socket) do
+    tag =
+      params
+      |> Map.get("tag", "")
+      |> to_string()
+      |> String.trim()
+
+    base_path = socket.assigns.srql[:page_path] || "/observability"
+    query = socket.assigns.srql[:query] || "in:flows"
+    limit = socket.assigns.limit
+
+    patch_opts =
+      netflow_patch_opts(
+        Map.get(socket.assigns, :netflow_compact?, false),
+        Map.get(socket.assigns, :netflow_talker_cidr),
+        Map.get(socket.assigns, :netflow_compare_mode, "off"),
+        Map.get(socket.assigns, :netflow_geo_side, "dst"),
+        Map.get(socket.assigns, :netflow_sankey_prefix, 24),
+        Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode),
+        Map.get(socket.assigns, :netflow_graph_mode, "stacked"),
+        Map.get(socket.assigns, :netflow_view, "overview")
+      )
+
+    case PrefixTagQuery.apply_tag_filter(query, tag) do
+      {:ok, next_q} ->
+        href = base_path <> "?" <> URI.encode_query(netflow_params(next_q, limit, patch_opts))
+        {:noreply, push_patch(socket, to: href)}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Invalid prefix tag (use letters, digits, :._@+/-)")}
+    end
   end
 
   def handle_event("netflow_lookup_asn", %{"asn" => asn_raw}, socket) do
@@ -3159,64 +3194,86 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:toggle_badge_variant, if(assigns.live?, do: "success", else: "ghost"))
       |> assign(:toggle_variant, if(assigns.live?, do: "primary", else: "outline"))
 
+    current_tag =
+      PrefixTagQuery.tag_from_query(query) || ""
+
+    assigns = assign(assigns, :current_tag, current_tag)
+
     ~H"""
-    <div class="flex items-center justify-end gap-2">
-      <% patch_opts =
-        netflow_patch_opts(
-          @compact?,
-          @talker_cidr,
-          @compare_mode,
-          @geo_side,
-          @sankey_prefix,
-          @stack_mode,
-          @graph_mode,
-          @view
-        ) %>
-      <.ui_button
-        id="netflows-live-toggle"
-        phx-click="toggle_netflows_live"
-        variant={@toggle_variant}
-        size="xs"
-        active={@live?}
-        class="rounded-full gap-2"
-        title={@toggle_title}
-      >
-        <span class="text-xs font-medium">Live</span>
-        <.ui_badge id="netflows-live-status" size="xs" variant={@toggle_badge_variant}>
-          {if @live?, do: "On", else: "Off"}
-        </.ui_badge>
-      </.ui_button>
-      <span class="text-[10px] uppercase tracking-wider text-base-content/50">Presets</span>
-      <div class="flex flex-wrap gap-1">
-        <%= for preset <- @presets do %>
+    <div class="flex flex-col items-end gap-2">
+      <div class="flex items-center justify-end gap-2">
+        <% patch_opts =
+          netflow_patch_opts(
+            @compact?,
+            @talker_cidr,
+            @compare_mode,
+            @geo_side,
+            @sankey_prefix,
+            @stack_mode,
+            @graph_mode,
+            @view
+          ) %>
+        <.ui_button
+          id="netflows-live-toggle"
+          phx-click="toggle_netflows_live"
+          variant={@toggle_variant}
+          size="xs"
+          active={@live?}
+          class="rounded-full gap-2"
+          title={@toggle_title}
+        >
+          <span class="text-xs font-medium">Live</span>
+          <.ui_badge id="netflows-live-status" size="xs" variant={@toggle_badge_variant}>
+            {if @live?, do: "On", else: "Off"}
+          </.ui_badge>
+        </.ui_button>
+        <span class="text-[10px] uppercase tracking-wider text-base-content/50">Presets</span>
+        <div class="flex flex-wrap gap-1">
+          <%= for preset <- @presets do %>
+            <.ui_button
+              size="xs"
+              variant="ghost"
+              active={preset_active?(@query, preset.query)}
+              class="rounded-full"
+              patch={netflow_talker_cidr_patch(@base_path, preset.query, @limit, patch_opts)}
+            >
+              {preset.label}
+            </.ui_button>
+          <% end %>
+
           <.ui_button
             size="xs"
             variant="ghost"
-            active={preset_active?(@query, preset.query)}
+            active={@compact?}
             class="rounded-full"
-            patch={netflow_talker_cidr_patch(@base_path, preset.query, @limit, patch_opts)}
+            patch={
+              netflow_talker_cidr_patch(
+                @base_path,
+                @query,
+                @limit,
+                Map.put(patch_opts, :compact?, not @compact?)
+              )
+            }
           >
-            {preset.label}
+            Compact
           </.ui_button>
-        <% end %>
-
-        <.ui_button
-          size="xs"
-          variant="ghost"
-          active={@compact?}
-          class="rounded-full"
-          patch={
-            netflow_talker_cidr_patch(
-              @base_path,
-              @query,
-              @limit,
-              Map.put(patch_opts, :compact?, not @compact?)
-            )
-          }
-        >
-          Compact
-        </.ui_button>
+        </div>
       </div>
+
+      <form phx-submit="netflow_prefix_tag_filter" class="flex items-center gap-2">
+        <label class="text-[10px] uppercase tracking-wider text-base-content/50 whitespace-nowrap">
+          Prefix tag
+        </label>
+        <input
+          type="text"
+          name="tag"
+          value={@current_tag}
+          placeholder="site:austin"
+          class="input input-bordered input-xs w-40 font-mono"
+          autocomplete="off"
+        />
+        <.ui_button type="submit" size="xs" variant="ghost">Filter</.ui_button>
+      </form>
     </div>
     """
   end
@@ -4576,6 +4633,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 >
                   AS{asn}
                 </div>
+                <PrefixTagChips.linked items={
+                  netflow_linked_tag_items(
+                    netflow_prefix_tags(flow, :src),
+                    @base_path,
+                    @query,
+                    @limit,
+                    patch_opts
+                  )
+                } />
               </td>
               <td class="text-xs align-top">
                 <% dst_ip = netflow_addr(flow, :dst) %>
@@ -4626,6 +4692,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                   >
                     {hostname}
                   </div>
+                  <PrefixTagChips.linked items={
+                    netflow_linked_tag_items(
+                      netflow_prefix_tags(flow, :dst),
+                      @base_path,
+                      @query,
+                      @limit,
+                      patch_opts
+                    )
+                  } />
                   <div
                     :if={asn = netflow_asn(flow, :dst)}
                     class="text-[11px] text-base-content/50 font-mono"
@@ -4988,6 +5063,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       flow_get(assigns.flow, ["dst_hosting_provider"]) ||
         flow_get_in(ocsf, ["enrichment", "dst_hosting_provider"])
 
+    src_prefix_tags = netflow_prefix_tags(assigns.flow, :src)
+    dst_prefix_tags = netflow_prefix_tags(assigns.flow, :dst)
+
     direction_label =
       flow_get(assigns.flow, ["direction_label"]) ||
         flow_get_in(ocsf, ["enrichment", "direction_label"])
@@ -5015,6 +5093,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:map_markers, netflow_map_markers(assigns.context || %{}, assigns.flow))
       |> assign(:src_provider, src_provider)
       |> assign(:dst_provider, dst_provider)
+      |> assign(:src_prefix_tags, src_prefix_tags)
+      |> assign(:dst_prefix_tags, dst_prefix_tags)
       |> assign(:direction_label, direction_label)
       |> assign(:tcp_flags_labels, tcp_flags_labels)
       |> assign(:tcp_flags_raw, tcp_flags_raw)
@@ -5063,6 +5143,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     >
                       Provider: <span class="font-mono">{@src_provider}</span>
                     </div>
+                    <PrefixTagChips.static
+                      tags={@src_prefix_tags}
+                      wrapper_class="mt-1 flex flex-wrap gap-1"
+                    />
                     <div class="mt-2 flex flex-wrap gap-2">
                       <.ui_button
                         size="xs"
@@ -5101,6 +5185,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     >
                       Provider: <span class="font-mono">{@dst_provider}</span>
                     </div>
+                    <PrefixTagChips.static
+                      tags={@dst_prefix_tags}
+                      wrapper_class="mt-1 flex flex-wrap gap-1"
+                    />
                     <div class="mt-2 flex flex-wrap gap-2">
                       <.ui_button
                         size="xs"
@@ -6063,6 +6151,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     value = if value in ["—", "-"], do: "", else: value
     params = netflow_params(upsert_query_filter(query || "", field, value), limit, opts)
     base_path <> "?" <> URI.encode_query(params)
+  end
+
+  defp netflow_prefix_tags(flow, side) when side in [:src, :dst] do
+    prefix = to_string(side)
+
+    tags =
+      flow_get(flow, ["#{prefix}_prefix_tags"]) ||
+        flow_get_in(flow, ["ocsf_payload", "enrichment", "#{prefix}_prefix_tags"])
+
+    PrefixTagChips.normalize_tags(tags, 4)
+  end
+
+  defp netflow_linked_tag_items(tags, base_path, query, limit, patch_opts) do
+    Enum.map(tags, fn tag ->
+      %{
+        tag: tag,
+        path: netflow_filter_patch(base_path, query, limit, "tag", tag, patch_opts)
+      }
+    end)
   end
 
   defp upsert_query_filter(query, field, value) when is_binary(query) and is_binary(field) do

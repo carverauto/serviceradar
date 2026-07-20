@@ -921,6 +921,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/integrations/new", Settings.IntegrationsLive.Index, :new)
       live("/settings/networks/integrations/:id", Settings.IntegrationsLive.Index, :show)
       live("/settings/networks/integrations/:id/edit", Settings.IntegrationsLive.Index, :edit)
+      live("/settings/networks/prefix-tags", Settings.PrefixTagsLive, :index)
       live("/settings/networks/threat-intel", Settings.ThreatIntelLive.Index, :index)
 
       # Security settings

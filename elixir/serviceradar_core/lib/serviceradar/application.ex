@@ -92,6 +92,10 @@ defmodule ServiceRadar.Application do
         # Runtime publications for agent-gateway-served auxiliary artifacts
         ServiceRadar.Edge.AgentArtifacts,
 
+        # Owns the Store source-name ETS registry. Start it before Oban so due
+        # materializer jobs cannot race the supervised owner during boot.
+        prefix_tags_registry_child(),
+
         # Oban job processor (can be disabled for standalone tests)
         oban_child(),
         oban_failure_event_reporter_child(),
@@ -133,9 +137,10 @@ defmodule ServiceRadar.Application do
         # lookup per device instead of per event under load)
         device_correlation_cache_child(),
 
-        # Cross-batch ETS cache for flow hosting-provider CIDR lookups (one GiST
-        # probe per distinct IP per snapshot instead of per batch)
-        provider_cidr_cache_child(),
+        # Per-node prefix-tag LPM trie loader (core-elx + web-ng when repo is on;
+        # agent-gateway excluded via repo_enabled? false). Hosting-provider LPM
+        # uses the `provider` trie (ProviderSource) — no cross-batch ETS cache.
+        prefix_tags_loader_child(),
 
         # Horde registries (always started for registration support)
         registry_children(),
@@ -329,9 +334,18 @@ defmodule ServiceRadar.Application do
     end
   end
 
-  defp provider_cidr_cache_child do
+  defp prefix_tags_registry_child do
+    # Always start when repo is on — independent of Loader — so Store.sources/0
+    # keeps a stable ETS owner even with SERVICERADAR_PREFIX_TAGS_LOADER_ENABLED=false.
     if repo_enabled?() do
-      ServiceRadar.EventWriter.ProviderCidrCache
+      ServiceRadar.PrefixTags.Registry
+    end
+  end
+
+  defp prefix_tags_loader_child do
+    if repo_enabled?() and
+         Application.get_env(:serviceradar_core, :prefix_tags_loader_enabled, true) do
+      ServiceRadar.PrefixTags.Loader
     end
   end
 

@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowAccess
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.Format
 
+  alias ServiceRadarWebNGWeb.Components.PrefixTagChips
+
   attr(:flows, :list, default: [])
   attr(:rdns_map, :map, default: %{})
   attr(:geo_iso2_map, :map, default: %{})
@@ -99,6 +101,15 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
                   >
                     {hostname}
                   </div>
+                  <PrefixTagChips.linked items={
+                    linked_prefix_tag_items(
+                      flow_prefix_tags(flow, :src),
+                      @base_path,
+                      @query,
+                      @limit,
+                      @nf_param
+                    )
+                  } />
                 </div>
               </td>
               <td class="text-xs font-mono min-w-0">
@@ -138,6 +149,15 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
                   >
                     {hostname}
                   </div>
+                  <PrefixTagChips.linked items={
+                    linked_prefix_tag_items(
+                      flow_prefix_tags(flow, :dst),
+                      @base_path,
+                      @query,
+                      @limit,
+                      @nf_param
+                    )
+                  } />
                 </div>
               </td>
               <td class="whitespace-nowrap text-xs text-right font-mono align-top">
@@ -295,5 +315,38 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
       </div>
     </div>
     """
+  end
+
+  # Kept as a thin wrapper for unit tests that still call the table module API.
+  def prefix_tag_chips(assigns) do
+    items =
+      linked_prefix_tag_items(
+        assigns[:tags] || [],
+        assigns.base_path,
+        assigns.query,
+        assigns.limit,
+        assigns[:nf_param]
+      )
+
+    PrefixTagChips.linked(%{items: items})
+  end
+
+  defp flow_prefix_tags(flow, side) when side in [:src, :dst] do
+    prefix = to_string(side)
+
+    tags =
+      flow_get(flow, ["#{prefix}_prefix_tags"]) ||
+        flow_get_in(flow, ["ocsf_payload", "enrichment", "#{prefix}_prefix_tags"])
+
+    PrefixTagChips.normalize_tags(tags, 4)
+  end
+
+  defp linked_prefix_tag_items(tags, base_path, query, limit, nf_param) do
+    Enum.map(tags, fn tag ->
+      %{
+        tag: tag,
+        path: flows_filter_patch(base_path, query, limit, nf_param, "tag", tag)
+      }
+    end)
   end
 end

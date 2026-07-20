@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.Endpoints do
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowAccess
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.Format, only: [iso2_flag_emoji: 1]
 
+  alias ServiceRadarWebNGWeb.Components.PrefixTagChips
+
   attr(:flow, :map, required: true)
   attr(:context, :map, required: true)
   attr(:rdns_map, :map, default: %{})
@@ -90,6 +92,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.Endpoints do
       flow_get(assigns.flow, ["#{prefix}_hosting_provider"]) ||
         flow_get_in(ocsf, ["enrichment", "#{prefix}_hosting_provider"])
 
+    prefix_tags =
+      PrefixTagChips.normalize_tags(
+        flow_get(assigns.flow, ["#{prefix}_prefix_tags"]) ||
+          flow_get_in(ocsf, ["enrichment", "#{prefix}_prefix_tags"]),
+        0
+      )
+
     port = flow_get(assigns.flow, ["#{prefix}_endpoint_port", "#{prefix}_port"])
     hostname = Map.get(assigns.rdns_map || %{}, ip)
 
@@ -103,6 +112,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.Endpoints do
       |> assign(:mac, mac)
       |> assign(:mac_vendor, mac_vendor)
       |> assign(:provider, provider)
+      |> assign(:prefix_tags, prefix_tags)
       |> assign(:port, port)
       |> assign(:hostname, hostname)
 
@@ -169,6 +179,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.Endpoints do
         <div :if={is_binary(@provider) and @provider != ""}>
           provider: <span class="font-mono">{@provider}</span>
         </div>
+        <PrefixTagChips.static tags={@prefix_tags} wrapper_class="flex flex-wrap gap-1 pt-1" />
       </div>
     </div>
     """

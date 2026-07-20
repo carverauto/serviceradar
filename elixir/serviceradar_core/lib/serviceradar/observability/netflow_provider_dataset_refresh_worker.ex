@@ -14,6 +14,7 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Observability.OutboundFeedPolicy
+  alias ServiceRadar.PrefixTags.ProviderSource
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadar.Types.Cidr
@@ -87,10 +88,13 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
         case promote_snapshot(source_url, payload, rows, etag) do
           :ok ->
             Logger.info("Cloud-provider CIDR dataset refreshed", rows: length(rows))
+            _ = maybe_reload_prefix_tag_provider_source()
             schedule_next(reschedule_seconds)
 
           :unchanged ->
             Logger.info("Cloud-provider CIDR dataset unchanged", rows: length(rows))
+            # Still refresh the trie in case this node missed a prior promotion.
+            _ = maybe_reload_prefix_tag_provider_source()
             schedule_next(reschedule_seconds)
 
           {:error, reason} ->
@@ -273,6 +277,26 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
       {:ok, :ok} -> :ok
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp maybe_reload_prefix_tag_provider_source do
+    if Code.ensure_loaded?(ProviderSource) do
+      case ProviderSource.reload() do
+        {:ok, %{row_count: count}} ->
+          Logger.info("Prefix-tag provider trie refreshed from provider dataset", rows: count)
+          :ok
+
+        {:error, reason} ->
+          Logger.debug("Prefix-tag provider trie reload skipped", reason: inspect(reason))
+          :ok
+      end
+    else
+      :ok
+    end
+  rescue
+    e ->
+      Logger.debug("Prefix-tag provider trie reload failed", error: Exception.message(e))
+      :ok
   end
 
   defp schedule_next(seconds) when is_integer(seconds) do

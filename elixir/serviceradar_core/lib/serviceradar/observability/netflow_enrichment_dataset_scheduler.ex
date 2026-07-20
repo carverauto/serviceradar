@@ -7,6 +7,7 @@ defmodule ServiceRadar.Observability.NetflowEnrichmentDatasetScheduler do
 
   alias ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker
   alias ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker
+  alias ServiceRadar.PrefixTags.NetboxImportWorker
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -33,6 +34,7 @@ defmodule ServiceRadar.Observability.NetflowEnrichmentDatasetScheduler do
     if oban_jobs_ready?() do
       ensure_scheduled(NetflowProviderDatasetRefreshWorker, "provider CIDR")
       ensure_scheduled(NetflowOuiDatasetRefreshWorker, "IEEE OUI")
+      ensure_scheduled(NetboxImportWorker, "NetBox prefix tags")
     else
       Logger.debug("NetFlow enrichment dataset scheduling skipped; Oban tables not ready")
       :ok

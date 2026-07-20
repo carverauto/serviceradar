@@ -21,6 +21,8 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   alias ServiceRadar.Observability.NetflowPortScanFlag
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Observability.SRQLRunner
+  alias ServiceRadar.PrefixTags.Store, as: PrefixTagStore
+  alias ServiceRadar.PrefixTags.ThreatIntelSource
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -407,11 +409,50 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
       |> Enum.map(&String.trim/1)
       |> Enum.filter(&valid_ip?/1)
 
-    if ips == [], do: [], else: run_threat_match_query(ips)
+    cond do
+      ips == [] ->
+        []
+
+      threat_intel_engine_match_enabled?() and ti_trie_ready?() ->
+        engine_threat_matches(ips)
+
+      true ->
+        run_threat_match_query(ips)
+    end
+  end
+
+  defp threat_intel_engine_match_enabled? do
+    Application.get_env(:serviceradar_core, :threat_intel_engine_match_enabled, true) == true
+  end
+
+  defp ti_trie_ready? do
+    # Loaded (even empty) is authoritative; never-installed falls back to SQL.
+    PrefixTagStore.loaded?("ti")
+  end
+
+  # Current-matching via the shared prefix-tag LPM engine (ti: source).
+  # Severity/sources/count use structured per-indicator metadata with expiry
+  # filtering so permanent + finite members on one CIDR stay SQL-parity.
+  # Authoritative retro-matching remains the SQL/match-pipeline path.
+  defp engine_threat_matches(ips) when is_list(ips) do
+    now = DateTime.utc_now()
+
+    Enum.map(ips, fn ip ->
+      chain =
+        ip
+        |> PrefixTagStore.lookup("ti")
+        |> Enum.reject(&ThreatIntelSource.match_expired?(&1, now))
+
+      sources = ThreatIntelSource.sources_from_match(chain, now)
+      max_severity = ThreatIntelSource.max_severity_from_match(chain, now)
+      match_count = ThreatIntelSource.indicator_count_from_match(chain, now)
+
+      {ip, match_count, max_severity, sources}
+    end)
   end
 
   defp run_threat_match_query(ips) when is_list(ips) do
-    # We keep the query in SQL so Postgres can use the GIST index on indicator.
+    # Fallback / full-fidelity path: Postgres GIST on indicator (+ severity).
     sql = """
     WITH ips AS (
       SELECT unnest($1::text[]) AS ip

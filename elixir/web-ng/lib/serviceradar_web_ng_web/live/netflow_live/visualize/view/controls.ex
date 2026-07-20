@@ -104,6 +104,30 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
             </div>
 
             <div class="col-span-2">
+              <div class="text-xs font-semibold text-base-content/70 mb-1">Prefix tag</div>
+              <form phx-submit="nf_prefix_tag_filter" class="flex gap-2">
+                <input
+                  type="text"
+                  name="tag"
+                  value={
+                    ServiceRadarWebNGWeb.Netflow.PrefixTagQuery.tag_from_query(
+                      (Map.get(assigns, :srql) || %{})[:query] ||
+                        Map.get(assigns, :query) ||
+                        ""
+                    ) || ""
+                  }
+                  placeholder="site:austin"
+                  class="input input-bordered input-sm w-full font-mono text-xs"
+                  autocomplete="off"
+                />
+                <.ui_button type="submit" size="sm" variant="ghost">Filter</.ui_button>
+              </form>
+              <div class="mt-1 text-[11px] text-base-content/50">
+                Adds <span class="font-mono">tag:…</span> to the SRQL query (either side).
+              </div>
+            </div>
+
+            <div class="col-span-2">
               <div class="text-xs font-semibold text-base-content/70 mb-1">Truncate</div>
               <form phx-change="nf_state_change" class="grid grid-cols-2 gap-2">
                 <div class="space-y-1">

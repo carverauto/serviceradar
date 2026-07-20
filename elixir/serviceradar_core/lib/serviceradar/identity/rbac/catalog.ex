@@ -421,6 +421,14 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @operator_roles
         },
         %{
+          key: "settings.prefix_tags.manage",
+          label: "Manage prefix tags",
+          description:
+            "Manage manual IP/CIDR prefix tags, import configuration, and snapshot " <>
+              "operations used for flow enrichment",
+          default_roles: @operator_roles
+        },
+        %{
           key: "settings.integrations.manage",
           label: "Manage integrations",
           description: "Manage integration sources and sync configuration",

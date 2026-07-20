@@ -243,4 +243,17 @@ export SERVICERADAR_CORE_RUN_MIGRATIONS=false
 cd "${REPO_ROOT}/elixir/serviceradar_core"
 env MIX_ENV=test mix deps.get
 env MIX_ENV=test mix ash.migrate
+
+# Explicit prefix-tag suite first so CI logs show Ash + fixture-importer coverage
+# (no live NetBox). Also part of the full --include integration run below.
+if [ -f test/serviceradar/prefix_tags/integration_test.exs ]; then
+  echo "Running prefix-tags integration suite (Ash + importer fixtures)"
+  env MIX_ENV=test mix test --include integration --no-start --max-cases 1 \
+    test/serviceradar/prefix_tags/integration_test.exs
+else
+  echo "prefix-tags integration suite missing; expected test/serviceradar/prefix_tags/integration_test.exs" >&2
+  exit 1
+fi
+
+echo "Running full serviceradar_core integration suite"
 env MIX_ENV=test mix test --include integration --no-start --max-cases 1

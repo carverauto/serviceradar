@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.Events do
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.Params
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.QueryState
 
+  alias ServiceRadarWebNGWeb.Netflow.PrefixTagQuery
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.Config
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.Events.Bgp
   alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
@@ -79,6 +80,41 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.Events do
      push_patch(socket,
        to: build_patch_url(socket, %{"nf" => nf_param(next), "q" => chart_query, "cursor" => nil})
      )}
+  end
+
+  def handle_event("nf_prefix_tag_filter", params, socket) do
+    tag =
+      params
+      |> Map.get("tag", "")
+      |> to_string()
+      |> String.trim()
+
+    current_q =
+      case socket.assigns do
+        %{srql: %{query: q}} when is_binary(q) and q != "" -> q
+        %{query: q} when is_binary(q) and q != "" -> q
+        _ -> "in:flows"
+      end
+
+    case PrefixTagQuery.apply_tag_filter(current_q, tag) do
+      {:ok, next_q} ->
+        state = socket.assigns.netflow_viz_state
+
+        {:noreply,
+         socket
+         |> assign(:netflow_viz_state, state)
+         |> push_patch(
+           to:
+             build_patch_url(socket, %{
+               "nf" => nf_param(state),
+               "q" => next_q,
+               "cursor" => nil
+             })
+         )}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Invalid prefix tag (use letters, digits, :._@+/-)")}
+    end
   end
 
   def handle_event("netflow_open", %{"idx" => idx_raw}, socket) do

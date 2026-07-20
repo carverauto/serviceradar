@@ -58,6 +58,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         |> assign(:form_custom_fields, "")
         |> assign(:mapbox_settings, load_mapbox_settings(actor))
         |> assign(:mapbox_form, mapbox_settings_to_form(load_mapbox_settings(actor)))
+        |> assign(:prefix_tag_preview_ip, "")
+        |> assign(:prefix_tag_preview_result, nil)
+        |> assign(:prefix_tag_preview_error, nil)
 
       {:ok, socket}
     else
@@ -234,6 +237,50 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
       {:error, err} ->
         {:noreply, put_flash(socket, :error, "Failed to save Mapbox settings: #{format_ash_error(err)}")}
+    end
+  end
+
+  def handle_event("prefix_tag_preview", params, socket) do
+    # Rebuild current authority — cached mount permissions are not evidence.
+    case RBAC.authorize_current(socket.assigns.current_scope, ["settings.integrations.manage"]) do
+      {:error, _} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Not authorized to manage integrations")
+         |> redirect(to: ~p"/settings/profile")}
+
+      {:ok, scope} ->
+        socket = assign(socket, :current_scope, scope)
+
+        ip =
+          params
+          |> Map.get("ip", params |> Map.get("prefix_tag_preview", %{}) |> Map.get("ip", ""))
+          |> to_string()
+          |> String.trim()
+
+        if ip == "" do
+          {:noreply,
+           socket
+           |> assign(:prefix_tag_preview_ip, "")
+           |> assign(:prefix_tag_preview_result, nil)
+           |> assign(:prefix_tag_preview_error, "Enter an IP address")}
+        else
+          case preview_prefix_tags(ip) do
+            {:ok, chain} ->
+              {:noreply,
+               socket
+               |> assign(:prefix_tag_preview_ip, ip)
+               |> assign(:prefix_tag_preview_result, chain)
+               |> assign(:prefix_tag_preview_error, nil)}
+
+            {:error, reason} ->
+              {:noreply,
+               socket
+               |> assign(:prefix_tag_preview_ip, ip)
+               |> assign(:prefix_tag_preview_result, nil)
+               |> assign(:prefix_tag_preview_error, reason)}
+          end
+        end
     end
   end
 
@@ -625,6 +672,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp format_ash_error(_), do: "Unexpected error"
 
+  defp preview_prefix_tags(ip) when is_binary(ip) do
+    # Local trie only — no DB hop. Failures are soft (empty chain / error string).
+    chain = ServiceRadar.PrefixTags.Store.lookup(ip)
+    {:ok, chain}
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -850,6 +905,74 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                   <% end %>
                 </tbody>
               </table>
+            <% end %>
+          </div>
+        </.ui_panel>
+
+        <.ui_panel :if={@settings_tab == "crm_ipam"}>
+          <:header>
+            <div>
+              <div class="text-sm font-semibold">Prefix tag preview</div>
+              <p class="text-xs text-base-content/60">
+                Look up what tags an IP would receive from the local node's prefix-tag trie
+                (same chain flow enrichment applies when enabled).
+              </p>
+            </div>
+          </:header>
+
+          <form phx-submit="prefix_tag_preview" class="flex flex-wrap items-end gap-2">
+            <div class="grow min-w-48">
+              <label class="text-xs uppercase tracking-wider text-base-content/60">IP address</label>
+              <input
+                type="text"
+                name="ip"
+                value={@prefix_tag_preview_ip}
+                placeholder="10.1.2.3"
+                class="input input-bordered input-sm w-full font-mono"
+                autocomplete="off"
+              />
+            </div>
+            <.ui_button type="submit" size="sm" variant="primary">Preview</.ui_button>
+          </form>
+
+          <div :if={@prefix_tag_preview_error} class="mt-3 alert alert-warning text-sm">
+            {@prefix_tag_preview_error}
+          </div>
+
+          <div :if={is_list(@prefix_tag_preview_result)} class="mt-3 space-y-2">
+            <%= if @prefix_tag_preview_result == [] do %>
+              <p class="text-sm text-base-content/60">No matching prefixes for this address.</p>
+            <% else %>
+              <div class="text-xs uppercase tracking-wider text-base-content/50">
+                Most-specific first
+              </div>
+              <div class="space-y-2">
+                <div
+                  :for={match <- @prefix_tag_preview_result}
+                  class="rounded-lg border border-base-200 bg-base-200/30 p-2"
+                >
+                  <div class="font-mono text-xs text-base-content/70">
+                    {Map.get(match, :prefix) || Map.get(match, "prefix") || "—"}
+                    <span
+                      :if={src = Map.get(match, :source) || Map.get(match, "source")}
+                      class="ml-2 badge badge-ghost badge-xs"
+                    >
+                      {src}
+                    </span>
+                  </div>
+                  <div class="mt-1 flex flex-wrap gap-1">
+                    <span
+                      :for={
+                        tag <-
+                          List.wrap(Map.get(match, :tags) || Map.get(match, "tags") || [])
+                      }
+                      class="badge badge-outline badge-xs font-mono"
+                    >
+                      {tag}
+                    </span>
+                  </div>
+                </div>
+              </div>
             <% end %>
           </div>
         </.ui_panel>
