@@ -40,6 +40,33 @@ defmodule ServiceRadarAgentGateway.Telemetry do
         tags: [:result, :from_buffer, :service_type, :gateway_id, :partition],
         tag_values: &forward_tag_values/1,
         reporter_options: [buckets: @duration_buckets_ms]
+      ),
+      counter("serviceradar.agent_gateway.results.buffer.dropped.count",
+        event_name: [:serviceradar, :agent_gateway, :results, :buffer, :dropped],
+        tags: [:reason, :gateway_id, :partition],
+        tag_values: &buffer_tag_values/1
+      ),
+      last_value("serviceradar.agent_gateway.results.buffer.depth",
+        event_name: [:serviceradar, :agent_gateway, :results, :buffer, :depth],
+        measurement: :depth,
+        tags: [:gateway_id],
+        tag_values: &buffer_tag_values/1
+      ),
+      counter("serviceradar.agent_gateway.control_stream.established.count",
+        event_name: [:serviceradar, :agent_gateway, :control_stream, :established],
+        tags: [:gateway_id],
+        tag_values: &control_stream_tag_values/1
+      ),
+      counter("serviceradar.agent_gateway.control_stream.closed.count",
+        event_name: [:serviceradar, :agent_gateway, :control_stream, :closed],
+        tags: [:gateway_id],
+        tag_values: &control_stream_tag_values/1
+      ),
+      last_value("serviceradar.agent_gateway.control_stream.active.count",
+        event_name: [:serviceradar, :agent_gateway, :control_stream, :active],
+        measurement: :count,
+        tags: [:gateway_id],
+        tag_values: &control_stream_tag_values/1
       )
     ]
   end
@@ -72,6 +99,18 @@ defmodule ServiceRadarAgentGateway.Telemetry do
       gateway_id: stringify(metadata[:gateway_id], "unknown"),
       partition: stringify(metadata[:partition], "default")
     }
+  end
+
+  defp buffer_tag_values(metadata) do
+    %{
+      reason: stringify(metadata[:reason], "unknown"),
+      gateway_id: stringify(metadata[:gateway_id], "unknown"),
+      partition: stringify(metadata[:partition], "default")
+    }
+  end
+
+  defp control_stream_tag_values(metadata) do
+    %{gateway_id: stringify(metadata[:gateway_id], "unknown")}
   end
 
   defp stringify(nil, default), do: default

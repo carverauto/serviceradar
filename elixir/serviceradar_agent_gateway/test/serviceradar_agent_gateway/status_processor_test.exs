@@ -164,7 +164,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert forwarded.service_type == "endpoint_inventory"
   end
 
-  test "synchronously propagates flow attribution persistence failures" do
+  test "buffers flow attribution persistence failures without failing the agent stream" do
     parent = self()
 
     handler_pid =
@@ -188,12 +188,12 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
       message: <<10, 0>>
     }
 
-    assert {:error, :deadlock_exhausted} = StatusProcessor.process(status)
+    assert :ok = StatusProcessor.process(status)
     assert_receive {:forwarded, forwarded}
     assert_normalized_status(forwarded, status)
   end
 
-  test "flow attribution core timeout returns once without a distributed retry" do
+  test "buffers a flow attribution core timeout without a distributed retry" do
     previous_timeout =
       Application.get_env(
         :serviceradar_agent_gateway,
@@ -239,7 +239,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
       message: <<10, 0>>
     }
 
-    assert {:error, :forward_timeout} = StatusProcessor.process(status)
+    assert :ok = StatusProcessor.process(status)
     assert_receive {:forward_attempt, forwarded}
     assert_normalized_status(forwarded, status)
     refute_receive {:unexpected_second_attempt, _status}, 50
@@ -615,14 +615,14 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert :ok = StatusProcessor.process(plugin_result_status())
   end
 
-  test "returns retry-capable plugin-result forwarding errors without buffering when core is unavailable" do
+  test "buffers retry-capable plugin-result forwarding errors when core is unavailable" do
     status =
       plugin_result_status(delivery_capabilities: [@plugin_result_retained_delivery_capability_v1])
 
-    assert {:error, :not_available} = StatusProcessor.process(status)
+    assert :ok = StatusProcessor.process(status)
   end
 
-  test "synchronously propagates uncommitted plugin-result persistence failures" do
+  test "buffers uncommitted plugin-result persistence failures" do
     parent = self()
 
     handler_pid =
@@ -639,7 +639,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     status =
       plugin_result_status(delivery_capabilities: [@plugin_result_retained_delivery_capability_v1])
 
-    assert {:error, :database_unavailable} = StatusProcessor.process(status)
+    assert :ok = StatusProcessor.process(status)
     assert_receive {:forwarded, forwarded}
     assert forwarded.source == "plugin-result"
   end

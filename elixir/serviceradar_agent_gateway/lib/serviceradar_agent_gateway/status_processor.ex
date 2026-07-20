@@ -61,8 +61,8 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     - `{:ok, result}` when synchronous processing returns an acknowledgement result
     - `{:error, reason}` on failure
   """
-  @spec process(map()) :: :ok | {:ok, term()} | {:error, term()}
-  def process(status) do
+  @spec process(map(), keyword()) :: :ok | {:ok, term()} | {:error, term()}
+  def process(status, opts \\ []) do
     with :ok <- validate_status(status) do
       status = normalize_status(status)
 
@@ -71,7 +71,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
           {:error, :otlp_relay_publisher_disabled}
 
         :not_otlp_relay ->
-          publish_then_forward(status)
+          publish_then_forward(status, opts)
 
         :ok ->
           track_agent(status)
@@ -83,14 +83,14 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     end
   end
 
-  defp publish_then_forward(status) do
+  defp publish_then_forward(status, opts) do
     case publish_gateway_metrics(status) do
       :ok ->
         if gateway_metric_status?(status) do
           track_agent(status)
           :ok
         else
-          forward_then_track(status)
+          forward_then_track(status, opts)
         end
 
       {:error, _reason} = error ->
@@ -98,8 +98,8 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     end
   end
 
-  defp forward_then_track(status) do
-    case forward(status) do
+  defp forward_then_track(status, opts) do
+    case forward(status, opts) do
       :ok ->
         track_agent(status)
         :ok
@@ -184,10 +184,18 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   defp enqueue_buffered_status(status) do
     case Process.whereis(StatusBuffer) do
       nil ->
-        Logger.debug("Results buffer unavailable; dropping status")
+        Logger.warning("Status buffer unavailable; dropping status")
+        StatusBuffer.record_drop(status, :unavailable)
 
       _pid ->
-        StatusBuffer.enqueue(status)
+        case StatusBuffer.enqueue(status) do
+          :ok ->
+            :ok
+
+          {:error, :unavailable} ->
+            Logger.warning("Status buffer unavailable; dropping status")
+            StatusBuffer.record_drop(status, :unavailable)
+        end
     end
   end
 
@@ -372,11 +380,11 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     end
   end
 
-  # Strict-delivery statuses are intentionally NOT buffered: buffering would ack
-  # the agent before durable delivery and could silently drop data from the
-  # bounded StatusBuffer. Their edge owners retain unacknowledged payloads.
-  defp should_buffer?(%{source: source} = status) when source in ["plugin-result", :plugin_result],
-    do: not retained_plugin_result_delivery?(status)
+  # A downstream core outage must not tear down an agent's entire status stream.
+  # These sources use the bounded gateway queue; overflow is explicitly metered
+  # and alerted instead of being silent loss.
+  defp should_buffer?(%{source: source})
+       when source in ["plugin-result", :plugin_result, "flow-attribution", :flow_attribution], do: true
 
   defp should_buffer?(status), do: results_router_source?(status)
 

@@ -12,7 +12,9 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   alias ServiceRadar.Edge.RemoteAccessFileTransfers
   alias ServiceRadar.Edge.RemoteAccessPubSub
   alias ServiceRadar.ProcessRegistry
+  alias ServiceRadarAgentGateway.Config
   alias ServiceRadarAgentGateway.ConfigSyncForwarder
+  alias ServiceRadarAgentGateway.ControlStreamTelemetry
 
   require Logger
 
@@ -121,6 +123,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
         :ok ->
           state = %{state | registry_key: key}
           state = forward_reported_config_version(state, control_hello)
+          ControlStreamTelemetry.connected(self(), %{gateway_id: Config.gateway_id(), partition_id: partition_id})
           {:reply, :ok, state}
 
         {:error, reason} ->

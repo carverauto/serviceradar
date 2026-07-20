@@ -500,10 +500,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     :ok
   end
 
-  # Strict-delivery statuses get honest failure semantics: any validation or
-  # forward error fails the whole RPC so the agent retries its retained payload
-  # (no silent drops and no false acknowledgements). Everything else keeps the
-  # lenient drop-and-log behavior.
+  # Strict-delivery statuses still fail closed for invalid payloads and protocol
+  # invariants. Downstream availability failures are buffered by StatusProcessor
+  # and acknowledged so one unavailable consumer cannot abort the whole stream.
   defp process_push_service(service, metadata, {count, directives}) do
     if strict_delivery_service?(service, metadata) do
       {count + 1, directives ++ process_service_status(service, metadata)}
@@ -702,8 +701,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp maybe_raise_strict_delivery_error(service, status, reason) do
     if strict_delivery_status?(status) do
-      # Failing the whole gRPC call makes the agent retry its retained
-      # payload instead of acknowledging data core could not persist.
+      # Bufferable downstream errors are acknowledged by StatusProcessor. An
+      # error reaching here is not queueable and must preserve strict delivery.
       Logger.warning("Failed to forward #{status.source} status from agent #{status.agent_id}: #{inspect(reason)}")
 
       raise GRPC.RPCError,
@@ -1646,9 +1645,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   def process_chunk_services(services, metadata) do
     Enum.flat_map(services, fn service ->
       if strict_delivery_service?(service, metadata) do
-        # Strict-delivery statuses bypass the lenient drop-and-log rescue: any
-        # failure raises out of stream_status so the whole call fails and the
-        # agent retries its retained payload.
+        # Strict-delivery statuses bypass the lenient rescue for invalid payloads
+        # and protocol invariants. Downstream failures are buffered before this
+        # point so they do not fail the whole stream.
         process_service_status(service, metadata)
       else
         try do
