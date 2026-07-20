@@ -84,6 +84,10 @@ export const godViewLifecycleStreamDecodeMethods = {
             parsedEdgeDetails = {}
           }
         }
+        const edgeMetadata =
+          parsedEdgeDetails?.metadata && typeof parsedEdgeDetails.metadata === "object"
+            ? parsedEdgeDetails.metadata
+            : {}
 
         edges.push({
           source,
@@ -101,6 +105,8 @@ export const godViewLifecycleStreamDecodeMethods = {
           protocol: this.deps.normalizeDisplayLabel(edgeProtocol?.get(i), ""),
           evidenceClass: this.deps.normalizeDisplayLabel(edgeEvidenceClass?.get(i), ""),
           details: parsedEdgeDetails,
+          metadata: edgeMetadata,
+          relationType: this.deps.normalizeDisplayLabel(edgeMetadata.relation_type, ""),
         })
         edgeSourceIndex.push(source)
         edgeTargetIndex.push(target)

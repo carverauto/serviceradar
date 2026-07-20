@@ -611,12 +611,19 @@ export const godViewLayoutTopologyStateMethods = {
         : ORGANIC_ROOT_Y
 
       for (const island of hostedIslands) {
-        const islandPositions = this.hostedIslandPositions(island, hostedAnchorX, hostedCursorY)
+        const rootedInBackbone = positions.get(island.rootId)
+        const islandPositions = this.hostedIslandPositions(
+          island,
+          rootedInBackbone?.x ?? hostedAnchorX,
+          rootedInBackbone?.y ?? hostedCursorY,
+        )
         const islandPoints = Array.from(islandPositions.values())
 
-        for (const [nodeId, point] of islandPositions.entries()) positions.set(nodeId, point)
+        for (const [nodeId, point] of islandPositions.entries()) {
+          if (!positions.has(nodeId) || hostedLayoutNodeIds.has(nodeId)) positions.set(nodeId, point)
+        }
 
-        if (islandPoints.length > 0) {
+        if (!rootedInBackbone && islandPoints.length > 0) {
           const minY = Math.min(...islandPoints.map((point) => Number(point.y || 0)))
           const maxY = Math.max(...islandPoints.map((point) => Number(point.y || 0)))
           hostedCursorY += Math.max(maxY - minY, HOSTED_ISLAND_GUEST_RING_RADIUS * 2) + HOSTED_ISLAND_GAP_Y
@@ -681,9 +688,18 @@ export const godViewLayoutTopologyStateMethods = {
     if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return ids
 
     const nodeById = new Map()
+    const backboneAttachedNodeIds = new Set()
     for (let index = 0; index < graph.nodes.length; index += 1) {
       const node = graph.nodes[index]
       nodeById.set(graphNodeId(node, index), node)
+    }
+
+    for (const edge of graph.edges) {
+      if (!this.edgeDrivesBackboneLayout(edge)) continue
+      const sourceId = edgeNodeId(graph, edge, "source")
+      const targetId = edgeNodeId(graph, edge, "target")
+      if (sourceId) backboneAttachedNodeIds.add(sourceId)
+      if (targetId) backboneAttachedNodeIds.add(targetId)
     }
 
     for (const edge of graph.edges) {
@@ -697,6 +713,7 @@ export const godViewLayoutTopologyStateMethods = {
 
       for (const nodeId of [sourceId, targetId]) {
         if (excludedNodeIds.has(nodeId)) continue
+        if (backboneAttachedNodeIds.has(nodeId)) continue
         const node = nodeById.get(nodeId)
         if (isUnplacedNode(node)) continue
         ids.add(nodeId)
@@ -711,6 +728,7 @@ export const godViewLayoutTopologyStateMethods = {
     const nodeById = new Map()
     const rootGroups = new Map()
     const fallbackAdjacency = new Map()
+    const hostedLayoutNodeIds = this.hostedLayoutNodeIds(graph, excludedNodeIds)
 
     for (let index = 0; index < graph.nodes.length; index += 1) {
       const node = graph.nodes[index]
@@ -725,6 +743,7 @@ export const godViewLayoutTopologyStateMethods = {
       const targetId = edgeNodeId(graph, edge, "target")
       if (!sourceId || !targetId || sourceId === targetId) continue
       if (!nodeById.has(sourceId) || !nodeById.has(targetId)) continue
+      if (!hostedLayoutNodeIds.has(sourceId) && !hostedLayoutNodeIds.has(targetId)) continue
 
       const sourceHypervisor = isHypervisorNode(nodeById.get(sourceId))
       const targetHypervisor = isHypervisorNode(nodeById.get(targetId))

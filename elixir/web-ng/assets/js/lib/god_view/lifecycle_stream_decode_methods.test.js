@@ -51,6 +51,7 @@ describe("lifecycle_stream_decode_methods", () => {
             JSON.stringify({
               source_interface: "xe-0/0/0",
               target_interface: "xe-0/0/1",
+              metadata: {relation_type: "ATTACHED_TO", topology_plane: "attachment"},
               interface_sparkline: [{value: 1000}, {value: 2000}],
             }),
           ]),
@@ -73,6 +74,8 @@ describe("lifecycle_stream_decode_methods", () => {
     expect(decoded.edges[0].topologyClass).toEqual("backbone")
     expect(decoded.edges[0].protocol).toEqual("snmp-l2")
     expect(decoded.edges[0].evidenceClass).toEqual("direct")
+    expect(decoded.edges[0].metadata).toEqual({relation_type: "ATTACHED_TO", topology_plane: "attachment"})
+    expect(decoded.edges[0].relationType).toEqual("ATTACHED_TO")
     expect(decoded.edges[0].details.source_interface).toEqual("xe-0/0/0")
     expect(decoded.edges[0].details.interface_sparkline).toHaveLength(2)
   })
