@@ -494,6 +494,15 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/topology/route-analysis", TopologyController, :route_analysis)
   end
 
+  # Ad-hoc scan API for external tools (API key or bearer token auth)
+  scope "/api/v1", ServiceRadarWebNGWeb.Api do
+    pipe_through(:api_key_auth)
+
+    post("/scans", ScanController, :create)
+    get("/scans/:id", ScanController, :show)
+    get("/scans/:id/results", ScanController, :results)
+  end
+
   # Edge onboarding admin API (API key or bearer token auth)
   scope "/api/admin", ServiceRadarWebNGWeb.Api do
     pipe_through(:api_key_auth)
@@ -799,6 +808,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/observability/flows", PageController, :redirect_to_observability_flows)
     get("/observability/flows/visualize", PageController, :redirect_to_observability_flows)
     get("/dashboard/:dashboard_id/panels/:panel_id/export.csv", AuthoredDashboardExportController, :panel_csv)
+    get("/scans/:id/export.csv", ScanExportController, :csv)
+    get("/scans/:id/export.xlsx", ScanExportController, :xlsx)
 
     live_session :require_authenticated_user,
       on_mount: [
@@ -855,6 +866,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/netflow-map", MapLive.NetflowMap, :index)
       live("/spatial/field-surveys", SpatialLive.FieldSurveyReview, :index)
       live("/spatial/field-surveys/:session_id", SpatialLive.FieldSurveyReview, :show)
+
+      # Ad-hoc network scan
+      live("/scans", ScanLive, :index)
 
       # MTR Diagnostics
       live("/diagnostics/mtr", DiagnosticsLive.Mtr, :index)
