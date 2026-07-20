@@ -112,35 +112,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
     favorited_interfaces = interface_settings.favorited
     metrics_enabled_interfaces = interface_settings.metrics_enabled
 
-    interface_metrics =
-      maybe_load_interface_metrics(
-        load_interfaces_data?,
-        srql_module,
-        uid,
-        favorited_interfaces,
-        metrics_enabled_interfaces,
-        network_interfaces,
-        scope
-      )
-
     network_interfaces =
       InterfaceData.apply_interface_settings(network_interfaces, interface_settings.by_uid)
 
-    has_ifaces =
-      determine_has_ifaces(
+    interface_availability =
+      determine_interface_availability(
+        parallel_results,
         load_interfaces_data?,
         interfaces_error,
         network_interfaces,
-        has_discovery_job,
-        Map.get(parallel_results, :has_ifaces, false)
+        has_discovery_job
       )
 
-    has_flows =
-      determine_has_flows(
+    flow_availability =
+      determine_flow_availability(
+        parallel_results,
         load_flows_data?,
         flows_error,
-        device_flows,
-        Map.get(parallel_results, :has_flows, false)
+        device_flows
+      )
+
+    interfaces_error =
+      inconclusive_error(
+        interfaces_error,
+        interface_availability,
+        load_interfaces_data?,
+        "Interface inventory timed out. Retry this tab."
+      )
+
+    flows_error =
+      inconclusive_error(
+        flows_error,
+        flow_availability,
+        load_flows_data?,
+        "Recent flow inventory timed out. Retry this tab."
       )
 
     has_logs =
@@ -202,13 +207,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       camera_sources: camera_sources,
       camera_inventory_error: camera_inventory_error,
       favorited_interfaces: favorited_interfaces,
-      interface_metrics: interface_metrics,
+      metrics_enabled_interfaces: metrics_enabled_interfaces,
+      interface_metrics: nil,
       ip_aliases: ip_aliases,
       ip_alias_error: ip_alias_error,
       northbound_device_history: northbound_device_history,
       northbound_device_history_error: northbound_device_history_error,
-      has_ifaces: has_ifaces,
-      has_flows: has_flows,
+      interface_availability: interface_availability,
+      flow_availability: flow_availability,
+      has_ifaces: interface_availability != :unavailable,
+      has_flows: flow_availability != :unavailable,
       has_logs: has_logs,
       has_mtr: has_mtr
     }
@@ -411,49 +419,52 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
     InterfaceData.empty_interface_settings()
   end
 
-  defp maybe_load_interface_metrics(
-         true,
-         srql_module,
-         uid,
-         favorited_interfaces,
-         metrics_enabled_interfaces,
-         network_interfaces,
-         scope
-       ) do
-    InterfaceData.load_interface_metrics(
-      srql_module,
-      uid,
-      favorited_interfaces,
-      metrics_enabled_interfaces,
-      network_interfaces,
-      scope
-    )
+  defp determine_interface_availability(parallel_results, true, interfaces_error, network_interfaces, has_discovery_job) do
+    cond do
+      has_discovery_job -> :available
+      not Map.has_key?(parallel_results, :interfaces) -> :unknown
+      is_binary(interfaces_error) -> :unknown
+      is_list(network_interfaces) and network_interfaces != [] -> :available
+      not Map.has_key?(parallel_results, :mapper) -> :unknown
+      true -> :unavailable
+    end
   end
 
-  defp maybe_load_interface_metrics(
+  defp determine_interface_availability(
+         parallel_results,
          false,
-         _srql_module,
-         _uid,
-         _favorited_interfaces,
-         _metrics_enabled_interfaces,
+         _interfaces_error,
          _network_interfaces,
-         _scope
-       ), do: nil
-
-  defp determine_has_ifaces(true, interfaces_error, network_interfaces, has_discovery_job, _probe) do
-    is_binary(interfaces_error) or
-      (is_list(network_interfaces) and network_interfaces != []) or has_discovery_job
+         has_discovery_job
+       ) do
+    cond do
+      has_discovery_job -> :available
+      not Map.has_key?(parallel_results, :has_ifaces) -> :unknown
+      Map.get(parallel_results, :has_ifaces) -> :available
+      not Map.has_key?(parallel_results, :mapper) -> :unknown
+      true -> :unavailable
+    end
   end
 
-  defp determine_has_ifaces(false, _interfaces_error, _network_interfaces, has_discovery_job, probe) do
-    probe or has_discovery_job
+  defp determine_flow_availability(parallel_results, true, flows_error, device_flows) do
+    cond do
+      not Map.has_key?(parallel_results, :flows) -> :unknown
+      is_binary(flows_error) -> :unknown
+      is_list(device_flows) and device_flows != [] -> :available
+      true -> :unavailable
+    end
   end
 
-  defp determine_has_flows(true, flows_error, device_flows, _probe) do
-    is_binary(flows_error) or (is_list(device_flows) and device_flows != [])
+  defp determine_flow_availability(parallel_results, false, _flows_error, _device_flows) do
+    cond do
+      not Map.has_key?(parallel_results, :has_flows) -> :unknown
+      Map.get(parallel_results, :has_flows) -> :available
+      true -> :unavailable
+    end
   end
 
-  defp determine_has_flows(false, _flows_error, _device_flows, probe), do: probe
+  defp inconclusive_error(nil, :unknown, true, message), do: message
+  defp inconclusive_error(error, _availability, _loaded?, _message), do: error
 
   defp determine_has_logs(true, logs_error, device_logs, _probe) do
     is_binary(logs_error) or is_list(device_logs)

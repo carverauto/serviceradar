@@ -139,6 +139,50 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataDBTest do
     assert cpu.count == 1
   end
 
+  test "projects cleared episode resolution separately from its opening trigger" do
+    insert_episode!(
+      episode_uid: "episode-db-cleared",
+      finding_uid: "finding-db-cleared",
+      device_uid: "router-cleared",
+      series_key: "v2|partition|interface|router-cleared|ifindex=3",
+      metric_name: "ifOutUcastPkts",
+      metric_class: "interface",
+      detector: "drift",
+      status: "cleared",
+      severity_id: 2,
+      peak_severity_id: 4,
+      peak_score: 7.5,
+      opened_at: ~U[2026-07-18 08:30:00.000000Z],
+      last_seen_at: ~U[2026-07-18 08:36:00.000000Z],
+      cleared_at: ~U[2026-07-18 08:36:00.000000Z],
+      clear_reason: "anomaly cleared: flap merged",
+      occurrence_count: 2,
+      reopen_count: 1,
+      last_transition: "clear",
+      last_payload: %{
+        "finding_title" => "Interface packet-rate anomaly",
+        "reason" => "breach confirmed after 5/5 consecutive anomalous slots"
+      }
+    )
+
+    scope = Scope.for_user(%{id: "viewer-1", email: "viewer@example.test", role: :viewer})
+
+    data =
+      AnomalyCapacityData.load(
+        CapacityOnlySRQL,
+        %{device_uid: "router-cleared"},
+        scope,
+        anomaly_source: :ash
+      )
+
+    assert [row] = data.anomaly_rows
+    assert row["state"] == "cleared"
+    assert row["message"] == "anomaly cleared: flap merged"
+    assert row["reason"] == "anomaly cleared: flap merged"
+    assert row["resolution_reason"] == "anomaly cleared: flap merged"
+    assert row["opening_reason"] == "breach confirmed after 5/5 consecutive anomalous slots"
+  end
+
   defp insert_episode!(attrs) do
     defaults = [
       effect_size: nil,

@@ -412,7 +412,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
 
         {:ok,
          %{
-           rows: Enum.map(page_rows, &episode_to_event_row/1),
+           rows: Enum.map(page_rows, &project_episode/1),
            query: anomaly_episode_drilldown_query(candidate, opts),
            pagination: episode_pagination(offset, limit, has_next?)
          }}
@@ -525,7 +525,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     }
   end
 
-  defp episode_to_event_row(episode) do
+  @doc false
+  def project_episode(episode) do
     payload = episode |> episode_value(:last_payload) |> normalize_payload()
     metadata = payload |> map_value("metadata") |> normalize_payload()
     anomaly = payload |> map_value("anomaly") |> normalize_payload()
@@ -539,6 +540,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     metric_class = episode_value(episode, :metric_class)
     detector = episode_value(episode, :detector)
     clear_reason = episode_value(episode, :clear_reason)
+    opening_reason = reason(payload)
 
     anomaly =
       Map.merge(
@@ -547,7 +549,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
           "state" => episode_state(status),
           "status" => status,
           "score" => episode_value(episode, :peak_score),
-          "reason" => clear_reason || reason(payload),
+          "reason" => episode_reason(status, opening_reason, clear_reason),
+          "opening_reason" => opening_reason,
+          "resolution_reason" => clear_reason,
           "episode_started_at_unix_nano" => unix_nano(opened_at),
           "episode_ended_at_unix_nano" => unix_nano(cleared_at),
           "observed_at_unix_nano" => unix_nano(last_seen_at)
@@ -583,7 +587,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       "reopen_count" => episode_value(episode, :reopen_count),
       "producer_version" => episode_value(episode, :producer_version),
       "last_transition" => episode_value(episode, :last_transition),
-      "reason" => clear_reason || reason(payload),
+      "reason" => episode_reason(status, opening_reason, clear_reason),
+      "opening_reason" => opening_reason,
+      "resolution_reason" => clear_reason,
       "anomaly" => anomaly,
       "anomaly_disposition" => episode_anomaly_disposition(payload),
       "metadata" =>
@@ -598,7 +604,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
           "state" => episode_state(status),
           "status" => status,
           "score" => episode_value(episode, :peak_score),
-          "reason" => clear_reason || reason(payload),
+          "reason" => episode_reason(status, opening_reason, clear_reason),
+          "opening_reason" => opening_reason,
+          "resolution_reason" => clear_reason,
           "episode_started_at_unix_nano" => unix_nano(opened_at),
           "episode_ended_at_unix_nano" => unix_nano(cleared_at),
           "observed_at_unix_nano" => unix_nano(last_seen_at)
@@ -629,8 +637,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   end
 
   defp episode_message(payload, status, clear_reason) do
-    reason(payload) || clear_reason || "Anomaly episode #{status}"
+    episode_reason(status, reason(payload), clear_reason) || "Anomaly episode #{status}"
   end
+
+  defp episode_reason(status, _opening_reason, clear_reason) when status in ["cleared", "stale_closed"] do
+    clear_reason || "Anomaly episode resolved"
+  end
+
+  defp episode_reason(_status, opening_reason, _clear_reason), do: opening_reason
 
   defp episode_state("open"), do: "confirmed"
   defp episode_state("cleared"), do: "cleared"
@@ -718,7 +732,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   # last_payload.anomaly lifecycle can override the authoritative DB status.
   defp maybe_project_episode_row(%{} = row) do
     if is_binary(map_value(row, "episode_uid")) and is_map(map_value(row, "last_payload")) do
-      episode_to_event_row(row)
+      project_episode(row)
     else
       row
     end
@@ -1001,7 +1015,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   # CPU edge spikes are deliberately high-recall detector evidence. A central
   # disposition that explicitly routes them away (action other than "escalate")
   # hides them; rows carrying no disposition stay visible, matching the default
-  # the episode path synthesizes in episode_to_event_row/1 — no producer
+  # the episode path synthesizes in project_episode/1 — no producer
   # persists anomaly_disposition on event rows, so requiring an explicit
   # "escalate" would unconditionally hide every cpu finding.
   defp actionable_anomaly_row?(row, disposition_action) do

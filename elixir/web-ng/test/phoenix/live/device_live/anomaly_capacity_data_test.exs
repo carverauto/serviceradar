@@ -819,6 +819,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     assert log =~ "anomaly SRQL task failed"
   end
 
+  test "cleared episode projection prioritizes resolution without losing its opening trigger" do
+    row =
+      AnomalyCapacityData.project_episode(%{
+        episode_uid: "episode-cleared-1",
+        finding_uid: "finding-cleared-1",
+        device_uid: "router-1",
+        series_key: "v2|partition|interface|router-1|ifindex=3",
+        metric_name: "ifOutUcastPkts",
+        metric_class: "interface",
+        detector: "drift",
+        status: "cleared",
+        severity_id: 2,
+        peak_severity_id: 4,
+        peak_score: 7.5,
+        opened_at: ~U[2026-07-18 08:30:00Z],
+        last_seen_at: ~U[2026-07-18 08:36:00Z],
+        cleared_at: ~U[2026-07-18 08:36:00Z],
+        clear_reason: "anomaly cleared: flap merged",
+        occurrence_count: 2,
+        reopen_count: 1,
+        last_transition: "clear",
+        last_payload: %{
+          "finding_title" => "Interface packet-rate anomaly",
+          "reason" => "breach confirmed after 5/5 consecutive anomalous slots"
+        }
+      })
+
+    assert row["state"] == "cleared"
+    assert row["message"] == "anomaly cleared: flap merged"
+    assert row["reason"] == "anomaly cleared: flap merged"
+    assert row["resolution_reason"] == "anomaly cleared: flap merged"
+    assert row["opening_reason"] == "breach confirmed after 5/5 consecutive anomalous slots"
+  end
+
   test "runs anomaly and capacity queries concurrently" do
     load_task =
       Task.async(fn ->

@@ -35,7 +35,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
       </div>
 
       <div class="p-4">
-        <div :if={is_binary(@error)} class="mb-3 text-xs text-error">{@error}</div>
+        <div :if={is_binary(@error)} class="mb-3 flex items-center gap-2 text-xs text-error">
+          <span>{@error}</span>
+          <button
+            type="button"
+            phx-click="switch_tab"
+            phx-value-tab="flows"
+            class="btn btn-error btn-outline btn-xs"
+          >
+            Retry
+          </button>
+        </div>
 
         <%= if @flows == [] and is_nil(@error) do %>
           <div class="text-sm text-base-content/60">No flows found for this device.</div>

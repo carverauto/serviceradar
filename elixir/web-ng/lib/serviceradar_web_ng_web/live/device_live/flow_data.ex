@@ -407,6 +407,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
   defp escape_value(other), do: escape_value(to_string(other))
 
   defp default_flows_query(device_uid) do
-    ~s|in:flows device_id:"#{escape_value(device_uid)}" sort:time:desc|
+    ~s|in:flows device_id:"#{escape_value(device_uid)}" time:last_24h sort:time:desc|
   end
 end
