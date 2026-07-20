@@ -67,41 +67,74 @@ client** for that flow plus the tool-name separation.
   reworded to `serviceradar-dashboard`; a one-release transitional alias
   bin may be kept if npm consumers depend on the old name (Open Question).
 
-### Port device-code auth into the Go CLI (`serviceradar-cli auth`)
+### New reusable Go SDK layer (`go/pkg/srclient`)
+The auth, credential-store, and API-client code is built as a **reusable
+package** (`go/pkg/srclient`), not buried in CLI command handlers, because
+the same layer will back forthcoming clients — a Fyne desktop UI and
+operator commands that fire agent-egress ping sweeps / network scans (each
+its own future change). Structuring it as an importable SDK now avoids a
+later extraction.
+- **ADD** `go/pkg/srclient/credentials.go` — credential store
+  **byte-compatible** with the JS tool's
+  `~/.config/serviceradar/credentials.json` (XDG_CONFIG_HOME-aware;
+  `%APPDATA%\serviceradar\credentials.json` on Windows; file mode `0600`;
+  refuse group/world-writable parent dir; layout `{version:1,
+  instances:{<normalized-url>:{token, user?, obtained_at?,
+  expires_at?}}}`). A token written by the JS `auth login` MUST resolve in
+  the Go tool and vice-versa. Includes the shared token-resolution helper
+  with the JS precedence order: `--token` flag -> `SERVICERADAR_TOKEN` env
+  -> stored credential for the requested instance.
+- **ADD** `go/pkg/srclient/deviceauth.go` — the RFC 8628 device flow
+  (device request + token polling + manual-token fallback), returning a
+  credential the store persists.
+- **ADD** `go/pkg/srclient/client.go` + `dashboards.go` — an
+  authenticated API client (instance URL + resolved token) with the
+  dashboard publish/enable calls.
+- No new heavyweight dependency — device-code polling and publish are
+  `net/http` + `mime/multipart` + `encoding/json`.
+
+### Port the `auth` group into the Go CLI (`serviceradar-cli auth`)
 - **ADD** an `auth` subcommand group to the Go CLI dispatch
-  (`go/cmd/cli/main.go` + `go/pkg/cli`):
+  (`go/cmd/cli/main.go` + `go/pkg/cli/auth.go`, delegating to `srclient`):
   - `auth login --instance <url> [--no-browser] [--token <existing>]
-    [--scope <scope>]` — runs the OAuth 2.0 Device Authorization Grant
+    [--scope <scope>]...` — runs the OAuth 2.0 Device Authorization Grant
     (RFC 8628) against `POST /api/v1/cli/auth/device` then polls
     `POST /api/v1/cli/auth/token`, printing the verification URL + user
     code and (unless `--no-browser`) opening a browser. Falls back to
     manual-token paste when the device endpoint returns 404, matching the
-    JS client so partially-deployed instances still work.
+    JS client so partially-deployed instances still work. `--scope` is
+    repeatable and space-joined into the OAuth `scope` request so operators
+    can request more than `dashboard.publish` (e.g. future `scan.execute`)
+    without a code change.
   - `auth status [--instance <url>]` — reports the stored credential
-    (user, obtained-at, expires-at) for one or all instances.
+    (user, scope, obtained-at, expires-at) for one or all instances.
   - `auth logout [--instance <url>]` — deletes the stored credential.
-- **ADD** a credential store in Go that is **byte-compatible** with the
-  JS tool's `~/.config/serviceradar/credentials.json`
-  (XDG_CONFIG_HOME-aware; `%APPDATA%\serviceradar\credentials.json` on
-  Windows; file mode `0600`; refuse group/world-writable parent dir;
-  layout `{version:1, instances:{<normalized-url>:{token, user?,
-  obtained_at?, expires_at?}}}`). A token written by the JS `auth login`
-  MUST resolve in the Go tool and vice-versa.
-- **ADD** a shared token-resolution helper with the JS precedence order:
-  `--token` flag -> `SERVICERADAR_TOKEN` env -> stored credential for the
-  requested instance.
-- **REUSE** the existing Go `serviceradar-cli` HTTP client conventions
-  and error surface; no new heavyweight dependency — device-code polling
-  is `net/http` + `encoding/json`.
+
+### Port `dashboard publish` into the Go CLI
+- **ADD** a `dashboard publish` command to the Go CLI
+  (`go/pkg/cli/dashboard.go` -> `srclient.PublishDashboard`):
+  `serviceradar-cli dashboard publish --instance <url> [--route <slug>]
+  [--enable] [--yes] [--out-dir dist] [--manifest manifest.json]
+  [--token <bearer>]`. It reads the **already-built** `dist/manifest.json`
+  + renderer artifact, re-verifies the renderer SHA256 against the
+  manifest digest, POSTs the multipart upload to
+  `/api/v1/dashboard-packages`, then optionally calls
+  `/api/v1/dashboard-packages/:id/enable`. Structured server error
+  envelopes (`insufficient_scope`, `slug_in_use`,
+  `version_already_published`, `unsupported_media_type`,
+  `payload_too_large`, `invalid_route`, `rate_limited`, ...) are surfaced
+  with the same actionable hints as the JS client. This lets an operator
+  publish a pre-built dashboard artifact with zero Node installed; the JS
+  tool retains its own `publish` for authors already in the build loop.
 
 ### Out of scope (explicit)
-- `dashboard build` / `dashboard dev` stay in the (renamed) JS tool. The
-  Go CLI does **not** shell out to Vite.
-- `dashboard publish` is **not** ported in this change (the artifact it
-  uploads is produced by the JS bundler); it stays in the JS tool, which
-  now reads the shared credential store the Go `auth login` can populate.
-  A follow-up may add `serviceradar-cli dashboard publish` in Go once the
-  build artifact contract is stable — tracked as an Open Question.
+- `dashboard build` / `dashboard dev` stay in the (renamed) JS tool — they
+  bundle React via Vite and are inherently JS-ecosystem. The Go CLI does
+  **not** shell out to Vite; `dashboard publish` in Go consumes a
+  pre-built `dist/`, it does not build one.
+- The Fyne desktop UI and the agent-egress ping-sweep / network-scan
+  commands are **future changes**. This change only lays the reusable
+  `srclient` layer and the scope-set plumbing they will build on.
 - PKCE-with-localhost-callback (`--web`) is **not** ported; the Go client
   ships device-code + manual fallback only, matching the server rollout
   order in `add-cli-device-auth` (PKCE is a server-side follow-up).
@@ -110,22 +143,31 @@ client** for that flow plus the tool-name separation.
 
 - **Affected specs**: NEW capability `serviceradar-cli-auth`.
 - **Affected code**:
-  - `go/cmd/cli/main.go` — dispatch `auth` group.
-  - `go/pkg/cli/auth.go` (new) — device-code flow + status/logout.
-  - `go/pkg/cli/credentials.go` (new) — credential store + token
-    resolution, byte-compatible with the JS layout.
-  - `go/pkg/cli/flags.go`, `help.go`, `types.go` — new flags/help.
-  - `go/pkg/cli/*_test.go` — device-code polling, credential
-    round-trip, JS-interop fixture, token precedence.
+  - `go/pkg/srclient/{credentials,deviceauth,client,dashboards}.go` (new)
+    — the reusable SDK layer + tests (credential round-trip, JS-interop
+    fixture, token precedence, device-code polling, publish/enable).
+  - `go/cmd/cli/main.go` — dispatch `auth` and `dashboard` groups.
+  - `go/pkg/cli/auth.go`, `go/pkg/cli/dashboard.go` (new) — thin command
+    handlers over `srclient`.
+  - `go/pkg/cli/flags.go`, `cli.go`, `help.go`, `types.go` — new
+    flags/handlers/help.
+  - `go/cmd/cli/BUILD.bazel`, `go/pkg/cli/BUILD.bazel`,
+    `go/pkg/srclient/BUILD.bazel` (new) — Bazel graph.
   - `js/cli/package.json`, `BUILD.bazel`, `README.md`, `CHANGELOG.md`,
     `templates/*/package.json`, help strings — rename.
   - `build/packaging/cli/**` — unchanged binary name (`serviceradar-cli`
     stays the Go tool); confirm no packaging references the JS bin.
-  - Docs referencing either `serviceradar-cli` install path.
+  - Docs: in-repo `docs/docs/**` and the external ServiceRadar developer
+    portal (`~/src/developer/priv/content/docs/**`, the dashboard-SDK
+    pages) referencing the JS tool name and the CLI auth/publish flows.
 - **Compatibility**: The Go `serviceradar-cli` gains subcommands; all
   existing subcommands are untouched. The JS tool is renamed — an npm
-  version bump + deprecation of the old package name. Credential files
-  written by prior JS versions are read unchanged (same path + schema).
+  version bump; the old `@carverauto/serviceradar-cli` name is published
+  once more as a deprecated package that points at the new name (see
+  Decisions). Credential files written by prior JS versions are read
+  unchanged (same path + schema).
 - **Dependencies**: consumes the server endpoints from
-  `add-cli-device-auth`; does not block on it (manual-token fallback
-  covers instances that have not deployed those endpoints yet).
+  `add-cli-device-auth` and `add-cli-dashboard-publish-api`; does not
+  block on them (manual-token fallback covers instances without the
+  device endpoints; publish surfaces a clear error against instances
+  without the publish API).

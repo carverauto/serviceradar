@@ -65,7 +65,8 @@ tool is usable by the other.
   (falling back to `~/.config/serviceradar/credentials.json`, and to
   `%APPDATA%\serviceradar\credentials.json` on Windows) with file mode
   `0600` and the layout `{"version":1,"instances":{"<url>":{"token":...,
-  "user":...,"obtained_at":...,"expires_at":...}}}`
+  "user":...,"obtained_at":...,"expires_at":...,"scope":...}}}` (where
+  `scope` is an optional additive field the JS reader ignores)
 - **AND** it SHALL refuse to write when the parent directory is group- or
   world-writable on non-Windows platforms
 
@@ -109,6 +110,48 @@ commands over the shared credential store.
 - **WHEN** `auth logout --instance <url>` is run
 - **THEN** the CLI SHALL delete only that instance's credential entry and
   report whether an entry was removed
+
+### Requirement: Requestable scope set
+The `auth login` command SHALL accept a repeatable `--scope` flag and
+request the space-joined set as the OAuth `scope`, so operators can obtain
+tokens for scopes beyond `dashboard.publish` without a code change. The
+granted scope SHALL be recorded with the stored credential.
+
+#### Scenario: Multiple scopes requested
+- **WHEN** a user runs `auth login --instance <url> --scope dashboard.publish --scope scan.execute`
+- **THEN** the CLI SHALL send `scope: "dashboard.publish scan.execute"` in
+  the device-authorization request
+
+#### Scenario: Default scope
+- **WHEN** no `--scope` flag is given
+- **THEN** the CLI SHALL request `dashboard.publish` (the only scope
+  defined today)
+
+### Requirement: Native dashboard publish
+The native Go `serviceradar-cli` SHALL provide a `dashboard publish`
+command that uploads a pre-built dashboard package to an instance without
+requiring Node or the JS toolchain.
+
+#### Scenario: Publish a built package
+- **WHEN** a user runs `serviceradar-cli dashboard publish --instance <url> --route ops`
+  in a project whose `dist/manifest.json` and renderer artifact exist
+- **THEN** the CLI SHALL re-verify the renderer's SHA256 against the
+  manifest's `renderer.sha256`, refuse to upload on mismatch, and
+  otherwise POST a multipart request (`manifest`, `renderer`, `route`) to
+  `POST /api/v1/dashboard-packages` with the resolved bearer token
+
+#### Scenario: Optional enable after publish
+- **WHEN** `--enable` is passed and the publish succeeds
+- **THEN** the CLI SHALL call `POST /api/v1/dashboard-packages/:id/enable`
+  with `{route}` to flip the dashboard live
+
+#### Scenario: Structured server errors are surfaced with hints
+- **WHEN** the publish or enable call returns a structured error envelope
+  (e.g. `insufficient_scope`, `slug_in_use`, `version_already_published`,
+  `unsupported_media_type`, `payload_too_large`, `invalid_route`,
+  `rate_limited`)
+- **THEN** the CLI SHALL exit non-zero and print an actionable hint for
+  that error code rather than only the raw HTTP status
 
 ### Requirement: Single canonical `serviceradar-cli` command name
 The name `serviceradar-cli` SHALL refer to exactly one tool — the native

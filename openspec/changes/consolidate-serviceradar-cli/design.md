@@ -101,16 +101,34 @@ from the new files.
   interop. Mitigated by the JS-interop fixture test; any schema change
   must update both sides in lockstep (call this out in both files).
 
-## Open Questions
+## Resolved Decisions (post-approval)
 
-1. **Transitional alias for the renamed npm package?** Publish a
-   deprecated `@carverauto/serviceradar-cli` that re-exports/points at
-   `@carverauto/serviceradar-dashboard` for one release, or hard-cut with
-   only a CHANGELOG note? (Leaning: deprecate-and-point for one minor.)
-2. **Do we also port `dashboard publish` to Go later?** The artifact is
-   JS-produced, but an operator publishing a pre-built `dist/` from Go is
-   plausible. Out of scope here; revisit once the build-artifact contract
-   is frozen by `add-cli-dashboard-publish-api`.
-3. **Scope default.** JS defaults `scope` to `dashboard.publish`. For a
-   general-purpose ops CLI, is a broader/empty default more appropriate,
-   or do we keep `dashboard.publish` for parity until other scopes exist?
+1. **Transitional alias for the renamed npm package — DECIDED:
+   deprecate-and-point for one minor.** Republish
+   `@carverauto/serviceradar-cli` one final time as a thin deprecated
+   package (`deprecated` field + a README/postinstall notice) whose bin
+   forwards to / instructs installing `@carverauto/serviceradar-dashboard`.
+   Removed in the following minor.
+2. **Port `dashboard publish` to Go — DECIDED: yes, in this change.** The
+   Go command consumes a pre-built `dist/` (it does not build one) and
+   POSTs the multipart upload + optional enable, so operators can publish
+   without Node. The JS tool keeps its own `publish` for authors already
+   in the build loop; both hit the same `add-cli-dashboard-publish-api`
+   endpoints.
+3. **Scope model — DECIDED: request a scope *set*, do not hardcode.**
+   `--scope` is repeatable; values are space-joined into the OAuth `scope`
+   request. Default stays `dashboard.publish` (the only scope that exists
+   today) but the plumbing carries multiple scopes so the forthcoming
+   agent-egress scan work can request `scan.execute` (or similar) with no
+   CLI code change. The stored credential records the granted scope for
+   `auth status` display.
+
+## Forward-looking (not built here)
+
+The `srclient` package is deliberately client-agnostic so two planned
+efforts reuse it rather than re-implement auth/credentials/HTTP:
+- A **Fyne desktop UI** for ServiceRadar operators.
+- **Agent-egress network scans / ping sweeps** — commands (and later UI
+  actions) that let a user launch a scan and choose which agent egresses
+  it. These will add new API-client methods on `srclient.Client` and new
+  scopes, each under its own OpenSpec change.
