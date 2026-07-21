@@ -1,0 +1,26 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "sender",
+    srcs = ["lane.go"],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/edge/sender",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/edge/edgeframe",
+        "//go/pkg/edge/spool",
+        "//proto/edge/v1:edgev1",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+go_test(
+    name = "sender_test",
+    srcs = ["lane_test.go"],
+    embed = [":sender"],
+    deps = [
+        "//go/pkg/edge/edgeframe",
+        "//go/pkg/edge/spool",
+        "//proto/edge/v1:edgev1",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
