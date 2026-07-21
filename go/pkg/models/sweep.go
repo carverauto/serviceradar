@@ -95,6 +95,7 @@ const (
 	ModeTCP        SweepMode = "tcp"         // SYN scanning (fast but breaks conntrack)
 	ModeTCPConnect SweepMode = "tcp_connect" // TCP connect scanning (safe for conntrack)
 	ModeICMP       SweepMode = "icmp"
+	ModeMTR        SweepMode = "mtr" // MTR traceroute (first-class sweep mode)
 )
 
 // Target represents a network target to be scanned.

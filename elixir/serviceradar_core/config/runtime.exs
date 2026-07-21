@@ -1608,6 +1608,19 @@ if config_env() == :prod do
           consumer_max_deliver: 5
         },
         %{
+          name: "SCAN_RESULTS",
+          stream_name: "scan_results",
+          subject: "scans.results.>",
+          processor: ServiceRadar.EventWriter.Processors.AdhocScan,
+          batch_size: 200,
+          batch_timeout: 500,
+          stream_retention: "limits",
+          stream_storage: "file",
+          stream_discard: "old",
+          stream_max_bytes: 268_435_456,
+          stream_max_age: 3_600_000_000_000
+        },
+        %{
           name: "BMP_CAUSAL",
           subject: "bmp.events.>",
           processor: AnalyticsSignals,

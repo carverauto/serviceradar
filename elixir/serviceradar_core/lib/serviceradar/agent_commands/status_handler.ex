@@ -6,6 +6,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   use GenServer
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentCommands.AdhocScanResultHandler
   alias ServiceRadar.AgentCommands.PubSub
   alias ServiceRadar.Automation.Ansible.AutomationResultSanitizer
   alias ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator
@@ -57,6 +58,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
        result_consumers:
          Keyword.get(opts, :result_consumers, [
            &safe_maybe_ingest_mtr_result/1,
+           &AdhocScanResultHandler.handle_command_result/1,
            fn data ->
              AgentReleaseManager.handle_command_result(data,
                actor: SystemActor.system(:agent_command_status)
@@ -92,6 +94,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
     if persist_progress(data, state.actor) == :ok do
       safe_maybe_ingest_mtr_result(data)
+      AdhocScanResultHandler.handle_command_progress(data)
       AgentReleaseManager.handle_command_progress(data, actor: state.actor)
     end
 

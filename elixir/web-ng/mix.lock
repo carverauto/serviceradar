@@ -42,6 +42,7 @@
   "ed25519": {:hex, :ed25519, "1.5.1", "c1e7d96188ff241fe9924ed06640d3e60ce5c19f9c3f1079db850f4d0ea1f7dc", [:mix], [], "hexpm", "f83f7b346edfb91f0672682dee8672d16a26bfa8a7b85ee9795cb7fb2825b8bb"},
   "elixir_make": {:hex, :elixir_make, "0.9.0", "6484b3cd8c0cee58f09f05ecaf1a140a8c97670671a6a0e7ab4dc326c3109726", [:mix], [], "hexpm", "db23d4fd8b757462ad02f8aa73431a426fe6671c80b200d9710caf3d1dd0ffdb"},
   "elixir_uuid": {:hex, :elixir_uuid, "1.2.1", "dce506597acb7e6b0daeaff52ff6a9043f5919a4c3315abb4143f0b00378c097", [:mix], [], "hexpm", "f7eba2ea6c3555cea09706492716b0d87397b88946e6380898c2889d68585752"},
+  "elixlsx": {:hex, :elixlsx, "0.6.0", "858c2c821ab52f4ca0988adce188d19f3b239a4fff8b36b26cd81ec8af9b2ab3", [:mix], [], "hexpm", "c4766f47afea075a85950a5c6fe981e98b8b8a30cc076382aaacf2bb8dbcd25d"},
   "equivalex": {:hex, :equivalex, "1.0.3", "170d9a82ae066e0020dfe1cf7811381669565922eb3359f6c91d7e9a1124ff74", [:mix], [], "hexpm", "46fa311adb855117d36e461b9c0ad2598f72110ad17ad73d7533c78020e045fc"},
   "erlex": {:hex, :erlex, "0.2.9", "7debbbaa9f4f368b8cd648983e0f1d7963028508e9c59e9d4ed504e94ef52a55", [:mix], [], "hexpm", "8cfffc0ec7159e6d73de2ab28a588064de80f88b2798d5cbe4482cbbc200178b"},
   "esaml": {:hex, :esaml, "4.6.0", "8fb5a3a0d56ccfce3e081a2f72b29058511047a2abbafb64cb6f595bf7465124", [:rebar3], [{:cowboy, "< 3.0.0", [hex: :cowboy, repo: "hexpm", optional: false]}], "hexpm", "d34d0b259cd8ac8215fd2c333fac9dbbb91b5f5da5a9304508612ff3ac0afa7a"},

@@ -200,6 +200,7 @@ config :serviceradar_core,
     ServiceRadar.Automation.Northbound,
     ServiceRadar.Automation.Ansible,
     ServiceRadar.Automation.Callbacks,
+    ServiceRadar.Scans,
     ServiceRadar.Security
   ]
 

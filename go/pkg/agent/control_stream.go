@@ -549,6 +549,8 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 			p.handleMtrRun(ctx, cmd, sender)
 		case commandTypeMtrBulkRun:
 			p.handleMtrBulkRun(ctx, cmd, sender)
+		case commandTypeAdhocScan:
+			p.handleAdhocScan(ctx, cmd, sender)
 		case commandTypeCameraRelayOpen:
 			p.handleCameraRelayOpen(ctx, cmd, sender)
 		case commandTypeCameraRelayStop:
