@@ -148,6 +148,7 @@ type HostResult struct {
 	PortResults  []*PortResult       `json:"port_results,omitempty"`
 	PortMap      map[int]*PortResult `json:"-"` // O(1) port lookup, excluded from JSON
 	ICMPStatus   *ICMPStatus         `json:"icmp_status,omitempty"`
+	MTRStatus    *MTRStatus          `json:"mtr_status,omitempty"`
 	ResponseTime time.Duration       `json:"response_time"`
 	SweepModes   []SweepMode         `json:"sweep_modes,omitempty"`
 }
@@ -157,6 +158,17 @@ type ICMPStatus struct {
 	Available  bool          `json:"available"`
 	RoundTrip  time.Duration `json:"round_trip"`
 	PacketLoss float64       `json:"packet_loss"`
+}
+
+// MTRStatus represents the reachability summary of an MTR trace within a sweep.
+// The full per-hop trace is not carried here (it is emitted separately to the
+// MTR results path); this is the sweep's per-host reachability view for MTR,
+// mirroring ICMPStatus.
+type MTRStatus struct {
+	Reached    bool          `json:"reached"`
+	RoundTrip  time.Duration `json:"round_trip"`
+	PacketLoss float64       `json:"packet_loss"`
+	TotalHops  int           `json:"total_hops"`
 }
 
 // PortResult represents a single port scan result.
@@ -247,6 +259,15 @@ func DeepCopyHostResult(src *HostResult) HostResult {
 			Available:  src.ICMPStatus.Available,
 			RoundTrip:  src.ICMPStatus.RoundTrip,
 			PacketLoss: src.ICMPStatus.PacketLoss,
+		}
+	}
+
+	if src.MTRStatus != nil {
+		dst.MTRStatus = &MTRStatus{
+			Reached:    src.MTRStatus.Reached,
+			RoundTrip:  src.MTRStatus.RoundTrip,
+			PacketLoss: src.MTRStatus.PacketLoss,
+			TotalHops:  src.MTRStatus.TotalHops,
 		}
 	}
 
