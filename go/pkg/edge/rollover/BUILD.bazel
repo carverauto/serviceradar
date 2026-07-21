@@ -1,0 +1,18 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "rollover",
+    srcs = [
+        "journal.go",
+        "manifest.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/edge/rollover",
+    visibility = ["//visibility:public"],
+    deps = ["//proto/edge/v1:edgev1"],
+)
+
+go_test(
+    name = "rollover_test",
+    srcs = ["rollover_test.go"],
+    embed = [":rollover"],
+)
