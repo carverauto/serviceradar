@@ -112,20 +112,18 @@ defmodule ServiceRadar.Inventory.Identity.Mac do
   unit the ingest-time distinct-MAC veto (`BatchResolver`) resolves on; reuse it
   for detection/grouping so an un-merge cannot drift from prevention.
   """
-  # Dialyzer success-typing for MapSet.new/1 is more concrete than MapSet.t();
-  # keep the public contract as MapSet.t() and suppress the known contract
-  # opacity mismatch for this pure identity helper.
-  @dialyzer {:nowarn_function, universal_macs: 1}
   @spec universal_macs([String.t()] | String.t() | nil) :: MapSet.t(String.t())
   def universal_macs(values) when is_list(values) do
     values
     |> Enum.flat_map(&normalize_mac_list/1)
     |> Enum.reject(&locally_administered_mac?/1)
-    |> MapSet.new()
+    # :erlang.apply keeps Dialyzer from expanding MapSet.new/1 into a concrete
+    # set map, which otherwise breaks every MapSet API call on the result.
+    |> then(fn macs -> :erlang.apply(MapSet, :new, [macs]) end)
   end
 
   def universal_macs(value) when is_binary(value), do: universal_macs([value])
-  def universal_macs(_), do: MapSet.new()
+  def universal_macs(_), do: :erlang.apply(MapSet, :new, [[]])
 
   @doc """
   True when two universal-MAC sets are both non-empty and disjoint — the

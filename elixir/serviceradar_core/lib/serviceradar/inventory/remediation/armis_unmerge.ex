@@ -569,10 +569,10 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
     values
     |> Enum.map(&normalize_string/1)
     |> Enum.reject(&is_nil/1)
-    |> MapSet.new()
+    |> then(fn list -> :erlang.apply(MapSet, :new, [list]) end)
   end
 
-  defp normalize_allowlist(_values), do: MapSet.new()
+  defp normalize_allowlist(_values), do: :erlang.apply(MapSet, :new, [[]])
 
   defp blocked_execution_report(base, reason) do
     Map.merge(base, %{

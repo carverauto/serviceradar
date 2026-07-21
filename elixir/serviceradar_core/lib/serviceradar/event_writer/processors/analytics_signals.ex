@@ -298,7 +298,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
   defp align_existing_ocsf_event_times_with_existing_ids(rows, repo \\ ServiceRadar.Repo)
 
-  defp align_existing_ocsf_event_times_with_existing_ids([], _repo), do: {[], MapSet.new()}
+  defp align_existing_ocsf_event_times_with_existing_ids([], _repo), do: {[], opaque_mapset([])}
 
   defp align_existing_ocsf_event_times_with_existing_ids(rows, repo) when is_list(rows) do
     ids =
@@ -317,12 +317,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
             end
           end)
 
-        {aligned_rows, MapSet.new(Map.keys(existing_times))}
+        {aligned_rows, opaque_mapset(Map.keys(existing_times))}
 
       _ ->
-        {rows, MapSet.new()}
+        {rows, opaque_mapset([])}
     end
   end
+
+  # Keep MapSet API calls opaque for Dialyzer (OTP 28 expands MapSet.new/1).
+  defp opaque_mapset(list) when is_list(list), do: :erlang.apply(MapSet, :new, [list])
 
   defp existing_ocsf_event_times(_repo, []), do: {:ok, %{}}
 
