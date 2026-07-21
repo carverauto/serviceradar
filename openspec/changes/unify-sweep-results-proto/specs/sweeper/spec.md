@@ -3,13 +3,15 @@
 ## MODIFIED Requirements
 
 ### Requirement: Sweep Results Push to Agent-Gateway
-The agent SHALL stream sweep observations to the agent-gateway as versioned,
-byte-bounded protobuf frames while a sweep is running. It SHALL durably spool
-each frame before transmission, retain it through restart until cumulatively
-acknowledged, and SHALL NOT require full-scan result materialization. An
+The agent SHALL encode each sweep observation once as versioned, byte-bounded
+`EdgeRecordV1` bytes and carry those exact bytes to the agent-gateway inside
+`EdgeDeliveryFrameV1` while a sweep is running. It SHALL durably spool each
+record plus its delivery binding before transmission, retain it through restart
+until cumulatively acknowledged, and SHALL NOT require full-scan result
+materialization. An
 execution MAY be long-lived, but every start, data, progress, trace, and terminal
-frame SHALL remain an independently bounded microbatch with its own durable
-spool and acknowledgement lifecycle.
+record SHALL remain an independently bounded microbatch with its own durable
+delivery and acknowledgement lifecycle.
 
 #### Scenario: Agent starts a sweep execution stream
 - **GIVEN** an enabled agent starts a sweep execution shard
@@ -82,20 +84,24 @@ spool and acknowledgement lifecycle.
 - **THEN** the agent SHALL NOT emit periodic sweep result frames
 
 ### Requirement: Gateway Forwards Sweep Results to Core
-The agent-gateway SHALL authenticate, validate, and publish sweep result frames
-to the installation-local, partitioned JetStream sweep stream selected by the
-immutable scheduler-signed traffic class. Bulk and interactive frames SHALL use
+The agent-gateway SHALL authenticate and validate sweep `EdgeDeliveryFrameV1`
+messages, then publish their exact `EdgeRecordV1` bytes to the installation-local,
+partitioned shared JetStream edge-record route
+selected by the platform profile and immutable scheduler-signed traffic class.
+Bulk and interactive frames SHALL use
 disjoint physical streams and durable consumers. The gateway SHALL preserve the
-inner protobuf bytes, persist the complete authoritative broker-header envelope,
-wait for a valid PubAck, and only then return an accepted disposition.
+exact `EdgeRecordV1` bytes carried by `EdgeDeliveryFrameV1`, publish those bytes
+unchanged with transport-minimal broker headers, wait for a valid PubAck, and
+only then return an accepted disposition.
 
 #### Scenario: Gateway receives a valid sweep frame
-- **GIVEN** the gateway authenticates an agent and validates a supported frame
+- **GIVEN** the gateway authenticates an agent and validates a supported delivery
+  frame and its contained record
 - **WHEN** it routes the frame
 - **THEN** it SHALL compute the partition from trusted network scope, agent,
   execution, immutable traffic class, and stable shard keys
-- **AND** publish the inner protobuf bytes to the expected class-specific sweep
-  stream
+- **AND** publish the exact `record_bytes` to the expected class-specific
+  edge-record stream without re-encoding or semantic broker headers
 - **AND** advance the contiguous resolved watermark only after PubAck
 
 #### Scenario: JetStream or its consumer is unavailable
@@ -108,7 +114,7 @@ wait for a valid PubAck, and only then return an accepted disposition.
   oldest result, or route it directly to a database writer
 
 #### Scenario: Gateway receives spoofed routing metadata
-- **WHEN** frame metadata conflicts with the authoritative network scope,
+- **WHEN** decoded record metadata conflicts with the authoritative network scope,
   authenticated agent, execution assignment, or signed traffic class
 - **THEN** the gateway SHALL reject it without publishing
 - **AND** record an attributable protocol/security error

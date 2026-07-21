@@ -1,22 +1,23 @@
 ## ADDED Requirements
 
 ### Requirement: Indexed current device source observations
-The system SHALL persist bounded source-observation state keyed by partition, discovery source, source instance, and source object ID. Each observation SHALL reference a canonical device UID and track first seen, last observed, current collection, present/absent state, standard device values, and bounded provider-owned metadata.
+The system SHALL stage bounded source-observation pages by authenticated installation partition, discovery source, source instance, coverage scope, and run. It SHALL expose current observations through one atomic current-version pointer per source instance and coverage scope. Each activated observation SHALL be keyed by source object ID, reference a canonical device UID, and track first seen, last observed, current collection, present/absent state, standard device values, and bounded provider-owned metadata. Staged pages MUST NOT become current individually.
 
 #### Scenario: Source object is first observed
-- **WHEN** a complete external inventory snapshot introduces a source object
+- **WHEN** a validated complete external inventory terminal atomically activates a staged snapshot that introduces a source object
 - **THEN** ServiceRadar SHALL upsert one source observation linked to the DIRE-resolved canonical UID
 - **AND** it SHALL mark the observation present with the current collection and observed time
 
 #### Scenario: Same collection is delivered twice
 - **GIVEN** a source instance, object ID, collection ID, and content hash were already ingested
-- **WHEN** command retry delivers the same result again
+- **WHEN** producer or broker retry delivers the same page or terminal again
 - **THEN** source observations and canonical devices SHALL remain idempotent
 - **AND** no duplicate rows or discovery-source entries SHALL be created
 
 #### Scenario: Object is absent from a later snapshot
 - **GIVEN** a source object was present in the previous complete collection
-- **WHEN** a later complete collection for the same source instance omits it
+- **AND** the provider consistency proof authorizes absence for the exact same coverage scope
+- **WHEN** a later complete collection for the same source instance and scope omits it
 - **THEN** its observation SHALL become absent
 - **AND** its canonical device SHALL not be deleted or made unavailable solely because one source omitted it
 
@@ -25,6 +26,12 @@ The system SHALL persist bounded source-observation state keyed by partition, di
 - **WHEN** ingestion processes it
 - **THEN** canonical discovery MAY proceed normally
 - **AND** current source-observation presence SHALL remain unchanged
+
+#### Scenario: A staged run is incomplete or stale
+- **GIVEN** source pages were staged for a run
+- **WHEN** the run aborts, expires, loses a page, fails its consistency proof, or its terminal is older than the current version
+- **THEN** no current-version pointer SHALL change
+- **AND** the previous source snapshot SHALL remain queryable while the staged run awaits bounded garbage collection
 
 ### Requirement: Multi-source canonical provenance preservation
 Canonical device upserts SHALL union discovery sources and preserve source-specific provenance. A complete plugin inventory SHALL NOT replace another source's canonical integration identity with generic or provider integration fields.

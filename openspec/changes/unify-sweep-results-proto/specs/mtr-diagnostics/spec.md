@@ -7,7 +7,8 @@ The agent SHALL support on-demand MTR execution through the ControlStream comman
 interface. ControlStream SHALL return bounded command/progress state and a stable
 trace identifier; the complete enriched trace SHALL use the same canonical
 durable MTR event contract as scheduled, sweep-profile, and ad-hoc traces while
-remaining in its scheduler-attested immutable traffic-class lane.
+remaining in the shared platform route selected by its scheduler-attested
+immutable traffic class.
 
 #### Scenario: On-demand trace succeeds
 - **WHEN** an authorized `mtr.run` command is received with a target address
@@ -17,8 +18,8 @@ remaining in its scheduler-attested immutable traffic-class lane.
   the trace ID
 - **AND** the complete ASN, DNS, MPLS, ECMP, hop, reachability, and timing result
   SHALL be published through `MtrTraceBatchV1`
-- **AND** an on-demand trace classified as interactive SHALL use the dedicated
-  interactive MTR spool, subject, physical stream, durable, and result credits
+- **AND** an on-demand trace classified as interactive SHALL use the shared
+  interactive edge-record lane, physical stream, durable, and result credits
 
 #### Scenario: Caller waits for an interactive result
 - **GIVEN** the trace completes within the command's bounded response window
@@ -29,10 +30,11 @@ remaining in its scheduler-attested immutable traffic-class lane.
 
 ### Requirement: Result Reporting
 All MTR producers SHALL report complete traces as versioned, lossless,
-byte-bounded `MtrTraceBatchV1` protobuf events through the edge result stream.
+byte-bounded `MtrTraceBatchV1` protobuf events through the edge record stream.
 The sweep host observation MAY carry only a small reachability summary and
-stable trace ID. The gateway SHALL publish complete traces to the dedicated MTR
-JetStream stream selected by immutable signed `traffic_class` before
+stable trace ID. The gateway SHALL publish complete traces to the fixed shared
+JetStream edge-record route selected by platform profile and immutable signed
+`traffic_class` before
 acknowledging them. Every batch SHALL have one authoritative
 `network_scope_id`, authenticated agent, source/authorization context, and
 traffic class; every decoded trace SHALL match that envelope before side effects.
@@ -46,7 +48,7 @@ run-wide or interval-wide collection of completed traces before encoding.
 - **THEN** the agent SHALL spool and send a typed trace event containing all
   bounded hop, ECMP, MPLS, ASN, DNS, outcome, timing, and source context
 - **AND** the gateway SHALL stamp authoritative network-scope/agent/traffic-class
-  context and wait for PubAck from the mapped MTR physical stream
+  context and wait for PubAck from the mapped edge-record physical stream
 - **AND** the producer SHALL release that completed trace after durable spooling
   while later due checks continue
 
@@ -54,7 +56,7 @@ run-wide or interval-wide collection of completed traces before encoding.
 - **WHEN** MTR runs as part of a sweep profile
 - **THEN** the sweep host observation SHALL carry summary status and `trace_id`
 - **AND** the complete correlated trace SHALL be independently published to the
-  MTR stream selected by the same immutable source traffic class
+  shared edge-record route selected by the same immutable source traffic class
 - **AND** neither event SHALL require the other to be decoded or committed in
   the same transaction
 
@@ -66,17 +68,13 @@ run-wide or interval-wide collection of completed traces before encoding.
 - **AND** the system SHALL NOT embed it in a whole-sweep payload or retry an
   impossible message indefinitely
 
-#### Scenario: Legacy trace is emitted during migration
-- **GIVEN** a minimum dual-path-version agent has not been explicitly enabled
-  for `edge-results:v1`
-- **WHEN** it reports an MTR result during the compatibility window
-- **THEN** it SHALL emit one independently acknowledged, byte-bounded,
-  stable-ID/checksum patched legacy frame with signed network-scope/range/class
-  authority
-- **AND** the gateway SHALL wrap the explicitly marked format in the complete
-  broker envelope and wait for PubAck from the mapped class-specific MTR stream
-- **AND** EventWriter SHALL be its only database writer
-- **AND** SHALL NOT infer its format by sniffing payload bytes
+#### Scenario: Agent is not ready for v1 traces
+- **GIVEN** an agent or reachable gateway cannot send, retain, and drain the
+  required v1 trace contract and spool version
+- **WHEN** the scheduler considers new MTR work for that path
+- **THEN** it SHALL defer the work until upgrade and complete downstream
+  readiness
+- **AND** SHALL NOT emit a patched legacy trace or infer a fallback format
 
 #### Scenario: Correlated trace is delayed or missing
 - **GIVEN** a sweep or ad-hoc summary references a stable trace ID

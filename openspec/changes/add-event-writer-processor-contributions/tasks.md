@@ -1,27 +1,36 @@
 ## 1. Processor Contribution Contract
-- [ ] 1.1 Define the package metadata schema for EventWriter processor contributions.
+- [ ] 1.1 Define the package metadata schema for output-contract and bounded EventWriter
+  projector contributions. Packages SHALL NOT declare subjects, streams, traffic
+  class, partition rules, database destinations, SQL, or DDL.
 - [ ] 1.2 Persist normalized approved processor contributions in CNPG, bound to the
   package version/import approval record.
-- [ ] 1.3 Add validation for ids, versions, subject filters, processor engine ids,
-  destinations, OCSF metadata, mapping rules, limits, and conflict policy.
+- [ ] 1.3 Add validation for contract ids/versions/bundle digests, platform processor
+  engine ids, approved destinations, OCSF metadata, mapping rules, bounds, cost-model
+  inputs, and conflict policy; reject producer-selected routing or authority fields.
 - [ ] 1.4 Extend package import/approval flows so processor contributions are staged,
   reviewed, approved, denied, and revoked with the package version.
 - [ ] 1.5 Ensure runtime ingestion never calls running add-ons to fetch processor
   definitions; EventWriter must read persisted registry contracts only.
 
 ## 2. Registry And EventWriter Routing
-- [ ] 2.1 Implement a processor registry read model that returns approved processor
-  contributions plus core platform defaults as a versioned snapshot.
-- [ ] 2.2 Refactor EventWriter config to build streams/subscriptions from the registry
-  snapshot instead of static producer-specific defaults.
+- [ ] 2.1 Extend the signed output-contract registry read model from
+  `unify-sweep-results-proto` with approved projector contributions plus core platform
+  defaults as one atomically activated versioned snapshot.
+- [ ] 2.2 Refactor EventWriter config to consume the finite platform-owned stream map;
+  registry entries may assign a contract subject slot inside that map but SHALL NOT
+  create package-specific physical streams or arbitrary subscriptions.
 - [ ] 2.3 Refactor EventWriter pipeline routing to resolve batchers through registry
   entries and processor engine ids instead of producer-specific `get_processor/1`
   clauses.
-- [ ] 2.4 Add conflict handling for overlapping subjects and keep the previous snapshot
-  active when a registry refresh fails validation.
-- [ ] 2.5 Keep dynamic package-contributed JetStream consumption on the Broadway-backed
-  EventWriter producer/pipeline path; shared JetStream helper modules should remain API
-  plumbing, not independent ingestion loops.
+- [ ] 2.4 Add conflict handling for duplicate contract identity, schema/bundle digest,
+  route slot, projector ownership, or destination authority and keep the previous
+  snapshot active when a registry refresh fails validation.
+- [ ] 2.5 Keep package records on the shared Broadway-backed EventWriter
+  producer/pipeline path; adding a contribution SHALL update registry dispatch, not
+  create an independent receive loop or package-proportional consumer.
+- [ ] 2.6 Reject, quarantine, and make observable records whose contract bundle or
+  registry epoch is unknown, revoked, stale beyond its drain horizon, or inconsistent
+  with trusted route/cost metadata.
 
 ## 3. Processor Engines
 - [ ] 3.1 Implement `ocsf_passthrough` for package-emitted OCSF events such as
@@ -57,8 +66,9 @@
   active.
 
 ## 6. SDK Interfaces
-- [ ] 6.1 Add typed processor/catalog contribution builders and validators to the
-  in-repo add-on SDK/package tooling.
+- [ ] 6.1 Add typed output-contract/projector and catalog contribution builders and
+  validators to the in-repo add-on SDK/package tooling without exposing broker routing
+  or persistence authority.
 - [ ] 6.2 Add typed EventWriter processor contribution helpers to
   `~/src/serviceradar-sdk-go`.
 - [ ] 6.3 Add typed EventWriter processor contribution helpers to
@@ -67,8 +77,9 @@
   and Rust SDK validation tests.
 
 ## 7. Validation
-- [ ] 7.1 Add unit tests for processor manifest validation and subject conflict
-  detection.
+- [ ] 7.1 Add unit tests for processor manifest validation, contract/bundle conflicts,
+  and rejection of package-supplied subjects, streams, traffic class, cost, SQL, DDL,
+  or database destinations.
 - [ ] 7.2 Add EventWriter routing tests that prove PowerDNS/Falco/Trivy/Bumblebee are
   resolved from registry entries, not hardcoded pipeline clauses.
 - [ ] 7.3 Add integration tests for malformed manifests and malformed records.
@@ -76,3 +87,6 @@
 - [ ] 7.5 Run `openspec validate add-event-writer-processor-contributions --strict`.
 - [ ] 7.6 Run targeted Elixir quality/tests for EventWriter and package approval code.
 - [ ] 7.7 Run Go SDK and Rust SDK tests for the new helper APIs.
+- [ ] 7.8 Prove that thousands of approved package contracts do not create a
+  proportional number of JetStream streams, consumers, connections, lanes, Broadway
+  producers, or supervised processes.

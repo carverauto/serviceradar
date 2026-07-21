@@ -1,13 +1,15 @@
-# Change: Refactor the edge sweep and MTR result data plane
+# Change: Refactor the durable edge producer data plane
 
 ## Why
 
-ServiceRadar must ingest scheduled observations from hundreds of thousands to
-millions of hosts without treating one scan as one in-memory payload, falsely
-acknowledging data before it is durable, or writing the same observation through
-multiple high-cardinality representations.
+ServiceRadar must ingest durable output from built-in collectors, scanners,
+Wasm plugins, native add-ons, and integration adapters at fleet scale without
+treating one run as one in-memory payload, falsely acknowledging data before it
+is durable, or writing the same fact through multiple high-cardinality
+representations. Million-host sweeps and full MTR traces are the first load
+tests for the shared producer boundary, not identities baked into that boundary.
 
-The current path has four structural problems:
+The current path has five structural problems:
 
 1. Sweep results are materialized as full JSON payloads and sent through
    `StreamStatus`; the agent then parses that JSON again to build a second
@@ -27,13 +29,22 @@ The current path has four structural problems:
 4. The existing `mtr-metrics` `MetricBatch` is a scalar projection, not a full
    trace contract. It omits rich path data and is persisted as generic
    timeseries rows; it does not populate `mtr_traces` and `mtr_hops`.
+5. Built-in scanners, Wasm plugins, native add-ons, OTLP relays, and embedded
+   sync integrations use separate output queues, payload limits, retry loops,
+   and acknowledgement meanings. Wasm `submit_result`, native
+   `StreamTelemetry`, and integration JSON pages can still terminate in memory
+   or `StreamStatus`, while the specialized OTLP relay carries its own spool.
+   Adding a producer therefore keeps adding transport code to
+   `serviceradar-agent` instead of reusing one bounded durable publishing
+   boundary.
 
 The correct architecture is layered rather than "gRPC or JetStream":
 
 ```text
-scanner -> agent disk spool -> bounded protobuf frames over mTLS gRPC
+agent/scanner/plugin/add-on/integration producer -> agent-owned producer API
+        -> shared agent disk spool -> bounded typed frames over mTLS gRPC
         -> authenticated gateway -> JetStream PubAck
-        -> partitioned pull consumer -> idempotent database projection
+        -> partitioned pull consumer -> approved idempotent projection
 ```
 
 gRPC remains the authenticated, flow-controlled edge transport. JetStream
@@ -41,25 +52,47 @@ becomes the durable commit, replay, fan-out, and backpressure boundary for
 structured observations. ERTS remains appropriate for control traffic and
 low-volume status, not the high-volume durable result path.
 
+The reusable boundary is a **durable record producer**, not a universal workflow
+or byte-transport API. Plugins and add-ons do not construct transport frames,
+select NATS subjects, hold broker credentials, or write database schemas. They
+submit a bounded output covered by an approved package/assignment contract; the
+agent attests the carrier, package, assignment, run, and scope, reserves
+capacity, assigns immutable delivery identity, and acknowledges the local
+producer only after crash-safe spool append. Attestation never turns
+producer-supplied body claims into trusted identity. Live media, interactive
+tunnels, commands, credentials, update plans, and large opaque artifacts retain
+their dedicated transports.
+
 ServiceRadar is deliberately one customer per installation; the SaaS control
 plane provisions each customer into a separate cluster. This change therefore
 does not introduce an in-cluster tenant axis, per-tenant broker accounts,
 database schemas, or capacity cells. `network_scope_id` is only the signed
 site/address-space namespace needed to distinguish sites (including overlapping
 RFC1918 networks). Scheduling and overload isolation are by network/site scope,
-agent, execution, and scheduler-attested traffic class.
+agent, producer assignment, run/execution, and control-plane-attested traffic
+class.
 
 ## What Changes
 
-### Canonical typed observation events
+### Canonical typed durable records
 
-- **ADD** a versioned `EdgeResultFrame` transport envelope with a persistent
-  per-lane spool sequence, stable event ID, payload kind/schema version,
+- **ADD** a versioned canonical `EdgeRecordV1` with a stable event ID, platform
+  payload family,
   compression, encoded/uncompressed sizes, checksum, projected database-row and
   write-byte costs with a versioned cost model, authoritative network scope,
-  immutable traffic class, one authorization context/range, separate collection
-  and renewable spool-delivery capabilities, and opaque protobuf body. The gateway persists an
-  equivalent complete broker-header envelope bound to the body by a digest.
+  immutable traffic class, one authorization context/scope, separate production,
+  source-authorization, exact output-contract bundle,
+  signed registry snapshot and effective-grant digests, ingress-attested
+  origin/producer/package/assignment/run context, platform route profile, and
+  opaque canonical body. The sink encodes these semantic bytes once.
+- **ADD** a small `EdgeDeliveryFrameV1` for edge transport only: persistent
+  spool ID/sequence, exact record-byte checksum, renewable delivery capability,
+  and the unchanged `record_bytes`. The common spool owns the wrapper and exact
+  record bytes; rollover/recovery may change delivery coordinates by creating a
+  new wrapper without changing or re-encoding `EdgeRecordV1`. gRPC decodes the
+  delivery wrapper, the gateway bounded-decodes/verifies the record, and
+  JetStream persists the exact `record_bytes` as its message body. NATS headers
+  remain minimal and transport-only; EventWriter decodes `EdgeRecordV1`.
 - **ADD** compact, byte-bounded `SweepObservationBatchV1` messages for ICMP/TCP
   results and an optional small MTR summary plus `trace_id`. Batch-level fields
   carry plan/range digests, configured modes, availability policy, and exact
@@ -71,6 +104,37 @@ agent, execution, and scheduler-attested traffic class.
   generic `MetricBatch`. Each batch is homogeneous for source, execution/check/
   command authorization, assignment epoch, and range so one signed outer
   context covers every record.
+- **GENERALIZE** the frame and lane metadata so the same transport/spool engine
+  carries any approved, bounded, persisted edge record family. Add trusted
+  producer/package/assignment provenance and a versioned output-contract ID,
+  digest, encoding, cost model, delivery policy, and run/epoch correlation.
+  A lane is a finite platform route-profile/immutable-traffic-class pair, not
+  one hard-coded scanner implementation, payload family, package, or
+  plugin-selected subject.
+- **DEFINE** every output contract by a globally unambiguous, approval-owned
+  contract ID/version and the digest of its complete immutable bundle: encoding
+  and canonicalization, structural validator, authoritative-field rules,
+  partition rule, cost model, route profile, projector configuration,
+  retention/classification, domain identity/revision semantics, and error
+  policy. Standard IDs live in a reserved platform namespace; extension IDs are
+  namespaced by approved publisher/package identity and cannot be claimed by a
+  different signer. A registry epoch authorizes an exact bundle set but is not
+  a substitute for the per-record bundle and effective-grant digests.
+- **ADD** a canonical byte-bounded inventory snapshot batch plus start,
+  checkpoint, terminal-manifest, and abort events. A complete snapshot may
+  contain many independently durable but assignment-bounded batches without
+  whole-run materialization. Absence reconciliation becomes authoritative only
+  after every declared page and the ordered manifest root commit and a provider
+  snapshot token/revision or contract-specific consistency proof establishes
+  completeness. Otherwise the run is upsert-only. The embedded Armis inbound
+  sync is the first non-sweep migration.
+- **ADD** a bounded extension-record batch for approved package-defined outputs.
+  The batch is homogeneous for output contract, package version, assignment,
+  run, authorization, traffic class, and encoding. Standard platform contracts
+  (MetricBatch, OTLP, OCSF, inventory, sweep, and MTR) remain preferred; a
+  package-defined schema is usable only when its signed package contribution
+  selects an installed bounded platform processor. Arbitrary executable core
+  processors are not accepted.
 - **ADD** immutable scheduler execution-plan headers with bounded content-
   addressed range pages, append-only fenced assignment attempts, and
   `SweepExecutionEventV1` start/progress/terminal evidence so core
@@ -83,6 +147,41 @@ agent, execution, and scheduler-attested traffic class.
 - **CHANGE** the sweeper/agent result boundary to release completed host windows
   into a byte-sized batch builder and crash-safe disk spool. It MUST NOT build a
   full-run JSON tree or retain a full-run delivery buffer.
+- **ADD** one agent-owned producer service with adapters for built-in Go
+  collectors, Wasm host calls, and native add-on gRPC streams. A producer emits
+  bounded typed batches and lifecycle/checkpoint records; it never owns
+  `EdgeRecordV1`, `EdgeDeliveryFrameV1`, spool sequence, network scope, traffic class, authorization
+  proof, gateway selection, or broker routing. A successful producer receipt
+  means the agent-created, complete binary `EdgeRecordV1` bytes and their
+  delivery wrapper are fsynced in the common agent spool, not merely admitted
+  to a channel. The exact record bytes later carried inside gRPC are stored
+  unchanged by JetStream.
+- **ADD** an atomic durable producer-key journal committed with each spool append.
+  It binds package digest, assignment, host-issued run, output contract, and
+  producer idempotency key to the event ID, body digest, and receipt for the
+  supported retry horizon. It survives agent and producer restart, lane
+  rollover, and spool reclamation. Receipt lookup closes timeout-after-fsync
+  crashes; reusing a key for different bytes is an integrity failure. After a
+  run's signed retry horizon and safe-GC watermark pass, a late lookup returns
+  `RETRY_WINDOW_EXPIRED` rather than allocating a new event under the old key.
+- **ADD** a versioned binary Wasm host ABI and one generic native add-on record
+  relay. Wasm pays one bounded guest-to-host copy without protobuf/base64/JSON
+  wrapping. Native records use byte/frame credits, assignment-bound session
+  nonces, resume watermarks, and cumulative ACK only after common-spool fsync.
+  Retryable pressure is distinct from permanent schema, size, capability,
+  revocation, and quota errors.
+- **CHANGE** Wasm and native add-on manifests to declare bounded output
+  contracts and resource/rate requests. Package approval and assignment compile
+  those requests into least-privilege output grants. The runtime enforces
+  per-producer outstanding bytes, rate, run, record, and spool quotas underneath
+  the same installation/agent hard budgets; a producer cannot promote itself to
+  interactive traffic.
+- **VALIDATE** every accepted record against the pinned contract before the
+  agent gives a durable receipt. The agent runs the approved bounded structural
+  validator and either computes the pinned conservative cost or charges the
+  contract's fixed worst-case cost; EventWriter independently validates and
+  recomputes before side effects. Durable contracts cannot select a silent-drop
+  error policy.
 - **MODEL** each execution as a logical stream: a start event, independently
   durable data micro-batches, bounded progress/watermark events, agent terminal
   evidence when available, and authoritative scheduler terminal state for every
@@ -91,8 +190,9 @@ agent, execution, and scheduler-attested traffic class.
   scheduler plan supplies the expected ranges used to reconcile the stream.
 - **BOUND** in-flight bytes and records at the scanner, spool sender, gateway,
   JetStream consumer, and database writer. Pressure propagates upstream, and
-  scheduling is fair by network/site partition, agent, execution, and traffic
-  class. Mandatory disjoint bulk/interactive streams and database-credit floors
+  scheduling is fair by network/site partition, agent, producer assignment,
+  run/execution, and traffic class. Mandatory disjoint bulk/interactive streams
+  and database-credit floors
   prevent one million-target bulk scan from consuming interactive progress. The
   same class-aware reservation applies before results exist: probe workers,
   sockets, ICMP/DNS tokens, CPU, spool, and sender credits retain an unborrowable
@@ -100,7 +200,8 @@ agent, execution, and scheduler-attested traffic class.
 - Reserve worst-case spool output before opening each target window, cap active
   aggregation by bytes and projected rows, and fail closed on disk-full, I/O,
   torn-tail, or corruption conditions without claiming data durable. One atomic
-  filesystem allocator covers every lane, quarantine, journals, rollover
+  filesystem allocator covers every lane, quarantine, producer-receipt and
+  recovery journals, rollover
   amplification, metadata, and scratch so nominal per-lane limits cannot
   overcommit disk or consume the recovery/terminal floor.
 - A corrupt committed middle record uses a signed loss tombstone on a separately
@@ -111,34 +212,46 @@ agent, execution, and scheduler-attested traffic class.
   new spool. Recovery-stream PubAck stops retransmission but does not delete the
   local recovery proof; the agent retains it until a signed consumer-committed
   `RecoveryResolvedV1` (or idempotent resolution query) is durable locally.
-- Target encoded frames are 256 KiB with a hard 512 KiB limit, below the current
-  1 MiB NATS default. Count limits are secondary guards; actual protobuf size is
-  authoritative.
-- Normal sweep observations and bounded MTR traces remain JetStream records.
-  This v1 does not add an Object Store fallback; opaque artifact lifecycle is a
-  separate proposal.
+- Target encoded `EdgeRecordV1` messages are 256 KiB with a hard 512 KiB limit,
+  below the current 1 MiB NATS default. The delivery wrapper and minimal broker
+  headers have separate small bounds. Count limits are secondary guards; actual
+  protobuf size is authoritative.
+- Bounded observations, traces, inventory pages, metrics, findings, events, and
+  extension records remain JetStream records. This v1 does not use JetStream as
+  an unbounded byte pipe or add an Object Store fallback; opaque artifact and
+  live-media lifecycles remain separate contracts whose durable metadata may
+  reference those objects/sessions.
 
 ### Durable gateway handoff
 
-- **ADD** an independent bidirectional gRPC result-ingest RPC per durable lane,
-  with cumulative dispositions over sweep/MTR spool sequences plus a separately
-  reserved recovery-control lane. Bulk, interactive, and recovery RPCs use
+- **ADD** an independent bidirectional gRPC record-ingest RPC per durable
+  traffic/delivery lane, with cumulative dispositions over shared producer
+  spool sequences plus a separately reserved recovery-control lane. Bulk,
+  interactive, and recovery RPCs use
   separately pooled HTTP/2 connections and NATS publisher connections with
   independent windows/pending-byte ceilings, so a stalled bulk write cannot stop
   bounded interactive progress or loss reporting.
-- The gateway derives the installation trust domain and agent through the
+- The gateway derives the installation trust domain and authenticated agent
+  origin through the
   canonical deployment-CA/certificate-CN
   mTLS resolver (SPIFFE metadata is optional compatibility), locally verifies
-  the one signed collection/delivery authorization context and range, stamps the
-  complete authoritative network-scope/agent/routing/decoding header envelope, and
-  publishes the inner protobuf bytes unchanged.
+  the signed production grant plus the applicable source-authorization/delivery
+  context and scope, compares the claimed origin/network scope to mTLS, and
+  publishes the exact received `EdgeRecordV1` bytes unchanged. It does not
+  move semantic authority into NATS headers or decode/re-encode the domain body.
 - The gateway MUST use a JetStream publish request and set `Nats-Msg-Id` from
-  trusted network-scope/agent, spool ID/sequence, and a domain-semantic digest of body,
-  schema, sizes/row cost, execution/epoch, authorization/range, and collection
-  proof. The semantic digest excludes delivery coordinates so recovered copies
+  the attested origin principal, delivery-wrapper spool ID/sequence, and the
+  verified `EdgeRecordV1` semantic digest over body, output-contract bundle,
+  registry/effective grant, sizes/cost,
+  producer run/scope/epoch, and production/source authorization proof. The
+  semantic digest excludes delivery coordinates so recovered copies
   deduplicate in the database even though their broker publication ID changes.
+  Apart from `Nats-Msg-Id`, `Nats-Expected-Stream`, and one bounded
+  route-map/registry diagnostic hint, headers carry no semantic fields;
+  EventWriter treats the binary record as authoritative and independently
+  verifies it.
   The gateway waits for a real PubAck before accepting the edge sequence. A
-  different body or semantic header under the same event ID reaches the ledger
+  different body or semantic envelope under the same event ID reaches the ledger
   as a conflict instead of being hidden by broker deduplication.
   If JetStream is unavailable or full, the gateway does not ACK; gRPC flow
   control and the agent disk spool apply backpressure.
@@ -150,24 +263,38 @@ agent, execution, and scheduler-attested traffic class.
 
 ### Partitioned, replay-safe processing
 
-- **ADD** mandatory disjoint file-backed bulk/interactive streams for sweep and
-  MTR so trace or catch-up load cannot starve bounded interactive work. The
-  single-customer installation uses fixed subjects, 64 stable logical partitions
-  per class, ACLs/quotas, deployment-local pull consumers, production replication,
-  and
+- **ADD** one finite platform-owned `durable-records-v1` route profile with
+  mandatory disjoint file-backed bulk/interactive streams, plus a reserved
+  recovery lane. Sweep, MTR, inventory, metrics, events, and approved extension
+  contracts share fixed generic subjects; importing a package never adds a
+  stream, subject, consumer, connection, or RAFT group. The single-customer
+  installation uses 64 stable logical partitions per class, ACLs/quotas,
+  deployment-local pull consumers, production replication, and
   `DiscardNew` overload behavior rather than silent oldest-message eviction. A
   deployment maps disjoint logical partitions onto one or more physical stream/
   RAFT groups, so consumer concurrency does not get mistaken for broker write
   scaling. Capacity and `MaxAge` cover the admitted aggregate arrival envelope
   through supported outage plus worst-case catch-up and margin.
-- **BOUND** CNPG with explicit result, sync, control/API/Oban, and background
+- **ROUTE** approved producer outputs through a deployment-owned contract
+  registry shared by assignment compilation, gateway readiness, subject
+  mapping, and EventWriter. Packages may request a standard output contract or
+  contribute a bounded schema/declarative processor, but they cannot create
+  subjects, streams, consumers, database DDL, executable BEAM processors, or
+  high-cardinality routing labels. Physical stream count stays bounded as
+  producer/package count grows. A contract digest pins its full historical
+  schema/canonicalization, validator, authoritative-field and partition rules,
+  cost model, projector configuration, retention/classification, domain
+  identity/revision semantics, and error policy through every spool/replay/DLQ
+  horizon. Planned retirement may drain pinned backlog; security revocation
+  holds it fail-closed pending an operator-approved safe redrive or waiver.
+- **BOUND** CNPG with explicit durable-record, sync, control/API/Oban, and background
   capacity pools whose maxima fit measured Repo/WAL/lock headroom. Inside the
-  result pool, fenced resident/write-byte, row, active-transaction, and commit-
-  rate/fsync credits cover
-  source, graph, reconciliation, recovery, DLQ, rollup, and repair writers, with
-  reserved interactive/recovery progress. Initial durable
-  cardinality is one shared persistence durable per physical stream shard/schema
-  version; any replica may process any logical key and correctness comes from
+  durable-record pool, fenced resident/write-byte, row, active-transaction, and commit-
+  rate/fsync credits cover source, graph, reconciliation, recovery, DLQ, rollup,
+  and repair writers, with reserved interactive/recovery progress. Initial
+  durable cardinality is one registry-dispatching shared persistence durable per
+  physical stream shard/route profile; adding a package contract does not add a
+  durable. Any replica may process any logical key and correctness comes from
   database guards, not application-local ownership.
 - **CHANGE** persistence to process independently decodable batches in bounded
   adaptive transaction groups. A low-latency class MAY commit one message, while
@@ -195,10 +322,12 @@ agent, execution, and scheduler-attested traffic class.
   unborrowable interactive capacity floor, so bulk catch-up cannot satisfy the
   ingest SLO while silently starving interactive terminal state or topology.
 - Correctness for well-formed, non-conflicting identities does not depend on
-  broker arrival order, even within a shard. Stable network-scope/execution/shard/
-  attempt/sequence/mode-revision/event identities make asynchronous publication,
-  retry, and late arrival safe. Reusing one identity for different content is a
-  protocol-integrity incident with explicit quarantine and fenced range repair.
+  broker arrival order, even within a shard. Every contract defines stable
+  domain identity and revision/merge rules over the attested origin, scope,
+  assignment, run, and event. Sweep execution/shard/attempt/sequence and
+  mode-revision are one typed example. Reusing one identity for different
+  content is a protocol-integrity incident with explicit quarantine and fenced
+  repair.
 - Shard assignment carries a scheduler-signed collection capability with a
   monotonic fencing epoch bound to network scope, agent, range, generation, and expiry;
   a separate event-bound delivery capability may drain old immutable spool data
@@ -210,31 +339,49 @@ agent, execution, and scheduler-attested traffic class.
 - **REMOVE after parity** the agent-generated per-host sweep `MetricBatch` and
   the agent-generated MTR-hop metric expansion. These duplicate the domain
   observations and create much greater row cardinality than the canonical data.
-- A v1 execution never emits the duplicate metric form. Legacy executions retain
-  it only during compatibility; parity comparison uses separate cohorts or a
-  non-writing shadow rather than dual authoritative writes.
+- A v1 execution never emits the duplicate metric form. Already-accepted
+  pre-cutover executions may finish and drain their old projection; parity
+  comparison uses separate hard-cut cohorts or a non-writing shadow rather than
+  dual authoritative writes.
 - Required low-cardinality scanner, execution, availability-ratio, and trace
   health metrics are derived downstream from the canonical protobuf event.
   Real-time consumers subscribe to the same structured stream instead of
   requiring a second agent serialization.
+- Plugin/add-on persisted output likewise has one canonical ingress record.
+  Small checker health/status may remain `GatewayServiceStatus`, but inventory,
+  findings, events, metrics, traces, enrichment, and other durable payloads no
+  longer hide inside `serviceradar.plugin_result.v1` or a lossy telemetry queue.
 
 ### Explicit rollout and capacity gates
 
-- **ADD** a negotiated `edge-results:v1` capability and explicit per-agent/cohort
-  result-format setting. A config content hash is not a rollout gate.
-- Before enabling v1, require and roll out a minimum dual-path agent/gateway
-  version. Older agents receive no new assignments; this change deliberately does
-  not build an unpatched-agent bridge. The patched legacy sender emits one stable
-  signed frame no larger than 512 KiB at a time through the PubAcked JetStream/
-  EventWriter path. Historical identity/scope backfill runs online behind a
-  durable CDC cursor while concurrent deltas are continuously applied; a hard
-  byte/age bound stops legacy admission before overflow. A short ingress-epoch
-  barrier opens only at a bounded tail, drains that delta, and retires authoritative ERTS/direct persistence before
-  canary; it never performs an unbounded historical rewrite. One execution selects one format;
-  comparison shadows do not write domain tables.
-- Rollback selects only the patched bounded legacy format for new executions and
-  still uses JetStream/EventWriter while upgraded agents drain v1 spools.
-- Remove JSON after the upgraded fleet and rollback window are proven.
+- **ADD** a negotiated `edge-records:v1` capability and explicit per-cohort
+  producer-plane enablement epoch. This is an assignment eligibility gate, not
+  a caller- or execution-selectable format; a config content hash is not a
+  rollout gate.
+- Before enabling v1, require a minimum `edge-records:v1`
+  agent/gateway/producer-adapter version. Older agents receive no new
+  producer-plane assignments and are upgraded or remain ineligible. This change
+  deliberately adds neither an unpatched-agent bridge nor a patched legacy
+  sender/payload family for new work.
+- Historical identity/scope backfill runs online behind a durable CDC cursor
+  while pre-cutover deltas are continuously applied; a hard byte/age bound stops
+  legacy admission before overflow. Each cohort uses a short ingress-epoch hard
+  cut: stop new legacy admission, finish or fence already-issued work, drain only
+  the bounded pre-cutover backlog to a final scope/origin watermark, and retire
+  every authoritative ERTS/direct writer before assigning new work through the
+  producer plane. The barrier never performs an unbounded historical rewrite or
+  chooses a format per execution.
+- Rollback stops new affected assignments and producer runs while upgraded
+  agents, gateways, pinned contract bundles, streams, and consumers drain every
+  new-format spool and backlog. It never emits new legacy JSON or restores a
+  direct database writer.
+- Roll out per output contract: registry and historical bundles, common sink and
+  spool, built-in sweep/MTR, Wasm durable outputs, native/OTLP relay, Armis
+  inventory, then approved extension records. Each contract compares distinct
+  cohorts or a non-writing shadow and removes its JSON/lossy/specialized path
+  only after parity; two authoritative projectors never run for one event.
+- Remove JSON after the upgraded fleet and each contract's rollback window are
+  proven.
 - Require representative 100k- and 1M-host benchmarks, failure injection, and a
   72-hour soak before fleet enablement. The gate covers memory, PubAck latency,
   stream lag, database throughput/WAL, replay, and stable storage growth.
@@ -248,13 +395,29 @@ agent, execution, and scheduler-attested traffic class.
   MTR reachability summary on the host result. It replaces that proposal's claim
   that the existing `mtr-metrics` path carries full traces. Phase 2 MUST emit the
   dedicated `MtrTraceBatchV1` event instead.
-- The same typed MTR trace lane is the target for scheduled, sweep-profile,
-  ad-hoc, and on-demand MTR. Issue #4669 should converge on this lane rather than
+- The same typed MTR trace contract over the shared route/class lane is the
+  target for scheduled, sweep-profile, ad-hoc, and on-demand MTR. Issue #4669
+  should converge on this lane rather than
   encode a complete trace as generic metric attributes.
 - `add-adhoc-network-scan` MUST replace its `adhoc-scan-metrics` result contract
   with these canonical observation/trace events while preserving `scan_run_id`.
   The `add-sweep-profile-mtr` branch MUST rebase Phase 2 before either dependent
   implementation begins.
+- This branch also amends `add-external-inventory-wasm-plugin-contract` from one
+  whole-collection `plugin_result.v1` to bounded typed pages plus terminal
+  activation while preserving its package-owned provider/configuration boundary.
+  It amends `add-event-writer-processor-contributions` so the verified
+  output-contract reference inside `EdgeRecordV1`, over fixed platform subjects,
+  replaces package-requested subject filters while preserving the approved
+  declarative downstream processor vocabulary. The shared durable transport
+  does not create a second plugin catalog or give package manifests routing
+  authority.
+- Embedded inbound sync sources, beginning with Armis, SHALL migrate from JSON
+  `StreamStatus` pages to the canonical inventory snapshot contract and common
+  producer API. Provider HTTP/pagination code remains a producer adapter.
+  Outbound integrations such as the Armis northbound updater remain
+  command/job side effects; only their durable progress, audit, telemetry, and
+  result records use canonical ingestion contracts.
 - The change composes with `remove-agent-gateway-spiffe-dependency`,
   `add-per-agent-availability`, `refactor-identity-cache-ingestion-correctness`,
   `fix-eventwriter-backpressure-hotpath`, and the existing operator-managed MTR
@@ -266,27 +429,38 @@ agent, execution, and scheduler-attested traffic class.
   single-customer, uses fixed installation-local subjects and component
   credentials, and never derives customer or database authority from a subject
   prefix. Any SaaS cross-customer orchestration remains outside this repository
-  and outside the result data plane.
-- Broker-free large sync ingestion remains unchanged. Sync snapshots are a
-  separate workload protected by the existing `ingestion-routing` requirement.
+  and outside the durable-record data plane.
+- The existing broker-free sync ingestor remains a bounded migration path only.
+  New or migrated agent-side inventory producers use the common durable record
+  data plane; cluster-local producers MAY publish the same canonical contracts
+  directly through a service-attested, contract-scoped governed JetStream
+  ingress adapter rather than hairpinning through an agent/gateway. A database
+  outbox is only for records whose system of record is that same transaction;
+  metrics and telemetry remain JetStream-first.
 
 ## Impact
 
 - **Affected specs**: `edge-architecture`, `ingestion-routing`,
   `observability-signals`, `sweeper`, `mtr-diagnostics`, `sweep-jobs`, `cnpg`,
   `agent-connectivity`, `agent-config`, `nats-tenant-isolation`,
-  `nats-cross-account-consumption`, `age-graph`, and `build-web-ui`.
+  `nats-cross-account-consumption`, `age-graph`, `build-web-ui`, and
+  `wasm-plugin-system`, plus the new `edge-producer-data-plane` capability.
 - **Affected code**:
   - protobuf definitions and generated Go/Elixir modules;
   - Go sweeper result lifecycle, streaming batch builder, disk spool, and gateway
     client;
-  - Elixir agent-gateway result RPC, identity attestation, JetStream publisher,
+  - the agent's built-in producer API, Wasm host ABI/SDK, native add-on gRPC
+    contract/SDK, plugin/add-on output grants, and embedded sync runtime;
+  - Elixir agent-gateway record RPC, identity attestation, JetStream publisher,
     ACL/configuration, and removal of volatile result buffering for this lane;
   - Elixir core EventWriter streams, partitioned pull consumers, sweep/MTR
     processors, DLQ, ingest ledger, and execution reconciliation;
   - sweep/MTR resources, uniqueness constraints, retention, and rollups;
   - Helm/Docker stream capacity and gateway publisher configuration.
-- **Compatibility**: minimum-version additive dual-path migration, followed by a separately
-  gated removal of legacy JSON and duplicate agent metric projections.
-- **Breaking change**: after the compatibility window, sweep and MTR result data
-  no longer use `GatewayServiceStatus{source: "results"}` JSON delivery.
+- **Compatibility**: minimum-version, hard-cut cohort migration. Older agents
+  are upgraded or assignment-ineligible; only pre-cutover backlog is drained,
+  followed by removal of legacy JSON and duplicate agent metric projections.
+- **Breaking change**: after each cohort's hard cut and bounded pre-cutover
+  backlog drain, sweep/MTR data and migrated durable plugin/add-on/inventory
+  outputs no longer use JSON or `GatewayServiceStatus` delivery. Low-volume
+  status/control remains compatible.

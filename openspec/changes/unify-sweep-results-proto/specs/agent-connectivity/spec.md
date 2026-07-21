@@ -2,64 +2,85 @@
 
 ## ADDED Requirements
 
-### Requirement: Edge result capability negotiation is bidirectional
-Agents SHALL advertise supported result encoders and durable spool-reader
-versions in Hello. The gateway SHALL return result-ingest readiness derived from
+### Requirement: Edge record capability negotiation is bidirectional
+Agents SHALL advertise the edge-record protocol, supported platform payload
+families/encodings/compression, durable spool-reader versions, frame bounds, and
+output-contract registry epoch/digest in Hello. The gateway SHALL return
+record-ingest readiness derived from
 the complete installation-local path, including mandatory disjoint bulk and
 interactive streams, PubAck publication, supported schemas, and consumers,
 rather than its binary version alone. Readiness SHALL require the configured
-minimum dual-path agent/gateway version that supports independently
-acknowledged bounded legacy frames and v1 frames.
+minimum agent/gateway version that can send, retain, replay, and drain v1 frames
+for the selected contract registry; legacy emission capability SHALL NOT satisfy
+readiness.
 
 #### Scenario: Agent and installation path support v1
-- **GIVEN** an agent satisfies the minimum dual-path version and advertises
-  `edge-results:v1` and its spool version
+- **GIVEN** an agent satisfies the minimum edge-record version and advertises
+  `edge-records:v1`, its spool version, and the required registry epoch
 - **WHEN** the connected installation gateway pool has writable
   class-separated authoritative streams and compatible consumers
 - **THEN** the gateway SHALL advertise v1 ready
-- **AND** explicit config MAY select v1 for a new execution
+- **AND** explicit config MAY select v1 for a new producer run
 
 #### Scenario: One gateway pool member is not ready
 - **GIVEN** an agent may reconnect to any gateway in its installation pool
 - **WHEN** a pool member cannot accept and drain v1
 - **THEN** fleet/cohort configuration SHALL NOT assume uniform v1 readiness
-- **AND** a v1-spooled execution SHALL be retried through a compatible gateway,
+- **AND** a v1-spooled run SHALL be retried through a compatible gateway,
   not converted to legacy in flight
 
-#### Scenario: Binary is below the dual-path minimum
+#### Scenario: Binary is below the edge-record minimum
 - **WHEN** an agent or reachable gateway does not satisfy the configured minimum
-  dual-path version
-- **THEN** no new sweep or MTR execution SHALL be assigned through that path
-- **AND** the system SHALL require upgrade rather than provide an
-  unpatched-agent compatibility bridge
+  v1 protocol, spool-reader, and contract-registry version
+- **THEN** no new affected durable producer run SHALL be assigned through that path
+- **AND** the system SHALL require upgrade rather than provide a legacy JSON
+  sender or compatibility bridge
 
-#### Scenario: Agent lacks the selected encoder
-- **WHEN** configuration requests a result format the agent did not advertise
-- **THEN** the agent SHALL reject or defer that new execution with an explicit
+#### Scenario: Agent lacks the selected contract or encoder
+- **WHEN** configuration requests an output contract/encoding the agent did not
+  advertise under the required registry
+- **THEN** the agent SHALL reject or defer that new run with an explicit
   capability error
 - **AND** SHALL NOT infer a format from config content hash
 
-### Requirement: Result format is sticky per execution
-The effective patched bounded-legacy or v1 result format SHALL be selected
-before an execution starts and SHALL remain immutable for that execution and
-every retry. Changing rollout configuration SHALL affect only new executions.
+#### Scenario: Cohort crosses the hard cutover
+- **WHEN** the control plane enables a ready cohort for v1
+- **THEN** every new affected producer run in that cohort SHALL use its compiled
+  v1 contract grant
+- **AND** only identified records accepted before the barrier MAY drain on an old
+  path; reconnect or retry SHALL NOT start new legacy emission
+
+### Requirement: Output contract and format are sticky per producer run
+The output contract and format SHALL remain sticky for each producer run. The
+exact v1 output-contract bundle, registry epoch, encoding, route profile, and
+traffic class SHALL be selected
+before a producer run starts and SHALL remain immutable for that run and every
+retry. A shared lane MAY multiplex records from different contracts. Changing
+rollout configuration SHALL affect only new runs while pinned backlog drains.
 
 #### Scenario: Rollback occurs with a v1 spool backlog
-- **WHEN** rollout config selects patched bounded legacy for new executions
-- **THEN** the agent SHALL continue opening compatible v1 result lanes until its
-  existing v1 spool is resolved
-- **AND** no rollback binary lacking that spool reader/sender SHALL replace it
+- **WHEN** operators roll back a cohort after v1 cutover
+- **THEN** the control plane SHALL disable new affected runs while the agent
+  continues opening compatible v1 record lanes until its existing spool resolves
+- **AND** no rollback binary lacking that spool reader/sender or historical
+  contract registry SHALL replace it
+- **AND** rollback SHALL NOT select or generate new legacy JSON output
 
-#### Scenario: Connection changes during execution
-- **WHEN** an agent reconnects to another ready gateway while a v1 execution is
+#### Scenario: Connection changes during a run
+- **WHEN** an agent reconnects to another ready gateway while a v1 run is
   active
 - **THEN** it SHALL reopen each lane with the same spool identity and first
   unresolved sequence
-- **AND** the execution SHALL remain v1 without dual authoritative emission
+- **AND** the run SHALL remain pinned without dual authoritative emission
 
-### Requirement: Result stream sessions are replay-safe
-Each result lane SHALL be replay-safe. The `sweep-bulk`, `sweep-interactive`,
-`mtr-bulk`, `mtr-interactive`, and recovery lanes SHALL open with lane kind,
+#### Scenario: Registry changes during an existing run
+- **WHEN** a new registry epoch activates while an old run has spooled records
+- **THEN** the old run SHALL drain under its pinned historical bundle and route
+- **AND** only new runs SHALL use the new effective grant
+
+### Requirement: Edge record stream sessions are replay-safe
+Each record lane SHALL be replay-safe. The finite platform-owned
+route-profile/traffic-class and recovery lanes SHALL open with lane kind,
 immutable scheduler-signed traffic
 class where applicable, persistent spool identity, sequence base, first
 unresolved sequence, fresh session nonce, and requested byte/frame credits.
@@ -67,6 +88,8 @@ Bulk and interactive results SHALL use disjoint physical streams and durable
 consumers. The agent SHALL accept dispositions only from its active matching
 session and SHALL NOT change traffic class during retry, rollover, quarantine,
 DLQ handling, or redrive.
+Lane identity SHALL NOT be keyed by output contract, payload kind, package,
+plugin, or integration.
 
 Each lane SHALL use an independent bidirectional RPC. Bulk, interactive, and
 recovery lanes SHALL use separately pooled HTTP/2 transport connections with
@@ -74,7 +97,7 @@ independent connection-level windows and pending-byte ceilings; they SHALL NOT
 share one connection-level flow-control budget across traffic classes.
 
 #### Scenario: Stale gateway response arrives
-- **GIVEN** an agent has replaced a result-stream session
+- **GIVEN** an agent has replaced a record-stream session
 - **WHEN** an ACK/disposition from the previous nonce arrives
 - **THEN** the agent SHALL ignore it
 - **AND** SHALL reclaim no spool record because of the stale response
@@ -110,18 +133,18 @@ share one connection-level flow-control budget across traffic classes.
   the complete manifest
 - **AND** SHALL NOT describe the lost sequence as an accepted result
 
-### Requirement: Agent result storage has one hard filesystem budget
-The agent SHALL use one crash-safe atomic byte allocator for all result lanes,
-raw quarantine, both recovery-journal copies, segment and directory metadata,
-rollover copy amplification, and scratch space. Per-lane quotas SHALL be
-subordinate to that global limit. A hard minimum-free-space floor SHALL be
-unborrowable by ordinary result data and reserved for recovery/control and
-terminal evidence.
+### Requirement: Agent durable record storage has one hard filesystem budget
+The agent SHALL use one crash-safe atomic byte allocator for all durable-record
+lanes, every producer-assignment quota, raw quarantine, both recovery-journal
+copies, segment and directory metadata, rollover copy amplification, and scratch
+space. Per-lane and per-producer quotas SHALL be subordinate to that global
+limit. A hard minimum-free-space floor SHALL be unborrowable by ordinary record
+data and reserved for recovery/control and terminal evidence.
 
 #### Scenario: Nominal lane quotas exceed available disk
 - **GIVEN** every individual lane remains below its configured quota
 - **WHEN** their combined reservations plus quarantine, journals, and recovery
   scratch would cross the filesystem limit or minimum-free-space floor
-- **THEN** the allocator SHALL refuse new ordinary collection reservations
+- **THEN** the allocator SHALL refuse new ordinary producer reservations
 - **AND** SHALL preserve enough space to durably abort/terminalize work and report
   or recover already-committed spool state

@@ -25,10 +25,10 @@ admission controls so one site/address space cannot monopolize the installation.
 
 #### Scenario: Result publication does not interpolate identity
 
-- **GIVEN** an authenticated agent reports a bulk sweep batch for logical
+- **GIVEN** an authenticated agent reports a bulk durable record for logical
   partition `p07`
 - **WHEN** the gateway selects its canonical subject
-- **THEN** it SHALL publish to `telemetry.sweep.v1.bulk.p07`
+- **THEN** it SHALL publish to `telemetry.edge-record.v1.bulk.p07`
 - **AND** neither caller text nor `network_scope_id` SHALL alter that subject
 
 ### Requirement: NATS Account Isolation
@@ -52,7 +52,7 @@ separate provisioned clusters, not an in-runtime account hierarchy.
 #### Scenario: Installation contains several network scopes
 
 - **GIVEN** one installation monitors several sites with overlapping addresses
-- **WHEN** their result frames enter JetStream
+- **WHEN** their canonical `EdgeRecordV1` bytes enter JetStream
 - **THEN** they SHALL share the bounded installation result-stream topology
 - **AND** trusted `network_scope_id` SHALL keep their domain identities distinct
   without creating per-scope accounts, streams, or durables
@@ -60,7 +60,7 @@ separate provisioned clusters, not an in-runtime account hierarchy.
 ### Requirement: JetStream Tenant Streams
 
 JetStream streams SHALL capture fixed installation-local subject families for
-durability and replay. Edge sweep/MTR results SHALL use the traffic-class-
+durability and replay. All approved edge durable records SHALL use the traffic-class-
 separated subjects and explicit physical-stream map defined by this change. A
 consumer SHALL derive network scope, agent, and authorization identity from the
 verified envelope/proof for its signal contract, never from a customer prefix.
@@ -72,12 +72,12 @@ verified envelope/proof for its signal contract, never from a customer prefix.
 - **THEN** it SHALL be persisted and available for replay without customer-
   prefix routing
 
-#### Scenario: Result consumer receives a fixed subject
+#### Scenario: Record consumer receives a fixed subject
 
-- **GIVEN** a result EventWriter pulls `telemetry.mtr.v1.interactive.p11`
-- **WHEN** it validates the persisted gateway envelope
+- **GIVEN** EventWriter pulls `telemetry.edge-record.v1.interactive.p11`
+- **WHEN** it validates the persisted canonical `EdgeRecordV1`
 - **THEN** it SHALL derive the trusted network scope, agent, traffic class, and
-  collection authority from that envelope and proof
+  collection authority from that record and its signed grants
 - **AND** it SHALL NOT interpret any subject token as customer identity
 
 ### Requirement: Per-tenant zen consumers
@@ -144,31 +144,29 @@ installation-local contracts and SHALL NOT map unprefixed data to a synthetic
 
 ## ADDED Requirements
 
-### Requirement: Installation-local result streams are traffic-class isolated
+### Requirement: Installation-local record streams are traffic-class isolated
 
-The installation SHALL provision these versioned result subject families:
+The installation SHALL provision these versioned record subject families:
 
-- `telemetry.sweep.v1.bulk.pNN`
-- `telemetry.sweep.v1.interactive.pNN`
-- `telemetry.mtr.v1.bulk.pNN`
-- `telemetry.mtr.v1.interactive.pNN`
-- `telemetry.result-recovery.v1`
-- `telemetry.result-dlq.v1.bulk.pNN`
-- `telemetry.result-dlq.v1.interactive.pNN`
+- `telemetry.edge-record.v1.bulk.pNN`
+- `telemetry.edge-record.v1.interactive.pNN`
+- `telemetry.edge-record-recovery.v1`
+- `telemetry.edge-record-dlq.v1.bulk.pNN`
+- `telemetry.edge-record-dlq.v1.interactive.pNN`
 
-Bulk and interactive sweep/MTR subjects SHALL use disjoint physical streams and
+Bulk and interactive durable-record subjects SHALL use disjoint physical streams and
 disjoint persistence durables. Result-DLQ subjects SHALL preserve the original
 traffic class and SHALL also use disjoint physical capacity and consumers so a
 bulk poison cohort cannot consume or queue ahead of the interactive reserve.
 The recovery stream SHALL have separate unborrowable storage, PubAck, and
 consumer capacity. The installation SHALL NOT create a durable, connection,
-process, account, or physical stream per network scope, agent, execution, or
-logical partition.
+process, account, or physical stream per network scope, agent, producer
+assignment, run/execution, output contract, package, or logical partition.
 
-#### Scenario: Bulk catch-up overlaps an interactive result
+#### Scenario: Bulk catch-up overlaps an interactive record
 
-- **GIVEN** bulk sweep streams are draining an outage-sized backlog
-- **WHEN** an authorized interactive sweep or MTR frame is published
+- **GIVEN** bulk edge-record streams are draining an outage-sized backlog
+- **WHEN** an authorized interactive durable record is published
 - **THEN** it SHALL use an interactive physical stream and persistence durable
   that no bulk subject captures
 - **AND** bulk work SHALL NOT borrow the configured interactive storage, PubAck,
@@ -178,16 +176,16 @@ logical partition.
 
 - **GIVEN** an interactive source event is permanently invalid
 - **WHEN** its bounded canonical DLQ wrapper is published
-- **THEN** it SHALL use `telemetry.result-dlq.v1.interactive.pNN` for the mapped
+- **THEN** it SHALL use `telemetry.edge-record-dlq.v1.interactive.pNN` for the mapped
   logical partition
 - **AND** neither initial routing nor redrive SHALL promote or demote its traffic
   class
 
-### Requirement: Logical result partitions map to explicit physical streams
+### Requirement: Logical record partitions map to explicit physical streams
 
 The 64 stable logical partitions SHALL remain routing and locality metadata, not
 exclusive application-worker ownership or implicit JetStream storage shards. A
-versioned installation map SHALL assign every `(payload kind, traffic class,
+versioned installation map SHALL assign every `(platform route profile, traffic class,
 logical partition)` to exactly one authoritative physical stream. It MAY map
 disjoint subject partitions onto additional stream/RAFT groups when benchmarked
 write, storage, or recovery limits require it. Gateway and consumer readiness
@@ -204,10 +202,10 @@ SHALL use the same persisted map version and authority history.
 
 #### Scenario: Subject ownership is missing or overlaps
 
-- **WHEN** readiness detects that a logical result subject is captured by zero or
+- **WHEN** readiness detects that a logical record subject is captured by zero or
   more than one authoritative physical stream
-- **THEN** the affected installation result path SHALL remain not ready
-- **AND** gateways SHALL NOT accept v1 executions for that path
+- **THEN** the affected installation record path SHALL remain not ready
+- **AND** gateways SHALL NOT accept v1 producer runs for that path
 
 #### Scenario: A logical partition changes physical placement
 
@@ -219,9 +217,10 @@ SHALL use the same persisted map version and authority history.
   remain available through final AckWait, redelivery, repair, and rollback
   watermarks
 
-### Requirement: Result stream capacity is installation-admitted
+### Requirement: Record stream capacity is installation-admitted
 
-The installation SHALL have aggregate and per-site/agent/execution/traffic-class
+The installation SHALL have aggregate and per-site/agent/producer-assignment/
+run-or-execution/traffic-class
 admission envelopes covering synchronized scheduled bursts, live traffic,
 spool replay overlap, supported outage, worst-case catch-up, headers, replication,
 and safety margin. Physical stream, account, disk, consumer, connection, and
@@ -232,7 +231,7 @@ pressure before acknowledged data can expire or be evicted.
 
 #### Scenario: New work exceeds the installation envelope
 
-- **WHEN** a new or overlapping job would exceed its site/agent/execution budget
+- **WHEN** a new or overlapping run/job would exceed its site/agent/producer/run budget
   or the installation spool, stream, catch-up, MTR, or database budget
 - **THEN** the scheduler or gateway SHALL defer or reject the work before probing
   or publication
@@ -272,19 +271,21 @@ error cohort, redrive attempts/outcomes, waiver, audit actor/time, and final
 state. Unknown or unindexed sequences SHALL NOT be deleted.
 
 For a consumer poison record, the canonical DLQ wrapper SHALL preserve the exact
-original body and complete immutable trusted gateway envelope, including original
-collection-capability bytes and digest, semantic-envelope digest, traffic class,
-source stream/sequence, and body checksum. A pre-primary gateway rejection SHALL
-preserve the complete safely validated immutable envelope/proof subset plus a
-full-frame fingerprint and trusted agent/spool/rejection coordinates. The source
-delivery SHALL terminate only after the mapped DLQ publication obtains PubAck.
+original `EdgeRecordV1` bytes and digest without reconstructing or duplicating
+semantic fields in broker headers. It SHALL add only bounded DLQ/source placement
+metadata including source stream/sequence, original delivery coordinates,
+applicable delivery-proof audit, and error classification. A pre-primary gateway
+rejection SHALL preserve the complete safely validated immutable record/proof
+subset plus a full-frame fingerprint and trusted agent/spool/rejection
+coordinates. The source delivery SHALL terminate only after the mapped DLQ
+publication obtains PubAck.
 
 #### Scenario: Poison event is copied
 
 - **WHEN** a source result is permanently invalid
 - **THEN** its class-partitioned DLQ record SHALL use a stable source-stream/
-  sequence/checksum/error-class ID and preserve the exact immutable body,
-  gateway envelope, and collection proof
+  sequence/checksum/error-class ID and preserve the exact immutable
+  `EdgeRecordV1` bytes plus bounded source-placement/error metadata
 - **AND** the source SHALL remain unresolved if the mapped DLQ cannot PubAck
 
 #### Scenario: Poison rate indicates a systemic decoder failure
@@ -303,7 +304,8 @@ delivery SHALL terminate only after the mapped DLQ publication obtains PubAck.
 - **WHEN** the bounded redriver republishes a cataloged record
 - **THEN** it SHALL use fresh synthetic delivery-lane coordinates through the
   current stream map while preserving the original traffic class, semantic
-  digest, body, network scope, authorization, and collection proof
+  digest, body, network scope, output contract, producer provenance,
+  authorization, and applicable collection proof
 - **AND** it SHALL record the audited attempt/outcome and rely on the ordinary
   semantic ledger for idempotency
 

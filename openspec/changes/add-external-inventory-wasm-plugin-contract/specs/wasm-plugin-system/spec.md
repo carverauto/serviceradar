@@ -33,20 +33,22 @@ The Wasm HTTP host SHALL support a bounded broker-grant mode that exchanges a so
 - **THEN** the host SHALL deny the request before credential resolution or token exchange
 - **AND** no network request containing credential material SHALL occur
 
-### Requirement: Approved action results may enter plugin-result ingestion
-An approved package producer schedule MAY declare that a captured `plugin.run_action` result enters normal plugin-result ingestion. The agent SHALL validate and enqueue the full result while returning only bounded status metadata through the command bus.
+### Requirement: Approved action results use the durable producer sink
+An approved package producer schedule MAY declare assignment-approved durable output contracts for a captured `plugin.run_action`. The guest SHALL publish persistent inventory, telemetry, observations, events, findings, or traces through the versioned binary durable-output host ABI. The agent SHALL validate and crash-safely enqueue those bounded records through its common producer sink while returning only bounded status metadata through the command bus. `serviceradar.plugin_result.v1` SHALL remain limited to bounded action/check status.
 
 #### Scenario: Inventory-producing action completes
-- **GIVEN** an approved package declares plugin-result ingestion for its producer action
-- **WHEN** the action submits a valid `serviceradar.plugin_result.v1` payload
-- **THEN** the agent SHALL enqueue the payload through the normal plugin-result channel
+- **GIVEN** an approved package has a durable inventory output contract for its
+  producer action
+- **WHEN** the action submits a valid assignment-approved inventory page through the binary host ABI
+- **THEN** the agent SHALL transfer ownership only after the exact bytes and idempotency receipt are durable in the common spool
 - **AND** the command result SHALL contain only safe status, counts, identifiers, and hashes
 
 #### Scenario: Ad hoc caller requests ingestion
-- **GIVEN** a package was not approved for action-result ingestion
-- **WHEN** a command payload attempts to enable it
+- **GIVEN** a package was not granted the requested output contract
+- **WHEN** a command payload or guest call attempts to enable it
 - **THEN** the agent SHALL reject or ignore the request
-- **AND** it SHALL not enqueue the captured payload as inventory
+- **AND** it SHALL not enqueue the captured payload through the durable sink or
+  disguise it as a bounded status result
 
 ### Requirement: Producer-only assignments do not start local schedules
 An approved Wasm package MAY declare `action-only:v1` when its assignment exists solely for command-bus actions. The agent SHALL admit and cache that assignment without starting a normal interval runner while retaining artifact, resource, and action admission controls.
