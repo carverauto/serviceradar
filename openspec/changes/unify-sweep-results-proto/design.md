@@ -1,4 +1,4 @@
-# Design: Durable protobuf edge observation data plane
+# Design: Durable extensible edge producer data plane
 
 ## Context
 
@@ -15,6 +15,16 @@ second protobuf `MetricBatch`. Scheduled MTR similarly sends full JSON on the
 direct results path and a separate scalar `MetricBatch`. The metric copy is
 published to JetStream, but it is not the complete MTR trace and does not write
 the MTR trace/hop tables.
+
+The same ownership problem exists outside sweep. Wasm `submit_result` and
+`emit_telemetry`, native add-on `StreamTelemetry`, the specialized native OTLP
+relay, and embedded sync integrations each have separate queueing, payload,
+retry, and acknowledgement code. Several paths drain an in-memory queue before
+`StreamStatus` succeeds; Wasm metric output currently wraps protobuf in base64
+inside JSON and the agent reverses that representation before forwarding it.
+Armis inbound discovery already fetches and emits bounded API pages, but those
+pages are converted to maps, repeatedly JSON-sized/encoded, routed through ERTS,
+decoded again in Core, and coalesced in memory before inventory projection.
 
 This is not merely a serialization problem:
 
@@ -43,11 +53,24 @@ This is not merely a serialization problem:
 - Scale consumption horizontally with fixed logical partitions, bounded shared
   pull consumers, and database-enforced concurrency correctness.
 - Keep raw history bounded while preserving current state and useful rollups.
+- Make the crash-safe spool, flow control, gateway PubAck, fairness, and
+  provenance machinery reusable by built-in collectors, Wasm plugins, native
+  add-ons, and agent-side integration producers without exposing transport or
+  broker authority to those producers.
+- Allow approved package-defined outputs through a bounded contract/processor
+  registry while keeping platform schemas, routing, capacity, and database
+  mutation authority under platform control.
 
 ## Non-Goals
 
 - Replacing JSON in low-volume commands, configuration, or administrative APIs.
-- Moving broker-free sync snapshots onto JetStream in this change.
+- Turning the record data plane into a universal workflow, command, media,
+  tunnel, or artifact-byte transport.
+- Letting a plugin/add-on select a NATS subject, physical stream, traffic class,
+  database table/DDL, or executable Core processor.
+- Forcing cluster-local producers to hairpin through an agent/gateway; they may
+  use the same canonical record/projector contract through a governed direct
+  JetStream publisher or transactional outbox.
 - Treating JetStream Object Store as a telemetry lake.
 - Claiming literal end-to-end zero-copy across protobuf, gRPC/TLS, BEAM, NATS,
   replicas, and PostgreSQL WAL.
@@ -93,9 +116,10 @@ not collide; it is not a SaaS tenant identifier.
 ## Decision 1: Layer the transport and durability responsibilities
 
 ```text
-scan workers
+agent/scanner/plugin/add-on/integration producers
+  -> agent-owned producer API
   -> crash-safe agent spool
-  -> bidirectional mTLS gRPC result stream
+  -> bidirectional mTLS gRPC record stream
   -> authenticated stateless gateway
   -> JetStream publish request + PubAck
   -> partitioned pull consumers
@@ -104,132 +128,177 @@ scan workers
 
 - gRPC provides edge authentication, connection management, streaming flow
   control, and cumulative application acknowledgements.
-- The gateway is the trust boundary and sole publisher for agent-originated
-  sweep/MTR observations. It does not own durable delivery state.
+- The gateway is the edge trust boundary and sole publisher for
+  agent-originated durable records. It does not own durable delivery state.
 - JetStream is the durable commit, replay, fan-out, and backlog boundary.
 - ERTS/direct core calls remain for control, configuration, commands, heartbeat,
   and small status. They are not a bulk persistence acknowledgement.
 - The agent spool owns unacknowledged data. If JetStream is unavailable or full,
   the gateway withholds ACKs and the agent retains the frames.
+- A local producer receives success only after the agent owns the exact record
+  durably. Gateway acceptance remains a separate later watermark requiring
+  JetStream PubAck. This transfers retry ownership once instead of requiring
+  every Wasm/native producer to implement the full edge transport.
 
 This avoids a gateway persistent-volume requirement and keeps gateways
 replaceable. A future gateway disk spool may be proposed for sites that must
 accept data while every agent is storage-constrained, but it is not part of the
 v1 correctness chain.
 
-## Decision 2: Use a generic transport frame with typed domain payloads
+Cluster-local producers do not impersonate agents or hairpin through this edge
+hop. A governed direct publisher uses its own attested service identity,
+contract-scoped capability, the same registry/envelope rules, and an
+authoritative JetStream PubAck. A transactional outbox is allowed only when the
+record's system of record is the same operational transaction; metrics and
+telemetry remain JetStream-first and cannot use an outbox as a database-first
+ingestion exception.
 
-The outer frame is decoded by gRPC. The gateway validates it without decoding
-the inner domain message and publishes `payload` unchanged.
+## Decision 2: Use a producer-neutral transport frame with typed contracts
+
+The producer adapter encodes its canonical domain body once. The agent-owned
+sink validates that body, constructs the complete semantic `EdgeRecordV1`,
+deterministically encodes it once, and fsyncs those exact bytes with a small
+`EdgeDeliveryFrameV1` containing spool coordinates and delivery-only authority.
+The gRPC lane decodes only that delivery wrapper. The gateway verifies its
+checksum, retains the original `record_bytes`, bounded-decodes `EdgeRecordV1`
+for trust, cost, and routing validation, and publishes the original record bytes
+unchanged. It never publishes only the inner body and reconstructs the semantic
+record as ASCII headers. EventWriter decodes those same `EdgeRecordV1` bytes and
+then its contract body. Rollover or delivery reauthorization creates a new small
+delivery wrapper around unchanged semantic bytes.
 
 Illustrative normative shape (exact package placement is an implementation
 task, but field meanings and presence are fixed here):
 
 ```proto
-enum EdgeResultPayloadKind {
-  EDGE_RESULT_PAYLOAD_KIND_UNSPECIFIED = 0;
-  EDGE_RESULT_PAYLOAD_KIND_SWEEP_OBSERVATION_BATCH_V1 = 1;
-  EDGE_RESULT_PAYLOAD_KIND_SWEEP_EXECUTION_EVENT_V1 = 2;
-  EDGE_RESULT_PAYLOAD_KIND_MTR_TRACE_BATCH_V1 = 3;
-  EDGE_RESULT_PAYLOAD_KIND_LEGACY_SWEEP_JSON_V0 = 4;
-  EDGE_RESULT_PAYLOAD_KIND_LEGACY_MTR_JSON_V0 = 5;
-  EDGE_RESULT_PAYLOAD_KIND_SPOOL_LOSS_TOMBSTONE_V1 = 6;
+// Framing/lifecycle family only. Semantic type and projection come from the
+// exact output-contract bundle, so a new package contract does not add an enum.
+enum EdgeRecordPayloadFamily {
+  EDGE_RECORD_PAYLOAD_FAMILY_UNSPECIFIED = 0;
+  EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1 = 1;
+  EDGE_RECORD_PAYLOAD_FAMILY_RUN_EVENT_V1 = 2;
+  EDGE_RECORD_PAYLOAD_FAMILY_SNAPSHOT_PAGE_V1 = 3;
+  EDGE_RECORD_PAYLOAD_FAMILY_SNAPSHOT_TERMINAL_V1 = 4;
+  EDGE_RECORD_PAYLOAD_FAMILY_RECOVERY_CONTROL_V1 = 5;
 }
 
-enum EdgeResultCompression {
-  EDGE_RESULT_COMPRESSION_NONE = 0;
-  EDGE_RESULT_COMPRESSION_ZSTD = 1;
+enum EdgeRecordCompression {
+  EDGE_RECORD_COMPRESSION_NONE = 0;
+  EDGE_RECORD_COMPRESSION_ZSTD = 1;
 }
 
-enum EdgeResultAuthorizationKind {
-  EDGE_RESULT_AUTHORIZATION_KIND_UNSPECIFIED = 0;
-  EDGE_RESULT_AUTHORIZATION_KIND_SWEEP_ASSIGNMENT = 1;
-  EDGE_RESULT_AUTHORIZATION_KIND_SCHEDULED_CHECK = 2;
-  EDGE_RESULT_AUTHORIZATION_KIND_COMMAND = 3;
-  EDGE_RESULT_AUTHORIZATION_KIND_SPOOL_RECOVERY = 4;
+enum EdgeRecordAuthorizationKind {
+  EDGE_RECORD_AUTHORIZATION_KIND_UNSPECIFIED = 0;
+  EDGE_RECORD_AUTHORIZATION_KIND_PRODUCER_ASSIGNMENT = 1;
+  EDGE_RECORD_AUTHORIZATION_KIND_SCHEDULED_CHECK = 2;
+  EDGE_RECORD_AUTHORIZATION_KIND_COMMAND_RESULT = 3;
+  EDGE_RECORD_AUTHORIZATION_KIND_INTEGRATION_RUN = 4;
+  EDGE_RECORD_AUTHORIZATION_KIND_RECOVERY_CONTROL = 5;
 }
 
-enum EdgeResultTrafficClass {
-  EDGE_RESULT_TRAFFIC_CLASS_UNSPECIFIED = 0;
-  EDGE_RESULT_TRAFFIC_CLASS_BULK = 1;
-  EDGE_RESULT_TRAFFIC_CLASS_INTERACTIVE = 2;
+enum EdgeRecordTrafficClass {
+  EDGE_RECORD_TRAFFIC_CLASS_UNSPECIFIED = 0;
+  EDGE_RECORD_TRAFFIC_CLASS_BULK = 1;
+  EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE = 2;
 }
 
-message EdgeResultFrame {
-  string spool_id = 1;                 // persistent UUID for one delivery lane
+// Finite platform deployment values, never package-defined semantic types.
+enum EdgeRecordRouteProfile {
+  EDGE_RECORD_ROUTE_PROFILE_UNSPECIFIED = 0;
+  EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1 = 1;
+  EDGE_RECORD_ROUTE_PROFILE_CONTINUOUS_V1 = 2;
+  EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1 = 3;
+}
+
+message EdgeRecordV1 {
+  bytes event_id = 1;                  // stable across every semantic retry
+  EdgeRecordPayloadFamily payload_family = 2;
+  EdgeRecordCompression compression = 3;
+  uint32 encoded_size = 4;
+  uint32 uncompressed_size = 5;
+  bytes payload_sha256 = 6;            // SHA-256 of exact encoded body
+  EdgeOutputContractRef output_contract = 7;
+  EdgeProducerContext producer_context = 8;
+  EdgeRecordRouteProfile route_profile = 9;
+  EdgeRecordTrafficClass traffic_class = 10;
+  bytes network_scope_id = 11;         // signed site/address-space namespace
+  bytes production_capability = 12;    // signed effective output grant at creation
+  bytes source_authorization = 13;     // optional check/run/command authority
+  EdgeRecordAuthorizationKind authorization_kind = 14;
+  bytes authorization_context_id = 15;
+  bytes authorization_scope_id = 16;
+  bytes authorization_scope_sha256 = 17;
+  uint32 projected_row_count = 18;     // conservative verified upper bound
+  uint64 projected_write_bytes = 19;   // SQL/index/WAL upper bound
+  uint32 cost_model_version = 20;
+  bytes semantic_envelope_sha256 = 21; // excludes this field and all delivery state
+  bytes payload = 22;                  // exact canonical contract bytes
+}
+
+message EdgeDeliveryFrameV1 {
+  bytes spool_id = 1;                  // persistent UUID for one delivery lane
   uint64 sequence = 2;                 // persistent, strictly increasing
-  string event_id = 3;                 // stable across every retry
-  EdgeResultPayloadKind payload_kind = 4;
-  uint32 schema_version = 5;
-  EdgeResultCompression compression = 6;
-  uint32 encoded_size = 7;
-  uint32 uncompressed_size = 8;
-  bytes payload_sha256 = 9;            // SHA-256 of encoded payload bytes
-  string execution_id = 10;            // bounded routing/correlation hint
-  uint32 execution_shard = 11;
-  optional uint64 assignment_epoch = 12;
-  bytes collection_capability = 13;    // signed permission valid at collection
-  uint32 projected_row_count = 14;     // verified downstream upper-bound hint
-  bytes payload = 15;                  // canonical domain protobuf bytes
-  EdgeResultAuthorizationKind authorization_kind = 16;
-  string authorization_context_id = 17;
-  string target_range_id = 18;
-  bytes target_range_sha256 = 19;
-  bytes delivery_capability = 20;      // renewable permission to drain old data
-  uint64 projected_write_bytes = 21;   // conservative SQL/index/WAL byte cost
-  uint32 cost_model_version = 22;
-  string network_scope_id = 23;        // signed site/address-space namespace
-  EdgeResultTrafficClass traffic_class = 24;
+  bytes record_sha256 = 3;             // SHA-256 of exact record_bytes
+  bytes delivery_capability = 4;       // optional renewal to drain immutable data
+  bytes record_bytes = 5;              // exact deterministic EdgeRecordV1 bytes
 }
 
-enum EdgeResultDispositionKind {
-  EDGE_RESULT_DISPOSITION_KIND_UNSPECIFIED = 0;
-  EDGE_RESULT_DISPOSITION_KIND_ACCEPTED = 1;
-  EDGE_RESULT_DISPOSITION_KIND_REJECTED = 2;
+enum EdgeRecordDispositionKind {
+  EDGE_RECORD_DISPOSITION_KIND_UNSPECIFIED = 0;
+  EDGE_RECORD_DISPOSITION_KIND_ACCEPTED = 1;
+  EDGE_RECORD_DISPOSITION_KIND_REJECTED = 2;
 }
 
-message EdgeResultDisposition {
+message EdgeRecordDisposition {
   uint64 sequence = 1;
-  string event_id = 2;
-  EdgeResultDispositionKind kind = 3;
+  bytes event_id = 2;
+  EdgeRecordDispositionKind kind = 3;
   string rejection_code = 4;
 }
 
-message EdgeResultAck {
-  string spool_id = 1;
+message EdgeDeliveryAckV1 {
+  bytes spool_id = 1;
   uint64 resolved_through_sequence = 2; // contiguous accepted/rejected prefix
-  repeated EdgeResultDisposition dispositions = 3;
+  repeated EdgeRecordDisposition dispositions = 3;
 }
 ```
 
-All UUID-backed identifiers (`spool_id`, event/trace/execution/plan IDs, and
+The sink computes `semantic_envelope_sha256` from versioned canonical signing
+bytes over every semantic/trust field and the exact payload digest, excluding
+the digest field itself. Gateway and EventWriter recompute it from the decoded
+record. The
+gateway uses the verified value when deriving `Nats-Msg-Id`; neither component
+needs to re-encode the protobuf to establish semantic identity.
+
+All UUID-backed identifiers (`spool_id`, event/trace/execution/plan/run IDs, and
 source IDs stored as UUIDs) use canonical 16-byte UUID fields in the final
 protobuf contract. A field retained as text for legacy compatibility MUST be a
 validated lowercase canonical UUID representation, reject nil/noncanonical aliases,
 and have identical Go/Elixir normalization fixtures.
 
-Every v1 semantic `event_id`, and every patched-legacy frame event ID admitted to
-this path, is RFC 9562 UUIDv7 allocated once before durable spooling. Its UUIDv7
-timestamp selects the trusted metadata retirement bucket and must match the
-signed collection/execution interval plus the defined terminal grace and clock
-tolerance. The same event ID therefore cannot move between metadata partitions;
-recovery preserves it even when delivery coordinates change.
+Every v1 semantic `event_id` is RFC 9562 UUIDv7 allocated once before durable
+spooling. Its UUIDv7 timestamp selects the trusted metadata retirement bucket
+and must match the signed production/source-authorization interval plus the
+defined terminal grace and clock tolerance. The same event ID therefore cannot
+move between metadata partitions; recovery preserves it even when delivery
+coordinates change.
 
-The agent persists `spool_id`, sequence, event ID, checksum, encoded body,
-authorization context/range, and the collection-capability proof before sending.
-A retry within a lane reuses its delivery coordinates and all semantic/payload
-values. Crash-safe recovery MAY copy the same semantic event to a new spool ID
-and sequence as defined below. Only delivery coordinates, the outer renewable
-delivery capability, and deployment stream-map metadata may change without
-changing domain identity. The gateway MUST NOT advance an ACK past a missing or
-failed sequence.
+The agent atomically persists the deterministic `EdgeRecordV1` bytes plus the
+delivery wrapper's spool ID, sequence, record checksum, and delivery capability
+before sending. A retry within a lane reuses the wrapper and exact record bytes.
+Crash-safe recovery MAY wrap the same record bytes in a new spool ID/sequence as
+defined below. Only the delivery wrapper and deployment stream-map metadata may
+change; event, contract/provenance/authorization/cost fields, semantic digest,
+and payload bytes do not. The gateway MUST NOT advance an ACK past a missing or
+failed delivery sequence.
 
-Sequence space is scoped to a durable delivery lane: sweep-bulk,
-sweep-interactive, MTR-bulk, MTR-interactive, and a minimal separately reserved
-spool-recovery control lane, not to all traffic from an agent. Interactive is a
+Sequence space is scoped to a finite platform-owned delivery lane: durable
+bulk, durable interactive, and a minimal separately reserved spool-recovery
+control lane (plus a separately benchmarked continuous profile if required),
+not to one payload family, plugin, or all traffic from an agent. Interactive is a
 hard-size/rate/duration-bounded service class assigned by the scheduler, not a
-caller-controlled priority bit. A blocked MTR frame, bulk backlog, or corrupt
-sweep sequence therefore cannot prevent bounded interactive reachability or its
+caller-controlled priority bit. A blocked trace/plugin frame, bulk backlog, or
+corrupt sequence therefore cannot prevent bounded interactive reachability or its
 own audited loss recovery. Each lane uses an independent bidirectional RPC.
 Bulk, interactive, and recovery RPCs use separately pooled HTTP/2 transport
 connections with reserved connection-level windows and pending-byte ceilings;
@@ -244,11 +313,12 @@ agent opens a fresh recovery-control generation under an explicit scheduler
 recovery capability and reports the compact loss scope of the prior generation;
 the gateway never requires the damaged generation's contiguous ACK to accept the
 replacement. If neither journal copy can establish a trustworthy scope, the
-agent stops all scan admission and the scheduler fences/times out affected work;
-it does not claim recovery or durability.
+agent stops durable-producer admission and the scheduler fences/times out
+affected work; it does not claim recovery or durability.
 
-Every lane opens with `spool_id`, lane kind, sequence base (sequences start at
-one), first unresolved sequence, a fresh random session nonce, and requested
+Every lane opens with `spool_id`, route profile, traffic class, sequence base
+(sequences start at one), first unresolved sequence, a fresh random session
+nonce, and requested
 byte/frame credits. The gateway echoes the nonce and negotiated credits. An
 agent has one active sender per lane and ignores dispositions for an old nonce,
 spool ID, or closed session. A replacement gateway reconstructs no private ACK
@@ -277,7 +347,8 @@ interactive floor, a total byte quota, retention policy, class-specific
 high/low-water admission thresholds, and owner-acknowledged export/deletion workflow. Moving a
 rejected record is an atomic crash-safe rename/index update, not an extra
 unbounded copy; the spool prefix is reclaimed only after quarantine durability.
-At quarantine high-water, new scan admission stops and operator paging begins.
+At quarantine high-water, new durable production and scan admission stop and
+operator paging begins.
 Bytes are never overwritten or silently expired, so a bad rollout cannot hide a
 fleet-wide rejection storm by filling agent disks while the normal spool appears
 healthy.
@@ -291,27 +362,35 @@ reports per-agent progress, and uses the normal semantic ledger for idempotency.
 Local raw bytes are deleted only after accepted resolution or an explicit
 operator waiver, not merely because the central audit record exists.
 
-Collection and delivery authority are separate. The collection capability
-proves that the agent was allowed to perform the check under the named context,
-range, and epoch at observation time; expiry immediately forbids starting new
-probes. If an immutable spooled frame outlives that capability or its PubAck is
-lost across a fence, the scheduler may issue a short-lived delivery capability
-bound to network scope, agent, spool ID/sequence, event ID, payload checksum, original
-collection-capability digest, and range. Renewal changes no semantic event or
-payload identity and grants no collection right. The gateway may use it only to
-publish the old bytes. The consumer still applies current authoritative fencing:
-pre-fence data may remain audit history, but cannot displace a replacement
-attempt. A frame without valid collection proof and either current collection
-authority or explicit delivery authority remains unresolved or quarantined; it
-is never silently relabeled as newly collected data.
+Production, source-action, and delivery authority are separate. The production
+capability is the control-plane-signed effective output grant and binds exact
+contract bundle, registry snapshot, package/assignment/run/scope, route profile,
+traffic class, and quotas at record creation. A scanner collection capability,
+integration-run grant, or command authority is a separate
+`source_authorization`; output permission alone never authorizes probes, HTTP,
+credentials, filesystem access, or an external side effect. Expiry immediately
+forbids new source work and output. If immutable spooled bytes outlive their
+production/source proof or their PubAck is lost across a fence, the control
+plane may issue a short-lived delivery capability bound to origin, network
+scope, spool ID/sequence, event ID, exact record checksum, original proof and
+contract digests, and authorization scope. The renewed proof lives only in a
+new or updated delivery wrapper; renewal does not change `EdgeRecordV1` bytes
+and grants no production or source-action right. The consumer still applies current
+authoritative fencing: pre-fence data may remain audit history but cannot
+displace a replacement run. A record without valid original production proof and
+either current production authority or explicit delivery authority remains
+unresolved or quarantined; it is never silently relabeled as newly produced.
 
 If crash recovery changes spool coordinates, a replacement delivery capability
-also binds `recovery_id`, old and new coordinates, and the unchanged semantic
-digest. It is authorized only against the durable rollover/recovery record; an
-old coordinate-bound capability cannot be replayed for arbitrary new bytes.
+also binds `recovery_id`, old and new coordinates, exact record checksum, and
+the unchanged semantic digest. It is authorized only against the durable
+rollover/recovery record; an old coordinate-bound capability cannot be replayed
+for arbitrary bytes.
 
 All capabilities use versioned canonical signing bytes and carry issuer, key ID,
-algorithm, not-before/expiry, network-scope/agent/context/range, and fence claims. Normal
+algorithm, not-before/expiry, attested origin, network scope,
+package/assignment/run/context/scope, contract/grant digests, route/class, and
+fence claims. Normal
 verification keys overlap for at least the maximum supported agent-spool/offline
 plus JetStream replay/rollback horizon. Before routine retirement, remaining
 backlog is drained or receives delivery-only reauthorization against retained
@@ -326,6 +405,265 @@ decompression with independent hard output and expansion-ratio limits, reject
 unsupported dictionaries, concatenated/trailing frames, and excessive protobuf
 recursion/depth, then verify the actual output size equals the declaration. The
 declared uncompressed size is never trusted as an allocation authority.
+
+## Decision 2a: Put a producer-neutral API in front of the transport frame
+
+`EdgeRecordV1` and `EdgeDeliveryFrameV1` are agent-owned internal contracts, not
+plugin ABIs and not evidence that producer-supplied body claims are true.
+Built-in collectors, Wasm modules, native add-ons, and embedded integrations
+submit bounded canonical bytes to one agent-owned producer sink. The sink
+validates the effective output grant, derives trusted identity/cost/routing
+metadata, assigns stable semantic and spool identity, and fsyncs the common
+spool. Producers never choose network scope, gateway, NATS subject, physical
+stream, traffic class, spool ID/sequence, database destination, or projected
+write cost.
+
+Conceptually the local API is:
+
+```go
+type Sink interface {
+    OpenRun(context.Context, ApprovedRun) (RunHandle, error)
+    Publish(context.Context, RunHandle, Submission) (DurableReceipt, error)
+    Checkpoint(context.Context, RunHandle, Checkpoint) error
+    Commit(context.Context, RunHandle, TerminalManifest) error
+    Abort(context.Context, RunHandle, AbortEvidence) error
+}
+```
+
+A `Submission` contains an approved output-contract reference, a producer-local
+stable idempotency key, bounded canonical payload bytes, and bounded descriptive
+metadata. Producer instance, assignment, run, and scope handles are host-issued
+and unforgeable; caller-selected strings cannot create quota or identity
+namespaces. The sink supplies or verifies agent/package/assignment/producer/run
+identity, authorization, event ID, exact encoded size/hash, conservative cost,
+traffic class, and route. It deterministically encodes `EdgeRecordV1` once,
+then assigns the delivery lane/coordinates and wrapper. A retry of the same producer key
+under the same assignment/run maps to the original semantic event; this closes
+the crash window where the agent fsyncs a record but the producer does not
+observe the return.
+
+That guarantee is backed by one atomic durable binding from `(package digest,
+producer assignment, host-issued run, contract bundle digest, registry/effective
+grant digest, producer key)` to event ID, exact body digest, exact record
+digest/bytes, local-durability receipt, and later disposition watermark,
+committed atomically with the delivery wrapper's spool append. The
+same key with different bytes is a permanent integrity conflict. Receipt lookup
+returns the original identity after an uncertain timeout, agent restart,
+producer restart, or lane rollover. The binding survives spool reclamation for
+the signed producer retry/offline horizon and is retired only after the run is
+fenced/terminal, that horizon has elapsed, and the semantic-ledger safe-GC
+watermark has passed. A retry after retirement receives
+`RETRY_WINDOW_EXPIRED`; it never silently allocates a new event under the old
+key.
+
+The frame gains a bounded output-contract reference and producer context. The
+exact wire shape is finalized with the protobuf task, but its semantics are:
+
+```proto
+message EdgeOutputContractRef {
+  string contract_id = 1;       // globally namespaced, approval-owned identifier
+  uint32 contract_version = 2;
+  bytes contract_bundle_sha256 = 3; // full immutable semantic/processing bundle
+  uint64 registry_epoch = 4;
+  bytes registry_snapshot_sha256 = 5;
+  bytes effective_grant_sha256 = 6;
+}
+
+enum EdgeOriginKind {
+  EDGE_ORIGIN_KIND_UNSPECIFIED = 0;
+  EDGE_ORIGIN_KIND_AGENT = 1;
+  EDGE_ORIGIN_KIND_CLUSTER_SERVICE = 2;
+}
+
+message EdgeProducerContext {
+  EdgeOriginKind origin_kind = 1;
+  bytes origin_principal_id = 2; // gateway/direct-ingress attested, never caller truth
+  bytes producer_instance_id = 3;
+  bytes producer_assignment_id = 4;
+  bytes run_id = 5;
+  uint32 run_shard = 6;
+  optional uint64 authority_epoch = 7;
+  bytes scope_id = 8;
+  bytes scope_sha256 = 9;
+  string package_id = 10;
+  bytes package_sha256 = 11;
+}
+```
+
+The semantic digest binds both messages plus the ingress-attested origin and
+exact package version/digest. Standard contract IDs live in a reserved
+`serviceradar` namespace. Extension IDs are assigned under an approved
+publisher/package-signing namespace; another signer cannot take over that ID.
+Scan-specific execution/range fields are one specialization of the producer
+run/scope context rather than prerequisites for every record. The finite payload
+family describes framing/lifecycle only; adding a third-party contract does not
+allocate a new enum, subject, stream, consumer, connection, or database writer.
+
+### Approved output-contract registry
+
+Signed package metadata may request output descriptors: contract ID/version,
+encoding, requested delivery/traffic profile, maximum record/frame/run bytes,
+record count, rate, outstanding spool bytes, cost-model ID, and a schema/display
+or processor-contribution reference. Import approval and assignment compilation
+produce the effective immutable grant after intersecting that request with
+platform policy. The registry snapshot is signed, immutable, content-addressed,
+and maps every exact contract bundle to its validator/cost/projector, finite
+route profile, partition rule, and lifecycle state. The agent, gateway readiness
+logic, stream map, and EventWriter activate the same epoch/digest only after all
+required historical bundles and processors are ready. An unknown, conflicting,
+or not-ready contract receives no new production grant; rollout mismatch is not
+converted into ordinary poison.
+
+The contract digest covers the complete immutable processing bundle, not merely
+the protobuf descriptor: canonicalization and unknown-field policy, validator,
+authoritative-field rules, partition rule, cost model, projector engine/config,
+retention/data classification, domain identity, revision/merge semantics, and
+error policy. A durable contract's error policy may quarantine/DLQ or hold, but
+may never silently drop an accepted record. Every referenced historical bundle remains resolvable through the
+maximum agent-offline, spool, JetStream replay, DLQ/redrive, and producer-retry
+horizon. The agent always runs the approved bounded structural validator before
+spooling and either evaluates the pinned cost module or charges the contract's
+fixed worst-case grant cost. EventWriter independently validates canonical form,
+authoritative-field rules, and recomputes cost before side effects.
+
+Planned contract retirement stops new grants while allowing immutable backlog to
+drain against its pinned historical bundle. Security revocation is fail-closed:
+matching new output and backlog are quarantined/held, collection and delivery
+authority are disabled, and redrive requires an explicit operator-approved safe
+bundle or waiver. A compromise is never treated as ordinary retirement.
+
+Platform contracts such as sweep, MTR, `MetricBatch`, OTLP, OCSF, inventory,
+and lifecycle events use compiled typed consumers. Package-defined extension
+records are accepted only when the approved package contribution selects a
+bounded platform-owned processor from
+`add-event-writer-processor-contributions`. That active change MUST be amended
+for this plane so edge dispatch keys on the trusted route/contract bundle over
+fixed subjects, not a package-requested subject filter; it supplies the bounded
+declarative processor vocabulary, not transport authority. Packages cannot upload executable
+BEAM/native/JavaScript processors, SQL, DDL, or arbitrary subject filters.
+Inventory retains a specialized DIRE-aware projector rather than becoming an
+arbitrary row-mapping extension.
+
+Processor engines are deterministic, side-effect-bounded platform code. Their
+bundle declares maximum decoded bytes, fields/depth/cardinality, output rows and
+write bytes, permitted destination family, lock set, transaction duration, and
+data classification. They perform no network I/O, dynamic code loading, package
+state mutation, SQL/DDL supplied by a package, or best-effort drop after a local
+durable receipt.
+
+### Local producer adapters and durability
+
+- Built-in Go collectors call the sink directly.
+- Wasm receives a versioned binary host ABI and SDK helpers that pass bounded
+  protobuf bytes directly. One guest-to-host memory copy is expected; the ABI
+  removes protobuf-to-base64-to-JSON and the reverse decode/re-encode path.
+- Native add-ons receive one bidirectional record relay with byte/frame credits
+  and cumulative local-durability ACKs. The add-on retains a record until the
+  agent confirms common-spool fsync; the agent then owns gateway replay.
+  Durable `StreamTelemetry` and `RelayOtlp` migrate onto this adapter, while an
+  explicitly best-effort runtime-counter feed may remain lossy.
+- Embedded integration drivers publish through the same sink. They retain
+  provider API/pagination/mapping logic but do not own JSON chunking or
+  `StreamStatus` delivery.
+
+A synchronous Wasm call may wait for a short bounded group commit. Native and
+in-process clients may pipeline within granted credits. Pressure returns an
+explicit retryable `WOULD_BLOCK` with retry-after/credit notification; permanent
+oversize, invalid-schema, revoked-contract, capability, and hard-quota failures
+use distinct non-retryable codes. Cancellation or timeout while fsync outcome is
+uncertain requires receipt lookup/retry with the same producer key. A durable
+output is never reported successful and then dropped from a full memory channel.
+The Wasm runtime enforces pause/fuel/CPU limits against a busy-looping guest.
+Native relay sessions are bound to package assignment, host-issued nonce, and
+resume watermark so a stale or same-host process cannot impersonate another
+producer. A source that cannot honor backpressure is explicitly classified
+lossy or loss-audited; it is not called durable.
+
+### Output lifecycles
+
+The record plane supports three bounded shapes:
+
+1. independent immutable records;
+2. bounded or perpetual runs with start/data/checkpoint/terminal epochs; and
+3. atomic snapshots whose independently durable pages are activated only by a
+   valid terminal manifest binding page count/ranges and content digest.
+
+Every assignment caps concurrent runs, pages, records, bytes, checkpoints,
+terminal attempts, outstanding spool bytes, and retained idempotency bindings.
+Perpetual producers rotate bounded epochs. Terminal evidence uses a bounded
+ordered Merkle/checkpoint root rather than enumerating an outage-sized page set.
+
+Armis inbound discovery is the first inventory adapter. Each provider page
+becomes a typed `DeviceInventoryObservationBatchV1`; a terminal records complete
+or partial state, counts, page/range digest, source cursor, and collection time.
+Pages are immutable staging records keyed by the assignment-authorized source
+instance, control-plane-issued monotonic authority epoch, and host-issued run
+ID. Neither a producer timestamp nor a caller-selected run ID orders snapshots.
+Staged pages have no current-state or absence side effect. A terminal arriving
+early remains pending until every declared ordinal/hash is present, page and
+source-object-key uniqueness validates, and the bounded ordered
+Merkle/checkpoint root matches. Snapshot pages and terminal use the same
+contract-pinned logical partition key; processing may still arrive concurrently,
+so correctness depends on database staging and fences rather than broker order.
+One bounded transaction then fences older epochs and swaps the source's current
+snapshot pointer; physical cleanup/reconciliation may continue asynchronously.
+A late older terminal, conflicting page, same-epoch terminal conflict, or abort
+after complete is poison and cannot replace current inventory. Partial/orphan
+staging has bounded retention and GC after its replay/repair horizon.
+
+Absence-authoritative completion additionally requires an assignment-scoped
+provider snapshot token/revision or a contract-specific consistency proof that
+the provider view did not mutate during pagination. Without it, a successful run
+is upsert-only. The proof and terminal bind the exact source instance and
+coverage scope, so one package cannot claim completeness for another source,
+site, or range. A partial, inconsistent, or missing-page run never removes
+previously current source inventory. Absence affects only that source
+observation; it never deletes a multi-source canonical device or erases another
+source's provenance.
+
+The Armis northbound updater is different: its HTTP write is an outbound side
+effect in the command/job plane. Core continues to select canonical desired
+state and schedule/idempotently execute that action. If endpoint-side execution
+later moves into a plugin, Core supplies immutable bounded update-plan pages;
+the plugin emits progress, receipts, audit, telemetry, and terminal records
+through this data plane. The authenticated reverse plan-delivery/secret channel
+is a separate command-plane contract and is not created here. A durable receipt
+proves only that the receipt record was stored, not that the external POST took
+effect; edge-side execution would also require stable operation/idempotency
+keys, ambiguous-timeout reconciliation, and response-secret redaction. The
+external POST itself is not an ingress record.
+
+### Finite routes, traffic classes, and lanes
+
+An output contract is the semantic schema/projector agreement. A route profile
+is a finite platform-owned transport, durability, retention, and cost/SLO class;
+it never denotes sweep, MTR, inventory, a plugin, or another semantic family. A
+traffic class is an immutable control-plane-assigned service class. A physical
+delivery lane is one route-profile/traffic-class pair, plus the separately
+reserved recovery-control lane; none is keyed by payload family, plugin ID, or
+output-contract ID. V1 starts with one `durable-records-v1` route profile and
+bulk/interactive traffic classes. An independently budgeted `continuous-v1`
+route profile may be added only by a platform release and deployment migration
+after benchmarks prove the shared route cannot meet both SLOs. A package may
+request only an existing profile, and the effective grant—not the record body—
+selects it. Byte-based DRR within a lane includes network scope, attested origin,
+producer assignment, run/execution, and immutable traffic class. This prevents a plugin
+or large inventory run from monopolizing the shared spool/sender without
+creating one connection or RAFT group per plugin.
+
+The platform deliberately retains four planes:
+
+- command/execution for assignments, credentials, actions, and cancellation;
+- durable record ingestion for observations, inventory, telemetry, and results;
+- ephemeral state for coalescible heartbeat/current-progress data; and
+- blob/media transport for artifacts, captures, files, tunnels, and live media.
+
+The durable record plane may carry immutable artifact references and lifecycle
+events, never an unbounded blob or live stream. Commands, credentials, provider
+secrets, and outbound update-plan pages never masquerade as ingress records;
+ephemeral state is never a durability acknowledgement. Artifact references are
+bounded content identities and authorization-safe metadata, not bearer URLs or
+embedded secret material.
 
 ## Decision 3: Keep sweep summaries and full MTR traces as separate correlated events
 
@@ -484,8 +822,9 @@ effect; a mixed-context batch is poison. Builders flush when any context changes
 even if the byte target has not been reached.
 
 Timing fields whose absence differs from a measured zero MUST use proto presence.
-Routing identity is not embedded as authoritative data; it comes from
-gateway-attested headers.
+Routing and producer identity come from the agent sink's trusted
+`EdgeRecordV1` context and signed grants, verified by the gateway and
+EventWriter; neither payload-body claims nor broker headers are authoritative.
 
 The wire preserves Unix nanoseconds, including signed host deltas, while CNPG
 `timestamptz` stores microseconds. Before hashing, identity comparison, ordering,
@@ -509,9 +848,16 @@ The existing `MtrTraceResult` and `MetricBatch` shapes may be used as migration
 inputs, but they are not the canonical v1 trace contract until timestamp,
 presence, ASN, correlation, and failure-outcome defects are corrected.
 
-## Decision 4: Treat each execution as a continuous bounded stream
+## Decision 4: Treat every producer run as a continuous bounded record stream
 
-The scanner result lifecycle is changed from whole-run snapshot delivery:
+Every finite producer run opens under an approved assignment/grant, emits
+independently useful bounded records while work continues, checkpoints at
+bounded count/time intervals, and ends with a stable complete, partial, or
+aborted terminal. Transport EOF is never a run terminal. Atomic snapshot
+contracts add a terminal manifest that binds all required pages; they do not
+buffer the whole snapshot in one message or activate absence semantics early.
+
+The scanner specialization changes from whole-run snapshot delivery:
 
 1. Reference the immutable scheduler plan plus append-only assignment attempt and
    emit start evidence for the attempt; processing does not depend on that event
@@ -548,7 +894,7 @@ observations.
 The same rule applies at every MTR producer. Scheduled checks, sweep-profile,
 ad-hoc, and on-demand runners use bounded probe concurrency and feed each
 completed trace directly into the byte/row/write-cost/timer builder and fsynced
-MTR lane. They release the trace/hop object after append and never accumulate a
+shared lane selected by the platform route/class map. They release the trace/hop object after append and never accumulate a
 run- or interval-wide slice of completed traces before encoding. MTR producer RSS
 is therefore bounded by active probes plus one builder/spool window, not due
 trace count.
@@ -565,14 +911,17 @@ For a genuinely perpetual producer, the same framing rule uses bounded
 time/config-generation epochs and durable watermarks instead of pretending the
 entire lifetime is one execution. Consumers process each record independently,
 advance event-time/sequence watermarks, and rotate epochs without waiting for
-transport EOF. This proposal applies that general rule to finite sweep attempts;
-adding another continuous observation type still requires its own typed payload,
-row-cost, retention, and admission contract.
+transport EOF. This proposal applies that rule to every approved durable
+producer contract. Adding another continuous observation type still requires an
+approved typed or extension schema, cost, retention, admission, and projector
+contract; it does not require another transport lane.
 
 For well-formed events with non-conflicting stable identities, correctness does
-not depend on broker arrival order, including within an execution shard. Stable
-`(network_scope_id, execution_id, execution_shard, assignment_epoch, batch_sequence)` and
-event IDs permit safe interleaving, retry, reassignment, and late arrival.
+not depend on broker arrival order, including within a run shard. Stable
+`(network_scope_id, producer_assignment_id, run_id, run_shard,
+authority_epoch, record_sequence)` and event IDs permit safe interleaving,
+retry, reassignment, and late arrival. Sweep execution/shard/assignment/batch
+keys are the corresponding domain specialization.
 Partition affinity improves ownership and cache locality only. Consumers track
 compact committed ranges/watermarks per assignment attempt; start or terminal
 evidence may arrive first and trigger reconciliation again when missing data
@@ -599,8 +948,9 @@ record is quarantined and reported rather than retried forever.
 Each lane's spool is byte-bounded using the larger of two maximum planned outputs
 or the configured production rate times the supported gateway/NATS outage, with
 at least 25 percent headroom. Those lane limits are subordinate to one atomic
-filesystem allocator covering every lane, raw quarantine, both recovery-journal
-copies, rollover copy amplification, directory/segment metadata, and one-segment
+filesystem allocator covering every lane, the producer-receipt/idempotency
+journal, raw quarantine, both recovery-journal copies, rollover copy
+amplification, directory/segment metadata, and one-segment
 scratch. The allocator enforces a hard minimum-free-space floor reserved for
 recovery/control and terminal evidence; the sum of nominal lane quotas can never
 overcommit the filesystem. When a lane or the global allocator reaches its
@@ -620,11 +970,12 @@ directory metadata are fsynced, ownership/mode are private to the agent, and the
 persistent sequence high-water is never reused. Startup truncates only an
 uncommitted torn tail and quarantines corrupt committed segments without
 silently skipping them. `ENOSPC`, `EIO`, fsync failure, or corrupt metadata
-stops scan admission immediately, preserves the bounded current window for
-retry when possible, marks the execution delivery-failed/paused, and alerts. A
-host result is never released or reported durable until its append and metadata
-are durable; if the process dies first, the scheduler retries the unfinished
-target range under normal assignment fencing.
+stops all durable-producer admission immediately, preserves the bounded current
+window for retry when possible, marks the run delivery-failed/paused, and
+alerts. A producer record is never released or reported durable until its
+record bytes, delivery wrapper, receipt binding, and spool metadata are durable;
+if the process dies first, the control plane retries or fences the unfinished
+run/scope according to its contract.
 
 A corrupt committed record in the middle of a lane is not silently skipped and
 does not permanently pin every later valid record. Using separately reserved
@@ -632,8 +983,9 @@ recovery metadata/capacity, the agent durably fences the old lane from normal
 publication, creates a new spool identity, and records a crash-resumable rollover
 journal. Normal spool admission permanently reserves at least one maximum segment
 plus recovery metadata as rollover scratch. The agent copies one readable old
-segment at a time to the new lane with the same semantic event ID/body/checksum,
-fsyncs the new segment and copy watermark, and only then advances the journal.
+segment at a time to the new lane by placing the exact unchanged
+`EdgeRecordV1` bytes/checksum in a new `EdgeDeliveryFrameV1`, fsyncs the new
+segment and copy watermark, and only then advances the journal.
 After the tombstone pages have PubAcked, that exact old source segment may be
 deleted before copying the next, so recovery needs bounded scratch rather than a
 second full-spool allocation. Copying to a new spool ID/sequence is a
@@ -653,7 +1005,7 @@ hard bounded; when interval detail would exceed them, the producer coarsens to
 one conservative uncertain sequence/attempt scope. Admission reserves the entire
 manifest, all pages share an assembly deadline inside the recovery retention
 window, and the agent retries them until the durable page store records terminal
-completion. Each page obeys the normal frame limit. The recovery consumer durably
+completion. Each page obeys the normal record limit. The recovery consumer durably
 stores pages idempotently and applies partialization/fencing/retry exactly once
 only after the complete manifest validates; an early page cannot expire while a
 later required page remains admissible.
@@ -670,8 +1022,9 @@ requires the terminal copy-completion page. The journal distinguishes publicatio
 fencing, per-segment copy, recovery publication, and physical deletion, and
 startup resumes any phase idempotently. A dedicated recovery consumer atomically
 stores the loss audit, marks affected attempts/ranges partial or lost, fences
-unsafe authority, and enqueues remaining coverage for scheduler retry before
-ACKing the completed recovery state. Recovery state and lag are operator-visible
+unsafe authority, and invokes the contract-specific partialization/retry action
+(for example, remaining sweep coverage) before ACKing the completed recovery
+state. Recovery state and lag are operator-visible
 and retained beyond the recovery stream's replay window. This is explicit
 acknowledged data-loss handling, not a success disposition for the missing
 result.
@@ -701,111 +1054,91 @@ with small jobs.
 
 ## Decision 5: Make the gateway an authenticated pass-through publisher
 
-For every frame the gateway:
+For every delivery frame the gateway:
 
 1. Authenticates the installation trust domain and agent through the canonical
    edge mTLS identity resolver (deployment CA and certificate subject/CN; a
    SPIFFE URI SAN is optional compatibility metadata, not a requirement).
-2. Enforces payload kind, schema, authorization kind/context, range ID/digest,
-   string, byte, checksum, and in-flight bounds.
-3. Locally verifies the scheduler-signed collection or delivery capability for
-   the declared context. A sweep/ad-hoc assignment covers network scope, agent,
-   execution, shard/range, epoch, traffic class, config generation, and collection lease; a
-   scheduled check or command capability covers its corresponding check/command
-   identity and bounds. Revocation/fence generations are distributed over the
-   control/config plane; no per-frame core/DB/ERTS lookup is allowed. The
-   consumer rechecks decoded context, every target's plan/range membership, and
-   authoritative fencing before side effects. The highest agent-claimed epoch
-   is never treated as authority.
-4. Computes the logical partition. Sweep hashes trusted network scope plus
-   execution and shard (not assignment epoch). Opaque MTR batches hash trusted
-   network scope, authenticated agent, and stable semantic event ID; no trace-key decode or
-   per-trace ordering is required, and spool rollover preserves the partition.
-   Agent-provided routing cannot cross an identity boundary.
-5. Selects the subject, stream-map version, and expected physical stream.
-6. Writes the complete canonical broker-header envelope described below.
-7. Computes the immutable semantic-envelope digest defined below, includes it in
-   `Nats-Msg-Id` with trusted network-scope/agent and spool ID/sequence, and sets
-   `Nats-Expected-Stream` to the selected stream.
-8. Publishes with a JetStream request and waits for PubAck.
-9. Returns accepted/rejected dispositions and advances only the contiguous
+2. Bounded-decodes `EdgeDeliveryFrameV1`, verifies lane/session, spool sequence,
+   exact `record_bytes` checksum, and any delivery-only capability, and retains
+   the original record binary. Delivery proof never changes semantic authority.
+3. Bounded-decodes `EdgeRecordV1` without decoding its domain payload. It
+   compares the claimed origin principal/network scope to mTLS, resolves the
+   exact historical output-contract bundle and signed registry/effective grant,
+   recomputes the semantic digest, and enforces route profile, payload family,
+   producer/package/assignment/run provenance, production/source authorization,
+   size/checksum/cost, revocation/fence, and in-flight bounds. Carrier
+   provenance is authenticated; equivalent identity, scope, class, or source
+   claims inside the domain payload remain untrusted until EventWriter validates
+   or replaces them. No per-record core/DB/ERTS lookup is allowed.
+4. Computes the logical partition from the platform-owned rule pinned in the
+   approved route/contract bundle and authenticated outer context. Sweep may
+   hash network scope plus execution/shard; MTR may hash scope, agent, and event
+   ID; snapshot pages may hash source assignment plus run. The gateway never
+   decodes a plugin body or accepts a caller-selected partition.
+5. Selects the fixed route-profile/class subject, stream-map version, and
+   expected physical stream.
+6. Derives `Nats-Msg-Id` from the attested origin, delivery-wrapper spool
+   ID/sequence, and verified semantic digest; sets `Nats-Expected-Stream`; and
+   adds only bounded transport diagnostics for delivery ID and route-map
+   version. It does not copy semantic fields into headers.
+7. Publishes the exact original `record_bytes` with a JetStream request and
+   waits for PubAck.
+8. Returns accepted/rejected dispositions and advances only the contiguous
    resolved spool prefix after the required primary-stream or audit-DLQ PubAck.
 
-The JetStream body is the exact encoded inner protobuf. The following bounded
-headers are part of the persisted broker contract, not optional telemetry:
+The JetStream body is the exact deterministic `EdgeRecordV1` binary produced and
+fsynced by the agent sink. Its semantic identity, contract, provenance,
+authorization proofs, cost, and domain payload travel together in that binary.
+The only normal NATS headers are transport metadata:
 
 ```text
-Sr-Network-Scope-Id        Sr-Agent-Id              Sr-Gateway-Id
-Sr-Spool-Id                Sr-Spool-Sequence        Sr-Event-Id
-Sr-Payload-Kind            Sr-Schema-Version        Sr-Compression
-Sr-Encoded-Size            Sr-Uncompressed-Size     Sr-Payload-Sha256
-Sr-Projected-Row-Count     Sr-Projected-Write-Bytes Sr-Cost-Model-Version
-Sr-Execution-Id            Sr-Execution-Shard
-Sr-Assignment-Epoch        Sr-Authorization-Kind    Sr-Authorization-Context
-Sr-Target-Range-Id         Sr-Target-Range-Sha256   Sr-Collection-Capability
-Sr-Collection-Capability-Sha256  Sr-Delivery-Capability-Sha256
-Sr-Traffic-Class           Sr-Identity-Epoch         Sr-Metadata-Bucket
-Sr-Partition               Sr-Gateway-Received-At
-Sr-Stream-Map-Version      Sr-Semantic-Envelope-Sha256
-Sr-Envelope-Sha256
+Nats-Msg-Id
+Nats-Expected-Stream
+Sr-Edge-Delivery-Id
+Sr-Edge-Route-Map-Version
 ```
 
-`Sr-Collection-Capability` carries the bounded canonical signed capability bytes
-(encoded safely for a NATS header), not merely a digest. Its digest is bound into
-the semantic envelope. Consumers independently verify the signature/key ID and
-can therefore validate collection interval, range, and fence after gateway
-restart without a volatile lookup. Missing or unverifiable proof is fail-closed.
+`Sr-Edge-Delivery-Id` is one opaque transport digest over attested origin plus
+spool ID/sequence. It permits delivery-coordinate conflict audit without
+duplicating coordinates or semantic fields as text. `Sr-Edge-Route-Map-Version`
+is diagnostic placement metadata. EventWriter MUST NOT use either header as
+semantic or authorization truth; it derives and verifies all such state from
+`EdgeRecordV1` and the pinned registry bundle. Delivery-only capability remains
+in the gRPC wrapper and is not persisted as semantic record data.
 
-`Sr-Identity-Epoch` is derived from trusted scheduler/collection authority, never
-an agent-selected placement hint. `Sr-Metadata-Bucket` is derived from the
-validated UUIDv7 semantic event ID and its configured replay-horizon policy; it
-must agree with the signed collection/execution interval. The identity epoch
-routes sweep history to the one partition that can own its logical observation;
-the metadata bucket routes ledger/slot rows to a whole-partition retirement
-bucket after the accepted replay horizon. Consumers recompute and verify both.
-
-`Sr-Semantic-Envelope-Sha256` is the domain/ledger digest. It binds the exact
-body plus trusted network-scope/agent, event ID, kind/schema, compression/sizes/checksum/
-cost-model version/worst-case row and write-byte costs, traffic class,
-execution/shard/epoch, identity epoch, metadata bucket,
-authorization kind/context/range, and
-original collection-capability digest. It deliberately excludes delivery
-coordinates (`spool_id`, sequence, logical/physical partition), gateway identity/
-receipt, stream-map placement, and renewable delivery proof, so crash-safe lane
-rollover cannot turn a previously committed semantic event into poison.
-
-`Nats-Msg-Id` is a publication identity derived from trusted network-scope/agent,
+`Nats-Msg-Id` is a publication identity derived from the attested origin
+principal/network scope,
 `spool_id`, sequence, and semantic digest. It is stable for every retry in one
 lane and intentionally changes when recovery copies the same event to a new
 lane. Broker deduplication therefore handles lost ACKs within a lane, while the
 database ledger handles semantic replay across lanes and after the broker
 duplicate window.
 
-`Sr-Envelope-Sha256` additionally binds every delivery/placement header,
-including spool ID/sequence, logical partition, gateway receipt, map version,
-and delivery proof, for exact persisted-envelope integrity. The consumer verifies both, then decodes
-the declared kind/version and verifies decoded execution/assignment fields
-match. Before applying anything, it validates each decoded target/check against
-the authoritative plan/range and validates that every MTR record shares the
-attested authorization context. The ingest ledger stores and compares the
-semantic digest as well as payload checksum, catching conflicts outside the
-broker duplicate window. This preserves opaque forwarding at the gateway without
-treating the opaque body as authorized merely because its envelope was valid.
-Headers supplied by the agent are discarded; every `Sr-*` value is constructed
-or validated by the gateway.
+EventWriter bounded-decodes the binary record, verifies its semantic digest and
+production/source proofs, resolves the exact pinned contract bundle, then
+decodes the declared contract payload and compares every body-level agent,
+scope, source, package, assignment, run, target/range, and traffic-class claim
+with record/grant authority. Before side effects it validates domain identity,
+revision/merge rules, authoritative-versus-derived status, and any scanner
+target/check plan membership. The ingest ledger stores and compares semantic
+digest and record/payload checksums, catching conflicts outside the broker
+duplicate window. This preserves opaque pass-through at the gateway without
+treating either payload claims or transport headers as authorization truth.
 
 Publishing may pipeline 32-64 asynchronous PubAcks. Every class uses a separate
 NATS publisher connection/pool with its own pending-byte ceiling, so bulk client
 buffering cannot consume the interactive or recovery path. Admission is bounded
-by frame count, encoded bytes, and measured retained gateway memory including
-outer decode terms, pinned binaries, capability/header encoding, NATS request
-state, mailboxes, and TLS buffers, not a raw-payload estimate alone. Initial raw
-payload limits may be 16-32 MiB only when the measured resident-memory bound and
-gateway hard limit contain their worst-case amplification. Lost edge ACK after a successful PubAck is
+by delivery/record count, exact encoded bytes, and measured retained gateway
+memory including delivery-wrapper and record-envelope decode terms, pinned
+original record binaries, proof verification, NATS request state, mailboxes, and
+TLS buffers, not a raw-payload estimate alone. `EdgeRecordV1` has a 512 KiB hard
+limit; the delivery wrapper and minimal headers have separate small hard bounds,
+and smaller contract limits may apply. Lost edge ACK after a successful PubAck is
 safe: a retry in the same lane uses the same broker publication ID even if
 delivery authority or physical placement changed. Recovery under new spool
 coordinates uses a new publication ID but the same semantic digest. Reusing a
-semantic event ID with different bytes or semantic headers produces a different
+semantic event ID with different record bytes or semantic fields produces a different
 semantic digest/publication ID so the consumer ledger can reject the conflict
 instead of JetStream hiding it as a duplicate. Database idempotency remains the
 correctness backstop after the broker duplicate window expires.
@@ -835,48 +1168,51 @@ clusters. Legacy customer-prefixed runtime subjects/imports/mirrors and
 `default`-customer inference are sealed and drained under an explicit migration
 watermark, never extended by this data plane.
 
-Initial subjects are installation-local and fixed:
+Initial subjects are installation-local and fixed for the
+`durable-records-v1` route profile:
 
 ```text
-telemetry.sweep.v1.bulk.pNN
-telemetry.sweep.v1.interactive.pNN
-telemetry.mtr.v1.bulk.pNN
-telemetry.mtr.v1.interactive.pNN
-telemetry.result-recovery.v1
-telemetry.result-dlq.v1.bulk.pNN
-telemetry.result-dlq.v1.interactive.pNN
+telemetry.edge-record.v1.bulk.pNN
+telemetry.edge-record.v1.interactive.pNN
+telemetry.edge-record-recovery.v1
+telemetry.edge-record-dlq.v1.bulk.pNN
+telemetry.edge-record-dlq.v1.interactive.pNN
 ```
 
-The scheduler attests the disjoint traffic class; no message matches both.
-Traffic class is immutable for an assignment attempt and is bound by its signed
-collection capability, semantic envelope, subject, and stream-map entry. Gateway
+Output contracts share these subjects and are dispatched from the verified
+binary record contract reference. A package cannot contribute a subject filter. Adding or changing a
+finite route profile is a platform deployment change with a versioned stream-map
+barrier; importing a package is not.
+
+The effective control-plane grant attests the disjoint traffic class; no message
+matches both. Traffic class is immutable for a producer assignment/run and is
+bound by its signed production grant and applicable source authorization,
+semantic envelope, subject, and stream-map entry. Gateway
 validation requires all four to agree. Replay, rollover, and DLQ redrive preserve
 the original class; they cannot promote bulk data into the interactive reserve.
 
 V1 uses 64 logical partitions (`p00` through `p63`) with a versioned hash. The
 benchmark may raise the count before rollout, but it cannot change after data is
-published without a new subject/hash version. Large executions are sharded by
-the scheduler so no one agent/shard depends on cross-partition ordering. All
-sweep data and execution events for one shard, including replacement assignment
-epochs, use the same partition for locality. Each context-homogeneous opaque MTR
-batch is partitioned from trusted network scope, authenticated agent, and stable
-semantic event ID, so
-recovery-lane coordinate changes do not move it; one batch is the broker unit
-while consecutive batches may distribute. MTR correlation is
-eventual; its stream does not participate in sweep-shard ordering, and consumers
-require no per-trace arrival order.
+published without a new subject/hash version. Each output-contract bundle pins
+one platform-owned partition rule over authenticated outer context; it never
+reads a plugin-selected partition. Run-oriented records such as sweep shards or
+inventory pages may stay together by assignment/run/shard, while independent
+records such as MTR traces may distribute by stable event ID. Large runs are
+sharded by the scheduler so no agent/run depends on cross-partition ordering.
+Recovery-lane coordinate changes never change the semantic partition key, and
+consumers require no per-record broker arrival order.
 
 A logical subject partition is routing and locality metadata, not an exclusive
 application-worker ownership key and not automatically a
 JetStream storage shard. Each physical stream has its own replicated state and
 write leader. Provisioning therefore maintains an explicit mapping from every
 logical partition to exactly one authoritative physical stream. A small
-installation maps all partitions for each `(payload kind, traffic class)` to its
-own physical stream; bulk and interactive never share a stream or persistence
+installation maps all partitions for each `(platform route profile, traffic
+class)` to its own physical stream; bulk and interactive never share a stream or persistence
 durable. Larger installations spread disjoint partition subject sets across more
 physical streams/RAFT groups. The versioned map key
-is `(traffic class, payload kind, logical partition)`, and gateways and consumers receive the
-same configuration.
+is `(traffic class, platform route profile, logical partition)`, and gateways
+and consumers receive the same configuration.
 The gateway persists its map version and uses the selected physical name for
 `Nats-Expected-Stream`; overlapping or missing subject authority fails
 readiness. A map-version change uses a distributed publish barrier: stop affected
@@ -895,10 +1231,11 @@ AckWait/redelivery, and rollback watermark. An old consumer can restart from
 that history after a newer map activates; latest-config-only reconstruction is
 not allowed.
 
-Sweep/MTR bulk and interactive classes use disjoint file-backed physical streams
-and pull durables inside the installation's NATS authority. Gateway credentials can
-publish only the fixed result subjects and read PubAcks, never subscribe to
-results. This proposal creates no cross-cluster result aggregation path.
+All durable-record output contracts share the finite route map; bulk and
+interactive classes use disjoint file-backed physical streams and pull durables
+inside the installation's NATS authority. Gateway credentials can
+publish only the fixed record subjects and read PubAcks, never subscribe to
+records. This proposal creates no cross-cluster record aggregation path.
 
 The low-volume recovery subject uses a separately capacity-reserved file-backed
 stream and one idempotent scheduler-repair durable per installation. It is not
@@ -907,7 +1244,7 @@ ACKs only after the loss audit plus attempt/range partialization/retry intent
 commit. Its retention, lag paging, and `DiscardNew` headroom cover the supported
 outage/catch-up window so a recovery claim cannot expire silently.
 
-Result DLQ partitions map deterministically from the source data partition and
+Record DLQ partitions map deterministically from the source data partition and
 retain the attested original traffic class; a gateway rejection that has no valid
 source partition hashes authenticated agent/spool coordinates and uses the class
 from its verified capability. Bulk and interactive use disjoint physical streams
@@ -932,7 +1269,7 @@ resolved/redriven/waived state and advances
 the semantic-ledger safe-GC watermark; otherwise operators must extend capacity
 or the path remains not ready.
 
-A bounded DLQ indexer populates an idempotent `result_dlq_record` catalog keyed by
+A bounded DLQ indexer populates an idempotent `edge_record_dlq` catalog keyed by
 stable DLQ ID and physical stream/sequence. The catalog records immutable source
 provenance, error cohort, redrive attempts/outcomes, waiver, audit actor/time, and
 final state. An authorized deleter removes only stream sequences whose catalog
@@ -942,8 +1279,8 @@ never guessed or purged.
 
 Production streams use three replicas where the deployment supports them, a
 hard maximum message size of 512 KiB plus headers, `LimitsPolicy`, and
-`DiscardNew`. Refusing new data propagates backpressure; silently evicting
-unconsumed sweep results is not an accepted overload policy.
+`DiscardNew`. Refusing new data propagates backpressure; silently evicting any
+unconsumed durable record is not an accepted overload policy.
 
 Capacity is calculated per installation and physical stream shard from an admitted
 arrival envelope:
@@ -995,9 +1332,10 @@ persistence consumer uses JetStream `AckExplicit`; `AckAll` is forbidden because
 replicas and workers may finish deliveries out of order. A worker sends an
 individual ACK only after the database transaction containing that message has
 committed. If a later message commits while an earlier worker crashes, the
-earlier delivery remains unacknowledged and redelivers. V1
-starts with one shared persistence durable per physical stream shard and schema
-version, pulled by a bounded EventWriter replica pool. Any replica may receive
+earlier delivery remains unacknowledged and redelivers. V1 starts with one
+shared persistence durable per physical stream shard/route profile, pulled by a
+bounded registry-dispatching EventWriter replica pool. Adding an output contract
+does not add a durable. Any replica may receive
 any `pNN`, including concurrent redelivery of the same key; correctness depends
 on ledger locks, uniqueness, revision order, and assignment fences, never an
 application-local exclusive owner or handoff. Additional independent downstream
@@ -1031,32 +1369,32 @@ message retains its own delivery slot, ledger result, and post-commit explicit
 ACK. A deterministic database conflict rolls the entire group back and triggers
 bounded split/isolation; no constituent is ACKed until a valid subgroup commits.
 Transaction admission is global to its CNPG destination. The installation-level database capacity plan
-partitions measured Repo/WAL/lock headroom into explicit result-data-plane, sync,
+partitions measured Repo/WAL/lock headroom into explicit durable-record, sync,
 control/API/Oban, and background/maintenance pools whose maxima sum to no more
 than the hard destination limit. Ungoverned or database-internal work is charged
 as unavailable reserve, never assumed absent.
 
-Within the result pool, one fenced resident-byte/write-byte/row/active-transaction/commit-rate
-controller bounds sweep/MTR source projection, graph outbox projection, execution
-reconciliation, spool-loss recovery, DLQ indexing/redrive, result rollups, and
-result repair. Fixed subpools preserve recovery/reconciliation and a small bounded interactive share;
+Within the durable-record pool, one fenced resident-byte/write-byte/row/active-transaction/commit-rate
+controller bounds all registered source projection, graph outbox projection, execution
+reconciliation, spool-loss recovery, DLQ indexing/redrive, record rollups, and
+record repair. Fixed subpools preserve recovery/reconciliation and a small bounded interactive share;
 bulk cannot borrow those minimums, and interactive cannot consume the bulk floor.
 Work-conserving lending outside the floors is
-allowed only while every result grant remains within its pool. V1 readiness
+allowed only while every durable-record grant remains within its pool. V1 readiness
 requires every in-scope writer generation to enroll. During rolling migration,
 unconverted writers consume a static worst-case reservation that is released only
 after they are fenced/drained. Per-consumer `max_ack_pending` is only a safety
 ceiling.
 
 Admission is two-stage. Before a pull, a worker reserves the maximum encoded/
-resident body plus headers and worst-case projected row/write-byte costs for
+resident `EdgeRecordV1` plus minimal transport headers and worst-case projected row/write-byte costs for
 every message it requests, plus one transaction-concurrency slot for every
 aggregate transaction it may execute concurrently. One sequentially split/retried
 group reuses its slot only after rollback is confirmed; a parallel subgroup must
 acquire another slot. A separate destination commit-rate/fsync budget bounds how
 quickly slots may turn over, so grouping cannot evade WAL pressure. The worker
-never pulls more messages than those reservations cover. After trusted headers
-and the decoded cost function validate, it returns the unused worst-case delta
+never pulls more messages than those reservations cover. After the decoded
+record envelope, proofs, pinned contract, and cost function validate, it returns the unused worst-case delta
 and holds verified resident-byte, write-byte, row, active-transaction, and commit-
 rate credits through its bounded queue, commit/failure, and delivery disposition.
 A message waiting
@@ -1075,19 +1413,21 @@ the transaction rechecks the current grant generation/expiry and rolls back if
 fenced. If cancellation/session death cannot be confirmed, the worst-case old
 transaction remains charged. Static quotas are
 acceptable only when their configured sum, including rolling overlap, is within
-the same hard total. Fair suballocation prevents a hot site/agent/execution or
-MTR lane from consuming every general credit, while the reserved
+the same hard total. Fair suballocation prevents a hot site/agent/producer/run
+or MTR workload from consuming every general credit, while the reserved
 recovery/control pool remains available.
 
 Within those credits, projection is:
 
-1. Insert or lock both a delivery-slot binding keyed by trusted metadata bucket,
-   network scope, agent, lane, spool ID, and sequence and an ingest-ledger row
-   keyed by trusted metadata bucket, network scope, authenticated agent, payload
-   kind, and semantic event ID. The slot binds one
-   event ID/semantic digest; the ledger stores checksum, encoded/projected-write
-   byte counts, cost-model version, immutable semantic-envelope digest,
-   expected/projected record counts, and commit state (not the payload body).
+1. Insert or lock both a delivery binding keyed by physical stream/sequence plus
+   the gateway-created opaque `Sr-Edge-Delivery-Id`, and an ingest-ledger row
+   keyed by the record-derived metadata bucket, network scope, attested origin
+   principal, exact output-contract bundle, and semantic event ID. The delivery
+   binding fixes one record checksum/semantic digest without copying spool
+   coordinates into semantic headers; the ledger stores record/payload
+   checksums, encoded/projected-write byte counts, cost-model version, immutable
+   semantic digest, expected/projected record counts, and commit state (not the
+   payload body).
 2. If the same committed event/checksum/semantic digest exists, return success
    without applying side effects again. The same event ID with a different body
    or immutable semantic envelope is poison.
@@ -1192,7 +1532,7 @@ total-order key is
 the bounded per-host probe-completion timestamp, configured source priority,
 execution ID, authoritative assignment epoch, mode revision, and event ID;
 arrival or batch-flush time is never used. Agent clocks outside the configured
-original signed collection-capability interval (plus bounded tolerance and any
+original signed source-authorization interval (plus bounded tolerance and any
 attested session clock offset) are quarantined rather than allowed to pin future
 state. Gateway receipt time is delivery-latency metadata and a one-sided future
 sanity check, never a symmetric age window: an old frame legitimately retained
@@ -1245,12 +1585,13 @@ class. Both survive an ambiguous DLQ PubAck while the gateway stays stateless.
 DLQ credentials, retention, access auditing, and encryption protect raw topology
 data. Transient database errors NACK and retry without a finite delivery ceiling.
 
-The bounded canonical DLQ wrapper preserves the exact immutable trusted source
-headers, exact bounded collection capability bytes and digest, semantic digest, original source
-stream/sequence, traffic class, and body checksum alongside raw body and error metadata. Gateway
+The bounded canonical DLQ wrapper preserves the exact immutable `EdgeRecordV1`
+bytes and digest, bounded source delivery/proof audit, original source stream/
+sequence, traffic class, and body checksum alongside raw body and error metadata. Gateway
 rejections preserve the maximum safely validated subset plus a full-frame
 fingerprint. Redrive re-verifies that provenance and generates only fresh
-delivery/map headers; it never reconstructs authority from body bytes alone.
+transport-minimal delivery/map headers; it never reconstructs authority from
+broker metadata or untrusted domain-body claims.
 
 An event using a valid advertised newer schema for which the mapped consumer is
 not ready is a deployment-readiness/systemic failure, not permanent poison:
@@ -1395,11 +1736,15 @@ partitions, row/index bytes, insert rate, partition-retirement rate, hold limit,
 and a long-horizon sawtooth/plateau model; linear steady-state growth fails
 readiness.
 
-## Decision 8: Publish one canonical event, then derive low-cardinality views
+## Decision 8: Publish one canonical record, then derive bounded views
 
-The agent does not publish a second generic representation of every host, port,
-or MTR hop. The canonical domain stream is subscribable by persistence,
-anomaly/causal, and other real-time consumers.
+Every output contract defines deterministic domain identity, revision/merge
+semantics, and authoritative-versus-derived status. A grant forbids a producer
+from emitting the same fact simultaneously as typed output, extension output,
+`MetricBatch`, OCSF, plugin-result JSON, or a lossy add-on copy. The agent does
+not publish a second generic representation of every host, port, MTR hop,
+inventory object, or plugin metric. The canonical domain stream is subscribable
+by persistence, anomaly/causal, and other real-time consumers.
 
 The persistence projector may write required low-cardinality execution/scanner
 metrics in the same transaction. A separate stateless normalizer may publish a
@@ -1407,25 +1752,30 @@ derived `MetricBatch` only if an existing consumer cannot read the domain event;
 that publisher must be unique, idempotent, correlated to the source event, and
 must not recreate per-host/per-hop duplication.
 
-Legacy-format executions retain their existing sweep/MTR metric projection until
-parity and consumer audits are complete. A v1 execution never emits that
-duplicate representation; its required low-cardinality metrics are derived from
-the canonical event. Canary comparison uses different executions/cohorts or a
-non-writing shadow, never two authoritative writes for one execution. The
-legacy projection is removed from the agent after parity.
+Already-accepted pre-cutover executions may finish and drain their existing
+sweep/MTR metric projection. A v1 execution never emits that duplicate
+representation; its required low-cardinality metrics are derived from the
+canonical event. Canary comparison uses separate hard-cut cohorts or a
+non-writing shadow, never two authoritative writes for one execution. The old
+projection is removed from the agent after its bounded backlog drains and parity
+audits pass.
 
-## Decision 9: Defer artifact transport to a separate contract
+## Decision 9: Keep blob and media bytes out of the durable record plane
 
-Normal sweep batches and bounded MTR traces stay in JetStream. They are naturally
-record-oriented and must be available to streaming consumers.
+Bounded sweep batches, MTR traces, metrics, lifecycle events, inventory pages,
+and approved extension records stay in JetStream. They are record-oriented and
+must be available to streaming consumers. The record plane may carry an
+immutable artifact reference and its bounded lifecycle/audit events, but not the
+artifact bytes.
 
-This v1 does not add an artifact-reference payload kind, upload path, or object
-lifecycle. Packet captures, raw command archives, and other indivisible objects
-require a separate proposal covering installation-bound create-only keys, resumable
-idempotent upload, durability acknowledgement, manifest publication, orphan GC,
-reference-aware deletion, authorization, and a pluggable object backend. An
-oversize sweep/MTR record is rejected or quarantined; it is never silently
-diverted into Object Store.
+This v1 does not add an upload path or object lifecycle. Packet captures, raw
+command archives, camera/video data, large files, and other indivisible objects
+require a separate proposal covering installation-bound create-only keys,
+resumable idempotent upload, durability acknowledgement, manifest publication,
+orphan GC, reference-aware deletion, authorization, and a pluggable object
+backend. An oversize producer record is rejected or quarantined; it is never
+silently diverted into Object Store or split without a contract-defined bounded
+page/run protocol.
 
 ## Decision 10: Treat "zero-copy" as encode/decode minimization
 
@@ -1433,11 +1783,22 @@ Literal end-to-end zero-copy is impossible across the required process and
 durability boundaries. The useful contract is:
 
 - no full-run materialization or reassembly;
-- one inner protobuf encode at the agent;
-- gateway forwards the same large BEAM binary without semantic decode/re-encode;
-- one domain decode per consumer;
+- one canonical domain-body encode at the producer adapter and one deterministic
+  `EdgeRecordV1` encode at the agent sink;
+- one small delivery-wrapper encode per spool placement; rollover or renewed
+  delivery authority rewraps unchanged record bytes and never re-encodes the
+  semantic record;
+- one unavoidable bounded Wasm guest-to-host copy, without base64 or JSON
+  wrapping of canonical bytes;
+- gRPC framing, TLS, socket buffers, BEAM protobuf terms, the NATS client, broker
+  replication, and PostgreSQL WAL may each require bounded copies; the design
+  does not claim otherwise;
+- gateway retains and forwards the same `record_bytes` binary after bounded
+  envelope decode, without semantic or domain re-encode;
+- EventWriter decodes `EdgeRecordV1` and its domain body once per consumer;
 - bounded bulk database construction;
-- no JSON map tree and no duplicate per-host metric serialization.
+- no JSON map tree and no duplicate per-host, per-hop, inventory-page, or plugin
+  telemetry serialization.
 
 Go `MarshalAppend`, buffer pools, compression, and custom allocators are later
 optimizations gated by profiles. They must not complicate the correctness path
@@ -1451,8 +1812,14 @@ before allocation data shows a remaining bottleneck.
 | Gateway/link failure before PubAck | Do not ACK; reconnect and replay. |
 | PubAck succeeds but edge ACK is lost | Replay same event ID; broker/DB deduplicate. |
 | JetStream unavailable or full | Stop ACK progress; retain at agent and apply backpressure. |
-| Agent spool high-water | Defer new/lower-priority scans and alert; never overwrite unacked data. |
-| Agent spool `ENOSPC`/`EIO` | Stop new probes, preserve/recover the bounded window, expose delivery failure, and retry or abort the fenced range without claiming durability. |
+| Agent spool high-water | Defer new/lower-priority producer work and scans and alert; never overwrite unacked data. |
+| Agent spool `ENOSPC`/`EIO` | Stop new durable production/probes, preserve or recover the bounded window, expose delivery failure, and retry or abort the fenced run/range without claiming durability. |
+| Producer times out after possible fsync | Retain the atomic producer-key binding; receipt lookup/retry returns the original identity and same-key/different-body is rejected. |
+| Wasm ignores `WOULD_BLOCK` | Pause/fuel-limit or terminate that producer without dropping accepted records or consuming another producer's reserve. |
+| Native add-on disconnects around local ACK | Resume under a fresh fenced session nonce from the last cumulative durable watermark; stable producer keys absorb uncertain retransmission. |
+| Output contract is unknown or deployment-not-ready | Grant no new run and retain ownership at the producer; do not classify a rollout mismatch as ordinary poison. |
+| Output contract is security-revoked | Stop new output and hold/quarantine matching backlog until an operator selects a safe historical/fixed bundle or waives it. |
+| Inventory terminal is incomplete, conflicting, stale, or lacks completeness proof | Keep pages staged/upsert-only, preserve the current snapshot, poison conflicts, and garbage-collect abandoned staging only after its repair horizon. |
 | Corrupt committed spool sequence | PubAck a signed loss tombstone through the recovery lane, abandon the old spool, re-enqueue recoverable later events with stable semantic IDs, and mark lost coverage partial/retriable. |
 | Collection capability expires with backlog | Stop new probes; obtain event/checksum-bound delivery-only authority or leave the frame unresolved, then apply scheduler fencing at projection. |
 | Consumer or database failure | Pause pulls or NACK and retry forever with bounded backoff; never exhaust into silent termination. |
@@ -1560,53 +1927,52 @@ it is never an implicit default.
    identity times, detect same-scope ID/content collisions, and continuously
    validate every scope-bound read/join without holding the cutover barrier for
    historical volume or creating a permanent per-observation side table.
-3. Create subjects, ACLs, streams, pull consumers, DLQ, and legacy/v1 EventWriter
-   decoders. Enqueue versioned graph-outbox rebuild work for retained trace
-   history. At a barrier, stop the legacy direct graph writer; one canonical
-   outbox projector then maintains separately idempotent old/new graph-schema
-   statuses during the rollback window. Compare relational identity, vertices,
-   edges, and properties; switch reads only after network-scope-safe v2 parity, then
-   stop v1 projection and retire unscoped graph data after rollback closes.
-4. Set and enforce a minimum dual-path agent/gateway version before cutover. Stop
-   assigning new work to older binaries and upgrade them; this design does not
-   build an unpatched-agent compatibility stream. The dual-path build changes
-   legacy JSON to independently acknowledged frames no larger than 512 KiB, with
-   stable IDs/checksums, signed scope/range authority, and no cumulative request.
+3. Create the finite route-profile subjects, ACLs, streams, pull consumers, DLQ,
+   signed registry snapshots, and exact historical contract bundles before any
+   producer-plane assignment is enabled. Enqueue versioned graph-outbox rebuild
+   work for retained trace history. At a barrier, stop the legacy direct graph
+   writer; one canonical outbox projector maintains migration status. Compare
+   relational identity, vertices, edges, and properties; switch reads only after
+   network-scope-safe parity, then retire unscoped graph data after the rollback
+   window closes.
+4. Set and enforce a minimum `edge-records:v1` agent/gateway/producer-adapter
+   version. Older agents receive no new producer-plane assignment and are
+   upgraded or remain ineligible. This design does not add a patched legacy
+   sender, a legacy payload family inside `EdgeRecordV1`, or dual-format
+   emission for new work.
 5. Establish a destination database-admission epoch. Reserve static worst-case
-   capacity for every not-yet-enrolled result writer, then fence/drain it before
-   moving that reserve to grant-aware source/graph/reconcile/recovery/DLQ workers.
-   V1 readiness requires all result writer generations to be enrolled and keeps
-   sync/control/background pools separate.
-6. At a short installation cutover barrier, stop new scan admission, fence/drain
-   old direct-writer gateways/core requests, persist the final per-scope/agent
-   legacy watermark, and drain only the bounded captured delta into ledger/domain/
-   OCSF identity. Validate delta parity and advance the ingress epoch only after
-   no old writer remains. Historical backfill MUST already be complete before the
-   barrier; the barrier is not allowed to scan or rewrite unbounded history. Then
-   enable the PubAcked JetStream/EventWriter path and remove ERTS/direct/volatile
-   fallback.
-7. Deploy the upgraded agents with disk spool and protobuf encoder disabled by
-   default. Enable only when the gateway advertises `edge-results:v1` and explicit
-   cohort config asks for it.
-8. Canary one cohort and compare payload counts, DB rows, execution state,
-   current device state, OCSF, scanner/banner metrics, trace/hop fidelity, lag,
-   spool pressure, memory, latency, network-scope reads, and graph-v2 parity over
-   both newly ingested and retained history. Format selection is sticky and
-   mutually exclusive per execution; a shadow decoder may compare output but
-   cannot write authoritative domain tables.
-9. Expand gradually; migrate scheduled, sweep-profile, ad-hoc, and on-demand MTR
-   producers to the canonical trace lane.
-10. Remove agent-side duplicate metric expansion only after downstream parity.
-11. Remove legacy JSON after the upgraded fleet and rollback window are proven;
-   there is no long-lived unpatched-agent support requirement.
+   capacity for every not-yet-enrolled durable-record writer, then fence/drain it
+   before moving that reserve to grant-aware
+   source/graph/reconcile/recovery/DLQ workers. Readiness requires every in-scope
+   writer generation to enroll and keeps sync/control/background pools separate.
+6. Hard-cut one cohort at a short barrier. Stop new legacy admission for that
+   cohort, let already-issued bounded work finish or fence/partialize it, drain
+   only pre-cutover gateway/core/CDC backlog to a persisted final
+   scope/origin/source watermark, and remove every old authoritative writer.
+   Historical backfill MUST already be complete; the barrier never scans or
+   rewrites unbounded history. Advance the ingress epoch only after no old writer
+   can accept data.
+7. After that watermark, assign new cohort work only through the common producer
+   API and `EdgeRecordV1`. There is no per-execution format choice and no
+   authoritative legacy shadow. A non-writing offline/shadow decoder may compare
+   fixtures, but it cannot receive production assignments or mutate domain
+   tables.
+8. Canary each output contract and compare record counts, DB rows, lifecycle and
+   snapshot state, OCSF/derived views, trace/hop fidelity, lag, spool pressure,
+   memory, latency, network-scope reads, and graph parity. Expand by hard-cut
+   cohorts only after the preceding cohort drains and passes its gates.
+9. Migrate built-in sweep/MTR, Wasm outputs, native/OTLP relay, and Armis inbound
+   inventory in that order; remove each old JSON/lossy/specialized producer path
+   and duplicate metric expansion once its pre-cutover backlog is drained.
 
-Rollback selects patched bounded legacy JSON only for new executions and still
-uses PubAcked JetStream/EventWriter--never the retired direct writer. Agents
-continue reading and draining every existing v1 spool lane; no rollback binary
-may be deployed unless it understands that spool version. Backend dual decoders
-remain until every JetStream message and agent spool is drained. Gateway rollback
-is last. A consumer failure pauses consumption; it never falls back to a direct
-database write.
+Rollback is admission-first, not format fallback. Stop new affected assignments
+and producer runs, keep the minimum-version agents, gateways, registry bundles,
+streams, and consumers running until every `EdgeRecordV1` in agent spools,
+JetStream, DLQ, and projection/recovery queues reaches a terminal disposition,
+then deploy a forward fix or explicitly cut a new cohort. No rollback emits new
+legacy JSON, deploys a binary that cannot read the active spool version, or
+falls back to ERTS/direct database writes. A consumer failure pauses consumption
+and new admission while durable ownership remains intact.
 
 ## Alternatives Rejected
 
@@ -1640,40 +2006,46 @@ radius. Every batch must be independently useful and idempotent.
 
 ## Resolved Design Values
 
-- Target encoded frame: 256 KiB.
-- Hard encoded frame: 512 KiB plus bounded transport headers.
-- Initial logical partitions: 64 per schema/hash version.
+- Target encoded `EdgeRecordV1`: 256 KiB.
+- Hard encoded `EdgeRecordV1`: 512 KiB; `EdgeDeliveryFrameV1` and
+  transport-minimal NATS headers have separate small hard bounds.
+- Initial logical partitions: 64 per route-profile/partition-hash version.
 - Logical partitions map disjointly to one or more benchmark-sized physical
   stream/RAFT groups through an audited map version; subject partitions never
   have overlapping authority. Physical shard count is a required deployment
   sizing result, not a wire-protocol constant.
 - Bulk and interactive use disjoint physical streams and persistence durables,
-  even in the smallest supported deployment. Within one class and physical
-  stream, one persistence durable per schema version is the initial cardinality;
+  even in the smallest supported deployment. Within one class/route profile and
+  physical stream, one registry-dispatching persistence durable is the initial cardinality;
   any worker may process any logical key and database guards provide correctness.
 - Each CNPG destination has one hard capacity budget split explicitly among
-  result data plane, sync, control/API/Oban, and background/maintenance work.
-  Inside the result pool, one fenced resident/write-byte/row/active-transaction/
+  durable-record data plane, sync, control/API/Oban, and background/maintenance work.
+  Inside the durable-record pool, one fenced resident/write-byte/row/active-transaction/
   commit-rate budget
   covers source, graph, reconcile, recovery, DLQ, rollup, and repair writers,
   with unborrowable interactive and recovery/reconcile floors whose sum never
-  exceeds the result total.
+  exceeds the durable-record total.
 - Initial sweep count guard: 2,000 hosts.
 - Initial MTR count guard: 128 traces.
 - Hard projected-row guards: 10,000 sweep rows and 5,000 MTR rows per message.
 - Agent is the durable pre-JetStream spool owner.
-- Sweep-bulk, sweep-interactive, MTR-bulk, MTR-interactive, and reserved spool-
-  recovery control use independent spool/credit sequence lanes. Traffic class
-  remains immutable through reconcile, graph, DLQ, redrive, and quarantine.
+- Durable bulk, durable interactive, and reserved spool-recovery control use
+  independent spool/credit sequence lanes; a continuous lane requires its own
+  benchmark/admission proof. Traffic class remains immutable through reconcile,
+  graph, DLQ, redrive, and quarantine. Producer/package cardinality never creates
+  unbounded lanes, connections, streams, or durables.
 - Each lane has an independent bidirectional RPC; bulk, interactive, and recovery
   use separately pooled HTTP/2 and NATS publisher connections with independent
   windows and pending-byte ceilings.
-- One atomic agent-filesystem allocator covers all spools, quarantine, journals,
+- One atomic agent-filesystem allocator covers all spools, quarantine,
+  producer-receipt/idempotency and recovery journals,
   rollover amplification, metadata, and scratch while reserving an unborrowable
   recovery/control/terminal floor.
 - Gateway durability means a validated JetStream PubAck, not Core NATS publish.
-- Broker headers carry the complete trusted routing/schema/size/checksum/
-  assignment envelope and a digest binding those headers to the opaque body.
+- JetStream stores the exact canonical `EdgeRecordV1` bytes; minimal NATS
+  headers carry only publication/stream placement, an opaque delivery ID, and
+  route-map diagnostics. Semantic routing/schema/provenance/cost authority stays
+  in the signed binary record.
 - Broker publication IDs include trusted identity, spool coordinates, and the
   immutable semantic-envelope digest; delivery coordinates are excluded from the
   ledger digest so recovered copies deduplicate semantically across lanes.
