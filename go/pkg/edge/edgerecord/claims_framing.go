@@ -1,0 +1,138 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package edgerecord
+
+import (
+	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
+)
+
+// Field-by-field framing of every nested message that participates in a
+// signing/digest preimage, per #4710 Appendix A. This replaces the previous
+// whole-message proto.Marshal(): protobuf-go emits a message's oneof member out
+// of field order and elides different absent/default states differently than
+// protobuf-elixir, so no proto.Marshal output may appear in any preimage at any
+// depth. Each framer writes its fields in the frozen order using the digestWriter
+// primitives (8-byte big-endian ints, 8-byte length-prefixed bytes/str, 1-byte
+// presence, u64 oneof discriminant = the set member's proto field number).
+
+// outputContract frames EdgeOutputContractRef (Appendix A grammar 1).
+func (d *digestWriter) outputContract(c *edgev1.EdgeOutputContractRef, present bool) {
+	d.present(present)
+	if !present || c == nil {
+		return
+	}
+	d.str(c.GetContractId())
+	d.u64(uint64(c.GetContractVersion()))
+	d.bytes(c.GetContractBundleSha256())
+	d.u64(c.GetRegistryEpoch())
+	d.bytes(c.GetRegistrySnapshotSha256())
+	d.bytes(c.GetEffectiveGrantSha256())
+}
+
+// claimsFramed writes the capability's `claims` oneof: a u64 discriminant equal
+// to the set member's proto field number (7/8/9, or 0 for none), followed by the
+// selected claim message framed field-by-field. Used by BOTH the semantic-envelope
+// capability() sub-frame AND CapabilitySigningBytes so the two bind the claims
+// identically (task 1.13 unification).
+func (d *digestWriter) claimsFramed(c *edgev1.EdgeSignedCapabilityV1) {
+	switch cl := c.GetClaims().(type) {
+	case *edgev1.EdgeSignedCapabilityV1_Production:
+		d.u64(7)
+		d.productionClaims(cl.Production)
+	case *edgev1.EdgeSignedCapabilityV1_Source:
+		d.u64(8)
+		d.sourceClaims(cl.Source)
+	case *edgev1.EdgeSignedCapabilityV1_Delivery:
+		d.u64(9)
+		d.deliveryClaims(cl.Delivery)
+	default:
+		d.u64(0)
+	}
+}
+
+// productionClaims frames EdgeProductionClaimsV1 (fields 1-23, in field order).
+func (d *digestWriter) productionClaims(c *edgev1.EdgeProductionClaimsV1) {
+	d.str(c.GetContractId())
+	d.u64(uint64(c.GetContractVersion()))
+	d.bytes(c.GetContractBundleSha256())
+	d.u64(c.GetRegistryEpoch())
+	d.bytes(c.GetNetworkScopeId())
+	d.bytes(c.GetProducerAssignmentId())
+	d.u64(uint64(c.GetTrafficClass()))
+	d.u64(uint64(c.GetRouteProfile()))
+	d.u64(uint64(c.GetOriginKind()))
+	d.bytes(c.GetOriginPrincipalId())
+	d.bytes(c.GetProducerInstanceId())
+	d.bytes(c.GetRunId())
+	d.u64(uint64(c.GetRunShard()))
+	d.u64(c.GetAuthorityEpoch())
+	d.bytes(c.GetScopeId())
+	d.bytes(c.GetScopeSha256())
+	d.bytes(c.GetPackageSha256())
+	d.bytes(c.GetRegistrySnapshotSha256())
+	d.bytes(c.GetEffectiveGrantSha256())
+	d.u64(uint64(c.GetMaxProjectedRowCount()))
+	d.u64(c.GetMaxProjectedWriteBytes())
+	d.u64(uint64(c.GetCostModelVersion()))
+	d.str(c.GetPackageId())
+}
+
+// sourceClaims frames EdgeSourceClaimsV1 (fields 1-18, in field order).
+func (d *digestWriter) sourceClaims(c *edgev1.EdgeSourceClaimsV1) {
+	d.u64(uint64(c.GetKind()))
+	d.bytes(c.GetContextId())
+	d.bytes(c.GetScopeId())
+	d.bytes(c.GetScopeSha256())
+	d.bytes(c.GetNetworkScopeId())
+	d.i64(c.GetCollectionNotBeforeUnixNano())
+	d.i64(c.GetCollectionExpiresUnixNano())
+	d.bytes(c.GetOriginPrincipalId())
+	d.bytes(c.GetProducerInstanceId())
+	d.bytes(c.GetProducerAssignmentId())
+	d.bytes(c.GetRunId())
+	d.u64(uint64(c.GetRunShard()))
+	d.u64(c.GetAuthorityEpoch())
+	d.u64(uint64(c.GetTrafficClass()))
+	d.u64(uint64(c.GetRouteProfile()))
+	d.bytes(c.GetExecutionPlanSha256())
+	d.bytes(c.GetTargetRangeSha256())
+	d.u64(uint64(c.GetOriginKind()))
+}
+
+// deliveryClaims frames EdgeDeliveryClaimsV1 (fields 1-4 + the transition oneof).
+// The transition oneof is field-framed (u64 discriminant 5=renewal / 6=rollover /
+// 0=none, then the framed member) instead of proto.Marshal -- EdgeDeliveryClaimsV1
+// DOES carry a oneof, so a whole-message marshal is NOT cross-language stable.
+func (d *digestWriter) deliveryClaims(c *edgev1.EdgeDeliveryClaimsV1) {
+	d.bytes(c.GetEventId())
+	d.bytes(c.GetRecordSha256())
+	d.bytes(c.GetSpoolId())
+	d.u64(c.GetSequence())
+	switch t := c.GetTransition().(type) {
+	case *edgev1.EdgeDeliveryClaimsV1_Renewal:
+		d.u64(5)
+		d.i64(t.Renewal.GetRenewedNotBeforeUnixNano())
+		d.i64(t.Renewal.GetRenewedExpiresUnixNano())
+	case *edgev1.EdgeDeliveryClaimsV1_Rollover:
+		d.u64(6)
+		d.bytes(t.Rollover.GetRecoveryId())
+		d.bytes(t.Rollover.GetPriorSpoolId())
+		d.u64(t.Rollover.GetPriorSequence())
+	default:
+		d.u64(0)
+	}
+}

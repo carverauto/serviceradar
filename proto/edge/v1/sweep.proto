@@ -1,0 +1,395 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+// Sweep and MTR domain output contracts. These messages are the canonical
+// contract payload bytes carried inside EdgeRecordV1.payload; they are one
+// family of output contracts on the producer-neutral record plane (record.proto)
+// and never define transport, routing, or lane topology. Every semantic/trust/
+// routing field (network scope, agent, source class, authorization, execution
+// context) is authoritative only in the enclosing EdgeRecordV1; the domain body
+// carries correlation, not authority.
+package serviceradar.edge.v1;
+
+option go_package = "github.com/carverauto/serviceradar/proto/edge/v1;edgev1";
+
+// ---------------------------------------------------------------------------
+// Shared sweep/MTR enums
+// ---------------------------------------------------------------------------
+
+enum SweepMode {
+  SWEEP_MODE_UNSPECIFIED = 0;
+  SWEEP_MODE_ICMP = 1;
+  SWEEP_MODE_TCP_SYN = 2;
+  SWEEP_MODE_TCP_CONNECT = 3;
+  SWEEP_MODE_MTR = 4;
+}
+
+// SweepModeBit gives the power-of-two bit positions used by the
+// `result_mode_bits` and `configured_mode_bits` bitmask fields. A bitmask is the
+// bitwise OR of these values; do NOT use `SweepMode` enum ordinals as bit
+// positions (they are not powers of two). TCP SYN and TCP connect are distinct
+// bits so a host that ran both is unambiguous.
+enum SweepModeBit {
+  SWEEP_MODE_BIT_UNSPECIFIED = 0;
+  SWEEP_MODE_BIT_ICMP = 1;
+  SWEEP_MODE_BIT_TCP_SYN = 2;
+  SWEEP_MODE_BIT_TCP_CONNECT = 4;
+  SWEEP_MODE_BIT_MTR = 8;
+}
+
+enum TransportProtocol {
+  TRANSPORT_PROTOCOL_UNSPECIFIED = 0;
+  TRANSPORT_PROTOCOL_ICMP = 1;
+  TRANSPORT_PROTOCOL_TCP = 2;
+  TRANSPORT_PROTOCOL_UDP = 3;
+}
+
+// SweepModeOutcome is the explicit per-mode terminal state. There is no
+// fragment-global availability boolean; the projector derives availability from
+// the latest revision of every reported mode against the plan's policy.
+enum SweepModeOutcome {
+  SWEEP_MODE_OUTCOME_UNSPECIFIED = 0;
+  SWEEP_MODE_OUTCOME_SUCCESS = 1;
+  SWEEP_MODE_OUTCOME_FAILURE = 2;
+  SWEEP_MODE_OUTCOME_SKIPPED = 3;
+  SWEEP_MODE_OUTCOME_NOT_ADMITTED = 4;
+  SWEEP_MODE_OUTCOME_TIMED_OUT = 5;
+  SWEEP_MODE_OUTCOME_UNKNOWN = 6;
+}
+
+enum MtrOutcome {
+  MTR_OUTCOME_UNSPECIFIED = 0;
+  MTR_OUTCOME_REACHED = 1;
+  MTR_OUTCOME_TARGET_UNREACHABLE = 2;
+  MTR_OUTCOME_PROBE_FAILED = 3;
+  MTR_OUTCOME_TIMED_OUT = 4;
+  MTR_OUTCOME_NOT_ADMITTED = 5;
+  MTR_OUTCOME_QUARANTINED = 6;
+  MTR_OUTCOME_SCHEDULER_LOST = 7;
+}
+
+// SweepExecutionSource names what produced an observation. It covers sweep
+// executions (scheduled sweep, sweep profile) and the non-sweep MTR producers
+// (scheduled MTR check, ad-hoc scan, on-demand command). `SCHEDULED_CHECK` is
+// the standalone MTR-check producer whose correlation key is `check_id`.
+enum SweepExecutionSource {
+  SWEEP_EXECUTION_SOURCE_UNSPECIFIED = 0;
+  SWEEP_EXECUTION_SOURCE_SCHEDULED_SWEEP = 1;
+  SWEEP_EXECUTION_SOURCE_SWEEP_PROFILE = 2;
+  SWEEP_EXECUTION_SOURCE_AD_HOC = 3;
+  SWEEP_EXECUTION_SOURCE_ON_DEMAND = 4;
+  SWEEP_EXECUTION_SOURCE_SCHEDULED_CHECK = 5;
+}
+
+// ---------------------------------------------------------------------------
+// Sweep observation batch (ICMP/TCP + small MTR summary)
+// ---------------------------------------------------------------------------
+
+message SweepTestV1 {
+  SweepMode mode = 1;
+  TransportProtocol protocol = 2;
+  uint32 port = 3;
+}
+
+// SweepObservationBatchV1 is a byte-bounded batch whose hosts all share the exact
+// same attempted check set (`tested_checks`). Batch-level modes and timestamps
+// avoid repeated per-host strings/absolutes; plan/range IDs and digests replace
+// repeated target enumeration.
+message SweepObservationBatchV1 {
+  bytes execution_id = 1;
+  bytes sweep_group_id = 2;
+  uint32 execution_shard = 3;
+  uint64 assignment_epoch = 4;
+  uint64 batch_sequence = 5;
+  int64 observed_at_unix_nano = 6;
+  bytes execution_plan_id = 7;
+  bytes execution_plan_sha256 = 8;
+  bytes target_range_id = 9;
+  bytes target_range_sha256 = 10;
+  repeated SweepTestV1 tested_checks = 11; // exact set shared by every host
+  uint32 configured_mode_bits = 12;
+  bytes availability_policy_id = 13;
+  SweepExecutionSource source = 14;
+  bytes source_run_id = 15;                // e.g. ad-hoc scan_run_id (UUID)
+  repeated SweepHostObservationV1 hosts = 16;
+}
+
+// SweepHostObservationV1 is a mergeable terminal-mode fragment for one host.
+// `result_mode_bits` names every terminal mode this fragment carries; each named
+// mode MUST have a corresponding summary/result, and `mode_revision` is compared
+// independently per named mode so a newer MTR fragment never suppresses an unseen
+// older ICMP/TCP fragment.
+message SweepHostObservationV1 {
+  bytes address = 1;                       // exactly 4 or 16 bytes
+  string hostname = 2;
+  sint64 observed_at_delta_nano = 3;       // probe completion vs batch timestamp
+  optional sint64 first_seen_delta_nano = 4; // presence: absent != a zero delta
+  optional sint64 last_seen_delta_nano = 5;  // presence: absent != a zero delta
+  uint32 result_mode_bits = 6;             // terminal modes carried by this fragment
+  uint32 mode_revision = 7;
+  optional SweepIcmpSummaryV1 icmp = 8;
+  optional SweepTcpSummaryV1 tcp = 9;
+  repeated SweepOpenPortV1 open_ports = 10;
+  repeated SweepPortErrorV1 port_errors = 11;
+  optional SweepMtrSummaryV1 mtr = 12;
+}
+
+message SweepIcmpSummaryV1 {
+  SweepModeOutcome outcome = 1;
+  bool target_reached = 2;
+  optional uint64 round_trip_micro = 3;   // absent != measured zero
+  optional double packet_loss_pct = 4;
+  uint32 sent = 5;
+  uint32 received = 6;
+}
+
+// SweepTcpSummaryV1 distinguishes all-closed, skipped, incomplete, and failed
+// scanning; the open-port list carries positive results without repeating a
+// closed object per host/check pair.
+message SweepTcpSummaryV1 {
+  SweepModeOutcome outcome = 1;
+  uint32 tested_count = 2;
+  uint32 open_count = 3;
+}
+
+message SweepOpenPortV1 {
+  uint32 tested_check_index = 1;          // index into batch tested_checks
+  optional uint64 response_time_nano = 2;
+  string service = 3;
+}
+
+message SweepPortErrorV1 {
+  uint32 tested_check_index = 1;
+  string error_code = 2;
+}
+
+// SweepMtrSummaryV1 is the small reachability outcome carried in a sweep host
+// observation; the complete per-hop trace is a separate correlated
+// MtrTraceEventV1 keyed by `trace_id`.
+message SweepMtrSummaryV1 {
+  bytes trace_id = 1;                      // UUIDv7
+  MtrOutcome outcome = 2;
+  bool target_reached = 3;
+  optional uint64 final_rtt_micro = 4;
+  optional double packet_loss_pct = 5;
+  uint32 total_hops = 6;
+  string error_code = 7;
+}
+
+// ---------------------------------------------------------------------------
+// MTR trace batch (full per-hop traces)
+// ---------------------------------------------------------------------------
+
+message MtrMplsLabelV1 {
+  uint32 label = 1;
+  uint32 experimental = 2;
+  bool bottom_of_stack = 3;
+  uint32 ttl = 4;
+}
+
+message MtrTraceHopV1 {
+  uint32 hop_number = 1;
+  bytes address = 2;                      // 4 or 16 bytes; empty if unknown
+  string hostname = 3;
+  repeated bytes ecmp_addresses = 4;
+  repeated MtrMplsLabelV1 mpls_labels = 5;
+  uint32 asn = 6;                         // nonnegative 32-bit ASN
+  string asn_org = 7;
+  uint32 sent = 8;
+  uint32 received = 9;
+  double loss_pct = 10;
+  optional uint64 last_micro = 11;        // presence: absent != measured zero
+  optional uint64 avg_micro = 12;
+  optional uint64 min_micro = 13;
+  optional uint64 max_micro = 14;
+  optional uint64 stddev_micro = 15;
+  optional uint64 jitter_micro = 16;
+  optional uint64 jitter_worst_micro = 17;
+  optional uint64 jitter_interarrival_micro = 18;
+}
+
+// MtrTraceEventV1 is one complete trace. Source class and every source-specific
+// correlation id (sweep execution/shard/epoch/range, check, command, run) are
+// authoritative ONCE at the batch level (MtrTraceBatchV1.correlation), never
+// per-trace, so a single accepted record cannot mix authorization contexts. A
+// trace carries only its own identity, host correlation, timing, and hops.
+message MtrTraceEventV1 {
+  bytes trace_id = 1;                      // UUIDv7 allocated before probing
+  bytes event_id = 2;                      // UUIDv7
+  bytes sweep_host_address = 3;            // correlation to sweep host (4/16)
+  bytes device_hint = 4;
+  int64 observed_at_unix_nano = 5;
+  bool attempted = 6;
+  MtrOutcome outcome = 7;
+  string error_code = 8;
+  string target = 9;
+  bytes resolved_address = 10;             // 4 or 16 bytes
+  TransportProtocol protocol = 11;
+  uint32 ip_version = 12;
+  uint32 packet_size = 13;
+  bool target_reached = 14;
+  uint32 total_hops = 15;
+  repeated MtrTraceHopV1 hops = 16;
+}
+
+// Batch-level correlation contexts. Exactly one is set, and it MUST agree with
+// SweepExecutionSource. All traces in the batch share it.
+message MtrSweepContextV1 {
+  bytes sweep_execution_id = 1;
+  uint32 execution_shard = 2;
+  uint64 assignment_epoch = 3;
+  bytes target_range_id = 4;
+}
+
+message MtrScheduledCheckContextV1 {
+  bytes check_id = 1;
+}
+
+message MtrAdHocContextV1 {
+  bytes scan_run_id = 1;
+}
+
+message MtrCommandContextV1 {
+  bytes command_id = 1;
+}
+
+// MtrTraceBatchV1 shares one authoritative correlation/execution context across
+// every trace. The `correlation` oneof MUST be set and MUST match `source`
+// (sweep|sweep-profile -> sweep; scheduled_check -> scheduled_check;
+// ad_hoc -> ad_hoc; on_demand -> command). Mixing contexts is poison.
+message MtrTraceBatchV1 {
+  bytes network_scope_id = 1;
+  bytes agent_id = 2;
+  SweepExecutionSource source = 3;
+  uint64 batch_sequence = 4;
+  repeated MtrTraceEventV1 traces = 5;
+  oneof correlation {
+    MtrSweepContextV1 sweep = 6;
+    MtrScheduledCheckContextV1 scheduled_check = 7;
+    MtrAdHocContextV1 ad_hoc = 8;
+    MtrCommandContextV1 command = 9;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sweep execution lifecycle events
+// ---------------------------------------------------------------------------
+
+enum SweepExecutionEventKind {
+  SWEEP_EXECUTION_EVENT_KIND_UNSPECIFIED = 0;
+  SWEEP_EXECUTION_EVENT_KIND_START = 1;
+  SWEEP_EXECUTION_EVENT_KIND_PROGRESS = 2;
+  SWEEP_EXECUTION_EVENT_KIND_COMPLETED = 3;
+  SWEEP_EXECUTION_EVENT_KIND_ABORTED = 4;
+}
+
+// SweepExecutionEventV1 is per-assignment-attempt evidence. Terminal evidence
+// closes `[1, terminal_batch_sequence]` and carries cumulative counts plus the
+// expected/emitted MTR summary AND trace counts, a versioned completion digest,
+// and the plan/range roots the canonical ordinal proof composes over.
+message SweepExecutionEventV1 {
+  bytes execution_id = 1;
+  uint32 execution_shard = 2;
+  uint64 assignment_epoch = 3;
+  bytes execution_plan_id = 4;
+  bytes execution_plan_sha256 = 5;
+  bytes target_range_id = 6;
+  SweepExecutionEventKind kind = 7;
+  int64 emitted_at_unix_nano = 8;
+  uint64 terminal_batch_sequence = 9;     // 0 == empty interval; terminal events only
+  // durable_through_batch_sequence is the contiguous durable-prefix watermark:
+  // every batch_sequence in [1, durable_through_batch_sequence] has a
+  // gateway-confirmed PubAck. PROGRESS events carry this; monotonic, never
+  // exceeds terminal_batch_sequence on a terminal event.
+  uint64 durable_through_batch_sequence = 10;
+  uint64 hosts_observed = 11;
+  uint64 hosts_available = 12;
+  uint64 expected_mtr_summaries = 13;
+  uint64 emitted_mtr_summaries = 14;
+  uint64 expected_mtr_traces = 15;
+  uint64 emitted_mtr_traces = 16;
+  uint32 mtr_completion_digest_version = 17; // algorithm/version of the proof
+  bytes mtr_completion_digest = 18;          // order-independent plan-order proof
+  bytes plan_root_sha256 = 19;               // plan root the proof composes over
+  bytes range_root_sha256 = 20;              // range root the proof composes over
+  string abort_reason = 21;
+}
+
+// ---------------------------------------------------------------------------
+// Immutable scheduler target plan (bounded, content-addressed pages)
+// ---------------------------------------------------------------------------
+
+// TargetRangeV1 is one compact CIDR/range entry in a plan page. It is never an
+// expanded per-host list: a range that covers a /8 is still one small message.
+// It carries a stable range identity (range_id) and content digest (range_sha256)
+// that a sweep result's target_range_id/target_range_sha256 must match, plus the
+// exact per-range check/config/admission identity, so a result can be proven to
+// belong to a committed plan range. Exactly one of cidr or (first_address,
+// last_address) is set.
+message TargetRangeV1 {
+  bytes range_id = 1;                 // stable UUID identity; matches result target_range_id
+  bytes range_sha256 = 2;             // content digest of this range's canonical form
+  string cidr = 3;                    // e.g. "10.0.0.0/24"; exclusive with first/last
+  string first_address = 4;           // inclusive range start when cidr is empty
+  string last_address = 5;            // inclusive range end when cidr is empty
+  uint64 target_count = 6;            // hosts this range expands to (MUST be >= 1)
+  bytes check_set_sha256 = 7;         // exact per-range check/config identity
+  bytes availability_policy_id = 8;   // per-range availability policy
+  uint64 mtr_admission_budget = 9;    // per-range MTR probe budget
+}
+
+// ScheduledPlanPageV1 is one content-addressed, chained page of target ranges.
+// page_sha256 is the canonical digest over every field except page_sha256; pages
+// chain via prev_page_sha256 (empty on page 0) and compose into the plan root, so
+// a consumer fetches/validates pages incrementally without an O(page-count)
+// header. `check_set_sha256` binds the exact check/config identity this page's
+// ranges were planned under.
+message ScheduledPlanPageV1 {
+  bytes execution_plan_id = 1;   // UUIDv7, matches the header
+  uint32 page_index = 2;         // 0-based, < header.page_count
+  uint32 page_count = 3;
+  bytes prev_page_sha256 = 4;    // chain to the prior page; empty on page 0
+  bytes page_sha256 = 5;         // canonical digest over all other fields
+  bytes check_set_sha256 = 6;    // exact check/config identity for these ranges
+  uint32 digest_version = 7;
+  repeated TargetRangeV1 ranges = 8;
+}
+
+// ScheduledPlanHeaderV1 is the bounded, CONSTANT-SIZE immutable plan commitment.
+// It carries a single plan root (ordered chained-page root) rather than a
+// per-page digest list, so header size does not grow with the target set. It
+// binds the exact check-set/config/availability-policy identity into the plan.
+// execution_plan_sha256 is the canonical digest over every header field except
+// execution_plan_sha256 itself.
+message ScheduledPlanHeaderV1 {
+  bytes execution_plan_id = 1;       // UUIDv7
+  bytes execution_plan_sha256 = 2;   // canonical digest over the header (excl. this field)
+  uint32 page_count = 3;
+  uint64 total_target_count = 4;     // advisory sum across pages
+  bytes plan_root_sha256 = 5;        // ordered root over the chained plan pages
+  uint32 digest_version = 6;         // canonical page/root digest algorithm version
+  bytes check_set_sha256 = 7;        // exact planned check/config identity
+  bytes availability_policy_id = 8;  // versioned availability policy
+  uint64 assignment_epoch = 9;
+  bytes network_scope_id = 10;
+  // Authenticated commitment over the plan's (mtr_ordinal, range_sha256) set: an
+  // additive multiset hash the MTR completion proof compares its leaves against,
+  // so a completion leaf cannot claim an ordinal belongs to a range the plan never
+  // assigned it. Empty when the plan admits no MTR targets.
+  bytes mtr_ordinal_range_commitment = 11;
+}
