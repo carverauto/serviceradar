@@ -372,23 +372,33 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
 
   defp target_origin(_plugin_id, _target, _params, _auth_mode), do: {:error, :invalid_target}
 
-  defp canonical_origin(value, mode, target) when is_binary(value) do
+  # Callers always pass :proxmox_api — console identity is the PVE controller
+  # origin for both native termproxy and SSH console modes. Keep the mode
+  # argument for call-site readability but do not branch on :ssh here.
+  defp canonical_origin(value, _mode, _target) when is_binary(value) do
     value = String.trim(value)
 
-    default_scheme = if mode == :ssh, do: "ssh", else: "https"
-    default_port = if mode == :ssh, do: int_value(target, "ssh_port") || 22, else: 8006
+    default_scheme = "https"
+    default_port = 8006
     explicit_scheme? = String.contains?(value, "://")
     candidate = if explicit_scheme?, do: value, else: "#{default_scheme}://#{value}"
     uri = URI.parse(candidate)
 
-    allowed_schemes = if mode == :ssh, do: ["ssh"], else: ["https"]
-    port = if explicit_scheme?, do: uri.port, else: explicit_port(uri.authority) || default_port
+    # Prefer URI.port; when the operator supplied host:port without a scheme,
+    # recover the port from the original string so we do not read the opaque
+    # URI.authority field (breaks Dialyzer opacity under Elixir 1.19).
+    port =
+      cond do
+        is_integer(uri.port) -> uri.port
+        explicit_scheme? -> default_port
+        true -> explicit_port_from_raw(value) || default_port
+      end
 
     cond do
       value == "" ->
         {:error, :missing_origin}
 
-      uri.scheme not in allowed_schemes ->
+      uri.scheme != "https" ->
         {:error, :invalid_origin_scheme}
 
       not present?(uri.host) or present?(uri.userinfo) or present?(uri.query) or
@@ -401,11 +411,7 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
       not is_integer(port) or port < 1 or port > 65_535 ->
         {:error, :invalid_origin_port}
 
-      not valid_origin_authority?(uri.authority, uri.host, port) ->
-        {:error, :invalid_origin_port}
-
       true ->
-        scheme = String.downcase(uri.scheme)
         host = uri.host |> String.downcase() |> String.trim_trailing(".")
 
         if host == "" or String.contains?(host, "%") do
@@ -414,30 +420,12 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
           authority =
             if String.contains?(host, ":"), do: "[#{host}]:#{port}", else: "#{host}:#{port}"
 
-          origin = "#{scheme}://#{authority}"
-          {:ok, origin}
+          {:ok, "https://#{authority}"}
         end
     end
   end
 
   defp canonical_origin(_value, _mode, _target), do: {:error, :missing_origin}
-
-  defp valid_origin_authority?(authority, host, port)
-       when is_binary(authority) and is_binary(host) and is_integer(port) do
-    authority = String.downcase(authority)
-    host = String.downcase(host)
-
-    allowed =
-      if String.contains?(host, ":") do
-        ["[#{host}]", "[#{host}]:#{port}"]
-      else
-        [host, "#{host}:#{port}"]
-      end
-
-    authority in allowed
-  end
-
-  defp valid_origin_authority?(_authority, _host, _port), do: false
 
   defp valid_ip_literal?(host) when is_binary(host) do
     host = host |> String.trim_leading("[") |> String.trim_trailing("]")
@@ -448,8 +436,8 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
 
   defp valid_ip_literal?(_host), do: false
 
-  defp explicit_port(authority) when is_binary(authority) do
-    case Regex.run(~r/(?:\]|[^:]):(\d+)\z/, authority) do
+  defp explicit_port_from_raw(raw) when is_binary(raw) do
+    case Regex.run(~r/(?:\]|[^:]):(\d+)\z/, raw) do
       [_, raw_port] ->
         case Integer.parse(raw_port) do
           {port, ""} -> port
@@ -460,8 +448,6 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
         nil
     end
   end
-
-  defp explicit_port(_authority), do: nil
 
   defp scope_grant_to_origin(grant, origin, plugin_id, auth_mode, target) do
     grant = Map.take(grant, @grant_keys)
@@ -613,8 +599,6 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
     end
   end
 
-  defp ssh_host_key_policy(_auth_mode, _params), do: {:error, :invalid_ssh_host_key_policy}
-
   defp maybe_put(map, _key, value) when value in [nil, ""], do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
@@ -701,14 +685,15 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
 
   defp parse_provider_ref(_value), do: %{}
 
-  defp binding_id(assignment_id, credential_rule_id, origin, target_ids) do
+  defp binding_id(assignment_id, credential_rule_id, origin, target_ids)
+       when is_binary(credential_rule_id) do
     canonical_target_ids =
       target_ids
       |> Enum.sort_by(&elem(&1, 0))
       |> Enum.map_join("|", fn {key, value} -> "#{key}=#{value}" end)
 
     digest =
-      [to_string(assignment_id), credential_rule_id || "", origin, canonical_target_ids]
+      [to_string(assignment_id), credential_rule_id, origin, canonical_target_ids]
       |> Enum.join("|")
       |> then(&:crypto.hash(:sha256, &1))
       |> Base.encode16(case: :lower)
@@ -773,22 +758,6 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
     case value(map, key) do
       result when is_list(result) -> result
       _ -> []
-    end
-  end
-
-  defp int_value(map, key) do
-    case value(map, key) do
-      value when is_integer(value) and value > 0 ->
-        value
-
-      value when is_binary(value) ->
-        case Integer.parse(String.trim(value)) do
-          {parsed, ""} when parsed > 0 -> parsed
-          _ -> nil
-        end
-
-      _ ->
-        nil
     end
   end
 

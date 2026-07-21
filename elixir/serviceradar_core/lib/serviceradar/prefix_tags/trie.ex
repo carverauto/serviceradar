@@ -183,10 +183,12 @@ defmodule ServiceRadar.PrefixTags.Trie do
       end
 
     %{
+      # Both sides are nonempty binaries after trie insert validation; prefer
+      # the incoming prefix without a nil-coalesce that Dialyzer rejects.
       prefix: new.prefix,
       tags: tags,
-      source: new[:source] || prev[:source],
-      vrf: new[:vrf] || prev[:vrf]
+      source: Map.get(new, :source) || Map.get(prev, :source),
+      vrf: Map.get(new, :vrf) || Map.get(prev, :vrf)
     }
     |> maybe_put_severity(severity)
     |> maybe_put(:indicator_count, indicator_count)

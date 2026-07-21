@@ -113,9 +113,12 @@ defmodule ServiceRadar.Automation.CallbackGrants.LaunchContract do
     end)
     |> case do
       {:ok, normalized} ->
-        if MapSet.new(Map.keys(normalized)) == @contract_keys,
-          do: {:ok, normalized},
-          else: {:error, :unexpected_callback_contract_field}
+        if MapSet.equal?(
+             MapSet.new(Map.keys(normalized)),
+             MapSet.new(Enum.to_list(@contract_keys))
+           ),
+           do: {:ok, normalized},
+           else: {:error, :unexpected_callback_contract_field}
 
       error ->
         error

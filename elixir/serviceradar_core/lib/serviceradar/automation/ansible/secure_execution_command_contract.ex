@@ -205,8 +205,10 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
 
     with true <- is_map(args),
          {:ok, scope} <- AwxClient.broker_scope(value(controller, :base_url), verb, args) do
-      MapSet.new(Map.keys(payload)) ==
-        expected_payload_keys(scope.authorized_request_body_b64) and
+      MapSet.equal?(
+        MapSet.new(Map.keys(payload)),
+        expected_payload_keys(scope.authorized_request_body_b64)
+      ) and
         payload["schema"] == @awx_command_schema and
         payload["verb"] == verb and
         to_string(payload["controller_id"]) == to_string(value(controller, :id)) and
@@ -306,10 +308,12 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
     target = broker["target"] || %{}
     allow = broker["allow"] || %{}
 
-    MapSet.new(Map.keys(broker)) ==
+    MapSet.equal?(
+      MapSet.new(Map.keys(broker)),
       MapSet.new(
         ~w(schema grant_id grant_type credential_secret_ref consumer target resolution_location inject allow ttl_seconds expires_at)
-      ) and
+      )
+    ) and
       broker["schema"] == expected_broker_schema(scope.request_body_policy) and
       uuid?(broker["grant_id"]) and
       broker["grant_type"] == "awx_oauth2_token" and

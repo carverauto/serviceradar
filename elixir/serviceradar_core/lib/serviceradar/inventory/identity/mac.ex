@@ -112,7 +112,11 @@ defmodule ServiceRadar.Inventory.Identity.Mac do
   unit the ingest-time distinct-MAC veto (`BatchResolver`) resolves on; reuse it
   for detection/grouping so an un-merge cannot drift from prevention.
   """
-  @spec universal_macs([String.t()] | String.t() | nil) :: MapSet.t()
+  # Dialyzer success-typing for MapSet.new/1 is more concrete than MapSet.t();
+  # keep the public contract as MapSet.t() and suppress the known contract
+  # opacity mismatch for this pure identity helper.
+  @dialyzer {:nowarn_function, universal_macs: 1}
+  @spec universal_macs([String.t()] | String.t() | nil) :: MapSet.t(String.t())
   def universal_macs(values) when is_list(values) do
     values
     |> Enum.flat_map(&normalize_mac_list/1)
@@ -128,7 +132,8 @@ defmodule ServiceRadar.Inventory.Identity.Mac do
   distinct-hardware condition the ingest-time veto fires on.
   """
   @spec distinct_hardware?(MapSet.t(), MapSet.t()) :: boolean()
-  def distinct_hardware?(%MapSet{} = a, %MapSet{} = b) do
+  def distinct_hardware?(a, b) do
+    # Avoid %MapSet{} pattern matches — they break MapSet opacity for Dialyzer.
     MapSet.size(a) > 0 and MapSet.size(b) > 0 and MapSet.disjoint?(a, b)
   end
 

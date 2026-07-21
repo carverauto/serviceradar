@@ -491,7 +491,6 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
       {:ok, %NetworkCredentialRule{}} -> {:error, :console_credential_rule_disabled}
       {:ok, nil} -> {:error, :no_console_credential_rule}
       {:error, reason} -> {:error, reason}
-      false -> {:error, :console_authorization_stale}
     end
   end
 
@@ -1113,13 +1112,6 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   defp put_positive_int(map, key, value) when is_integer(value) and value > 0,
     do: Map.put(map, key, value)
 
-  defp put_positive_int(map, key, value) when is_binary(value) do
-    case Integer.parse(value) do
-      {int, ""} when int > 0 -> Map.put(map, key, int)
-      _ -> map
-    end
-  end
-
   defp put_positive_int(map, _key, _value), do: map
 
   defp put_bounded_int(map, key, value, max)
@@ -1166,8 +1158,6 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   end
 
   defp credential_target_device(%{controller: %{device: device}}) when is_map(device), do: device
-
-  defp credential_target_device(_target), do: %{}
 
   defp session_metadata_map(%{metadata: metadata}, key) when is_map(metadata) do
     value =
