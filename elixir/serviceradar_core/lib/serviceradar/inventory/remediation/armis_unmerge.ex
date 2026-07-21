@@ -569,10 +569,10 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
     values
     |> Enum.map(&normalize_string/1)
     |> Enum.reject(&is_nil/1)
-    |> then(fn list -> :erlang.apply(MapSet, :new, [list]) end)
+    |> MapSet.new()
   end
 
-  defp normalize_allowlist(_values), do: :erlang.apply(MapSet, :new, [[]])
+  defp normalize_allowlist(_values), do: MapSet.new()
 
   defp blocked_execution_report(base, reason) do
     Map.merge(base, %{
@@ -1406,8 +1406,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
   defp canonical_mac_row?(_row), do: false
 
   defp canonical_universal_mac_row?(%{value: value} = row) do
-    canonical_mac_row?(row) and
-      MapSet.equal?(Mac.universal_macs(value), MapSet.new([value]))
+    canonical_mac_row?(row) and Mac.universal_macs(value) == MapSet.new([value])
   end
 
   defp canonical_universal_mac_row?(_row), do: false

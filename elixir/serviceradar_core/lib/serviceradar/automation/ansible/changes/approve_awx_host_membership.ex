@@ -149,10 +149,7 @@ defmodule ServiceRadar.Automation.Ansible.Changes.ApproveAwxHostMembership do
   defp unambiguous_source_evidence?(evidence, data, device_uid) when is_map(evidence) do
     case normalize_keys(evidence) do
       {:ok, normalized} ->
-        MapSet.equal?(
-          MapSet.new(Map.keys(normalized)),
-          MapSet.new(Enum.to_list(@source_evidence_keys))
-        ) and
+        MapSet.new(Map.keys(normalized)) == @source_evidence_keys and
           normalized["kind"] == "stored_awx_source_tuple" and
           exact?(normalized["controller_id"], data.controller_id) and
           normalized["inventory_id"] == data.inventory_id and

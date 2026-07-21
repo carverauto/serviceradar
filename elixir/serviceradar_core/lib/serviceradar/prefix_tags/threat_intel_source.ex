@@ -502,7 +502,7 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
   defp source_string(s) when is_binary(s), do: String.trim(s)
   defp source_string(s), do: to_string(s)
 
-  defp slug_source(source) when is_binary(source) do
+  defp slug_source(source) do
     Slug.slugify(source, empty: "unknown")
   end
 

@@ -55,10 +55,7 @@ defmodule ServiceRadar.Sync.Client do
 
     cred_opts = if ssl, do: GRPC.Credential.new([]), else: []
 
-    # Variable-module apply: Dialyzer collapses GRPC.Stub.connect/2 to error-only.
-    stub = GRPC.Stub
-
-    case apply(stub, :connect, [endpoint, cred_opts]) do
+    case GRPC.Stub.connect(endpoint, cred_opts) do
       {:ok, channel} ->
         Logger.debug("Connected to sync service at #{endpoint}")
         {:ok, channel}

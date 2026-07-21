@@ -310,10 +310,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
            expected_args
          ) do
       {:ok, scope} ->
-        MapSet.equal?(
-          MapSet.new(Map.keys(payload)),
-          common_payload_keys(expected_binding, scope.authorized_request_body_b64)
-        ) and
+        MapSet.new(Map.keys(payload)) ==
+          common_payload_keys(expected_binding, scope.authorized_request_body_b64) and
           payload["schema"] == @awx_command_schema and
           payload["verb"] == value(attempt, :command_type) and
           to_string(payload["controller_id"]) == to_string(value(controller, :id)) and
@@ -427,21 +425,19 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
 
     case AwxClient.credential_secret_id_for_verb(controller, value(attempt, :command_type)) do
       {:ok, secret_id} ->
-        MapSet.equal?(
-          MapSet.new(Map.keys(broker)),
+        MapSet.new(Map.keys(broker)) ==
           MapSet.new(
             ~w(schema grant_id grant_type credential_secret_ref consumer target resolution_location inject allow ttl_seconds expires_at)
-          )
-        ) and
+          ) and
           broker["schema"] == expected_broker_schema(scope.request_body_policy) and
           uuid?(broker["grant_id"]) and
           broker["grant_type"] == "awx_oauth2_token" and
           broker["credential_secret_ref"] == SecretRefs.network_credential_ref(secret_id) and
-          MapSet.equal?(MapSet.new(Map.keys(consumer)), MapSet.new(~w(kind id purpose))) and
+          MapSet.new(Map.keys(consumer)) == MapSet.new(~w(kind id purpose)) and
           consumer["kind"] == "ansible" and
           to_string(consumer["id"]) == to_string(value(controller, :id)) and
           consumer["purpose"] == value(attempt, :command_type) and
-          MapSet.equal?(MapSet.new(Map.keys(target)), MapSet.new(~w(kind id agent_id))) and
+          MapSet.new(Map.keys(target)) == MapSet.new(~w(kind id agent_id)) and
           target["kind"] == "awx_controller" and
           to_string(target["id"]) == to_string(value(controller, :id)) and
           target["agent_id"] == value(attempt, :dispatch_agent_id) and

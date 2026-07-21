@@ -25,29 +25,26 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     :mac
   ]
 
-  # Call sites often pass partial maps (Armis-only, MAC-only, etc.). All fields
-  # are optional so Dialyzer does not reject legitimate partial identifier maps.
   @type strong_identifiers :: %{
-          optional(:agent_id) => String.t() | nil,
-          optional(:armis_id) => String.t() | nil,
-          optional(:integration_id) => String.t() | nil,
-          optional(:netbox_id) => String.t() | nil,
-          optional(:hardware_serial) => String.t() | nil,
-          optional(:mac) => String.t() | nil,
-          optional(:macs) => [String.t()],
-          optional(:legacy_mac) => String.t() | nil,
-          optional(:legacy_integration_ids) => [String.t()],
-          optional(:ip) => String.t() | nil,
-          optional(:partition) => String.t() | nil
+          agent_id: String.t() | nil,
+          armis_id: String.t() | nil,
+          integration_id: String.t() | nil,
+          netbox_id: String.t() | nil,
+          hardware_serial: String.t() | nil,
+          mac: String.t() | nil,
+          macs: [String.t()],
+          legacy_mac: String.t() | nil,
+          legacy_integration_ids: [String.t()],
+          ip: String.t() | nil,
+          partition: String.t()
         }
 
   @type device_update :: %{
-          optional(:device_id) => String.t() | nil,
-          optional(:ip) => String.t() | nil,
-          optional(:mac) => String.t() | nil,
-          optional(:mac_addresses) => [String.t()],
-          optional(:partition) => String.t() | nil,
-          optional(:metadata) => map() | nil
+          device_id: String.t() | nil,
+          ip: String.t() | nil,
+          mac: String.t() | nil,
+          partition: String.t() | nil,
+          metadata: map() | nil
         }
 
   @doc "Identifier types in priority order (lower index = higher priority)."
