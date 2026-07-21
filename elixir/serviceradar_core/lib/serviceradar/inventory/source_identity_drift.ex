@@ -93,7 +93,7 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
 
     %{
       "total_count" => categories |> Map.values() |> Enum.sum(),
-      "skipped_count" => withholding_conflict_total(categories),
+      "skipped_count" => open_withheld_device_count(source_id),
       "categories" => categories,
       "examples" => open_conflict_examples(source_id, limit)
     }
@@ -870,12 +870,6 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
     {:error, reason}
   end
 
-  defp withholding_conflict_total(categories) do
-    Enum.reduce(@withholding_conflict_categories, 0, fn category, acc ->
-      acc + Map.get(categories, category, 0)
-    end)
-  end
-
   defp open_conflict_category_counts(source_id) do
     ("SELECT conflict_category, count(*)::bigint AS count " <>
        "FROM platform.source_identity_conflicts " <>
@@ -887,6 +881,18 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
         category -> Map.put(acc, category, to_integer(row["count"]))
       end
     end)
+  end
+
+  defp open_withheld_device_count(source_id) do
+    ("SELECT count(DISTINCT device_uid)::bigint AS count " <>
+       "FROM platform.source_identity_conflicts " <>
+       "WHERE #{@source_conflict_scope} " <>
+       "AND conflict_category = ANY($2)")
+    |> query_maps([source_id, @withholding_conflict_categories])
+    |> case do
+      [%{"count" => count}] -> to_integer(count)
+      _ -> 0
+    end
   end
 
   defp open_conflict_examples(source_id, limit) do

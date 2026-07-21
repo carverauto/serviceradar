@@ -5,6 +5,7 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
   and the effective identifier set for an update.
   """
 
+  alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.IdentityReconciler
 
   def valid_ip?(value) when is_binary(value), do: String.trim(value) != ""
@@ -12,6 +13,22 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
 
   def include_agent_identifier?(update, ids) do
     ids.agent_id not in [nil, ""] and not observer_agent_source?(update)
+  end
+
+  @doc """
+  Return the identifier types that may be looked up and registered for an
+  update.
+
+  Armis has a typed, source-authoritative identifier. Its raw integration_id
+  is a compatibility field in the payload, not a second device identity.
+  Keeping that rule here makes both batch lookup and registration use the same
+  policy instead of relying on the extractor's current representation.
+  """
+  def identifier_types(update, ids) do
+    Ids.identifier_priority()
+    |> Enum.reject(&(&1 == :mac))
+    |> Enum.reject(&(&1 == :agent_id and not include_agent_identifier?(update, ids)))
+    |> Enum.reject(&(&1 == :integration_id and armis_source?(update)))
   end
 
   def include_mac_identifier?(update) do
@@ -30,11 +47,21 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
   end
 
   def observer_agent_source?(update) do
-    source = String.downcase(update.source || "")
+    source = String.downcase(to_string(update.source || ""))
 
     mapper_like_source?(update) or
       source in ["armis", "snmp", "snmp-metrics", "snmp_metrics"]
   end
+
+  def armis_source?(update) when is_map(update) do
+    source = String.downcase(to_string(update.source || ""))
+    metadata = update.metadata || %{}
+    integration_type = String.downcase(to_string(metadata["integration_type"] || ""))
+
+    source == "armis" or integration_type == "armis"
+  end
+
+  def armis_source?(_update), do: false
 
   defp mapper_primary_mac?(metadata) when is_map(metadata) do
     kind =

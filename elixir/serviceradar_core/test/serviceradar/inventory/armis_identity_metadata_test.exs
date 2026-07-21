@@ -5,6 +5,7 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
   alias ServiceRadar.Inventory.Sync.IdentifierRecords
   alias ServiceRadar.Inventory.Sync.Lookups
   alias ServiceRadar.Inventory.Sync.Normalize
+  alias ServiceRadar.Inventory.Sync.SourcePolicy
 
   test "legacy Armis source_device_id is not promoted to strong identity" do
     update =
@@ -52,6 +53,8 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
     refute Enum.any?(records, fn record ->
              record.identifier_type == :integration_id
            end)
+
+    assert SourcePolicy.identifier_types(update, ids) == [:armis_device_id]
   end
 
   test "generic integration IDs are scoped by sync source and keep raw value lookup-only" do
