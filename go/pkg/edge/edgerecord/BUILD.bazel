@@ -1,0 +1,45 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "edgerecord",
+    srcs = [
+        "canonical.go",
+        "capability.go",
+        "claims_framing.go",
+        "compression.go",
+        "domain.go",
+        "plan.go",
+        "principal.go",
+        "recovery.go",
+        "semantic.go",
+        "uuidv7.go",
+        "validate.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/edge/edgerecord",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//proto/edge/v1:edgev1",
+        "@com_github_klauspost_compress//zstd",
+        "@org_golang_google_protobuf//encoding/protowire",
+        "@org_golang_google_protobuf//proto",
+        "@org_golang_google_protobuf//reflect/protoreflect",
+    ],
+)
+
+go_test(
+    name = "edgerecord_test",
+    srcs = [
+        "capability_test.go",
+        "domain_test.go",
+        "principal_test.go",
+        "recovery_test.go",
+        "validate_test.go",
+    ],
+    embed = [":edgerecord"],
+    deps = [
+        "//proto/edge/v1:edgev1",
+        "@com_github_klauspost_compress//zstd",
+        "@org_golang_google_protobuf//encoding/protowire",
+        "@org_golang_google_protobuf//proto",
+    ],
+)

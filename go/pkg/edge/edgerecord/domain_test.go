@@ -1,0 +1,272 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package edgerecord
+
+import (
+	"errors"
+	"math"
+	"testing"
+
+	"google.golang.org/protobuf/proto"
+
+	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
+)
+
+func d32domain(tag byte) []byte {
+	b := make([]byte, 32)
+	for i := range b {
+		b[i] = tag + byte(i)
+	}
+	return b
+}
+
+func validSweepBatch(t *testing.T) *edgev1.SweepObservationBatchV1 {
+	t.Helper()
+	return &edgev1.SweepObservationBatchV1{
+		ExecutionId: mustUUID(t), ExecutionPlanId: mustUUID(t), TargetRangeId: mustUUID(t),
+		ExecutionPlanSha256: d32domain(0x10), TargetRangeSha256: d32domain(0x20),
+		AvailabilityPolicyId: []byte("policy-1"), BatchSequence: 1, ObservedAtUnixNano: 1,
+		Source:             edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_CHECK,
+		ConfiguredModeBits: uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_ICMP) | uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_MTR),
+		TestedChecks: []*edgev1.SweepTestV1{
+			{Mode: edgev1.SweepMode_SWEEP_MODE_ICMP, Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP},
+			{Mode: edgev1.SweepMode_SWEEP_MODE_MTR, Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP},
+		},
+		Hosts: []*edgev1.SweepHostObservationV1{{
+			Address:        []byte{10, 0, 0, 1},
+			ResultModeBits: uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_ICMP) | uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_MTR),
+			Icmp:           &edgev1.SweepIcmpSummaryV1{Outcome: edgev1.SweepModeOutcome_SWEEP_MODE_OUTCOME_SUCCESS, TargetReached: true, Sent: 1, Received: 1},
+			Mtr:            &edgev1.SweepMtrSummaryV1{TraceId: mustUUID(t), Outcome: edgev1.MtrOutcome_MTR_OUTCOME_REACHED, TargetReached: true, TotalHops: 3},
+		}},
+	}
+}
+
+func TestValidateSweepObservationBatch(t *testing.T) {
+	if err := ValidateSweepObservationBatch(validSweepBatch(t)); err != nil {
+		t.Fatalf("valid sweep batch: %v", err)
+	}
+
+	// configured_mode_bits must equal the derived bitmask.
+	b := validSweepBatch(t)
+	b.ConfiguredModeBits = uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_ICMP)
+	if err := ValidateSweepObservationBatch(b); !errors.Is(err, ErrSweepModeBits) {
+		t.Fatalf("mode-bit mismatch = %v, want ErrSweepModeBits", err)
+	}
+
+	// Missing batch identity/plan/range/policy is rejected.
+	b1 := validSweepBatch(t)
+	b1.ExecutionPlanSha256 = nil
+	if err := ValidateSweepObservationBatch(b1); !errors.Is(err, ErrSweepIdentity) {
+		t.Fatalf("missing plan digest = %v, want ErrSweepIdentity", err)
+	}
+
+	// A named MTR result bit without an MTR summary is rejected.
+	b2 := validSweepBatch(t)
+	b2.Hosts[0].Mtr = nil
+	if err := ValidateSweepObservationBatch(b2); !errors.Is(err, ErrSweepModeSummary) {
+		t.Fatalf("MTR bit without summary = %v, want ErrSweepModeSummary", err)
+	}
+
+	// An out-of-range open-port check index is rejected.
+	b3 := validSweepBatch(t)
+	b3.Hosts[0].OpenPorts = []*edgev1.SweepOpenPortV1{{TestedCheckIndex: 99}}
+	if err := ValidateSweepObservationBatch(b3); !errors.Is(err, ErrSweepCheckIndex) {
+		t.Fatalf("bad check index = %v, want ErrSweepCheckIndex", err)
+	}
+
+	// ICMP mode paired with a UDP protocol / nonzero port is rejected.
+	b4 := validSweepBatch(t)
+	b4.TestedChecks[0].Protocol = edgev1.TransportProtocol_TRANSPORT_PROTOCOL_UDP
+	b4.TestedChecks[0].Port = 99999
+	if err := ValidateSweepObservationBatch(b4); !errors.Is(err, ErrSweepChecks) {
+		t.Fatalf("icmp+udp/port = %v, want ErrSweepChecks", err)
+	}
+
+	// received > sent is rejected.
+	b5 := validSweepBatch(t)
+	b5.Hosts[0].Icmp.Received = 9
+	if err := ValidateSweepObservationBatch(b5); !errors.Is(err, ErrSweepSummary) {
+		t.Fatalf("received>sent = %v, want ErrSweepSummary", err)
+	}
+
+	// NaN loss is rejected.
+	b6 := validSweepBatch(t)
+	b6.Hosts[0].Icmp.PacketLossPct = proto.Float64(math.NaN())
+	if err := ValidateSweepObservationBatch(b6); !errors.Is(err, ErrSweepSummary) {
+		t.Fatalf("NaN loss = %v, want ErrSweepSummary", err)
+	}
+
+	// An unspecified outcome is rejected.
+	b7 := validSweepBatch(t)
+	b7.Hosts[0].Icmp.Outcome = edgev1.SweepModeOutcome_SWEEP_MODE_OUTCOME_UNSPECIFIED
+	if err := ValidateSweepObservationBatch(b7); !errors.Is(err, ErrSweepSummary) {
+		t.Fatalf("unspecified outcome = %v, want ErrSweepSummary", err)
+	}
+
+	// A TCP summary present for a host that named no TCP mode is rejected.
+	b8 := validSweepBatch(t)
+	b8.Hosts[0].Tcp = &edgev1.SweepTcpSummaryV1{Outcome: edgev1.SweepModeOutcome_SWEEP_MODE_OUTCOME_SUCCESS}
+	if err := ValidateSweepObservationBatch(b8); !errors.Is(err, ErrSweepModeSummary) {
+		t.Fatalf("extraneous tcp summary = %v, want ErrSweepModeSummary", err)
+	}
+}
+
+func TestValidateMtrTraceBatchCorrelation(t *testing.T) {
+	mtrBatch := func(traces []*edgev1.MtrTraceEventV1) *edgev1.MtrTraceBatchV1 {
+		return &edgev1.MtrTraceBatchV1{
+			NetworkScopeId: mustUUID(t), AgentId: mustUUID(t), BatchSequence: 1,
+			Source:      edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_CHECK,
+			Correlation: &edgev1.MtrTraceBatchV1_ScheduledCheck{ScheduledCheck: &edgev1.MtrScheduledCheckContextV1{CheckId: mustUUID(t)}},
+			Traces:      traces,
+		}
+	}
+	goodTrace := func() *edgev1.MtrTraceEventV1 {
+		return &edgev1.MtrTraceEventV1{
+			TraceId: mustUUID(t), EventId: mustUUID(t), SweepHostAddress: []byte{10, 0, 0, 9},
+			Outcome: edgev1.MtrOutcome_MTR_OUTCOME_REACHED, Target: "10.0.0.9", Attempted: true, TargetReached: true, TotalHops: 1,
+			Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP, IpVersion: 4,
+			Hops: []*edgev1.MtrTraceHopV1{{HopNumber: 1, Sent: 3, Received: 3}},
+		}
+	}
+	good := mtrBatch([]*edgev1.MtrTraceEventV1{goodTrace()})
+	if err := ValidateMtrTraceBatch(good); err != nil {
+		t.Fatalf("valid mtr batch: %v", err)
+	}
+
+	// Duplicate hop number is rejected.
+	dupHops := goodTrace()
+	dupHops.TotalHops = 2
+	dupHops.Hops = []*edgev1.MtrTraceHopV1{{HopNumber: 1, Sent: 1, Received: 1}, {HopNumber: 1, Sent: 1, Received: 1}}
+	if err := ValidateMtrTraceBatch(mtrBatch([]*edgev1.MtrTraceEventV1{dupHops})); !errors.Is(err, ErrMtrHop) {
+		t.Fatalf("duplicate hop number = %v, want ErrMtrHop", err)
+	}
+	// ip_version 99 is rejected.
+	badIP := goodTrace()
+	badIP.IpVersion = 99
+	if err := ValidateMtrTraceBatch(mtrBatch([]*edgev1.MtrTraceEventV1{badIP})); !errors.Is(err, ErrMtrTrace) {
+		t.Fatalf("ip_version 99 = %v, want ErrMtrTrace", err)
+	}
+	// A nil network scope is rejected.
+	noScope := mtrBatch([]*edgev1.MtrTraceEventV1{goodTrace()})
+	noScope.NetworkScopeId = nil
+	if err := ValidateMtrTraceBatch(noScope); !errors.Is(err, ErrMtrTrace) {
+		t.Fatalf("nil network scope = %v, want ErrMtrTrace", err)
+	}
+
+	// source=SCHEDULED_CHECK with a command correlation is rejected.
+	bad := mtrBatch(nil)
+	bad.Correlation = &edgev1.MtrTraceBatchV1_Command{Command: &edgev1.MtrCommandContextV1{CommandId: mustUUID(t)}}
+	if err := ValidateMtrTraceBatch(bad); !errors.Is(err, ErrMtrCorrelation) {
+		t.Fatalf("source/correlation mismatch = %v, want ErrMtrCorrelation", err)
+	}
+
+	// Missing correlation is rejected.
+	missing := mtrBatch(nil)
+	missing.Correlation = nil
+	if err := ValidateMtrTraceBatch(missing); !errors.Is(err, ErrMtrCorrelation) {
+		t.Fatalf("missing correlation = %v, want ErrMtrCorrelation", err)
+	}
+
+	// A non-terminal trace outcome is rejected.
+	nonterminalTrace := goodTrace()
+	nonterminalTrace.Outcome = edgev1.MtrOutcome_MTR_OUTCOME_UNSPECIFIED
+	nonterminalTrace.TargetReached = false
+	if err := ValidateMtrTraceBatch(mtrBatch([]*edgev1.MtrTraceEventV1{nonterminalTrace})); !errors.Is(err, ErrMtrTrace) {
+		t.Fatalf("non-terminal outcome = %v, want ErrMtrTrace", err)
+	}
+
+	// A hop with received > sent is rejected.
+	badhopTrace := goodTrace()
+	badhopTrace.Hops = []*edgev1.MtrTraceHopV1{{HopNumber: 1, Sent: 1, Received: 9}}
+	if err := ValidateMtrTraceBatch(mtrBatch([]*edgev1.MtrTraceEventV1{badhopTrace})); !errors.Is(err, ErrMtrHop) {
+		t.Fatalf("hop received>sent = %v, want ErrMtrHop", err)
+	}
+}
+
+func TestMtrCompletionRootOrderIndependentAndValidated(t *testing.T) {
+	trace := mustUUID(t)
+	planRoot := d32domain(0x90)
+	rng := d32domain(0x91)
+	leaves := []MtrCompletionLeaf{
+		{Ordinal: 2, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
+		{Ordinal: 1, Disposition: MtrDispositionTraceAllocated, TraceID: trace, RangeSha256: rng},
+	}
+	comm := MtrOrdinalRangeCommitment(leaves)
+	root := MtrCompletionRoot
+	a, err := root(leaves, 2, planRoot, comm)
+	if err != nil {
+		t.Fatalf("valid completion: %v", err)
+	}
+	// Order-independent: shuffling input leaves yields the same root.
+	b, err := root([]MtrCompletionLeaf{leaves[1], leaves[0]}, 2, planRoot, comm)
+	if err != nil || string(a) != string(b) {
+		t.Fatalf("completion root must be order-independent: %v", err)
+	}
+	// A different disposition changes the root but keeps membership.
+	changed, err := root([]MtrCompletionLeaf{
+		{Ordinal: 1, Disposition: MtrDispositionProbeFailed, RangeSha256: rng},
+		{Ordinal: 2, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
+	}, 2, planRoot, comm)
+	if err != nil || string(a) == string(changed) {
+		t.Fatalf("completion root must change when a disposition changes: %v", err)
+	}
+	// A different plan root changes the root.
+	other, _ := root(leaves, 2, d32domain(0x33), comm)
+	if string(a) == string(other) {
+		t.Fatal("completion root must bind the plan root")
+	}
+
+	// Reviewer P0 repro: {2,2,2}/3 and {1,1,4,4}/4 are rejected by the coverage proof.
+	if _, err := root([]MtrCompletionLeaf{
+		{Ordinal: 2, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
+		{Ordinal: 2, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
+		{Ordinal: 2, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
+	}, 3, planRoot, comm); !errors.Is(err, ErrMtrCompletion) {
+		t.Fatalf("{2,2,2} for expected 3 = %v, want ErrMtrCompletion", err)
+	}
+	// Reviewer P0 repro: {1,1,4,4}/4.
+	if _, err := root([]MtrCompletionLeaf{
+		{Ordinal: 1, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
+		{Ordinal: 1, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
+		{Ordinal: 4, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
+		{Ordinal: 4, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
+	}, 4, planRoot, comm); !errors.Is(err, ErrMtrCompletion) {
+		t.Fatalf("{1,1,4,4} for expected 4 = %v, want ErrMtrCompletion", err)
+	}
+	// Reviewer P1 repro (r5-07): a leaf claiming an ordinal belongs to a range the
+	// plan never assigned it (0xFE) is rejected by the membership proof.
+	if _, err := root([]MtrCompletionLeaf{
+		{Ordinal: 1, Disposition: MtrDispositionTraceAllocated, TraceID: trace, RangeSha256: d32domain(0xFE)},
+		{Ordinal: 2, Disposition: MtrDispositionNotAdmitted, RangeSha256: d32domain(0xFE)},
+	}, 2, planRoot, comm); !errors.Is(err, ErrMtrCompletion) {
+		t.Fatalf("wrong ordinal->range = %v, want ErrMtrCompletion", err)
+	}
+	// Ordinal zero, unspecified disposition, trace-on-non-allocated, and incomplete
+	// coverage are all rejected.
+	for _, bad := range [][]MtrCompletionLeaf{
+		{{Ordinal: 0, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng}},
+		{{Ordinal: 1, Disposition: MtrDispositionUnspecified, RangeSha256: rng}},
+		{{Ordinal: 1, Disposition: MtrDispositionNotAdmitted, TraceID: trace, RangeSha256: rng}},
+	} {
+		if _, err := root(bad, 1, planRoot, MtrOrdinalRangeCommitment(bad)); !errors.Is(err, ErrMtrCompletion) {
+			t.Fatalf("bad leaf %+v = %v, want ErrMtrCompletion", bad, err)
+		}
+	}
+	if _, err := root([]MtrCompletionLeaf{{Ordinal: 1, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng}}, 2, planRoot, comm); !errors.Is(err, ErrMtrCompletion) {
+		t.Fatalf("incomplete coverage = %v, want ErrMtrCompletion", err)
+	}
+}
