@@ -51,6 +51,9 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
 
   - `:leaf_key_pem` - Decrypted leaf private key (required)
   - `:server_key_pem` - Decrypted server private key (required)
+  - `:direct_leaf_identities` - Assignment-scoped certificate identities and
+    subject scopes to authorize on this leaf (default: `[]`). PEM material is
+    intentionally not accepted here.
 
   ## Returns
 
@@ -61,12 +64,18 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
   def create_tarball(edge_site, leaf_server, nats_creds, opts \\ []) do
     leaf_key_pem = Keyword.fetch!(opts, :leaf_key_pem)
     server_key_pem = Keyword.fetch!(opts, :server_key_pem)
+    direct_leaf_identities = Keyword.get(opts, :direct_leaf_identities, [])
 
     bundle_name = "edge-site-#{edge_site.slug}"
 
     files = [
       # NATS configuration
-      {"#{bundle_name}/nats/nats-leaf.conf", NatsLeafConfigGenerator.generate_config(edge_site, leaf_server)},
+      {
+        "#{bundle_name}/nats/nats-leaf.conf",
+        NatsLeafConfigGenerator.generate_config(edge_site, leaf_server,
+          direct_leaf_identities: direct_leaf_identities
+        )
+      },
 
       # Server certificates (for local client connections)
       {"#{bundle_name}/nats/certs/nats-server.pem", leaf_server.server_cert_pem},

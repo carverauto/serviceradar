@@ -153,7 +153,11 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolver do
       %URI{scheme: "spiffe", path: "/" <> path} ->
         case String.split(path, "/") do
           [component_type | _rest] when component_type != "" ->
-            String.to_existing_atom(component_type)
+            case component_type do
+              "agent" -> :agent
+              "addon" -> :addon
+              _ -> nil
+            end
 
           _ ->
             nil

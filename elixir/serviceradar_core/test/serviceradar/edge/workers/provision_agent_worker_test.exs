@@ -31,10 +31,8 @@ defmodule ServiceRadar.Edge.Workers.ProvisionAgentWorkerTest do
   `%Oban.Job{}`. That keeps these tests free of Oban repo round-trips
   while still exercising the exact code path Oban would execute. The
   `Oban` instance is, however, run in `testing: :manual` mode (see
-  `config/test.exs`) so that resource after-actions which call
-  `ProvisionAgentWorker.enqueue/1` (e.g.
-  `ServiceRadar.Edge.OnboardingPackage`'s `:create` action when
-  `component_type == :agent`) do not crash.
+  `config/test.exs`) so worker behavior remains deterministic without a
+  live queue.
   """
 
   use ServiceRadar.DataCase, async: false
@@ -100,8 +98,8 @@ defmodule ServiceRadar.Edge.Workers.ProvisionAgentWorkerTest do
     } do
       pkg = create_gateway_package!(actor, u)
 
-      # Mutate via raw SQL so we bypass the `:create` after-action that
-      # enqueues ProvisionAgentWorker whenever component_type == :agent.
+      # Mutate via raw SQL so the test can construct the legacy agent row
+      # shape without exercising package creation.
       # `bad.id.with.dots` has '.' which AgentFlowCollectorPermissions
       # rejects in `safe_subject_token?/1`.
       force_agent_component!(pkg.id, "bad.id.with.dots")
@@ -328,8 +326,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionAgentWorkerTest do
 
   defp create_gateway_package!(actor, unique_id) do
     # We deliberately seed packages as :gateway so the OnboardingPackage
-    # :create after-action does NOT call ProvisionAgentWorker.enqueue/1.
-    # Tests that need an :agent row reach in via raw SQL afterwards.
+    # Agent package creation no longer enqueues this legacy worker.
     OnboardingPackage
     |> Ash.Changeset.for_create(
       :create,
@@ -347,7 +344,8 @@ defmodule ServiceRadar.Edge.Workers.ProvisionAgentWorkerTest do
   end
 
   defp force_agent_component!(package_id, component_id) do
-    # Bypass the :create after-action by writing directly to the table.
+    # Construct the legacy agent row directly so this worker test remains
+    # independent from package creation.
     # Column names mirror priv/repo/migrations/20260117090000_rebuild_schema.exs:
     # primary key column is `package_id`, not `id`.
     {:ok, uuid_bin} = Ecto.UUID.dump(package_id)

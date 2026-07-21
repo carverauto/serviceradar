@@ -189,6 +189,27 @@ fn parse_config(config_json: &[u8]) -> Result<CollectorConfig, String> {
         config.output.backend = OutputBackend::Agent;
     }
 
+    if explicit_backend
+        && config.output.backend == OutputBackend::Jetstream
+        && config.nats.is_none()
+    {
+        return Err("direct JetStream output requires an explicit local NATS endpoint".to_string());
+    }
+
+    if explicit_backend
+        && config.output.backend == OutputBackend::Jetstream
+        && config
+            .nats
+            .as_ref()
+            .and_then(|nats| nats.creds_file.as_deref())
+            .is_some_and(|path| !path.trim().is_empty())
+    {
+        return Err(
+            "direct JetStream output does not accept NATS .creds material; use assignment-scoped mTLS"
+                .to_string(),
+        );
+    }
+
     Ok(config)
 }
 
@@ -682,6 +703,7 @@ mod tests {
     fn direct_leaf_config_json() -> Vec<u8> {
         serde_json::json!({
             "output": { "backend": "jetstream" },
+            "nats": { "url": "tls://nats.edge.internal:4222" },
             "server": {
                 "bind_address": "127.0.0.1",
                 "port": 0,
@@ -753,6 +775,30 @@ mod tests {
     fn parse_config_with_explicit_jetstream_preserves_direct_leaf_backend() {
         let config = parse_config(&direct_leaf_config_json()).unwrap();
         assert_eq!(config.output.backend, OutputBackend::Jetstream);
+    }
+
+    #[test]
+    fn parse_config_rejects_direct_jetstream_without_nats_endpoint() {
+        let config = serde_json::json!({
+            "output": { "backend": "jetstream" }
+        });
+
+        let error = parse_config(config.to_string().as_bytes()).unwrap_err();
+        assert!(error.contains("requires an explicit local NATS endpoint"));
+    }
+
+    #[test]
+    fn parse_config_rejects_direct_jetstream_creds_file() {
+        let config = serde_json::json!({
+            "output": { "backend": "jetstream" },
+            "nats": {
+                "url": "tls://leaf.example:4222",
+                "creds_file": "/run/serviceradar/nats.creds"
+            }
+        });
+
+        let error = parse_config(config.to_string().as_bytes()).unwrap_err();
+        assert!(error.contains("does not accept NATS .creds"));
     }
 
     /// fj#4383 add-on config contract test: decodes the committed

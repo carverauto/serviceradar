@@ -38,15 +38,10 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     * `join_token` - The decrypted join token (reserved for future use)
     * `opts` - Additional options:
       * `:gateway_addr` - Gateway service address (default: from config)
-      * `:nats_creds` - The decrypted per-agent flow-collector
-        `nats.creds` content (B-5 sub-issue 1). When provided and the
-        package is an `:agent`, the tarball includes
-        `creds/nats.creds` (mode 0600) and the bootstrap config gains
-        `nats_creds_file` and `nats_url` fields. When `nil`, the bundle
-        is unchanged (preserves existing behavior for gateway / checker
-        / sync packages that don't publish to `flow.host-slice.*`).
-      * `:nats_url` - The NATS server URL written into the bootstrap
-        config alongside `nats_creds_file`.
+      * `:nats_creds` / `:nats_url` - Legacy options accepted for caller
+        compatibility but intentionally ignored for agent bundles. Direct
+        NATS transport belongs to an explicitly configured add-on and is not
+        part of the base agent onboarding package.
 
   ## Returns
 
@@ -59,9 +54,8 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   - `agent_id` - Component identifier used for gateway enrollment
   - `gateway_addr` - Gateway endpoint
   - `gateway_security` - mTLS credentials
-  - `nats_creds_file` / `nats_url` (agent packages only, when creds are
-    provisioned) - lets the agent's NATS client load the per-agent
-    flow-collector JWT.
+  Base agent bundles never contain NATS credentials or NATS connection
+  settings. Direct NATS transport is an explicit add-on/site configuration.
 
   All monitoring configuration (checks, schedules, etc.) is delivered
   dynamically via the `GetConfig` gRPC call after the component connects.
@@ -90,7 +84,6 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
     files =
       files ++
-        generate_nats_creds_files(package_dir, package, opts) ++
         generate_agent_override_files(package_dir, package, opts) ++
         generate_kubernetes_files(
           package_dir,
@@ -105,21 +98,6 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     # Create the tarball
     create_tar_gz(files)
   end
-
-  # Tar a per-agent flow-collector nats.creds when one is provisioned for
-  # the package (B-5 sub-issue 1). Gateway / checker / sync packages
-  # never publish to flow.host-slice.* and skip this entirely.
-  defp generate_nats_creds_files(package_dir, %OnboardingPackage{component_type: :agent}, opts) do
-    case Keyword.get(opts, :nats_creds) do
-      creds when is_binary(creds) and byte_size(creds) > 0 ->
-        [{"#{package_dir}/creds/nats.creds", creds}]
-
-      _ ->
-        []
-    end
-  end
-
-  defp generate_nats_creds_files(_package_dir, _package, _opts), do: []
 
   @doc """
   Returns the bundle filename for a package.
@@ -272,32 +250,11 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
         config
         |> Map.put("partition", partition)
         |> Map.put("host_ip", host_ip)
-        |> maybe_put_nats_creds(opts)
       else
         config
       end
 
     config
-  end
-
-  # When the agent has per-agent flow-collector creds provisioned, advertise
-  # the on-disk path and NATS URL in the bootstrap config so the agent's
-  # NATS client can call `UserCredentials(path)` against the host-slice
-  # publisher. Mirrors collector_bundle_generator's nats_creds_file pattern.
-  defp maybe_put_nats_creds(config, opts) do
-    case Keyword.get(opts, :nats_creds) do
-      creds when is_binary(creds) and byte_size(creds) > 0 ->
-        config
-        |> Map.put("nats_creds_file", "/etc/serviceradar/creds/nats.creds")
-        |> Map.put("nats_url", Keyword.get(opts, :nats_url, default_nats_url()))
-
-      _ ->
-        config
-    end
-  end
-
-  defp default_nats_url do
-    Application.get_env(:serviceradar_web_ng, :default_nats_url, "nats://127.0.0.1:4222")
   end
 
   defp generate_agent_override_files(_package_dir, _package, _opts), do: []
