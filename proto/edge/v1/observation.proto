@@ -1,0 +1,438 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+// Edge observation data plane v1 wire contracts.
+//
+// Generic transport frame (`EdgeResultFrame`) carries an opaque typed domain
+// payload; the gateway validates and republishes the frame without decoding the
+// inner message. Domain payloads are sweep observation batches, MTR trace
+// batches, and sweep execution events. See
+// openspec/changes/unify-sweep-results-proto for the normative design.
+package serviceradar.edge.v1;
+
+option go_package = "github.com/carverauto/serviceradar/proto/edge/v1;edgev1";
+
+// ---------------------------------------------------------------------------
+// Transport frame
+// ---------------------------------------------------------------------------
+
+enum EdgeResultPayloadKind {
+  EDGE_RESULT_PAYLOAD_KIND_UNSPECIFIED = 0;
+  EDGE_RESULT_PAYLOAD_KIND_SWEEP_OBSERVATION_BATCH_V1 = 1;
+  EDGE_RESULT_PAYLOAD_KIND_SWEEP_EXECUTION_EVENT_V1 = 2;
+  EDGE_RESULT_PAYLOAD_KIND_MTR_TRACE_BATCH_V1 = 3;
+  EDGE_RESULT_PAYLOAD_KIND_LEGACY_SWEEP_JSON_V0 = 4;
+  EDGE_RESULT_PAYLOAD_KIND_LEGACY_MTR_JSON_V0 = 5;
+  EDGE_RESULT_PAYLOAD_KIND_SPOOL_LOSS_TOMBSTONE_V1 = 6;
+}
+
+enum EdgeResultCompression {
+  EDGE_RESULT_COMPRESSION_NONE = 0;
+  EDGE_RESULT_COMPRESSION_ZSTD = 1;
+}
+
+enum EdgeResultAuthorizationKind {
+  EDGE_RESULT_AUTHORIZATION_KIND_UNSPECIFIED = 0;
+  EDGE_RESULT_AUTHORIZATION_KIND_SWEEP_ASSIGNMENT = 1;
+  EDGE_RESULT_AUTHORIZATION_KIND_SCHEDULED_CHECK = 2;
+  EDGE_RESULT_AUTHORIZATION_KIND_COMMAND = 3;
+  EDGE_RESULT_AUTHORIZATION_KIND_SPOOL_RECOVERY = 4;
+}
+
+enum EdgeResultTrafficClass {
+  EDGE_RESULT_TRAFFIC_CLASS_UNSPECIFIED = 0;
+  EDGE_RESULT_TRAFFIC_CLASS_BULK = 1;
+  EDGE_RESULT_TRAFFIC_CLASS_INTERACTIVE = 2;
+}
+
+// EdgeResultFrame is the generic transport envelope. The gateway validates it
+// without decoding `payload`, stamps authoritative broker headers, and
+// publishes the inner bytes unchanged. UUID-backed identifiers are canonical
+// 16-byte values.
+message EdgeResultFrame {
+  bytes spool_id = 1;                  // persistent UUID for one delivery lane
+  uint64 sequence = 2;                 // persistent, strictly increasing per lane
+  bytes event_id = 3;                  // stable (UUIDv7) across every retry
+  EdgeResultPayloadKind payload_kind = 4;
+  uint32 schema_version = 5;
+  EdgeResultCompression compression = 6;
+  uint32 encoded_size = 7;
+  uint32 uncompressed_size = 8;
+  bytes payload_sha256 = 9;            // SHA-256 of encoded payload bytes
+  bytes execution_id = 10;             // bounded routing/correlation hint (UUID)
+  uint32 execution_shard = 11;
+  optional uint64 assignment_epoch = 12;
+  bytes collection_capability = 13;    // signed permission valid at collection
+  uint32 projected_row_count = 14;     // verified downstream upper-bound hint
+  bytes payload = 15;                  // canonical domain protobuf bytes
+  EdgeResultAuthorizationKind authorization_kind = 16;
+  bytes authorization_context_id = 17;
+  bytes target_range_id = 18;
+  bytes target_range_sha256 = 19;
+  bytes delivery_capability = 20;      // renewable permission to drain old data
+  uint64 projected_write_bytes = 21;   // conservative SQL/index/WAL byte cost
+  uint32 cost_model_version = 22;
+  bytes network_scope_id = 23;         // signed site/address-space namespace (UUID)
+  EdgeResultTrafficClass traffic_class = 24;
+}
+
+enum EdgeResultDispositionKind {
+  EDGE_RESULT_DISPOSITION_KIND_UNSPECIFIED = 0;
+  EDGE_RESULT_DISPOSITION_KIND_ACCEPTED = 1;
+  EDGE_RESULT_DISPOSITION_KIND_REJECTED = 2;
+}
+
+message EdgeResultDisposition {
+  uint64 sequence = 1;
+  bytes event_id = 2;
+  EdgeResultDispositionKind kind = 3;
+  string rejection_code = 4;
+}
+
+// EdgeResultLaneKind identifies a durable delivery lane. Each lane has its own
+// spool, sequence space, and flow-control credits; bulk/interactive/recovery
+// lanes use separately pooled connections so one class cannot starve another.
+enum EdgeResultLaneKind {
+  EDGE_RESULT_LANE_KIND_UNSPECIFIED = 0;
+  EDGE_RESULT_LANE_KIND_SWEEP_BULK = 1;
+  EDGE_RESULT_LANE_KIND_SWEEP_INTERACTIVE = 2;
+  EDGE_RESULT_LANE_KIND_MTR_BULK = 3;
+  EDGE_RESULT_LANE_KIND_MTR_INTERACTIVE = 4;
+  EDGE_RESULT_LANE_KIND_RECOVERY_CONTROL = 5;
+}
+
+// EdgeResultLaneOpen is the agent's opening handshake for a lane. The
+// `session_nonce` fences this sender session: the gateway echoes it in
+// EdgeResultLaneOpenAck and stamps it on every EdgeResultAck, so the agent can
+// reject dispositions from a stale/replaced session. Sequences start at one;
+// `first_unresolved_sequence` lets a replacement gateway rebuild a resolved
+// prefix without private ACK state.
+message EdgeResultLaneOpen {
+  bytes spool_id = 1;
+  EdgeResultLaneKind lane_kind = 2;
+  uint64 sequence_base = 3;              // MUST be 1
+  uint64 first_unresolved_sequence = 4;
+  bytes session_nonce = 5;               // fresh random per session
+  uint64 requested_byte_credits = 6;
+  uint32 requested_frame_credits = 7;
+}
+
+message EdgeResultLaneOpenAck {
+  bytes spool_id = 1;
+  bytes session_nonce = 2;               // echoes EdgeResultLaneOpen.session_nonce
+  uint64 granted_byte_credits = 3;
+  uint32 granted_frame_credits = 4;
+}
+
+// EdgeResultAck is the cumulative gateway->agent disposition report over one
+// lane. `resolved_through_sequence` advances only across a contiguous run whose
+// acceptances each have a JetStream PubAck and whose rejections each have an
+// audit/DLQ PubAck. `session_nonce` binds the ACK to the current sender session;
+// an agent MUST ignore an ACK whose nonce does not match its active session.
+message EdgeResultAck {
+  bytes spool_id = 1;
+  uint64 resolved_through_sequence = 2;
+  repeated EdgeResultDisposition dispositions = 3;
+  bytes session_nonce = 4;
+}
+
+// SpoolLossTombstoneV1 is a signed, bounded record that a contiguous range of a
+// prior spool generation was lost (disk corruption, torn tail) and re-enqueued
+// under a new spool generation. It is the payload for
+// EDGE_RESULT_PAYLOAD_KIND_SPOOL_LOSS_TOMBSTONE_V1 and travels on the reserved
+// recovery-control lane. It never enumerates an outage-sized tail; the affected
+// coverage is marked partial and rescheduled.
+message SpoolLossTombstoneV1 {
+  bytes recovery_id = 1;                  // UUIDv7, immutably binds the rollover
+  bytes prior_spool_id = 2;
+  uint64 lost_from_sequence = 3;
+  uint64 lost_through_sequence = 4;
+  bytes new_spool_id = 5;
+  bytes manifest_sha256 = 6;              // digest of the bounded loss manifest
+  bool coarsened = 7;                     // manifest coarsened to a conservative scope
+  int64 detected_at_unix_nano = 8;
+}
+
+// ---------------------------------------------------------------------------
+// Shared sweep/MTR enums
+// ---------------------------------------------------------------------------
+
+enum SweepMode {
+  SWEEP_MODE_UNSPECIFIED = 0;
+  SWEEP_MODE_ICMP = 1;
+  SWEEP_MODE_TCP_SYN = 2;
+  SWEEP_MODE_TCP_CONNECT = 3;
+  SWEEP_MODE_MTR = 4;
+}
+
+// SweepModeBit gives the power-of-two bit positions used by the
+// `result_mode_bits` and `configured_mode_bits` bitmask fields. A bitmask is
+// the bitwise OR of these values; do NOT use `SweepMode` enum ordinals as bit
+// positions (they are not powers of two). TCP SYN and TCP connect are distinct
+// bits so a host that ran both is unambiguous.
+enum SweepModeBit {
+  SWEEP_MODE_BIT_UNSPECIFIED = 0;
+  SWEEP_MODE_BIT_ICMP = 1;
+  SWEEP_MODE_BIT_TCP_SYN = 2;
+  SWEEP_MODE_BIT_TCP_CONNECT = 4;
+  SWEEP_MODE_BIT_MTR = 8;
+}
+
+enum TransportProtocol {
+  TRANSPORT_PROTOCOL_UNSPECIFIED = 0;
+  TRANSPORT_PROTOCOL_ICMP = 1;
+  TRANSPORT_PROTOCOL_TCP = 2;
+  TRANSPORT_PROTOCOL_UDP = 3;
+}
+
+// SweepModeOutcome is the explicit per-mode terminal state. There is no
+// fragment-global availability boolean; the projector derives availability from
+// the latest revision of every reported mode against the plan's policy.
+enum SweepModeOutcome {
+  SWEEP_MODE_OUTCOME_UNSPECIFIED = 0;
+  SWEEP_MODE_OUTCOME_SUCCESS = 1;
+  SWEEP_MODE_OUTCOME_FAILURE = 2;
+  SWEEP_MODE_OUTCOME_SKIPPED = 3;
+  SWEEP_MODE_OUTCOME_NOT_ADMITTED = 4;
+  SWEEP_MODE_OUTCOME_TIMED_OUT = 5;
+  SWEEP_MODE_OUTCOME_UNKNOWN = 6;
+}
+
+enum MtrOutcome {
+  MTR_OUTCOME_UNSPECIFIED = 0;
+  MTR_OUTCOME_REACHED = 1;
+  MTR_OUTCOME_TARGET_UNREACHABLE = 2;
+  MTR_OUTCOME_PROBE_FAILED = 3;
+  MTR_OUTCOME_TIMED_OUT = 4;
+  MTR_OUTCOME_NOT_ADMITTED = 5;
+  MTR_OUTCOME_QUARANTINED = 6;
+  MTR_OUTCOME_SCHEDULER_LOST = 7;
+}
+
+// SweepExecutionSource names what produced an observation. It covers sweep
+// executions (scheduled sweep, sweep profile) and the non-sweep MTR producers
+// (scheduled MTR check, ad-hoc scan, on-demand command). `SCHEDULED_CHECK` is
+// the standalone MTR-check producer whose correlation key is `check_id`.
+enum SweepExecutionSource {
+  SWEEP_EXECUTION_SOURCE_UNSPECIFIED = 0;
+  SWEEP_EXECUTION_SOURCE_SCHEDULED_SWEEP = 1;
+  SWEEP_EXECUTION_SOURCE_SWEEP_PROFILE = 2;
+  SWEEP_EXECUTION_SOURCE_AD_HOC = 3;
+  SWEEP_EXECUTION_SOURCE_ON_DEMAND = 4;
+  SWEEP_EXECUTION_SOURCE_SCHEDULED_CHECK = 5;
+}
+
+// ---------------------------------------------------------------------------
+// Sweep observation batch (ICMP/TCP + small MTR summary)
+// ---------------------------------------------------------------------------
+
+message SweepTestV1 {
+  SweepMode mode = 1;
+  TransportProtocol protocol = 2;
+  uint32 port = 3;
+}
+
+// SweepObservationBatchV1 is a byte-bounded batch whose hosts all share the
+// exact same attempted check set (`tested_checks`). Batch-level modes and
+// timestamps avoid repeated per-host strings/absolutes; plan/range IDs and
+// digests replace repeated target enumeration.
+message SweepObservationBatchV1 {
+  bytes execution_id = 1;
+  bytes sweep_group_id = 2;
+  uint32 execution_shard = 3;
+  uint64 assignment_epoch = 4;
+  uint64 batch_sequence = 5;
+  int64 observed_at_unix_nano = 6;
+  bytes execution_plan_id = 7;
+  bytes execution_plan_sha256 = 8;
+  bytes target_range_id = 9;
+  bytes target_range_sha256 = 10;
+  repeated SweepTestV1 tested_checks = 11; // exact set shared by every host
+  uint32 configured_mode_bits = 12;
+  bytes availability_policy_id = 13;
+  SweepExecutionSource source = 14;
+  bytes source_run_id = 15;                // e.g. ad-hoc scan_run_id (UUID)
+  repeated SweepHostObservationV1 hosts = 16;
+}
+
+// SweepHostObservationV1 is a mergeable terminal-mode fragment for one host.
+// `result_mode_bits` names the modes this fragment carries; `mode_revision` is
+// compared independently per named mode so a newer MTR fragment never
+// suppresses an unseen older ICMP/TCP fragment.
+message SweepHostObservationV1 {
+  bytes address = 1;                  // exactly 4 or 16 bytes
+  string hostname = 2;
+  sint64 observed_at_delta_nano = 3;  // probe completion vs batch timestamp
+  sint64 first_seen_delta_nano = 4;
+  sint64 last_seen_delta_nano = 5;
+  uint32 result_mode_bits = 6;        // terminal modes carried by this fragment
+  uint32 mode_revision = 7;
+  optional SweepIcmpSummaryV1 icmp = 8;
+  optional SweepTcpSummaryV1 tcp = 9;
+  repeated SweepOpenPortV1 open_ports = 10;
+  repeated SweepPortErrorV1 port_errors = 11;
+  optional SweepMtrSummaryV1 mtr = 12;
+}
+
+message SweepIcmpSummaryV1 {
+  SweepModeOutcome outcome = 1;
+  bool target_reached = 2;
+  optional uint64 round_trip_micro = 3;   // absent != measured zero
+  optional double packet_loss_pct = 4;
+  uint32 sent = 5;
+  uint32 received = 6;
+}
+
+// SweepTcpSummaryV1 distinguishes all-closed, skipped, incomplete, and failed
+// scanning; the open-port list carries positive results without repeating a
+// closed object per host/check pair.
+message SweepTcpSummaryV1 {
+  SweepModeOutcome outcome = 1;
+  uint32 tested_count = 2;
+  uint32 open_count = 3;
+}
+
+message SweepOpenPortV1 {
+  uint32 tested_check_index = 1;          // index into batch tested_checks
+  optional uint64 response_time_nano = 2;
+  string service = 3;
+}
+
+message SweepPortErrorV1 {
+  uint32 tested_check_index = 1;
+  string error_code = 2;
+}
+
+// SweepMtrSummaryV1 is the small reachability outcome carried in a sweep host
+// observation; the complete per-hop trace is a separate correlated
+// MtrTraceEventV1 keyed by `trace_id`.
+message SweepMtrSummaryV1 {
+  bytes trace_id = 1;                      // UUIDv7
+  MtrOutcome outcome = 2;
+  bool target_reached = 3;
+  optional uint64 final_rtt_micro = 4;
+  optional double packet_loss_pct = 5;
+  uint32 total_hops = 6;
+  string error_code = 7;
+}
+
+// ---------------------------------------------------------------------------
+// MTR trace batch (full per-hop traces)
+// ---------------------------------------------------------------------------
+
+message MtrMplsLabelV1 {
+  uint32 label = 1;
+  uint32 experimental = 2;
+  bool bottom_of_stack = 3;
+  uint32 ttl = 4;
+}
+
+message MtrTraceHopV1 {
+  uint32 hop_number = 1;
+  bytes address = 2;                      // 4 or 16 bytes; empty if unknown
+  string hostname = 3;
+  repeated bytes ecmp_addresses = 4;
+  repeated MtrMplsLabelV1 mpls_labels = 5;
+  uint32 asn = 6;                         // nonnegative 32-bit ASN
+  string asn_org = 7;
+  uint32 sent = 8;
+  uint32 received = 9;
+  double loss_pct = 10;
+  optional uint64 last_micro = 11;        // presence: absent != measured zero
+  optional uint64 avg_micro = 12;
+  optional uint64 min_micro = 13;
+  optional uint64 max_micro = 14;
+  optional uint64 stddev_micro = 15;
+  optional uint64 jitter_micro = 16;
+  optional uint64 jitter_worst_micro = 17;
+  optional uint64 jitter_interarrival_micro = 18;
+}
+
+// MtrTraceEventV1 is one complete trace. Every event in a batch shares the
+// frame's authenticated scope/agent/source/authorization/execution context.
+message MtrTraceEventV1 {
+  bytes trace_id = 1;                      // UUIDv7 allocated before probing
+  bytes event_id = 2;                      // UUIDv7
+  SweepExecutionSource source = 3;
+  bytes sweep_execution_id = 4;            // when source == sweep
+  bytes sweep_host_address = 5;            // correlation to sweep host (4/16)
+  bytes check_id = 6;                      // when source == scheduled_check
+  bytes command_id = 7;                    // when source == on_demand
+  bytes device_hint = 8;
+  bytes scan_run_id = 9;                   // when source == ad_hoc
+  int64 observed_at_unix_nano = 10;
+  bool attempted = 11;
+  MtrOutcome outcome = 12;
+  string error_code = 13;
+  string target = 14;
+  bytes resolved_address = 15;             // 4 or 16 bytes
+  TransportProtocol protocol = 16;
+  uint32 ip_version = 17;
+  uint32 packet_size = 18;
+  bool target_reached = 19;
+  uint32 total_hops = 20;
+  repeated MtrTraceHopV1 hops = 21;
+}
+
+message MtrTraceBatchV1 {
+  bytes network_scope_id = 1;
+  bytes agent_id = 2;
+  SweepExecutionSource source = 3;
+  uint64 batch_sequence = 4;
+  repeated MtrTraceEventV1 traces = 5;
+}
+
+// ---------------------------------------------------------------------------
+// Sweep execution lifecycle events
+// ---------------------------------------------------------------------------
+
+enum SweepExecutionEventKind {
+  SWEEP_EXECUTION_EVENT_KIND_UNSPECIFIED = 0;
+  SWEEP_EXECUTION_EVENT_KIND_START = 1;
+  SWEEP_EXECUTION_EVENT_KIND_PROGRESS = 2;
+  SWEEP_EXECUTION_EVENT_KIND_COMPLETED = 3;
+  SWEEP_EXECUTION_EVENT_KIND_ABORTED = 4;
+}
+
+// SweepExecutionEventV1 is per-assignment-attempt evidence. Terminal evidence
+// closes `[1, terminal_batch_sequence]` and carries cumulative counts and the
+// expected/emitted MTR summary+trace counts/digests for reconciliation against
+// the immutable plan.
+message SweepExecutionEventV1 {
+  bytes execution_id = 1;
+  uint32 execution_shard = 2;
+  uint64 assignment_epoch = 3;
+  bytes execution_plan_id = 4;
+  bytes execution_plan_sha256 = 5;
+  bytes target_range_id = 6;
+  SweepExecutionEventKind kind = 7;
+  int64 emitted_at_unix_nano = 8;
+  uint64 terminal_batch_sequence = 9;     // 0 == empty interval; terminal events only
+  // durable_through_batch_sequence is the contiguous durable-prefix watermark:
+  // every batch_sequence in [1, durable_through_batch_sequence] has a
+  // gateway-confirmed PubAck. PROGRESS events carry this so reconciliation can
+  // distinguish scanned progress from what is durably ingested; it is monotonic
+  // and never exceeds terminal_batch_sequence on a terminal event.
+  uint64 durable_through_batch_sequence = 16;
+  uint64 hosts_observed = 10;
+  uint64 hosts_available = 11;
+  uint64 expected_mtr_traces = 12;
+  uint64 emitted_mtr_traces = 13;
+  bytes mtr_completion_digest = 14;       // order-independent plan-order proof
+  string abort_reason = 15;
+}
