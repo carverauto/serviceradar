@@ -20,7 +20,7 @@ defmodule ServiceRadarAgentGateway.EdgeResultRelay do
   alias Serviceradar.Edge.V1.EdgeResultFrame
   alias Serviceradar.Edge.V1.EdgeResultLaneOpen
   alias Serviceradar.Edge.V1.EdgeResultLaneOpenAck
-  alias ServiceRadarAgentGateway.EdgeDigest
+  alias ServiceRadarAgentGateway.EdgeHeaders
   alias ServiceRadarAgentGateway.EdgePrefix
   alias ServiceRadarAgentGateway.EdgeRoute
   alias ServiceRadarAgentGateway.JetStreamPublisher
@@ -108,13 +108,13 @@ defmodule ServiceRadarAgentGateway.EdgeResultRelay do
   defp publish_frame(s, f) do
     lane = EdgeRoute.lane_for(f.payload_kind, f.traffic_class)
     partition = EdgeRoute.partition(f.network_scope_id || "")
-    msg_id = EdgeDigest.msg_id(s.identity, f)
     payload = f.payload || ""
 
     subject = EdgeRoute.data_subject(lane, partition)
-    headers = [{"Nats-Msg-Id", msg_id}, {"Nats-Expected-Stream", EdgeRoute.physical_stream(lane)}]
+    # Canonical broker headers carry the immutable semantic envelope out-of-band,
+    # since the inner payload bytes are published verbatim (task 3.4/1.5).
+    headers = EdgeHeaders.build(s.identity, f, EdgeRoute.physical_stream(lane))
 
-    # Publish the inner protobuf bytes verbatim (task 3.4: no domain decode/re-encode).
     case s.publisher.publish(subject, payload, headers) do
       {:ok, _pub_ack} ->
         resolve(s, f.sequence, :accepted)
@@ -123,18 +123,15 @@ defmodule ServiceRadarAgentGateway.EdgeResultRelay do
         if JetStreamPublisher.retryable?(class) do
           {:ok, :withhold, s}
         else
-          dead_letter(s, f, lane, partition, msg_id, payload, class)
+          dead_letter(s, f, lane, partition, payload, class)
         end
     end
   end
 
-  defp dead_letter(s, f, lane, partition, msg_id, payload, class) do
+  defp dead_letter(s, f, lane, partition, payload, class) do
     subject = EdgeRoute.dlq_subject(lane, partition)
-
-    headers = [
-      {"Nats-Msg-Id", msg_id},
-      {"Nats-Expected-Stream", EdgeRoute.physical_dlq_stream(lane)}
-    ]
+    # DLQ preserves the same envelope headers; only the expected stream changes.
+    headers = EdgeHeaders.build(s.identity, f, EdgeRoute.physical_dlq_stream(lane))
 
     case s.publisher.publish(subject, payload, headers) do
       {:ok, _pub_ack} -> resolve(s, f.sequence, :rejected, to_string(class))
