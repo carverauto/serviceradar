@@ -30,25 +30,25 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
   @credential_kind ~r/\A[a-z][a-z0-9_.-]{0,63}\z/
   @callback_action ~r/\A[a-z][a-z0-9_.:-]{0,127}\z/
   @callback_slot ~r/\A[a-z][a-z0-9_.-]{0,63}\z/
-  @input_types ["text", "textarea", "integer", "float", "select", "multiselect"]
-  @input_definition_keys [
-    "type",
-    "required",
-    "choices",
-    "min",
-    "max",
-    "label",
-    "help"
-  ]
-  @classifications ["public", "internal"]
-  @review_metadata_keys [
-    "review_ticket",
-    "awx_snapshot_digest",
-    "policy_version",
-    "source_ref",
-    "callback_contract",
-    "dispatch_marker_contract"
-  ]
+  @input_types MapSet.new(["text", "textarea", "integer", "float", "select", "multiselect"])
+  @input_definition_keys MapSet.new([
+                           "type",
+                           "required",
+                           "choices",
+                           "min",
+                           "max",
+                           "label",
+                           "help"
+                         ])
+  @classifications MapSet.new(["public", "internal"])
+  @review_metadata_keys MapSet.new([
+                          "review_ticket",
+                          "awx_snapshot_digest",
+                          "policy_version",
+                          "source_ref",
+                          "callback_contract",
+                          "dispatch_marker_contract"
+                        ])
 
   postgres do
     table "ansible_awx_template_bindings"
@@ -534,7 +534,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
       kind = map_value(ref, :kind)
       keys = map_keys(ref)
 
-      if keys == ["id", "kind"] and unique_normalized_map_keys?(ref) and
+      if keys == MapSet.new(["id", "kind"]) and unique_normalized_map_keys?(ref) and
            is_integer(id) and id > 0 and is_binary(kind) and
            Regex.match?(@credential_kind, kind) do
         {:cont, {:ok, [%{"id" => id, "kind" => kind} | acc]}}
@@ -623,10 +623,10 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
         {:error, :input_schema, "contains a secret, magic, transport, or reserved input name"}
 
       not is_map(definition) or not unique_normalized_map_keys?(definition) or
-          not keys_subset?(map_keys(definition), @input_definition_keys) ->
+          not MapSet.subset?(map_keys(definition), @input_definition_keys) ->
         {:error, :input_schema, "definitions contain unreviewed keys"}
 
-      type not in @input_types ->
+      not MapSet.member?(@input_types, type) ->
         {:error, :input_schema, "definitions must use supported non-secret types"}
 
       not is_nil(required) and not is_boolean(required) ->
@@ -651,12 +651,12 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
   end
 
   defp input_classifications(schema, classifications) when is_map(classifications) do
-    schema_keys = map_keys(schema)
-    classification_keys = map_keys(classifications)
+    schema_keys = schema |> Map.keys() |> MapSet.new(&to_string/1)
+    classification_keys = classifications |> Map.keys() |> MapSet.new(&to_string/1)
 
     valid_values? =
       Enum.all?(classifications, fn {_name, classification} ->
-        classification in @classifications
+        MapSet.member?(@classifications, classification)
       end)
 
     if unique_normalized_map_keys?(classifications) and schema_keys == classification_keys and
@@ -716,13 +716,14 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
   defp validate_callback_launch_contract(changeset, []) do
     metadata = attribute(changeset, :review_metadata)
 
-    if is_map(metadata) and not key_member?(map_keys(metadata), "callback_contract"),
-      do: :ok,
-      else:
-        invalid(
-          :review_metadata,
-          "cannot retain a callback launch contract when callback actions are empty"
-        )
+    if is_map(metadata) and
+         not MapSet.member?(map_keys(metadata), "callback_contract"),
+       do: :ok,
+       else:
+         invalid(
+           :review_metadata,
+           "cannot retain a callback launch contract when callback actions are empty"
+         )
   end
 
   defp validate_callback_launch_contract(changeset, actions) do
@@ -751,7 +752,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
     snapshot_digest = map_value(metadata, :awx_snapshot_digest)
 
     cond do
-      not is_map(metadata) or not keys_subset?(map_keys(metadata), @review_metadata_keys) ->
+      not is_map(metadata) or not MapSet.subset?(map_keys(metadata), @review_metadata_keys) ->
         invalid(:review_metadata, "must contain only reviewed non-secret metadata fields")
 
       not unique_normalized_map_keys?(metadata) ->
@@ -904,28 +905,13 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
 
   defp map_value(_map, _key), do: nil
 
-  # Prefer sorted string lists over MapSet for key-set checks. Compile-time
-  # MapSet expansions and MapSet.new/1 success typing trip Dialyzer opacity
-  # under OTP 28 when passed to MapSet.member?/subset?/size.
-  defp map_keys(map) when is_map(map),
-    do: map |> Map.keys() |> Enum.map(&to_string/1) |> Enum.sort()
+  defp map_keys(map) when is_map(map), do: map |> Map.keys() |> MapSet.new(&to_string/1)
+  defp map_keys(_map), do: MapSet.new()
 
-  defp map_keys(_map), do: []
-
-  defp unique_normalized_map_keys?(map) when is_map(map) do
-    keys = map |> Map.keys() |> Enum.map(&to_string/1)
-    length(keys) == map_size(map) and length(Enum.uniq(keys)) == length(keys)
-  end
+  defp unique_normalized_map_keys?(map) when is_map(map),
+    do: map_size(map) == MapSet.size(map_keys(map))
 
   defp unique_normalized_map_keys?(_map), do: false
-
-  defp keys_subset?(actual_keys, allowed_keys)
-       when is_list(actual_keys) and is_list(allowed_keys) do
-    allowed = MapSet.new(allowed_keys)
-    Enum.all?(actual_keys, &MapSet.member?(allowed, &1))
-  end
-
-  defp key_member?(keys, key) when is_list(keys), do: key in keys
 
   defp invalid(field, message), do: {:error, field: field, message: message}
 end

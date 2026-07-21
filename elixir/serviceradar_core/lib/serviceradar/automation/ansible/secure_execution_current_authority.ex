@@ -308,10 +308,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthority do
 
   defp exact_approval_snapshot(snapshot, binding, now, phase) do
     with true <-
-           MapSet.equal?(
-             MapSet.new(Map.keys(snapshot)),
-             MapSet.new(Enum.to_list(@approval_snapshot_keys))
-           ) ||
+           MapSet.new(Map.keys(snapshot)) == @approval_snapshot_keys ||
              {:error, :approval_changed},
          true <-
            to_string(snapshot["binding_id"]) == to_string(value(binding, :id)) ||
@@ -440,7 +437,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthority do
     |> Enum.reduce_while({:ok, []}, fn credential, {:ok, acc} ->
       normalized = stringify(credential)
 
-      if MapSet.equal?(MapSet.new(Map.keys(normalized)), MapSet.new(["id", "kind"])) and
+      if MapSet.new(Map.keys(normalized)) == MapSet.new(["id", "kind"]) and
            is_integer(normalized["id"]) and normalized["id"] > 0 and
            is_binary(normalized["kind"]) do
         {:cont, {:ok, [normalized | acc]}}

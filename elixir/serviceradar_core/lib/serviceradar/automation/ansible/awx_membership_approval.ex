@@ -116,8 +116,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipApproval do
 
   defp normalize_request(request) do
     with {:ok, request} <- normalize_keys(request),
-         true <-
-           MapSet.equal?(MapSet.new(Map.keys(request)), MapSet.new(Enum.to_list(@request_keys))),
+         true <- MapSet.new(Map.keys(request)) == @request_keys,
          {:ok, membership_id} <- canonical_uuid(request["membership_id"]),
          {:ok, controller_id} <- canonical_uuid(request["controller_id"]),
          {:ok, inventory_id} <- positive_integer(request["inventory_id"]),
@@ -278,11 +277,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipApproval do
 
     with true <- is_map(evidence),
          {:ok, evidence} <- normalize_keys(evidence),
-         true <-
-           MapSet.equal?(
-             MapSet.new(Map.keys(evidence)),
-             MapSet.new(Enum.to_list(@source_evidence_keys))
-           ),
+         true <- MapSet.new(Map.keys(evidence)) == @source_evidence_keys,
          true <- evidence["kind"] == "stored_awx_source_tuple",
          true <- canonical_string(evidence["controller_id"]) == request.controller_id,
          true <- evidence["inventory_id"] == request.inventory_id,

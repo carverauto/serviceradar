@@ -426,4 +426,6 @@ defmodule ServiceRadar.PrefixTags.Manual do
   defp page_results(%Ash.Page.Keyset{results: results}), do: results
   defp page_results(%Ash.Page.Offset{results: results}), do: results
   defp page_results(list) when is_list(list), do: list
+  defp page_results(%{results: results}) when is_list(results), do: results
+  defp page_results(other), do: List.wrap(other)
 end

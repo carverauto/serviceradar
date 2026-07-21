@@ -25,13 +25,12 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   Returns the resolved device ID (either existing or newly generated).
   """
   @spec resolve_device_id(Ids.device_update(), keyword()) :: {:ok, String.t()} | {:error, term()}
-  def resolve_device_id(update, opts \\ []) when is_map(update) do
+  def resolve_device_id(update, opts \\ []) do
     actor = Keyword.get(opts, :actor)
-    device_id = Map.get(update, :device_id)
 
     # Skip service component IDs
-    if Ids.service_device_id?(device_id) do
-      {:ok, device_id}
+    if Ids.service_device_id?(update.device_id) do
+      {:ok, update.device_id}
     else
       do_resolve_device_id(update, actor)
     end
@@ -39,10 +38,9 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
 
   defp do_resolve_device_id(update, actor) do
     ids = Ids.extract_strong_identifiers(update)
-    preferred_device_id = Map.get(update, :device_id)
 
     # Step 1: Lookup by strong identifiers (merge conflicts if multiple IDs found)
-    case lookup_by_strong_identifiers(ids, actor, preferred_device_id) do
+    case lookup_by_strong_identifiers(ids, actor, update.device_id) do
       {:ok, device_id} when is_binary(device_id) and device_id != "" ->
         _ = AliasGuard.maybe_merge_ip_alias_device(device_id, ids, actor)
         {:ok, device_id}
@@ -53,19 +51,17 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   end
 
   defp resolve_fallback_device_id(update, ids, actor) do
-    device_id = Map.get(update, :device_id)
-
     cond do
-      Ids.serviceradar_uuid?(device_id) ->
-        {:ok, follow_canonical_device_id(device_id, actor)}
+      Ids.serviceradar_uuid?(update.device_id) ->
+        {:ok, follow_canonical_device_id(update.device_id, actor)}
 
       Ids.has_strong_identifier?(ids) ->
         {:ok, follow_canonical_device_id(Ids.generate_deterministic_device_id(ids), actor)}
 
       true ->
         case lookup_by_ip(ids, actor) do
-          {:ok, resolved_id} when is_binary(resolved_id) and resolved_id != "" ->
-            {:ok, resolved_id}
+          {:ok, device_id} when is_binary(device_id) and device_id != "" ->
+            {:ok, device_id}
 
           _ ->
             {:ok, follow_canonical_device_id(Ids.generate_deterministic_device_id(ids), actor)}

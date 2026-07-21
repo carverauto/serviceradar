@@ -18,9 +18,7 @@ defmodule ServiceRadar.SPIFFE.WorkloadAPI do
 
     with {:ok, socket_path} <- workload_api_socket_path(socket),
          true <- File.exists?(socket_path) || {:error, {:workload_api_unavailable, socket_path}} do
-      # Variable-module apply keeps Dialyzer from collapsing GRPC.Stub.connect/2
-      # to error-only success typing (which would mark the whole SVID surface dead).
-      case grpc_connect(target, timeout) do
+      case GRPC.Stub.connect(target, adapter_opts: [connect_timeout: timeout]) do
         {:ok, channel} ->
           try do
             with {:ok, response} <- fetch_first_response(channel, timeout),
@@ -42,11 +40,6 @@ defmodule ServiceRadar.SPIFFE.WorkloadAPI do
       {:error, _reason} = error -> error
       other -> {:error, other}
     end
-  end
-
-  defp grpc_connect(target, timeout) do
-    stub = GRPC.Stub
-    apply(stub, :connect, [target, [adapter_opts: [connect_timeout: timeout]]])
   end
 
   defp fetch_first_response(channel, timeout) do

@@ -93,9 +93,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.RuntimeConfig do
          true <- is_binary(host) and host != "" and not Regex.match?(~r/\s/u, host),
          true <- is_integer(port) and port in 1..65_535,
          true <- path in [nil, ""],
-         # Build the origin string manually. Hand-built %URI{} structs leave
-         # authority as nil and trip Dialyzer's opaque URI.authority/0 checks.
-         canonical = https_origin(host, port),
+         canonical =
+           URI.to_string(%URI{scheme: "https", host: String.downcase(host), port: port}),
          true <- byte_size(canonical) <= @max_callback_origin_bytes do
       {:ok, canonical}
     else
@@ -104,12 +103,6 @@ defmodule ServiceRadar.Automation.CallbackGrants.RuntimeConfig do
   end
 
   def canonical_callback_origin(_origin), do: {:error, :automation_callback_origin_unavailable}
-
-  defp https_origin(host, port) when is_binary(host) and is_integer(port) do
-    host = String.downcase(host)
-    authority = if String.contains?(host, ":"), do: "[#{host}]:#{port}", else: "#{host}:#{port}"
-    "https://#{authority}"
-  end
 
   @spec configured_callback_origin() :: {:ok, binary()} | {:error, atom()}
   def configured_callback_origin do
