@@ -47,6 +47,30 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   straight in a hypertable is invisible to every real-time consumer (anomaly
   detection, the causal engine) until it is queried back out. Keeping all metrics
   on JetStream first makes every stream subscribable.
+- **Never degrade production code to silence Dialyzer (or similar type checkers).**
+  Idiomatic, readable APIs beat warning-count optimization. Do **not** introduce
+  runtime shape hacks, opacity barriers, or non-idiomatic call patterns whose only
+  purpose is to make Dialyzer happy. Forbidden patterns include (non-exhaustive):
+  - `:erlang.apply(MapSet, :new, …)` / `apply(Mod, :fun, …)` / variable-module
+    `apply` solely to hide success typing
+  - “opaque_call” / 0-arity fun wrappers / `:erlang.binary_to_term(term_to_binary(…))`
+    barriers around otherwise normal calls
+  - Rewriting clear `MapSet` / `URI` / gRPC / Ash call sites into obscure forms to
+    dodge opaque-type or error-only success typing noise
+  - Broad “fix everything Dialyzer mentions” sweeps that churn APIs without a
+    product or correctness win
+
+  **Allowed approaches, in order:**
+  1. Fix a real bug or wrong typespec with a clean, idiomatic change (and tests
+     when behavior changes).
+  2. Leave a false positive alone, or add a **narrow, documented** entry in the
+     project’s `.dialyzer_ignore.exs` (file + warning kind or short description —
+     never directory-wide suppressions).
+  3. If Dialyxir cannot render a warning kind (e.g. `:opaque_compare`), report or
+     work around the **formatter**, do not reshape application code for it.
+
+  Historical note: PR #4677 chased Dialyzer counts with apply/opaque barriers and
+  MapSet churn; it was fully reverted in #4679. Do not reintroduce that style.
 
 # Codex Agent Guide for ServiceRadar
 
@@ -104,6 +128,7 @@ Prefer Socket Firewall for supported dependency-fetching commands. Prefix JavaSc
 
 - **Go**: run `gofmt` on modified files; keep imports organized; favor existing helper utilities in `pkg/`. Avoid introducing new dependencies without updating `go.mod` and Bazel `MODULE.bazel`/`MODULE.bazel.lock` if required.
 - **Rust**: run `cargo fmt` + `cargo clippy` on touched crates (notably `rust/srql`); leverage existing Diesel helpers + CNPG pooling utilities before adding new abstractions.
+- **Elixir / Dialyzer**: prefer idiomatic Elixir (`MapSet.new/1`, direct `GRPC.Stub.connect/2`, normal Ash reads). Treat Dialyzer as advisory for false positives (opaque types, incomplete PLT success typing). See **Hard Rules** — never degrade APIs to silence the type checker. Use `mix dialyzer --format dialyzer` when Dialyxir short format crashes on unknown warning kinds.
 - **Docs**: place new operational runbooks under `docs/docs/`; keep Markdown ASCII only.
 - **Causal / statistical / streaming-anomaly reasoning**: use the **DeepCausality** library (`deep_causality_core` Flow API plus `deep_causality_data_structures` `SlidingWindow`; source at `~/src/deep_causality`), wrapped by the project-owned **`serviceradar-anomaly-core`** crate (`rust/anomaly-core`). DeepCausality is authored by Marvin Hansen, who guides ServiceRadar's anomaly-engine design. **Do not hand-roll a parallel detector** for rolling z-score, running mean/variance, sliding windows, CSM, or equivalent anomaly decisions in Elixir, Go, or a second Rust crate when `serviceradar-anomaly-core` already provides the primitive. A second implementation must be kept in numeric parity by hand and can drift. **`serviceradar-anomaly-core` is the single source of truth**: it powers the edge anomaly add-on (`rust/anomaly-addon`, agent-sidecar) today and a backfill/backtesting CLI. The legacy central `causal_reasoner_nif` + central analysis pipeline are **being retired** (per-series anomaly moved to the edge; see `openspec/changes/move-anomaly-detection-to-edge`) — do not extend them. If DeepCausality lacks a primitive, add it upstream or to `serviceradar-anomaly-core`, never a divergent reimplementation.
 
