@@ -72,7 +72,10 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightTest do
 
     {:ok, reviewed_digest} = AwxLaunchContract.digest(context.binding.reviewed_launch_snapshot)
     {:ok, target_digest} = expected_target_digest(request)
-    {:ok, security_digest} = ControllerSecuritySnapshot.digest(context.controller_security_snapshot)
+
+    {:ok, security_digest} =
+      ControllerSecuritySnapshot.digest(context.controller_security_snapshot)
+
     result = valid_result(request)
 
     assert attrs.reviewed_launch_snapshot_digest == reviewed_digest
@@ -110,7 +113,7 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightTest do
       {:ok, with_preflight(result, preflight)}
     end
 
-    assert {:error, :awx_preflight_static_drift} =
+    assert {:error, :awx_preflight_template_project_drift} =
              LiveAwxLaunchPreflight.attest(context(), options(provenance, evidence_resource()))
 
     refute_received {:evidence, _, _}
@@ -143,7 +146,9 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightTest do
           {fn result -> Map.put(result, :raw_response, %{"token" => "forbidden"}) end,
            :awx_preflight_result_invalid}
         ] do
-      provenance = fn _controller, request, _opts -> {:ok, result_modifier.(valid_result(request))} end
+      provenance = fn _controller, request, _opts ->
+        {:ok, result_modifier.(valid_result(request))}
+      end
 
       assert {:error, ^expected_error} =
                LiveAwxLaunchPreflight.attest(context(), options(provenance, evidence_resource()))
@@ -199,9 +204,7 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightTest do
   end
 
   test "binds the assigned controller agent and clips evidence expiry to the reviewed approval" do
-    context =
-      context()
-      |> put_in([:binding, :approval_expires_at], DateTime.add(@now, 10, :second))
+    context = put_in(context(), [:binding, :approval_expires_at], DateTime.add(@now, 10, :second))
 
     provenance = fn _controller, request, _opts -> {:ok, valid_result(request)} end
 
@@ -215,7 +218,10 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightTest do
     bad_dispatcher = put_in(context(), [:dispatcher_identity, :agent_id], "agent-other")
 
     assert {:error, :dispatcher_agent_mismatch} =
-             LiveAwxLaunchPreflight.attest(bad_dispatcher, options(provenance, evidence_resource()))
+             LiveAwxLaunchPreflight.attest(
+               bad_dispatcher,
+               options(provenance, evidence_resource())
+             )
 
     refute_received {:evidence, _, _}
   end
@@ -333,7 +339,11 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightTest do
   defp live_snapshot(request) do
     hosts =
       Enum.map(request["selected_hosts"], fn host ->
-        Map.put(host, "identity_variables_digest", identity_variables_digest(host["ansible_host"]))
+        Map.put(
+          host,
+          "identity_variables_digest",
+          identity_variables_digest(host["ansible_host"])
+        )
       end)
 
     Map.put(reviewed_snapshot(), "selected_hosts", hosts)

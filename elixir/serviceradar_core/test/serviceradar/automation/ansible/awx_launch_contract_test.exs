@@ -224,6 +224,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxLaunchContractTest do
 
     refute AwxLaunchContract.static_equivalent?(reviewed_snapshot, changed_credential)
 
+    assert :awx_preflight_credential_set_drift =
+             AwxLaunchContract.static_drift_reason(reviewed_snapshot, changed_credential)
+
     changed_target =
       put_in(live_snapshot, ["selected_hosts", Access.at(0), "ansible_host"], "192.168.2.99")
 
@@ -253,6 +256,33 @@ defmodule ServiceRadar.Automation.Ansible.AwxLaunchContractTest do
              result
              |> Map.put("ok", false)
              |> AwxLaunchContract.result_digest()
+  end
+
+  test "classifies reviewed static-contract drift without exposing AWX values" do
+    reviewed = valid_snapshot()
+
+    assert :none = AwxLaunchContract.static_drift_reason(reviewed, reviewed)
+
+    for {expected, live} <- [
+          {:awx_preflight_controller_drift,
+           Map.put(reviewed, "controller_id", "018f0000-0000-7000-8000-000000000002")},
+          {:awx_preflight_template_project_drift,
+           put_in(reviewed, ["template", "playbook"], "playbooks/updated.yml")},
+          {:awx_preflight_inventory_drift,
+           put_in(reviewed, ["inventory", "name"], "farm02-linux")},
+          {:awx_preflight_credential_set_drift,
+           put_in(reviewed, ["credentials", Access.at(0), "name"], "machine-ssh-rotated")},
+          {:awx_preflight_execution_environment_drift,
+           put_in(reviewed, ["execution_environment", "name"], "serviceradar-awx-ee-v2")},
+          {:awx_preflight_survey_contract_drift,
+           reviewed
+           |> put_in(["survey", "spec", Access.at(-1), "question_name"], "Approved version")
+           |> refresh_survey_digest()},
+          {:awx_preflight_prompt_policy_drift,
+           put_in(reviewed, ["template", "prompt_on_launch", "ask_inventory_on_launch"], false)}
+        ] do
+      assert ^expected = AwxLaunchContract.static_drift_reason(reviewed, live)
+    end
   end
 
   defp valid_snapshot do

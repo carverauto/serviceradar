@@ -56,7 +56,7 @@
     Direct `POST .../launch/` still succeeds with template Execute (AWX does
     not separate execute-from-API vs ServiceRadar); operators must not use the
     runner principal in the AWX UI.
-- [ ] 3.3 Add binding-review UX/API diagnostics that identify the drifted
+- [x] 3.3 Add binding-review UX/API diagnostics that identify the drifted
   category without exposing AWX secrets or raw responses.
 - [x] 3.4 Keep mutable demo callback policy disabled until the end-to-end
   preflight canary has passed; document enablement and rollback.

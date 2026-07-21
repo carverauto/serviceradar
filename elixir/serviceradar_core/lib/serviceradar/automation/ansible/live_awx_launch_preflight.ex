@@ -134,7 +134,7 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflight do
          {:ok, verified_at} <- now(opts),
          {:ok, expires_at} <-
            evidence_expiry(binding_info.approval_expires_at, verified_at, opts),
-         attrs <-
+         attrs =
            evidence_attrs(
              provenance_result,
              controller.id,
@@ -303,14 +303,26 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflight do
 
   defp validate_controller_security_snapshot(snapshot, controller, dispatch_agent_id) do
     with :ok <- exact_string_keys(snapshot, @controller_security_keys),
-         true <- snapshot["schema"] == @controller_security_schema || {:error, :invalid_controller_security_snapshot},
-         true <- snapshot["controller_id"] == controller.id || {:error, :controller_security_snapshot_mismatch},
-         true <- snapshot["agent_id"] == controller.agent_id || {:error, :controller_security_snapshot_mismatch},
+         true <-
+           snapshot["schema"] == @controller_security_schema ||
+             {:error, :invalid_controller_security_snapshot},
+         true <-
+           snapshot["controller_id"] == controller.id ||
+             {:error, :controller_security_snapshot_mismatch},
+         true <-
+           snapshot["agent_id"] == controller.agent_id ||
+             {:error, :controller_security_snapshot_mismatch},
          true <- snapshot["agent_id"] == dispatch_agent_id || {:error, :dispatcher_agent_mismatch},
          true <- snapshot["enabled"] == true || {:error, :controller_security_snapshot_mismatch},
-         true <- is_binary(snapshot["name"]) and byte_size(snapshot["name"]) in 1..255 || {:error, :invalid_controller_security_snapshot},
-         true <- is_binary(snapshot["base_url"]) and byte_size(snapshot["base_url"]) in 1..2_048 || {:error, :invalid_controller_security_snapshot},
-         true <- is_boolean(snapshot["insecure_skip_verify"]) || {:error, :invalid_controller_security_snapshot},
+         true <-
+           (is_binary(snapshot["name"]) and byte_size(snapshot["name"]) in 1..255) ||
+             {:error, :invalid_controller_security_snapshot},
+         true <-
+           (is_binary(snapshot["base_url"]) and byte_size(snapshot["base_url"]) in 1..2_048) ||
+             {:error, :invalid_controller_security_snapshot},
+         true <-
+           is_boolean(snapshot["insecure_skip_verify"]) ||
+             {:error, :invalid_controller_security_snapshot},
          :ok <- validate_credential_references(snapshot["credential_refs"]),
          {:ok, digest} <- ControllerSecuritySnapshot.digest(snapshot) do
       {:ok, digest}
@@ -323,10 +335,15 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflight do
 
   defp validate_credential_references(references) when is_map(references) do
     with :ok <- exact_string_keys(references, @credential_reference_keys),
-         true <- bounded_reference?(references["sync"]) || {:error, :invalid_controller_security_snapshot},
-         true <- bounded_reference?(references["execution"]) || {:error, :invalid_controller_security_snapshot},
-         true <- is_nil(references["callback"]) or bounded_reference?(references["callback"]) ||
-                   {:error, :invalid_controller_security_snapshot} do
+         true <-
+           bounded_reference?(references["sync"]) ||
+             {:error, :invalid_controller_security_snapshot},
+         true <-
+           bounded_reference?(references["execution"]) ||
+             {:error, :invalid_controller_security_snapshot},
+         true <-
+           (is_nil(references["callback"]) or bounded_reference?(references["callback"])) ||
+             {:error, :invalid_controller_security_snapshot} do
       :ok
     else
       false -> {:error, :invalid_controller_security_snapshot}
@@ -368,25 +385,36 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflight do
     membership_controller_id = value(membership, :controller_id)
     membership_inventory_id = value(membership, :inventory_id)
     awx_host_id = value(membership, :awx_host_id) || value(membership, :host_id)
-    canonical_device_uid = value(membership, :canonical_device_uid) || value(membership, :device_uid)
+
+    canonical_device_uid =
+      value(membership, :canonical_device_uid) || value(membership, :device_uid)
+
     host_name = value(membership, :host_name) || value(membership, :awx_host_name)
     ansible_host = value(membership, :ansible_host)
-    membership_generation = value(membership, :source_generation) || value(membership, :membership_generation)
+
+    membership_generation =
+      value(membership, :source_generation) || value(membership, :membership_generation)
+
     source_fingerprint = value(membership, :source_fingerprint)
 
     with true <- value(membership, :current) == true || {:error, :stale_awx_membership},
          true <- value(membership, :enabled) == true || {:error, :disabled_awx_membership},
-         true <- approved?(value(membership, :link_disposition)) || {:error, :unapproved_awx_membership},
+         true <-
+           approved?(value(membership, :link_disposition)) || {:error, :unapproved_awx_membership},
          true <- canonical_uuid?(membership_id) || {:error, :invalid_awx_preflight_membership},
-         true <- membership_controller_id == controller_id || {:error, :awx_preflight_target_mismatch},
+         true <-
+           membership_controller_id == controller_id || {:error, :awx_preflight_target_mismatch},
          {:ok, canonical_inventory_id} <- canonical_awx_id(membership_inventory_id),
-         true <- canonical_inventory_id == inventory_id || {:error, :awx_preflight_target_mismatch},
+         true <-
+           canonical_inventory_id == inventory_id || {:error, :awx_preflight_target_mismatch},
          {:ok, canonical_host_id} <- canonical_awx_id(awx_host_id),
          {:ok, canonical_generation} <- canonical_awx_id(membership_generation),
          true <- is_binary(canonical_device_uid) || {:error, :invalid_awx_preflight_membership},
          true <- is_binary(host_name) || {:error, :invalid_awx_preflight_membership},
          true <- is_binary(ansible_host) || {:error, :invalid_awx_preflight_membership},
-         true <- valid_source_fingerprint?(source_fingerprint) || {:error, :invalid_awx_preflight_membership} do
+         true <-
+           valid_source_fingerprint?(source_fingerprint) ||
+             {:error, :invalid_awx_preflight_membership} do
       {:ok,
        %{
          "membership_id" => membership_id,
@@ -429,7 +457,8 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflight do
 
     result =
       case provenance do
-        fun when is_function(fun, 3) -> fun.(controller, request, provenance_opts)
+        fun when is_function(fun, 3) ->
+          fun.(controller, request, provenance_opts)
 
         module when is_atom(module) ->
           apply(module, :fetch_launch_preflight, [controller, request, provenance_opts])
@@ -448,11 +477,12 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflight do
 
   defp verify_live_result(result, request, reviewed, expected_request_digest) do
     with {:ok, result} <- normalize_provenance_result(result),
-         true <- result.request_digest == expected_request_digest ||
-                   {:error, :awx_preflight_request_digest_mismatch},
-         {:ok, live_preflight} <- AwxLaunchContract.verify(result.preflight, result.preflight_digest),
-         true <- AwxLaunchContract.static_equivalent?(reviewed, live_preflight) ||
-                   {:error, :awx_preflight_static_drift},
+         true <-
+           result.request_digest == expected_request_digest ||
+             {:error, :awx_preflight_request_digest_mismatch},
+         {:ok, live_preflight} <-
+           AwxLaunchContract.verify(result.preflight, result.preflight_digest),
+         :ok <- verify_static_contract(reviewed, live_preflight),
          :ok <- normalize_target_result(AwxLaunchContract.verify_targets(request, live_preflight)) do
       {:ok,
        %{
@@ -463,6 +493,13 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflight do
       false -> {:error, :awx_preflight_result_invalid}
       {:error, _reason} = error -> error
       _ -> {:error, :awx_preflight_result_invalid}
+    end
+  end
+
+  defp verify_static_contract(reviewed, live_preflight) do
+    case AwxLaunchContract.static_drift_reason(reviewed, live_preflight) do
+      :none -> :ok
+      reason -> {:error, reason}
     end
   end
 
@@ -500,14 +537,15 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflight do
 
   defp evidence_expiry(approval_expires_at, verified_at, opts) do
     with {:ok, ttl_seconds} <- evidence_ttl_seconds(opts),
-         true <- valid_utc_datetime?(approval_expires_at) || {:error, :binding_approval_expiry_required},
+         true <-
+           valid_utc_datetime?(approval_expires_at) || {:error, :binding_approval_expiry_required},
          true <- valid_utc_datetime?(verified_at) || {:error, :invalid_preflight_clock} do
       expiry =
         verified_at
         |> DateTime.add(ttl_seconds, :second)
         |> earliest(approval_expires_at)
 
-      if DateTime.compare(expiry, verified_at) == :gt,
+      if DateTime.after?(expiry, verified_at),
         do: {:ok, expiry},
         else: {:error, :binding_approval_expired}
     else
@@ -617,9 +655,12 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflight do
       fun when is_function(fun, 0) ->
         case fun.() do
           %DateTime{} = value ->
-            if valid_utc_datetime?(value), do: {:ok, value}, else: {:error, :invalid_preflight_clock}
+            if valid_utc_datetime?(value),
+              do: {:ok, value},
+              else: {:error, :invalid_preflight_clock}
 
-          _ -> {:error, :invalid_preflight_clock}
+          _ ->
+            {:error, :invalid_preflight_clock}
         end
 
       _ ->
@@ -696,7 +737,7 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflight do
   defp valid_utc_datetime?(_value), do: false
 
   defp earliest(left, right) do
-    if DateTime.compare(left, right) == :gt, do: right, else: left
+    if DateTime.after?(left, right), do: right, else: left
   end
 
   defp normalize_keyword_options(options) when is_list(options) do

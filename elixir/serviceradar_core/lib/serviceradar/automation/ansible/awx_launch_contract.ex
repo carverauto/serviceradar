@@ -486,6 +486,33 @@ defmodule ServiceRadar.Automation.Ansible.AwxLaunchContract do
     end
   end
 
+  @doc """
+  Classifies a reviewed-versus-live static contract mismatch without returning
+  values from either AWX projection.
+
+  The selected-host set is intentionally excluded because it is dynamic and is
+  checked separately by `verify_targets/2`. A malformed projection remains a
+  generic static drift rather than exposing controller data through an error.
+  """
+  @spec static_drift_reason(term(), term()) ::
+          :none
+          | :awx_preflight_controller_drift
+          | :awx_preflight_template_project_drift
+          | :awx_preflight_inventory_drift
+          | :awx_preflight_credential_set_drift
+          | :awx_preflight_execution_environment_drift
+          | :awx_preflight_survey_contract_drift
+          | :awx_preflight_prompt_policy_drift
+          | :awx_preflight_static_drift
+  def static_drift_reason(left, right) do
+    with {:ok, left} <- static_projection(left),
+         {:ok, right} <- static_projection(right) do
+      classify_static_drift(left, right)
+    else
+      _ -> :awx_preflight_static_drift
+    end
+  end
+
   @doc "Returns true only when every preflight field, including selected hosts, is equal."
   @spec equivalent?(term(), term()) :: boolean()
   def equivalent?(left, right) do
@@ -496,6 +523,45 @@ defmodule ServiceRadar.Automation.Ansible.AwxLaunchContract do
       left_json == right_json
     else
       _ -> false
+    end
+  end
+
+  defp classify_static_drift(left, right) do
+    left_template = left["template"]
+    right_template = right["template"]
+
+    cond do
+      left == right ->
+        :none
+
+      left["controller_id"] != right["controller_id"] ->
+        :awx_preflight_controller_drift
+
+      left["survey"] != right["survey"] or left["survey_digest"] != right["survey_digest"] ->
+        :awx_preflight_survey_contract_drift
+
+      left["credentials"] != right["credentials"] or
+          left_template["credential_ids"] != right_template["credential_ids"] ->
+        :awx_preflight_credential_set_drift
+
+      left["execution_environment"] != right["execution_environment"] or
+          left_template["execution_environment_id"] != right_template["execution_environment_id"] ->
+        :awx_preflight_execution_environment_drift
+
+      left_template["prompt_on_launch"] != right_template["prompt_on_launch"] ->
+        :awx_preflight_prompt_policy_drift
+
+      left["inventory"] != right["inventory"] or
+          left_template["inventory_id"] != right_template["inventory_id"] ->
+        :awx_preflight_inventory_drift
+
+      left["project"] != right["project"] or
+        left_template["project_id"] != right_template["project_id"] or
+          left_template != right_template ->
+        :awx_preflight_template_project_drift
+
+      true ->
+        :awx_preflight_static_drift
     end
   end
 
