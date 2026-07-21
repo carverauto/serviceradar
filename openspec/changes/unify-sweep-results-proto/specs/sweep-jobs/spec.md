@@ -109,10 +109,11 @@ operator-approved, benchmark-backed capacity override.
 
 ### Requirement: Sweep Job Compiled Config Output
 The system SHALL compile sweep jobs only for agents and gateways satisfying the
-configured minimum dual-path version. That version SHALL support independently
-acknowledged bounded legacy frames and `edge-results:v1`; no unpatched-agent
-compatibility bridge SHALL be provided. During migration or rollback, a patched
-agent MAY select bounded `legacy_json_v0` for a new execution. Each v1
+configured minimum `edge-records:v1`, retained spool-reader, and output-contract
+registry versions; no legacy JSON sender or unpatched-agent compatibility bridge
+SHALL be provided. During migration, a cohort barrier SHALL stop new old-path
+executions before enabling v1 assignments. Rollback SHALL disable new work while
+compatible v1 backlog drains and SHALL NOT select new legacy output. Each v1
 assignment SHALL contain a bounded target range, expected target count and
 digest, execution and shard IDs, monotonically increasing assignment epoch,
 config generation, expiry, versioned availability policy, exact `(mode,
@@ -120,22 +121,20 @@ protocol, port)` check set, result format, and a scheduler-signed capability
 bound to authoritative `network_scope_id`/site, agent, execution, range/epoch,
 and immutable `bulk` or `interactive` traffic class.
 
-#### Scenario: Compile patched bounded legacy sweep config
-- **GIVEN** the agent and gateway satisfy the minimum dual-path version and the
-  new execution explicitly selects `legacy_json_v0`
-- **WHEN** the agent polls for config
-- **THEN** the compiled config SHALL retain the existing `sweep.json` networks,
-  ports, sweep modes, interval, concurrency, timeout, ICMP settings, and
-  device-target fields
-- **AND** its result format SHALL be explicitly `legacy_json_v0` and every
-  result request SHALL be independently bounded and acknowledged
+#### Scenario: Cohort is enabled for v1 sweep output
+- **GIVEN** the agent, gateway, route map, registry, and projector satisfy the v1
+  readiness gate
+- **WHEN** the cohort barrier enables new sweep work
+- **THEN** every new execution SHALL receive the exact v1 result contract and
+  signed assignment capability
+- **AND** no compiled config SHALL select `legacy_json_v0`
 
-#### Scenario: Agent is below the minimum dual-path version
-- **WHEN** an agent or reachable gateway does not support both bounded legacy
-  frames and v1 frames
+#### Scenario: Agent is below the minimum edge-record version
+- **WHEN** an agent or reachable gateway cannot send, retain, and drain the
+  selected v1 contract/spool version
 - **THEN** the scheduler SHALL assign it no new sweep or MTR execution
-- **AND** SHALL require upgrade rather than cap work into an unpatched request
-  shape or route it through a compatibility bridge
+- **AND** SHALL require upgrade rather than select legacy output or route it
+  through a compatibility bridge
 
 #### Scenario: Compile v1 execution assignment
 - **GIVEN** an enabled v1 agent and a scheduler-admitted execution shard
@@ -156,7 +155,7 @@ and immutable `bulk` or `interactive` traffic class.
 #### Scenario: Merge multiple sweep jobs
 - **GIVEN** multiple sweep jobs assigned to the same agent
 - **WHEN** configuration is compiled
-- **THEN** each patched bounded-legacy or v1 execution SHALL preserve distinct
+- **THEN** each v1 execution SHALL preserve distinct
   network-scope/plan/shard/check-set/class identity
 - **AND** merged configuration SHALL NOT merge independent executions into an
   unbounded result payload or an unsigned shared priority lane

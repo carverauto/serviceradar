@@ -2,22 +2,24 @@
 
 ## ADDED Requirements
 
-### Requirement: Edge observation projection is idempotent
-CNPG SHALL store an ingest ledger and domain uniqueness constraints sufficient
-to make sweep, execution, OCSF, MTR trace, and MTR hop projection idempotent
+### Requirement: Edge durable record projection is idempotent
+CNPG SHALL store an ingest ledger and contract-specific domain uniqueness
+constraints sufficient to make sweep, execution, OCSF, MTR trace/hop,
+inventory, metric/event, and approved extension projection idempotent
 under retries beyond the JetStream duplicate window. The ledger SHALL bind a
 trusted metadata retirement bucket, `network_scope_id`, authenticated agent,
-payload kind, and stable semantic event ID to checksum, immutable `traffic_class`, immutable
+exact output-contract bundle, authenticated producer/package/assignment/run
+context, and stable semantic event ID to checksum, immutable `traffic_class`, immutable
 semantic-envelope digest, encoded and projected-write byte counts, cost-model
 version, expected/projected record counts, and commit state without storing a
 duplicate payload body. Every address-derived domain key and deterministic
 derived-event key SHALL begin with the authoritative `network_scope_id`.
-Every v1 and patched-legacy semantic event ID SHALL be RFC 9562 UUIDv7; its
+Every v1 semantic event ID SHALL be RFC 9562 UUIDv7; its
 validated timestamp SHALL select the metadata bucket and SHALL agree with signed
 collection/execution timing so one ID cannot move between ledger partitions.
 
 #### Scenario: Committed event is replayed
-- **WHEN** the same metadata-bucket/network-scope/agent/kind/event ID is received again with the
+- **WHEN** the same metadata-bucket/network-scope/agent/contract/event ID is received again with the
   same checksum and immutable semantic envelope
 - **THEN** the projector SHALL detect its committed ledger entry without
   repeating domain side effects
