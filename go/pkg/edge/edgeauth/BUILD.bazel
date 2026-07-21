@@ -1,0 +1,16 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "edgeauth",
+    srcs = ["verify.go"],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/edge/edgeauth",
+    visibility = ["//visibility:public"],
+    deps = ["//proto/edge/v1:edgev1"],
+)
+
+go_test(
+    name = "edgeauth_test",
+    srcs = ["verify_test.go"],
+    embed = [":edgeauth"],
+    deps = ["//proto/edge/v1:edgev1"],
+)
