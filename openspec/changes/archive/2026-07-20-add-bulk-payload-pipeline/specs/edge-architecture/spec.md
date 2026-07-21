@@ -1,5 +1,7 @@
 ## ADDED Requirements
 
+> Historical, never applied. Superseded by `unify-sweep-results-proto`.
+
 ### Requirement: Bulk payload streaming pipeline
 The platform SHALL provide a reusable bulk payload streaming pipeline for gRPC-enabled edge services. Agents SHALL stream chunked payloads to gateways, gateways SHALL forward payload chunks without decoding, and core SHALL reassemble and dispatch payloads by type.
 

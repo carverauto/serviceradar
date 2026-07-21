@@ -1,5 +1,11 @@
 # Change: Bulk Payload Streaming Pipeline
 
+> **SUPERSEDED without implementation (2026-07-20) by
+> `unify-sweep-results-proto`.** Do not implement this proposal's whole-payload
+> reassembly or in-memory gateway buffering. The replacement keeps bounded
+> records independently processable, retains unacknowledged bytes in an agent
+> disk spool, and uses JetStream PubAck as the durability boundary.
+
 ## Why
 Large payloads (like sweep results) currently require custom chunking and forwarding logic.
 We need a reusable, payload-agnostic pipeline so new gRPC-enabled services can stream
