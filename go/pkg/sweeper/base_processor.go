@@ -306,6 +306,10 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 
 	case models.ModeTCPConnect:
 		p.processTCPResult(shard, host, result)
+
+	case models.ModeMTR:
+		// MTR is handled by the agent's ad-hoc scan path and does not emit
+		// persistent sweeper results.
 	}
 
 	return nil

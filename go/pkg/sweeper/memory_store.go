@@ -346,6 +346,9 @@ func (s *InMemoryStore) processHostResult(r *models.Result, hostMap map[string]*
 		s.processPortResult(host, r)
 	case models.ModeTCPConnect:
 		s.processPortResult(host, r)
+	case models.ModeMTR:
+		// MTR is handled by the agent's ad-hoc scan path and does not emit
+		// persistent sweeper results.
 	}
 
 	s.updateHostTimestamps(host, r)

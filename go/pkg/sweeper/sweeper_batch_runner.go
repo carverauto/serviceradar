@@ -82,6 +82,9 @@ func (r *sweepBatchRunner) addTarget(target models.Target) error {
 				return err
 			}
 		}
+	case models.ModeMTR:
+		// MTR is handled by the agent's ad-hoc scan path, not the persistent
+		// sweeper batch runner.
 	}
 
 	return nil

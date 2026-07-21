@@ -8,8 +8,8 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
   ServiceRadar control plane and rebuilds fresh maps from those fields.
   """
 
-  alias ServiceRadar.Automation.Ansible.DispatchMarkerContract
   alias ServiceRadar.Automation.Ansible.AwxLaunchContract
+  alias ServiceRadar.Automation.Ansible.DispatchMarkerContract
   alias ServiceRadar.Automation.Ansible.Targeting
   alias ServiceRadar.Automation.Ansible.VariableSchema
 
@@ -138,18 +138,20 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
   # no raw AWX object, survey default, credential input, or unrecognized field
   # can cross the durable AgentCommand boundary.
   defp do_project("awx.fetch_launch_preflight", payload) do
-    with {:ok, result} <- AwxLaunchContract.from_plugin_result(payload) do
-      {:ok,
-       %{
-         "schema" => AwxLaunchContract.result_schema(),
-         "verb" => AwxLaunchContract.result_verb(),
-         "ok" => true,
-         "request_digest" => result.request_digest,
-         "preflight" => result.preflight,
-         "preflight_digest" => result.preflight_digest
-       }}
-    else
-      _ -> :error
+    case AwxLaunchContract.from_plugin_result(payload) do
+      {:ok, result} ->
+        {:ok,
+         %{
+           "schema" => AwxLaunchContract.result_schema(),
+           "verb" => AwxLaunchContract.result_verb(),
+           "ok" => true,
+           "request_digest" => result.request_digest,
+           "preflight" => result.preflight,
+           "preflight_digest" => result.preflight_digest
+         }}
+
+      _ ->
+        :error
     end
   end
 
