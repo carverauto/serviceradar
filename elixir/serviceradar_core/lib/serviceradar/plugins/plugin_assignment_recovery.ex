@@ -825,12 +825,10 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecovery do
     end
   end
 
-  defp credential_rule_label(:inventory_enrichment), do: "Credential rule (inventory enrichment)"
-  defp credential_rule_label(:console_access), do: "Credential rule (console access)"
-  defp credential_rule_label(:discovery), do: "Credential rule (discovery)"
-  defp credential_rule_label(:camera_inventory), do: "Credential rule (camera inventory)"
-  defp credential_rule_label(:camera_stream), do: "Credential rule (camera stream)"
-  defp credential_rule_label(:generic), do: "Credential rule (generic)"
+  defp credential_rule_label(purpose) when is_binary(purpose) and purpose != "" do
+    "Credential rule (#{String.replace(purpose, "_", " ")})"
+  end
+
   defp credential_rule_label(_purpose), do: "Credential rule"
 
   defp config_compatibility(assignment, actor) do

@@ -577,7 +577,8 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
                  normalize_map(map_get(requirement, "inject")),
                  url_param,
                  endpoint,
-                 allow
+                 allow,
+                 schedule
                ) do
           resolved_allow =
             allow
@@ -625,7 +626,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
 
   defp valid_credential_endpoint_host?(_host), do: false
 
-  defp resolve_credential_grant_injection(key, inject, url_param, endpoint, allow) do
+  defp resolve_credential_grant_injection(key, inject, url_param, endpoint, allow, schedule) do
     inject_url_param = normalize_optional_string(map_get(inject, "url_param"))
     methods = string_list(map_get(allow, "methods"))
 
@@ -640,14 +641,48 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
         {:error, {:invalid_schedule_credential_injection_method, key}}
 
       true ->
-        {:ok,
-         inject
-         |> Map.delete("url_param")
-         |> Map.put("host", endpoint.host)
-         |> Map.put("path", endpoint.path)
-         |> Map.put("method", methods |> hd() |> String.upcase())}
+        inject =
+          inject
+          |> Map.delete("url_param")
+          |> Map.put("host", endpoint.host)
+          |> Map.put("path", endpoint.path)
+          |> Map.put("method", methods |> hd() |> String.upcase())
+
+        resolve_derived_token_endpoint(key, inject, schedule)
     end
   end
+
+  defp resolve_derived_token_endpoint(
+         key,
+         %{"type" => "oauth2_password_bearer"} = inject,
+         schedule
+       ) do
+    case normalize_optional_string(map_get(inject, "token_url_param")) do
+      nil ->
+        {:error, {:missing_schedule_credential_token_endpoint, key}}
+
+      token_url_param ->
+        with {:ok, endpoint} <- schedule_https_endpoint(schedule, token_url_param),
+             token_method when token_method in ["POST"] <-
+               inject
+               |> map_get("token_method")
+               |> normalize_optional_string()
+               |> then(&String.upcase(&1 || "POST")) do
+          {:ok,
+           inject
+           |> Map.delete("token_url_param")
+           |> Map.put("token_method", token_method)
+           |> Map.put("token_host", endpoint.host)
+           |> Map.put("token_port", to_string(endpoint.port))
+           |> Map.put("token_path", endpoint.path)}
+        else
+          {:error, reason} -> {:error, reason}
+          _ -> {:error, {:invalid_schedule_credential_token_method, key}}
+        end
+    end
+  end
+
+  defp resolve_derived_token_endpoint(_key, inject, _schedule), do: {:ok, inject}
 
   defp issue_credential_grant(key, secret_ref, requirement, schedule, assignment, opts) do
     attrs = credential_grant_attrs(key, secret_ref, requirement, schedule, assignment)

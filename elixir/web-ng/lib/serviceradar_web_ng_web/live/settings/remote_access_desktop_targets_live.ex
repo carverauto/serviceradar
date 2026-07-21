@@ -584,7 +584,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
   defp load_credential_rules(scope) do
     NetworkCredentialRule
     |> Ash.Query.for_read(:read, %{}, scope: scope)
-    |> Ash.Query.filter(enabled == true and purpose in [:console_access, :generic])
+    |> Ash.Query.filter(enabled == true and purpose in ["console_access", "generic"])
     |> Ash.Query.sort(priority: :asc, name: :asc)
     |> Ash.read(scope: scope)
     |> case do

@@ -162,18 +162,10 @@ defmodule ServiceRadar.Plugins.PluginPolicyAssignmentRecoveryRequest do
       public? true
     end
 
-    attribute :owner_purpose, :atom do
+    attribute :owner_purpose, :string do
       allow_nil? true
       public? true
-
-      constraints one_of: [
-                    :inventory_enrichment,
-                    :console_access,
-                    :discovery,
-                    :generic,
-                    :camera_inventory,
-                    :camera_stream
-                  ]
+      description "Package-declared credential purpose; nil for target-policy owners"
     end
 
     attribute :requested_by_principal_type, :atom do

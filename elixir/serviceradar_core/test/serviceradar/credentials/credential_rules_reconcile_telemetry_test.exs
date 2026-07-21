@@ -2,7 +2,7 @@ defmodule ServiceRadar.Credentials.CredentialRulesReconcileTelemetryTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Credentials.PluginAssignmentMaterializer
-  alias ServiceRadar.Credentials.ProviderProfiles.UnifiProtectProfile
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   @event PluginAssignmentMaterializer.reconcile_telemetry_event()
 
@@ -23,19 +23,19 @@ defmodule ServiceRadar.Credentials.CredentialRulesReconcileTelemetryTest do
     :ok
   end
 
-  defp camera_rule do
+  defp credential_rule do
     %{
-      id: "cam-rule",
+      id: "example-rule",
       secret_id: "018f3f56-aaaa-7bbb-8ccc-123456789abc",
       enabled: true,
       priority: 100,
-      provider: "unifi-protect",
-      auth_method: :api_key,
-      purpose: :camera_inventory,
-      target_query: "in:devices hostname:udm-*",
+      provider: "example-network",
+      auth_method: "api_token",
+      purpose: "device_inventory",
+      target_query: "in:devices vendor:Example",
       tls_policy: :verify,
       scope_type: :agent,
-      scope_value: "agent-cam",
+      scope_value: "agent-a",
       metadata: %{}
     }
   end
@@ -43,11 +43,11 @@ defmodule ServiceRadar.Credentials.CredentialRulesReconcileTelemetryTest do
   test "emits counts per provider/purpose when work is done" do
     assert {:ok, summary} =
              PluginAssignmentMaterializer.reconcile_provider_for_agent(
-               UnifiProtectProfile,
-               "agent-cam",
-               :camera_inventory,
-               rules: [camera_rule()],
-               plugin_package: %{id: "pkg-cam"},
+               profile(),
+               "agent-a",
+               "device_inventory",
+               rules: [credential_rule()],
+               plugin_package: %{id: "pkg-example"},
                reconciler: FakeReconciler,
                actor: %{id: "operator"}
              )
@@ -67,9 +67,9 @@ defmodule ServiceRadar.Credentials.CredentialRulesReconcileTelemetryTest do
              assignments_disabled: 1
            }
 
-    assert metadata.provider == "unifi-protect"
-    assert metadata.purpose == :camera_inventory
-    assert metadata.agent_id == "agent-cam"
+    assert metadata.provider == "example-network"
+    assert metadata.purpose == "device_inventory"
+    assert metadata.agent_id == "agent-a"
     assert metadata.status == :ok
     assert metadata.skips == %{}
   end
@@ -77,9 +77,9 @@ defmodule ServiceRadar.Credentials.CredentialRulesReconcileTelemetryTest do
   test "no-op reconciles are distinguishable: zero counts plus a skip reason" do
     assert {:ok, summary} =
              PluginAssignmentMaterializer.reconcile_provider_for_agent(
-               UnifiProtectProfile,
-               "agent-cam",
-               :camera_inventory,
+               profile(),
+               "agent-a",
+               "device_inventory",
                rules: [],
                reconciler: FakeReconciler,
                actor: %{id: "operator"}
@@ -101,11 +101,11 @@ defmodule ServiceRadar.Credentials.CredentialRulesReconcileTelemetryTest do
 
     assert {:error, _reason} =
              PluginAssignmentMaterializer.reconcile_provider_for_agent(
-               UnifiProtectProfile,
-               "agent-cam",
-               :camera_inventory,
-               rules: [camera_rule()],
-               plugin_package: %{id: "pkg-cam"},
+               profile(),
+               "agent-a",
+               "device_inventory",
+               rules: [credential_rule()],
+               plugin_package: %{id: "pkg-example"},
                reconciler: failing_reconciler,
                actor: %{id: "operator"}
              )
@@ -115,4 +115,6 @@ defmodule ServiceRadar.Credentials.CredentialRulesReconcileTelemetryTest do
     assert metadata.status == :error
     assert metadata.error
   end
+
+  defp profile, do: CredentialIntegrationFixtures.target_policy_profile()
 end

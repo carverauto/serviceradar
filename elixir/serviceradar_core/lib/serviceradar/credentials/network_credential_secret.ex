@@ -225,7 +225,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     attribute :provider, :string do
       allow_nil? false
       public? true
-      description "Integration provider, for example proxmox"
+      description "Package-declared integration provider identifier"
     end
 
     attribute :credential_kind, :atom do

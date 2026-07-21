@@ -1,10 +1,10 @@
-defmodule ServiceRadar.Credentials.CameraCredentialRuleReconcileWorker do
+defmodule ServiceRadar.Credentials.PluginCredentialRuleReconcileWorker do
   @moduledoc """
-  Periodic worker that materializes camera credential rules (unifi-protect, axis)
-  for eligible agents.
+  Periodically materializes package-declared credential target policies.
 
-  Sibling of `ServiceRadar.Credentials.ProxmoxCredentialRuleReconcileWorker`. A
-  separate worker keeps the Proxmox worker's unique/period scheduling untouched.
+  Every approved plugin package with a `target_policy` credential profile is
+  discovered through the integration catalog. Adding a provider does not
+  require a new worker or scheduler registration in core.
   """
 
   use Oban.Worker,
@@ -25,11 +25,9 @@ defmodule ServiceRadar.Credentials.CameraCredentialRuleReconcileWorker do
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
-      if scheduled?() do
-        {:ok, :already_scheduled}
-      else
-        %{} |> new() |> ObanSupport.safe_insert()
-      end
+      if scheduled?(),
+        do: {:ok, :already_scheduled},
+        else: %{} |> new() |> ObanSupport.safe_insert()
     else
       {:error, :oban_unavailable}
     end
@@ -37,14 +35,13 @@ defmodule ServiceRadar.Credentials.CameraCredentialRuleReconcileWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
-    actor = SystemActor.system(:camera_credential_rule_reconcile_worker)
+    actor = SystemActor.system(:plugin_credential_rule_reconcile_worker)
 
     case load_connected_agents(actor) do
       {:ok, agents} ->
         summary = reconcile_agents(agents, actor: actor)
 
-        Logger.info(
-          "Reconciled camera credential rules: #{format_summary(summary)}",
+        Logger.info("Reconciled plugin credential rules: #{format_summary(summary)}",
           summary: inspect(summary)
         )
 
@@ -52,7 +49,7 @@ defmodule ServiceRadar.Credentials.CameraCredentialRuleReconcileWorker do
         :ok
 
       {:error, reason} ->
-        Logger.warning("Failed to load agents for camera credential reconciliation",
+        Logger.warning("Failed to load agents for plugin credential reconciliation",
           reason: inspect(reason)
         )
 
@@ -72,27 +69,22 @@ defmodule ServiceRadar.Credentials.CameraCredentialRuleReconcileWorker do
           %{acc | skipped_agents: acc.skipped_agents + 1}
 
         uid ->
-          reconcile_agent(uid, materializer, opts, acc)
+          case materializer.reconcile_all_for_agent(uid, opts) do
+            {:ok, summary} ->
+              acc
+              |> Map.update!(:agents, &(&1 + 1))
+              |> merge_summary(summary)
+
+            {:error, reason} ->
+              Logger.warning("Failed to reconcile plugin credential rules for agent",
+                agent_uid: uid,
+                reason: inspect(reason)
+              )
+
+              %{acc | failed_agents: acc.failed_agents + 1}
+          end
       end
     end)
-  end
-
-  defp reconcile_agent(uid, materializer, opts, acc) do
-    with {:ok, inventory_summary} <- materializer.reconcile_camera_inventory_for_agent(uid, opts),
-         {:ok, stream_summary} <- materializer.reconcile_camera_stream_for_agent(uid, opts) do
-      acc
-      |> Map.update!(:agents, &(&1 + 1))
-      |> merge_summary(inventory_summary)
-      |> merge_summary(stream_summary)
-    else
-      {:error, reason} ->
-        Logger.warning("Failed to reconcile camera credential rules for agent",
-          agent_uid: uid,
-          reason: inspect(reason)
-        )
-
-        %{acc | failed_agents: acc.failed_agents + 1}
-    end
   end
 
   defp load_connected_agents(actor) do
@@ -118,7 +110,7 @@ defmodule ServiceRadar.Credentials.CameraCredentialRuleReconcileWorker do
     seconds =
       Application.get_env(
         :serviceradar_core,
-        :camera_credential_rule_reconcile_interval_seconds,
+        :plugin_credential_rule_reconcile_interval_seconds,
         @default_reschedule_seconds
       )
 
@@ -176,7 +168,7 @@ defmodule ServiceRadar.Credentials.CameraCredentialRuleReconcileWorker do
       summary
       |> Map.get(:skips, %{})
       |> Enum.sort()
-      |> Enum.map_join(",", fn {reason, count} -> "#{reason}=#{count}" end)
+      |> Enum.map_join(",", fn {reason, count} -> "#{inspect(reason)}=#{count}" end)
 
     base =
       "agents=#{summary.agents} failed_agents=#{summary.failed_agents} " <>

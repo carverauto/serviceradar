@@ -331,6 +331,7 @@ func configurePluginHTTPRedirects(
 ) {
 	strictAWXGrant := grant != nil &&
 		strings.EqualFold(strings.TrimSpace(grant.GrantType), "awx_oauth2_token")
+	credentialBackedGrant := grant != nil && len(grant.Inject) > 0
 	if client == nil {
 		return
 	}
@@ -338,7 +339,8 @@ func configurePluginHTTPRedirects(
 	// A broker grant is authorized for one canonical request. Go's redirect
 	// handling does not re-enter the plugin host boundary, so following even a
 	// same-host redirect would bypass the grant's method/path/port checks.
-	if strictAWXGrant || awxCredentialEndpoint(requestURL) || awxReviewedCredentialTypeEndpoint(requestURL) {
+	if strictAWXGrant || credentialBackedGrant || awxCredentialEndpoint(requestURL) ||
+		awxReviewedCredentialTypeEndpoint(requestURL) {
 		client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		}
@@ -392,6 +394,9 @@ func (e *pluginExecution) applyCredentialBrokerInjection(
 	material, err := e.manager.resolveCredentialBrokerMaterial(ctx, *grant)
 	if err != nil {
 		return err
+	}
+	if strings.EqualFold(strings.TrimSpace(grant.Inject["type"]), "oauth2_password_bearer") {
+		return e.applyCredentialBrokerOAuth2PasswordBearer(ctx, req, *grant, material)
 	}
 
 	return applyCredentialBrokerHTTPInjection(req, *grant, material)
