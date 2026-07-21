@@ -13,6 +13,11 @@ defmodule ServiceRadar.Repo.Migrations.CreateAdhocScanResultsHypertable do
   @table "adhoc_scan_results"
   @retention_interval "30 days"
 
+  # serviceradar:allow-startup-maintenance - this migration creates the table
+  # immediately before converting it into a hypertable, so there are no legacy
+  # rows to process. Registering the retention job is bounded metadata setup
+  # required before event-writer begins consuming ad-hoc scan results.
+
   def up do
     execute("""
     CREATE TABLE IF NOT EXISTS #{schema()}.#{@table} (
@@ -86,7 +91,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateAdhocScanResultsHypertable do
             AND hypertable_schema = '#{schema()}'
         ) THEN
           EXECUTE format(
-            'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
+            'SELECT %I.create_hypertable(%L::regclass, %L::name, if_not_exists => true)',
             ts_schema,
             '#{schema()}.#{table_name}',
             '#{time_column}'
