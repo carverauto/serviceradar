@@ -307,7 +307,9 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
   end
 
   defp canonical_controller_origin(raw, endpoint) do
-    case URI.parse(String.trim(raw)) do
+    raw = String.trim(raw)
+
+    case URI.parse(raw) do
       %URI{
         scheme: "https",
         host: host,
@@ -318,20 +320,24 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
         path: path
       }
       when is_binary(host) and path in [nil, "", "/"] ->
-        effective_port = port || URI.default_port("https")
+        # URI.parse silently drops non-numeric ports (e.g. ":not-a-port" → port nil
+        # and effective 443). Validate the raw authority port against the raw string
+        # so garbage ports fail closed without reading opaque URI.authority/0.
+        case resolve_https_port(raw, port) do
+          {:ok, effective_port} ->
+            cond do
+              not valid_ip_address?(normalize_endpoint(host)) ->
+                {:error, :invalid_controller_origin}
 
-        cond do
-          not is_integer(effective_port) or effective_port < 1 or effective_port > 65_535 ->
-            {:error, :invalid_controller_origin}
+              not same_endpoint?(host, endpoint) ->
+                {:error, :controller_origin_mismatch}
 
-          not valid_ip_address?(normalize_endpoint(host)) ->
-            {:error, :invalid_controller_origin}
+              true ->
+                {:ok, https_origin(host, effective_port)}
+            end
 
-          not same_endpoint?(host, endpoint) ->
-            {:error, :controller_origin_mismatch}
-
-          true ->
-            {:ok, https_origin(host, effective_port)}
+          {:error, reason} ->
+            {:error, reason}
         end
 
       _other ->
@@ -350,6 +356,37 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
 
   defp default_controller_origin(endpoint) when is_binary(endpoint) do
     {:ok, https_origin(endpoint, 8006)}
+  end
+
+  # Accept only omitted port (default 443) or a pure decimal port in 1..65535.
+  # Reject host:not-a-port and out-of-range ports that URI.parse may normalize away.
+  defp resolve_https_port(raw, parsed_port) when is_binary(raw) do
+    case Regex.run(~r{://(?:\[[^\]]+\]|[^/?#:]+):([^/?#]*)}u, raw) do
+      [_, ""] ->
+        {:error, :invalid_controller_origin}
+
+      [_, port_str] ->
+        case Integer.parse(port_str) do
+          {port, ""} when port >= 1 and port <= 65_535 ->
+            if is_nil(parsed_port) or parsed_port == port do
+              {:ok, port}
+            else
+              {:error, :invalid_controller_origin}
+            end
+
+          _ ->
+            {:error, :invalid_controller_origin}
+        end
+
+      nil ->
+        effective = parsed_port || URI.default_port("https")
+
+        if is_integer(effective) and effective >= 1 and effective <= 65_535 do
+          {:ok, effective}
+        else
+          {:error, :invalid_controller_origin}
+        end
+    end
   end
 
   defp same_endpoint?(left, right) do
