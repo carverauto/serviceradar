@@ -4,8 +4,8 @@ defmodule ServiceRadar.PrefixTags.Loader do
 
   Builds tries from active CNPG snapshots at boot (one trie per snapshot
   source), reloads a single source on `prefix_tags:snapshot` PubSub invalidation
-  when metadata carries `:source`, and re-checks all sources after cluster
-  reconnect (`:nodeup`). CNPG remains the source of truth.
+  when metadata carries `:source`, and re-checks snapshot-backed sources after
+  cluster reconnect (`:nodeup`). CNPG remains the source of truth.
   """
 
   use GenServer
@@ -39,6 +39,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
   FROM platform.prefix_tag_snapshots s
   LEFT JOIN platform.prefix_tags p ON p.snapshot_id = s.id
   WHERE s.is_active = TRUE
+  ORDER BY s.source, p.prefix, p.vrf
   """
 
   @load_active_for_source_sql """
@@ -56,6 +57,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
   FROM platform.prefix_tag_snapshots s
   LEFT JOIN platform.prefix_tags p ON p.snapshot_id = s.id
   WHERE s.is_active = TRUE AND s.source = $1
+  ORDER BY p.prefix, p.vrf
   """
 
   @type state :: %{
@@ -231,15 +233,16 @@ defmodule ServiceRadar.PrefixTags.Loader do
 
   def handle_info({:nodeup, _node, _info}, state) do
     Logger.debug("PrefixTags.Loader re-checking active snapshots after nodeup")
-    state = do_reload(state, :all)
-    state = reload_all_external_sources(state)
-    {:noreply, state}
+    # External sources are local, materialized views of their own durable data
+    # sets. A peer joining the BEAM cluster does not change any of those data
+    # sets, and rebuilding a large provider trie on every nodeup can make a
+    # crash loop self-amplifying. Boot and explicit source invalidations still
+    # reload external sources; nodeup only re-checks snapshot-backed sources.
+    {:noreply, do_reload(state, :all)}
   end
 
   def handle_info({:nodeup, _node}, state) do
-    state = do_reload(state, :all)
-    state = reload_all_external_sources(state)
-    {:noreply, state}
+    {:noreply, do_reload(state, :all)}
   end
 
   def handle_info({:nodedown, _node, _info}, state), do: {:noreply, state}

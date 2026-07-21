@@ -41,6 +41,29 @@ defmodule ServiceRadar.Automation.Ansible.AutomationOperation do
     table "ansible_automation_operations"
     repo ServiceRadar.Repo
     schema "platform"
+
+    check_constraints do
+      # Multi-column pair: either all empty (legacy) or full attestation together.
+      check_constraint :preflight_evidence_id,
+                       "ansible_automation_operations_preflight_snapshot_pair",
+                       check: """
+                       (
+                         preflight_evidence_id IS NULL
+                         AND immutable_launch_snapshot_digest IS NULL
+                         AND immutable_launch_snapshot = '{}'::jsonb
+                       )
+                       OR (
+                         preflight_evidence_id IS NOT NULL
+                         AND immutable_launch_snapshot_digest IS NOT NULL
+                         AND immutable_launch_snapshot_digest ~ '^[0-9a-f]{64}$'
+                         AND jsonb_typeof(immutable_launch_snapshot) = 'object'
+                         AND immutable_launch_snapshot <> '{}'::jsonb
+                       )
+                       """,
+                       message:
+                         "must retain a complete preflight-evidence ID, immutable launch snapshot, " <>
+                           "and lowercase digest together"
+    end
   end
 
   code_interface do
@@ -129,6 +152,9 @@ defmodule ServiceRadar.Automation.Ansible.AutomationOperation do
         :target_digest,
         :callback_actions,
         :run_budget,
+        :preflight_evidence_id,
+        :immutable_launch_snapshot,
+        :immutable_launch_snapshot_digest,
         :metadata
       ]
     end
@@ -203,6 +229,23 @@ defmodule ServiceRadar.Automation.Ansible.AutomationOperation do
     attribute :target_digest, :string, allow_nil?: false, public?: true
     attribute :callback_actions, {:array, :string}, allow_nil?: false, default: [], public?: true
     attribute :run_budget, :map, allow_nil?: false, default: %{}, public?: true
+
+    # These fields are deliberately separate from mutable metadata. They are
+    # set only by the create action after a successful live AWX preflight, and
+    # the child execution stores an identical copy for cross-checking before
+    # dispatch. Empty/nil values represent legacy, non-launchable rows.
+    attribute :preflight_evidence_id, :uuid, allow_nil?: true, public?: false
+
+    attribute :immutable_launch_snapshot, :map,
+      allow_nil?: false,
+      default: %{},
+      public?: false
+
+    attribute :immutable_launch_snapshot_digest, :string,
+      allow_nil?: true,
+      public?: false,
+      constraints: [min_length: 64, max_length: 64]
+
     attribute :diagnostics, :map, allow_nil?: false, default: %{}, public?: true
     attribute :metadata, :map, allow_nil?: false, default: %{}, public?: true
     attribute :started_at, :utc_datetime_usec, allow_nil?: true, public?: true

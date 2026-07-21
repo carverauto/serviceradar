@@ -77,6 +77,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
                           "response_policy_digest"
                         ])
   @max_approval_snapshot_age_seconds 300
+  @source_fingerprint ~r/\Asha256:[0-9a-f]{64}\z/
 
   @impl true
   def current_authority(stage, grant, context)
@@ -452,7 +453,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
       host_name: value(membership, :host_name),
       awx_host_name: value(membership, :host_name),
       ansible_host: value(membership, :ansible_host),
-      membership_generation: value(membership, :source_generation)
+      membership_generation: value(membership, :source_generation),
+      source_fingerprint: value(membership, :source_fingerprint)
     }
 
     checks = [
@@ -467,14 +469,21 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
       target.host_name == (value(frozen, :host_name) || value(frozen, :awx_host_name)),
       target.ansible_host == value(frozen, :ansible_host),
       target.membership_generation == value(frozen, :membership_generation),
+      valid_source_fingerprint?(target.source_fingerprint),
+      target.source_fingerprint == value(frozen, :source_fingerprint),
       to_string(value(execution_target, :execution_id)) == to_string(value(execution, :id)),
       to_string(value(execution_target, :controller_id)) == to_string(target.controller_id),
       value(execution_target, :inventory_id) == target.inventory_id,
       value(execution_target, :awx_host_id) == target.awx_host_id,
       value(execution_target, :canonical_device_uid) == target.canonical_device_uid,
       value(execution_target, :membership_generation) == target.membership_generation,
+      value(execution_target, :source_fingerprint) == target.source_fingerprint,
       value(execution_target, :host_name) == target.host_name,
-      value(execution_target, :ansible_host) == target.ansible_host
+      value(execution_target, :ansible_host) == target.ansible_host,
+      secure_equal(
+        Targeting.snapshot_digest(execution_target_snapshot(target)),
+        to_string(value(execution_target, :snapshot_digest))
+      )
     ]
 
     if Enum.all?(checks), do: {:ok, target}, else: {:error, :target_no_longer_authorized}
@@ -757,7 +766,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
       "canonical_device_uid" => target.canonical_device_uid,
       "host_name" => target.host_name,
       "ansible_host" => target.ansible_host,
-      "membership_generation" => target.membership_generation
+      "membership_generation" => target.membership_generation,
+      "source_fingerprint" => target.source_fingerprint
     }
   end
 
@@ -1038,6 +1048,25 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
 
   defp positive_integer?(value), do: is_integer(value) and value > 0
   defp blank?(value), do: is_nil(value) or value == ""
+
+  defp execution_target_snapshot(target) do
+    %{
+      membership_id: target.membership_id,
+      canonical_device_uid: target.canonical_device_uid,
+      controller_id: target.controller_id,
+      inventory_id: target.inventory_id,
+      awx_host_id: target.awx_host_id,
+      membership_generation: target.membership_generation,
+      source_fingerprint: target.source_fingerprint,
+      host_name: target.host_name,
+      ansible_host: target.ansible_host
+    }
+  end
+
+  defp valid_source_fingerprint?(value) when is_binary(value),
+    do: Regex.match?(@source_fingerprint, value)
+
+  defp valid_source_fingerprint?(_value), do: false
 
   defp digest?(value, size) when is_integer(size),
     do: is_binary(value) and byte_size(value) == size and Regex.match?(~r/\A[0-9a-f]+\z/, value)

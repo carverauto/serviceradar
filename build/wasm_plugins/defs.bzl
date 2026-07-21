@@ -74,16 +74,27 @@ def declare_wasm_targets(build_targets, plugin_bundles):
 
         srcs = []
         entry_args = []
+        copy_parts = []
+        entry_index = 0
         for archive_path, label in bundle["entries"]:
             if label not in srcs:
                 srcs.append(label)
-            entry_args.append("--entry {}=$(location {})".format(archive_path, label))
+
+            # Bazel represents source inputs as sandbox symlinks. Stage a
+            # dereferenced copy so the assembler can retain its explicit
+            # rejection of arbitrary symlink inputs outside Bazel.
+            staged_entry = "$(@D)/{}.entry-{}".format(bundle["name"], entry_index)
+            copy_parts.append("cp -L $(location {}) {}".format(label, staged_entry))
+            entry_args.append("--entry {}={}".format(archive_path, staged_entry))
+            entry_index += 1
 
         native.genrule(
             name = bundle["name"],
             srcs = srcs,
             outs = [zip_out, sha_out, metadata_out],
             cmd = " ".join([
+                " && ".join(copy_parts),
+                "&&",
                 "$(location :assemble_bundle.py)",
                 "--bundle-out", "$(location {})".format(zip_out),
                 "--sha-out", "$(location {})".format(sha_out),

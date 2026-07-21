@@ -21,6 +21,7 @@ defmodule ServiceRadar.Automation.Ansible.ControllerProvenance do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.AwxClient
+  alias ServiceRadar.Automation.Ansible.AwxLaunchContract
   alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Edge.AgentCommand
@@ -150,6 +151,55 @@ defmodule ServiceRadar.Automation.Ansible.ControllerProvenance do
 
   def find_callback_credentials(_controller, _expected, _opts),
     do: {:error, :invalid_controller_credential_lookup_request}
+
+  @doc """
+  Fetches and verifies one exact, read-only AWX launch preflight through the
+  controller's frozen edge principal.
+
+  The returned command ID is the durable `AgentCommand` identity used by the
+  independent preflight-evidence record. It is deliberately retained only
+  after the persisted command payload, partition, agent, controller boundary,
+  and redacted result all match the server-built request.
+  """
+  @spec fetch_launch_preflight(map() | struct(), map(), keyword()) ::
+          {:ok,
+           %{
+             required(:command_id) => String.t(),
+             required(:preflight) => map(),
+             required(:request_digest) => String.t(),
+             required(:preflight_digest) => String.t(),
+             required(:command_result_digest) => String.t()
+           }}
+          | {:error, term()}
+  def fetch_launch_preflight(controller, request, opts \\ [])
+
+  def fetch_launch_preflight(controller, request, opts)
+      when is_map(controller) and is_map(request) and is_list(opts) do
+    with {:ok, boundary} <- verify_security_boundary(controller, opts),
+         {:ok, request} <- AwxLaunchContract.validate_request(request),
+         :ok <- exact_preflight_request_boundary(request, boundary),
+         {:ok, %{command_id: command_id, payload: payload}} <-
+           dispatch_and_await_with_command(
+             controller,
+             "awx.fetch_launch_preflight",
+             request,
+             boundary,
+             opts
+           ),
+         {:ok, result} <- AwxLaunchContract.verify_plugin_result(payload, request),
+         {:ok, command_result_digest} <- AwxLaunchContract.result_digest(payload) do
+      result
+      |> Map.put(:command_id, command_id)
+      |> Map.put(:command_result_digest, command_result_digest)
+      |> then(&{:ok, &1})
+    else
+      {:error, _reason} = error -> error
+      _ -> {:error, :controller_launch_preflight_unavailable}
+    end
+  end
+
+  def fetch_launch_preflight(_controller, _request, _opts),
+    do: {:error, :invalid_controller_launch_preflight_request}
 
   @doc false
   @spec sanitize_job(map()) :: {:ok, map()} | {:error, term()}
@@ -310,12 +360,23 @@ defmodule ServiceRadar.Automation.Ansible.ControllerProvenance do
   end
 
   defp dispatch_and_await(controller, verb, args, boundary, opts) do
+    with {:ok, %{payload: payload}} <-
+           dispatch_and_await_with_command(controller, verb, args, boundary, opts) do
+      {:ok, payload}
+    end
+  end
+
+  # The live launch-preflight gate must record the exact durable AgentCommand
+  # that produced its attestation. Existing provenance reads intentionally
+  # expose only their projected payload, so retain the command ID internally
+  # without weakening their public return shapes.
+  defp dispatch_and_await_with_command(controller, verb, args, boundary, opts) do
     with {:ok, dispatched} <- dispatch_read(controller, verb, args, boundary, opts),
          {:ok, command_id} <- dispatched_command_id(dispatched),
          {:ok, deadline} <- await_deadline(opts),
          {:ok, payload} <-
            await_persisted_command(command_id, verb, args, boundary, deadline, opts) do
-      {:ok, payload}
+      {:ok, %{command_id: command_id, payload: payload}}
     else
       {:error, _reason} = error -> error
       _ -> {:error, :controller_provenance_dispatch_failed}
@@ -351,6 +412,9 @@ defmodule ServiceRadar.Automation.Ansible.ControllerProvenance do
       "awx.list_callback_credentials" ->
         client.list_callback_credentials(controller, args, client_opts)
 
+      "awx.fetch_launch_preflight" ->
+        client.fetch_launch_preflight(controller, args, client_opts)
+
       _unsupported ->
         {:error, :controller_provenance_query_unsupported}
     end
@@ -369,6 +433,15 @@ defmodule ServiceRadar.Automation.Ansible.ControllerProvenance do
     end
     |> Keyword.put(:required_partition, boundary.partition_id)
   end
+
+  defp exact_preflight_request_boundary(request, boundary) when is_map(request) do
+    if request["controller_id"] == boundary.controller_id,
+      do: :ok,
+      else: {:error, :controller_launch_preflight_controller_mismatch}
+  end
+
+  defp exact_preflight_request_boundary(_request, _boundary),
+    do: {:error, :controller_launch_preflight_request_mismatch}
 
   defp await_deadline(opts) do
     with {:ok, now} <- monotonic_now(opts) do

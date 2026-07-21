@@ -81,6 +81,7 @@ func TestPluginArtifactStreamCommitsThroughUploader(t *testing.T) {
 	deleted := exec.deleteArtifactStream(handle)
 	if deleted == nil {
 		t.Fatal("expected artifact stream")
+		return
 	}
 
 	response, err := manager.artifactUploaderResolver().UploadPluginArtifact(context.Background(), PluginArtifactUploadRequest{

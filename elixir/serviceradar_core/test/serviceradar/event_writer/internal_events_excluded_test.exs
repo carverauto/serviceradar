@@ -56,7 +56,7 @@ defmodule ServiceRadar.EventWriter.InternalEventsExcludedTest do
         # All subjects should be for external data: events, logs, otel, netflow, etc.
         # NOT for internal health/state changes
         assert stream.subject =~
-                 ~r/(events|logs|otel|netflow|sweep|telemetry|metrics|analytics|falco|trivy|bmp|arancini|siem|pdns|flow|flows)/,
+                 ~r/(events|logs|otel|netflow|scans|sweep|telemetry|metrics|analytics|falco|trivy|bmp|arancini|siem|pdns|flow|flows)/,
                "Stream #{stream.name} has subject #{stream.subject} which may not be for external data"
       end
     end

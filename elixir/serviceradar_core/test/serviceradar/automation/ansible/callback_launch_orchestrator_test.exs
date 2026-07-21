@@ -1,13 +1,18 @@
 defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Automation.Ansible.AwxLaunchPreflightAttestation
   alias ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator
   alias ServiceRadar.Automation.Ansible.CallbackResponsePolicyProvider
+  alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Automation.Ansible.UnavailableCallbackResponsePolicyProvider
 
+  @preflight_evidence_id "018f3f56-1111-7222-8333-123456789a01"
+  @preflight_command_id "018f3f56-1111-7222-8333-123456789a02"
   @controller_id "018f3f56-1111-7222-8333-123456789a03"
   @membership_id "018f3f56-1111-7222-8333-123456789a04"
   @binding_id "018f3f56-1111-7222-8333-123456789a05"
+  @approval_id "018f3f56-1111-7222-8333-123456789a06"
   @grant_id "018f3f56-1111-7222-8333-123456789a09"
   @issued_at ~U[2026-07-13 02:00:00.000000Z]
   @envelope_key :binary.copy(<<91>>, 32)
@@ -102,6 +107,15 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
     defp notify(message), do: send(Process.get({__MODULE__, :test_pid}), message)
   end
 
+  defmodule FakeEnvelopes do
+    @moduledoc false
+
+    def allocate(_opts) do
+      send(Process.get({__MODULE__, :test_pid}), :callback_envelope_allocate)
+      {:error, :callback_envelope_allocation_should_not_run}
+    end
+  end
+
   setup do
     previous_origin = Application.get_env(:serviceradar_core, :automation_callback_origin)
 
@@ -113,6 +127,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
 
     Process.put({PolicyProvider, :test_pid}, self())
     Process.put({FakeActions, :test_pid}, self())
+    Process.put({FakeEnvelopes, :test_pid}, self())
     Process.delete({FakeActions, :mark_result})
     Process.delete({FakeActions, :dispatch_result})
     Process.delete({FakeActions, :revoke_result})
@@ -201,6 +216,16 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
     refute_receive {:persist_callback_plan, _, _}
   end
 
+  test "requires evidence-backed immutable preflight before callback envelope allocation" do
+    legacy_plan = remove_preflight_attestation(plan())
+
+    assert {:error, :awx_preflight_attestation_required} =
+             launch(plan: legacy_plan, launch_envelopes: FakeEnvelopes)
+
+    refute_receive :callback_envelope_allocate
+    refute_receive {:persist_callback_plan, _, _}
+  end
+
   test "ignores callback destinations supplied by launch data" do
     injected_plan =
       plan()
@@ -277,10 +302,11 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
 
   defp launch(opts \\ []) do
     plan = Keyword.get(opts, :plan, plan())
+    controller = Keyword.get(opts, :controller, controller())
 
     CallbackLaunchOrchestrator.launch(
       plan,
-      %{id: @controller_id, agent_id: "agent-farm01"},
+      controller,
       Keyword.merge(
         [
           actions: FakeActions,
@@ -291,9 +317,10 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
           lifecycle_opts: [],
           envelope_opts: [encryption_key: @envelope_key],
           grant_id: @grant_id,
-          now: @issued_at
+          now: @issued_at,
+          preflight_evidence_reader: &preflight_evidence_reader/1
         ],
-        Keyword.delete(opts, :plan)
+        opts |> Keyword.delete(:plan) |> Keyword.delete(:controller)
       )
     )
   end
@@ -310,7 +337,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
     approval = %{
       "binding_id" => @binding_id,
       "binding_version" => 3,
-      "approval_id" => "018f3f56-1111-7222-8333-123456789a06",
+      "approval_id" => @approval_id,
       "approval_expires_at" => "2026-07-13T03:00:00.000000Z",
       "reviewed_by_principal_type" => "human",
       "reviewed_by_principal_id" => "reviewer-1",
@@ -318,6 +345,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
       "review_metadata" => %{},
       "issued_at" => "2026-07-13T02:00:00.000000Z"
     }
+
+    attestation_attrs = attestation_attrs()
 
     %{
       callback_contract: %{
@@ -330,36 +359,41 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
         policy_version: "ssh-policy-v1",
         ttl_seconds: 120
       },
-      operation: %{
-        tenant_id: "platform",
-        initiator_principal_type: :human,
-        initiator_principal_id: "user-7",
-        service_principal_owner_id: nil,
-        authority_ceiling: %{
-          "permissions" => [
-            "ansible.runs.launch",
-            "devices.remote_access.ssh.ca_bundle.read"
-          ],
-          "target_membership_ids" => [@membership_id]
-        },
-        approval_snapshot: approval,
-        target_digest: String.duplicate("d", 64),
-        callback_actions: ["remote_access.ssh_ca.bundle.read"]
-      },
-      execution: %{
-        controller_id: @controller_id,
-        inventory_id: 34,
-        job_template_id: 42,
-        project_id: 3,
-        scm_revision: String.duplicate("a", 40),
-        content_sha256: String.duplicate("b", 64),
-        execution_environment_id: 4,
-        machine_credential_id: 5,
-        credential_snapshot: %{"credential_ids" => [5]},
-        host_limit: "farm01-pve01",
-        snapshot_digest: String.duplicate("e", 64),
-        metadata: %{"awx_created_by_id" => 11}
-      },
+      operation:
+        Map.merge(
+          %{
+            tenant_id: "platform",
+            initiator_principal_type: :human,
+            initiator_principal_id: "user-7",
+            service_principal_owner_id: nil,
+            authority_ceiling: %{
+              "permissions" => ["ansible.runs.launch", "devices.remote_access.ssh.ca_bundle.read"],
+              "target_membership_ids" => [@membership_id]
+            },
+            approval_snapshot: approval,
+            target_digest: String.duplicate("d", 64),
+            callback_actions: ["remote_access.ssh_ca.bundle.read"]
+          },
+          attestation_attrs
+        ),
+      execution:
+        Map.merge(
+          %{
+            controller_id: @controller_id,
+            inventory_id: 34,
+            job_template_id: 42,
+            project_id: 3,
+            scm_revision: String.duplicate("a", 40),
+            content_sha256: String.duplicate("b", 64),
+            execution_environment_id: 4,
+            machine_credential_id: 5,
+            credential_snapshot: %{"credential_ids" => [5]},
+            host_limit: "farm01-pve01",
+            snapshot_digest: String.duplicate("e", 64),
+            metadata: %{"awx_created_by_id" => 11}
+          },
+          attestation_attrs
+        ),
       targets: [
         %{
           membership_id: @membership_id,
@@ -368,6 +402,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
           awx_host_id: 7,
           canonical_device_uid: "sr:device-7",
           membership_generation: 3,
+          source_fingerprint: "sha256:" <> String.duplicate("c", 64),
           host_name: "farm01-pve01",
           ansible_host: "192.168.2.22"
         }
@@ -383,6 +418,90 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
         }
       },
       command_context: %{"dispatch_id" => "dispatch-1"}
+    }
+  end
+
+  defp remove_preflight_attestation(plan) do
+    fields = [
+      :preflight_evidence_id,
+      :immutable_launch_snapshot,
+      :immutable_launch_snapshot_digest
+    ]
+
+    plan
+    |> update_in([:operation], &Map.drop(&1, fields))
+    |> update_in([:execution], &Map.drop(&1, fields))
+  end
+
+  defp attestation_attrs do
+    assert {:ok, attrs} = AwxLaunchPreflightAttestation.attrs(attestation())
+    attrs
+  end
+
+  defp attestation do
+    {:ok, controller_snapshot} = ControllerSecuritySnapshot.capture(controller())
+
+    {:ok, controller_security_snapshot_digest} =
+      ControllerSecuritySnapshot.digest(controller_snapshot)
+
+    %{
+      schema: AwxLaunchPreflightAttestation.schema(),
+      evidence_id: @preflight_evidence_id,
+      command_id: @preflight_command_id,
+      controller_id: @controller_id,
+      dispatch_agent_id: "agent-farm01",
+      dispatch_partition_id: "farm01",
+      binding_id: @binding_id,
+      binding_version: 3,
+      approval_id: @approval_id,
+      reviewed_launch_snapshot_digest: String.duplicate("a", 64),
+      preflight_request_digest: String.duplicate("b", 64),
+      target_snapshot_digest: String.duplicate("c", 64),
+      controller_security_snapshot_digest: controller_security_snapshot_digest,
+      live_launch_snapshot_digest: String.duplicate("d", 64),
+      command_result_digest: String.duplicate("e", 64),
+      verified_at: @issued_at,
+      expires_at: DateTime.add(@issued_at, 120, :second)
+    }
+  end
+
+  defp preflight_evidence_reader(@preflight_evidence_id), do: {:ok, preflight_evidence()}
+  defp preflight_evidence_reader(_id), do: {:error, :not_found}
+
+  defp preflight_evidence do
+    attestation = attestation()
+
+    %{
+      id: attestation.evidence_id,
+      command_id: attestation.command_id,
+      controller_id: attestation.controller_id,
+      dispatch_agent_id: attestation.dispatch_agent_id,
+      dispatch_partition_id: attestation.dispatch_partition_id,
+      binding_id: attestation.binding_id,
+      binding_version: attestation.binding_version,
+      approval_id: attestation.approval_id,
+      reviewed_launch_snapshot_digest: attestation.reviewed_launch_snapshot_digest,
+      preflight_request_digest: attestation.preflight_request_digest,
+      target_snapshot_digest: attestation.target_snapshot_digest,
+      controller_security_snapshot_digest: attestation.controller_security_snapshot_digest,
+      live_launch_snapshot_digest: attestation.live_launch_snapshot_digest,
+      command_result_digest: attestation.command_result_digest,
+      verified_at: attestation.verified_at,
+      expires_at: attestation.expires_at
+    }
+  end
+
+  defp controller do
+    %{
+      id: @controller_id,
+      name: "farm01-awx",
+      base_url: "https://awx.example.test:8443",
+      agent_id: "agent-farm01",
+      enabled: true,
+      sync_credential_secret_id: "018f3f56-1111-7222-8333-123456789a07",
+      execution_credential_secret_id: "018f3f56-1111-7222-8333-123456789a08",
+      callback_credential_secret_id: nil,
+      metadata: %{}
     }
   end
 

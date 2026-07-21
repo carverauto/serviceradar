@@ -61,7 +61,6 @@ func TestAdhocModeSet(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			icmp, tcp, mtrSet := adhocModeSet(tt.modes)
@@ -167,7 +166,6 @@ func TestHandleAdhocScanValidation(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 

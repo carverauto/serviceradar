@@ -135,6 +135,8 @@ func dispatch(cfg Config) *sdk.Result {
 		result = runListTemplates(cfg)
 	case "awx.fetch_template":
 		result = runFetchTemplate(cfg)
+	case "awx.fetch_launch_preflight":
+		result = runFetchLaunchPreflight(cfg)
 	case "awx.current_user":
 		result = runCurrentUser(cfg)
 	case "awx.launch_job":

@@ -595,11 +595,12 @@ core:
     # City MMDB is large, but demo has headroom and it lets us enrich flows with city/region/lat/tz.
     GEOLITE_CITY_ENABLED: "true"
 
-# Enable only the reviewed, ephemeral AWX callback contract in demo. The
-# response policy itself is operator-owned and remains in a Kubernetes Secret;
-# these values contain only the exact non-secret AWX binding identifiers.
+# Keep mutable AWX callbacks disabled until a ServiceRadar-initiated live
+# preflight canary has passed and its redacted evidence is retained. The
+# non-secret identifiers and operator-owned policy Secret remain staged here
+# so the enablement procedure can be reviewed without reconstructing custody.
 automationCallbacks:
-  enabled: true
+  enabled: false
   canonicalOrigin: "https://demo.serviceradar.cloud"
   envelopeKeyId: "current"
   awxCredentialTypeId: 68

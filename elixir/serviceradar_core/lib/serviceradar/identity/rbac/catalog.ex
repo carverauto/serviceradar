@@ -698,7 +698,8 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
         %{
           key: "scans.execute",
           label: "Run ad-hoc scans",
-          description: "Start ad-hoc ICMP/TCP/MTR scans against a target list from a chosen agent",
+          description:
+            "Start ad-hoc ICMP/TCP/MTR scans against a target list from a chosen agent",
           default_roles: @operator_roles
         },
         %{

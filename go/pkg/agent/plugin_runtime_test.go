@@ -709,6 +709,7 @@ func TestPluginConfigFromConfigJSONFallback(t *testing.T) {
 
 	if config == nil {
 		t.Fatal("expected plugin config fallback")
+		return
 	}
 	if config.EngineLimits.GetMaxMemoryMb() != 256 ||
 		config.EngineLimits.GetMaxCpuMs() != 750 ||

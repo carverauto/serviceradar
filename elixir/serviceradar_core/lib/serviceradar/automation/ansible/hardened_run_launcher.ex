@@ -8,6 +8,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher do
   plan.
   """
 
+  alias ServiceRadar.Automation.Ansible.AwxLaunchPreflightAttestation
   alias ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator
   alias ServiceRadar.Automation.Ansible.HardenedRunLauncher.AshActions
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
@@ -17,21 +18,24 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher do
   def launch(plan, controller, opts \\ [])
 
   def launch(plan, controller, opts) when is_map(plan) do
-    if callback_enabled?(plan) do
-      CallbackLaunchOrchestrator.launch(plan, controller, opts)
-    else
-      launch_without_callback(plan, controller, opts)
+    now = now(opts)
+
+    with {:ok, edge_principal} <- authenticated_edge_principal(controller, opts),
+         :ok <- verify_live_preflight(plan, controller, edge_principal, now, opts) do
+      if callback_enabled?(plan) do
+        CallbackLaunchOrchestrator.launch(plan, controller, opts)
+      else
+        launch_without_callback(plan, controller, edge_principal, now, opts)
+      end
     end
   end
 
   def launch(_plan, _controller, _opts), do: {:error, :invalid_launch_plan}
 
-  defp launch_without_callback(plan, controller, opts) do
+  defp launch_without_callback(plan, controller, _edge_principal, _now, opts) do
     actions = Keyword.get(opts, :actions, AshActions)
 
-    with {:ok, edge_principal} <- authenticated_edge_principal(controller, opts),
-         plan = bind_dispatch_partition(plan, edge_principal.partition_id),
-         {:ok, persisted} <- actions.persist_plan(plan, controller),
+    with {:ok, persisted} <- actions.persist_plan(plan, controller),
          :ok <- actions.mark_dispatching(persisted) do
       case actions.dispatch(persisted.attempt) do
         {:ok, outcome} ->
@@ -55,6 +59,29 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher do
 
   defp callback_enabled?(plan), do: List.wrap(get_in(plan, [:operation, :callback_actions])) != []
 
+  defp verify_live_preflight(plan, controller, edge_principal, now, opts) do
+    verification_opts =
+      case Keyword.fetch(opts, :preflight_evidence_reader) do
+        {:ok, reader} -> [evidence_reader: reader]
+        :error -> []
+      end
+
+    with {:ok, snapshot} <-
+           AwxLaunchPreflightAttestation.verify_persisted(
+             value(plan, :operation),
+             value(plan, :execution),
+             controller,
+             now,
+             verification_opts
+           ) do
+      AwxLaunchPreflightAttestation.verify_dispatch_principal(
+        snapshot,
+        edge_principal.agent_id,
+        edge_principal.partition_id
+      )
+    end
+  end
+
   defp authenticated_edge_principal(controller, opts) do
     resolver =
       Keyword.get(
@@ -76,15 +103,8 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher do
     end
   end
 
-  defp bind_dispatch_partition(plan, partition_id) do
-    plan
-    |> update_in([:operation, :metadata], fn metadata ->
-      Map.put(metadata || %{}, "dispatch_partition_id", partition_id)
-    end)
-    |> update_in([:execution, :metadata], fn metadata ->
-      Map.put(metadata || %{}, "dispatch_partition_id", partition_id)
-    end)
-  end
+  defp now(opts),
+    do: opts |> Keyword.get(:now, DateTime.utc_now()) |> DateTime.truncate(:microsecond)
 
   defp value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))
   defp value(_map, _key), do: nil
@@ -193,7 +213,11 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher.AshActions do
 
   defp create_launch_attempt(operation, execution, controller) do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
-    partition_id = get_in(execution.metadata || %{}, ["dispatch_partition_id"])
+
+    partition_id =
+      execution
+      |> value(:immutable_launch_snapshot)
+      |> value(:dispatch_partition_id)
 
     with {:ok, agent_id} <- required_dispatch_value(Map.get(controller, :agent_id), :agent),
          {:ok, partition_id} <- required_dispatch_value(partition_id, :partition),
@@ -228,4 +252,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher.AshActions do
 
   defp required_dispatch_value(_value, :partition),
     do: {:error, :controller_dispatch_partition_missing}
+
+  defp value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))
+  defp value(_map, _key), do: nil
 end
