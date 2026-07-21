@@ -1,0 +1,16 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "streamroute",
+    srcs = ["route.go"],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/edge/streamroute",
+    visibility = ["//visibility:public"],
+    deps = ["//proto/edge/v1:edgev1"],
+)
+
+go_test(
+    name = "streamroute_test",
+    srcs = ["route_test.go"],
+    embed = [":streamroute"],
+    deps = ["//proto/edge/v1:edgev1"],
+)
