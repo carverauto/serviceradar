@@ -1,5 +1,8 @@
 # Design: Bulk Payload Streaming Pipeline
 
+> Historical rejected design. Superseded without implementation by
+> `unify-sweep-results-proto` on 2026-07-20.
+
 ## Context
 Sweep results and similar outputs can exceed single-message gRPC limits.
 Today, each feature defines its own chunking logic and forwarding path.
