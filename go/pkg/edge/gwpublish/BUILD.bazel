@@ -1,0 +1,19 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "gwpublish",
+    srcs = ["publish.go"],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/edge/gwpublish",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/edge/streamroute",
+        "//proto/edge/v1:edgev1",
+    ],
+)
+
+go_test(
+    name = "gwpublish_test",
+    srcs = ["publish_test.go"],
+    embed = [":gwpublish"],
+    deps = ["//proto/edge/v1:edgev1"],
+)
