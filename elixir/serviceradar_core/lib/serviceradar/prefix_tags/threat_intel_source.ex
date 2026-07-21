@@ -54,6 +54,7 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
     f.snapshot_at
   FROM freshness f
   LEFT JOIN active a ON TRUE
+  ORDER BY a.prefix, a.source, a.label, a.severity, a.expires_at
   """
 
   @doc "Canonical Store source name."
@@ -502,7 +503,7 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
   defp source_string(s), do: to_string(s)
 
   defp slug_source(source) do
-    Slug.slugify(source || "unknown", empty: "unknown")
+    Slug.slugify(source, empty: "unknown")
   end
 
   defp slugify_label(label) do

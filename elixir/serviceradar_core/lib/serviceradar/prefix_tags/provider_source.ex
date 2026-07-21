@@ -29,6 +29,7 @@ defmodule ServiceRadar.PrefixTags.ProviderSource do
   FROM platform.netflow_provider_dataset_snapshots s
   LEFT JOIN platform.netflow_provider_cidrs c ON c.snapshot_id = s.id
   WHERE s.is_active = TRUE
+  ORDER BY c.cidr, c.provider
   """
 
   @doc "Canonical Store source name for hosting-provider tags."

@@ -16,6 +16,10 @@ defmodule ServiceRadar.PrefixTags.Store do
   # {version, trie, :registered | :cleared}. Keeping registration in the same
   # handle lets Registry reconstruct its enumerable ETS index after a restart.
   @active_handle_key_prefix {__MODULE__, :active_handle}
+  # Fingerprints are stored separately so the active trie handle keeps its
+  # compatibility shape for Registry recovery. They let a source retain an
+  # identical trie without another expensive persistent_term write.
+  @active_rows_fingerprint_key_prefix {__MODULE__, :active_rows_fingerprint}
   # Previous handles kept briefly so a concurrent reader that already held the
   # old term can finish; not used for lookup indirection.
   @stale_handle_key_prefix {__MODULE__, :stale_handle}
@@ -115,10 +119,34 @@ defmodule ServiceRadar.PrefixTags.Store do
     end
   end
 
-  @doc "Build and install rows for a single source. Returns the new version."
+  @doc "Build and install rows for a single source. Returns the active version."
   @spec put_rows(source(), [Engine.prefix_row()]) :: version()
   def put_rows(source, rows) when is_binary(source) and is_list(rows) do
-    put_trie(source, engine().build(rows))
+    fingerprint = rows_fingerprint(rows)
+    started = System.monotonic_time(:microsecond)
+
+    result =
+      Registry.with_source_lock(source, fn ->
+        if registered_handle?(active_handle(source)) and
+             active_rows_fingerprint(source) == fingerprint do
+          {:unchanged, active_version(source)}
+        else
+          trie = engine().build(rows)
+          {version, previous_handle} = install_trie(source, trie)
+          :persistent_term.put(active_rows_fingerprint_key(source), fingerprint)
+          {:installed, version, previous_handle, trie}
+        end
+      end)
+
+    case result do
+      {:unchanged, version} ->
+        version
+
+      {:installed, version, previous_handle, trie} ->
+        schedule_previous_handle_erase(source, version, previous_handle)
+        emit_swap_telemetry(source, version, trie, started)
+        version
+    end
   end
 
   @doc """
@@ -145,32 +173,13 @@ defmodule ServiceRadar.PrefixTags.Store do
 
     {version, previous_handle} =
       Registry.with_source_lock(source, fn ->
-        version = next_version(source)
-        previous_handle = active_handle(source)
-
-        # Registration and the trie swap share one persistent handle, so a
-        # Registry restart can recover the exact source state.
-        :persistent_term.put(active_handle_key(source), {version, trie, :registered})
-        Registry.sync_source(source, true)
-
+        {version, previous_handle} = install_trie(source, trie)
+        :persistent_term.erase(active_rows_fingerprint_key(source))
         {version, previous_handle}
       end)
 
     schedule_previous_handle_erase(source, version, previous_handle)
-
-    duration_us = System.monotonic_time(:microsecond) - started
-    s = engine().stats(trie)
-
-    :telemetry.execute(
-      [:serviceradar, :prefix_tags, :swap],
-      %{
-        duration_us: duration_us,
-        ipv4_prefixes: s.ipv4_prefixes,
-        ipv6_prefixes: s.ipv6_prefixes,
-        total_prefixes: s.total_prefixes
-      },
-      %{source: source, version: version}
-    )
+    emit_swap_telemetry(source, version, trie, started)
 
     version
   end
@@ -193,6 +202,7 @@ defmodule ServiceRadar.PrefixTags.Store do
         previous_handle = active_handle(source)
 
         :persistent_term.put(active_handle_key(source), {version, empty, :cleared})
+        :persistent_term.erase(active_rows_fingerprint_key(source))
         Registry.sync_source(source, false)
 
         {version, previous_handle}
@@ -236,6 +246,12 @@ defmodule ServiceRadar.PrefixTags.Store do
 
   defp active_handle(source) do
     :persistent_term.get(active_handle_key(source), nil)
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp active_rows_fingerprint(source) do
+    :persistent_term.get(active_rows_fingerprint_key(source), nil)
   rescue
     ArgumentError -> nil
   end
@@ -301,7 +317,53 @@ defmodule ServiceRadar.PrefixTags.Store do
   defp masklen(_), do: 0
 
   defp active_handle_key(source), do: {@active_handle_key_prefix, source}
+  defp active_rows_fingerprint_key(source), do: {@active_rows_fingerprint_key_prefix, source}
   defp stale_handle_key(source, version), do: {@stale_handle_key_prefix, source, version}
+
+  defp install_trie(source, trie) do
+    version = next_version(source)
+    previous_handle = active_handle(source)
+
+    # Registration and the trie swap share one persistent handle, so a
+    # Registry restart can recover the exact source state.
+    :persistent_term.put(active_handle_key(source), {version, trie, :registered})
+    Registry.sync_source(source, true)
+
+    {version, previous_handle}
+  end
+
+  defp registered_handle?({_version, _trie}), do: true
+  defp registered_handle?({_version, _trie, :registered}), do: true
+  defp registered_handle?(_other), do: false
+
+  # Hash each row separately so an unchanged large source can be recognized
+  # without building another trie or one giant serialized binary. Source SQL
+  # queries use deterministic ordering, so identical durable data has a stable
+  # fingerprint.
+  defp rows_fingerprint(rows) do
+    rows
+    |> Enum.reduce(:crypto.hash_init(:sha256), fn row, context ->
+      encoded = :erlang.term_to_binary(row, [:deterministic])
+      :crypto.hash_update(context, [<<byte_size(encoded)::unsigned-32>>, encoded])
+    end)
+    |> :crypto.hash_final()
+  end
+
+  defp emit_swap_telemetry(source, version, trie, started) do
+    duration_us = System.monotonic_time(:microsecond) - started
+    s = engine().stats(trie)
+
+    :telemetry.execute(
+      [:serviceradar, :prefix_tags, :swap],
+      %{
+        duration_us: duration_us,
+        ipv4_prefixes: s.ipv4_prefixes,
+        ipv6_prefixes: s.ipv6_prefixes,
+        total_prefixes: s.total_prefixes
+      },
+      %{source: source, version: version}
+    )
+  end
 
   defp next_version(source) do
     case active_version(source) do

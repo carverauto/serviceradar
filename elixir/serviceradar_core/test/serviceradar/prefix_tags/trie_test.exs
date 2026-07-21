@@ -234,6 +234,43 @@ defmodule ServiceRadar.PrefixTags.TrieTest do
       assert [%{tags: ["v2"]}] = Store.lookup("10.1.2.3")
     end
 
+    test "unchanged rows retain the active trie without another swap" do
+      handler_id = "prefix-tags-unchanged-swap-#{System.unique_integer([:positive])}"
+      test_pid = self()
+
+      :telemetry.attach(
+        handler_id,
+        [:serviceradar, :prefix_tags, :swap],
+        fn _event, _measurements, metadata, _config ->
+          send(test_pid, {:prefix_tags_swap, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      rows = [
+        %{prefix: "203.0.113.0/24", tags: ["provider:fixture"], source: "provider"}
+      ]
+
+      version = Store.put_rows("provider", rows)
+      assert_receive {:prefix_tags_swap, %{source: "provider", version: ^version}}
+
+      assert Store.put_rows("provider", rows) == version
+      refute_receive {:prefix_tags_swap, %{source: "provider"}}, 100
+      assert [%{tags: ["provider:fixture"]}] = Store.lookup("203.0.113.10", "provider")
+    end
+
+    test "changed rows replace the active trie after an unchanged input" do
+      first = [%{prefix: "203.0.113.0/24", tags: ["provider:first"], source: "provider"}]
+      second = [%{prefix: "203.0.113.0/24", tags: ["provider:second"], source: "provider"}]
+
+      version = Store.put_rows("provider", first)
+      assert Store.put_rows("provider", first) == version
+      assert Store.put_rows("provider", second) == version + 1
+      assert [%{tags: ["provider:second"]}] = Store.lookup("203.0.113.10", "provider")
+    end
+
     test "per-source swap leaves other sources untouched" do
       Store.put_rows("provider", [
         %{prefix: "10.0.0.0/8", tags: ["provider:aws"], source: "provider"}

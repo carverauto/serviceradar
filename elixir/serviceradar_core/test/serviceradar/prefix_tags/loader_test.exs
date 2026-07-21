@@ -1,6 +1,7 @@
 defmodule ServiceRadar.PrefixTags.LoaderTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.PrefixTags.ExternalSources
   alias ServiceRadar.PrefixTags.Loader
   alias ServiceRadar.PrefixTags.Store
 
@@ -85,6 +86,37 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
   test "manual Store rows remain queryable independent of loader" do
     Store.put_rows([%{prefix: "10.0.0.0/8", tags: ["internal"], source: "manual"}])
     assert [%{tags: ["internal"]}] = Store.lookup("10.1.2.3")
+  end
+
+  test "nodeup reloads snapshots without reloading external materializers" do
+    loader_name = :prefix_tags_nodeup_test
+
+    pid =
+      start_supervised!(
+        {Loader, load_on_init: false, name: loader_name},
+        id: loader_name
+      )
+
+    :erlang.trace(pid, true, [:call])
+
+    Enum.each(ExternalSources.modules(), fn module ->
+      :erlang.trace_pattern({module, :reload, 1}, true, [])
+    end)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: :erlang.trace(pid, false, [:call])
+
+      Enum.each(ExternalSources.modules(), fn module ->
+        :erlang.trace_pattern({module, :reload, 1}, false, [])
+      end)
+    end)
+
+    send(pid, {:nodeup, node(), %{}})
+    _ = GenServer.call(pid, :status, 15_000)
+
+    Enum.each(ExternalSources.modules(), fn module ->
+      refute_receive {:trace, ^pid, :call, {^module, :reload, [_opts]}}, 250
+    end)
   end
 
   test "single-query parser keeps populated and zero-row active snapshots consistent" do

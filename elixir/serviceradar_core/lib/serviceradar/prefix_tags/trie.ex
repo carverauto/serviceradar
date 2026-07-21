@@ -183,7 +183,7 @@ defmodule ServiceRadar.PrefixTags.Trie do
       end
 
     %{
-      prefix: new.prefix || prev.prefix,
+      prefix: new.prefix,
       tags: tags,
       source: new[:source] || prev[:source],
       vrf: new[:vrf] || prev[:vrf]
