@@ -436,3 +436,37 @@ message SweepExecutionEventV1 {
   bytes mtr_completion_digest = 14;       // order-independent plan-order proof
   string abort_reason = 15;
 }
+
+// TargetRangeV1 is one compact CIDR/range entry in a plan page. It is never an
+// expanded per-host list: a range that covers a /8 is still one small message.
+message TargetRangeV1 {
+  string cidr = 1;             // e.g. "10.0.0.0/24"; mutually exclusive with first/last
+  string first_address = 2;    // inclusive range start when cidr is empty
+  string last_address = 3;     // inclusive range end when cidr is empty
+  uint64 target_count = 4;     // hosts this range expands to (advisory bound)
+}
+
+// ScheduledPlanPageV1 is one content-addressed page of target ranges. Its
+// identity is page_sha256 over the canonical range order below; pages are
+// fetched and validated one at a time so an arbitrarily large plan never
+// materializes an execution-wide target array in config, memory, or evidence.
+message ScheduledPlanPageV1 {
+  bytes execution_plan_id = 1;   // UUIDv7, matches the header
+  uint32 page_index = 2;         // 0-based, < header.page_count
+  bytes page_sha256 = 3;         // digest over canonical ranges below
+  repeated TargetRangeV1 ranges = 4;
+}
+
+// ScheduledPlanHeaderV1 is the bounded, immutable header of a scheduler target
+// plan. It lists the content digest of every range page so a consumer validates
+// each page independently without ever holding the whole expanded target set.
+// It MUST NOT contain an execution-wide target array -- only per-page digests.
+message ScheduledPlanHeaderV1 {
+  bytes execution_plan_id = 1;       // UUIDv7
+  bytes execution_plan_sha256 = 2;   // digest over this header's canonical form
+  uint32 page_count = 3;
+  uint64 total_target_count = 4;     // advisory sum across pages
+  repeated bytes page_sha256 = 5;    // content digest of each page, in page order
+  uint64 assignment_epoch = 6;
+  bytes network_scope_id = 7;
+}

@@ -1,0 +1,19 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "targetplan",
+    srcs = ["store.go"],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/edge/targetplan",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//proto/edge/v1:edgev1",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+go_test(
+    name = "targetplan_test",
+    srcs = ["store_test.go"],
+    embed = [":targetplan"],
+    deps = ["//proto/edge/v1:edgev1"],
+)

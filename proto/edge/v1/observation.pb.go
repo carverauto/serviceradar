@@ -2843,6 +2843,244 @@ func (x *SweepExecutionEventV1) GetAbortReason() string {
 	return ""
 }
 
+// TargetRangeV1 is one compact CIDR/range entry in a plan page. It is never an
+// expanded per-host list: a range that covers a /8 is still one small message.
+type TargetRangeV1 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Cidr          string                 `protobuf:"bytes,1,opt,name=cidr,proto3" json:"cidr,omitempty"`                                     // e.g. "10.0.0.0/24"; mutually exclusive with first/last
+	FirstAddress  string                 `protobuf:"bytes,2,opt,name=first_address,json=firstAddress,proto3" json:"first_address,omitempty"` // inclusive range start when cidr is empty
+	LastAddress   string                 `protobuf:"bytes,3,opt,name=last_address,json=lastAddress,proto3" json:"last_address,omitempty"`    // inclusive range end when cidr is empty
+	TargetCount   uint64                 `protobuf:"varint,4,opt,name=target_count,json=targetCount,proto3" json:"target_count,omitempty"`   // hosts this range expands to (advisory bound)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TargetRangeV1) Reset() {
+	*x = TargetRangeV1{}
+	mi := &file_edge_v1_observation_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TargetRangeV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TargetRangeV1) ProtoMessage() {}
+
+func (x *TargetRangeV1) ProtoReflect() protoreflect.Message {
+	mi := &file_edge_v1_observation_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TargetRangeV1.ProtoReflect.Descriptor instead.
+func (*TargetRangeV1) Descriptor() ([]byte, []int) {
+	return file_edge_v1_observation_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *TargetRangeV1) GetCidr() string {
+	if x != nil {
+		return x.Cidr
+	}
+	return ""
+}
+
+func (x *TargetRangeV1) GetFirstAddress() string {
+	if x != nil {
+		return x.FirstAddress
+	}
+	return ""
+}
+
+func (x *TargetRangeV1) GetLastAddress() string {
+	if x != nil {
+		return x.LastAddress
+	}
+	return ""
+}
+
+func (x *TargetRangeV1) GetTargetCount() uint64 {
+	if x != nil {
+		return x.TargetCount
+	}
+	return 0
+}
+
+// ScheduledPlanPageV1 is one content-addressed page of target ranges. Its
+// identity is page_sha256 over the canonical range order below; pages are
+// fetched and validated one at a time so an arbitrarily large plan never
+// materializes an execution-wide target array in config, memory, or evidence.
+type ScheduledPlanPageV1 struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionPlanId []byte                 `protobuf:"bytes,1,opt,name=execution_plan_id,json=executionPlanId,proto3" json:"execution_plan_id,omitempty"` // UUIDv7, matches the header
+	PageIndex       uint32                 `protobuf:"varint,2,opt,name=page_index,json=pageIndex,proto3" json:"page_index,omitempty"`                    // 0-based, < header.page_count
+	PageSha256      []byte                 `protobuf:"bytes,3,opt,name=page_sha256,json=pageSha256,proto3" json:"page_sha256,omitempty"`                  // digest over canonical ranges below
+	Ranges          []*TargetRangeV1       `protobuf:"bytes,4,rep,name=ranges,proto3" json:"ranges,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ScheduledPlanPageV1) Reset() {
+	*x = ScheduledPlanPageV1{}
+	mi := &file_edge_v1_observation_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScheduledPlanPageV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScheduledPlanPageV1) ProtoMessage() {}
+
+func (x *ScheduledPlanPageV1) ProtoReflect() protoreflect.Message {
+	mi := &file_edge_v1_observation_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScheduledPlanPageV1.ProtoReflect.Descriptor instead.
+func (*ScheduledPlanPageV1) Descriptor() ([]byte, []int) {
+	return file_edge_v1_observation_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ScheduledPlanPageV1) GetExecutionPlanId() []byte {
+	if x != nil {
+		return x.ExecutionPlanId
+	}
+	return nil
+}
+
+func (x *ScheduledPlanPageV1) GetPageIndex() uint32 {
+	if x != nil {
+		return x.PageIndex
+	}
+	return 0
+}
+
+func (x *ScheduledPlanPageV1) GetPageSha256() []byte {
+	if x != nil {
+		return x.PageSha256
+	}
+	return nil
+}
+
+func (x *ScheduledPlanPageV1) GetRanges() []*TargetRangeV1 {
+	if x != nil {
+		return x.Ranges
+	}
+	return nil
+}
+
+// ScheduledPlanHeaderV1 is the bounded, immutable header of a scheduler target
+// plan. It lists the content digest of every range page so a consumer validates
+// each page independently without ever holding the whole expanded target set.
+// It MUST NOT contain an execution-wide target array -- only per-page digests.
+type ScheduledPlanHeaderV1 struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionPlanId     []byte                 `protobuf:"bytes,1,opt,name=execution_plan_id,json=executionPlanId,proto3" json:"execution_plan_id,omitempty"`             // UUIDv7
+	ExecutionPlanSha256 []byte                 `protobuf:"bytes,2,opt,name=execution_plan_sha256,json=executionPlanSha256,proto3" json:"execution_plan_sha256,omitempty"` // digest over this header's canonical form
+	PageCount           uint32                 `protobuf:"varint,3,opt,name=page_count,json=pageCount,proto3" json:"page_count,omitempty"`
+	TotalTargetCount    uint64                 `protobuf:"varint,4,opt,name=total_target_count,json=totalTargetCount,proto3" json:"total_target_count,omitempty"` // advisory sum across pages
+	PageSha256          [][]byte               `protobuf:"bytes,5,rep,name=page_sha256,json=pageSha256,proto3" json:"page_sha256,omitempty"`                      // content digest of each page, in page order
+	AssignmentEpoch     uint64                 `protobuf:"varint,6,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	NetworkScopeId      []byte                 `protobuf:"bytes,7,opt,name=network_scope_id,json=networkScopeId,proto3" json:"network_scope_id,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *ScheduledPlanHeaderV1) Reset() {
+	*x = ScheduledPlanHeaderV1{}
+	mi := &file_edge_v1_observation_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScheduledPlanHeaderV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScheduledPlanHeaderV1) ProtoMessage() {}
+
+func (x *ScheduledPlanHeaderV1) ProtoReflect() protoreflect.Message {
+	mi := &file_edge_v1_observation_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScheduledPlanHeaderV1.ProtoReflect.Descriptor instead.
+func (*ScheduledPlanHeaderV1) Descriptor() ([]byte, []int) {
+	return file_edge_v1_observation_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ScheduledPlanHeaderV1) GetExecutionPlanId() []byte {
+	if x != nil {
+		return x.ExecutionPlanId
+	}
+	return nil
+}
+
+func (x *ScheduledPlanHeaderV1) GetExecutionPlanSha256() []byte {
+	if x != nil {
+		return x.ExecutionPlanSha256
+	}
+	return nil
+}
+
+func (x *ScheduledPlanHeaderV1) GetPageCount() uint32 {
+	if x != nil {
+		return x.PageCount
+	}
+	return 0
+}
+
+func (x *ScheduledPlanHeaderV1) GetTotalTargetCount() uint64 {
+	if x != nil {
+		return x.TotalTargetCount
+	}
+	return 0
+}
+
+func (x *ScheduledPlanHeaderV1) GetPageSha256() [][]byte {
+	if x != nil {
+		return x.PageSha256
+	}
+	return nil
+}
+
+func (x *ScheduledPlanHeaderV1) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *ScheduledPlanHeaderV1) GetNetworkScopeId() []byte {
+	if x != nil {
+		return x.NetworkScopeId
+	}
+	return nil
+}
+
 var File_edge_v1_observation_proto protoreflect.FileDescriptor
 
 const file_edge_v1_observation_proto_rawDesc = "" +
@@ -3076,7 +3314,29 @@ const file_edge_v1_observation_proto_rawDesc = "" +
 	"\x13expected_mtr_traces\x18\f \x01(\x04R\x11expectedMtrTraces\x12,\n" +
 	"\x12emitted_mtr_traces\x18\r \x01(\x04R\x10emittedMtrTraces\x122\n" +
 	"\x15mtr_completion_digest\x18\x0e \x01(\fR\x13mtrCompletionDigest\x12!\n" +
-	"\fabort_reason\x18\x0f \x01(\tR\vabortReason*\xfc\x02\n" +
+	"\fabort_reason\x18\x0f \x01(\tR\vabortReason\"\x8e\x01\n" +
+	"\rTargetRangeV1\x12\x12\n" +
+	"\x04cidr\x18\x01 \x01(\tR\x04cidr\x12#\n" +
+	"\rfirst_address\x18\x02 \x01(\tR\ffirstAddress\x12!\n" +
+	"\flast_address\x18\x03 \x01(\tR\vlastAddress\x12!\n" +
+	"\ftarget_count\x18\x04 \x01(\x04R\vtargetCount\"\xbe\x01\n" +
+	"\x13ScheduledPlanPageV1\x12*\n" +
+	"\x11execution_plan_id\x18\x01 \x01(\fR\x0fexecutionPlanId\x12\x1d\n" +
+	"\n" +
+	"page_index\x18\x02 \x01(\rR\tpageIndex\x12\x1f\n" +
+	"\vpage_sha256\x18\x03 \x01(\fR\n" +
+	"pageSha256\x12;\n" +
+	"\x06ranges\x18\x04 \x03(\v2#.serviceradar.edge.v1.TargetRangeV1R\x06ranges\"\xba\x02\n" +
+	"\x15ScheduledPlanHeaderV1\x12*\n" +
+	"\x11execution_plan_id\x18\x01 \x01(\fR\x0fexecutionPlanId\x122\n" +
+	"\x15execution_plan_sha256\x18\x02 \x01(\fR\x13executionPlanSha256\x12\x1d\n" +
+	"\n" +
+	"page_count\x18\x03 \x01(\rR\tpageCount\x12,\n" +
+	"\x12total_target_count\x18\x04 \x01(\x04R\x10totalTargetCount\x12\x1f\n" +
+	"\vpage_sha256\x18\x05 \x03(\fR\n" +
+	"pageSha256\x12)\n" +
+	"\x10assignment_epoch\x18\x06 \x01(\x04R\x0fassignmentEpoch\x12(\n" +
+	"\x10network_scope_id\x18\a \x01(\fR\x0enetworkScopeId*\xfc\x02\n" +
 	"\x15EdgeResultPayloadKind\x12(\n" +
 	"$EDGE_RESULT_PAYLOAD_KIND_UNSPECIFIED\x10\x00\x127\n" +
 	"3EDGE_RESULT_PAYLOAD_KIND_SWEEP_OBSERVATION_BATCH_V1\x10\x01\x125\n" +
@@ -3171,7 +3431,7 @@ func file_edge_v1_observation_proto_rawDescGZIP() []byte {
 }
 
 var file_edge_v1_observation_proto_enumTypes = make([]protoimpl.EnumInfo, 13)
-var file_edge_v1_observation_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_edge_v1_observation_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_edge_v1_observation_proto_goTypes = []any{
 	(EdgeResultPayloadKind)(0),       // 0: serviceradar.edge.v1.EdgeResultPayloadKind
 	(EdgeResultCompression)(0),       // 1: serviceradar.edge.v1.EdgeResultCompression
@@ -3205,6 +3465,9 @@ var file_edge_v1_observation_proto_goTypes = []any{
 	(*MtrTraceEventV1)(nil),          // 29: serviceradar.edge.v1.MtrTraceEventV1
 	(*MtrTraceBatchV1)(nil),          // 30: serviceradar.edge.v1.MtrTraceBatchV1
 	(*SweepExecutionEventV1)(nil),    // 31: serviceradar.edge.v1.SweepExecutionEventV1
+	(*TargetRangeV1)(nil),            // 32: serviceradar.edge.v1.TargetRangeV1
+	(*ScheduledPlanPageV1)(nil),      // 33: serviceradar.edge.v1.ScheduledPlanPageV1
+	(*ScheduledPlanHeaderV1)(nil),    // 34: serviceradar.edge.v1.ScheduledPlanHeaderV1
 }
 var file_edge_v1_observation_proto_depIdxs = []int32{
 	0,  // 0: serviceradar.edge.v1.EdgeResultFrame.payload_kind:type_name -> serviceradar.edge.v1.EdgeResultPayloadKind
@@ -3235,11 +3498,12 @@ var file_edge_v1_observation_proto_depIdxs = []int32{
 	11, // 25: serviceradar.edge.v1.MtrTraceBatchV1.source:type_name -> serviceradar.edge.v1.SweepExecutionSource
 	29, // 26: serviceradar.edge.v1.MtrTraceBatchV1.traces:type_name -> serviceradar.edge.v1.MtrTraceEventV1
 	12, // 27: serviceradar.edge.v1.SweepExecutionEventV1.kind:type_name -> serviceradar.edge.v1.SweepExecutionEventKind
-	28, // [28:28] is the sub-list for method output_type
-	28, // [28:28] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	32, // 28: serviceradar.edge.v1.ScheduledPlanPageV1.ranges:type_name -> serviceradar.edge.v1.TargetRangeV1
+	29, // [29:29] is the sub-list for method output_type
+	29, // [29:29] is the sub-list for method input_type
+	29, // [29:29] is the sub-list for extension type_name
+	29, // [29:29] is the sub-list for extension extendee
+	0,  // [0:29] is the sub-list for field type_name
 }
 
 func init() { file_edge_v1_observation_proto_init() }
@@ -3259,7 +3523,7 @@ func file_edge_v1_observation_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_edge_v1_observation_proto_rawDesc), len(file_edge_v1_observation_proto_rawDesc)),
 			NumEnums:      13,
-			NumMessages:   19,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

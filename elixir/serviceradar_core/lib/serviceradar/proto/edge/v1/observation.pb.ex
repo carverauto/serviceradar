@@ -618,3 +618,48 @@ defmodule Serviceradar.Edge.V1.SweepExecutionEventV1 do
   field :mtr_completion_digest, 14, type: :bytes, json_name: "mtrCompletionDigest"
   field :abort_reason, 15, type: :string, json_name: "abortReason"
 end
+
+defmodule Serviceradar.Edge.V1.TargetRangeV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.TargetRangeV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :cidr, 1, type: :string
+  field :first_address, 2, type: :string, json_name: "firstAddress"
+  field :last_address, 3, type: :string, json_name: "lastAddress"
+  field :target_count, 4, type: :uint64, json_name: "targetCount"
+end
+
+defmodule Serviceradar.Edge.V1.ScheduledPlanPageV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.ScheduledPlanPageV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :execution_plan_id, 1, type: :bytes, json_name: "executionPlanId"
+  field :page_index, 2, type: :uint32, json_name: "pageIndex"
+  field :page_sha256, 3, type: :bytes, json_name: "pageSha256"
+  field :ranges, 4, repeated: true, type: Serviceradar.Edge.V1.TargetRangeV1
+end
+
+defmodule Serviceradar.Edge.V1.ScheduledPlanHeaderV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.ScheduledPlanHeaderV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :execution_plan_id, 1, type: :bytes, json_name: "executionPlanId"
+  field :execution_plan_sha256, 2, type: :bytes, json_name: "executionPlanSha256"
+  field :page_count, 3, type: :uint32, json_name: "pageCount"
+  field :total_target_count, 4, type: :uint64, json_name: "totalTargetCount"
+  field :page_sha256, 5, repeated: true, type: :bytes, json_name: "pageSha256"
+  field :assignment_epoch, 6, type: :uint64, json_name: "assignmentEpoch"
+  field :network_scope_id, 7, type: :bytes, json_name: "networkScopeId"
+end
