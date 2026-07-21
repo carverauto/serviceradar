@@ -5,6 +5,12 @@ defmodule ServiceRadarAgentGateway do
 
   use Boundary,
     check: [apps: [:serviceradar_core]],
-    deps: [Monitoring, Serviceradar.Agent.Addon.V1, Serviceradar.Metric.V1, ServiceRadar],
+    deps: [
+      Monitoring,
+      Serviceradar.Agent.Addon.V1,
+      Serviceradar.Edge.V1,
+      Serviceradar.Metric.V1,
+      ServiceRadar
+    ],
     exports: :all
 end
