@@ -1,5 +1,8 @@
 # Tasks: Bulk Payload Streaming Pipeline
 
+> No task in this file is authorized for implementation. This unimplemented
+> design was superseded by `unify-sweep-results-proto` on 2026-07-20.
+
 ## 1. Protocol and Interfaces
 - [ ] 1.1 Add bulk payload streaming envelope to `proto/monitoring.proto`
 - [ ] 1.2 Generate updated protobufs for Go and Elixir
