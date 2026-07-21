@@ -502,9 +502,16 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
     JOIN platform.device_identifiers generic
       ON generic.identifier_type = 'integration_id'
      AND generic.identifier_value = typed.identifier_value
-     AND generic.partition = typed.partition
      AND generic.device_id <> typed.device_id
      AND COALESCE(generic.metadata->>'integration_type', '') = 'armis'
+     AND (
+       generic.partition = typed.partition
+       OR (
+         generic.partition = 'default'
+         AND COALESCE(generic.metadata->>'sync_service_id', '') =
+             COALESCE(typed.metadata->>'sync_service_id', d.metadata->>'sync_service_id', '')
+       )
+     )
     JOIN platform.ocsf_devices generic_device
       ON generic_device.uid = generic.device_id
      AND generic_device.deleted_at IS NULL

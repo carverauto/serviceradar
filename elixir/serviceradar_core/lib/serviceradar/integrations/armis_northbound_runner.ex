@@ -674,9 +674,16 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
           FROM platform.device_identifiers split_generic_di
           WHERE split_generic_di.identifier_type = 'integration_id'
             AND split_generic_di.identifier_value = ?
-            AND split_generic_di.partition = ?
             AND split_generic_di.device_id <> ?
             AND COALESCE(split_generic_di.metadata->>'integration_type', '') = 'armis'
+            AND (
+              split_generic_di.partition = ?
+              OR (
+                split_generic_di.partition = 'default'
+                AND COALESCE(split_generic_di.metadata->>'sync_service_id', '') =
+                    COALESCE(?->>'sync_service_id', ?->>'sync_service_id', '')
+              )
+            )
         )
         """,
         d.metadata,
@@ -689,8 +696,10 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
         d.uid,
         di.identifier_value,
         di.identifier_value,
+        d.uid,
         di.partition,
-        d.uid
+        di.metadata,
+        d.metadata
       )
     )
   end

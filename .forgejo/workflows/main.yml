@@ -129,6 +129,8 @@ jobs:
           SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
           SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
           SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+          SRQL_TEST_DATABASE_CERT: ${{ secrets.SRQL_TEST_DATABASE_CERT }}
+          SRQL_TEST_DATABASE_KEY: ${{ secrets.SRQL_TEST_DATABASE_KEY }}
           SERVICERADAR_SKIP_UNREACHABLE_INTEGRATION_DB: "1"
         run: |
           set -euo pipefail
@@ -155,6 +157,27 @@ jobs:
             echo "SRQL_TEST_DATABASE_CA_CERT_FILE=${ca_file}"
             echo "SERVICERADAR_SKIP_UNREACHABLE_INTEGRATION_DB=1"
           } >> "$GITHUB_ENV"
+
+          if [ -n "${SRQL_TEST_DATABASE_CERT:-}" ] || [ -n "${SRQL_TEST_DATABASE_KEY:-}" ]; then
+            if [ -z "${SRQL_TEST_DATABASE_CERT:-}" ] || [ -z "${SRQL_TEST_DATABASE_KEY:-}" ]; then
+              echo "SRQL_TEST_DATABASE_CERT and SRQL_TEST_DATABASE_KEY must be provided together." >&2
+              exit 1
+            fi
+
+            cert_file="${RUNNER_TEMP}/srql-fixture-client.crt"
+            key_file="${RUNNER_TEMP}/srql-fixture-client.key"
+            printf "%s" "${SRQL_TEST_DATABASE_CERT}" > "${cert_file}"
+            printf "%s" "${SRQL_TEST_DATABASE_KEY}" > "${key_file}"
+            chmod 600 "${key_file}"
+            {
+              echo "PGSSLCERT=${cert_file}"
+              echo "PGSSLKEY=${key_file}"
+              echo "SERVICERADAR_TEST_DATABASE_CERT=${cert_file}"
+              echo "SERVICERADAR_TEST_DATABASE_KEY=${key_file}"
+              echo "SRQL_TEST_DATABASE_CERT=${cert_file}"
+              echo "SRQL_TEST_DATABASE_KEY=${key_file}"
+            } >> "$GITHUB_ENV"
+          fi
 
           parser="$(command -v python3 || command -v python || true)"
           if [ -z "${parser}" ]; then
@@ -238,6 +261,10 @@ jobs:
             --test_env=PGSSLROOTCERT \
             --test_env=PGSSLCERT \
             --test_env=PGSSLKEY \
+            --test_env=SERVICERADAR_TEST_DATABASE_CERT \
+            --test_env=SERVICERADAR_TEST_DATABASE_KEY \
+            --test_env=SRQL_TEST_DATABASE_CERT \
+            --test_env=SRQL_TEST_DATABASE_KEY \
             --test_env=CNPG_CA_FILE \
             --test_env=SRQL_TEST_DATABASE_URL \
             --test_env=SRQL_TEST_ADMIN_URL \
@@ -403,6 +430,14 @@ jobs:
 
           test_status=0
           ./scripts/test-integration.sh || test_status=$?
+
+          if [ "${test_status}" -eq 0 ] && [ "${SERVICERADAR_RUN_ARMIS_DIRE_E2E:-1}" != "0" ]; then
+            echo "Running hermetic Armis/DIRE fast E2E"
+            SERVICERADAR_TEST_DATABASE_URL="${SRQL_TEST_DATABASE_URL}" \
+              SERVICERADAR_TEST_ADMIN_URL="${SRQL_TEST_ADMIN_URL}" \
+              PGSSLROOTCERT="${ca_file}" \
+              ./scripts/test-armis-dire-e2e.sh --profile fast || test_status=$?
+          fi
 
           cleanup_status=0
           cleanup_isolated_database || cleanup_status=$?
