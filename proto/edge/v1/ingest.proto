@@ -1,0 +1,55 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+// Edge result-ingest transport service. One bidirectional stream is a single
+// durable delivery lane: the agent sends a lane-open handshake then a run of
+// EdgeResultFrames from its crash-safe spool; the gateway replies with the
+// handshake ack then cumulative EdgeResultAck dispositions. gRPC provides
+// authenticated, flow-controlled transport only — durable acceptance is the
+// JetStream PubAck the gateway reports inside an EdgeResultAck, never RPC
+// success or EOF. Bulk/interactive/recovery lanes use separate connections.
+package serviceradar.edge.v1;
+
+import "edge/v1/observation.proto";
+
+option go_package = "github.com/carverauto/serviceradar/proto/edge/v1;edgev1";
+
+// EdgeResultClientMessage is one agent->gateway frame on a lane: the opening
+// handshake (first message) followed by result frames.
+message EdgeResultClientMessage {
+  oneof payload {
+    EdgeResultLaneOpen lane_open = 1;
+    EdgeResultFrame frame = 2;
+  }
+}
+
+// EdgeResultServerMessage is one gateway->agent message on a lane: the handshake
+// ack (first message) followed by cumulative dispositions.
+message EdgeResultServerMessage {
+  oneof payload {
+    EdgeResultLaneOpenAck lane_open_ack = 1;
+    EdgeResultAck ack = 2;
+  }
+}
+
+service EdgeResultIngest {
+  // Stream carries one delivery lane. The client opens with EdgeResultLaneOpen,
+  // the server responds with EdgeResultLaneOpenAck, then frames flow up and
+  // dispositions flow down independently.
+  rpc Stream(stream EdgeResultClientMessage) returns (stream EdgeResultServerMessage) {}
+}
