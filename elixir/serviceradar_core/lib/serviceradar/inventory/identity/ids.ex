@@ -183,8 +183,9 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
   defp get_integration_id(metadata) when is_map(metadata) do
     raw = get_trimmed(metadata, "integration_id")
+    integration_type = metadata["integration_type"] |> to_string() |> String.downcase()
 
-    case metadata["integration_type"] do
+    case integration_type do
       "armis" ->
         nil
 

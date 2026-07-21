@@ -178,6 +178,24 @@ defmodule ServiceRadar.Inventory.SourceIdentityDriftDbTest do
     assert SourceIdentityDrift.withheld_conflict_count(report) == 1
   end
 
+  test "source_conflict_report counts one skipped device once across duplicate conflicts" do
+    source_id = unique("src-duplicate-withheld")
+    device_uid = "sr:" <> Ecto.UUID.generate()
+
+    :ok =
+      SourceIdentityDrift.record_conflicts([
+        conflict(source_id, "metadata_identifier_disagreement", unique("armis-meta"))
+        |> Map.put(:device_uid, device_uid),
+        conflict(source_id, "split_typed_generic_identifier", unique("armis-split"))
+        |> Map.put(:device_uid, device_uid)
+      ])
+
+    report = SourceIdentityDrift.source_conflict_report(%{id: source_id})
+
+    assert report["total_count"] == 2
+    assert report["skipped_count"] == 1
+  end
+
   defp conflict(source_id, category, identifier_value) do
     %{
       source_type: "armis",
