@@ -1,0 +1,25 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "edgeframe",
+    srcs = [
+        "frame.go",
+        "uuidv7.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/edge/edgeframe",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//proto/edge/v1:edgev1",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+go_test(
+    name = "edgeframe_test",
+    srcs = ["edgeframe_test.go"],
+    embed = [":edgeframe"],
+    deps = [
+        "//proto/edge/v1:edgev1",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
