@@ -77,7 +77,8 @@ defmodule ServiceRadar.Observability.ResolveStaleAnomaliesWorker do
   engine saw no re-fire. Returns an empty set (today's resolve behavior) when
   the check is disabled or the lookup errors.
   """
-  @spec live_episode_series_keys(DateTime.t(), module()) :: MapSet.t()
+  @dialyzer {:nowarn_function, live_episode_series_keys: 2}
+  @spec live_episode_series_keys(DateTime.t(), module()) :: MapSet.t(String.t())
   def live_episode_series_keys(%DateTime{} = now, repo \\ Repo) do
     if episode_liveness_check?() do
       cutoff =

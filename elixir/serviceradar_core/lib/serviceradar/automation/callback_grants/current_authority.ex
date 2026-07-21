@@ -675,8 +675,11 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
 
   defp exact_keys?(map, expected) when is_map(map) do
     case normalize_snapshot(map) do
-      {:ok, normalized} -> MapSet.new(Map.keys(normalized)) == expected
-      {:error, _} -> false
+      {:ok, normalized} ->
+        MapSet.equal?(MapSet.new(Map.keys(normalized)), MapSet.new(Enum.to_list(expected)))
+
+      {:error, _} ->
+        false
     end
   end
 
@@ -776,7 +779,10 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
 
     with {:ok, normalized} <- normalize_snapshot(snapshot),
          true <-
-           MapSet.new(Map.keys(normalized)) == @approval_snapshot_keys ||
+           MapSet.equal?(
+             MapSet.new(Map.keys(normalized)),
+             MapSet.new(Enum.to_list(@approval_snapshot_keys))
+           ) ||
              {:error, :approval_changed},
          true <-
            to_string(normalized["binding_id"]) == to_string(value(binding, :id)) ||
@@ -820,7 +826,10 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
 
     with {:ok, normalized} <- normalize_snapshot(snapshot),
          true <-
-           MapSet.new(Map.keys(normalized)) == @policy_snapshot_keys ||
+           MapSet.equal?(
+             MapSet.new(Map.keys(normalized)),
+             MapSet.new(Enum.to_list(@policy_snapshot_keys))
+           ) ||
              {:error, :target_policy_changed},
          true <-
            normalized["schema"] == @policy_schema ||

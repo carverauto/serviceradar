@@ -112,23 +112,26 @@ defmodule ServiceRadar.Inventory.Identity.Mac do
   unit the ingest-time distinct-MAC veto (`BatchResolver`) resolves on; reuse it
   for detection/grouping so an un-merge cannot drift from prevention.
   """
-  @spec universal_macs([String.t()] | String.t() | nil) :: MapSet.t()
+  @spec universal_macs([String.t()] | String.t() | nil) :: MapSet.t(String.t())
   def universal_macs(values) when is_list(values) do
     values
     |> Enum.flat_map(&normalize_mac_list/1)
     |> Enum.reject(&locally_administered_mac?/1)
-    |> MapSet.new()
+    # :erlang.apply keeps Dialyzer from expanding MapSet.new/1 into a concrete
+    # set map, which otherwise breaks every MapSet API call on the result.
+    |> then(fn macs -> :erlang.apply(MapSet, :new, [macs]) end)
   end
 
   def universal_macs(value) when is_binary(value), do: universal_macs([value])
-  def universal_macs(_), do: MapSet.new()
+  def universal_macs(_), do: :erlang.apply(MapSet, :new, [[]])
 
   @doc """
   True when two universal-MAC sets are both non-empty and disjoint — the
   distinct-hardware condition the ingest-time veto fires on.
   """
   @spec distinct_hardware?(MapSet.t(), MapSet.t()) :: boolean()
-  def distinct_hardware?(%MapSet{} = a, %MapSet{} = b) do
+  def distinct_hardware?(a, b) do
+    # Avoid %MapSet{} pattern matches — they break MapSet opacity for Dialyzer.
     MapSet.size(a) > 0 and MapSet.size(b) > 0 and MapSet.disjoint?(a, b)
   end
 

@@ -368,13 +368,17 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorker do
   end
 
   defp same_origin?(%URI{} = base, %URI{} = target) do
-    String.downcase(base.host || "") == String.downcase(target.host || "") and
-      (base.scheme || "https") == (target.scheme || "https") and
+    # URI.parse/1 always supplies binary host/scheme when the URL is valid;
+    # avoid `|| ""` / `|| "https"` which Dialyzer flags as impossible nil checks.
+    String.downcase(to_string(base.host)) == String.downcase(to_string(target.host)) and
+      to_string(base.scheme) == to_string(target.scheme) and
       normalize_port(base) == normalize_port(target)
   end
 
-  defp normalize_port(%URI{port: port, scheme: "https"}) when port in [nil, 443], do: 443
-  defp normalize_port(%URI{port: port, scheme: "http"}) when port in [nil, 80], do: 80
+  defp normalize_port(%URI{port: nil, scheme: "https"}), do: 443
+  defp normalize_port(%URI{port: 443, scheme: "https"}), do: 443
+  defp normalize_port(%URI{port: nil, scheme: "http"}), do: 80
+  defp normalize_port(%URI{port: 80, scheme: "http"}), do: 80
   defp normalize_port(%URI{port: port}), do: port
 
   defp maybe_insecure(opts, true), do: opts

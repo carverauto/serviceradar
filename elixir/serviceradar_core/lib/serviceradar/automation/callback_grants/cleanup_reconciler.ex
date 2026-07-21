@@ -18,26 +18,26 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconciler do
   alias ServiceRadar.Edge.AgentCommand
 
   @context_schema "serviceradar.automation_callback_cleanup_command/v1"
-  @context_keys MapSet.new([
-                  "schema",
-                  "grant_id",
-                  "execution_id",
-                  "controller_id",
-                  "dispatch_agent_id",
-                  "dispatch_partition_id",
-                  "awx_job_id",
-                  "credential_id",
-                  "cleanup_kind",
-                  "cleanup_mode"
-                ])
-  @delete_payload_keys MapSet.new([
-                         "verb",
-                         "ok",
-                         "credential_id",
-                         "credential_type_id",
-                         "cleanup_status"
-                       ])
-  @cancel_payload_keys MapSet.new(["verb", "ok", "job_id", "status"])
+  @context_keys [
+    "schema",
+    "grant_id",
+    "execution_id",
+    "controller_id",
+    "dispatch_agent_id",
+    "dispatch_partition_id",
+    "awx_job_id",
+    "credential_id",
+    "cleanup_kind",
+    "cleanup_mode"
+  ]
+  @delete_payload_keys [
+    "verb",
+    "ok",
+    "credential_id",
+    "credential_type_id",
+    "cleanup_status"
+  ]
+  @cancel_payload_keys ["verb", "ok", "job_id", "status"]
   @cleanup_commands ["awx.delete_callback_credential", "awx.cancel_job"]
 
   @spec handle_command_result(map(), keyword()) :: :ok | {:error, term()}
@@ -213,21 +213,23 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconciler do
     }
   end
 
-  defp exact_string_map(map, expected_keys) when is_map(map) do
+  defp exact_string_map(map, expected_keys) when is_map(map) and is_list(expected_keys) do
+    expected_set = MapSet.new(expected_keys)
+
     map
     |> Enum.reduce_while({:ok, %{}}, fn {key, item}, {:ok, acc} ->
       key = if is_atom(key), do: Atom.to_string(key), else: key
 
       cond do
         not is_binary(key) -> {:halt, {:error, :cleanup_map_key_invalid}}
-        not MapSet.member?(expected_keys, key) -> {:halt, {:error, :cleanup_map_field_invalid}}
+        not MapSet.member?(expected_set, key) -> {:halt, {:error, :cleanup_map_field_invalid}}
         Map.has_key?(acc, key) -> {:halt, {:error, :cleanup_map_field_duplicate}}
         true -> {:cont, {:ok, Map.put(acc, key, item)}}
       end
     end)
     |> case do
       {:ok, normalized} ->
-        if map_size(normalized) == MapSet.size(expected_keys),
+        if map_size(normalized) == length(expected_keys),
           do: {:ok, normalized},
           else: {:error, :cleanup_map_field_missing}
 

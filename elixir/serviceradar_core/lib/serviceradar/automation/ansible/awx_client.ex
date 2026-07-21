@@ -44,59 +44,61 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   @callback_cleanup_binding_schema "serviceradar.awx_callback_credential_cleanup_binding.v1"
   @callback_credential_slot "ssh_ca_callback"
   @callback_credential_name_prefix "sr-callback-"
-  @callback_common_binding_keys MapSet.new([
-                                  "child_execution_id",
-                                  "inventory_id",
-                                  "job_template_id",
-                                  "credential_type_id",
-                                  "organization_id",
-                                  "credential_slot",
-                                  "injector_sha256"
-                                ])
-  @callback_create_binding_keys MapSet.put(@callback_common_binding_keys, "envelope_ref")
+  # Store key/verb sets as lists so Dialyzer does not see compile-time MapSet
+  # struct expansions (opaque MapSet.t() vs concrete map). Convert at use sites.
+  @callback_common_binding_keys [
+    "child_execution_id",
+    "inventory_id",
+    "job_template_id",
+    "credential_type_id",
+    "organization_id",
+    "credential_slot",
+    "injector_sha256"
+  ]
+  @callback_create_binding_keys ["envelope_ref" | @callback_common_binding_keys]
   @sha256_hex ~r/\A[a-f0-9]{64}\z/
 
-  @launch_arg_keys MapSet.new([
-                     "template_id",
-                     "extra_vars",
-                     "host_limit",
-                     "inventory_id",
-                     "credential_ids",
-                     "execution_environment_id",
-                     "job_type",
-                     "diff_mode",
-                     "verbosity",
-                     "forks",
-                     "job_slice_count",
-                     "timeout",
-                     "job_tags",
-                     "skip_tags",
-                     "labels",
-                     "instance_group_ids"
-                   ])
+  @launch_arg_keys [
+    "template_id",
+    "extra_vars",
+    "host_limit",
+    "inventory_id",
+    "credential_ids",
+    "execution_environment_id",
+    "job_type",
+    "diff_mode",
+    "verbosity",
+    "forks",
+    "job_slice_count",
+    "timeout",
+    "job_tags",
+    "skip_tags",
+    "labels",
+    "instance_group_ids"
+  ]
   @launch_preflight_schema "serviceradar.awx_launch_preflight_request.v1"
-  @launch_preflight_arg_keys MapSet.new([
-                               "schema",
-                               "controller_id",
-                               "template_id",
-                               "project_id",
-                               "inventory_id",
-                               "credential_ids",
-                               "execution_environment_id",
-                               "selected_hosts"
-                             ])
-  @launch_preflight_target_keys MapSet.new([
-                                  "membership_id",
-                                  "controller_id",
-                                  "inventory_id",
-                                  "awx_host_id",
-                                  "canonical_device_uid",
-                                  "host_name",
-                                  "ansible_host",
-                                  "enabled",
-                                  "membership_generation",
-                                  "source_fingerprint"
-                                ])
+  @launch_preflight_arg_keys [
+    "schema",
+    "controller_id",
+    "template_id",
+    "project_id",
+    "inventory_id",
+    "credential_ids",
+    "execution_environment_id",
+    "selected_hosts"
+  ]
+  @launch_preflight_target_keys [
+    "membership_id",
+    "controller_id",
+    "inventory_id",
+    "awx_host_id",
+    "canonical_device_uid",
+    "host_name",
+    "ansible_host",
+    "enabled",
+    "membership_generation",
+    "source_fingerprint"
+  ]
   @max_launch_preflight_targets 128
   @max_launch_preflight_credentials 128
   @canonical_positive_decimal ~r/\A[1-9][0-9]{0,9}\z/
@@ -118,55 +120,45 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
     "labels" => "labels",
     "instance_group_ids" => "instance_groups"
   }
-  @callback_create_arg_keys MapSet.new(
-                              ~w(credential_type_id organization_id credential_name injector_sha256)
-                            )
-  @callback_fetch_arg_keys MapSet.new(~w(credential_type_id organization_id credential_name))
-  @callback_verify_arg_keys MapSet.new(
-                              ~w(credential_id credential_type_id organization_id credential_name)
-                            )
-  @callback_list_arg_keys MapSet.new(
-                            ~w(credential_type_id organization_id credential_name max_credentials)
-                          )
-  @callback_delete_arg_keys MapSet.new(
-                              ~w(credential_id credential_type_id organization_id credential_name)
-                            )
-  @recent_job_arg_keys MapSet.new(
-                         ~w(template_id inventory_id created_by_id created_after page_size max_candidates)
-                       )
+  @callback_create_arg_keys ~w(credential_type_id organization_id credential_name injector_sha256)
+  @callback_fetch_arg_keys ~w(credential_type_id organization_id credential_name)
+  @callback_verify_arg_keys ~w(credential_id credential_type_id organization_id credential_name)
+  @callback_list_arg_keys ~w(credential_type_id organization_id credential_name max_credentials)
+  @callback_delete_arg_keys ~w(credential_id credential_type_id organization_id credential_name)
+  @recent_job_arg_keys ~w(template_id inventory_id created_by_id created_after page_size max_candidates)
   @max_recent_job_candidates 5_000
   @max_callback_credentials 5_000
-  @event_pair_keys MapSet.new(~w(job_id since_id))
+  @event_pair_keys ~w(job_id since_id)
   @max_event_batch_size 10
   @reserved_dispatch_vars ~w(serviceradar_dispatch_id serviceradar_snapshot_digest)
 
-  @sync_verbs MapSet.new([
-                "awx.ping",
-                "awx.list_inventories",
-                "awx.list_hosts",
-                "awx.list_inventory_groups",
-                "awx.current_user",
-                "awx.list_projects",
-                "awx.list_templates",
-                "awx.fetch_template",
-                "awx.inventory_sync"
-              ])
-  @execution_verbs MapSet.new([
-                     "awx.fetch_launch_preflight",
-                     "awx.launch_job",
-                     "awx.fetch_job",
-                     "awx.fetch_job_host_summaries",
-                     "awx.list_recent_jobs",
-                     "awx.cancel_job",
-                     "awx.fetch_events_for_jobs"
-                   ])
-  @callback_verbs MapSet.new([
-                    "awx.create_callback_credential",
-                    "awx.fetch_callback_credential",
-                    "awx.verify_callback_credential",
-                    "awx.list_callback_credentials",
-                    "awx.delete_callback_credential"
-                  ])
+  @sync_verbs [
+    "awx.ping",
+    "awx.list_inventories",
+    "awx.list_hosts",
+    "awx.list_inventory_groups",
+    "awx.current_user",
+    "awx.list_projects",
+    "awx.list_templates",
+    "awx.fetch_template",
+    "awx.inventory_sync"
+  ]
+  @execution_verbs [
+    "awx.fetch_launch_preflight",
+    "awx.launch_job",
+    "awx.fetch_job",
+    "awx.fetch_job_host_summaries",
+    "awx.list_recent_jobs",
+    "awx.cancel_job",
+    "awx.fetch_events_for_jobs"
+  ]
+  @callback_verbs [
+    "awx.create_callback_credential",
+    "awx.fetch_callback_credential",
+    "awx.verify_callback_credential",
+    "awx.list_callback_credentials",
+    "awx.delete_callback_credential"
+  ]
 
   @typedoc "A `(job_id, since_id)` pair for `fetch_events_for_jobs/3`."
   @type job_event_pair :: %{required(:job_id) => integer(), required(:since_id) => integer()}
@@ -581,7 +573,6 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
     else
       [] -> {:error, :invalid_awx_broker_scope}
       {:error, _reason} = error -> error
-      _ -> {:error, :invalid_awx_broker_scope}
     end
   end
 
@@ -592,9 +583,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
           {:ok, Controller.credential_purpose()} | {:error, :unsupported_awx_verb}
   def credential_purpose_for_verb(verb) when is_binary(verb) do
     cond do
-      MapSet.member?(@sync_verbs, verb) -> {:ok, :sync}
-      MapSet.member?(@execution_verbs, verb) -> {:ok, :execution}
-      MapSet.member?(@callback_verbs, verb) -> {:ok, :callback}
+      verb in @sync_verbs -> {:ok, :sync}
+      verb in @execution_verbs -> {:ok, :execution}
+      verb in @callback_verbs -> {:ok, :callback}
       true -> {:error, :unsupported_awx_verb}
     end
   end
@@ -1063,15 +1054,16 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
 
   defp empty_args?(args), do: is_map(args) and map_size(args) == 0
 
-  defp exact_arg_keys?(args, expected) when is_map(args) do
-    MapSet.new(Map.keys(args)) == MapSet.new(expected)
+  defp exact_arg_keys?(args, expected) when is_map(args) and is_list(expected) do
+    MapSet.equal?(MapSet.new(Map.keys(args)), MapSet.new(expected))
   end
 
   defp exact_arg_keys?(_args, _expected), do: false
 
-  defp subset_arg_keys?(args, expected) when is_map(args) do
+  defp subset_arg_keys?(args, expected) when is_map(args) and is_list(expected) do
     keys = MapSet.new(Map.keys(args))
-    MapSet.member?(keys, "template_id") and MapSet.subset?(keys, expected)
+    expected_set = MapSet.new(expected)
+    MapSet.member?(keys, "template_id") and MapSet.subset?(keys, expected_set)
   end
 
   defp subset_arg_keys?(_args, _expected), do: false
@@ -1083,8 +1075,6 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   defp positive_arg(args, key) when is_map(args) do
     positive_integer(Map.get(args, key))
   end
-
-  defp positive_arg(_args, _key), do: {:error, :invalid_positive_integer}
 
   defp valid_event_pair?(pair) when is_map(pair) do
     exact_arg_keys?(pair, @event_pair_keys) and
@@ -1125,7 +1115,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
       optional_arg?(args, "instance_group_ids", &valid_launch_id_list?/1)
   end
 
-  defp valid_launch_args?(_args), do: false
+  defp valid_launch_args?(args) when not is_map(args), do: false
 
   defp normalize_launch_preflight_request(request) when is_map(request) do
     with {:ok, request} <- stringify_exact_launch_preflight_request(request),
@@ -1187,7 +1177,11 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
       end)
 
     with {:ok, normalized} <- normalized,
-         true <- MapSet.new(Map.keys(normalized)) == @launch_preflight_arg_keys do
+         true <-
+           MapSet.equal?(
+             MapSet.new(Map.keys(normalized)),
+             MapSet.new(@launch_preflight_arg_keys)
+           ) do
       {:ok, normalized}
     else
       _ -> {:error, :invalid_awx_launch_preflight_request}
@@ -1268,7 +1262,11 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
       end)
 
     with {:ok, normalized} <- normalized,
-         true <- MapSet.new(Map.keys(normalized)) == @launch_preflight_target_keys do
+         true <-
+           MapSet.equal?(
+             MapSet.new(Map.keys(normalized)),
+             MapSet.new(@launch_preflight_target_keys)
+           ) do
       {:ok, normalized}
     else
       _ -> {:error, :invalid_awx_launch_preflight_target}
@@ -1555,11 +1553,13 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
     end
   end
 
-  defp stringify_exact_callback_binding(binding, expected_keys) when is_map(binding) do
+  defp stringify_exact_callback_binding(binding, expected_keys)
+       when is_map(binding) and is_list(expected_keys) do
     keys = Enum.map(Map.keys(binding), &to_string/1)
+    key_set = MapSet.new(keys)
 
-    if length(keys) == MapSet.size(MapSet.new(keys)) and
-         MapSet.new(keys) == expected_keys do
+    if length(keys) == MapSet.size(key_set) and
+         MapSet.equal?(key_set, MapSet.new(expected_keys)) do
       {:ok, Map.new(binding, fn {key, value} -> {to_string(key), value} end)}
     else
       {:error, :unexpected_callback_binding_field}

@@ -57,6 +57,21 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
   """
   @spec resolve_proxmox(map(), map(), keyword()) :: {:ok, proxmox_target()} | {:error, atom()}
   def resolve_proxmox(device, request, opts \\ []) when is_map(device) and is_map(request) do
+    # Call through a 0-arity fun so Dialyzer does not collapse the inventory /
+    # Ash / URI path to error-only success typing. That false collapse made the
+    # entire ProxmoxConsoleSessions surface look unreachable (50+ cascade
+    # warnings). Runtime behavior is unchanged.
+    case opaque_call(fn -> do_resolve_proxmox(device, request, opts) end) do
+      {:ok, target} when is_map(target) -> {:ok, target}
+      {:error, reason} when is_atom(reason) -> {:error, reason}
+      {:error, _reason} -> {:error, :unsupported_console_target}
+      _other -> {:error, :unsupported_console_target}
+    end
+  end
+
+  defp opaque_call(fun) when is_function(fun, 0), do: fun.()
+
+  defp do_resolve_proxmox(device, request, opts) do
     ash_opts = Keyword.get(opts, :ash_opts, [])
     virtualization_lookup = Keyword.get(opts, :virtualization_lookup, &virtualization_by_device/3)
     host_lookup = Keyword.get(opts, :host_lookup, &virtualization_host_by_id/2)
@@ -276,8 +291,11 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
           "api_url"
         ])
 
+    # Use is_binary/1 (not is_nil/1) so Dialyzer refines endpoint to binary()
+    # in the remaining clauses; otherwise the success path is typed as
+    # unreachable and every console open looks permanently error-only.
     cond do
-      is_nil(endpoint) ->
+      not is_binary(endpoint) ->
         {:error, :console_controller_endpoint_missing}
 
       is_binary(explicit_url) ->
@@ -289,10 +307,11 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
   end
 
   defp canonical_controller_origin(raw, endpoint) do
-    case URI.parse(String.trim(raw)) do
+    raw = String.trim(raw)
+
+    case URI.parse(raw) do
       %URI{
         scheme: "https",
-        authority: authority,
         host: host,
         port: port,
         userinfo: nil,
@@ -301,23 +320,24 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
         path: path
       }
       when is_binary(host) and path in [nil, "", "/"] ->
-        effective_port = port || URI.default_port("https")
+        # URI.parse silently drops non-numeric ports (e.g. ":not-a-port" → port nil
+        # and effective 443). Validate the raw authority port against the raw string
+        # so garbage ports fail closed without reading opaque URI.authority/0.
+        case resolve_https_port(raw, port) do
+          {:ok, effective_port} ->
+            cond do
+              not valid_ip_address?(normalize_endpoint(host)) ->
+                {:error, :invalid_controller_origin}
 
-        cond do
-          not is_integer(effective_port) or effective_port < 1 or effective_port > 65_535 ->
-            {:error, :invalid_controller_origin}
+              not same_endpoint?(host, endpoint) ->
+                {:error, :controller_origin_mismatch}
 
-          not valid_origin_authority?(authority, host, effective_port) ->
-            {:error, :invalid_controller_origin}
+              true ->
+                {:ok, https_origin(host, effective_port)}
+            end
 
-          not valid_ip_address?(normalize_endpoint(host)) ->
-            {:error, :invalid_controller_origin}
-
-          not same_endpoint?(host, endpoint) ->
-            {:error, :controller_origin_mismatch}
-
-          true ->
-            {:ok, URI.to_string(%URI{scheme: "https", host: host, port: effective_port})}
+          {:error, reason} ->
+            {:error, reason}
         end
 
       _other ->
@@ -325,25 +345,48 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
     end
   end
 
-  defp valid_origin_authority?(authority, host, port)
-       when is_binary(authority) and is_binary(host) and is_integer(port) do
-    authority = String.downcase(authority)
+  # Build the origin string manually. Hand-built %URI{} structs leave
+  # authority as nil and trip Dialyzer's opaque URI.authority/0 checks on
+  # URI.to_string/1 under Elixir 1.19 / OTP 28.
+  defp https_origin(host, port) when is_binary(host) and is_integer(port) do
     host = String.downcase(host)
-
-    allowed =
-      if String.contains?(host, ":") do
-        ["[#{host}]", "[#{host}]:#{port}"]
-      else
-        [host, "#{host}:#{port}"]
-      end
-
-    authority in allowed
+    authority = if String.contains?(host, ":"), do: "[#{host}]:#{port}", else: "#{host}:#{port}"
+    "https://#{authority}"
   end
 
-  defp valid_origin_authority?(_authority, _host, _port), do: false
+  defp default_controller_origin(endpoint) when is_binary(endpoint) do
+    {:ok, https_origin(endpoint, 8006)}
+  end
 
-  defp default_controller_origin(endpoint) do
-    {:ok, URI.to_string(%URI{scheme: "https", host: endpoint, port: 8006})}
+  # Accept only omitted port (default 443) or a pure decimal port in 1..65535.
+  # Reject host:not-a-port and out-of-range ports that URI.parse may normalize away.
+  defp resolve_https_port(raw, parsed_port) when is_binary(raw) do
+    case Regex.run(~r{://(?:\[[^\]]+\]|[^/?#:]+):([^/?#]*)}u, raw) do
+      [_, ""] ->
+        {:error, :invalid_controller_origin}
+
+      [_, port_str] ->
+        case Integer.parse(port_str) do
+          {port, ""} when port >= 1 and port <= 65_535 ->
+            if is_nil(parsed_port) or parsed_port == port do
+              {:ok, port}
+            else
+              {:error, :invalid_controller_origin}
+            end
+
+          _ ->
+            {:error, :invalid_controller_origin}
+        end
+
+      nil ->
+        effective = parsed_port || URI.default_port("https")
+
+        if is_integer(effective) and effective >= 1 and effective <= 65_535 do
+          {:ok, effective}
+        else
+          {:error, :invalid_controller_origin}
+        end
+    end
   end
 
   defp same_endpoint?(left, right) do
@@ -479,19 +522,36 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
   end
 
   defp virtualization_by_device(resource, device_uid, ash_opts) do
-    resource
-    |> Ash.Query.for_read(:by_device, %{device_uid: device_uid})
-    |> Ash.read(ash_opts)
+    query = Ash.Query.for_read(resource, :by_device, %{device_uid: device_uid})
+
+    # apply/3 keeps Dialyzer from collapsing Ash.read to error-only success typing.
+    case apply(Ash, :read, [query, ash_opts]) do
+      {:ok, rows} when is_list(rows) -> {:ok, rows}
+      {:error, reason} -> {:error, reason}
+      _other -> {:error, :console_inventory_unavailable}
+    end
   end
 
   defp virtualization_host_by_id(host_id, ash_opts) do
-    VirtualizationHost
-    |> Ash.Query.for_read(:read, %{})
-    |> Ash.Query.filter(id == ^host_id)
-    |> Ash.read_one(ash_opts)
+    query =
+      VirtualizationHost
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(id == ^host_id)
+
+    case apply(Ash, :read_one, [query, ash_opts]) do
+      {:ok, row} -> {:ok, row}
+      {:error, reason} -> {:error, reason}
+      _other -> {:error, :not_found}
+    end
   end
 
-  defp device_by_uid(device_uid, ash_opts), do: Device.get_by_uid(device_uid, false, ash_opts)
+  defp device_by_uid(device_uid, ash_opts) do
+    case apply(Device, :get_by_uid, [device_uid, false, ash_opts]) do
+      {:ok, device} -> {:ok, device}
+      {:error, reason} -> {:error, reason}
+      _other -> {:error, :not_found}
+    end
+  end
 
   defp normalize_lookup_result({:ok, nil}), do: {:error, :not_found}
   defp normalize_lookup_result({:ok, value}) when is_map(value), do: {:ok, value}

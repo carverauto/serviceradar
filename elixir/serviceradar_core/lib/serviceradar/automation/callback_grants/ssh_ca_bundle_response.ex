@@ -478,11 +478,15 @@ defmodule ServiceRadar.Automation.CallbackGrants.SshCaBundleResponse do
   defp positive_integer?(value), do: is_integer(value) and value > 0
 
   defp exact_keys(map, expected, reason) do
-    if MapSet.new(Map.keys(map)) == expected, do: :ok, else: {:error, reason}
+    if MapSet.equal?(MapSet.new(Map.keys(map)), MapSet.new(Enum.to_list(expected))),
+      do: :ok,
+      else: {:error, reason}
   end
 
   defp exact_optional_keys(map, allowed, reason) do
-    if MapSet.subset?(MapSet.new(Map.keys(map)), allowed), do: :ok, else: {:error, reason}
+    if MapSet.subset?(MapSet.new(Map.keys(map)), MapSet.new(Enum.to_list(allowed))),
+      do: :ok,
+      else: {:error, reason}
   end
 
   defp enforce_size(bytes, maximum) when byte_size(bytes) <= maximum, do: :ok

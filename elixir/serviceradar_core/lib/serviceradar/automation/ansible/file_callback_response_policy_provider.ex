@@ -646,7 +646,7 @@ defmodule ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider do
   end
 
   defp exact_keys(map, expected) when is_map(map) do
-    if MapSet.new(Map.keys(map)) == expected,
+    if MapSet.equal?(MapSet.new(Map.keys(map)), MapSet.new(Enum.to_list(expected))),
       do: :ok,
       else: {:error, :invalid_callback_response_policy_document}
   end
