@@ -76,17 +76,23 @@ class.
 
 ### Canonical typed durable records
 
-- **ADD** a versioned canonical `EdgeRecordV1` with a stable event ID, platform
+- **ADD** a versioned authoritative `EdgeRecordV1` with a stable event ID, platform
   payload family,
-  compression, encoded/uncompressed sizes, checksum, projected database-row and
+  compression, encoded/uncompressed sizes, `payload_sha256`, projected database-row and
   write-byte costs with a versioned cost model, authoritative network scope,
-  immutable traffic class, one authorization context/scope, separate production,
-  source-authorization, exact output-contract bundle,
+  immutable traffic class, a typed signed production capability
+  (`EdgeSignedCapabilityV1`) and an optional typed source authorization
+  (`EdgeSourceAuthorizationV1`) whose authorization context/scope live inside the
+  typed claims rather than in flat record fields, exact output-contract bundle,
   signed registry snapshot and effective-grant digests, ingress-attested
   origin/producer/package/assignment/run context, platform route profile, and
-  opaque canonical body. The sink encodes these semantic bytes once.
+  opaque canonical body. The sink encodes these semantic bytes once. `EdgeRecordV1`
+  carries no `semantic_digest_version` field: the semantic-envelope digest grammar
+  version is a committed grammar constant (`= 3`) fixed one-to-one by the immutable
+  record-schema version, never a wire field.
 - **ADD** a small `EdgeDeliveryFrameV1` for edge transport only: persistent
-  spool ID/sequence, exact record-byte checksum, renewable delivery capability,
+  spool ID/sequence, the sink-computed exact-record checksum `record_sha256`,
+  renewable delivery capability,
   and the unchanged `record_bytes`. The common spool owns the wrapper and exact
   record bytes; rollover/recovery may change delivery coordinates by creating a
   new wrapper without changing or re-encoding `EdgeRecordV1`. gRPC decodes the
@@ -120,7 +126,7 @@ class.
   namespaced by approved publisher/package identity and cannot be claimed by a
   different signer. A registry epoch authorizes an exact bundle set but is not
   a substitute for the per-record bundle and effective-grant digests.
-- **ADD** a canonical byte-bounded inventory snapshot batch plus start,
+- **ADD** a byte-bounded inventory snapshot batch plus start,
   checkpoint, terminal-manifest, and abort events. A complete snapshot may
   contain many independently durable but assignment-bounded batches without
   whole-run materialization. Absence reconciliation becomes authoritative only
@@ -154,14 +160,19 @@ class.
   proof, gateway selection, or broker routing. A successful producer receipt
   means the agent-created, complete binary `EdgeRecordV1` bytes and their
   delivery wrapper are fsynced in the common agent spool, not merely admitted
-  to a channel. The exact record bytes later carried inside gRPC are stored
-  unchanged by JetStream.
+  to a channel. The producer submits bounded UNCOMPRESSED contract-payload
+  bytes; the sink derives `submission_sha256` (pre-compression) and does its
+  retry/receipt lookup BEFORE compressing, then compresses once. The exact record
+  bytes later carried inside gRPC are stored unchanged by JetStream.
 - **ADD** an atomic durable producer-key journal committed with each spool append.
   It binds package digest, assignment, host-issued run, output contract, and
-  producer idempotency key to the event ID, body digest, and receipt for the
+  producer idempotency key to the event ID, the pre-compression
+  `submission_sha256`, and receipt for the
   supported retry horizon. It survives agent and producer restart, lane
   rollover, and spool reclamation. Receipt lookup closes timeout-after-fsync
-  crashes; reusing a key for different bytes is an integrity failure. After a
+  crashes; reusing a key for a different `submission_sha256` is an integrity
+  failure (a byte-layout difference that preserves the `submission_sha256`
+  returns the original receipt). After a
   run's signed retry horizon and safe-GC watermark pass, a late lookup returns
   `RETRY_WINDOW_EXPIRED` rather than allocating a new event under the old key.
 - **ADD** a versioned binary Wasm host ABI and one generic native add-on record
@@ -225,8 +236,17 @@ class.
 ### Durable gateway handoff
 
 - **ADD** an independent bidirectional gRPC record-ingest RPC per durable
-  traffic/delivery lane, with cumulative dispositions over shared producer
-  spool sequences plus a separately reserved recovery-control lane. Bulk,
+  traffic/delivery lane, whose nonce-bound `EdgeDeliveryAckV1` (fields
+  `spool_id` = 1, `resolved_through_sequence` = 2, `dispositions` = 3,
+  `session_nonce` = 4) carries the typed disposition -- one of the five authoritative
+  kinds (`primary_publication` / `audit_publication` / `quarantine_publication` /
+  `retryable_rejection` / `permanent_rejection`); this `EdgeRecordDispositionKind`
+  is the frozen six-value enum (UNSPECIFIED plus those five authoritative kinds)
+  landed in #4713, a
+  `session_nonce`, and a `resolved_through_sequence` REMOTE
+  terminal-disposition-through watermark over shared producer spool sequences
+  (the separate agent-local reclaim watermark governs spool reclamation and is
+  never conflated with it), plus a separately reserved recovery-control lane. Bulk,
   interactive, and recovery RPCs use
   separately pooled HTTP/2 connections and NATS publisher connections with
   independent windows/pending-byte ceilings, so a stalled bulk write cannot stop
@@ -239,20 +259,29 @@ class.
   context and scope, compares the claimed origin/network scope to mTLS, and
   publishes the exact received `EdgeRecordV1` bytes unchanged. It does not
   move semantic authority into NATS headers or decode/re-encode the domain body.
-- The gateway MUST use a JetStream publish request and set `Nats-Msg-Id` from
-  the attested origin principal, delivery-wrapper spool ID/sequence, and the
-  verified `EdgeRecordV1` semantic digest over body, output-contract bundle,
-  registry/effective grant, sizes/cost,
-  producer run/scope/epoch, and production/source authorization proof. The
-  semantic digest excludes delivery coordinates so recovered copies
-  deduplicate in the database even though their broker publication ID changes.
+- The gateway MUST use a JetStream publish request and set `Nats-Msg-Id` from the
+  frozen 6-field transcript (`serviceradar.edge.msgid`, `msgid_version = 1`):
+  `authenticated_agent_id` (== `producer_context.origin_principal_id`),
+  `network_scope_id`, the delivery-wrapper spool ID (the persistent UUIDv7 for one
+  delivery lane -- there is no separate lane ID), sequence, the verified `EdgeRecordV1`
+  `semantic_envelope_sha256`, and the delivery frame's exact-record checksum `record_sha256`. The
+  `semantic_envelope_sha256` commits body, output-contract bundle,
+  registry/effective grant, sizes/cost, producer run/scope/epoch, and
+  production/source authorization proof, and excludes delivery coordinates so
+  recovered copies deduplicate in the database even though their broker
+  publication ID changes.
   Apart from `Nats-Msg-Id`, `Nats-Expected-Stream`, and one bounded
   route-map/registry diagnostic hint, headers carry no semantic fields;
   EventWriter treats the binary record as authoritative and independently
   verifies it.
   The gateway waits for a real PubAck before accepting the edge sequence. A
-  different body or semantic envelope under the same event ID reaches the ledger
-  as a conflict instead of being hidden by broker deduplication.
+  different SEMANTIC ENVELOPE under the same event ID reaches the semantic ledger
+  as an `EVENT_ID_CONFLICT`; a different outer record encoding (a different
+  `record_sha256`) reused in the same delivery slot reaches EventWriter's
+  delivery-slot binding as a transport-integrity violation. Because `Nats-Msg-Id`
+  binds `record_sha256` as well as the semantic digest, neither conflict is
+  hidden by broker deduplication, while a byte-identical same-lane retry is still
+  correctly deduplicated.
   If JetStream is unavailable or full, the gateway does not ACK; gRPC flow
   control and the agent disk spool apply backpressure.
 - The memory-only gateway results buffer is not used by this data plane.
@@ -344,7 +373,7 @@ class.
   comparison uses separate hard-cut cohorts or a non-writing shadow rather than
   dual authoritative writes.
 - Required low-cardinality scanner, execution, availability-ratio, and trace
-  health metrics are derived downstream from the canonical protobuf event.
+  health metrics are derived downstream from the authoritative protobuf event.
   Real-time consumers subscribe to the same structured stream instead of
   requiring a second agent serialization.
 - Plugin/add-on persisted output likewise has one canonical ingress record.

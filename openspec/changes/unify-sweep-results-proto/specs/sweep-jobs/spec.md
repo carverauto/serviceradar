@@ -190,8 +190,8 @@ and immutable `bulk` or `interactive` traffic class.
 #### Scenario: Fenced assignment still has immutable spooled bytes
 - **GIVEN** a frame was collected under valid authority before its assignment
   was fenced
-- **WHEN** the scheduler freshly authorizes that exact event/checksum for
-  delivery after the fence
+- **WHEN** the scheduler freshly authorizes that exact event-ID/`record_sha256`
+  for delivery after the fence
 - **THEN** a delivery-only capability MAY permit replay with the original
   network scope, agent, execution, and traffic class
 - **AND** the replay SHALL remain audit-only and SHALL NOT restore domain
