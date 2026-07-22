@@ -562,9 +562,10 @@ generate-proto: proto-tools ## Generate Go and Rust code from protobuf definitio
 	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		proto/edge/v1/sweep.proto
-	@# require_unimplemented_servers=false matches rules_go's go_grpc_v2 (the Bazel
-	@# compiler that generates the shipped bindings), so the committed edge grpc
-	@# stub is byte-identical to what Bazel emits (enforced by the parity gate).
+	@# require_unimplemented_servers=false is the frozen protoc-gen-go-grpc setting for
+	@# the edge gRPC stub. protoc/Make is the single source for the checked-in bindings
+	@# and Bazel compiles those exact files (no second Bazel generator), so this option
+	@# must stay fixed to keep regeneration byte-stable; verify-proto-go is the drift guard.
 	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
@@ -626,7 +627,7 @@ generate-proto-elixir: install-protoc-gen-elixir ## Generate Elixir code from pr
 	@echo "$(COLOR_BOLD)Generated Elixir protobuf code under $(ELIXIR_PROTO_OUT)$(COLOR_RESET)"
 
 .PHONY: verify-proto-elixir
-verify-proto-elixir: generate-proto-elixir ## Fail if regenerated Elixir bindings differ from the checked-in tree (CI drift guard)
+verify-proto-elixir: generate-proto-elixir verify-proto-edge-elixir ## Fail if regenerated Elixir bindings differ from the checked-in tree (CI drift guard)
 	@dirty="$$(git status --porcelain --untracked-files=all -- $(ELIXIR_PROTO_OUT))"; \
 	if [ -n "$$dirty" ]; then \
 		echo "$(COLOR_BOLD)Elixir protobuf bindings are out of sync with proto/. Run 'make generate-proto-elixir' and commit the result.$(COLOR_RESET)"; \
@@ -634,40 +635,63 @@ verify-proto-elixir: generate-proto-elixir ## Fail if regenerated Elixir binding
 	fi
 
 .PHONY: verify-proto-go
-verify-proto-go: generate-proto ## Fail if regenerated Go bindings differ from the checked-in tree (CI drift guard)
+verify-proto-go: generate-proto verify-proto-edge-go ## Fail if regenerated Go bindings differ from the checked-in tree (CI drift guard)
 	@dirty="$$(git status --porcelain --untracked-files=all -- 'proto/*.pb.go' 'proto/**/*.pb.go')"; \
 	if [ -n "$$dirty" ]; then \
 		echo "$(COLOR_BOLD)Go protobuf bindings are out of sync with proto/. Run 'make generate-proto' and commit the result.$(COLOR_RESET)"; \
 		echo "$$dirty"; git --no-pager diff -- 'proto/*.pb.go' 'proto/**/*.pb.go'; exit 1; \
 	fi
 
-BAZEL ?= bazel
-
-.PHONY: verify-proto-bazel-parity
-verify-proto-bazel-parity: ## Fail if Bazel and Make emit non-comment-equivalent edge Go bindings
-	@echo "$(COLOR_BOLD)Comparing Bazel go_grpc_v2 output vs committed Make bindings (comment-insensitive, Go-AST)$(COLOR_RESET)"
-	@# The go_proto_library archive does NOT expose the generated .go; the
-	@# go_generated_srcs output group does. Build it and locate the files under the
-	@# REAL bazel-bin (this repo sets --experimental_convenience_symlinks=clean, so
-	@# the bazel-bin convenience symlink does not exist; resolve it via `bazel info`).
-	@$(BAZEL) build //proto/edge/v1:edgev1_go_proto --output_groups=go_generated_srcs
-	@status=0; tmp="$$(mktemp -d)"; bb="$$($(BAZEL) info bazel-bin 2>/dev/null)"; \
-	if [ -z "$$bb" ]; then echo "  could not resolve bazel-bin"; exit 1; fi; \
-	for f in record.pb.go record_grpc.pb.go sweep.pb.go; do \
-		bf="$$(find -L "$$bb/proto/edge/v1" -path '*edgev1_go_proto*' -name "$$f" 2>/dev/null | head -1)"; \
-		if [ -z "$$bf" ]; then echo "  bazel output for $$f not found (go_generated_srcs)"; status=1; continue; fi; \
-		normalize() { $(GO) run ./build/tools/gostripcomments < "$$1" | grep -vE '^[[:space:]]*$$'; }; \
-		normalize "$$bf" > "$$tmp/bz_$$f"; \
-		normalize "proto/edge/v1/$$f" > "$$tmp/mk_$$f"; \
-		if ! diff -u "$$tmp/mk_$$f" "$$tmp/bz_$$f"; then \
-			echo "$(COLOR_BOLD)Bazel vs Make Go binding drift in $$f (descriptor/server interface differs)$(COLOR_RESET)"; status=1; \
-		fi; \
-	done; \
-	rm -rf "$$tmp"; \
-	if [ "$$status" -ne 0 ]; then \
-		echo "$(COLOR_BOLD)Bazel and Make emit different edge bindings. Align protoc-gen-go / go_grpc_v2 versions.$(COLOR_RESET)"; \
+# The edge Go/Elixir bindings are single-sourced: Bazel compiles the checked-in
+# *.pb.go / *.pb.ex directly, so an in-place regenerate + `git status` CANNOT catch an
+# OBSOLETE generated file the generator has stopped emitting (e.g. a removed gRPC stub
+# after a service split) -- it stays tracked, unchanged, and Bazel keeps compiling the
+# stale API. These targets regenerate ONLY the edge outputs into a clean temp tree and
+# compare BOTH the exact relative-file MANIFEST (catches obsolete/missing files) AND
+# every file's bytes. A temp tree is used (rather than deleting the tracked outputs)
+# so a local generation failure never leaves the checked-in bindings destroyed.
+.PHONY: verify-proto-edge-go
+verify-proto-edge-go: proto-tools ## Manifest+byte drift guard for the single-sourced edge Go bindings
+	@tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \
+	PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
+		--go_out="$$tmp" --go_opt=paths=source_relative \
+		proto/edge/v1/sweep.proto; \
+	PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
+		--go_out="$$tmp" --go_opt=paths=source_relative \
+		--go-grpc_out="$$tmp" --go-grpc_opt=paths=source_relative \
+		--go-grpc_opt=require_unimplemented_servers=false \
+		proto/edge/v1/record.proto; \
+	gen="$$(cd "$$tmp/edge/v1" && ls *.pb.go 2>/dev/null | sort)"; \
+	have="$$(cd proto/edge/v1 && ls *.pb.go 2>/dev/null | sort)"; \
+	if [ "$$gen" != "$$have" ]; then \
+		echo "$(COLOR_BOLD)Edge Go binding MANIFEST drift (obsolete or missing generated file):$(COLOR_RESET)"; \
+		echo "  committed:   $$have"; echo "  regenerated: $$gen"; exit 1; \
 	fi; \
-	exit $$status
+	for f in $$gen; do \
+		if ! cmp -s "$$tmp/edge/v1/$$f" "proto/edge/v1/$$f"; then \
+			echo "$(COLOR_BOLD)Edge Go binding byte drift in proto/edge/v1/$$f -- run 'make generate-proto' and commit.$(COLOR_RESET)"; exit 1; \
+		fi; \
+	done
+
+.PHONY: verify-proto-edge-elixir
+verify-proto-edge-elixir: install-protoc-gen-elixir ## Manifest+byte drift guard for the single-sourced edge Elixir bindings
+	@tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \
+	PATH="$(dir $(PROTOC_GEN_ELIXIR)):$$PATH" protoc -I=proto -I=. \
+		--elixir_out=plugins=grpc:"$$tmp" \
+		proto/edge/v1/sweep.proto \
+		proto/edge/v1/record.proto; \
+	( cd elixir/serviceradar_core && mix format --force "$$tmp/edge/v1/*.pb.ex" ); \
+	gen="$$(cd "$$tmp/edge/v1" && ls *.pb.ex 2>/dev/null | sort)"; \
+	have="$$(cd $(ELIXIR_PROTO_OUT)/edge/v1 && ls *.pb.ex 2>/dev/null | sort)"; \
+	if [ "$$gen" != "$$have" ]; then \
+		echo "$(COLOR_BOLD)Edge Elixir binding MANIFEST drift (obsolete or missing generated file):$(COLOR_RESET)"; \
+		echo "  committed:   $$have"; echo "  regenerated: $$gen"; exit 1; \
+	fi; \
+	for f in $$gen; do \
+		if ! cmp -s "$$tmp/edge/v1/$$f" "$(ELIXIR_PROTO_OUT)/edge/v1/$$f"; then \
+			echo "$(COLOR_BOLD)Edge Elixir binding byte drift in $$f -- run 'make generate-proto-elixir' and commit.$(COLOR_RESET)"; exit 1; \
+		fi; \
+	done
 
 .PHONY: proto-lint
 proto-lint: ## Lint protobuf definitions with Buf

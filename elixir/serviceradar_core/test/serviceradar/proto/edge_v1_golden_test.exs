@@ -64,7 +64,13 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert src.producer_assignment_id == record.producer_context.producer_assignment_id
   end
 
-  test "Elixir recomputes capability signing bytes and verifies Ed25519 signatures (rotation)" do
+  # NOTE: this is signature-vector parity + purpose binding, NOT key rotation. It
+  # injects two raw public keys directly and never resolves (issuer_id,
+  # issuer_key_id) through a tuple-keyed resolver, overlaps two keys for one issuer,
+  # retires one, or rejects a cross-issuer substitution. Real rotation coverage is
+  # deferred to the post-ABI-freeze fixture regeneration (the capability signing-byte
+  # grammar changes there), where same-issuer/different-key-ID vectors are added.
+  test "Elixir recomputes capability signing bytes and verifies Ed25519 signatures (signature-vector parity)" do
     record = EdgeRecordV1.decode(load("record.bin"))
     key_a = load("issuer_key_a.pub")
     key_b = load("issuer_key_b.pub")
