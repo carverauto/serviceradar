@@ -79,22 +79,24 @@ subscribable in JetStream before CNPG persistence.
 
 ### Requirement: Wasm durable output uses a versioned binary host ABI
 The agent SHALL expose a versioned Wasm host ABI and SDK for opening host-issued
-runs, publishing bounded canonical records, checkpointing, committing or
+runs, publishing bounded records, checkpointing, committing or
 aborting, looking up uncertain receipts, and waiting for byte/frame credits.
-Canonical binary bytes SHALL cross guest memory through one bounded copy and
-SHALL NOT be wrapped in base64 or JSON. The ABI SHALL NOT expose
+The bounded contract-payload (submission) bytes SHALL cross guest memory through
+one bounded copy and SHALL NOT be wrapped in base64 or JSON. The trusted sink --
+never the guest -- constructs `EdgeRecordV1` from those submission bytes. The ABI
+SHALL NOT expose
 `EdgeRecordV1`, `EdgeDeliveryFrameV1`, spool coordinates, NATS subjects,
 route/partition selection,
 traffic class, trusted agent/network-scope provenance, projected database cost,
 or database destinations to the guest.
 
-#### Scenario: Guest publishes a canonical metric batch
+#### Scenario: Guest publishes a metric batch
 - **GIVEN** a plugin assignment grants the exact metric output contract
-- **WHEN** the guest passes bounded canonical bytes and a stable producer key to
-  the host ABI
-- **THEN** the host SHALL validate and append the exact record through the
-  common durable sink
-- **AND** it SHALL NOT encode those bytes as protobuf-in-base64-in-JSON or let
+- **WHEN** the guest passes bounded contract-payload (submission) bytes and a
+  stable producer key to the host ABI
+- **THEN** the host SHALL validate the submission and the trusted sink SHALL
+  construct and append the exact `EdgeRecordV1` through the common durable sink
+- **AND** it SHALL NOT encode those submission bytes as protobuf-in-base64-in-JSON or let
   the guest construct transport routing
 
 #### Scenario: Guest attempts to spoof routing
@@ -137,7 +139,10 @@ partitions, database destinations, SQL/DDL, or executable Core processors.
   authority
 
 ### Requirement: Plugin durable output is backpressured and idempotent
-A successful Wasm publish receipt SHALL mean the exact canonical bytes,
+A guest SHALL supply bounded UNCOMPRESSED contract-payload (submission) bytes; the
+sink SHALL compute `submission_sha256` over them and perform its retry lookup BEFORE
+compression, then compress the payload once and construct the record. A
+successful Wasm publish receipt SHALL mean the exact record bytes the sink emitted,
 contract, producer key, and trusted provenance are fsynced in the common agent
 spool. A retryable `WOULD_BLOCK` SHALL mean ownership did not transfer and SHALL
 include bounded retry-after or credit notification. Permanent size, schema,
@@ -146,8 +151,8 @@ pause, fuel-limit, or terminate a guest that ignores pressure.
 
 The sink SHALL atomically persist the stable producer-key binding with the spool
 append, retain it for the supported retry horizon, and return the same durable
-identity after a timeout or crash between fsync and reply. The same key with
-different bytes SHALL be an integrity error.
+identity after a timeout or crash between fsync and reply. The same producer key
+with a different `submission_sha256` SHALL be an integrity error.
 
 #### Scenario: Host reply is lost after fsync
 - **WHEN** a guest retries the same producer key after an uncertain host call

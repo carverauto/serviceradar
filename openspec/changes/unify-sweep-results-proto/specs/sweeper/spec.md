@@ -3,9 +3,11 @@
 ## MODIFIED Requirements
 
 ### Requirement: Sweep Results Push to Agent-Gateway
-The agent SHALL encode each sweep observation once as versioned, byte-bounded
-`EdgeRecordV1` bytes and carry those exact bytes to the agent-gateway inside
-`EdgeDeliveryFrameV1` while a sweep is running. It SHALL durably spool each
+The agent's producer adapter SHALL encode each sweep observation once as a
+bounded `SweepObservationBatchV1` contract payload; the agent-owned sink SHALL
+construct and encode the versioned, byte-bounded `EdgeRecordV1` and carry those
+exact bytes to the agent-gateway inside `EdgeDeliveryFrameV1` while a sweep is
+running. It SHALL durably spool each
 record plus its delivery binding before transmission, retain it through restart
 until cumulatively acknowledged, and SHALL NOT require full-scan result
 materialization. An
@@ -102,7 +104,10 @@ only then return an accepted disposition.
   execution, immutable traffic class, and stable shard keys
 - **AND** publish the exact `record_bytes` to the expected class-specific
   edge-record stream without re-encoding or semantic broker headers
-- **AND** advance the contiguous resolved watermark only after PubAck
+- **AND** advance the contiguous resolved watermark only after an
+  authoritative-stream PubAck (accept) or an audit/DLQ PubAck (permanent reject);
+  a retryable/transient publication failure SHALL leave the sequence unresolved
+  and SHALL NOT advance the watermark
 
 #### Scenario: JetStream or its consumer is unavailable
 - **GIVEN** a frame cannot be durably accepted because the stream is unavailable
@@ -172,7 +177,8 @@ retaining or reconstructing a full scan or issuing one lookup per host.
 - **AND** SYN and connect outcomes for the same port SHALL remain distinct
 
 #### Scenario: Batch is redelivered
-- **WHEN** a previously committed event ID and checksum are received again
+- **WHEN** a previously committed `(network_scope_id, event_id)` is received
+  again with a matching stored `semantic_envelope_sha256`
 - **THEN** the consumer SHALL acknowledge it without duplicating sweep history,
   OCSF events, state transitions, or execution counts
 

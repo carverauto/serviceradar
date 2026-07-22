@@ -85,7 +85,7 @@ configuration contract, not implicit KV mirroring.
 
 Runtime consumers SHALL NOT derive customer/tenant identity or database authority
 from a subject prefix. Installation-local record consumers SHALL validate the
-canonical `EdgeRecordV1` and its signed grants and SHALL use `network_scope_id`
+authoritative `EdgeRecordV1` and its signed grants and SHALL use `network_scope_id`
 only as the site/address-space component of domain identity. They SHALL NOT infer
 network scope, agent, traffic class, or authorization context from a subject token.
 
@@ -101,7 +101,7 @@ network scope, agent, traffic class, or authorization context from a subject tok
 - **GIVEN** EventWriter receives `telemetry.edge-record.v1.bulk.p07`
 - **WHEN** it validates the persisted message
 - **THEN** it SHALL derive network scope, authenticated agent, traffic class, and
-  authorization from the verified canonical record and signed grants
+  authorization from the verified authoritative record and signed grants
 - **AND** `network_scope_id` SHALL distinguish sites or overlapping RFC1918
   address spaces without becoming a SaaS customer identity
 

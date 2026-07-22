@@ -6,28 +6,57 @@
 CNPG SHALL store an ingest ledger and contract-specific domain uniqueness
 constraints sufficient to make sweep, execution, OCSF, MTR trace/hop,
 inventory, metric/event, and approved extension projection idempotent
-under retries beyond the JetStream duplicate window. The ledger SHALL bind a
-trusted metadata retirement bucket, `network_scope_id`, authenticated agent,
-exact output-contract bundle, authenticated producer/package/assignment/run
-context, and stable semantic event ID to checksum, immutable `traffic_class`, immutable
-semantic-envelope digest, encoded and projected-write byte counts, cost-model
-version, expected/projected record counts, and commit state without storing a
-duplicate payload body. Every address-derived domain key and deterministic
-derived-event key SHALL begin with the authoritative `network_scope_id`.
-Every v1 semantic event ID SHALL be RFC 9562 UUIDv7; its
-validated timestamp SHALL select the metadata bucket and SHALL agree with signed
-collection/execution timing so one ID cannot move between ledger partitions.
+under retries beyond the JetStream duplicate window. The ledger SHALL be keyed
+ONLY by (`network_scope_id`, semantic event ID) -- a metadata retention bucket
+deterministically derived from the semantic event ID MAY join the physical SQL
+partitioning key. It SHALL STORE authenticated agent, exact output-contract
+bundle, authenticated producer/package/assignment/run context, immutable
+`traffic_class`, immutable `semantic_envelope_sha256` (the sole conflict/replay
+comparison value), encoded and projected-write byte counts, cost-model version,
+expected/projected record counts, and commit state as immutable COMPARISON
+VALUES that a conflicting record is checked against -- never as lookup-key
+components -- and without storing a duplicate payload body. `record_sha256` is
+NOT a ledger conflict-comparison value; it lives on the DELIVERY-SLOT binding as
+the physical-slot conflict comparison. The SQL delivery-slot uniqueness binding,
+keyed by the frozen `edge_slot` tuple, SHALL be created for EVERY gateway-accepted
+delivery -- primary, audit, replay, poison, and conflict -- BEFORE its source ACK,
+recording `record_sha256` as the compared value; for poison and conflict deliveries
+the binding is audit-only and drives NO domain projection. A DLQ-ACKed poison or
+conflict record therefore still leaves an immutable slot binding, so a later frame
+reusing the same `edge_slot` with a different `record_sha256` is detected as a
+transport-integrity conflict rather than silently accepted. An IDENTICAL SQL
+service-slot uniqueness binding, keyed by the frozen `service_slot` tuple
+(`network_scope_id`, `authenticated_service_id`, `publication_lane_id`,
+`publication_sequence`), SHALL be created for EVERY accepted governed-service
+delivery -- alongside `edge_slot` and following the same rules -- BEFORE its source
+ACK, recording `record_sha256` as the compared value, so a service-ingress frame
+reusing one `service_slot` with a different `record_sha256` is likewise detected as
+a transport-integrity conflict rather than silently accepted. On an
+`EVENT_ID_CONFLICT`, the conflict
+DLQ path SHALL retain the first-accepted `record_sha256` as MANDATORY audit-only
+forensic provenance -- not optional -- and that retained `record_sha256` is
+EXCLUDED from replay/conflict comparison; only `semantic_envelope_sha256`
+decides ledger replay versus conflict. Every
+address-derived domain key and deterministic derived-event key SHALL begin with
+the authoritative `network_scope_id`. Every v1 semantic event ID SHALL be
+RFC 9562 UUIDv7; the metadata bucket / partition selection and the
+collection/execution-timing agreement SHALL be validated against the
+authoritative body observation/event time (with the UUIDv7 timestamp checked
+for consistency, not trusted in isolation) so one ID cannot move between ledger
+partitions.
 
 #### Scenario: Committed event is replayed
-- **WHEN** the same metadata-bucket/network-scope/agent/contract/event ID is received again with the
-  same checksum and immutable semantic envelope
+- **WHEN** the same event is received again for the same (`network_scope_id`,
+  semantic event ID) ledger key (in its event-ID-derived metadata bucket) with a
+  matching stored `semantic_envelope_sha256` (and matching stored agent and
+  contract comparison values)
 - **THEN** the projector SHALL detect its committed ledger entry without
   repeating domain side effects
 - **AND** return success so the JetStream delivery can be acknowledged
 
 #### Scenario: Event ID has conflicting content
 - **WHEN** the same namespaced semantic event ID is received with a different
-  body checksum or immutable semantic-envelope digest
+  immutable `semantic_envelope_sha256`
 - **THEN** the transaction SHALL reject it as a protocol integrity error
 - **AND** SHALL NOT overwrite or merge the committed domain rows
 
@@ -39,8 +68,8 @@ collection/execution timing so one ID cannot move between ledger partitions.
 
 #### Scenario: Two events claim one sweep batch sequence
 - **GIVEN** one network-scope/execution/shard/assignment-epoch/batch-sequence
-  slot is already bound to an event ID, checksum, traffic class, counts, and
-  projected rows
+  slot is already bound to an event ID, `semantic_envelope_sha256`, traffic
+  class, counts, and projected rows
 - **WHEN** another event claims that slot with any different binding
 - **THEN** the projector SHALL retain the first authenticated committed binding,
   classify the later claim as poison, and SHALL NOT overwrite or merge it
@@ -48,17 +77,39 @@ collection/execution timing so one ID cannot move between ledger partitions.
   retried under a new fenced epoch before authoritative reconciliation completes
 
 #### Scenario: One delivery slot is reused for different semantics
-- **GIVEN** a delivery slot keyed by trusted metadata bucket, network scope,
-  authenticated agent, lane, spool ID, and sequence is bound to one event ID and
-  semantic digest
+- **GIVEN** a delivery slot whose SQL uniqueness is keyed by the frozen
+  `edge_slot` tuple (`network_scope_id`, `authenticated_agent_id`, `spool_id`,
+  `sequence`) -- with the partition bucket derived from that tuple,
+  NOT part of the uniqueness key -- is bound to one event ID and semantic digest
 - **WHEN** a frame claims that slot with a different event ID or semantic digest
 - **THEN** the projector SHALL classify the later claim as poison before domain
   side effects
 - **AND** the original delivery-slot binding SHALL remain immutable
 
+#### Scenario: One service slot is reused for different bytes
+- **GIVEN** a governed-service delivery whose SQL uniqueness is keyed by the frozen
+  `service_slot` tuple (`network_scope_id`, `authenticated_service_id`,
+  `publication_lane_id`, `publication_sequence`) is bound to one `record_sha256`
+  BEFORE its source ACK
+- **WHEN** a later service-ingress frame claims that `service_slot` with a different
+  `record_sha256`
+- **THEN** the projector SHALL detect the transport-integrity conflict rather than
+  silently accept it
+- **AND** the original `service_slot` binding SHALL remain immutable
+
+#### Scenario: Poison or conflict delivery still binds its slot
+- **GIVEN** a gateway-accepted delivery is classified as poison or as an
+  `EVENT_ID_CONFLICT` and is destined for a DLQ ACK
+- **WHEN** the projector resolves its disposition
+- **THEN** an immutable `edge_slot`-keyed binding recording `record_sha256` SHALL
+  be created BEFORE the source ACK as an audit-only binding that drives no domain
+  projection
+- **AND** a later frame reusing the same `edge_slot` with a different
+  `record_sha256` SHALL be detected as a transport-integrity conflict rather than
+  silently accepted
+
 #### Scenario: Recovery republishes unchanged semantic data
-- **GIVEN** spool recovery assigns an unchanged event a new fenced delivery-only
-  lane, spool ID, or sequence
+- **GIVEN** spool recovery assigns an unchanged event a new fenced delivery-only spool ID or sequence
 - **WHEN** the recovered delivery reaches the projector with its original
   semantic event ID, digest, traffic class, collection proof, and scope
 - **THEN** a new delivery-slot binding MAY be created for the new coordinates
@@ -289,13 +340,35 @@ retirement buckets covering maximum agent spool/offline, JetStream redelivery/
 retention, compatible rollback, repair, and integrity-audit horizons. Ordinary
 delivery/terminal/batch slots, ingest ledger, and resolved expectation/
 correlation state SHALL retire by whole partition after durable source watermarks
-pass the bucket. Long-retained current state, summaries, rollups, or query history
+pass the bucket. Each ordinary delivery/terminal/batch slot partition bucket
+SHALL derive from that slot's immutable slot coordinates, NOT from the event ID,
+while the ingest-ledger partition bucket SHALL derive from the semantic event ID,
+so reusing one slot with a different event ID cannot select another partition and
+evade the binding. Each non-ledger slot partition key SHALL be the FROZEN ordered pair
+`(ordered_time_bucket, hash_subshard)`. `ordered_time_bucket` is the slot type's
+epoch coordinate floored to a fixed retention window (one window per configured
+retention granularity) and SHALL be CHRONOLOGICALLY ORDERED so a whole expired
+window is dropped by a single range `DROP`/detach, never a hash scan.
+`hash_subshard` is the low N bits of `SHA-256(slot-tuple)` at a fixed width
+(for example 8 bits -> 256 subshards), and SHALL spread write load only WITHIN a
+window. The epoch coordinate (carried on the slot binding or deterministically
+derivable) and the tuple hashed for the subshard SHALL be frozen per slot type:
+the delivery slot uses epoch = spool generation epoch and subshard =
+`hash(edge_slot)`; the sweep-batch slot uses epoch = assignment epoch and
+subshard = `hash(network_scope_id, execution, shard)`; the agent-terminal slot
+uses epoch = assignment epoch and subshard = `hash(network_scope_id, execution,
+shard)`; the service-ingress slot uses epoch = publication epoch and subshard =
+`hash(service_slot)`. A single `SHA-256(epoch-coordinate || slot-tuple)` truncated
+to a fixed bucket SHALL NOT be used, because it mixes every epoch into the same
+bucket forever and cannot be dropped chronologically. The ingest-ledger partition
+bucket keeps its semantic `event_id` UUIDv7 time window, which is already
+chronological; it SHALL NOT change. Long-retained current state, summaries, rollups, or query history
 SHALL NOT pin ordinary correctness partitions after their immutable projection
 can no longer produce side effects.
 
 Before an unresolved DLQ, recovery, rollback, graph-repair, or other exceptional
 item crosses the ordinary watermark, CNPG SHALL atomically create a bounded
-`correctness_hold` with semantic identity, first checksum/digest, original class,
+`correctness_hold` with semantic identity, first `semantic_envelope_sha256`/`payload_sha256`, original class,
 source catalog locator, state, domain-replay deadline, and the complete bounded
 input needed to finish the work inline or through a checksummed content-addressed
 payload owned by the hold. Before ordinary partition retirement, inline

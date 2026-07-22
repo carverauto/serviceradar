@@ -46,13 +46,15 @@
 - [x] 0.11 Withdraw the unimplemented
   `add-configurable-sysmon-payload-limit` proposal. Its per-tenant 15 MiB
   `GatewayServiceStatus` exception contradicts the single-installation model,
-  bounded canonical records, and JetStream-first sysmon migration; sysmon now
+  bounded records, and JetStream-first sysmon migration; sysmon now
   uses the common producer sink and contract paging/flush bounds.
 
 ## 1. Define versioned wire contracts
 
-- [ ] 1.1 Add a producer-neutral canonical `EdgeRecordV1`, a separate
-  `EdgeDeliveryFrameV1`, accepted/rejected disposition and resolved-watermark
+- [ ] 1.1 Add a producer-neutral authoritative `EdgeRecordV1`, a separate
+  `EdgeDeliveryFrameV1`, a typed publication-disposition
+  (`primary_publication` / `audit_publication` / `quarantine_publication` /
+  `retryable_rejection` / `permanent_rejection`) and resolved-watermark
   contracts, and lane-opening/session handshake. `EdgeRecordV1` SHALL carry an
   exact `EdgeOutputContractRef` (contract ID/version, immutable bundle digest,
   registry epoch, registry-snapshot digest, and effective-grant digest), finite
@@ -94,13 +96,105 @@
   every current trace/hop/ECMP/MPLS/ASN/DNS/timing/outcome/source/correlation
   field without generic metric attributes. Require every batch to share one
   network-scope/agent/source/authorization/execution-or-command/range/traffic-
-  class context. Define a deterministic content digest over canonical plan
-  ordinal/range-block order so completion never depends on arrival order or
-  execution-wide trace materialization. Allocate and durably record UUIDv7 trace
+  class context. Define MTR completion via `MtrCompletionDigestVersion = 2`: a
+  versioned, bounded, order-independent-to-arrival proof over deterministic plan
+  order that folds three additive 256-bit accumulators by big-endian 256-bit
+  modular add (mod 2^256, carry flowing toward the most-significant byte) over
+  per-leaf content, leaf ordinals, and `(ordinal, range_sha256)` membership pairs
+  -- NOT per-block Merkle roots composed in order. The completion ROOT is
+  `SHA-256(version || expected || plan_root_sha256 ||
+  mtr_ordinal_range_commitment || leaf_accumulator)`, so `plan_root_sha256` is
+  committed inside the root; the leaf-ordinal and `(ordinal, range_sha256)`
+  membership accumulators are verification GATES (checked against the expected
+  count and `mtr_ordinal_range_commitment`) and are NOT hashed into the root.
+  Each leaf uses a fully frozen
+  byte grammar: a leading `u64` grammar-version constant (`MtrCompletionDigestVersion
+  = 2`) committed into the hashed preimage (the MTR leaf carries NO string sub-tag;
+  the ordinal and member elements each carry their own str sub-tag), a FIXED field
+  order (no per-field numeric tags), 8-byte big-endian integers, 8-byte big-endian
+  length prefixes, and recursive field-by-field framing, so
+  completion never depends on arrival order, on per-block buffering, on a
+  `proto.Marshal` re-encode, or on execution-wide trace materialization. Allocate and durably record UUIDv7 trace
   IDs before probing and add cross-language UUIDv7/identity-time fixtures.
 - [ ] 1.5 Define compatibility rules for unknown fields/enums, unsupported
   versions, timestamp units, optional zero-valued measurements, ASN range,
-  string/count/byte/relational-row bounds, canonical binary-envelope hashing, streaming
+  ENUM COMPATIBILITY (cross-language parity): Go retains an unknown/negative int32 enum
+  as its integer and REJECTS unknown values in the explicit SEMANTIC validator
+  (`knownTrafficClass`/`knownRouteProfile`/...), whereas protobuf-elixir's generated enum
+  fallbacks -- BOTH `value/1` (`deps/protobuf/lib/protobuf/dsl/enum.ex` ~line 50) AND
+  `key/1` (~line 72), each `when is_integer(tag) and tag >= 0` -- RAISE on a negative int,
+  so `WireDecode` currently classifies a negative enum `:poison`. This is NOT truly
+  equivalent to Go's reject: a decode-time `:poison` routes to the QUARANTINE DLQ
+  (`ACCEPTED_QUARANTINE`, resolved), while Go's structural SEMANTIC rejection is a
+  `permanent_rejection` (`REJECTED_PERMANENT`, reject-audit DLQ) -- DIFFERENT DLQ/
+  disposition semantics -- so the divergence MUST be closed. It is in fact WORSE than a
+  disposition mismatch: because protobuf resolves a repeated singular field LAST-ONE-WINS and the
+  generated decoder walks fields IN ORDER, a message carrying `traffic_class = -1` FOLLOWED BY
+  `traffic_class = BULK` -- effective value BULK, which Go ACCEPTS -- raises on the FIRST
+  occurrence, so Elixir REJECTS A MESSAGE GO ACCEPTS. **PROVEN MECHANISM (two layers; the enum
+  verdict MUST NOT live in a raw wire walker, which cannot reproduce effective-value semantics --
+  last-one-wins, oneof resolution, embedded-message merging -- without reimplementing the
+  decoder):** (1) a project-owned, deterministic POST-GENERATION TRANSFORM
+  (`scripts/patch_edge_enum_negatives.exs`) -- NOT a protobuf fork and NOT a custom generator
+  template -- injects negative identity clauses for `key/1` and `value/1` into the 15 edge enum
+  modules so a negative int is RETAINED exactly as Go retains it. The clauses are declared in the
+  module BODY because the Protobuf DSL appends its own at `@before_compile` (so body clauses win for
+  negatives and every other tag falls through unchanged); `defoverridable` CANNOT be used, as the
+  functions do not exist at that point. The transform runs in BOTH `generate-proto-elixir` and the
+  clean-temp `verify-proto-edge-elixir` path BEFORE formatting/comparison so the byte-exact drift
+  gate stays meaningful, and it is IDEMPOTENT and FAILS CLOSED on generator-version,
+  module-inventory, or source-shape drift. (2) the SAME explicit semantic validator as Go
+  (`Serviceradar.Edge.SemanticValidate`, mirroring `knownTrafficClass`/`knownRouteProfile`/...,
+  with UNSPECIFIED excluded exactly as Go excludes it) then REJECTS a retained non-member on the
+  DECODED struct, where the effective value is already resolved, so a retained negative/unknown enum
+  can never be silently ADMITTED. Cross-language N (known, accepted) and negative/unknown (rejected)
+  vectors are tested in BOTH directions. Task 1.5 is a PREREQUISITE of the live runtime integration
+  (task 1.16). ALSO introduce a project-owned
+  typed MALFORMED-WIRE preflight/decoder before live integration (P1): a deterministic
+  malformed `MatchError` currently maps to `:systemic`, so at a KNOWN delivery slot it
+  would stay retryable forever and pin the cumulative-prefix watermark (fuzz: ~3-4% of
+  malformed inputs). The preflight SHALL recognize genuine malformed SHORT-READ/overrun
+  cases as `:poison` (bad bytes -- a poison CLASSIFICATION whose disposition is resolved
+  per the stage/slot, never prejudged as quarantine here) while leaving genuine codegen/metadata
+  failures `:systemic`, so no decodable slot is retryable forever; it too is a PREREQUISITE
+  of task 1.16. ADDITIONALLY, a project-owned RECURSIVE STRUCTURAL validator
+  (`Serviceradar.Edge.WireValidate`, run on the raw bytes BEFORE the generated decoder) SHALL
+  REJECT, RECURSIVELY at EVERY
+  message depth -- the outer frame, the inner record, and every nested capability/message -- the FULL
+  set of wire-hygiene inputs that protobuf-elixir MASKS or SILENTLY DISCARDS while Go REJECTS them:
+  (a) protobuf GROUPS (wire types 3/4; Elixir drops an unknown group, Go retains + rejects it as an
+  unknown field); (b) OUT-OF-RANGE FIELD NUMBERS (> 2^29-1 = Go's MaxValidNumber; Elixir leniently
+  accepts, Go rejects); and (c) 10-BYTE UINT64-OVERFLOW VARINTS (a 10-byte varint whose TERMINAL chunk is
+  > 1, i.e. bits at or above bit 64 are set, INCLUDING the `2^64 + N` aliases, in any varint position --
+  tag, wire-0 scalar, or length prefix; the pinned protobuf-elixir decoder MASKS such a varint to its low
+  64 bits, so `2^64 + N` aliases to `N`, whereas Go/protowire rejects it as overflow. A varint LONGER than
+  10 bytes is already rejected by BOTH runtimes and is not part of this parity gap). Without this, a frame whose
+  record or nested capability carries ANY of these -- which Go rejects -- would decode `{:ok, ...}` in
+  Elixir. (The TOP-LEVEL scanner in `WireDecode` closes all three at the FRAME level:
+  `raw_frame_envelope_check` fails a malformed frame envelope to `:poison` (distinguishing it from an
+  absent record), `peel_last_field`/`scan_client_message` bound the field number to `@max_field_number`
+  (== Go's MaxValidNumber, inclusive), and `take_varint` rejects a 10th-byte varint overflow -- but that
+  covers only the frame TOP level, NOT the same inputs nested inside the record or capabilities, which
+  is why the RECURSIVE validator is required for full Go parity.) It SHALL additionally validate PACKED
+  repeated scalar payloads (varint elements get the overflow rule; fixed-width elements MUST exactly
+  fill the payload), gated on `repeated?` so a SINGULAR scalar arriving length-delimited -- a wire-type
+  mismatch Go PRESERVES as an unknown field -- is never poisoned. Its nesting bound SHALL equal the
+  pinned Go runtime's (`protowire.DefaultRecursionLimit` = 10,000, counting the ROOT, so 10,000
+  messages are accepted and the 10,001st is rejected). It SHALL make NO value-level judgement (see the
+  enum mechanism above) and SHALL report a codegen/metadata failure -- including a raise, THROW, or
+  EXIT from schema metadata -- as `:systemic`, or `:not_ready` for an undeployed nested schema, NEVER
+  as the destructive `:poison`. This too is a PREREQUISITE of task 1.16.
+  Also cover unsupported versions,
+  timestamp units, optional zero-valued
+  measurements, ASN range,
+  string/count/byte/relational-row bounds, the FROZEN field-framed
+  semantic-envelope digest grammar (NO domain tag; leads with the committed `u64`
+  constant `semanticDigestVersion = 3` -- not a wire field, fixed by the record-schema
+  ABI; FIXED field order, no per-field numeric tags; 8-byte big-endian integers;
+  8-byte big-endian length prefixes; 1-byte presence markers; `u64` (8-byte) oneof
+  discriminants; `u64` repeated-element counts; recursive field-by-field nested
+  framing; NO `proto.Marshal` at any depth),
+  streaming
   compression expansion, recursion, and trailing-frame rejection. Define the
   immutable semantic-envelope digest separately from gateway receipt, physical
   placement, spool coordinates, and renewable delivery proof; define broker
@@ -108,7 +202,26 @@
   synchronous ledger/domain/outbox/work/current-state mutation and canonicalize
   nanoseconds to PostgreSQL microseconds before identity/order comparison.
 - [ ] 1.6 Generate Go and Elixir modules, update Bazel targets, and add
-  cross-language golden fixtures proving byte and semantic compatibility.
+  cross-language golden fixtures proving equivalence across Go and Elixir for the
+  semantic-envelope digest (`semantic_digest_version = 3`), payload digest,
+  capability signing bytes (`capability_version = 1`), plan/range/
+  recovery content hashes (`plan_grammar_version = 1` / `recovery_grammar_version
+  = 1`), MTR completion proof (`MtrCompletionDigestVersion = 2`), and the
+  publication identity transcripts for BOTH the edge-slot and service-slot
+  variants (`Nats-Msg-Id` `msgid_version = 1`, domains `serviceradar.edge.msgid`
+  / `serviceradar.edge.msgid.service`; `Sr-Edge-Delivery-Id`
+  `delivery_id_version = 1`, domains `serviceradar.edge.delivery-id`
+  / `serviceradar.edge.delivery-id.service`) and the
+  `Sr-Edge-Transport-Provenance` header
+  (`serviceradar.edge.transport-provenance`, `provenance_version = 1`) for both
+  the `edge` and `service-ingress` slot kinds -- proving delivery-proof-present
+  (late/renewal/rollover) and delivery-proof-absent (fresh/service) presence-byte
+  encodings and the base64url(no-pad) framed-envelope header -- plus
+  unknown-version
+  fail-closed vectors for every
+  grammar (never whole-record byte equality; protobuf has no canonical wire form,
+  so two compliant encoders MAY emit different `record_sha256` for the same
+  semantics).
 - [ ] 1.7 Freeze the agent-gateway frame and lane handshake as an internal,
   producer-neutral transport ABI only after Go/Elixir golden fixtures cover
   `EdgeOutputContractRef`, authenticated `EdgeProducerContext`, production,
@@ -161,6 +274,251 @@
   EventWriter SHALL recompute decoded actual rows/write bytes before refund or
   commit. Underdeclared, unknown-model, overflow, or nondeterministic cost is a
   protocol failure, never authority to perform a partial write.
+- [x] 1.13 Restack prerequisite -- IMPLEMENTED as the stacked CANDIDATE slices
+  `usp-v2-02-wire-contract` (#4713), `usp-v2-03-ci-harness` (#4714), and
+  `usp-v2-04-publication-identity` (#4715). This is a field/schema CANDIDATE (draft PRs,
+  reviewable), NOT a frozen/accepted cross-runtime ABI: the freeze/accept gate is task 1.7
+  (still unchecked), consistent with task 0.10 (the implementation is a review candidate,
+  not an approved ABI). `proto.Marshal` was removed from every signed/hashed preimage
+  (`go/pkg/edge/edgerecord/semantic.go`, `capability.go`, `claims_framing.go`,
+  `recovery.go`) and MTR completion field-framed (`domain.go`), with Go+Elixir
+  cross-language fixtures regenerated. The candidate ABI and code changes were:
+  - (1) Expanded `EdgeRecordDispositionKind` to the frozen six typed values
+    (UNSPECIFIED plus the five authoritative dispositions `primary_publication` /
+    `audit_publication` / `quarantine_publication` / `permanent_rejection` /
+    `retryable_rejection`) and wired the typed disposition end to end.
+  - (2) Eliminate `proto.Marshal` from `semantic.go` `msg()` (the
+    `output_contract` / `EdgeOutputContractRef` sub-message) and from
+    `capability.go` claims, replacing each with the Appendix A field-by-field
+    framing (outer 1-byte presence, recursive framing, 8-byte big-endian
+    integers, 8-byte big-endian length prefixes, no per-field numeric tags).
+  - (3) Field-frame `EdgeDeliveryClaimsV1`'s `transition` oneof (u64 discriminant
+    = 5 renewal / 6 rollover / 0 none, plus the framed member
+    `EdgeDeliveryRenewalV1` / `EdgeDeliveryRolloverV1`) instead of whole-message
+    `proto.Marshal`, removing the protobuf-go oneof-order hazard one level down.
+  - (4) Unify the capability claims-oneof binding: BOTH the `capability()`
+    sub-frame and the Ed25519 signing preimage commit the u64 member field-number
+    discriminant (7/8/9), the signing preimage additionally commits the `purpose`
+    (`EdgeCapabilityPurpose`) enum, and BOTH field-frame the claim member (no
+    `proto.Marshal`).
+  - (5) MTR completion ROOT already commits `plan_root_sha256`
+    (`SHA-256(version || expected || plan_root_sha256 ||
+    mtr_ordinal_range_commitment || leaf_accumulator)`) -- keep it, no change.
+  - (6) Implement the `Nats-Msg-Id`, `Sr-Edge-Delivery-Id`, and
+    `Sr-Edge-Transport-Provenance` grammars plus their `service-ingress` slot
+    variants (`serviceradar.edge.msgid.service` /
+    `serviceradar.edge.delivery-id.service`) per tasks 1.6 and 1.14.
+  - (7) Freeze the completion-leaf disposition enum values in `domain.go`
+    (`MTR_COMPLETION_DISPOSITION_UNSPECIFIED=0`, `TRACE_ALLOCATED=1` (the only
+    value carrying a UUIDv7 `trace_id`), `NOT_ADMITTED=2`, `PROBE_FAILED=3`,
+    `QUARANTINED=4`, `SCHEDULER_LOST=5`), distinct from the per-hop `MtrOutcome`
+    numbering (REACHED=1, PROBE_FAILED=3, NOT_ADMITTED=5, QUARANTINED=6,
+    SCHEDULER_LOST=7).
+  - (8) Rewrite the semantic-envelope (`semantic_digest_version = 3`),
+    capability-signing (`capability_version = 1`), plan/range
+    (`plan_grammar_version = 1`), recovery (`recovery_grammar_version = 1`), and
+    MTR-completion (`MtrCompletionDigestVersion = 2`) hash/signing code to the
+    Appendix A byte-frozen field-framed grammars and the frozen MSet-Add-Hash
+    completion framing, eliminating `proto.Marshal` from every preimage at every
+    depth; then regenerate ALL Go and Elixir golden preimage/signature/completion
+    fixtures (including the Elixir peers) and add the new grammar/vector fixtures
+    so two clean-room implementations produce identical bytes.
+  This restack is IMPLEMENTED with matching cross-language Go/Elixir fixtures, so it no
+  longer blocks the wire-ABI FREEZE gate (task 1.7); the freeze itself remains task 1.7
+  and is NOT implied by this candidate being implemented.
+- [x] 1.14 Define and implement the `Sr-Edge-Transport-Provenance` header grammar
+  and the service-slot variants of the two publication transcripts, per the frozen
+  Appendix A field-framed framing (fixed field order, no per-field numeric tags,
+  8-byte big-endian length prefixes, u64 slot-kind/oneof discriminants, 1-byte
+  presence markers). The provenance header carries the domain
+  `serviceradar.edge.transport-provenance`, `provenance_version = 1`, a `slot_kind`
+  discriminant (`0` UNSPECIFIED rejected / `1` EDGE / `2` SERVICE_INGRESS), the slot tuple,
+  the exact `record_sha256`, a delivery-proof presence byte plus (when present) exactly one
+  32-byte `delivery_proof_digest` (absent for FRESH and SERVICE records, present for
+  RENEWAL/ROLLOVER/LATE_FENCED_DELIVERY), a publisher-attested `delivery_mode` (`1` FRESH /
+  `2` RENEWAL / `3` ROLLOVER / `4` LATE_FENCED_DELIVERY; `0` rejected, replacing the old
+  `source_kind`), and `route_map_version` (nonzero), framed
+  and base64url(no-pad)-encoded into a header bounded to <= 512 ASCII bytes; a
+  missing FRESH/service delivery proof is NOT poison. Define `service_slot =
+  (network_scope_id, authenticated_service_id, publication_lane_id,
+  publication_sequence)` and its Msg-Id (`serviceradar.edge.msgid.service`) and
+  Delivery-Id (`serviceradar.edge.delivery-id.service`) domains alongside the
+  edge-slot `serviceradar.edge.msgid` / `serviceradar.edge.delivery-id`. Provide
+  Go and Elixir implementations and cross-language golden vectors for both slot
+  kinds, both delivery-proof states, and unknown-version fail-closed rejection.
+  IMPLEMENTED as the single-source pure codec in `usp-v2-04-publication-identity`
+  (`go/pkg/edge/edgerecord/publication_identity.go` +
+  `Serviceradar.Edge.PublicationIdentity`): validated encoders, a strict decoder
+  (canonical base64url incl. CR/LF rejection, exact EOF, bounded length prefixes,
+  known domain/version/kind/mode), a `ValidateHeaderSet` trust-context validator,
+  and Go/Elixir vectors covering every mode, raw preimages, values above 2^32,
+  sequence exhaustion, and the shared malformed-header reject battery.
+- [ ] 1.16 Runtime integration of the publication-identity codec at the trust
+  boundaries (requires live infra; separate from the pure codec in 1.14): (a) at
+  ingress, extract EXACTLY ONE value per required publication-identity header with
+  CASE-INSENSITIVE name matching, rejecting missing/duplicate headers fail-closed;
+  (b) resolve the provenance `route_map_version` against an active or retained
+  immutable route-map generation, verify the authenticated publisher class,
+  subject, physical stream, route profile, and traffic class agree with it, fail
+  readiness (no ACK/NAK) on unknown/unavailable history, and fail closed as a
+  transport-integrity failure on a known placement mismatch; (c) enforce THREE
+  DISTINCT identity checks -- (i) GATEWAY ingress: the authenticated mTLS AGENT
+  identity equals the record/slot `authenticated_agent_id`; (ii) EDGE EventWriter:
+  the publisher is the authorized GATEWAY class/subject (the gateway credential ID
+  need NOT equal the agent principal); (iii) SERVICE EventWriter: the
+  credential-derived service identity equals BOTH the record `origin_principal_id`
+  AND the `service_slot` principal. `ValidateHeaderSet` performs the
+  record-vs-provenance cross-check (scope, origin kind, publisher class, principal)
+  and applies the credential-vs-principal comparison ONLY on the service-ingress
+  path -- it NEVER compares the gateway credential to the agent principal for edge
+  records; (d) route ALL untrusted edge-protobuf decoding at these boundaries
+  through the total `Serviceradar.Edge.WireDecode` boundary, which exposes ONLY a
+  FINITE set of stage decoders (`decode_client_message/1`, `decode_frame/1`,
+  `decode_record/1`) -- the generic decode engine is PRIVATE, so a caller-defined
+  struct decoder can never yield `{:ok, fake_struct}` -- each enforcing its FROZEN raw
+  byte bound (record 512 KiB; frame = record + a 16 KiB delivery envelope; client
+  message = frame + the oneof tag; the exact constants are shared with the Go
+  `edgerecord` package) BEFORE invoking protobuf, and accepting a decode result only
+  when `is_struct(decoded, target)`. The frame bound is RELATIONAL, not just a total: the
+  NON-record overhead (delivery capability + spool/sha/sequence + framing) MUST fit the
+  16 KiB envelope budget independently, so a tiny `record_bytes` with a bloated delivery
+  capability / issuer id is rejected even though the total is under `MaxFrameBytes`
+  (enforced by Go `ValidateDeliveryFrame` on the send/validate path AND at the decode
+  boundary). Add N (at-bound, accepted) / N+1 (one byte over, rejected) cross-language
+  fixtures for EACH of record / frame / client-message, plus a relational-envelope vector
+  (1-byte record + a 20 KiB envelope -> rejected), so Go and Elixir agree byte-for-byte on
+  the size verdicts. It returns a TYPED outcome: `{:error, :too_large}`
+  (raw bytes over the stage bound -- a PERMANENT rejection checked BEFORE decode) and
+  `{:error, :poison}` (the decoder's DELIBERATE `Protobuf.DecodeError`, or -- INTERIM,
+  until task 1.5, see the KNOWN LIMITATION below -- an unmapped edge-enum value) resolve a
+  DECODABLE per-delivery slot as permanently dead (pre-slot
+  resolution is stage-specific, per (e)); `{:error, :not_ready}` (an expected edge schema
+  not yet deployed) and `{:error, :systemic}` (a decoder BUG, or an AMBIGUOUS `MatchError`
+  -- a raise/throw/exit NOT proven to be malformed wire) leave the delivery UNRESOLVED
+  for replay. Classification is STACK-INDEPENDENT: it keys on the exception's OWN value
+  (`%Protobuf.DecodeError{}` -> poison; a `%FunctionClauseError{}` whose `module` is a
+  generated edge ENUM -> poison; a `%MatchError{}` is AMBIGUOUS -- raised by malformed
+  wire AND by non-data codegen/metadata bugs, so `:systemic`, NEVER permanent poison,
+  until a project-owned typed malformed-wire result (task 1.5) can disambiguate it;
+  anything else -> systemic), NOT the stacktrace, so a permanent data-loss verdict cannot
+  flip under `:erlang.system_flag(:backtrace_depth, _)`. (KNOWN LIMITATION, resolved by
+  task 1.5: an unmapped NEGATIVE enum is protobuf-valid data Go retains then SEMANTICALLY
+  rejects, whereas protobuf-elixir cannot decode it, so WireDecode classifies it `:poison`.
+  This is NOT truly equivalent to Go's reject -- Go's structural semantic reject is a
+  `permanent_rejection` while a decode-time `:poison` is an `ACCEPTED_QUARANTINE` -- so the
+  interim `:poison` is a STOPGAP ONLY: AFTER task 1.5 lands, a negative enum DECODES
+  (retained as an integer) and the SAME explicit semantic validator rejects it as a
+  `permanent_rejection`, SUPERSEDING the interim `:poison`/quarantine. task 1.5 must align
+  BOTH the mechanism AND the disposition and is a prerequisite of live task 1.16.)
+  **P0 -- the boundary MUST run BEFORE the generated gRPC codec, not in the handler.**
+  `EdgeRecordIngestService.Stream(stream EdgeRecordClientMessage)` binds the RPC to the
+  DECODED `EdgeRecordClientMessage` (a `lane_open`/`delivery_frame` oneof), so the
+  generated server codec eager-decodes the whole client message -- including
+  `lane_open.traffic_class` -- and raises on a negative enum BEFORE any handler could
+  call `WireDecode`. Because the candidate wire ABI's `Stream(stream EdgeRecordClientMessage)`
+  RPC shape is fixed (and will be FROZEN at the task-1.7 freeze gate, so this codec must
+  preserve it, not change it), task 1.16 MUST register a custom
+  `GRPC.Codec` for the edge-ingest server that: (i) IDENTIFIES as content-type `proto` so
+  a STOCK generated Go client (`application/grpc+proto`) interoperates unchanged; (ii)
+  REPLACES the default codec ONLY for the edge-ingest `GRPC.Server` (not the global codec
+  registry), leaving co-hosted services and the FIXED CANDIDATE
+  `Stream(stream EdgeRecordClientMessage)` signature (frozen only at task 1.7) UNCHANGED -- it MUST NOT retype the
+  RPC payload to a `bytes` envelope; (iii) returns the RAW inbound message bytes to the
+  handler for `decode_client_message/1`; and (iv) DELEGATES OUTBOUND encoding to the
+  standard protobuf codec. **P0 -- the RAW-SIZE bound MUST be enforced at the TRANSPORT,
+  BEFORE buffering, not only inside WireDecode.** The streaming path frames each message
+  with a 5-byte gRPC length prefix (1 compression flag + 4-byte big-endian length) and
+  BUFFERS chunks until the full declared length arrives; `max_body_size` covers only the
+  unary `read_full_body` path, NOT this stream. So task 1.16 MUST, per inbound frame,
+  REJECT a declared length exceeding `MaxClientMessageBytes` BEFORE appending any chunk
+  (never buffer toward an attacker-declared 32-bit length), and MUST DISABLE gRPC message
+  compression on the edge-ingest lane -- a message whose compressed-flag is set MUST be
+  REJECTED immediately (no bounded-decompression fallback, since compression is applied
+  before the codec sees the bytes)
+  so a peer cannot force unbounded buffering or a decompression bomb ahead of the size
+  check. It MUST PROVE (using `poison_client_message_negative_enum.bin`) that a
+  negative-enum client message is CONTAINED by the transport rather than crashing it and --
+  because task 1.5 is a PREREQUISITE of this task -- that it DECODES into a struct PRESERVING
+  the negative integer which the shared semantic validator then rejects as a
+  `permanent_rejection` (decode-preserved, matching Go); the pre-1.5 interim `:poison`/quarantine
+  is retained only as NON-NORMATIVE history, not a co-requirement. The proof MUST be STAGE-SPECIFIC,
+  because `poison_client_message_negative_enum.bin` is a LANE-OPEN and a lane-open has NO delivery
+  slot: a semantic failure there CLOSES THE HANDSHAKE and emits NO `EdgeDeliveryAckV1` disposition,
+  whereas the SAME semantic failure at a KNOWN delivery slot RESOLVES the sequence as
+  `REJECTED_PERMANENT` (reject-audit DLQ). Both cases MUST be proven; a lane-open MUST NOT be
+  asserted to produce a per-delivery disposition. It MUST ALSO prove that LAST-ONE-WINS is honoured
+  -- a negative enum FOLLOWED BY a valid member decodes to the VALID member and is ACCEPTED, exactly
+  as Go accepts it -- so the retention fix cannot regress into a first-occurrence rejection.
+  AND add a REAL generated-Go-client interoperability test (a
+  stock Go `EdgeRecordIngestService` client streams to the edge server through the custom
+  codec and the raw bytes decode identically). The pre-buffer/pre-decompress guard MUST be
+  TESTED with the actual attacks, not only a post-buffer size check: (i) a FRAGMENTED length
+  prefix declaring N+1 and a near-2^32 length with the body WITHHELD -- rejected/closed
+  before the body is buffered (asserting bounded retained memory, not accumulation to the
+  declared length); (ii) a set compression flag on the edge lane -- rejected immediately;
+  (iii) N (at-bound, accepted) / N+1 (over-bound, rejected) across multiple HTTP/2 DATA
+  fragments; (iv) a COHOSTED gRPC service on the same server -- proving its codec and its
+  own (larger) message limits are UNCHANGED by the edge-lane codec/guard. Ingress is then
+  TWO-STAGE:
+  `decode_client_message/1` on the raw bytes, navigate to the nested `delivery_frame`,
+  then `decode_record/1` on the raw `frame.record_bytes`. (e) Poison/too_large RESOLUTION
+  is STAGE-SPECIFIC and follows ONE frozen envelope-poison split, because a poisoned outer
+  message may have NO delivery slot to resolve: (i) NO TRUSTWORTHY SLOT -- a poisoned/oversize
+  or SEMANTICALLY INVALID (e.g. unknown/negative enum) LANE-OPEN handshake, which has no
+  spool/sequence, or a DELIVERY ENVELOPE with NO recoverable
+  authenticated lane/sequence coordinates -- REJECT and CLOSE the lane, writing only bounded
+  audit/fingerprint data (never an unbounded quarantine of the raw bytes) and carrying NO
+  per-delivery disposition (a lane-open failure MUST NOT be reported as a per-delivery
+  disposition of any kind); (ii) WIRE POISON WITH A TRUSTWORTHY SLOT -- an admitted wire-
+  hygiene / unknown-field / group malformation in the DELIVERY ENVELOPE (the client-message
+  `delivery_frame`, or the frame itself) OR in the INNER RECORD (`frame.record_bytes`, under a
+  valid outer frame), with recoverable coordinates (the gateway-authenticated session plus the
+  frame's own spool/sequence, IF they decoded) -> `ACCEPTED_QUARANTINE` + quarantine-DLQ PubAck
+  (the sequence RESOLVES; poison is quarantined, NOT permanently rejected); (iii) OVERSIZE or
+  DECODED SEMANTIC/PROTOCOL INVALIDITY at a trustworthy slot -- an oversize frame/record
+  (`:too_large`), an invalid signature/structure, an envelope-to-grant mismatch, or a decoded-
+  but-semantically-invalid value (e.g. a negative/unknown enum) -> `REJECTED_PERMANENT` +
+  reject-audit PubAck (the sequence RESOLVES). A `:not_ready`/`:systemic` outcome at ANY stage
+  yields NO positive ACK and NO terminal resolution (pause + replay). RECONCILE the transport
+  signal with the ONE frozen disposition table: a PRE-SLOT transport failure (a poisoned/
+  over-length lane-open, an over-length transport frame rejected before buffering, or a
+  poisoned envelope with NO recoverable lane/sequence coordinates) is signaled at the
+  LANE/TRANSPORT level -- tear the lane down for reconnect (or, for a decodable pre-slot
+  reject, close the handshake) -- and carries NO per-delivery `EdgeDeliveryAckV1`
+  disposition, because there is no sequence to resolve. Only a DECODABLE per-delivery slot
+  emits a disposition, drawn from exactly THREE cases: (1) a TRANSIENT at a decodable slot
+  (`:not_ready`/`:systemic`, unavailable key, not-ready fence) -> `REJECTED_RETRYABLE` (the
+  sequence stays UNRESOLVED, no watermark advance); (2) ADMITTED WIRE POISON at a trustworthy
+  slot -- an inner record (`:poison` under a valid outer frame) OR an envelope/frame wire-
+  hygiene poison -> `ACCEPTED_QUARANTINE` + quarantine-DLQ PubAck (the sequence RESOLVES --
+  poison is quarantined, NOT permanently rejected); (3) an OVERSIZE frame/record at a known
+  slot (`:too_large`), an invalid key/signature/structure, an envelope-to-grant mismatch, or
+  DECODED semantic/protocol invalidity (e.g. a negative/unknown enum) -> `REJECTED_PERMANENT`
+  + reject-audit PubAck (the sequence RESOLVES). So `no ACK/NAK` means "no per-delivery disposition" (a pre-slot or paused
+  case), NOT a contradiction with the per-delivery
+  `REJECTED_RETRYABLE`/`ACCEPTED_QUARANTINE`/`REJECTED_PERMANENT` signals. (NOTE:
+  `WireDecode` currently has NO production callers -- it is the boundary to be wired in
+  HERE; the shipped golden fixtures exercise the raw client-message and record stages,
+  not yet the live gRPC codec, which this task adds.) (Service lane/sequence DURABILITY
+  is owned by the governed service publisher, NOT the gateway/EventWriter; see task
+  4.6.)
+- [ ] 1.15 Add Go and Elixir cross-language vector fixtures for the frozen
+  completion-leaf disposition enum values -- a leaf vector for each of
+  `MTR_COMPLETION_DISPOSITION_UNSPECIFIED=0`, `TRACE_ALLOCATED=1` (the only value
+  carrying a UUIDv7 `trace_id`), `NOT_ADMITTED=2`, `PROBE_FAILED=3`,
+  `QUARANTINED=4`, and `SCHEDULER_LOST=5` (distinct from the per-hop `MtrOutcome`
+  numbering) -- plus the zero-MTR case (`expected == 0`: no completion proof
+  required, `mtr_ordinal_range_commitment` is EMPTY bytes, and any computed root
+  is over zero leaves with all three 32-byte accumulators the zero value while
+  `plan_root_sha256` is still committed). Add matching field-framed grammar
+  vectors proving Go/Elixir byte equality for the `EdgeOutputContractRef`
+  output-contract grammar, the `EdgeProductionClaimsV1` / `EdgeSourceClaimsV1` /
+  `EdgeDeliveryClaimsV1` claim grammars (including the field-framed `transition`
+  oneof and its framed member), the plan grammars (`RangeDigest` /
+  `PlanPageDigest` / `PlanRoot` / `PlanHeaderDigest`, `plan_grammar_version = 1`),
+  and the recovery grammars (`EdgeLossManifestPageV1` / `SpoolLossTombstoneV1` /
+  `RecoveryResolvedV1`, `recovery_grammar_version = 1`), each with an
+  unknown-version fail-closed vector.
 
 ## 2. Stream completed observations from the agent
 
@@ -237,23 +595,34 @@
   collectors. Validate the effective output grant, bind trusted agent/package/
   assignment/scope identity, allocate stable event and spool coordinates,
   derive conservative cost/routing metadata, and return success only after the
-  exact canonical bytes and producer idempotency binding are fsynced. Return
+  exact record bytes and producer idempotency binding are fsynced. Compute
+  `submission_sha256` over the producer's UNCOMPRESSED contract-payload
+  submission and perform the retry/receipt lookup BEFORE compression/re-encoding.
+  On a HIT return the ORIGINAL durable artifact (its original `payload_sha256`/
+  `record_sha256`) WITHOUT re-compressing or re-encoding; only on a MISS compress
+  once and fsync the producer idempotency binding, which keys ONLY on `(package
+  digest, producer assignment, host-issued run, output contract, producer
+  idempotency key)` and stores/immutably-compares `submission_sha256` (never a
+  key component).
+  Return
   explicit retryable backpressure without accepting-and-dropping. Use bounded
   byte/time group commit so many producers share fsync throughput while each
   receipt is released only after the exact batch containing its record is
   durable; cap waiters and retained binaries so group commit cannot become an
   unbounded mailbox or memory queue.
-  Atomically journal `(package, assignment, host-issued run, contract, producer
-  key) -> (event ID, body digest, receipt)` with the spool append, expose receipt
-  lookup after uncertain outcomes, and return the original receipt for a
-  same-key/same-body retry. Retain the binding through the grant-declared
+  Atomically journal the binding keyed ONLY by `(package digest, producer
+  assignment, host-issued run, output contract, producer idempotency key)` ->
+  `(event ID, stored `submission_sha256`, original `payload_sha256`/
+  `record_sha256`, receipt)` with the spool append, expose receipt lookup after
+  uncertain outcomes, and return the original receipt and artifact for a
+  same-key/same-`submission_sha256` retry. Retain the binding through the grant-declared
   producer retry horizon after spool reclamation and until the run/epoch is
   durably closed and fenced. After safe GC, reject a late retry against that
   closed handle as `retry_horizon_expired` rather than creating a new event;
-  reject same-key/different-body conflicts while preserving the original
-  binding and audit evidence.
+  reject same-key/different-`submission_sha256` conflicts while preserving the
+  original binding and audit evidence.
 - [ ] 2.11 Add a versioned Wasm binary host ABI and SDK for opening runs,
-  publishing bounded canonical records, checkpointing, committing, aborting,
+  publishing bounded records, checkpointing, committing, aborting,
   and observing byte/frame credits. Permit one bounded guest-to-host copy;
   remove protobuf-to-base64-to-JSON wrapping and reject ungranted contracts,
   caller-selected identity/routing, oversize output, and ignored backpressure.
@@ -295,11 +664,14 @@
   inventory records
   SHALL NOT be required to invent a scanner collection capability. Permit
   stale-epoch immutable replay only under an exact
-  event/checksum-bound delivery capability and stamp it for audit-only/fenced
+  event-ID/`record_sha256`-bound delivery capability and stamp it for audit-only/fenced
   projection.
 - [ ] 3.3 Implement a project-owned JetStream publisher that sends a publish
-  request, derives `Nats-Msg-Id` from trusted delivery identity plus the
-  immutable semantic digest, sets `Nats-Expected-Stream`, parses PubAck, and
+  request, derives `Nats-Msg-Id` from trusted delivery identity
+  (`authenticated_agent_id` + spool ID/sequence -- the spool IS the lane), the delivery
+  frame's exact-record checksum `record_sha256`,
+  and the immutable semantic digest -- so a slot reused with different bytes gets
+  a distinct Msg-Id -- sets `Nats-Expected-Stream`, parses PubAck, and
   distinguishes capacity, timeout, protocol, and permanent errors. Limit NATS
   headers to transport concerns; do not duplicate the semantic envelope as
   dozens of ASCII/base64/hex headers. Use separately bounded NATS publisher
@@ -307,7 +679,7 @@
   asynchronous publishes under hard outstanding frame/byte/PubAck-deadline
   windows rather than serializing every frame on one request; record out-of-
   order PubAcks and expose only the contiguous resolved edge prefix.
-- [ ] 3.4 Bounded-decode and verify the canonical binary record against the mTLS
+- [ ] 3.4 Bounded-decode and verify the bounded binary record against the mTLS
   session, grant, registry, route, cost, size, and digest, but publish the exact
   `EdgeDeliveryFrameV1.record_bytes` unchanged to JetStream, never the delivery
   wrapper or a larger spool-record encoding. Supply both immutable-semantic and
@@ -317,9 +689,14 @@
   the original record binary, bounded decode state, minimal headers, NATS
   request state, mailboxes, and TLS buffers. Add a golden test proving the exact
   `EdgeRecordV1` bytes fsynced inside the agent spool equal the JetStream body.
-- [ ] 3.5 Return durable accepted/rejected dispositions and advance only the
-  contiguous resolved prefix after primary-stream or audit-DLQ PubAck; withhold
-  progress on NATS unavailability, stream refusal, or publisher saturation.
+- [ ] 3.5 Return durable typed dispositions (`primary_publication` /
+  `audit_publication` / `quarantine_publication` / `retryable_rejection` /
+  `permanent_rejection`); advance the contiguous resolved prefix only across
+  primary-stream PubAcks, audit-publication PubAcks, quarantine-publication DLQ
+  PubAcks, and permanent-rejection reject-audit DLQ PubAcks (each only after its
+  required PubAck); never advance across a `retryable_rejection` or an
+  unresolved sequence; withhold progress on NATS unavailability, stream refusal,
+  or publisher saturation.
 - [ ] 3.6 Ensure this lane never enters `StatusBuffer`, never acknowledges an
   ERTS/Core NATS handoff as durable, and remains stateless across restarts.
 - [ ] 3.7 Add byte-bounded fair queues and rate limits across network/site scope,
@@ -337,6 +714,26 @@
   provenance stamped by the trusted agent sink against the authenticated
   session and never trust guest-supplied subject, agent, scope, class, cost, or
   database destination claims.
+- [ ] 3.9 Stamp the `Sr-Edge-Transport-Provenance` header (slot-kind `edge`) on
+  every gateway publish alongside `Nats-Msg-Id` and `Sr-Edge-Delivery-Id`, binding
+  the `edge_slot` tuple, verified `record_sha256`, delivery-proof presence (absent
+  for fresh records, present for RENEWAL/ROLLOVER/LATE_FENCED_DELIVERY as exactly one
+  32-byte digest), the publisher-attested `delivery_mode`, and `route_map_version` (nonzero). A missing, duplicate, or unknown-version provenance header
+  is a distinct `provenance_missing` quarantine, never silent acceptance. Add
+  Go/Elixir cross-language golden vectors proving the framed base64url header
+  matches the agent-side transcript byte-for-byte.
+- [ ] 3.10 Implement the two-watermark state machine and keep the two watermarks
+  strictly separate. The REMOTE terminal-disposition-through watermark
+  (`EdgeDeliveryAckV1.resolved_through_sequence`) advances only across resolved
+  terminal dispositions per task 3.5 and never references any agent-local action.
+  The SEPARATE agent-local reclaim watermark advances only on the agent's own
+  durability/quarantine reclaim actions and governs spool reclamation. A resolved
+  remote disposition MUST NOT by itself reclaim agent spool, and an agent-local
+  reclaim MUST NOT advance the remote resolved prefix; the
+  `EdgeDeliveryAckV1.resolved_through_sequence` comment SHALL describe ONLY the
+  remote watermark. Add Go/Elixir cross-language golden vectors mapping fixed
+  disposition/reclaim event sequences to the expected remote and agent-local
+  watermark values.
 
 ## 4. Provision the JetStream durability boundary
 
@@ -402,12 +799,36 @@
   contract/registry/projector rules through a least-privilege direct publisher
   or transactional outbox. Do not hairpin them through an agent/gateway and do
   not let this exception become an arbitrary subject or direct-to-CNPG metric
-  path.
+  path. A governed service publisher uses its OWN isolated service-ingress subject
+  and credential (only an authorized governed service may publish to it), stamps
+  the service-slot `Nats-Msg-Id` (`serviceradar.edge.msgid.service`),
+  `Sr-Edge-Delivery-Id` (`serviceradar.edge.delivery-id.service`), and
+  `Sr-Edge-Transport-Provenance` (slot-kind `service-ingress`) over `service_slot`,
+  and its FRESH/service records carry no `delivery_proof_digest` (absence marked by
+  the provenance presence byte, never treated as poison). Add Go/Elixir
+  cross-language golden vectors for the service-slot transcripts.
+  The governed service publisher (or its transactional outbox/journal) OWNS its
+  `publication_lane_id`, `publication_sequence`, pending exact record bytes, retry
+  state, and their ATOMIC allocation -- NOT the gateway or EventWriter: allocate
+  `publication_lane_id` as a 16-byte UUIDv7 ONCE, durably, before first publication;
+  for EACH record, ATOMICALLY allocate the NEXT `publication_sequence` and journal the
+  exact bytes + immutable route/header state BEFORE publishing (sequence allocation is
+  NOT gated on a PubAck, so publishes MAY pipeline multiple outstanding sequences); a
+  validated PubAck only RESOLVES/RECLAIMS its journaled slot. REUSE the same
+  `(publication_lane_id, publication_sequence)` with the exact pending bytes after a
+  retry/timeout/restart so a lost-ACK redelivery deduplicates. `publication_sequence`
+  MUST NEVER wrap: on approaching the maximum sequence, SEAL and DRAIN the current lane
+  while allocating NEW work on a fresh UUIDv7 `publication_lane_id` restarting at 1.
 
 ## 5. Implement replay-safe domain projectors
 
 - [ ] 5.1 Add strict envelope/domain decoders that validate version, checksum,
-  the canonical binary semantic envelope and minimal transport headers, actual streaming-decompression output and
+  the semantic-envelope digest under the FROZEN grammar (NO domain tag; leading
+  committed `u64 semanticDigestVersion = 3` constant, not a wire field; FIXED field
+  order, no per-field numeric tags; 8-byte big-endian integers; 8-byte big-endian
+  length prefixes; 1-byte presence markers; `u64` oneof discriminants; `u64` repeated
+  counts; recursive field-by-field framing; no protobuf at any depth) and minimal transport
+  headers, actual streaming-decompression output and
   ratio, trailing frames, protobuf depth, projected rows, count/string/byte
   bounds, observation time against the original signed production interval and,
   when the authorization kind requires one, its source-action/collection/
@@ -418,23 +839,42 @@
   independently verify bounded canonical production capability bytes/key ID plus
   any required source-authorization bytes/key ID; a generic contract with no
   source action SHALL validate without inventing collection proof.
-- [ ] 5.2 Add a retirement-bucket-partitioned ingest ledger keyed by trusted
-  metadata bucket, network scope, authenticated agent, exact output-contract
-  bundle, and stable event ID, with body checksum and semantic-envelope
-  digest stored and immutably compared, plus network-scope-prefixed database
+- [ ] 5.2 Add a retirement-bucket-partitioned ingest ledger keyed ONLY by
+  (network scope, stable event ID) -- the retirement-metadata bucket derived
+  from the event ID for physical partitioning only -- with authenticated agent,
+  exact output-contract bundle, and `record_sha256` stored (physical-slot value
+  only) and `semantic_envelope_sha256` stored and immutably compared for
+  replay-vs-conflict (never in the key), plus network-scope-prefixed database
   uniqueness constraints for sweep observations, MTR traces/hops, execution
   plans/events, and deterministic OCSF events. Make sweep history use a trusted
   scheduler-execution-derived `identity_time` partition key and unique logical
   history key so replays/conflicts always meet in one chunk; do not add a
   permanent per-host identity side table. Add a bucketed delivery-slot binding on
-  network scope/agent/lane/spool/sequence,
-  and a sweep batch-slot constraint on network scope/execution/shard/epoch/batch-sequence that
-  binds event ID, checksum, counts, and projected rows. Keep the first
+  network scope/agent/spool/sequence that immutably binds the record
+  checksum `record_sha256`, event ID, and `semantic_envelope_sha256` (rejecting a
+  later frame on the same slot whose `record_sha256` differs as a
+  transport-integrity violation), and a sweep batch-slot constraint on network
+  scope/execution/shard/epoch/batch-sequence that
+  binds event ID, `semantic_envelope_sha256`, counts, and projected rows. Keep the first
   authenticated committed binding immutable, DLQ later conflicts, mark the
   attempt integrity-failed, exclude both protocol-invalid alternatives from
   authoritative completion, and fence/retry its range before reconciliation.
   Add an immutable per-attempt terminal slot that closes exactly `[1,N]` and
   rejects conflicting terminals or batches outside the closed interval.
+  Create the ledger and every slot table (delivery-slot, sweep-batch-slot,
+  agent-terminal-slot, and service-ingress-slot) range-partitioned by
+  `(ordered_time_bucket, hash_subshard)`. `ordered_time_bucket` is the slot's
+  epoch coordinate (delivery-slot = spool generation epoch; sweep-batch-slot and
+  agent-terminal-slot = assignment epoch; service-ingress-slot = publication
+  epoch; the event ledger keeps its `event_id` UUIDv7-timestamp window unchanged)
+  floored to a fixed retention window, so it is CHRONOLOGICALLY ORDERED and a
+  whole expired window retires by a single range `DROP`/detach, never a hash scan.
+  `hash_subshard` is the low N bits (fixed width, e.g. 8 bits -> 256 subshards) of
+  SHA-256(slot-tuple) (delivery-slot = hash(edge_slot); sweep-batch-slot and
+  agent-terminal-slot = hash(scope, execution, shard); service-ingress-slot =
+  hash(service_slot)) to spread write load WITHIN a window. Add a
+  chronological-DROP retirement job that retires whole expired ordered-time
+  windows by range drop/detach.
 - [ ] 5.3 Implement horizontally partitioned sweep consumers that preserve each
   micro-batch as an independent idempotency unit while adaptively grouping
   compatible messages in bounded aggregate transactions. Perform bounded bulk authoritative
@@ -538,7 +978,11 @@
   acceptance watermark as `replay_horizon_expired`; after the replay deadline,
   permit audit/partial/recollection resolution only. Enforce hard metadata row/
   index-byte and held-payload byte budgets that stop new scan admission before
-  exhaustion.
+  exhaustion. Add an integration test proving (a) whole-window retirement drops
+  old delivery-slot/sweep-batch-slot/agent-terminal-slot/service-ingress-slot and
+  ledger partitions by a single ordered-time-window range drop/detach WITHOUT
+  touching current-window partitions, and (b) newly bound slots in the current
+  window land in the correct `hash_subshard`.
 - [ ] 5.10 Add registry-driven dispatch that verifies the exact output contract,
   complete bundle digest, cost model, route, and approved platform-owned
   validator/projector before decode. Preload candidate bundles and publish
@@ -564,6 +1008,25 @@
   row/write limits, typed validation errors, and the same CNPG credit/DLQ/replay
   controls as built-in contracts. Reject any package attempt to execute code,
   SQL, DDL, or choose physical storage at ingestion time.
+- [ ] 5.13 Implement the projection-fence race handler as the final, first-match
+  pipeline step. In the SAME transaction as the domain effects and the ledger row,
+  `SELECT ... FOR UPDATE` / conditional-UPDATE the fence/assignment row: a current
+  fence commits `authoritative_apply`; a stale/advanced fence commits an atomic
+  `ledger_only` with NO domain projection. Transport/conflict/poison decisions sit
+  ABOVE this downgrade, so a stale fence never masks a conflict or poison and a
+  conflict/poison never authoritatively projects. Database unavailability at any
+  commit point yields NO ACK and NO TERM/poison; pause new pulls and let the
+  reservation lapse at the bounded processing deadline via `AckWait` expiry
+  (redelivery, not counted toward finite `MaxDeliver`), with agent ownership NOT
+  restored. Add Go/Elixir cross-language golden vectors for concurrent
+  current-vs-stale fence ordering producing deterministic
+  `authoritative_apply` / `ledger_only` outcomes.
+- [ ] 5.14 Add a concurrent CNPG fence-activation-vs-projection race integration
+  test that runs a projection transaction and a fence-activation (epoch bump)
+  concurrently against a live CNPG instance and asserts the projection either
+  commits authoritative rows under the read epoch (`authoritative_apply`) OR
+  atomically downgrades to `ledger_only` when the fence advanced first -- never a
+  stale `authoritative_apply` and never a lost ledger row.
 
 ## 6. Integrate scheduling and producer migrations
 
@@ -595,7 +1058,7 @@
   security revocation MUST hold matching backlog until an approved safe
   replacement/redrive or waiver exists.
 - [ ] 6.7 Migrate durable Wasm plugin and native add-on outputs contract by
-  contract. Compare canonical record counts/digests and projected state against
+  contract. Compare authoritative record counts/digests and projected state against
   the legacy path, then disable the corresponding JSON/base64, lossy queue, or
   specialized relay; never run two authoritative projectors for one event.
 - [ ] 6.8 Migrate Armis inbound discovery to inventory pages/manifests and prove
@@ -674,6 +1137,11 @@
   identity spoofing, sequencing, cumulative dispositions, spool recovery,
   changed bytes or schema/row-cost/epoch/authorization/range semantic-envelope fields
   under one event ID inside and outside the broker dedup window,
+  a same-slot / same-semantic-digest / different-`record_sha256` reuse inside the
+  broker dedup window that MUST receive a distinct `Nats-Msg-Id`, MUST NOT be
+  suppressed by JetStream deduplication, and MUST be rejected by EventWriter's
+  delivery-slot binding as a transport-integrity violation, while a byte-identical
+  same-lane retry IS deduplicated,
   conflicting batch-slot bindings in both arrival orders with immutable
   conflict state, exclusion of protocol-invalid alternatives, and fenced repair,
   delivery-slot reuse with changed semantics, terminal-slot conflicts and data
@@ -693,7 +1161,7 @@
   equal-timestamp ordering, permutation-equivalent observation/transition event
   sets, nanosecond/microsecond boundaries, malformed/noncanonical UUIDs and
   network-scope IDs, exact check dictionaries, complete projected-row/write-byte
-  cost fixtures, canonical record bytes, minimal transport headers, capability
+  cost fixtures, exact record bytes, minimal transport headers, capability
   rotation/revocation, and deterministic IDs.
 - [ ] 8.2 Add integration tests for continuous scan/data/completion interleaving,
   mixed agents, gateway/NATS/core/CNPG restarts, PubAck loss, five forced
@@ -750,7 +1218,7 @@
   drain, security revocation with queued backlog, failed activation rollback,
   and stale component fencing without poisoning otherwise valid traffic.
 - [ ] 8.7 Prove uncertain local receipts return the same durable identity,
-  same-key/different-body reuse is an immutable conflict, post-GC retry on a
+  same-key/different-`submission_sha256` reuse is an immutable conflict, post-GC retry on a
   closed handle cannot create a new event, native reconnect resumes without
   loss, and a complete consistency-proven inventory terminal applies absence
   once while missing-page/partial/invalid/stale/conflicting terminals apply

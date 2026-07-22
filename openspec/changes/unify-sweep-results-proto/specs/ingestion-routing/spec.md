@@ -174,13 +174,31 @@ metadata and SHALL NOT be injected into or rewrite `EdgeRecordV1`.
 
 The gateway SHALL validate the delivery frame and enough of the fixed semantic
 record to authorize and route it, then JetStream-publish the exact `record_bytes`
-unchanged. Broker
+unchanged. Before any protobuf unmarshal, the gateway and EventWriter SHALL reject
+a frame/record whose raw length exceeds its hard byte bound (512 KiB for
+`EdgeRecordV1`) AND SHALL verify `record_sha256` over `record_bytes`. On the STREAMING
+gRPC ingest path this bound SHALL be enforced at the TRANSPORT, BEFORE the body is
+buffered and BEFORE any decompression: the gateway SHALL reject a declared gRPC message
+length exceeding the client-message bound BEFORE accumulating any chunk toward it (never
+buffering to an attacker-declared 32-bit length), and SHALL DISABLE gRPC message
+compression on the edge-ingest lane: a message whose gRPC compressed-flag is set SHALL be
+REJECTED immediately (there is no bounded-decompression fallback, because decompression
+occurs before the codec/decode sees the bytes and a unary body-size limit does not cover
+the stream). Each component SHALL then
+decode and hash the record at most once and perform at most one streaming
+decompression bounded by an independent hard output/expansion limit, never trusting
+the declared `uncompressed_size` as an allocation authority. Broker
 headers SHALL be transport-minimal, limited to protocol fields required for
 deduplication, expected-stream fencing, and bounded tracing; they SHALL NOT
 duplicate semantic metadata or act as identity, contract, authorization, cost,
 or routing authority. EventWriter SHALL decode and validate the complete binary
 `EdgeRecordV1` from the JetStream body. Broker publication identity SHALL bind trusted
-network scope/agent, lane, spool ID/sequence, and the semantic digest. The
+network scope/agent, spool ID/sequence, the exact-record checksum
+`record_sha256`, and the semantic digest, so that two different outer encodings in
+one slot receive DIFFERENT `Nats-Msg-Id` values and both reach EventWriter for the
+physical-slot integrity check rather than one being silently suppressed by broker
+deduplication. A legitimate same-lane retry reuses the exact record bytes and
+therefore the same `record_sha256`, keeping lost-ACK deduplication intact. The
 initial `EdgeRecordV1` target encoded size SHALL be 256 KiB and its hard encoded
 size SHALL be 512 KiB. `EdgeDeliveryFrameV1` and transport-minimal broker headers
 SHALL add only separately bounded overhead.
@@ -230,7 +248,14 @@ delivery binding in a crash-safe local spool until the gateway reports a
 disposition covering the corresponding `EdgeDeliveryFrameV1` lane sequence. The
 gateway SHALL report an accepted disposition only after validating a JetStream
 PubAck for the exact record digest/stable event ID and expected authoritative
-stream. The finite platform-owned
+stream. The gateway SHALL report the delivery disposition using the five
+gateway-publication outcomes: a `primary_publication` (authoritative accept)
+requires a PubAck on the expected authoritative stream; an `audit_publication` or
+`quarantine_publication` requires a PubAck on the mapped audit/DLQ stream and is
+explicitly non-authoritative -- neither an authoritative accept nor a permanent
+reject; a `permanent_rejection` requires an audit/DLQ PubAck; and a
+`retryable_rejection` SHALL NOT be reported as an advancing disposition and SHALL
+leave the covered lane sequence unresolved for retry. The finite platform-owned
 route-profile/traffic-class lanes and recovery SHALL use independent spool/
 credit sequences; lane identity SHALL NOT be keyed by output contract, payload
 kind, or package. Spool-loss recovery SHALL use separately reserved
@@ -261,13 +286,24 @@ after authoritative PubAck.
 - **AND** broker and database idempotency SHALL prevent duplicate side effects
 
 #### Scenario: Delivery coordinates are reused for different semantics
-- **GIVEN** one network-scope/agent/lane/spool-ID/sequence delivery slot was
-  durably bound to an event ID and semantic digest
+- **GIVEN** one network-scope/agent/spool-ID/sequence delivery slot was
+  durably bound to an event ID, semantic digest, and exact-record checksum
+  `record_sha256`
 - **WHEN** any sender reuses that slot for different semantics
 - **THEN** the later claim SHALL be poison even if its broker publication ID is
   different
 - **AND** legitimate recovery SHALL use new fenced delivery coordinates while
   retaining the original semantic event ID, digest, and traffic class
+
+#### Scenario: A slot is reused with the same semantics but different bytes
+- **GIVEN** one delivery slot durably bound to `record_sha256` R1 with semantic
+  digest D
+- **WHEN** a frame reuses the same slot with a different `record_sha256` R2 but the
+  same semantic digest D inside the broker deduplication window
+- **THEN** because `Nats-Msg-Id` binds `record_sha256`, JetStream SHALL NOT
+  deduplicate it away and the frame SHALL reach EventWriter
+- **AND** EventWriter SHALL reject it as a transport-integrity violation,
+  independent of the semantic ledger decision
 
 #### Scenario: Publish traverses a NATS leaf
 - **GIVEN** the gateway connects through an edge NATS leaf or mirror that is not
@@ -286,9 +322,27 @@ after authoritative PubAck.
 - **GIVEN** a bounded frame violates a permanent protocol rule
 - **WHEN** safe rejection metadata is durably PubAcked to the authenticated
   installation's mapped audit/DLQ stream
-- **THEN** the gateway SHALL return a rejected disposition
+- **THEN** the gateway SHALL return a `permanent_rejection` disposition
 - **AND** the agent SHALL move the raw frame to durable local quarantine before
   reclaiming its spool sequence
+
+#### Scenario: Audit or quarantine publication is non-authoritative
+- **GIVEN** a frame is admitted to the mapped audit/DLQ stream as a valid historical
+  stale-fence delivery (audit) or as admitted poison under a valid outer frame
+  (quarantine) -- invalid protocol input is `permanent_rejection` per the frozen
+  disposition table and is NOT admitted here
+- **WHEN** the gateway validates its audit/DLQ PubAck
+- **THEN** the gateway SHALL return `audit_publication` or `quarantine_publication`
+- **AND** the disposition SHALL be neither an authoritative accept nor a
+  `permanent_rejection`, and the agent SHALL resolve its spool sequence without
+  treating the record as authoritatively projected
+
+#### Scenario: Retryable rejection leaves the sequence unresolved
+- **GIVEN** the gateway cannot admit a frame now for a retryable reason
+- **WHEN** it reports the outcome
+- **THEN** the gateway SHALL return `retryable_rejection`
+- **AND** the covered lane sequence SHALL remain unresolved and the agent SHALL
+  retain the frame for retry rather than advancing its resolved watermark
 
 #### Scenario: Local quarantine approaches its class reserve
 - **GIVEN** rejected raw frames retain their immutable traffic class in a
@@ -545,7 +599,69 @@ consumer SHALL validate opaque-body membership before side effects.
 
 ### Requirement: Replay is idempotent and poison data is durable
 Each consumer SHALL apply independently decodable events using an ingest ledger,
-stable domain keys, and deterministic derived-event identifiers. It MAY group
+stable domain keys, and deterministic derived-event identifiers. The ingest
+ledger SHALL be keyed ONLY by the logical event identity
+`(network_scope_id, event_id)` -- NOT by `record_sha256`, the raw record
+checksum, the semantic digest, or contract/domain keys. Folding any comparison
+field into the lookup key turns a conflicting record into a key miss (a silent
+second row) instead of a detected conflict. A physical retention bucket
+deterministically derived from `event_id` MAY participate in database
+partitioning without changing that logical identity. On a ledger hit, a stored
+`semantic_envelope_sha256` that MATCHES is a replay (idempotent, even if the
+outer `record_sha256`/bytes differ); any MISMATCH -- of the semantic digest or
+the immutable output-contract/registry/schema/size/cost/traffic-class/
+producer-run/execution/epoch/authorization/range envelope and payload digest it
+commits -- is an `EVENT_ID_CONFLICT`. On a ledger miss, insertion SHALL be atomic
+under a unique constraint. Contract-defined domain keys remain the keys for
+projection/merge, NOT for event-ledger identity.
+
+EventWriter SHALL evaluate each delivery in this fixed order, first match wins:
+(1) TRANSPORT/ENVELOPE VALIDATION -- the received `record_bytes` hash equals the
+declared `record_sha256`, the envelope decodes within its bound with wire hygiene,
+and unknown fields are rejected, AND `semantic_envelope_sha256` is RECOMPUTED and
+verified from the decoded envelope so the digest is VERIFIED here, before it is ever
+used as a ledger key; failure SHALL be `conflict_quarantine`. (2) TRUSTED SLOT
+EXTRACTION + BINDING -- extract the `edge_slot`/`service_slot` from the authenticated
+transport provenance and immutably bind `slot -> record_sha256` for EVERY accepted
+delivery BEFORE any terminal decision. (3) TRUST OUTCOME (HISTORICAL COLLECTION
+PROOF) -- evaluated for EVERY record so compromise handling is REACHABLE, resolving
+to exactly one of `valid`, `invalid`, `historically_revoked`, or `unavailable`: an
+otherwise-valid record whose signing key was compromise-revoked resolves here to
+`historically_revoked`, NOT silently to `authoritative_apply`; `invalid` SHALL be
+`permanent_rejection`; `historically_revoked` SHALL yield a `ledger_only` audit plus a
+security-quarantine cohort; `unavailable` (key/trust store not loadable) SHALL yield
+NO ACK and pause. (4) READINESS -- the registry/projector/schema for the pinned
+bundle is loadable AND the exact projector generation is deployed; not loadable or
+valid-but-not-yet-deployed SHALL yield NO ACK and pause as a deployment failure (NOT
+poison). (5) LEDGER CONFLICT/REPLAY -- look up `(network_scope_id, event_id)`; the
+ALREADY-VERIFIED `semantic_envelope_sha256` MATCHING a committed row SHALL be a REPLAY
+(idempotent success, source ACK, no re-projection), while a DIFFERENT stored digest
+SHALL be `EVENT_ID_CONFLICT` -> `conflict_quarantine` (DLQ the later offending bytes
+plus the first-accepted digests; the first-accepted row is immutable). (6) PAYLOAD
+DECODE + BODY-TO-CLAIM -- decode the domain payload, join body to claim
+(scope/agent/run/range/traffic-class/count against the signed envelope), and confirm
+the body observation/event time falls within the signed collection interval; failure
+SHALL be `conflict_quarantine`. (7) TRANSACTIONAL FENCE + DOMAIN COMMIT -- with a
+`SELECT ... FOR UPDATE` / conditional UPDATE of the fence/assignment row in the SAME
+transaction as the domain effects and ledger row, a current fence SHALL be
+`authoritative_apply` and a stale or advanced fence SHALL be an atomic `ledger_only`;
+a database-unavailable condition at any commit point SHALL yield NO ACK and NO
+TERM/poison, pause new pulls, and let the reservation lapse at the bounded processing
+deadline via AckWait expiry (redelivery, not counted toward a finite `MaxDeliver`),
+without restoring agent ownership.
+Transport, slot, trust, conflict, and poison (steps 1-6) SHALL precede the fence
+downgrade (step 7), and slot binding (step 2) SHALL precede every terminal decision,
+so no downgrade or audit path can mask a conflict, a compromise, or an unbound slot;
+and semantic-digest VERIFICATION (step 1) SHALL precede its use as the ledger replay
+key (step 5).
+
+EVERY gateway-accepted delivery -- primary, audit, replay, poison, and conflict --
+SHALL receive an immutable `edge_slot`/`service_slot` -> `record_sha256` binding
+BEFORE its source ACK, so a body-poison or conflict record that is DLQ-ACKed still
+leaves an immutable slot binding and a later frame reusing the same slot with a
+different `record_sha256` is detected as a transport-integrity conflict rather than
+silently accepted. The slot SHALL be bound on acceptance, before any disposition,
+not only during ordinary projection. It MAY group
 multiple already validated messages into one aggregate byte/row/time-bounded
 transaction, but every message SHALL retain an independent ledger/slot result and
 receive an explicit JetStream ACK only after the containing transaction commits;
@@ -553,19 +669,69 @@ receive an explicit JetStream ACK only after the containing transaction commits;
 DLQ before the source delivery is terminated. The canonical DLQ wrapper SHALL
 retain the exact original `EdgeRecordV1` bytes and digest without reconstructing
 semantic fields from broker headers. It SHALL add only bounded DLQ/source
-placement metadata including original delivery coordinates, source stream/
-sequence, applicable delivery-proof audit, and error classification. DLQ
+placement metadata including the original delivery coordinates, `record_sha256`,
+source stream/sequence, applicable delivery-proof audit, and error classification.
+The original delivery coordinates, `record_sha256`, and delivery-proof audit SHALL
+be preserved from the publisher-authenticated `Sr-Edge-Transport-Provenance`
+transport-provenance header that travels with the message (gateway-stamped for edge
+records, service-stamped for service-ingress; the stateless GATEWAY holds no durable
+delivery mapping on the edge path -- the governed service owns its own publication
+journal but likewise carries provenance in the message, not a broker-side
+mapping), and SHALL be used as transport provenance only, never as
+semantic or authorization truth. The `Sr-Edge-Transport-Provenance` header SHALL
+carry a bounded TYPED envelope that is field-framed under the Appendix A grammar
+`serviceradar.edge.transport-provenance` and then base64url-encoded (no padding) into
+the ASCII header value; EventWriter SHALL decode and validate it. The envelope SHALL
+declare `TransportProvenanceVersion = 1` (immutable; an unknown version SHALL be
+rejected fail-closed) and SHALL carry, in typed order, the version, a `slot_kind`
+discriminant (`0 = UNSPECIFIED` rejected, `1 = EDGE`, `2 = SERVICE_INGRESS`), the frozen
+slot tuple for that kind, `record_sha256`, a `delivery_proof` (exactly one 32-byte SHA-256
+over the delivery capability's grammar-2 signing bytes, NOT its raw protobuf) that is
+present ONLY for RENEWAL/ROLLOVER/LATE_FENCED_DELIVERY records and absent -- marked by its
+presence byte -- for fresh and service-ingress records, a publisher-attested `delivery_mode`
+(`1 = FRESH` / `2 = RENEWAL` / `3 = ROLLOVER` / `4 = LATE_FENCED_DELIVERY`; `0` rejected)
+REPLACING the old `source_kind`, and the `route_map_version` (nonzero). The framed envelope SHALL NOT exceed a
+hard bound of 512 bytes of ASCII. Trust SHALL come from per-class publisher-subject
+isolation, NOT from a global "only the gateway" rule: ONLY the authenticated gateway
+MAY publish to the durable edge-record subject and ONLY an authorized governed
+service MAY publish to its own service-ingress subject, each over its own isolated
+publisher credential, so the header is provenance the respective isolated publisher
+stamped and requires no separate signature or durable gateway-side mapping. A
+missing, duplicate, or unknown-version `Sr-Edge-Transport-Provenance` header on a
+durable record subject SHALL be a distinct `provenance_missing` quarantine (it cannot
+satisfy this DLQ retention requirement) whose DLQ record uses ONLY what is available
+-- the publish subject, the raw `record_bytes`, and any `Nats-Msg-Id`-derivable
+coordinates -- and SHALL NOT require the missing provenance envelope. DLQ
 `MaxAge` SHALL be disabled;
 raw records SHALL leave the stream only through catalog-backed, state-aware,
 audited deletion.
 
 #### Scenario: Event is delivered repeatedly
-- **WHEN** an event with the same stable event ID and checksum is delivered more
-  than once
+- **WHEN** an event with the same `(network_scope_id, event_id)` and a matching
+  stored `semantic_envelope_sha256` is delivered more than once (its outer
+  `record_bytes`/`record_sha256` MAY differ)
 - **THEN** the consumer SHALL commit its domain and derived side effects at most
   once
 - **AND** execution/snapshot counts and current state SHALL be reconciled from
   unique domain records rather than incremented per delivery
+
+#### Scenario: Ledger replay short-circuits re-projection
+- **GIVEN** a committed ledger row for `(network_scope_id, event_id)` whose stored
+  `semantic_envelope_sha256` matches the incoming record
+- **WHEN** EventWriter reaches the ledger conflict/replay step
+- **THEN** it SHALL treat the delivery as an idempotent replay, source-ACK it, and
+  SHALL NOT re-run domain projection
+- **AND** this replay branch SHALL be evaluated before payload decode and body poison
+  checks
+
+#### Scenario: Poison delivery still binds its slot before ACK
+- **GIVEN** a delivery is classified as body poison or `EVENT_ID_CONFLICT` and will
+  be DLQ-ACKed
+- **WHEN** EventWriter resolves its disposition
+- **THEN** it SHALL immutably bind the delivery's `edge_slot`/`service_slot` to its
+  `record_sha256` before the source ACK
+- **AND** a later frame reusing that same slot with a different `record_sha256` SHALL
+  be detected as a transport-integrity conflict rather than silently accepted
 
 #### Scenario: Concurrent workers complete out of delivery order
 - **GIVEN** a later JetStream delivery commits while an earlier worker has not
@@ -575,12 +741,18 @@ audited deletion.
 - **AND** the earlier delivery SHALL remain eligible for idempotent redelivery
 
 #### Scenario: Event ID is reused for different semantics
-- **WHEN** a committed event ID is received with a different body checksum or
-  immutable output-contract/registry/schema/size/cost/traffic-class/producer-run/
-  execution/epoch/authorization/range envelope
-- **THEN** the consumer SHALL classify it as poison
-- **AND** it SHALL durably publish the original bytes and diagnostics to the DLQ
-  before terminating the source delivery
+- **WHEN** the same `(network_scope_id, event_id)` is received with a DIFFERENT
+  stored `semantic_envelope_sha256` -- i.e. a different immutable output-contract/
+  registry/schema/size/cost/traffic-class/producer-run/execution/epoch/
+  authorization/range envelope or payload digest
+- **THEN** the consumer SHALL classify it as `EVENT_ID_CONFLICT` poison
+- **AND** it SHALL durably publish the LATER conflicting record's exact bytes plus
+  diagnostics to the DLQ before terminating the source delivery, leaving the
+  first-accepted committed row untouched; the conflict DLQ SHALL retain the
+  first-accepted stored `semantic_envelope_sha256` and `record_sha256` as MANDATORY
+  audit-only provenance, excluded from replay/conflict comparison
+- **AND** a differing `record_sha256` alone, with an identical
+  `semantic_envelope_sha256`, SHALL NOT be classified as poison
 
 #### Scenario: Transient database outage persists
 - **WHEN** database failure continues through repeated deliveries
@@ -632,6 +804,72 @@ audited deletion.
   ready
 - **THEN** readiness/admission and pulls SHALL pause as a deployment failure
 - **AND** the event SHALL NOT be permanently classified as poison
+
+#### Scenario: Transport-provenance header is missing or duplicated
+- **GIVEN** a durable record subject message that EventWriter consumes
+- **WHEN** it carries no `Sr-Edge-Transport-Provenance` header, a duplicate header
+  (header names matched CASE-INSENSITIVELY; more than one value for any single required
+  publication-identity header is a duplicate), or an envelope whose
+  `TransportProvenanceVersion` is unknown or exceeds the 512-byte hard bound
+- **THEN** EventWriter SHALL route it to a distinct `provenance_missing` quarantine
+  whose DLQ record uses only the publish subject, the raw `record_bytes`, and any
+  `Nats-Msg-Id`-derivable coordinates, and SHALL NOT require the missing provenance
+  envelope
+- **AND** the per-class isolated publisher subject SHALL be the sole trust anchor,
+  so no body claim SHALL reconstruct the missing transport provenance
+- **AND** EventWriter SHALL extract EXACTLY ONE value for each required
+  publication-identity header before validation; a missing or duplicated required
+  header SHALL be handled by this same fail-closed branch
+
+### Requirement: Route-map placement is resolved against an immutable generation
+Runtime integration SHALL resolve the provenance-carried `route_map_version` against an
+active or retained immutable route-map generation and SHALL verify that the authenticated
+publisher class, subject, physical stream, route profile, and traffic class agree with that
+generation. The `route_map_version` is diagnostic placement metadata that the pure codec only
+requires to be nonzero, decodes, and exposes; there is NO separate `Sr-Edge-Route-Map-Version`
+header. A retained generation SHALL remain valid while its accepted stream drains.
+
+#### Scenario: Route-map generation is unknown or unavailable
+- **WHEN** a delivery's `route_map_version` resolves to no known or currently available
+  route-map generation
+- **THEN** readiness SHALL fail WITHOUT resolving the source delivery (no ACK, no NAK)
+- **AND** the source delivery SHALL remain eligible for idempotent redelivery once the
+  generation becomes resolvable
+
+#### Scenario: Authenticated placement disagrees with the resolved generation
+- **GIVEN** a `route_map_version` that resolves to a known route-map generation
+- **WHEN** the authenticated publisher class, subject, physical stream, route profile,
+  or traffic class does not agree with that generation
+- **THEN** EventWriter SHALL fail closed and classify the delivery as a
+  transport-integrity failure, never authoritatively projecting it
+
+### Requirement: Compromised signing-key cohorts are remediated fail-closed
+On compromise revocation of a producer signing key, the deployment SHALL remediate
+the affected cohort fail-closed and SHALL NOT authoritatively project any record that
+key signed. Every record signed by the compromise-revoked key SHALL resolve to
+`historically_revoked` and be captured as a `ledger_only` audit row plus a
+security-quarantine DLQ entry, and SHALL NEVER be authoritatively projected. Domain
+rows that were already authoritatively projected from that key or cohort before
+revocation SHALL be marked `security_held` and scheduled for operator-authorized
+retraction or redrive under a fixed safe bundle rather than silently retained as
+trusted state. Redrive of a remediated cohort SHALL use a durable synthetic spool, a
+fresh delivery/map envelope, and a capability bound to the immutable catalog record,
+and the ingest ledger SHALL make already-committed events harmless so a redrive
+neither duplicates domain side effects nor reinstates compromised trust.
+
+#### Scenario: A signing key is revoked for compromise after projection
+- **GIVEN** a producer signing key is revoked for compromise after some of its
+  records were already authoritatively projected
+- **WHEN** EventWriter evaluates new and replayed deliveries signed by that key
+- **THEN** every such record SHALL resolve to `historically_revoked`, land as a
+  `ledger_only` audit row plus a security-quarantine DLQ entry, and SHALL NOT be
+  authoritatively projected
+- **AND** the already-projected domain rows from that cohort SHALL be marked
+  `security_held` and scheduled for operator-authorized retraction or redrive under a
+  fixed safe bundle
+- **AND** an authorized redrive SHALL republish through a durable synthetic spool with
+  a fresh delivery/map envelope and a capability bound to the immutable catalog
+  record, while the ingest ledger makes already-committed events harmless
 
 ### Requirement: Bounded durable outputs remain stream records
 Bounded durable outputs SHALL remain independently decodable JetStream records,

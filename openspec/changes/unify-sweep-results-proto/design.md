@@ -42,8 +42,9 @@ This is not merely a serialization problem:
 
 - Bound memory by active scan window plus in-flight/spooled bytes, not fleet
   size or completed scan size.
-- Encode each canonical domain batch once at the agent, pass its bytes through
-  the gateway, and decode once in each downstream consumer.
+- Encode each canonical domain body once at the producer adapter, wrap it in one
+  `EdgeRecordV1` encode at the agent sink, pass those bytes through the gateway,
+  and decode once in each downstream consumer.
 - Acknowledge the agent only after the observation is durably stored in
   JetStream.
 - Preserve complete sweep, execution, scanner, banner, and MTR trace fidelity.
@@ -69,7 +70,7 @@ This is not merely a serialization problem:
 - Letting a plugin/add-on select a NATS subject, physical stream, traffic class,
   database table/DDL, or executable Core processor.
 - Forcing cluster-local producers to hairpin through an agent/gateway; they may
-  use the same canonical record/projector contract through a governed direct
+  use the same authoritative record/projector contract through a governed direct
   JetStream publisher or transactional outbox.
 - Treating JetStream Object Store as a telemetry lake.
 - Claiming literal end-to-end zero-copy across protobuf, gRPC/TLS, BEAM, NATS,
@@ -211,7 +212,7 @@ enum EdgeRecordRouteProfile {
 }
 
 message EdgeRecordV1 {
-  bytes event_id = 1;                  // stable across every semantic retry
+  bytes event_id = 1;                  // 16-byte UUIDv7; stable across every semantic retry
   EdgeRecordPayloadFamily payload_family = 2;
   EdgeRecordCompression compression = 3;
   uint32 encoded_size = 4;
@@ -222,53 +223,81 @@ message EdgeRecordV1 {
   EdgeRecordRouteProfile route_profile = 9;
   EdgeRecordTrafficClass traffic_class = 10;
   bytes network_scope_id = 11;         // signed site/address-space namespace
-  bytes production_capability = 12;    // signed effective output grant at creation
-  bytes source_authorization = 13;     // optional check/run/command authority
-  EdgeRecordAuthorizationKind authorization_kind = 14;
-  bytes authorization_context_id = 15;
-  bytes authorization_scope_id = 16;
-  bytes authorization_scope_sha256 = 17;
-  uint32 projected_row_count = 18;     // conservative verified upper bound
-  uint64 projected_write_bytes = 19;   // SQL/index/WAL upper bound
-  uint32 cost_model_version = 20;
-  bytes semantic_envelope_sha256 = 21; // excludes this field and all delivery state
-  bytes payload = 22;                  // exact canonical contract bytes
+  EdgeSignedCapabilityV1 production_capability = 12;             // TYPED signed effective output grant at creation (NOT bytes)
+  optional EdgeSourceAuthorizationV1 source_authorization = 13;  // TYPED optional check/run/command authority; kind/context_id/scope_id/scope_sha256 live INSIDE this message and its signed claims (NOT flat record fields)
+  uint32 projected_row_count = 14;     // conservative verified upper bound
+  uint64 projected_write_bytes = 15;   // SQL/index/WAL upper bound
+  uint32 cost_model_version = 16;
+  bytes semantic_envelope_sha256 = 17; // SHA-256 over the frozen semantic-envelope transcript (Appendix A grammar 1: leads with u64 semanticDigestVersion=3, FIXED field order (no numeric tags), 8-byte BE ints, 8-byte BE length prefixes, 1-byte presence markers, u64 oneof discriminants, field-by-field nested framing); excludes this field + all delivery state; NO proto.Marshal
+  bytes payload = 18;                  // the exact encoded/compressed payload the sink emitted
+  // NOTE: there is NO semantic_digest_version wire field. The grammar version is a
+  // committed constant (=3) fixed one-to-one by this immutable record-schema/proto-package
+  // ABI version (a frozen ABI->grammar mapping), committed INSIDE the digest preimage.
 }
 
 message EdgeDeliveryFrameV1 {
   bytes spool_id = 1;                  // persistent UUID for one delivery lane
   uint64 sequence = 2;                 // persistent, strictly increasing
   bytes record_sha256 = 3;             // SHA-256 of exact record_bytes
-  bytes delivery_capability = 4;       // optional renewal to drain immutable data
-  bytes record_bytes = 5;              // exact deterministic EdgeRecordV1 bytes
+  EdgeSignedCapabilityV1 delivery_capability = 4; // TYPED signed delivery grant (NOT bytes); optional, drains immutable data via renewal/rollover
+  bytes record_bytes = 5;              // the exact bytes the sink emitted; byte layout runtime-local, not a protocol invariant
 }
 
 enum EdgeRecordDispositionKind {
+  // Frozen SIX-value typed disposition (implemented in candidate #4713; exact proto numbering is a #4713
+  // concern): UNSPECIFIED plus the five authoritative kinds below (primary / audit /
+  // quarantine / permanent / retryable), so retryable, audit-only, and quarantine are
+  // first-class and distinct from permanent rejection. Four kinds RESOLVE the spool slot
+  // (each only after its required PubAck / local durable action); only retryable stays
+  // unresolved.
   EDGE_RECORD_DISPOSITION_KIND_UNSPECIFIED = 0;
-  EDGE_RECORD_DISPOSITION_KIND_ACCEPTED = 1;
-  EDGE_RECORD_DISPOSITION_KIND_REJECTED = 2;
+  EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE = 1; // primary; resolves
+  EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY = 2;    // audit stream; resolves
+  EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE = 3;    // quarantine DLQ; resolves
+  EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT = 4;     // reject-audit DLQ; resolves
+  EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE = 5;     // NOT resolved; unresolved
 }
 
 message EdgeRecordDisposition {
   uint64 sequence = 1;
   bytes event_id = 2;
-  EdgeRecordDispositionKind kind = 3;
-  string rejection_code = 4;
+  EdgeRecordDispositionKind kind = 3; // spool-resolution eligibility derives from kind ALONE
+  string rejection_code = 4;          // human/audit annotation only; never keys watermark logic
 }
 
 message EdgeDeliveryAckV1 {
   bytes spool_id = 1;
-  uint64 resolved_through_sequence = 2; // contiguous accepted/rejected prefix
+  uint64 resolved_through_sequence = 2; // REMOTE terminal-disposition-through watermark (what the gateway/EventWriter resolved): highest sequence such that every sequence <= it is ACCEPTED_AUTHORITATIVE, ACCEPTED_AUDIT_ONLY, ACCEPTED_QUARANTINE, or REJECTED_PERMANENT (each after its required remote PubAck); retryable/unresolved sequences do NOT advance it. Describes ONLY the remote watermark; it is NOT the agent's separate durable local reclaim watermark and references no agent-local durability action.
   repeated EdgeRecordDisposition dispositions = 3;
+  bytes session_nonce = 4;             // binds this ACK to the delivery session (nonce-bound ACK)
 }
 ```
 
-The sink computes `semantic_envelope_sha256` from versioned canonical signing
-bytes over every semantic/trust field and the exact payload digest, excluding
-the digest field itself. Gateway and EventWriter recompute it from the decoded
-record. The
-gateway uses the verified value when deriving `Nats-Msg-Id`; neither component
-needs to re-encode the protobuf to establish semantic identity.
+The sink computes `semantic_envelope_sha256` from an explicit, versioned,
+field-by-field signing-byte transcript over every semantic/trust field, committing
+`payload_sha256`, and excluding the digest field itself and all delivery state. That
+transcript is frozen and interoperable only when both languages implement it
+byte-for-byte, per Appendix A grammar 1: the version `u64 semanticDigestVersion = 3`
+leads the preimage (no leading string domain tag on this grammar); field identity is
+FIXED ORDER with NO per-field numeric tags; unsigned ints and enums are 8-byte
+big-endian; signed ints are 8-byte big-endian two's-complement (no zigzag); every
+bytes/string field carries an 8-byte big-endian length prefix; every optional value
+carries a 1-byte presence marker; a oneof discriminant is a `u64` (8-byte big-endian)
+equal to the set member's field number (0 for none); and nested messages are framed
+field-by-field by these same rules. **Protobuf serialization output MUST NOT appear in
+this preimage at any nesting depth** (nor in the capability-signing or
+plan/recovery/completion hash grammars): protobuf has no canonical wire form, so a
+`proto.Marshal` inside a preimage silently diverges across languages and runtime
+versions (task 1.13 REMOVED the two former `msg()` = `proto.Marshal` uses -- the
+`output_contract` ref and the leaf claim messages). The transcript version is NOT a wire
+field on `EdgeRecordV1`: it is the committed grammar CONSTANT `= 3`, fixed one-to-one by
+the immutable record-schema/proto-package ABI version (a frozen ABI->grammar mapping) and
+committed as the leading `u64` of the hashed preimage. That constant is validated
+fail-closed; an unknown version is rejected without trial-hashing alternative grammars,
+with no wire field to spoof. Gateway and EventWriter recompute the digest from the
+decoded record and use the verified value when deriving `Nats-Msg-Id`; neither re-encodes
+the protobuf to establish semantic identity, and neither performs a decode -> re-encode
+-> byte-compare admission.
 
 All UUID-backed identifiers (`spool_id`, event/trace/execution/plan/run IDs, and
 source IDs stored as UUIDs) use canonical 16-byte UUID fields in the final
@@ -279,11 +308,15 @@ and have identical Go/Elixir normalization fixtures.
 Every v1 semantic `event_id` is RFC 9562 UUIDv7 allocated once before durable
 spooling. Its UUIDv7 timestamp selects the trusted metadata retirement bucket
 and must match the signed production/source-authorization interval plus the
-defined terminal grace and clock tolerance. The same event ID therefore cannot
+defined terminal grace and clock tolerance. Because the UUIDv7 is minted before
+spooling, the record body's authoritative observation/event time(s) MUST also fall
+within the signed production/source-authorization interval (plus tolerance), and
+the UUIDv7 timestamp is validated for consistency with that body observation
+window rather than being the sole time checked. The same event ID therefore cannot
 move between metadata partitions; recovery preserves it even when delivery
 coordinates change.
 
-The agent atomically persists the deterministic `EdgeRecordV1` bytes plus the
+The agent atomically persists the exact emitted `EdgeRecordV1` bytes plus the
 delivery wrapper's spool ID, sequence, record checksum, and delivery capability
 before sending. A retry within a lane reuses the wrapper and exact record bytes.
 Crash-safe recovery MAY wrap the same record bytes in a new spool ID/sequence as
@@ -327,13 +360,23 @@ IDs deduplicate accepted frames, and the gateway builds a new resolved prefix
 from the declared base. Concurrent stale sessions may duplicate publication but
 cannot reclaim the active spool or violate database correctness.
 
-Each disposition says whether the sequence was accepted by its primary stream
-or permanently rejected. `resolved_through_sequence` advances only across a
-contiguous run for which every primary acceptance has a PubAck and every
-permanent rejection has an audit/DLQ PubAck. The agent deletes accepted records,
-moves rejected records to durable local quarantine, and only then reclaims the
-resolved prefix. This permits progress past poison data without describing a
-rejection as successful telemetry ingestion.
+Each disposition is one of accepted-authoritative (`primary_publication`),
+accepted-audit-only (`audit_publication`), accepted-quarantine (`quarantine_publication`),
+rejected-permanent (`permanent_rejection`), or rejected-retryable (`retryable_rejection`).
+The wire `resolved_through_sequence` is the REMOTE terminal-disposition-through
+watermark (what the gateway resolved): it advances only across a contiguous run for
+which every sequence is accepted-authoritative (primary-stream PubAck),
+accepted-audit-only (audit-stream PubAck), accepted-quarantine (quarantine-DLQ
+PubAck), or rejected-permanent (reject-audit DLQ PubAck); a rejected-retryable
+outcome leaves that sequence and every higher sequence unresolved and MUST NOT
+advance the prefix. The agent maintains a SEPARATE durable local reclaim watermark
+that advances a spool sequence only AFTER the agent's own local durability for that
+sequence (for example the quarantine transaction that moves a permanently rejected
+record) commits. The agent deletes accepted records, moves permanently rejected
+records to durable local quarantine, and reclaims the spool using the LOCAL reclaim
+watermark -- never the wire `resolved_through_sequence` directly. This permits
+progress past poison data without describing a rejection as successful telemetry
+ingestion.
 
 Permanent protocol rejection is returned as a bounded structured disposition
 after its deployment-local audit record has obtained a DLQ PubAck; the agent
@@ -387,10 +430,17 @@ the unchanged semantic digest. It is authorized only against the durable
 rollover/recovery record; an old coordinate-bound capability cannot be replayed
 for arbitrary bytes.
 
-All capabilities use versioned canonical signing bytes and carry issuer, key ID,
-algorithm, not-before/expiry, attested origin, network scope,
-package/assignment/run/context/scope, contract/grant digests, route/class, and
-fence claims. Normal
+All capabilities are signed over the frozen Appendix A grammar 2 preimage that begins
+with the SINGLE string domain tag `serviceradar.edge.capability.v1` and the `u64`
+capability version, both committed inside the signed bytes, then emits issuer, key ID,
+algorithm, a `purpose` field (PRODUCTION / SOURCE / DELIVERY -- one domain tag plus a
+purpose field, NOT per-purpose tags), `i64` not-before/expiry, and the purpose-specific
+claim message (attested origin, network scope, package/assignment/run/context/scope,
+contract/grant digests, route/class, fence claims) framed FIELD-BY-FIELD in fixed order
+with 8-byte big-endian integers, 8-byte big-endian length prefixes on bytes/string fields,
+1-byte presence markers, and `u64` oneof discriminants; protobuf serialization output
+never appears in the preimage, and Ed25519 signs the RAW framed preimage bytes (the
+signature is excluded from the preimage). Normal
 verification keys overlap for at least the maximum supported agent-spool/offline
 plus JetStream replay/rollback horizon. Before routine retirement, remaining
 backlog is drained or receives delivery-only reauthorization against retained
@@ -411,7 +461,8 @@ declared uncompressed size is never trusted as an allocation authority.
 `EdgeRecordV1` and `EdgeDeliveryFrameV1` are agent-owned internal contracts, not
 plugin ABIs and not evidence that producer-supplied body claims are true.
 Built-in collectors, Wasm modules, native add-ons, and embedded integrations
-submit bounded canonical bytes to one agent-owned producer sink. The sink
+submit bounded contract-payload (submission) bytes to one agent-owned producer
+sink. The sink
 validates the effective output grant, derives trusted identity/cost/routing
 metadata, assigns stable semantic and spool identity, and fsyncs the common
 spool. Producers never choose network scope, gateway, NATS subject, physical
@@ -431,8 +482,11 @@ type Sink interface {
 ```
 
 A `Submission` contains an approved output-contract reference, a producer-local
-stable idempotency key, bounded canonical payload bytes, and bounded descriptive
-metadata. Producer instance, assignment, run, and scope handles are host-issued
+stable idempotency key, bounded UNCOMPRESSED contract-payload bytes, and bounded
+descriptive metadata. The sink computes `submission_sha256` over those
+pre-compression submission bytes, performs the producer retry lookup BEFORE
+compression, and then compresses the payload at most once. Producer instance,
+assignment, run, and scope handles are host-issued
 and unforgeable; caller-selected strings cannot create quota or identity
 namespaces. The sink supplies or verifies agent/package/assignment/producer/run
 identity, authorization, event ID, exact encoded size/hash, conservative cost,
@@ -444,10 +498,11 @@ observe the return.
 
 That guarantee is backed by one atomic durable binding from `(package digest,
 producer assignment, host-issued run, contract bundle digest, registry/effective
-grant digest, producer key)` to event ID, exact body digest, exact record
-digest/bytes, local-durability receipt, and later disposition watermark,
-committed atomically with the delivery wrapper's spool append. The
-same key with different bytes is a permanent integrity conflict. Receipt lookup
+grant digest, producer key)` to event ID, the pre-compression `submission_sha256`,
+exact body digest, exact record digest/bytes, local-durability receipt, and later
+disposition watermark, committed atomically with the delivery wrapper's spool
+append. The same key with a different `submission_sha256` is a permanent integrity
+conflict. Receipt lookup
 returns the original identity after an uncertain timeout, agent restart,
 producer restart, or lane rollover. The binding survives spool reclamation for
 the signed producer retry/offline horizon and is retired only after the run is
@@ -775,17 +830,34 @@ has one non-conflicting binding. Compact range sets may represent the proof, but
 `{1,3}` can never satisfy a terminal value of `3`. MTR trace batches use their own
 identity/binding reconciliation and do not consume sweep batch slots.
 
-MTR completion uses a versioned, bounded, order-independent-to-arrival proof over
-deterministic plan order, not a hash of publication order. The immutable plan
-assigns every MTR-eligible target a canonical ordinal inside bounded range blocks.
-For each ordinal, the leaf encodes the expected binding tuple plus one explicit
-terminal disposition (`trace_id` allocated, not-admitted, probe-failed,
-quarantined, or scheduler-lost). Builders compute canonical per-block Merkle roots
-in ordinal order while holding only the bounded active block; assignment terminal
-evidence composes those block roots in plan/range order. Parent reconciliation
-combines stable range roots, counts, and projected trace bindings without sorting
-or materializing a million IDs. Digest version, leaf encoding, empty-root rule,
-and composition have cross-language golden fixtures.
+MTR completion uses `MtrCompletionDigestVersion = 2`: a versioned, bounded,
+order-independent-to-arrival proof over deterministic plan order. The immutable
+plan assigns every MTR-eligible target a canonical ordinal in `[1, expected]`;
+each ordinal's leaf encodes exactly one terminal disposition (`trace_id`
+allocated -- and only then a UUIDv7 trace id -- `not-admitted`, `probe-failed`,
+`quarantined`, or `scheduler-lost`) bound to its plan `range_sha256`. The proof
+folds THREE additive 256-bit multiset hashes (MSet-Add-Hash): one over full
+per-leaf content, one over leaf ORDINALS, one over `(ordinal, range_sha256)`
+MEMBERSHIP pairs. Each fold is big-endian 256-bit modular addition (mod 2^256, with
+carry flowing toward the most-significant byte at index 0) -- arrival order irrelevant,
+O(1) active memory, O(N) time, streamable across batches, no sort/per-block buffering,
+and no per-block Merkle tree.
+Exact coverage requires the ordinal multiset hash to equal the canonical multiset
+hash of `{1..expected}` (recomputed in O(expected) time / O(1) memory) AND
+count == expected -- set-collision-resistant, rejecting `{2,2,2}` for expected 3
+or `{1,1,4,4}` for expected 4. Membership requires the `(ordinal, range)` multiset
+hash to equal the plan's committed `mtr_ordinal_range_commitment`
+(`ScheduledPlanHeaderV1`), so a leaf cannot bind an ordinal to a range the plan
+never assigned. The completion ROOT is `SHA-256(version(u64=2) || expected(u64) ||
+plan_root_sha256(32) || mtr_ordinal_range_commitment(32) || content-accumulator(32))`:
+`plan_root_sha256` AND `mtr_ordinal_range_commitment` (each 32 bytes) are committed IN
+the root, while the ordinal and membership accumulators are verification gates rather
+than root inputs. An empty completion (`expected == 0`) requires `count == 0` and all
+three accumulators to hold the zero 32-byte value, matching the empty
+`ScheduledPlanHeaderV1`/commitment representation. Digest version, leaf encoding, and
+empty/partial/duplicate/
+wrong-range rejection have independent Go/Elixir golden fixtures
+(`Serviceradar.Edge.HashGrammar.mtr_completion_root` / `mtr_completion_verify`).
 
 The agent emits `SweepExecutionEventV1` start/progress evidence and, when it can,
 one stable completed/aborted terminal evidence event per attempt. Those events
@@ -1078,14 +1150,20 @@ For every delivery frame the gateway:
    decodes a plugin body or accepts a caller-selected partition.
 5. Selects the fixed route-profile/class subject, stream-map version, and
    expected physical stream.
-6. Derives `Nats-Msg-Id` from the attested origin, delivery-wrapper spool
-   ID/sequence, and verified semantic digest; sets `Nats-Expected-Stream`; and
+6. Derives `Nats-Msg-Id` from the frozen 6-field transcript (Appendix A grammar 6,
+   `msgid_version = 1`): `authenticated_agent_id` (== `producer_context.origin_principal_id`),
+   `network_scope_id`, `spool_id`, sequence, the verified `semantic_envelope_sha256`, and the
+   delivery frame's exact-record checksum `record_sha256`, so a re-encoded record reusing the
+   same slot yields a DIFFERENT Msg-Id and its physical conflict is not
+   broker-suppressed; sets `Nats-Expected-Stream`; and
    adds only bounded transport diagnostics for delivery ID and route-map
    version. It does not copy semantic fields into headers.
 7. Publishes the exact original `record_bytes` with a JetStream request and
    waits for PubAck.
 8. Returns accepted/rejected dispositions and advances only the contiguous
-   resolved spool prefix after the required primary-stream or audit-DLQ PubAck.
+   resolved spool prefix after the required PubAck for a primary-stream,
+   audit-stream, quarantine-DLQ, or reject-audit-DLQ disposition; a retryable
+   rejection never advances it.
 
 The JetStream body is the exact deterministic `EdgeRecordV1` binary produced and
 fsynced by the agent sink. Its semantic identity, contract, provenance,
@@ -1096,23 +1174,81 @@ The only normal NATS headers are transport metadata:
 Nats-Msg-Id
 Nats-Expected-Stream
 Sr-Edge-Delivery-Id
-Sr-Edge-Route-Map-Version
+Sr-Edge-Transport-Provenance
 ```
 
-`Sr-Edge-Delivery-Id` is one opaque transport digest over attested origin plus
-spool ID/sequence. It permits delivery-coordinate conflict audit without
-duplicating coordinates or semantic fields as text. `Sr-Edge-Route-Map-Version`
-is diagnostic placement metadata. EventWriter MUST NOT use either header as
+`Sr-Edge-Delivery-Id` is one opaque transport digest over the frozen `edge_slot`
+tuple (network scope, authenticated agent, spool ID, sequence) -- the slot
+IDENTITY, not its content; the `record_sha256` bound
+to that slot is carried in `Nats-Msg-Id`, in `Sr-Edge-Transport-Provenance`, and
+stored in the delivery-slot binding, not folded into this slot-key header. It
+permits delivery-coordinate conflict audit without duplicating coordinates or
+semantic fields as text.
+
+`Sr-Edge-Transport-Provenance` is a bounded TYPED, versioned, PUBLISHER-authenticated
+transport-provenance envelope -- the GATEWAY stamps it for EDGE records; the governed SERVICE
+stamps it for SERVICE-INGRESS records (each over its own isolated per-class publisher subject)
+-- (Appendix A grammar 8, domain tag
+`serviceradar.edge.transport-provenance`, `TransportProvenanceVersion = 1`; an
+unknown version is rejected fail-closed). Its typed, ordered fields are: version; a
+`slot_kind` discriminant (`0 = UNSPECIFIED` [reject] | `1 = EDGE` | `2 = SERVICE_INGRESS`);
+the frozen slot tuple for that kind (`edge_slot` or `service_slot`); `record_sha256`; a
+`delivery_proof` (present ONLY for RENEWAL/ROLLOVER/LATE_FENCED_DELIVERY -- exactly one
+32-byte SHA-256 over the delivery capability's grammar-2 signing bytes, NOT its raw
+protobuf); the publisher-attested `delivery_mode` (`1 = FRESH` | `2 = RENEWAL` |
+`3 = ROLLOVER` | `4 = LATE_FENCED_DELIVERY`; `0` rejected) that REPLACES the old
+`source_kind`; and the `route_map_version` (nonzero). The pure codec only requires a
+nonzero `route_map_version`, decodes it, and exposes it; RUNTIME integration MUST resolve it
+against an active or retained immutable route-map generation and verify that the
+authenticated publisher class, subject, physical stream, route profile, and traffic class
+agree with that generation. A retained generation remains valid while its accepted stream
+drains. Unknown or unavailable map history fails readiness WITHOUT resolving the source
+delivery; a known placement mismatch fails closed as a transport-integrity failure. There is
+NO separate `Sr-Edge-Route-Map-Version` header: `route_map_version` travels ONLY inside the
+provenance envelope (a placement router decodes the provenance to obtain it), so a per-message
+route-map header can neither disagree with nor be omitted independently of the provenance value.
+The envelope has a hard byte bound (<= 512 bytes ASCII); it is field-framed
+per Appendix A grammar `serviceradar.edge.transport-provenance` and then
+base64url-encoded (no padding) into the ASCII header value. Because the GATEWAY (edge
+path) is stateless and keeps no durable delivery mapping, this provenance travels WITH
+the message rather than in a gateway-side table -- on the SERVICE-INGRESS path the
+governed service DOES own a durable publication journal for its own lane/sequence
+(task 4.6), but it likewise carries provenance IN the message, not a broker-side
+delivery table; trust comes from ISOLATED per-class
+publisher subjects and credentials -- ONLY the gateway may publish to the durable
+edge-record subject, and ONLY the governed service may publish to its own
+service-ingress subject -- so the header is provenance the authenticated PUBLISHER
+stamped -- no separate signature and no RECEIVER-side provenance lookup/table are
+required (the service publication journal of task 4.6 remains MANDATORY; only the
+receiver needs no durable delivery mapping, because provenance rides in the message). A
+missing or duplicate `Sr-Edge-Transport-Provenance` header on a durable record
+subject is fail-closed poison (it cannot satisfy the DLQ retention requirement) and
+is quarantined. EventWriter decodes and validates it, then uses it ONLY as transport
+provenance -- to verify that the received `record_bytes` hash equals the declared
+`record_sha256`, and to satisfy the DLQ requirement to retain the original edge
+coordinates plus the `delivery_proof_digest` (so the delivery capability's audit
+digest is preserved, not silently discarded). It is NEVER semantic or authorization
+truth; all such state still comes from `EdgeRecordV1` and the pinned registry
+bundle.
+
+The provenance-carried `route_map_version`
+is diagnostic placement metadata. EventWriter MUST NOT use these headers as
 semantic or authorization truth; it derives and verifies all such state from
 `EdgeRecordV1` and the pinned registry bundle. Delivery-only capability remains
 in the gRPC wrapper and is not persisted as semantic record data.
 
-`Nats-Msg-Id` is a publication identity derived from the attested origin
-principal/network scope,
-`spool_id`, sequence, and semantic digest. It is stable for every retry in one
-lane and intentionally changes when recovery copies the same event to a new
-lane. Broker deduplication therefore handles lost ACKs within a lane, while the
-database ledger handles semantic replay across lanes and after the broker
+`Nats-Msg-Id` is a publication identity derived from the frozen 6-field transcript
+(Appendix A grammar 6, `msgid_version = 1`): `authenticated_agent_id` (==
+`producer_context.origin_principal_id`), `network_scope_id`, `spool_id`, sequence,
+`semantic_envelope_sha256`, and the exact-record checksum `record_sha256`. It is stable for
+every retry in one lane
+-- a legitimate retry reuses the exact record bytes, hence the same `record_sha256`
+-- and intentionally changes when recovery copies the same event to a new lane.
+Including `record_sha256` guarantees that a slot reused with different bytes but an
+identical semantic digest also gets a distinct publication ID, so JetStream
+forwards it to EventWriter's slot-integrity check instead of suppressing it as a
+duplicate. Broker deduplication therefore handles lost ACKs within a lane, while
+the database ledger handles semantic replay across lanes and after the broker
 duplicate window.
 
 EventWriter bounded-decodes the binary record, verifies its semantic digest and
@@ -1121,9 +1257,10 @@ decodes the declared contract payload and compares every body-level agent,
 scope, source, package, assignment, run, target/range, and traffic-class claim
 with record/grant authority. Before side effects it validates domain identity,
 revision/merge rules, authoritative-versus-derived status, and any scanner
-target/check plan membership. The ingest ledger stores and compares semantic
-digest and record/payload checksums, catching conflicts outside the broker
-duplicate window. This preserves opaque pass-through at the gateway without
+target/check plan membership. The ingest ledger stores and compares
+`semantic_envelope_sha256` (which transitively commits `payload_sha256`), catching
+conflicts outside the broker duplicate window; `record_sha256` MAY be stored for
+audit but is excluded from the event-conflict comparison. This preserves opaque pass-through at the gateway without
 treating either payload claims or transport headers as authorization truth.
 
 Publishing may pipeline 32-64 asynchronous PubAcks. Every class uses a separate
@@ -1132,15 +1269,25 @@ buffering cannot consume the interactive or recovery path. Admission is bounded
 by delivery/record count, exact encoded bytes, and measured retained gateway
 memory including delivery-wrapper and record-envelope decode terms, pinned
 original record binaries, proof verification, NATS request state, mailboxes, and
-TLS buffers, not a raw-payload estimate alone. `EdgeRecordV1` has a 512 KiB hard
-limit; the delivery wrapper and minimal headers have separate small hard bounds,
-and smaller contract limits may apply. Lost edge ACK after a successful PubAck is
+TLS buffers, not a raw-payload estimate alone. The three decode stages have FROZEN
+raw byte bounds, checked BEFORE protobuf decode (an oversize input is a permanent
+rejection, never an unbounded decode): `EdgeRecordV1` = 512 KiB; `EdgeDeliveryFrameV1`
+= record + a 16 KiB delivery envelope (the signed delivery capability + spool/sha/
+sequence + framing) = 528 KiB; `EdgeRecordClientMessage` = frame + the oneof tag/length
+prefix = 528 KiB + 8 bytes. These exact constants are shared by the Go `edgerecord`
+package and the Elixir `WireDecode` boundary; smaller contract limits may apply. Lost
+edge ACK after a successful PubAck is
 safe: a retry in the same lane uses the same broker publication ID even if
 delivery authority or physical placement changed. Recovery under new spool
 coordinates uses a new publication ID but the same semantic digest. Reusing a
-semantic event ID with different record bytes or semantic fields produces a different
-semantic digest/publication ID so the consumer ledger can reject the conflict
-instead of JetStream hiding it as a duplicate. Database idempotency remains the
+semantic event ID with different SEMANTIC fields produces a different semantic
+digest and publication ID, so the consumer ledger rejects it as
+`EVENT_ID_CONFLICT`. Reusing one delivery slot with different OUTER record bytes
+(a different `record_sha256`) but an identical semantic digest also produces a
+different publication ID -- because `record_sha256` is part of the `Nats-Msg-Id`
+transcript -- so JetStream forwards both copies and EventWriter's delivery-slot
+binding rejects the second as a transport-integrity violation, rather than
+JetStream hiding it as a duplicate. Database idempotency remains the
 correctness backstop after the broker duplicate window expires.
 
 The current generic `Gnat.pub` wrapper is insufficient for this path because it
@@ -1399,8 +1546,13 @@ and holds verified resident-byte, write-byte, row, active-transaction, and commi
 rate credits through its bounded queue, commit/failure, and delivery disposition.
 A message waiting
 legitimately under a reservation sends JetStream in-progress heartbeats no less
-frequently than one third of `AckWait`, but only until a configured processing
-deadline; at the deadline it NAKs/releases rather than renewing forever.
+frequently than one third of `AckWait`, but only until a configured bounded
+processing deadline. On database unavailability, or at that deadline, EventWriter
+sends NO ACK and NO TERM/poison, pauses new pulls, and lets the reservation lapse:
+the message is released by AckWait expiry (redelivery), the redelivery does NOT
+count toward a finite `MaxDeliver`-to-poison, and agent ownership is not restored.
+It never renews heartbeats forever and never TERMs the message to poison. (The
+EventWriter decision pipeline's transient-DB step states the same rule.)
 
 Distributed grants carry a monotonically fenced generation, expiry, and maximum
 transaction deadline. Old grants remain charged until surrendered or expired;
@@ -1419,18 +1571,33 @@ recovery/control pool remains available.
 
 Within those credits, projection is:
 
-1. Insert or lock both a delivery binding keyed by physical stream/sequence plus
-   the gateway-created opaque `Sr-Edge-Delivery-Id`, and an ingest-ledger row
-   keyed by the record-derived metadata bucket, network scope, attested origin
-   principal, exact output-contract bundle, and semantic event ID. The delivery
-   binding fixes one record checksum/semantic digest without copying spool
-   coordinates into semantic headers; the ledger stores record/payload
-   checksums, encoded/projected-write byte counts, cost-model version, immutable
-   semantic digest, expected/projected record counts, and commit state (not the
-   payload body).
-2. If the same committed event/checksum/semantic digest exists, return success
-   without applying side effects again. The same event ID with a different body
-   or immutable semantic envelope is poison.
+1. Insert or lock both a delivery binding keyed by the STABLE logical slot
+   `edge_slot = (network_scope_id, authenticated_agent_id, spool_id, sequence)`
+   -- the authenticated AGENT owns the spool (a key component) and the PRODUCER is
+   semantic provenance (a stored value, NOT part of the slot key) -- a scoped,
+   independently unique delivery id derived from those immutable coordinates
+   (the gateway-created opaque `Sr-Edge-Delivery-Id`), NOT by the physical
+   JetStream stream/sequence (which changes when a re-encoded record gets a new
+   Msg-Id/sequence) -- and an ingest-ledger row keyed ONLY by network scope and
+   semantic event ID, partitioned by a retention bucket deterministically
+   derived from the event ID (its UUIDv7 timestamp). The
+   ledger STORES the attested origin principal, exact output-contract bundle,
+   authenticated agent, and payload kind as immutably compared values, never as
+   key components. The delivery binding STORES `record_sha256` as the compared
+   physical value and the JetStream stream/sequence plus event ID as
+   provenance/comparison values, never copying spool coordinates into semantic
+   headers; a second frame on the same slot with a different `record_sha256`
+   therefore hits the SAME binding row and is a transport-integrity conflict, not
+   a new row. The ledger stores
+   record/payload checksums, encoded/projected-write byte counts, cost-model
+   version, immutable `semantic_envelope_sha256`, expected/projected record counts,
+   and commit state (not the payload body).
+2. If the ledger already has a committed row for `(network_scope_id, event_id)`
+   whose stored `semantic_envelope_sha256` MATCHES, return success without
+   re-applying side effects (even if `record_sha256`/bytes differ). The same event
+   ID whose stored `semantic_envelope_sha256` DIFFERS is `EVENT_ID_CONFLICT`
+   poison; a different `record_sha256`/body layout with an identical
+   `semantic_envelope_sha256` is a replay, not a conflict.
 3. Bulk insert/upsert domain rows, current-state changes, immutable per-shard
    execution evidence, deterministic OCSF events, required low-cardinality
    projections, and any required derived-view outbox rows. Do not lock/update
@@ -1459,16 +1626,31 @@ Stable keys and fencing rules include:
   identity;
 - MTR hop: network scope + trace key + hop number + path-variant identity;
 - OCSF event: deterministic ID from network scope plus stable domain-record identity;
-- delivery slot: metadata bucket + network scope + authenticated agent + lane + spool ID + sequence,
-  immutably bound to event ID and semantic digest;
-- ingress ledger: metadata bucket + network scope + authenticated agent + payload
-  kind + event ID;
+- delivery slot: the frozen `edge_slot` = network scope + authenticated agent
+  + spool ID + sequence (the partition/retention bucket is DERIVED from this tuple
+  plus the spool generation epoch, and is NOT part of the slot KEY),
+  immutably bound to event ID, semantic digest, and the exact-record checksum
+  `record_sha256`; a later frame on the same slot with a different `record_sha256`
+  is a transport-integrity violation;
+- ingest ledger: retention bucket (derived from the event ID) + network scope +
+  event ID ONLY, storing authenticated agent and payload kind as immutably
+  compared values;
 - sweep batch slot: network scope + execution ID + execution shard + assignment epoch
-  + batch sequence, immutably bound to event ID, payload checksum, host/mode
-  counts, and projected rows;
+  + batch sequence, immutably bound to event ID, `semantic_envelope_sha256`
+  (committing `payload_sha256`), host/mode counts, and projected rows;
 - agent terminal slot: network scope + execution ID + execution shard + assignment
   epoch, immutably bound to terminal kind, event ID, closed batch interval,
   counts, outcomes, and versioned MTR range roots.
+
+Governed cluster-local publishers that reach the same authoritative
+record/projector contract through a direct JetStream publisher use a
+domain-separated SERVICE-INGRESS slot variant, `service_slot =
+(network_scope_id, authenticated_service_id, publication_lane_id,
+publication_sequence)`, carrying its OWN domain tag. It plays the identical role as
+`edge_slot` in the delivery id, transport provenance, partition/retention bucket,
+and SQL uniqueness; service-ingress v1 is FRESH-only, so a `service_slot` takes part
+in NO delivery grant (renewal/rollover). Its retention bucket derives from the tuple plus
+the publication epoch.
 
 Replaying an equal sweep batch-slot binding is harmless. If two different
 bindings claim one slot, the first authenticated binding that commits remains
@@ -1503,8 +1685,11 @@ observation reaches the same partition. Long-lived/continuous work rotates
 bounded scheduler epochs instead of keeping one identity partition open forever.
 
 V1 MTR trace IDs are RFC 9562 UUIDv7 values allocated and durably recorded before
-probing. `trace_identity_time` is derived exclusively from the UUIDv7 timestamp
-and must fall inside the signed collection interval plus clock tolerance.
+probing. `trace_identity_time` is derived from the UUIDv7 timestamp and must fall
+inside the signed collection interval plus clock tolerance; the trace's
+authoritative per-hop observation and completion time(s) MUST also fall within that
+signed collection interval (plus tolerance), with `trace_identity_time` validated
+for consistency rather than being the sole time checked.
 `mtr_traces` uniquely binds `(trace_identity_time, network_scope_id, trace_id)` to
 authenticated source/context, canonical target, observation time, and semantic
 digest; `mtr_hops` references that physical key. A summary that precedes its trace
@@ -1583,7 +1768,7 @@ gateway rejection before primary publication instead uses trusted network-scope/
 spool ID/sequence, a safe full-frame fingerprint or semantic digest, and rejection
 class. Both survive an ambiguous DLQ PubAck while the gateway stays stateless.
 DLQ credentials, retention, access auditing, and encryption protect raw topology
-data. Transient database errors NACK and retry without a finite delivery ceiling.
+data. Transient database errors leave the message PENDING/redeliverable with no ACK and no TERM/poison; the consumer pauses new pulls and the reservation lapses at the bounded processing deadline via AckWait expiry (redelivery, not counted toward a finite MaxDeliver), and agent ownership is not restored.
 
 The bounded canonical DLQ wrapper preserves the exact immutable `EdgeRecordV1`
 bytes and digest, bounded source delivery/proof audit, original source stream/
@@ -1598,7 +1783,7 @@ not ready is a deployment-readiness/systemic failure, not permanent poison:
 pulls/admission pause. After a bad decoder/schema rollout is repaired, an
 operator-authorized deployment-local redrive may republish retained raw bytes with
 their original trusted semantic identity through the current stream map. Each
-redrive has a durable synthetic `dlq-redrive` lane ID/sequence and an operator/
+redrive has a durable synthetic `dlq-redrive` spool ID/sequence and an operator/
 scheduler capability bound to the immutable DLQ record; those new delivery
 coordinates create a new publication ID and delivery-slot binding even inside the
 original broker duplicate window. Original spool/stream coordinates remain
@@ -1694,9 +1879,37 @@ Migrations/control-plane reconciliation own Timescale retention/compression DDL;
 EventWriter only writes rows and telemetry and never creates or alters policies.
 
 Correctness replay has a finite configured horizon; metadata is not an unbounded
-shadow database. Ordinary delivery/terminal/batch slots, ingest ledgers,
-expectations, and correlations are assigned a trusted retirement bucket derived
-from the validated UUIDv7 event ID and checked against collection authority.
+shadow database. The retirement bucket derivation is split by identity domain.
+Ingest ledgers, expectations, and correlations are assigned a trusted retirement
+bucket derived from the validated UUIDv7 event ID. Ordinary
+delivery/terminal/batch slots are assigned their retirement bucket from their
+IMMUTABLE SLOT COORDINATES, NOT from the event ID -- otherwise reusing one slot
+with a different event ID would select a different partition and evade the
+delivery-slot binding. Each such non-ledger slot partition key SHALL be
+`(ordered_time_bucket, hash_subshard)` so whole old windows drop wholesale by range:
+
+- `ordered_time_bucket` is the slot's epoch coordinate floored to a fixed retention
+  window (one window per configured retention granularity). It is CHRONOLOGICALLY
+  ORDERED, so a whole expired window is dropped by a single range `DROP`/detach, never a
+  hash scan.
+- `hash_subshard` is the low N bits of `SHA-256(slot-tuple)` (fixed width, e.g. 8 bits ->
+  256 subshards), spreading write load WITHIN a window.
+
+A hash of `epoch || slot` truncated to a single fixed bucket would mix epochs forever and
+could never be dropped chronologically, so it is NOT used. The epoch coordinate is carried
+on the slot binding or deterministically derivable, and the tuple hashed for the subshard
+is fixed PER SLOT TYPE:
+
+- delivery slot: epoch = spool generation epoch; subshard = `hash(edge_slot)`.
+- sweep-batch slot: epoch = assignment epoch; subshard = `hash(scope, execution, shard)`.
+- agent-terminal slot: epoch = assignment epoch; subshard = `hash(scope, execution, shard)`.
+- service-ingress slot: epoch = publication epoch; subshard = `hash(service_slot)`.
+- event ledger: KEEPS its `event_id` UUIDv7-timestamp window (already chronological); no
+  change.
+
+Each bucket is checked against collection authority. That
+check validates both the UUIDv7 identity time AND the authoritative body
+observation/event time, which must be consistent within tolerance.
 After agent-spool, JetStream/AckWait/redelivery,
 repair, compatible rollback, and integrity-audit watermarks pass that bucket,
 ordinary metadata is retired by whole partition detach/drop, not row-by-row GC.
@@ -1706,7 +1919,8 @@ projection can no longer produce side effects.
 
 Before ordinary metadata for an unresolved DLQ, recovery, rollback, graph repair,
 or other exceptional item retires, the system atomically persists a bounded
-`correctness_hold` containing semantic identity, first accepted checksum/digest,
+`correctness_hold` containing semantic identity, first accepted
+`semantic_envelope_sha256`/`payload_sha256`,
 original traffic class, source catalog locator, state, and domain-replay deadline.
 It also retains the complete bounded input needed to finish the unresolved work,
 either inline or through a checksummed content-addressed payload whose reference
@@ -1736,7 +1950,223 @@ partitions, row/index bytes, insert rate, partition-retirement rate, hold limit,
 and a long-horizon sawtooth/plateau model; linear steady-state growth fails
 readiness.
 
-## Decision 8: Publish one canonical record, then derive bounded views
+## Decision 8: Four record identities; publish one authoritative record, derive bounded views
+
+### Record identity: producer-receipt, physical, semantic, domain
+
+The edge pipeline uses four deliberately-separate identities across its stages --
+not four fields carried on one record; only `semantic_envelope_sha256` and
+`event_id` are carried ON the record, while `submission_sha256` stays journal-local
+to the producer->sink hop and `record_sha256` rides the delivery frame. Byte-for-byte
+equality of two records is NOT a protocol invariant: protobuf has no canonical
+wire form, and field numbering, a signed raw hash, or a runtime reorder pass
+cannot create one, so nothing requires, asserts, or enforces a unique byte
+encoding of a record.
+
+These four identities are PIPELINE-STAGE identities, NOT four fields of one
+`EdgeRecordV1`. `submission_sha256` is journal-local to the producer->sink hop and
+NEVER appears on the wire; `record_sha256` belongs to the delivery frame/slot
+(`EdgeDeliveryFrameV1`) and its binding, not to `EdgeRecordV1`; only
+`semantic_envelope_sha256` and `event_id` live on `EdgeRecordV1`. The table's
+"Role" column names the boundary each one governs.
+
+| Identity | What it is | Role |
+| --- | --- | --- |
+| `submission_sha256` | SHA-256 of the producer's bounded UNCOMPRESSED contract-payload submission bytes, computed BEFORE the sink compresses/constructs the record | Producer receipt + producer idempotency (retry-lookup COMPARISON value; the journal keys on the 5-tuple, never on this digest); never a transport/semantic/event-ledger key. |
+| `record_sha256` | SHA-256 of the exact bytes the sink emitted | Physical artifact + transport integrity; binds the durable delivery slot/grant `edge_slot (network_scope_id, authenticated_agent_id, spool_id, sequence) -> record_sha256` and IS the physical-slot conflict comparison. NOT a SEMANTIC/event-ledger dedup or projection-conflict key. |
+| `semantic_envelope_sha256` | SHA-256 over the frozen versioned field-framed transcript (Appendix A grammar 1: leads with `u64 semanticDigestVersion = 3` and NO string domain tag; FIXED field order with no numeric tags; 8-byte big-endian ints; 8-byte big-endian length prefixes on bytes/string; 1-byte presence markers; `u64` oneof discriminants; field-by-field nested framing; commits `payload_sha256`; excludes the digest field + all delivery state; NO protobuf serialization at any depth) | Runtime-neutral semantic identity; the comparison field for replay vs. conflict. |
+| `event_id` (+ contract/domain keys) | UUIDv7 allocated once before spooling | Domain idempotency, merge, projection. Event-ledger identity = `(network_scope_id, event_id)` ONLY; contract-specific domain MERGE keys are separate and are NOT the event-ledger identity. |
+
+`payload_sha256` hashes the exact encoded/compressed payload. Semantic identity
+therefore tolerates a differently-encoded outer `EdgeRecordV1` produced
+independently by another compliant runtime/producer (recognized as a semantic
+replay), but NO in-transit component re-encodes the record: the sink's exact bytes
+are preserved end-to-end and are the physical-slot identity, and a differing
+`record_sha256` within one slot is a transport-integrity violation. Payload-level
+re-encode tolerance would require a contract-specific semantic payload digest.
+
+**Replay vs. conflict** -- the ingest ledger is keyed by `(network_scope_id,
+event_id)` ONLY; every other field is a comparison field, never a lookup-key
+extension (folding one in turns a conflict into a silent second row):
+
+| Ledger lookup by `(network_scope_id, event_id)` | Stored `semantic_envelope_sha256` | Outcome |
+| --- | --- | --- |
+| miss | -- | atomic insert under a unique constraint |
+| hit | matches (even if `record_sha256`/bytes differ) | replay -- commit at most once |
+| hit | differs | `EVENT_ID_CONFLICT` -- DLQ the LATER offending record's exact bytes, recording the first-accepted `semantic_envelope_sha256`/`record_sha256` for forensics; the first-accepted committed row stays immutable and is never moved to the DLQ |
+| `edge_slot` `(network_scope_id, authenticated_agent_id, spool_id, sequence)` reused with a different `record_sha256` | -- | transport-integrity violation, independent of the ledger |
+
+**Authorization is four separate decisions** (never one boolean; each returns a
+typed disposition):
+
+| Decision | Owner | Outcomes |
+| --- | --- | --- |
+| Historical collection proof | verifier; ONLY the signature/key/trust-chain grant is cacheable by capability digest + trust-policy epoch (body observation/event-time and body-to-claim joins are always evaluated per record) | `valid` / `invalid` / `historically_revoked` / `unavailable` (must validate the authoritative BODY observation/event times against the signed collection interval, not only the UUIDv7 identity time; rotation keeps key history; compromise revokes it) |
+| Delivery mode/reason | delivery layer | `fresh` / `renewal` / `rollover` / `late_fenced_delivery` (a stale-fence historical delivery, not a "replay") |
+| Gateway publication | gateway | `primary_publication` / `audit_publication` (valid historical, stale fence) / `quarantine_publication` (admitted poison) / `security_quarantine_publication` (a COMPROMISE-revoked key -- a distinct SECURITY variant: the `ACCEPTED_QUARANTINE` disposition routed to the security-quarantine DLQ, ledger_only, reachable, grant-free) / `retryable_rejection` / `permanent_rejection` (invalid/unauthorized/oversize at a known slot) |
+| EventWriter projection | EventWriter | `authoritative_apply` (ledger + domain) / `ledger_only` (ledger idempotency/audit, NO domain projection) / `conflict_quarantine` |
+
+The gateway's responsibility ends at PubAck; EventWriter owns everything after.
+Two separate matrices therefore fix behaviour, one per component.
+
+The gateway decision matrix fixes, per outcome, the publication, the destination
+stream/DLQ, the PubAck requirement, the sender RPC disposition, and whether the
+agent may resolve its spool entry. The gateway's "historical proof" column is
+ENVELOPE-level ONLY -- the signed capability's validity over the identity-time interval;
+the authoritative BODY observation/event-time check belongs to EventWriter (pipeline step
+6), so no gateway row requires body fields:
+
+| Historical proof | Delivery mode / fence | Gateway publication | Destination | PubAck | Sender RPC disposition | Agent spool entry |
+|---|---|---|---|---|---|---|
+| valid | fresh/renewal/rollover, fence current | primary_publication | primary stream | required | ACCEPTED_AUTHORITATIVE | resolved (after PubAck) |
+| valid | epoch < active fence (late_fenced_delivery, valid delivery grant) | audit_publication | audit stream | required | ACCEPTED_AUDIT_ONLY | resolved (after PubAck) |
+| ENVELOPE-level admitted-but-poison content the gateway CAN detect after bounded decode (wire-hygiene / unknown-field malformation; NOT oversize, NOT envelope-to-grant mismatch, NOT body decode or body-to-claim, which are EventWriter) | any | quarantine_publication | quarantine DLQ | required | ACCEPTED_QUARANTINE | resolved (after PubAck) |
+| historically_revoked (COMPROMISE-revoked production/source signing key) -- a REACHABLE TERMINAL security outcome that PRECEDES fence/late-grant classification and needs NO delivery grant | any (grant NOT consumed) | security_quarantine_publication | security-quarantine DLQ | required | ACCEPTED_QUARANTINE (security) | resolved (after PubAck) |
+| invalid/unauthorized AT A KNOWN delivery slot: signature/structure invalid, an oversize FRAME/RECORD whose authenticated lane/sequence is known, OR envelope-to-grant mismatch -- none is `quarantine_publication` | any | permanent_rejection | reject-audit DLQ | required | REJECTED_PERMANENT | resolved (after PubAck) |
+| unavailable (registry/key not loadable at gateway) or transient publish failure AT A KNOWN slot | any | retryable_rejection | none | none | REJECTED_RETRYABLE (WOULD_BLOCK) | UNRESOLVED |
+| PRE-SLOT transport failure (NO delivery slot exists): a gRPC length prefix over `MaxClientMessageBytes` rejected BEFORE buffering, a poisoned/oversize LANE-OPEN handshake, or a poisoned client-message/frame with no recoverable authenticated lane/sequence | none | (transport) LANE CLOSE | none | none | none -- NO per-delivery disposition (lane torn down; agent reconnects) | UNRESOLVED (retransmitted on reconnect) |
+
+Gateway is stateless and CANNOT detect EVENT_ID_CONFLICT (that is EventWriter).
+primary_publication does NOT imply authoritative_apply -- EventWriter re-checks the
+current fence.
+
+EventWriter (post-PubAck) evaluates an ORDERED decision pipeline (precedence), NOT a
+flat table, so fence/audit status cannot mask poison, a compromise, an unbound slot, or a
+conflict. The semantic-envelope digest is RECOMPUTED and VERIFIED in step 1 BEFORE it is
+ever used as the ledger replay key (step 5); the trusted transport slot is extracted and
+bound in step 2 BEFORE any terminal decision; and the trust outcome is evaluated for EVERY
+record in step 3 so compromise handling is REACHABLE and cannot be skipped into an
+authoritative apply. Evaluate in this order; the FIRST match wins:
+
+1. Transport / envelope validation: received `record_bytes` hash == declared
+   `record_sha256`; bounded envelope decode; wire hygiene / unknown-field reject; and
+   RECOMPUTE + verify `semantic_envelope_sha256` from the decoded envelope. The digest is
+   VERIFIED HERE, before it is ever used as a ledger key. Fail -> `conflict_quarantine`
+   (the durable slot is bound first, per step 2 / Blocker 5, so the DLQ'd frame still
+   leaves an immutable binding).
+2. Trusted slot extraction + binding: extract the `edge_slot`/`service_slot` from the
+   authenticated transport provenance; immutably bind `slot -> record_sha256` for EVERY
+   accepted delivery (primary, audit, replay, poison, conflict) BEFORE any terminal
+   decision and before any source ACK. Slot binding precedes all terminal dispositions, so
+   a later frame reusing the slot with a different `record_sha256` is caught as a
+   transport-integrity conflict rather than silently accepted.
+3. Trust outcome (historical collection proof): evaluate `valid` / `invalid` /
+   `historically_revoked` / `unavailable` for EVERY record (the signature/key/trust-chain
+   grant is cacheable by capability digest + trust-policy epoch). `invalid` (signature /
+   structure / envelope-to-grant unauthorized) -> `permanent_rejection`.
+   `historically_revoked` (a record otherwise valid but whose signing key was
+   compromise-revoked -- resolved HERE, NOT silently into `authoritative_apply`) ->
+   `ledger_only` audit row + PubAck the affected record to the security-quarantine cohort
+   DLQ (see the compromised-cohort remediation below), THEN source-ACK the original
+   delivery. `unavailable` (key/trust store not loadable) -> NO ACK, pause; the message
+   stays pending.
+4. Readiness: the pinned contract bundle's registry/projector/schema are LOADABLE AND the
+   exact projector generation is DEPLOYED. Not loadable, OR a valid-but-not-yet-deployed
+   schema -> NO ACK, pause/not-ready (deployment failure, NOT poison); the message stays
+   pending. (This precheck runs BEFORE payload decode so an undeployed schema never
+   becomes poison.)
+5. Ledger conflict / replay: `(network_scope_id, event_id)` lookup. The ALREADY-VERIFIED
+   (step 1) `semantic_envelope_sha256` MATCHES a committed row -> REPLAY: idempotent
+   success, source ACK, no re-projection. DIFFERS -> `EVENT_ID_CONFLICT` ->
+   `conflict_quarantine` (DLQ the LATER offending bytes + first-accepted digests;
+   first-accepted row immutable). Absolute event-id conflict is checked BEFORE body poison.
+6. Payload decode + body-to-claim + body-time: decode the domain payload; body-to-claim
+   join (scope/agent/run/range/traffic-class/count vs the signed envelope); the body
+   observation/event-time falls within the signed collection interval. Fail ->
+   `conflict_quarantine` (DLQ).
+7. Transactional fence + domain commit: `SELECT ... FOR UPDATE` / conditional `UPDATE` of
+   the fence/assignment row in the SAME transaction as the domain effects + ledger row.
+   Current fence -> `authoritative_apply`; stale/advanced fence -> atomic `ledger_only`.
+   Database unavailable at any commit point -> NO ACK, NO TERM/poison; pause new pulls;
+   the reservation lapses at the bounded processing deadline via AckWait expiry
+   (redelivery, NOT counted toward a finite MaxDeliver); agent ownership NOT restored.
+
+Precedence note: transport / slot / trust / conflict / poison (steps 1-6) precede the
+fence downgrade (step 7), and slot binding (step 2) precedes every terminal decision, so
+no downgrade or audit path can mask a conflict, a compromise, or an unbound slot -- an
+audit publication that is ALSO an event-id conflict is handled as a conflict, and a
+compromise-revoked record resolves to `ledger_only` + security-quarantine, never to a
+stale `authoritative_apply`. Semantic-digest VERIFICATION (step 1) precedes its use as the
+ledger replay key (step 5).
+
+Failure-disposition deconfliction:
+
+- MISSING / duplicate / unknown-version transport-provenance -> a DISTINCT
+  `provenance_missing` quarantine whose DLQ record uses ONLY what is available (the
+  publish subject, the raw `record_bytes`, and any `Nats-Msg-Id`-derivable coordinates)
+  and does NOT require the missing provenance envelope. It is separate from
+  `conflict_quarantine`, which presumes a decodable provenance/envelope.
+- OVERSIZE (raw frame/record exceeds the hard byte bound, rejected before decode -- and,
+  on the streaming gRPC ingest path, at the TRANSPORT before the body is buffered or
+  decompressed) and GRANT / envelope-to-grant MISMATCH resolve to `permanent_rejection`,
+  NEVER `quarantine_publication`, WHEN a delivery slot exists; a PRE-SLOT oversize (a
+  length prefix rejected before buffering, or a poisoned/oversize lane-open) has no slot,
+  so it is a transport-level lane close with NO per-delivery disposition (see the gateway
+  matrix). Quarantine is for admitted-but-poison content; permanent rejection is for
+  structurally invalid / unauthorized / oversize input at a known slot.
+- POST-PubAck compromise revocation resolves in the trust-outcome step (step 3) as
+  `historically_revoked`: EventWriter writes a `ledger_only` audit row and PubAcks the
+  affected record to the security-quarantine cohort DLQ, THEN source-ACKs the original
+  delivery: the record is durably captured, never authoritatively projected, and never
+  left unresolved. On compromise revocation of a signing key, EVERY record signed by that
+  key is `historically_revoked` -> `ledger_only` + security-quarantine cohort, and any
+  already-authoritatively-projected domain rows from that key/cohort are marked
+  `security_held` and scheduled for operator-authorized retraction/redrive under a fixed
+  safe bundle; redrive uses a durable synthetic spool + fresh delivery/map envelope + a
+  capability bound to the immutable catalog record, and the ingest ledger makes
+  already-committed events harmless.
+
+EventWriter's fence check (step 7) SHALL be transactionally atomic with the
+domain commit: either `SELECT ... FOR UPDATE` on the projection-fence/assignment
+row, or a conditional `UPDATE ... WHERE active_epoch = <read epoch>`, INSIDE the
+SAME SQL transaction as the domain effects and the ledger row; fence ACTIVATION uses
+the SAME serialization point (it bumps the same row). If the fence advanced between
+read and commit, the transaction observes it and the record atomically becomes
+`ledger_only` (no authoritative domain rows), never a stale `authoritative_apply`.
+
+Retryable outcomes NEVER advance the contiguous resolved prefix; the record stays
+eligible for idempotent redelivery. A stale producer epoch presented under a valid
+delivery grant is `audit_publication` + `late_fenced_delivery` + `ledger_only`
+(durable forensic record, no authoritative projection), never a permanent rejection
+and never an authoritative apply.
+
+**Versioned grammars** -- every cryptographic preimage begins with a committed version
+integer (and, for the grammars that define one, a leading string domain-separation tag)
+committed INTO the hashed bytes (not merely carried alongside on the wire), is validated
+fail-closed, and is rejected on an unknown version without trial-hashing other grammars.
+Each grammar below is byte-frozen and interoperable only when both languages implement it
+byte-for-byte -- the committed version, an optional leading string domain tag, a FIXED
+field order (no per-field numeric tags), 8-byte big-endian integer encoding, 8-byte
+big-endian length prefixes on bytes/string fields, 1-byte presence markers, `u64` oneof
+discriminants, and field-by-field nested framing (no `proto.Marshal` at any depth); a
+grammar not pinning all of these is not yet frozen and MUST NOT be relied on for
+cross-language identity. Full byte-exact field tables are in Appendix A:
+
+| Grammar | Version | Preimage |
+| --- | --- | --- |
+| semantic-envelope digest | `semanticDigestVersion = 3` (committed grammar CONSTANT fixed by the record-schema ABI, NOT a wire field) | frozen: NO leading string domain tag; leads with the `u64` version; FIXED field order (no numeric tags); 8-byte big-endian ints; 8-byte big-endian length prefixes on bytes/string; 1-byte presence markers; `u64` oneof discriminants; field-by-field nested framing; NO `proto.Marshal` at any depth |
+| capability signing bytes | `capability_version = 1` | frozen: a SINGLE leading str domain `serviceradar.edge.capability.v1` plus a `purpose` field (NOT per-purpose tags); then the `u64` version; FIXED field order; 8-byte big-endian ints; `i64` not_before/expires; 8-byte big-endian length prefixes; the claims message framed field-by-field; EXCLUDES the signature; Ed25519 signs the RAW framed preimage bytes; NO `proto.Marshal` |
+| plan / range / recovery content hashes | `PlanDigestVersion = 1` / recovery version `1` | frozen: DOMAIN-FIRST -- leads with a per-object `str` domain sub-tag (`serviceradar.edge.plan.{range,page,root,header}.v1`, `serviceradar.edge.recovery.{manifest_page,manifest_root}.v1`), THEN the `u64` version; FIXED field order; 8-byte big-endian ints; 8-byte big-endian length prefixes; each excludes its self-hash; NO `proto.Marshal` |
+| MTR completion proof | `MtrCompletionDigestVersion = 2` | frozen: leads with the `u64` version; each leaf = version, ordinal (`u64`), disposition (`u64`), trace_id (bytes, empty unless TRACE_ALLOCATED), `range_sha256`; three accumulators folded by BIG-endian 256-bit modular addition (mod 2^256), arrival-order-independent, no per-block Merkle/sort; ROOT = `SHA-256(version || expected || plan_root_sha256(32) || mtr_ordinal_range_commitment(32) || content-acc(32))`; NO `proto.Marshal` |
+
+Raw `proto.Marshal` output MUST NOT be a runtime-neutral semantic, signing,
+authorization, merge, or logical-content grammar, and there is no decode ->
+re-encode -> byte-compare admission and no required whole-record byte equality:
+protobuf has no canonical wire form. Protobuf encoding is legitimate wherever the
+design produces a PHYSICAL artifact -- the producer adapter's one domain-body
+encode, the sink's one `EdgeRecordV1` encode, and each `EdgeDeliveryFrameV1`
+delivery-frame encode -- plus transport / `proto.Size` / fixtures. Those physical
+protobuf artifacts MAY be hashed as explicitly-designated content-addressed
+artifacts (`record_sha256` over the exact record bytes, `payload_sha256` over the
+exact encoded body), and their NAMED digests MAY participate in transcripts (the
+semantic-envelope transcript commits `payload_sha256`). What is forbidden is
+placing raw marshalled bytes INSIDE the semantic-envelope, capability-signing, or
+plan/range/recovery/completion preimages. The sink encodes once and fsyncs those
+exact bytes; the spool, sender, gateway, JetStream, and record DLQ preserve them
+unchanged; gateway and EventWriter decode and hash but never normalize, reorder,
+or re-encode them.
+
+### Publish one authoritative record, derive bounded views
 
 Every output contract defines deterministic domain identity, revision/merge
 semantics, and authoritative-versus-derived status. A grant forbids a producer
@@ -1773,9 +2203,9 @@ command archives, camera/video data, large files, and other indivisible objects
 require a separate proposal covering installation-bound create-only keys,
 resumable idempotent upload, durability acknowledgement, manifest publication,
 orphan GC, reference-aware deletion, authorization, and a pluggable object
-backend. An oversize producer record is rejected or quarantined; it is never
-silently diverted into Object Store or split without a contract-defined bounded
-page/run protocol.
+backend. An oversize producer record is a `permanent_rejection` (NOT quarantined --
+quarantine is reserved for admitted poison); it is never silently diverted into Object
+Store or split without a contract-defined bounded page/run protocol.
 
 ## Decision 10: Treat "zero-copy" as encode/decode minimization
 
@@ -1783,13 +2213,13 @@ Literal end-to-end zero-copy is impossible across the required process and
 durability boundaries. The useful contract is:
 
 - no full-run materialization or reassembly;
-- one canonical domain-body encode at the producer adapter and one deterministic
+- one domain-body encode at the producer adapter and one
   `EdgeRecordV1` encode at the agent sink;
 - one small delivery-wrapper encode per spool placement; rollover or renewed
   delivery authority rewraps unchanged record bytes and never re-encodes the
   semantic record;
 - one unavoidable bounded Wasm guest-to-host copy, without base64 or JSON
-  wrapping of canonical bytes;
+  wrapping of the submission (contract-payload) bytes;
 - gRPC framing, TLS, socket buffers, BEAM protobuf terms, the NATS client, broker
   replication, and PostgreSQL WAL may each require bounded copies; the design
   does not claim otherwise;
@@ -1822,7 +2252,7 @@ before allocation data shows a remaining bottleneck.
 | Inventory terminal is incomplete, conflicting, stale, or lacks completeness proof | Keep pages staged/upsert-only, preserve the current snapshot, poison conflicts, and garbage-collect abandoned staging only after its repair horizon. |
 | Corrupt committed spool sequence | PubAck a signed loss tombstone through the recovery lane, abandon the old spool, re-enqueue recoverable later events with stable semantic IDs, and mark lost coverage partial/retriable. |
 | Collection capability expires with backlog | Stop new probes; obtain event/checksum-bound delivery-only authority or leave the frame unresolved, then apply scheduler fencing at projection. |
-| Consumer or database failure | Pause pulls or NACK and retry forever with bounded backoff; never exhaust into silent termination. |
+| Consumer or database failure | No ACK and no TERM/poison; pause new pulls; the reservation lapses at the bounded processing deadline via AckWait expiry (redelivery, not counted toward a finite MaxDeliver); never renew heartbeats forever; agent ownership not restored. |
 | AGE graph projection failure | Keep the atomically created outbox pending, retry idempotently, expose lag/error, and never treat a rescued exception as success. |
 | Poison payload | PubAck original bytes to DLQ, then terminate source delivery. |
 | Gateway rejects a bounded frame | PubAck safe audit metadata to the deployment DLQ, return a rejected disposition, and retain raw bytes in agent quarantine. |
@@ -2007,8 +2437,10 @@ radius. Every batch must be independently useful and idempotent.
 ## Resolved Design Values
 
 - Target encoded `EdgeRecordV1`: 256 KiB.
-- Hard encoded `EdgeRecordV1`: 512 KiB; `EdgeDeliveryFrameV1` and
-  transport-minimal NATS headers have separate small hard bounds.
+- Hard encoded `EdgeRecordV1`: 512 KiB; `EdgeDeliveryFrameV1`: 528 KiB (record + a
+  16 KiB delivery envelope); `EdgeRecordClientMessage`: 528 KiB + 8 bytes (frame + the
+  oneof tag/length prefix). These frozen raw bounds are checked BEFORE decode and shared
+  by the Go `edgerecord` package and the Elixir `WireDecode` boundary.
 - Initial logical partitions: 64 per route-profile/partition-hash version.
 - Logical partitions map disjointly to one or more benchmark-sized physical
   stream/RAFT groups through an audited map version; subject partitions never
@@ -2042,13 +2474,15 @@ radius. Every batch must be independently useful and idempotent.
   rollover amplification, metadata, and scratch while reserving an unborrowable
   recovery/control/terminal floor.
 - Gateway durability means a validated JetStream PubAck, not Core NATS publish.
-- JetStream stores the exact canonical `EdgeRecordV1` bytes; minimal NATS
-  headers carry only publication/stream placement, an opaque delivery ID, and
-  route-map diagnostics. Semantic routing/schema/provenance/cost authority stays
+- JetStream stores the exact `EdgeRecordV1` bytes the sink emitted; minimal NATS
+  headers carry only publication/stream placement, an opaque delivery ID, a publisher-authenticated
+  transport-provenance header (gateway-stamped for edge, service-stamped for service-ingress; record_sha256 + original coordinates + delivery-proof audit), and route-map diagnostics. Semantic routing/schema/provenance/cost authority stays
   in the signed binary record.
-- Broker publication IDs include trusted identity, spool coordinates, and the
-  immutable semantic-envelope digest; delivery coordinates are excluded from the
-  ledger digest so recovered copies deduplicate semantically across lanes.
+- Broker publication IDs include trusted identity, spool coordinates, the
+  exact-record checksum `record_sha256`, and the immutable semantic-envelope
+  digest, so a slot reused with different bytes is not hidden by broker
+  deduplication; delivery coordinates are excluded from the LEDGER digest so
+  recovered copies still deduplicate semantically across lanes.
 - Persistence uses `AckExplicit` and bounded adaptive compatible-message
   transactions; every constituent delivery is ACKed individually only after the
   containing commit.
@@ -2065,9 +2499,313 @@ radius. Every batch must be independently useful and idempotent.
   multiplied by retention alone.
 - Sweep shard reassignment uses a monotonic fenced assignment epoch plus a
   scheduler-signed, network-scope/agent/range-bound capability.
-- Full MTR trace is a separate canonical protobuf event.
+- Full MTR trace is a separate authoritative protobuf event.
 - Object references are not used for ordinary sweep/MTR observations.
 
 Benchmark results may lower operational limits or increase partition count
 before first rollout. Changing the wire meanings, ACK boundary, event split, or
 idempotency model requires a new OpenSpec revision.
+
+## Appendix A: Frozen cryptographic grammars
+
+Every SIGNING/DIGEST grammar below is byte-frozen and interoperable ONLY when Go
+and Elixir implement it byte-for-byte. A grammar that does not pin all of the
+common framing rules is not yet frozen and MUST NOT be relied on for
+cross-language identity.
+
+### Common framing rules
+
+These rules apply to every grammar (1-8) at every nesting depth and match the reference
+`digestWriter` primitives byte-for-byte (semantic.go:41-138; uniform across
+semantic/capability/plan/recovery/MTR), so two clean-room Go/Elixir implementations
+produce IDENTICAL bytes:
+
+- The preimage is an ordered concatenation of framed values. There are NO per-field
+  numeric tags -- field identity is FIXED ORDER, not a tag number.
+- version leads: a `u64` written as 8 BIG-endian bytes, FIRST. (For a grammar that
+  carries a string domain, the domain `str` is written first, then the version `u64`.)
+- `u64` / enum: 8-byte BIG-endian (an enum is its numeric value widened to `u64`).
+- `i64`: 8-byte BIG-endian two's-complement (the int64 reinterpreted as `u64`; NO zigzag).
+- `bytes` / `str`: an 8-byte BIG-endian length prefix, then the raw bytes (`str` is
+  UTF-8). The length prefix is 8 bytes, NOT 4.
+- presence: a 1-byte marker `0x00` / `0x01` written before an optional value.
+- `optU64`: the presence byte (1 byte) then the `u64` (8 bytes) -- the value is ALWAYS
+  written (0 when absent).
+- oneof discriminant: a `u64` (8-byte BIG-endian) equal to the set member's field number
+  (0 for none), then the set member framed field-by-field.
+- nested message: framed FIELD-BY-FIELD by these same rules (NOT a `proto.Marshal` blob).
+- digest: SHA-256 over the full preimage -> the 32 raw bytes (`finish`).
+- MSet 256-bit modular add (MTR accumulators): BIG-endian (`a[0]` most-significant); sum
+  each of the 32 bytes with carry flowing toward index 0; discard the final carry
+  (mod 2^256).
+- text headers: `Nats-Msg-Id` and `Sr-Edge-Delivery-Id` are base64url(no-pad) of the
+  SHA-256 digest; `Sr-Edge-Transport-Provenance` is base64url(no-pad) of the framed
+  envelope ITSELF (not a digest of it).
+
+The version -- and, where used, the leading string domain tag -- is committed INSIDE the
+hashed/signed preimage (never merely carried alongside on the wire); an unknown version is
+rejected fail-closed without trial-hashing any other grammar. Unknown protobuf fields are
+rejected BEFORE hashing: a record carrying an unknown field in any grammar-covered
+position is rejected fail-closed, never silently included or skipped. `proto.Marshal`
+output MUST NOT appear in any preimage at any depth (task 1.13 REPLACED the last
+`msg()` = `bytes(proto.Marshal(m))` uses -- the `output_contract` ref and the leaf claim
+messages -- with field-by-field framing).
+
+### Grammars
+
+Each grammar states its committed version + current numeric value (and, where the grammar
+defines one, its leading string domain tag in exact ASCII), covered fields in EXACT ORDER
+with explicit exclusions, and any grammar-specific notes; the common framing rules above
+apply throughout. Digest algorithm: SHA-256 for every grammar. Every nested message
+(output_contract, all claim messages, the delivery transition oneof, plan ranges/pages/
+root/header, recovery manifest-page/tombstone/resolved) is framed FIELD-BY-FIELD per its
+table below with an outer 1-byte presence marker and recursive framing; `proto.Marshal`
+appears in NO preimage at any depth (landed in task 1.13).
+
+ORDERING RULE (frozen, with the exceptions the #4713 code has): a TAGGED grammar emits its
+`str` domain tag FIRST, then the `u64` version (domain-tag-first, version-second) --
+capability-signing (`serviceradar.edge.capability.v1`), `Nats-Msg-Id`, `Sr-Edge-Delivery-Id`,
+`Sr-Edge-Transport-Provenance`, and (landed in task 1.13) the per-object plan/recovery
+sub-tags. EXCEPTIONS (explicit): (a) the semantic-envelope digest is version-first with NO
+domain tag (`semanticDigestVersion = 3`); (b) the MTR internal elements -- the leaf is
+version-first with NO sub-tag; the ordinal element is version then `str
+"mtr-completion-ordinal"`; the member element is version then `str "mtr-completion-member"`.
+
+Two former #4713 bugs, FIXED by task 1.13, are noted inline below: (i) EdgeDeliveryClaimsV1's
+`transition` oneof was formerly whole-message `proto.Marshal`'d and is now field-framed
+(u64 discriminant + framed member); (ii) the capability claims-oneof binding was formerly
+bound TWO different ways and is now UNIFIED (both commit the u64 field-number discriminant
+7/8/9, and the signing preimage additionally commits `purpose`).
+
+1. Semantic-envelope digest -- NO string domain tag; leads with `u64
+   semanticDigestVersion = 3`. Ordered fields (semantic.go:147-188): `version` (u64 = 3);
+   `event_id` (bytes); `payload_family` (u64/enum); `compression` (u64/enum);
+   `encoded_size` (u64); `uncompressed_size` (u64); `payload_sha256` (bytes);
+   `output_contract` (presence (1B) + EdgeOutputContractRef framed FIELD-BY-FIELD (NOT
+   `proto.Marshal`): `contract_id` (str), `contract_version` (u64),
+   `contract_bundle_sha256` (bytes), `registry_epoch` (u64), `registry_snapshot_sha256`
+   (bytes), `effective_grant_sha256` (bytes)); `producer_context` (presence (1B); if present:
+   `origin_kind` (u64), `origin_principal_id` (bytes), `producer_instance_id` (bytes),
+   `producer_assignment_id` (bytes), `run_id` (bytes), `run_shard` (u64),
+   `authority_epoch` (optU64), `scope_id` (bytes), `scope_sha256` (bytes), `package_id`
+   (str), `package_sha256` (bytes)); `route_profile` (u64); `traffic_class` (u64);
+   `network_scope_id` (bytes); `production_capability` (capability sub-framing, below);
+   `source_authorization` (sourceAuth sub-framing, below); `projected_row_count` (u64);
+   `projected_write_bytes` (u64); `cost_model_version` (u64). EXCLUDES
+   `semantic_envelope_sha256` and ALL delivery state (`spool_id`, sequence,
+   `record_sha256`, delivery capability, headers). There is NO `semantic_digest_version`
+   wire field -- the `= 3` is a committed grammar constant fixed by the record-schema ABI.
+   - capability sub-framing (semantic.go:88-118; used INSIDE the envelope and DISTINCT
+     from the capability SIGNING grammar 2): presence (1B); if present: `capability_version`
+     (u64), `issuer_id` (bytes), `issuer_key_id` (bytes), `algorithm` (str), `not_before`
+     (i64), `expires` (i64), claims-oneof discriminant (u64 = the member's field number:
+     7 = production / 8 = source / 9 = delivery / 0 = none) + the FIELD-FRAMED claim message
+     (per the claim-message tables below, field-by-field, NOT `proto.Marshal`),
+     `signature` (bytes). The ENVELOPE framing has NO domain tag and NO purpose field and
+     DOES include the signature; the SIGNING grammar 2 is different.
+   - sourceAuth sub-framing (semantic.go:120-133): presence (1B); if present: `kind`
+     (u64), `capability` (capability sub-framing), `context_id` (bytes), `scope_id`
+     (bytes), `scope_sha256` (bytes).
+   - claim-message tables (the oneof members; framed field-by-field, in order):
+     - EdgeProductionClaimsV1 (field number 7; fields 1-23 in order): `contract_id` (str),
+       `contract_version` (u64), `contract_bundle_sha256` (bytes), `registry_epoch` (u64),
+       `network_scope_id` (bytes), `producer_assignment_id` (bytes), `traffic_class` (u64),
+       `route_profile` (u64), `origin_kind` (u64), `origin_principal_id` (bytes),
+       `producer_instance_id` (bytes), `run_id` (bytes), `run_shard` (u64),
+       `authority_epoch` (u64), `scope_id` (bytes), `scope_sha256` (bytes),
+       `package_sha256` (bytes), `registry_snapshot_sha256` (bytes),
+       `effective_grant_sha256` (bytes), `max_projected_row_count` (u64),
+       `max_projected_write_bytes` (u64), `cost_model_version` (u64), `package_id` (str).
+     - EdgeSourceClaimsV1 (field number 8; fields 1-18 in order): `kind` (u64),
+       `context_id` (bytes), `scope_id` (bytes), `scope_sha256` (bytes),
+       `network_scope_id` (bytes), `collection_not_before_unix_nano` (i64),
+       `collection_expires_unix_nano` (i64), `origin_principal_id` (bytes),
+       `producer_instance_id` (bytes), `producer_assignment_id` (bytes), `run_id` (bytes),
+       `run_shard` (u64), `authority_epoch` (u64), `traffic_class` (u64), `route_profile`
+       (u64), `execution_plan_sha256` (bytes), `target_range_sha256` (bytes), `origin_kind`
+       (u64).
+     - EdgeDeliveryClaimsV1 (field number 9; fields 1-4 + a `transition` oneof):
+       `event_id` (bytes), `record_sha256` (bytes), `spool_id` (bytes), `sequence` (u64),
+       then the `transition` oneof: a u64 discriminant (5 = renewal, 6 = rollover, 0 = none)
+       + the FIELD-FRAMED member. EdgeDeliveryRenewalV1 (member 5):
+       `renewed_not_before_unix_nano` (i64), `renewed_expires_unix_nano` (i64).
+       EdgeDeliveryRolloverV1 (member 6): `recovery_id` (bytes), `prior_spool_id` (bytes),
+       `prior_sequence` (u64).
+       >>> FIXED in #4713 (task 1.13): EdgeDeliveryClaimsV1's `transition` oneof was
+       formerly whole-message `proto.Marshal`'d (semantic.go `msg()`), reintroducing the
+       protobuf-go oneof-order hazard one level down. It is now FIELD-FRAMED (u64
+       discriminant + framed member) exactly as tabulated above.
+2. Capability SIGNING bytes -- domain `str "serviceradar.edge.capability.v1"` FIRST, then
+   the `u64` version (domain-tag-first, version-second). Ordered (capability.go:106-121):
+   `domain` (str); `capability_version` (u64); `issuer_id` (bytes); `issuer_key_id`
+   (bytes); `algorithm` (str); `purpose` (u64/enum EdgeCapabilityPurpose = PRODUCTION /
+   SOURCE / DELIVERY); `not_before` (i64); `expires` (i64); `claims` (the set claim message
+   framed FIELD-BY-FIELD per the grammar-1 claim-message tables [field-framed in #4713,
+   not `proto.Marshal`]). EXCLUDES the signature. Ed25519 signs this RAW framed preimage bytes
+   DIRECTLY (NOT a SHA-256 of them). A single domain tag plus a `purpose` field bind the
+   role -- there is ONE domain `.capability.v1`, NOT per-purpose tags.
+   >>> FIXED in #4713 (task 1.13): the claims-oneof variant was formerly bound TWO different
+   ways -- the signing preimage via the `purpose` enum, the grammar-1 capability() sub-framing
+   via the 7 / 8 / 9 field-number discriminant. UNIFIED: BOTH now commit the u64 field-number
+   discriminant (7 / 8 / 9), and the signing preimage ADDITIONALLY commits
+   `purpose`; and BOTH field-frame the claim member (no `proto.Marshal`).
+3. Source authorization -- NOT a second signed object: the source CAPABILITY is signed
+   via grammar 2 with `purpose = SOURCE`; the outer `EdgeSourceAuthorizationV1` (`kind` /
+   `context_id` / `scope_id` / `scope_sha256`) is covered by the semantic envelope's
+   sourceAuth sub-framing (grammar 1). Service-ingress records use `service_slot =
+   (network_scope_id, authenticated_service_id, publication_lane_id, publication_sequence)`
+   in the delivery transcripts (grammars 6-8) instead of spool coordinates.
+4. Plan / recovery SELF-HASH digests (plan.go / recovery.go) -- each preimage leads with a
+   per-object `str` DOMAIN TAG (domain-first, like grammar 2's capability domain), THEN the
+   version, THEN its fields (excluding its own self-hash). Previously all shared
+   `u64 version = 1` with no tag, so digests were distinguished only by field structure;
+   the frozen tags now make a digest of one object type unable to equal a digest of another:
+   `serviceradar.edge.plan.range.v1` / `.plan.page.v1` / `.plan.root.v1` / `.plan.header.v1`;
+   `serviceradar.edge.recovery.manifest_page.v1` / `.recovery.manifest_root.v1`. Exact field
+   orders (each EXCLUDES its self-hash):
+   - RangeDigest (plan.go, excl `range_sha256`): `str "serviceradar.edge.plan.range.v1"`,
+     `version` (u64), `range_id` (bytes), `cidr` (str), `first_address` (str), `last_address`
+     (str), `target_count` (u64), `check_set_sha256` (bytes), `availability_policy_id`
+     (bytes), `mtr_admission_budget` (u64).
+   - PlanPageDigest (plan.go, excl `page_sha256`): `str "serviceradar.edge.plan.page.v1"`,
+     `digest_version` (u64), `execution_plan_id` (bytes), `page_index` (u64), `page_count`
+     (u64), `prev_page_sha256` (bytes), `check_set_sha256` (bytes), `len(ranges)` (u64), then
+     EACH range inlined in order (`range_id`, `range_sha256`, `cidr`, `first_address`,
+     `last_address`, `target_count`, `check_set_sha256`, `availability_policy_id`,
+     `mtr_admission_budget` -- the page commits each range's `range_sha256`, unlike
+     RangeDigest itself).
+   - PlanRoot (excl `plan_root_sha256`): `str "serviceradar.edge.plan.root.v1"`, `version`
+     (u64), `len(pages)` (u64), then each `page_sha256` (bytes) in order.
+   - PlanHeaderDigest (excl `execution_plan_sha256`): `str "serviceradar.edge.plan.header.v1"`,
+     `digest_version` (u64), `execution_plan_id` (bytes), `page_count` (u64),
+     `total_target_count` (u64), `plan_root_sha256` (bytes), `check_set_sha256` (bytes),
+     `availability_policy_id` (bytes), `assignment_epoch` (u64), `network_scope_id` (bytes),
+     `mtr_ordinal_range_commitment` (bytes).
+   - ManifestPageDigest (recovery.go, excl `page_sha256`): `str
+     "serviceradar.edge.recovery.manifest_page.v1"`, `digest_version` (u64), `recovery_id`
+     (bytes), `page_index` (u64), `page_count` (u64), `prev_page_sha256` (bytes), `terminal`
+     (bool as 1-byte marker (0x00/0x01)), `coarsened` (bool as 1-byte marker (0x00/0x01)),
+     `len(lost_ranges)` (u64) + each EdgeLostRangeV1 (`from_sequence` (u64), `through_sequence`
+     (u64)), `len(affected)` (u64) + each EdgeAffectedScopeV1 (`from_sequence` (u64),
+     `through_sequence` (u64), `contract_bundle_sha256` (bytes), `producer_assignment_id`
+     (bytes), `run_id` (bytes), `run_shard` (u64), `authority_epoch` (u64), `scope_sha256`
+     (bytes), `range_sha256` (bytes), `coarsened` (bool as 1-byte marker (0x00/0x01))).
+   - ManifestRoot (excl `manifest_root_sha256`): `str
+     "serviceradar.edge.recovery.manifest_root.v1"`, `version` (u64), `len(pages)` (u64),
+     then each `page_sha256` (bytes) in order.
+   The recovery-OPERATION SCOPE digests are a SEPARATE family (recovery.go): a signed
+   recovery source grant's `scope_sha256` MUST equal one of them. Each leads with
+   `u64 RecoveryScopeDigestVersion = 1` THEN a `u64` body-kind discriminant (0 = tombstone,
+   1 = manifest page, 2 = resolved) -- NOT a string domain tag. SpoolLossTombstoneV1 and
+   RecoveryResolvedV1 have NO self-hash field, so these scope digests (not a self-hash) are
+   their only grammar:
+   - TombstoneScopeDigest (body kind 0): `version` (u64), `0` (u64), `recovery_id` (bytes),
+     `prior_spool_id` (bytes), `new_spool_id` (bytes), `lost_from_sequence` (u64),
+     `lost_through_sequence` (u64), `manifest_root_sha256` (bytes), `manifest_page_count`
+     (u64), `coarsened` (bool as 1-byte marker (0x00/0x01)). It does NOT cover `reason`,
+     `detected_at_unix_nano`, or `digest_version` -- those are validated separately and are
+     not part of the authorized scope.
+   - ManifestPageScopeDigest (body kind 1): `version` (u64), `1` (u64), `recovery_id`
+     (bytes), `page_sha256` (bytes).
+   - ResolvedScopeDigest (body kind 2): `version` (u64), `2` (u64), `recovery_id` (bytes),
+     `manifest_root_sha256` (bytes), `applied_through_sequence` (u64).
+   Go and Elixir (`Serviceradar.Edge.HashGrammar`) reproduce every self-hash AND scope digest
+   byte-for-byte; the committed testdata (`tombstone_scope.bin` / `manifest_page_scope.bin` /
+   `resolved_scope.bin` + the plan/manifest `*.bin`) are the cross-language vectors.
+5. MTR completion proof -- `u64 MtrCompletionDigestVersion = 2`; MATCHES the code exactly
+   (domain.go:706-847):
+   - leaf element (`mtrLeafHash`): `version` (u64 = 2), `ordinal` (u64), `disposition`
+     (u64, the uint32 widened to u64), `trace_id` (bytes, empty unless TRACE_ALLOCATED),
+     `range_sha256` (bytes). NO string sub-tag on the leaf. SHA-256 -> 32-byte point.
+   - ordinal element (`mtrOrdinalHash`): `version` (u64 = 2), `str
+     "mtr-completion-ordinal"`, `ordinal` (u64). SHA-256 -> point.
+   - member element (`mtrMemberHash`): `version` (u64 = 2), `str "mtr-completion-member"`,
+     `ordinal` (u64), `range_sha256` (bytes). SHA-256 -> point.
+   - three accumulators fold by BIG-endian 256-bit modular add (mod 2^256): `acc` (leaf),
+     `ordinalAcc`, `memberAcc`.
+   - ROOT (domain.go:840-846) = `SHA-256( version (u64 = 2) || expected (u64) ||
+     plan_root_sha256 (bytes, 32) || mtr_ordinal_range_commitment (bytes, 32) || acc
+     (bytes, 32) )`. `plan_root_sha256` IS committed in the root; `ordinalAcc` and
+     `memberAcc` are GATES, not hashed into the root.
+   - gates (domain.go:821-838): `len(plan_root_sha256) == 32` && `len(commitment) == 32`;
+     `count == expected`; `ordinalAcc ==` the big-endian add of `mtrOrdinalHash(i)` for
+     `i in 1..expected`; `memberAcc == mtr_ordinal_range_commitment`.
+   - empty (`expected == 0`, the plan admits NO MTR targets): NO completion proof is
+     required; the plan's `mtr_ordinal_range_commitment` (`ScheduledPlanHeaderV1` field 11)
+     is EMPTY bytes; if a root is computed it is over zero leaves (`count == 0`, all three
+     32-byte accumulators the zero value, with `plan_root_sha256` still committed). This
+     matches the empty `ScheduledPlanHeaderV1` / commitment representation (sweep.proto:390).
+   - terminal disposition values (the u64) -- FROZEN `MTR_COMPLETION_DISPOSITION` enum,
+     DISTINCT from the per-hop `MtrOutcome` enum:
+     `MTR_COMPLETION_DISPOSITION_UNSPECIFIED = 0`; `TRACE_ALLOCATED = 1` (the ONLY value
+     carrying a UUIDv7 `trace_id`); `NOT_ADMITTED = 2`; `PROBE_FAILED = 3`;
+     `QUARANTINED = 4`; `SCHEDULER_LOST = 5`. Pinned in domain.go, with cross-language leaf
+     vectors per value. Do NOT reuse the per-hop `MtrOutcome` numbering (`REACHED = 1`,
+     `PROBE_FAILED = 3`, `NOT_ADMITTED = 5`, `QUARANTINED = 6`, `SCHEDULER_LOST = 7`) --
+     they are a different enum. This MUST match #4713's implementation (see the
+     restack/implementation prerequisite in tasks.md).
+6. `Nats-Msg-Id` transcript -- string domain `serviceradar.edge.msgid` FIRST, then
+   `version` (u64 = 1), then the 6 fields in order: `authenticated_agent_id` (bytes),
+   `network_scope_id` (bytes), `spool_id` (bytes), `sequence` (u64),
+   `semantic_envelope_sha256` (bytes), `record_sha256` (bytes). SHA-256 -> base64url
+   header. There is NO `lane_id`: `spool_id` is the persistent UUIDv7 for one delivery lane
+   (#4713), so a lane id is neither carried nor derived from nonce/route/class. There is NO
+   separate origin-principal input: `authenticated_agent_id` is the authenticated
+   component-id principal (see the principal-encoding rule below) and MUST equal
+   `producer_context.origin_principal_id`. (This is the frozen 6-field list; any disagreeing
+   field list elsewhere reconciles to THIS.) Service-ingress variant: domain
+   `serviceradar.edge.msgid.service`, fields = `authenticated_service_id`,
+   `network_scope_id`, `publication_lane_id`, `publication_sequence`,
+   `semantic_envelope_sha256`, `record_sha256` (the `service_slot` in place of the spool
+   coordinates).
+7. `Sr-Edge-Delivery-Id` transcript -- string domain `serviceradar.edge.delivery-id`,
+   `version` (u64 = 1), the frozen `edge_slot` tuple fields (`network_scope_id`,
+   `authenticated_agent_id`, `spool_id`, `sequence`). NOT `record_sha256` (the slot binding
+   stores `record_sha256` as a compared value instead). SHA-256 -> base64url header.
+   Service-ingress variant: domain `serviceradar.edge.delivery-id.service`, the
+   `service_slot` tuple.
+8. `Sr-Edge-Transport-Provenance` envelope -- string domain
+   `serviceradar.edge.transport-provenance`, `version` (u64 = 1), then: `slot_kind`
+   discriminant (u64: `0 = UNSPECIFIED` [reject], `1 = EDGE`, `2 = SERVICE_INGRESS`); the
+   slot tuple fields for that kind (`edge_slot` or `service_slot`); `record_sha256` (bytes);
+   `delivery_proof` -- presence byte (`0x00` = absent, `0x01` = present) and, when present,
+   EXACTLY one 32-byte `digest` framed as `0x01` then the u64 length prefix (`= 32`) then the
+   32 digest bytes [the digest is over the delivery capability's grammar-2 signing bytes with
+   `purpose = DELIVERY`, NOT its raw protobuf]; `delivery_mode` (u64: `0 = UNSPECIFIED`
+   [reject], `1 = FRESH`, `2 = RENEWAL`, `3 = ROLLOVER`, `4 = LATE_FENCED_DELIVERY`);
+   `route_map_version` (u64, MUST be nonzero). The publisher-attested `delivery_mode` REPLACES
+   the old `source_kind`: the source-authorization kind stays signed semantic data inside
+   `EdgeRecordV1` and is NOT duplicated into transport headers. Proof invariant keyed on
+   `delivery_mode`: `FRESH` carries NO proof (absent); `RENEWAL` / `ROLLOVER` /
+   `LATE_FENCED_DELIVERY` carry EXACTLY one 32-byte proof; `SERVICE_INGRESS` v1 is FRESH-only
+   (proof absent). Hard byte bound <= 512 ASCII bytes. The framed envelope (NOT a digest of
+   it) is base64url-encoded (no padding) into the header value.
+
+   Authenticated-principal encoding (feeds `Nats-Msg-Id`, `Sr-Edge-Delivery-Id`, and
+   provenance identically and MUST equal `producer_context.origin_principal_id`): the exact
+   case-sensitive ASCII bytes the authenticated component-id resolver returns, charset
+   `[A-Za-z0-9_-]`, length 1..128 -- no trimming, lowercasing, UUID text/binary conversion,
+   or Unicode normalization; the encoder MUST NOT accept a separate origin-principal that
+   could disagree with `authenticated_agent_id`. Service coordinates: `publication_lane_id`
+   is a persisted 16-byte UUIDv7 allocated before the first publication; `publication_sequence`
+   starts at 1, increases monotonically, and is reused after a retry/timeout/restart.
+
+### Artifact-hash exclusion (scope note)
+
+The ARTIFACT hashes `submission_sha256`, `payload_sha256`, and `record_sha256` are
+plain SHA-256 over the exact raw bytes and are NOT preimage grammars. The "every
+cryptographic preimage begins with a committed version (and, where used, a leading domain
+tag)" rule applies to the signing/digest transcripts (1-8), not to artifact hashing. Their
+named digests MAY
+participate in the transcripts above (for example the semantic-envelope digest
+commits `payload_sha256`, and the `Nats-Msg-Id` transcript includes
+`record_sha256`), but the artifact hashes themselves are computed as raw SHA-256
+with no domain tag or version prefix.
+
+### Parity requirement
+
+Every grammar (1-8) has independent Go and Elixir preimage fixtures and, where the
+grammar is signed, signature parity fixtures, including unknown-version
+fail-closed vectors, and a digest-algorithm line (SHA-256). A grammar without
+both-language preimage (and signature, where applicable) golden fixtures is not yet
+frozen.
