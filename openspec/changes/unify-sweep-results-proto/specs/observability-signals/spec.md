@@ -58,15 +58,17 @@ affected work; the installation SHALL NOT add a patched legacy JSON sender.
 #### Scenario: Stable event is retried
 - **WHEN** the gateway republishes a frame after an ambiguous prior attempt
 - **THEN** it SHALL derive the same broker deduplication ID from trusted
-  network-scope/agent/lane/spool ID/sequence coordinates plus the complete
-  semantic-envelope digest
+  network-scope/agent/spool ID/sequence coordinates, the frame's exact-record
+  `record_sha256`, plus the complete semantic-envelope digest
 - **AND** the database ingest ledger SHALL remain the correctness backstop after
   the broker duplicate window expires
 
 #### Scenario: Event ID is reused for changed bytes
-- **WHEN** one semantic event ID is presented with a different payload checksum
+- **WHEN** one semantic event ID is presented with a different `payload_sha256`
+  (hence a different `semantic_envelope_sha256`)
 - **THEN** its broker deduplication ID SHALL differ from the original
-- **AND** the database ledger SHALL receive and reject the semantic conflict
+- **AND** the database ledger SHALL receive and reject the semantic conflict on
+  the differing `semantic_envelope_sha256`
   rather than JetStream suppressing it as an identical retry
 
 ### Requirement: Durable producer output has one canonical domain record
@@ -107,7 +109,7 @@ downstream with stable source correlation.
 #### Scenario: Wasm or native producer emits persistent telemetry
 - **WHEN** a plugin or add-on submits an approved persistent metric, finding, or
   event contract
-- **THEN** the canonical record SHALL become available to persistence and
+- **THEN** the authoritative record SHALL become available to persistence and
   authorized real-time consumers through JetStream
 - **AND** the producer SHALL NOT duplicate it through `plugin_result`, base64/
   JSON telemetry, or a drain-before-send lossy queue

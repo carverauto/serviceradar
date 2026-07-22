@@ -52,7 +52,7 @@ separate provisioned clusters, not an in-runtime account hierarchy.
 #### Scenario: Installation contains several network scopes
 
 - **GIVEN** one installation monitors several sites with overlapping addresses
-- **WHEN** their canonical `EdgeRecordV1` bytes enter JetStream
+- **WHEN** their `EdgeRecordV1` bytes enter JetStream
 - **THEN** they SHALL share the bounded installation result-stream topology
 - **AND** trusted `network_scope_id` SHALL keep their domain identities distinct
   without creating per-scope accounts, streams, or durables
@@ -75,7 +75,7 @@ verified envelope/proof for its signal contract, never from a customer prefix.
 #### Scenario: Record consumer receives a fixed subject
 
 - **GIVEN** EventWriter pulls `telemetry.edge-record.v1.interactive.p11`
-- **WHEN** it validates the persisted canonical `EdgeRecordV1`
+- **WHEN** it validates the persisted authoritative `EdgeRecordV1`
 - **THEN** it SHALL derive the trusted network scope, agent, traffic class, and
   collection authority from that record and its signed grants
 - **AND** it SHALL NOT interpret any subject token as customer identity

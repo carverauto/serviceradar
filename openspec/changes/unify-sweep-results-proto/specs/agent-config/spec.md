@@ -128,9 +128,8 @@ An assignment/check/command/integration/continuous-producer capability SHALL
 authorize collection only within its lease and separate host-function
 permissions. The authoritative control-plane issuer MAY issue a short-lived
 delivery capability for
-already-spooled immutable bytes, bound to network scope, agent, traffic class,
-lane, spool ID and sequence, output contract/registry, producer assignment/run,
-semantic digest, stable event ID/checksum, original collection proof,
+already-spooled immutable bytes, bound to network scope, agent, traffic class, spool ID and sequence, output contract/registry, producer assignment/run,
+semantic digest, stable event ID and `record_sha256`, original collection proof,
 authorization context, and source/coverage/range where applicable. A delivery capability SHALL
 NOT authorize a new probe, change payload identity or traffic class, or restore
 domain eligibility after an assignment fence.
@@ -144,7 +143,7 @@ domain eligibility after an assignment fence.
 - **GIVEN** an immutable old frame was collected before its assignment was
   fenced
 - **WHEN** the authoritative control-plane issuer freshly authorizes its exact
-  event/checksum with a delivery-only capability after a replacement attempt
+  event-ID/`record_sha256` with a delivery-only capability after a replacement attempt
   became authoritative
 - **THEN** the frame MAY be durably delivered and retained as auditable history
 - **AND** SHALL NOT displace the replacement in current state, execution counts,

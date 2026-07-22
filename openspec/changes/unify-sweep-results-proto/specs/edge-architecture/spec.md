@@ -136,7 +136,7 @@ package-selected subjects, or one generic status handler for persistent data.
 - **GIVEN** the scheduler has issued a newer fenced assignment epoch for a shard
 - **WHEN** an older owner submits a frame under stale collection authority
 - **THEN** explicit routing SHALL reject new collection/publication
-- **AND** MAY accept an exact immutable event/checksum-bound replay only with a
+- **AND** MAY accept an exact immutable event-ID/`record_sha256`-bound delivery replay only with a
   freshly authorized delivery-only capability preserving its original class
 - **AND** delivery-only replay SHALL NOT restore domain eligibility or let the
   old event race the replacement's authoritative state
@@ -273,7 +273,7 @@ interpreted as durable acceptance.
 
 #### Scenario: Lane reconnects to a replacement gateway
 - **WHEN** an agent opens a new record session
-- **THEN** it SHALL declare lane, spool ID, sequence base, first unresolved
+- **THEN** it SHALL declare spool ID, sequence base, first unresolved
   sequence, fresh nonce, and requested credits
 - **AND** SHALL ignore dispositions that do not match its active nonce and spool
 

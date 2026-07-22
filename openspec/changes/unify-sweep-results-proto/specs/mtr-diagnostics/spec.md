@@ -102,9 +102,12 @@ Every event in a group SHALL retain independent ledger/slot semantics and an
 explicit post-commit JetStream ACK. ASN values SHALL be represented without
 signed overflow, and absent measurements SHALL remain distinguishable from zero.
 V1 `trace_id` SHALL be an RFC 9562 UUIDv7 allocated and durably recorded before
-probing. `trace_identity_time` SHALL be derived only from that UUIDv7 timestamp,
-validated against the signed collection interval plus attested-clock tolerance,
-and used as the Timescale partition key. The trace row SHALL uniquely bind
+probing. `trace_identity_time` SHALL be derived only from that UUIDv7 timestamp
+and used as the Timescale partition key. The consumer SHALL validate the trace's
+authoritative observation/completion time (not only the UUIDv7 identity time)
+against the signed collection interval plus attested-clock tolerance, and SHALL
+require `trace_identity_time` to be consistent with that authoritative
+observation time. The trace row SHALL uniquely bind
 `(trace_identity_time, network_scope_id, trace_id)` to authenticated agent,
 traffic class, source/context, execution/check/command, canonical target,
 observation time, content digest, and event. Hop rows SHALL reference that
@@ -124,10 +127,18 @@ conversion while retaining original nanoseconds where required.
 - **AND** JetStream SHALL be acknowledged only after the transaction commits
 
 #### Scenario: Trace event is redelivered
-- **WHEN** the same event ID and checksum are delivered repeatedly
+- **WHEN** the same `(network_scope_id, event_id)` is delivered repeatedly with a
+  matching stored `semantic_envelope_sha256`
 - **THEN** the ingest ledger and domain uniqueness constraints SHALL prevent
   duplicate trace and hop rows
 - **AND** the consumer SHALL treat the already committed event as success
+
+#### Scenario: Trace body observation time is outside the collection interval
+- **WHEN** a trace event's UUIDv7 identity time falls inside the signed
+  collection interval but its authoritative body observation time falls outside
+  that interval
+- **THEN** the consumer SHALL reject or quarantine the event rather than commit it
+- **AND** SHALL NOT create a trace or hop row under that identity
 
 #### Scenario: Trace identity is reused for different content
 - **WHEN** the same network-scope-scoped trace ID carries a different observation
