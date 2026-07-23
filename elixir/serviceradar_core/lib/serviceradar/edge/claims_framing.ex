@@ -123,8 +123,13 @@ defmodule Serviceradar.Edge.ClaimsFraming do
 
   # --- framing primitives (must match the Go digestWriter) ---
 
-  defp u64(v) when is_integer(v), do: <<v::big-64>>
-  defp i64(v) when is_integer(v), do: <<v::big-signed-64>>
+  # CHECKED widths: an out-of-range integer would silently truncate under a fixed-width bitstring
+  # (a preimage alias), so the width is guarded -- out-of-range fails loudly rather than aliasing.
+  @u64_max 0xFFFF_FFFF_FFFF_FFFF
+  @i64_min -0x8000_0000_0000_0000
+  @i64_max 0x7FFF_FFFF_FFFF_FFFF
+  defp u64(v) when is_integer(v) and v >= 0 and v <= @u64_max, do: <<v::big-64>>
+  defp i64(v) when is_integer(v) and v >= @i64_min and v <= @i64_max, do: <<v::big-signed-64>>
   defp bytes(nil), do: <<0::big-64>>
   defp bytes(b) when is_binary(b), do: [<<byte_size(b)::big-64>>, b]
   defp present(true), do: <<1>>
