@@ -16,28 +16,45 @@ defmodule Serviceradar.Edge.CapabilitySigning do
   @domain "serviceradar.edge.capability.v1"
   @known_versions [1]
   @known_algorithms ["ed25519"]
+  @u64_max 0xFFFF_FFFF_FFFF_FFFF
+  @i64_min -0x8000_0000_0000_0000
+  @i64_max 0x7FFF_FFFF_FFFF_FFFF
 
   @doc """
-  Structural validation mirroring Go `ValidateCapability`: a known version,
-  present issuer + key id, a known algorithm, a forward validity window, and a
-  typed claims variant equal to `expected_purpose` (`:production` | `:source` |
-  `:delivery`). Returns :ok or {:error, reason}.
+  Structural validation mirroring Go `ValidateCapability`: NO retained unknown protobuf fields
+  (recursively, on the capability OR any nested claim/oneof member -- they sit outside the
+  field-framed signature, so a later reader could reinterpret an authorized grant), a known
+  version, present issuer + key id, a known algorithm, a forward validity window, and a typed
+  claims variant equal to `expected_purpose` (`:production` | `:source` | `:delivery`). Returns
+  :ok or {:error, reason}.
   """
   @spec validate(map(), atom()) :: :ok | {:error, atom()}
-  def validate(cap, expected_purpose) do
-    purpose = purpose_of(cap.claims)
+  def validate(cap, expected_purpose) when is_map(cap) do
+    nb = Map.get(cap, :not_before_unix_nano)
+    ex = Map.get(cap, :expires_at_unix_nano)
+    sig = Map.get(cap, :signature)
+    purpose = purpose_of(Map.get(cap, :claims))
 
     cond do
-      cap.capability_version not in @known_versions ->
+      not unknown_fields_clean?(cap) ->
+        {:error, :unknown_fields}
+
+      Map.get(cap, :capability_version) not in @known_versions ->
         {:error, :version}
 
-      byte_size(cap.issuer_id || "") == 0 or byte_size(cap.issuer_key_id || "") == 0 ->
+      not (nonempty_binary?(Map.get(cap, :issuer_id)) and
+               nonempty_binary?(Map.get(cap, :issuer_key_id))) ->
         {:error, :issuer}
 
-      cap.algorithm not in @known_algorithms ->
+      Map.get(cap, :algorithm) not in @known_algorithms ->
         {:error, :algorithm}
 
-      (cap.expires_at_unix_nano || 0) <= (cap.not_before_unix_nano || 0) ->
+      # Fixed-width alias defense: not_before/expires MUST be in-range int64 BEFORE any signing
+      # preimage, else <<v::big-signed-64>> truncates them (2^100 and 2^100+1 alias to 0 and 1).
+      not (i64?(nb) and i64?(ex)) ->
+        {:error, :window}
+
+      ex <= nb ->
         {:error, :window}
 
       purpose == nil ->
@@ -46,13 +63,42 @@ defmodule Serviceradar.Edge.CapabilitySigning do
       purpose != expected_purpose ->
         {:error, :purpose}
 
-      byte_size(cap.signature || "") == 0 ->
+      not nonempty_binary?(sig) ->
         {:error, :signature}
 
       true ->
         :ok
     end
   end
+
+  def validate(_, _), do: {:error, :capability}
+
+  defp nonempty_binary?(b), do: is_binary(b) and byte_size(b) > 0
+  defp i64?(v), do: is_integer(v) and v >= @i64_min and v <= @i64_max
+
+  # Recursively true when NO retained unknown protobuf fields exist on the capability or any nested
+  # message / oneof member (outside the field-framed signature). Mirrors Go recursive hasUnknownFields.
+  defp unknown_fields_clean?(%{__unknown_fields__: uf} = msg) do
+    uf == [] and Enum.all?(nested_messages(msg), &unknown_fields_clean?/1)
+  end
+
+  defp unknown_fields_clean?(_), do: true
+
+  # Only STRUCTS have nested protobuf messages -- Map.from_struct/1 raises on a plain map (e.g. a
+  # poison `%{__unknown_fields__: []}`), so guard it.
+  defp nested_messages(msg) when is_struct(msg) do
+    msg
+    |> Map.from_struct()
+    |> Map.values()
+    |> Enum.flat_map(fn
+      %{__struct__: _} = child -> [child]
+      {_tag, %{__struct__: _} = child} -> [child]
+      list when is_list(list) -> Enum.filter(list, &is_struct/1)
+      _ -> []
+    end)
+  end
+
+  defp nested_messages(_), do: []
 
   @doc """
   Full verification mirroring Go `VerifyCapabilitySignature`: structural
@@ -61,14 +107,23 @@ defmodule Serviceradar.Edge.CapabilitySigning do
   capability declaring an unsupported algorithm or wrong purpose cannot verify
   even if the raw signature bytes check out.
   """
-  @spec verify(map(), atom(), binary()) :: boolean()
+  @spec verify(map(), atom(), term()) :: boolean()
   def verify(cap, expected_purpose, public_key) do
+    sig = if is_map(cap), do: Map.get(cap, :signature)
+
     with :ok <- validate(cap, expected_purpose),
-         true <- byte_size(public_key) == 32 and byte_size(cap.signature) == 64 do
-      :crypto.verify(:eddsa, :none, signing_bytes(cap), cap.signature, [public_key, :ed25519])
+         true <- is_binary(public_key) and byte_size(public_key) == 32,
+         true <- is_binary(sig) and byte_size(sig) == 64 do
+      :crypto.verify(:eddsa, :none, signing_bytes(cap), sig, [public_key, :ed25519])
     else
       _ -> false
     end
+  rescue
+    # signing_bytes/1 frames claim fields that validate/2 does not deeply width-check (e.g. a
+    # constructed authority_epoch = -1); a framing raise must never escape verification.
+    _ -> false
+  catch
+    _kind, _reason -> false
   end
 
   defp purpose_of({:production, _}), do: :production
@@ -99,8 +154,11 @@ defmodule Serviceradar.Edge.CapabilitySigning do
   defp purpose_value({:delivery, _}), do: 3
   defp purpose_value(_), do: 0
 
-  defp u64(v), do: <<v::big-64>>
-  defp i64(v), do: <<v::big-signed-64>>
+  # CHECKED framing primitives: an out-of-range integer would silently truncate under a fixed-width
+  # bitstring (a signing alias), so the width is guarded -- an out-of-range value fails loudly
+  # instead of producing an aliased preimage. (Valid decoded protobuf is always in range.)
+  defp u64(v) when is_integer(v) and v >= 0 and v <= @u64_max, do: <<v::big-64>>
+  defp i64(v) when is_integer(v) and v >= @i64_min and v <= @i64_max, do: <<v::big-signed-64>>
   defp bytes(nil), do: <<0::big-64>>
   defp bytes(b) when is_binary(b), do: [<<byte_size(b)::big-64>>, b]
 end
