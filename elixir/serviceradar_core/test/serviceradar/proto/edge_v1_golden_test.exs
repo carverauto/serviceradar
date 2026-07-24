@@ -16,6 +16,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
   alias Serviceradar.Edge.HashGrammar
   alias Serviceradar.Edge.PublicationIdentity
   alias Serviceradar.Edge.SemanticDigest
+  alias Serviceradar.Edge.SemanticValidate
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
   alias Serviceradar.Edge.V1.EdgeLossManifestPageV1
   alias Serviceradar.Edge.V1.EdgeRecordClientMessage
@@ -157,14 +158,20 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
   test "WireDecode outcomes after the task-1.5 structural preflight: poison / ok" do
     # 1. Negative enum on the REAL gRPC ingress type: EdgeRecordClientMessage.lane_open.traffic_class
-    #    = -1 makes the generated decoder raise FunctionClauseError from the edge enum module ->
-    #    poison. KNOWN INTERIM DIVERGENCE (closed by usp-v2-06): Go DECODES this (retaining the
-    #    integer) and rejects it in the semantic validator as a `permanent_rejection`, so Elixir's
-    #    decode-time `:poison` (quarantine) is the wrong DISPOSITION. It is NOT closed in the raw
-    #    preflight: protobuf's last-one-wins/oneof/merge semantics mean a first-occurrence verdict is
-    #    wrong (`-1` then `BULK` is effectively BULK, which Go accepts).
-    assert {:error, :poison} =
+    #    = -1 now DECODES with the integer RETAINED, exactly as Go's proto.Unmarshal retains it (the
+    #    generated edge enums are patched by scripts/patch_edge_enum_negatives.exs). It is the
+    #    SEMANTIC validator -- not the decoder -- that rejects it, as `REJECTED_PERMANENT` at a known
+    #    delivery slot. Decoding it is what makes protobuf's last-one-wins resolution work; see
+    #    Serviceradar.Edge.SemanticValidateTest for the full two-layer proof.
+    assert {:ok, %EdgeRecordClientMessage{payload: {:lane_open, open}}} =
              WireDecode.decode_client_message(load("poison_client_message_negative_enum.bin"))
+
+    assert open.traffic_class == -1
+
+    # The fixture also leaves route_profile UNSPECIFIED, which Go's ValidateLaneOpen rejects first
+    # (`!knownRouteProfile(o) || !knownTrafficClass(o)`), so the named field is route_profile here.
+    # Per-field coverage lives in Serviceradar.Edge.SemanticValidateTest.
+    assert {:error, {:unsupported_enum, _field}} = SemanticValidate.validate_lane_open(open)
 
     # 2. A deterministic malformed-wire vector (field 23 wire 5, then field 1 wire 3 = a start-GROUP).
     #    It used to raise an AMBIGUOUS MatchError -> `:systemic`, which at a KNOWN delivery slot stays
@@ -189,13 +196,16 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert WireDecode.classify(%MatchError{term: ""}) == :systemic
     assert WireDecode.classify(%MatchError{term: :bad_generated_metadata}) == :systemic
 
-    # An unmapped edge ENUM value -> poison. Keyed on the exception's `module` (a real edge enum),
-    # NOT `function` (the OTP compiler inlines/renames enum key/1), so it is robust to inlining.
+    # An edge-ENUM FunctionClauseError is now SYSTEMIC, not poison. The generated edge enums carry
+    # injected negative identity clauses and the DSL's catchall covers every non-negative integer,
+    # so key/1 and value/1 are TOTAL over integers: no wire bytes can legitimately raise this. If it
+    # is raised, the transform is missing/corrupt or codegen drifted -- a deployment defect, which
+    # must PAUSE rather than permanently resolve a delivery as quarantined.
     assert WireDecode.classify(%FunctionClauseError{
              module: EdgeRecordTrafficClass,
              function: :key,
              arity: 1
-           }) == :poison
+           }) == :systemic
 
     # A FunctionClauseError from a MESSAGE (non-enum) module is a decoder BUG -> systemic, never poison.
     assert WireDecode.classify(%FunctionClauseError{

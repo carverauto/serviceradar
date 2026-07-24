@@ -247,10 +247,32 @@ func sweepModeOutcomeKnown(o edgev1.SweepModeOutcome) bool {
 		o <= edgev1.SweepModeOutcome_SWEEP_MODE_OUTCOME_UNKNOWN
 }
 
+// knownSweepMode is the single authority for accepted sweep modes: exactly the modes
+// modeProtocolConsistent can satisfy (its default arm rejects anything else). Shared with the
+// enum-policy manifest.
+func knownSweepMode(m edgev1.SweepMode) bool {
+	//nolint:exhaustive // fail-closed: the default arm rejects any unlisted/unsupported value
+	switch m {
+	case edgev1.SweepMode_SWEEP_MODE_ICMP,
+		edgev1.SweepMode_SWEEP_MODE_TCP_SYN,
+		edgev1.SweepMode_SWEEP_MODE_TCP_CONNECT,
+		edgev1.SweepMode_SWEEP_MODE_MTR:
+		return true
+	default:
+		return false
+	}
+}
+
 // modeProtocolConsistent reports whether a tested check's transport protocol is
 // consistent with its mode (ICMP/MTR ride ICMP; TCP modes ride TCP) and its port
 // is legal for that mode (ICMP/MTR carry no port).
 func modeProtocolConsistent(c *edgev1.SweepTestV1) bool {
+	// GATE: knownSweepMode is the single authority for which modes exist at all; the switch below
+	// only decides the protocol/port rule for an accepted mode. Shared with the enum-policy
+	// manifest, so the accepted set cannot drift between runtime and the parity fixture.
+	if !knownSweepMode(c.GetMode()) {
+		return false
+	}
 	//nolint:exhaustive // fail-closed: the default arm rejects any unlisted/unsupported value
 	switch c.GetMode() {
 	case edgev1.SweepMode_SWEEP_MODE_ICMP, edgev1.SweepMode_SWEEP_MODE_MTR:

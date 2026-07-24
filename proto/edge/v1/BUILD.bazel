@@ -54,6 +54,14 @@ go_library(
     ],
 )
 
+# Cross-language fixtures. Exposed so the internal edgerecord tests (which AUTHOR some of them from
+# Go's own predicates) can declare the same data dependency instead of reading outside the sandbox.
+filegroup(
+    name = "edge_testdata",
+    srcs = glob(["testdata/**"]),
+    visibility = ["//visibility:public"],
+)
+
 go_test(
     name = "edgev1_golden_test",
     srcs = ["golden_test.go"],

@@ -7,6 +7,16 @@ defmodule Serviceradar.Edge.V1.SweepMode do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
+
   field :SWEEP_MODE_UNSPECIFIED, 0
   field :SWEEP_MODE_ICMP, 1
   field :SWEEP_MODE_TCP_SYN, 2
@@ -22,6 +32,16 @@ defmodule Serviceradar.Edge.V1.SweepModeBit do
     full_name: "serviceradar.edge.v1.SweepModeBit",
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
+
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
 
   field :SWEEP_MODE_BIT_UNSPECIFIED, 0
   field :SWEEP_MODE_BIT_ICMP, 1
@@ -39,6 +59,16 @@ defmodule Serviceradar.Edge.V1.TransportProtocol do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
+
   field :TRANSPORT_PROTOCOL_UNSPECIFIED, 0
   field :TRANSPORT_PROTOCOL_ICMP, 1
   field :TRANSPORT_PROTOCOL_TCP, 2
@@ -53,6 +83,16 @@ defmodule Serviceradar.Edge.V1.SweepModeOutcome do
     full_name: "serviceradar.edge.v1.SweepModeOutcome",
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
+
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
 
   field :SWEEP_MODE_OUTCOME_UNSPECIFIED, 0
   field :SWEEP_MODE_OUTCOME_SUCCESS, 1
@@ -71,6 +111,16 @@ defmodule Serviceradar.Edge.V1.MtrOutcome do
     full_name: "serviceradar.edge.v1.MtrOutcome",
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
+
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
 
   field :MTR_OUTCOME_UNSPECIFIED, 0
   field :MTR_OUTCOME_REACHED, 1
@@ -91,6 +141,16 @@ defmodule Serviceradar.Edge.V1.SweepExecutionSource do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
+
   field :SWEEP_EXECUTION_SOURCE_UNSPECIFIED, 0
   field :SWEEP_EXECUTION_SOURCE_SCHEDULED_SWEEP, 1
   field :SWEEP_EXECUTION_SOURCE_SWEEP_PROFILE, 2
@@ -107,6 +167,16 @@ defmodule Serviceradar.Edge.V1.SweepExecutionEventKind do
     full_name: "serviceradar.edge.v1.SweepExecutionEventKind",
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
+
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
 
   field :SWEEP_EXECUTION_EVENT_KIND_UNSPECIFIED, 0
   field :SWEEP_EXECUTION_EVENT_KIND_START, 1

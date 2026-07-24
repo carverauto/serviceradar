@@ -622,6 +622,7 @@ generate-proto-elixir: install-protoc-gen-elixir ## Generate Elixir code from pr
 		proto/metric/v1/metric.proto \
 		proto/edge/v1/sweep.proto \
 		proto/edge/v1/record.proto
+	@elixir scripts/patch_edge_enum_negatives.exs $(ELIXIR_PROTO_OUT)
 	@cd elixir/serviceradar_core && \
 		mix format --force "$(abspath $(ELIXIR_PROTO_OUT))/**/*.pb.ex"
 	@echo "$(COLOR_BOLD)Generated Elixir protobuf code under $(ELIXIR_PROTO_OUT)$(COLOR_RESET)"
@@ -695,6 +696,7 @@ verify-proto-edge-elixir: install-protoc-gen-elixir ## Manifest+byte drift guard
 		--elixir_out=plugins=grpc:"$$tmp" \
 		proto/edge/v1/sweep.proto \
 		proto/edge/v1/record.proto; \
+	elixir scripts/patch_edge_enum_negatives.exs "$$tmp" || exit 1; \
 	( cd elixir/serviceradar_core && mix format --force "$$tmp/edge/v1/*.pb.ex" ); \
 	gen="$$(cd "$$tmp/edge/v1" && ls *.pb.ex 2>/dev/null | sort)"; \
 	have="$$(cd $(ELIXIR_PROTO_OUT)/edge/v1 && ls *.pb.ex 2>/dev/null | sort)"; \

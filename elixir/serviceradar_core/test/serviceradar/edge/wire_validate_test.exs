@@ -167,15 +167,15 @@ defmodule Serviceradar.Edge.WireValidateTest do
 
       assert :ok = WireValidate.validate(lane_open, EdgeRecordLaneOpen)
 
-      # END TO END this is still REJECTED, and that is the precise remaining gap. protobuf-elixir's
-      # decoder walks fields IN ORDER: it reaches traffic_class = -1, calls the generated `key/1`
-      # (guarded `tag >= 0`), and RAISES before it ever sees the later BULK that determines the
-      # effective value. So the negative-enum divergence is NOT merely a disposition mismatch
-      # (quarantine vs permanent) -- Elixir REJECTS a message Go ACCEPTS. No raw-walker verdict can
-      # fix that; only letting the generated edge enums retain negative integers can (usp-v2-06).
-      # This assertion pins today's behavior and becomes the regression that flips when that lands.
-      assert {:error, :poison} =
+      # END TO END the effective value is BULK, exactly as Go decodes it. This previously RAISED:
+      # protobuf-elixir's decoder walks fields IN ORDER, reached traffic_class = -1, called the
+      # generated `key/1` (guarded `tag >= 0`) and blew up before ever seeing the later BULK -- so
+      # Elixir REJECTED a message Go ACCEPTS. The generated edge enums now retain negative integers
+      # (scripts/patch_edge_enum_negatives.exs), which is what makes last-one-wins resolve correctly.
+      assert {:ok, %EdgeRecordClientMessage{payload: {:lane_open, open}}} =
                WireDecode.decode_client_message(wrap_client_lane_open(lane_open))
+
+      assert open.traffic_class == :EDGE_RECORD_TRAFFIC_CLASS_BULK
     end
 
     test "an UNKNOWN but NON-NEGATIVE enum decodes, exactly as in Go" do
@@ -187,10 +187,10 @@ defmodule Serviceradar.Edge.WireValidateTest do
 
     test "a lone negative enum is structurally clean here (its verdict is the semantic layer's)" do
       # -1 encodes as the 10-byte varint 0xFF*9 0x01 -- terminal chunk 1, a VALID uint64 varint, NOT
-      # an overflow. The walker therefore passes it; the generated decoder still raises, so
-      # `decode_client_message/1` reports the KNOWN INTERIM `:poison` (see the golden test). A
-      # terminal chunk of 2 IS an overflow and stays `:poison` structurally. The two rules are
-      # distinct and must not collapse into each other.
+      # an overflow. The walker therefore passes it, and the patched generated enums now DECODE it
+      # with the integer retained; the verdict belongs to `SemanticValidate`, which rejects the
+      # retained non-member (see Serviceradar.Edge.SemanticValidateTest). A terminal chunk of 2 IS an
+      # overflow and stays `:poison` structurally. The two rules are distinct and must not collapse.
       negative_one = <<0x10>> <> varint((1 <<< 64) - 1)
       assert :ok = WireValidate.validate(negative_one, EdgeRecordLaneOpen)
 
