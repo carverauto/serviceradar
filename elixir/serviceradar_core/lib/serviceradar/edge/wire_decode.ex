@@ -21,9 +21,11 @@ defmodule Serviceradar.Edge.WireDecode do
     * `{:error, :too_large}` -- the RAW bytes exceed the frozen size bound for this stage, checked
                                 BEFORE protobuf is invoked. A PERMANENT rejection (an unbounded input
                                 is refused, never decoded), distinct from poison.
-    * `{:error, :poison}`    -- the BYTES are unrecoverable for this schema (malformed wire, or an
-                                unmapped/unsupported enum value). Safe to quarantine. PERMANENT --
-                                only this and `:too_large` resolve a delivery as permanently dead.
+    * `{:error, :poison}`    -- the BYTES are unrecoverable for this schema (malformed wire). Safe to
+                                quarantine. PERMANENT -- only this and `:too_large` resolve a
+                                delivery as permanently dead. An unmapped/negative ENUM is NOT
+                                poison: it decodes (see below) and is rejected by the SEMANTIC
+                                validator as a permanent rejection, matching Go.
     * `{:error, :not_ready}` -- the target decoder module is not loaded (an expected edge schema not
                                 yet deployed). Leave the delivery PENDING; a later deploy may decode
                                 it. TRANSIENT.
@@ -58,23 +60,33 @@ defmodule Serviceradar.Edge.WireDecode do
 
     * `%Protobuf.DecodeError{}` -> the decoder's DELIBERATE, typed malformed-wire error -> `:poison`.
       This is the only unambiguous "these bytes are unrecoverable" signal.
-    * `%FunctionClauseError{module: mod}` where `mod` is a generated edge ENUM module (an unmapped
-      enum value) -> `:poison`. We match on `module` (checked to be an edge enum via
-      `__reverse_mapping__/0`), NOT on `function` (which the OTP compiler inlines/renames).
+    * `%FunctionClauseError{}` -> `:systemic`, ALWAYS. The generated edge enums carry injected
+      negative identity clauses (`scripts/patch_edge_enum_negatives.exs`) and the DSL's own catchall
+      covers every non-negative integer, so `key/1`/`value/1` are TOTAL over integers and no wire
+      bytes can legitimately raise this. If it is raised the transform is missing/corrupt or codegen
+      drifted -- a deployment defect, which must PAUSE, never permanently resolve a delivery.
     * `%MatchError{}` -> AMBIGUOUS -> `:systemic` (NOT poison). A `MatchError` is raised both by
       malformed wire AND by non-data protobuf runtime sites (bad generated message/oneof metadata), so
       permanently poisoning it would let a deployment/codegen defect destroy valid customer data. Until
       a project-owned typed malformed-wire result exists (task 1.5), an ambiguous `MatchError` PAUSES
       (systemic), never permanently resolves.
-    * anything else -- a `FunctionClauseError` from a non-enum module, or any other exception/throw/
-      exit -> a genuine decoder bug -> `:systemic` (the default), never silent poison.
+    * anything else -- any other exception/throw/exit -> a genuine decoder bug -> `:systemic` (the
+      default), never silent poison.
 
-  Empirically (~13k fuzz inputs), decoding edge messages yields only those three shapes; malformed
-  wire never produced a `FunctionClauseError`, and every enum `FunctionClauseError` carried a
-  generated edge enum module. KNOWN LIMITATION: an unmapped NEGATIVE enum is protobuf-valid data Go
-  retains, but protobuf-elixir cannot retain it (its generated `key/1` guards `tag >= 0`), so we
-  classify it `:poison`. Go-parity retention would require a custom enum codegen template or a
-  protobuf-elixir patch, not a decode-time option.
+  Empirically (~13k fuzz inputs), decoding edge messages yields only those exception shapes, and
+  malformed wire never produced a `FunctionClauseError`.
+
+  ## Enum parity (task 1.5)
+
+  An unmapped NEGATIVE enum is protobuf-valid data Go RETAINS as its integer and then rejects in the
+  explicit semantic validator. protobuf-elixir's generated `key/1` was guarded `tag >= 0` and RAISED
+  -- and because the decoder walks fields IN ORDER while protobuf resolves a repeated singular field
+  LAST-ONE-WINS, `traffic_class = -1` followed by `traffic_class = BULK` (effective value BULK,
+  which Go ACCEPTS) blew up on the FIRST occurrence, so Elixir REJECTED a message Go ACCEPTS.
+  `scripts/patch_edge_enum_negatives.exs` injects negative identity clauses into the generated edge
+  enums so the integer is RETAINED exactly as Go retains it, and
+  `Serviceradar.Edge.SemanticValidate` then rejects any retained non-member on the DECODED struct --
+  where the effective value is already resolved -- with the stage-correct disposition.
   """
 
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
@@ -97,8 +109,6 @@ defmodule Serviceradar.Edge.WireDecode do
   @max_delivery_envelope_bytes 16 * 1024
   @max_frame_bytes @max_record_bytes + @max_delivery_envelope_bytes
   @max_client_message_bytes @max_frame_bytes + 8
-
-  @edge_module_prefix "Elixir.Serviceradar.Edge.V1."
 
   # Protobuf field numbers for the RAW outer-wire peel (P1-2). EdgeRecordClientMessage is a oneof of
   # lane_open (field 1) / delivery_frame (field 2); EdgeDeliveryFrameV1.record_bytes is field 5.
@@ -233,32 +243,19 @@ defmodule Serviceradar.Edge.WireDecode do
   @spec classify(Exception.t()) :: :poison | :systemic
   def classify(%Protobuf.DecodeError{}), do: :poison
 
-  def classify(%FunctionClauseError{module: mod}) do
-    if edge_enum_module?(mod), do: :poison, else: :systemic
-  end
+  # An edge-enum FunctionClauseError is NO LONGER wire poison. The generated edge enums are patched
+  # (scripts/patch_edge_enum_negatives.exs) with negative identity clauses, and the DSL's own
+  # catchall covers every non-negative integer, so `key/1`/`value/1` are TOTAL over integers: no
+  # sequence of wire bytes can legitimately raise it any more. If it is raised, the transform is
+  # missing or corrupt (or codegen drifted) -- a deployment defect, which must PAUSE (`:systemic`),
+  # never permanently resolve a delivery as quarantined/dead.
+  def classify(%FunctionClauseError{}), do: :systemic
 
   # A MatchError is ambiguous (malformed wire OR a codegen/metadata bug), so it is systemic, never a
   # permanent poison -- a deployment defect must not destroy valid data.
   def classify(%MatchError{}), do: :systemic
 
   def classify(_other), do: :systemic
-
-  # True only for a generated EDGE protobuf ENUM module: an edge-namespace module exporting the
-  # generated `__reverse_mapping__/0` (enum modules have it; message modules do not).
-  #
-  # `Code.ensure_loaded?/1` is REQUIRED, not defensive dressing: `function_exported?/3` answers false
-  # for a module that is merely not loaded YET, which would misclassify a genuine enum poison as
-  # `:systemic` -- leaving a permanently-dead record retryable forever, the exact failure task 1.5
-  # closes. In production the raising module is already loaded, but relying on that is incidental --
-  # the structural preflight makes NO enum judgement, so whether the enum module has been loaded
-  # depends only on what earlier traffic happened to decode. This must not depend on load order.
-  defp edge_enum_module?(mod) when is_atom(mod) do
-    String.starts_with?(Atom.to_string(mod), @edge_module_prefix) and
-      Code.ensure_loaded?(mod) and
-      function_exported?(mod, :__reverse_mapping__, 0)
-  end
-
-  defp edge_enum_module?(_), do: false
 
   # raw_frame_envelope_check/1: enforce, STRICTLY IN ORDER, (1) the frame's HARD total-size bound, (2) a
   # MALFORMED envelope, then (3) the relational non-record envelope budget, on the EXACT raw wire bytes of

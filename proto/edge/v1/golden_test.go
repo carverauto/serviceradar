@@ -382,9 +382,12 @@ func TestGoldenRecordAndDelivery(t *testing.T) {
 }
 
 // TestGoldenPoisonNegativeEnum exports a protobuf-valid capability carrying an UNMAPPED negative
-// enum (production traffic_class = -1). Go marshals it and retains the unknown value on decode; the
-// Elixir generated decoder raises on it, so the project-owned total decode boundary must convert it
-// to poison/quarantine rather than crash-looping a malformed durable message.
+// enum (production traffic_class = -1). Go marshals it and RETAINS the unknown value on decode,
+// rejecting it later in the explicit semantic validator. The Elixir generated enums are patched
+// (scripts/patch_edge_enum_negatives.exs) to retain it the same way instead of raising, so the two
+// runtimes now agree: the value DECODES and `Serviceradar.Edge.SemanticValidate` rejects it as a
+// permanent rejection with the stage-correct disposition -- not a decode-time poison/quarantine.
+// (The fixture name predates that change; it is kept so the committed vector stays stable.)
 func TestGoldenPoisonNegativeEnum(t *testing.T) {
 	poison := &edgev1.EdgeSignedCapabilityV1{
 		CapabilityVersion: 1, IssuerId: uuidv7(0xC0), IssuerKeyId: uuidv7(0xC1), Algorithm: "ed25519",
@@ -957,6 +960,26 @@ func TestGoldenSessionAck(t *testing.T) {
 	if err := edgerecord.ValidateLaneOpen(&groupLane); !errors.Is(err, edgerecord.ErrUnknownFields) {
 		t.Fatalf("ValidateLaneOpen(unknown group) = %v, want ErrUnknownFields", err)
 	}
+	// CROSS-RUNTIME VECTOR: LAST-ONE-WINS. A negative traffic_class occurrence PRECEDES the golden
+	// lane's valid one, so the effective value is BULK and Go ACCEPTS the lane. Elixir must reach the
+	// same verdict on these exact bytes -- before the enum-retention transform it raised on the first
+	// occurrence and rejected a lane Go accepts.
+	negTrafficClass := []byte{0x10, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01}
+	laneNegThenValid := append(append([]byte{}, negTrafficClass...), laneRaw...)
+	clientNegThenValid := append([]byte{0x0A, byte(len(laneNegThenValid))}, laneNegThenValid...)
+	goldenBytes(t, "lane_open_negative_then_valid.bin", clientNegThenValid)
+
+	var mergedLane edgev1.EdgeRecordLaneOpen
+	if err := proto.Unmarshal(laneNegThenValid, &mergedLane); err != nil {
+		t.Fatalf("Go must decode negative-then-valid last-one-wins: %v", err)
+	}
+	if got := mergedLane.GetTrafficClass(); got != edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK {
+		t.Fatalf("effective traffic_class = %v, want BULK (last-one-wins)", got)
+	}
+	if err := edgerecord.ValidateLaneOpen(&mergedLane); err != nil {
+		t.Fatalf("Go must ACCEPT the negative-then-valid lane: %v", err)
+	}
+
 	// Control: the unmodified golden lane still validates.
 	var cleanLane edgev1.EdgeRecordLaneOpen
 	if err := proto.Unmarshal(laneRaw, &cleanLane); err != nil {

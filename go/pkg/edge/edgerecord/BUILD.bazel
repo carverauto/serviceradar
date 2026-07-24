@@ -37,11 +37,13 @@ go_test(
         "recovery_test.go",
         "validate_test.go",
     ],
+    data = ["//proto/edge/v1:edge_testdata"],
     embed = [":edgerecord"],
     deps = [
         "//proto/edge/v1:edgev1",
         "@com_github_klauspost_compress//zstd",
         "@org_golang_google_protobuf//encoding/protowire",
         "@org_golang_google_protobuf//proto",
+        "@org_golang_google_protobuf//reflect/protoreflect",
     ],
 )

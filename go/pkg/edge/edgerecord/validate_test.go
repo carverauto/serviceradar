@@ -17,8 +17,14 @@
 package edgerecord
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"errors"
+	"fmt"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/klauspost/compress/zstd"
@@ -962,4 +968,171 @@ func mustMarshalT(t *testing.T, m proto.Message) []byte {
 	}
 
 	return b
+}
+
+// TestGoldenEnumPolicyManifest exports, per policed (message, field), the enum members GO actually
+// accepts -- computed by running Go's OWN predicates over every declared member, not by restating a
+// list. The Elixir semantic validator asserts its frozen allowed sets equal this manifest exactly.
+//
+// This is what makes the evolution guard a real PARITY guard: updating the Elixir list (or adding a
+// proto member) without updating the corresponding closed Go switch changes this manifest, and the
+// Elixir test fails. A purely Elixir-internal check cannot detect that.
+//
+// Regenerate with EDGE_GOLDEN_UPDATE=1 go test ./go/pkg/edge/edgerecord/...
+func TestGoldenEnumPolicyManifest(t *testing.T) {
+	var b bytes.Buffer
+
+	for _, e := range enumPolicyContexts() {
+		var names []string
+
+		vals := e.enum.Values()
+		for i := range vals.Len() {
+			v := vals.Get(i)
+			if e.ok(int32(v.Number())) {
+				names = append(names, string(v.Name()))
+			}
+		}
+
+		fmt.Fprintf(&b, "%s\t%s\n", e.field, strings.Join(names, ","))
+	}
+
+	goldenBytesLocal(t, "enum_policy_manifest.txt", b.Bytes())
+}
+
+// goldenBytesLocal writes/compares a fixture under proto/edge/v1/testdata so both runtimes read the
+// same bytes. Set EDGE_GOLDEN_UPDATE=1 to regenerate.
+func goldenBytesLocal(t *testing.T, name string, b []byte) {
+	t.Helper()
+
+	path := goldenPath(name)
+
+	if os.Getenv("EDGE_GOLDEN_UPDATE") == "1" {
+		if err := os.WriteFile(path, b, 0o600); err != nil {
+			t.Fatalf("write golden %s: %v", name, err)
+		}
+
+		return
+	}
+
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read golden %s (run EDGE_GOLDEN_UPDATE=1): %v", name, err)
+	}
+
+	if !bytes.Equal(want, b) {
+		t.Fatalf("golden %s drifted:\n have: %s\n want: %s", name, b, want)
+	}
+}
+
+// goldenPath resolves a shared fixture under `go test` (relative to the package dir) and under
+// Bazel (via the runfiles tree, where the files arrive through the `edge_testdata` data dep).
+func goldenPath(name string) string {
+	rel := filepath.Join("..", "..", "..", "..", "proto", "edge", "v1", "testdata", name)
+	if fileExists(rel) {
+		return rel
+	}
+
+	if dir := os.Getenv("TEST_SRCDIR"); dir != "" {
+		if ws := os.Getenv("TEST_WORKSPACE"); ws != "" {
+			if p := filepath.Join(dir, ws, "proto", "edge", "v1", "testdata", name); fileExists(p) {
+				return p
+			}
+		}
+
+		if p := filepath.Join(dir, "_main", "proto", "edge", "v1", "testdata", name); fileExists(p) {
+			return p
+		}
+	}
+
+	return rel
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+
+	return err == nil
+}
+
+// enumPolicyContext binds ONE Elixir policy context (message.field) to the GO predicate that gates
+// it. Every context in SemanticValidate.enum_field_policy/0 must appear here, and the Elixir test
+// asserts exact key-set equality in BOTH directions -- so neither side can police a field the other
+// does not. The predicates are the PRODUCTION ones; none of the accepted sets is restated inline.
+type enumPolicyContext struct {
+	field string
+	enum  protoreflect.EnumDescriptor
+	ok    func(int32) bool
+}
+
+func enumPolicyContexts() []enumPolicyContext {
+	origin := func(v int32) bool { return knownOriginKind(edgev1.EdgeOriginKind(v)) }
+	route := func(v int32) bool { return knownRouteProfile(edgev1.EdgeRecordRouteProfile(v)) }
+	traffic := func(v int32) bool { return knownTrafficClass(edgev1.EdgeRecordTrafficClass(v)) }
+	sourceKind := func(v int32) bool { return knownSourceAuthKind(edgev1.EdgeSourceAuthorizationKind(v)) }
+	sweepSource := func(v int32) bool { return knownSweepSource(edgev1.SweepExecutionSource(v)) }
+	protocol := func(v int32) bool { return knownTransportProtocol(edgev1.TransportProtocol(v)) }
+	mtr := func(v int32) bool { return mtrTerminalOutcome(edgev1.MtrOutcome(v)) }
+	modeOutcome := func(v int32) bool { return sweepModeOutcomeKnown(edgev1.SweepModeOutcome(v)) }
+
+	originEnum := edgev1.EdgeOriginKind(0).Descriptor()
+	routeEnum := edgev1.EdgeRecordRouteProfile(0).Descriptor()
+	trafficEnum := edgev1.EdgeRecordTrafficClass(0).Descriptor()
+	sourceKindEnum := edgev1.EdgeSourceAuthorizationKind(0).Descriptor()
+	sweepSourceEnum := edgev1.SweepExecutionSource(0).Descriptor()
+	protocolEnum := edgev1.TransportProtocol(0).Descriptor()
+	mtrEnum := edgev1.MtrOutcome(0).Descriptor()
+	modeOutcomeEnum := edgev1.SweepModeOutcome(0).Descriptor()
+
+	return []enumPolicyContext{
+		// --- record plane ---
+		{"EdgeProducerContext.origin_kind", originEnum, origin},
+		{"EdgeProductionClaimsV1.origin_kind", originEnum, origin},
+		{"EdgeProductionClaimsV1.route_profile", routeEnum, route},
+		{"EdgeProductionClaimsV1.traffic_class", trafficEnum, traffic},
+		{"EdgeRecordDisposition.kind", edgev1.EdgeRecordDispositionKind(0).Descriptor(), func(v int32) bool {
+			// A kind is ACCEPTED if it validates under SOME legal rejection-code configuration: the
+			// three ACCEPTED kinds FORBID a code while the two REJECTED kinds REQUIRE one, so a
+			// single probe would misreport one group or the other.
+			for _, code := range []string{"", "POISON"} {
+				if _, err := validateDispositionKind(&edgev1.EdgeRecordDisposition{
+					Kind: edgev1.EdgeRecordDispositionKind(v), RejectionCode: code,
+				}); err == nil {
+					return true
+				}
+			}
+
+			return false
+		}},
+		{"EdgeRecordLaneOpen.route_profile", routeEnum, route},
+		{"EdgeRecordLaneOpen.traffic_class", trafficEnum, traffic},
+		{"EdgeRecordLaneOpenAck.route_profile", routeEnum, route},
+		{"EdgeRecordLaneOpenAck.traffic_class", trafficEnum, traffic},
+		{"EdgeRecordV1.compression", edgev1.EdgeRecordCompression(0).Descriptor(), func(v int32) bool {
+			return knownCompression(edgev1.EdgeRecordCompression(v))
+		}},
+		{"EdgeRecordV1.payload_family", edgev1.EdgeRecordPayloadFamily(0).Descriptor(), func(v int32) bool {
+			return knownPayloadFamily(edgev1.EdgeRecordPayloadFamily(v))
+		}},
+		{"EdgeRecordV1.route_profile", routeEnum, route},
+		{"EdgeRecordV1.traffic_class", trafficEnum, traffic},
+		{"EdgeSourceAuthorizationV1.kind", sourceKindEnum, sourceKind},
+		{"EdgeSourceClaimsV1.kind", sourceKindEnum, sourceKind},
+		{"EdgeSourceClaimsV1.origin_kind", originEnum, origin},
+		{"EdgeSourceClaimsV1.route_profile", routeEnum, route},
+		{"EdgeSourceClaimsV1.traffic_class", trafficEnum, traffic},
+		// --- domain payload families ---
+		{"MtrTraceBatchV1.source", sweepSourceEnum, sweepSource},
+		{"MtrTraceEventV1.outcome", mtrEnum, mtr},
+		{"MtrTraceEventV1.protocol", protocolEnum, protocol},
+		{"SweepExecutionEventV1.kind", edgev1.SweepExecutionEventKind(0).Descriptor(), func(v int32) bool {
+			return knownLifecycleKind(edgev1.SweepExecutionEventKind(v))
+		}},
+		{"SweepIcmpSummaryV1.outcome", modeOutcomeEnum, modeOutcome},
+		{"SweepMtrSummaryV1.outcome", mtrEnum, mtr},
+		{"SweepObservationBatchV1.source", sweepSourceEnum, sweepSource},
+		{"SweepTcpSummaryV1.outcome", modeOutcomeEnum, modeOutcome},
+		{"SweepTestV1.mode", edgev1.SweepMode(0).Descriptor(), func(v int32) bool {
+			return knownSweepMode(edgev1.SweepMode(v))
+		}},
+		{"SweepTestV1.protocol", protocolEnum, protocol},
+	}
 }
