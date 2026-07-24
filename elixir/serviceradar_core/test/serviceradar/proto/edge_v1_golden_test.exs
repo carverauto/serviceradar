@@ -155,19 +155,26 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     refute CapabilitySigning.verify(neg_epoch, :production, key_a)
   end
 
-  test "WireDecode outcome per exception shape: DecodeError/enum poison; MatchError systemic" do
+  test "WireDecode outcomes after the task-1.5 structural preflight: poison / ok" do
     # 1. Negative enum on the REAL gRPC ingress type: EdgeRecordClientMessage.lane_open.traffic_class
-    #    = -1 makes the generated decoder raise FunctionClauseError from the edge enum module -> poison
-    #    (an unmapped enum value; the same value Go rejects semantically). This is the message gRPC
-    #    decodes first.
+    #    = -1 makes the generated decoder raise FunctionClauseError from the edge enum module ->
+    #    poison. KNOWN INTERIM DIVERGENCE (closed by usp-v2-06): Go DECODES this (retaining the
+    #    integer) and rejects it in the semantic validator as a `permanent_rejection`, so Elixir's
+    #    decode-time `:poison` (quarantine) is the wrong DISPOSITION. It is NOT closed in the raw
+    #    preflight: protobuf's last-one-wins/oneof/merge semantics mean a first-occurrence verdict is
+    #    wrong (`-1` then `BULK` is effectively BULK, which Go accepts).
     assert {:error, :poison} =
              WireDecode.decode_client_message(load("poison_client_message_negative_enum.bin"))
 
-    # 2. A deterministic malformed-wire vector raises a MatchError. Because a MatchError is AMBIGUOUS
-    #    (malformed wire OR a codegen/metadata bug), it is SYSTEMIC (pause), never permanent poison.
-    assert {:error, :systemic} = WireDecode.decode_record(Base.decode16!("BD38B3632E0B28E84B69"))
+    # 2. A deterministic malformed-wire vector (field 23 wire 5, then field 1 wire 3 = a start-GROUP).
+    #    It used to raise an AMBIGUOUS MatchError -> `:systemic`, which at a KNOWN delivery slot stays
+    #    retryable FOREVER and pins the cumulative-prefix watermark. The typed malformed-wire preflight
+    #    now recognizes the group as genuine bad bytes -> `:poison`, so no decodable slot is retryable
+    #    forever. (Genuine codegen/metadata MatchErrors still classify `:systemic` -- see the
+    #    stack-independence test below, which exercises `classify/1` directly.)
+    assert {:error, :poison} = WireDecode.decode_record(Base.decode16!("BD38B3632E0B28E84B69"))
 
-    # 3. Other malformed bytes raise the decoder's DELIBERATE Protobuf.DecodeError -> poison.
+    # 3. Other malformed bytes -> poison (here the preflight rejects the reserved wire type 7).
     assert {:error, :poison} = WireDecode.decode_record(<<0xFF, 0xFF, 0xFF>>)
 
     # A well-formed record still decodes cleanly through the same boundary.
@@ -415,7 +422,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert {:error, :poison} = WireDecode.decode_client_message(eleven_wrapped)
   end
 
-  test "peel field-number bound is inclusive at @max_field_number (2^29-1 accepted, 2^29 rejected)" do
+  test "field numbers past @max_field_number are rejected (bound + unknown-field rule)" do
     # The peel's field bound equals Go's MaxValidNumber (2^29 - 1) EXACTLY and is INCLUSIVE: a top-level
     # field number == 2^29-1 is in range (a frame carrying it plus a record is NOT poisoned), while one past
     # it (2^29) is out of range and poisons -- matching protowire (accepts 2^29-1, rejects 2^29). This
@@ -424,9 +431,12 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     record = <<0x2A, 0x01, 0x00>>
     max_field = (1 <<< 29) - 1
 
-    # in-range unknown field (2^29-1, wire type 0) carrying value 0, then the record -> :ok (not poisoned).
+    # An in-range but UNDECLARED field is now rejected as a retained UNKNOWN FIELD (the frozen edge
+    # ABI rejects those recursively), so against an edge schema BOTH cases poison and this test can
+    # no longer isolate the bound here. The inclusive-boundary proof lives in
+    # Serviceradar.Edge.WireValidateTest against a schema that DECLARES field 2^29-1.
     in_range_frame = encode_varint(max_field <<< 3) <> <<0x00>> <> record
-    assert {:ok, _} = WireDecode.decode_frame(in_range_frame)
+    assert {:error, :poison} = WireDecode.decode_frame(in_range_frame)
 
     # out-of-range field (2^29, wire type 0) -> :poison.
     over_frame = encode_varint((max_field + 1) <<< 3) <> <<0x00>> <> record

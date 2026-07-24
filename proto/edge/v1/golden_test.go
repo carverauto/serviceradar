@@ -28,6 +28,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -931,6 +932,40 @@ func TestGoldenSessionAck(t *testing.T) {
 		SpoolId:      uuidv7(0x01), SequenceBase: 1, FirstUnresolvedSequence: 1, SessionNonce: nonce,
 		RequestedByteCredits: 1 << 20, RequestedFrameCredits: 256,
 	}}})
+	// CROSS-RUNTIME VECTOR: a well-formed unknown GROUP (field 6: 0x33 start / 0x34 end) appended to
+	// the golden lane_open. Go's PARSER accepts and RETAINS it as an unknown field -- it is
+	// ValidateLaneOpen that must reject it, which it previously did NOT, so Go accepted a lane the
+	// Elixir ingress boundary closes. Both runtimes now reject these exact bytes; the Elixir peer
+	// asserts {:error, :poison} on the same fixture.
+	laneRaw := mustMarshal(&edgev1.EdgeRecordLaneOpen{
+		RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+		TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
+		SpoolId:      uuidv7(0x01), SequenceBase: 1, FirstUnresolvedSequence: 1, SessionNonce: nonce,
+		RequestedByteCredits: 1 << 20, RequestedFrameCredits: 256,
+	})
+	laneWithGroup := append(append([]byte{}, laneRaw...), 0x33, 0x34)
+	clientWithGroup := append([]byte{0x0A, byte(len(laneWithGroup))}, laneWithGroup...)
+	goldenBytes(t, "lane_open_unknown_group.bin", clientWithGroup)
+
+	var groupLane edgev1.EdgeRecordLaneOpen
+	if err := proto.Unmarshal(laneWithGroup, &groupLane); err != nil {
+		t.Fatalf("Go must PARSE and retain a well-formed unknown group, not reject it: %v", err)
+	}
+	if len(groupLane.ProtoReflect().GetUnknown()) == 0 {
+		t.Fatal("Go must RETAIN the unknown group so validation can see it")
+	}
+	if err := edgerecord.ValidateLaneOpen(&groupLane); !errors.Is(err, edgerecord.ErrUnknownFields) {
+		t.Fatalf("ValidateLaneOpen(unknown group) = %v, want ErrUnknownFields", err)
+	}
+	// Control: the unmodified golden lane still validates.
+	var cleanLane edgev1.EdgeRecordLaneOpen
+	if err := proto.Unmarshal(laneRaw, &cleanLane); err != nil {
+		t.Fatalf("golden lane must parse: %v", err)
+	}
+	if err := edgerecord.ValidateLaneOpen(&cleanLane); err != nil {
+		t.Fatalf("golden lane must validate: %v", err)
+	}
+
 	golden(t, "server_lane_open_ack.bin", &edgev1.EdgeRecordServerMessage{Payload: &edgev1.EdgeRecordServerMessage_LaneOpenAck{LaneOpenAck: &edgev1.EdgeRecordLaneOpenAck{
 		SpoolId: uuidv7(0x01), SessionNonce: nonce, GrantedByteCredits: 1 << 20, GrantedFrameCredits: 256,
 		RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,

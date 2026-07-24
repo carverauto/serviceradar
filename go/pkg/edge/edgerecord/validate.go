@@ -1005,6 +1005,85 @@ func ValidateDeliveryFrame(f *edgev1.EdgeDeliveryFrameV1, decodeRecord bool) err
 	return nil
 }
 
+// ValidateServerMessage is the boundary for the gateway-to-agent envelope. The frozen ABI rejects
+// recursively retained unknown fields, and that check MUST happen on the WRAPPER before switching on
+// the oneof: unknown bytes carried at the envelope root stay on the wrapper and are discarded when a
+// caller extracts `GetAck()`, so validating only the inner message leaves the return path
+// asymmetric with the recursive client-message boundary.
+func ValidateServerMessage(m *edgev1.EdgeRecordServerMessage) error {
+	if m == nil {
+		return ErrNilRecord
+	}
+
+	if hasUnknownFields(m) {
+		return ErrUnknownFields
+	}
+
+	// The envelope MUST carry exactly one SET variant. An unset oneof, an unknown variant, or a
+	// typed-nil inner message (`&..._Ack{Ack: nil}`) all decode into a struct this boundary would
+	// otherwise wave through, leaving the caller to deref a nil inner message. Session-specific
+	// checks stay in the composed ValidateAck / ValidateLaneOpenAck validators.
+	switch p := m.GetPayload().(type) {
+	case *edgev1.EdgeRecordServerMessage_Ack:
+		if p == nil || p.Ack == nil {
+			return ErrNilRecord
+		}
+	case *edgev1.EdgeRecordServerMessage_LaneOpenAck:
+		if p == nil || p.LaneOpenAck == nil {
+			return ErrNilRecord
+		}
+	default:
+		// nil (unset) or a variant this build does not know.
+		return ErrNilRecord
+	}
+
+	return nil
+}
+
+// serverMessage oneof field numbers, for the RAW envelope boundary below.
+const (
+	serverMessageLaneOpenAckFieldNumber = 1
+	serverMessageAckFieldNumber         = 2
+)
+
+// ValidateServerMessageRawEnvelope enforces, on the EXACT wire bytes, that a gateway-to-agent
+// envelope carries EXACTLY ONE payload occurrence -- the same rule the client envelope enforces.
+//
+// This CANNOT be done on the decoded struct: protobuf resolves a repeated oneof last-one-wins, so
+// concatenating `server_lane_open_ack.bin || server_ack.bin` decodes to a single valid ack and the
+// duplicate is already lost. Callers validating untrusted server bytes MUST run this BEFORE
+// decoding, then ValidateServerMessage on the result.
+func ValidateServerMessageRawEnvelope(raw []byte) error {
+	payloads := 0
+	b := raw
+
+	for len(b) > 0 {
+		num, typ, n := protowire.ConsumeTag(b)
+		if n < 0 {
+			return ErrRecordDecode
+		}
+
+		b = b[n:]
+
+		if num == serverMessageLaneOpenAckFieldNumber || num == serverMessageAckFieldNumber {
+			payloads++
+		}
+
+		m := protowire.ConsumeFieldValue(num, typ, b)
+		if m < 0 {
+			return ErrRecordDecode
+		}
+
+		b = b[m:]
+	}
+
+	if payloads != 1 {
+		return ErrRecordDecode
+	}
+
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Lane / session binding (isolation)
 // ---------------------------------------------------------------------------
@@ -1012,6 +1091,15 @@ func ValidateDeliveryFrame(f *edgev1.EdgeDeliveryFrameV1, decodeRecord bool) err
 func ValidateLaneOpen(o *edgev1.EdgeRecordLaneOpen) error {
 	if o == nil {
 		return ErrNilRecord
+	}
+	// The lane handshake is part of the FROZEN edge ABI, so it rejects RETAINED UNKNOWN FIELDS
+	// recursively, exactly as the record/frame/capability boundaries already do. Without this the
+	// two runtimes disagree on the same bytes: Go's parser retains a well-formed unknown field (or
+	// group) on a lane_open and `ValidateLaneOpen` accepted it, while the Elixir ingress boundary
+	// rejects it as wire poison -- a Go-accept versus gateway-close divergence. Fail closed on both
+	// sides rather than narrowing the Elixir check.
+	if hasUnknownFields(o) {
+		return ErrUnknownFields
 	}
 	if !knownRouteProfile(o.GetRouteProfile()) || !knownTrafficClass(o.GetTrafficClass()) {
 		return ErrLaneRouteClass
@@ -1043,6 +1131,12 @@ func ValidateLaneOpen(o *edgev1.EdgeRecordLaneOpen) error {
 func ValidateLaneOpenAck(a *edgev1.EdgeRecordLaneOpenAck, req *edgev1.EdgeRecordLaneOpen) error {
 	if a == nil || req == nil {
 		return ErrNilRecord
+	}
+	// The RETURN path is part of the same frozen ABI: reject recursively retained unknown fields, as
+	// the record/frame/capability/lane-open boundaries do. Otherwise an older peer silently ignores a
+	// future qualifier it cannot understand.
+	if hasUnknownFields(a) {
+		return ErrUnknownFields
 	}
 	if err := ValidateLaneOpen(req); err != nil {
 		return err
@@ -1134,6 +1228,12 @@ func ValidateFrameForSession(f *edgev1.EdgeDeliveryFrameV1, s Session) error {
 func ValidateAck(a *edgev1.EdgeDeliveryAckV1, s Session, maxDispositions, maxDispositionBytes int) error {
 	if a == nil {
 		return ErrNilRecord
+	}
+	// Frozen-ABI unknown-field rejection, recursively (so a nested EdgeRecordDisposition is covered
+	// too). This matters most for a CUMULATIVE ack: without it an older sender reclaims spool state
+	// while silently ignoring a future/unsupported qualifier it never evaluated.
+	if hasUnknownFields(a) {
+		return ErrUnknownFields
 	}
 	if !bytes.Equal(a.GetSpoolId(), s.SpoolID) || !bytes.Equal(a.GetSessionNonce(), s.Nonce) {
 		return ErrAckBinding
