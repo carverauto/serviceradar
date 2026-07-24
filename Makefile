@@ -626,17 +626,32 @@ generate-proto-elixir: install-protoc-gen-elixir ## Generate Elixir code from pr
 		mix format --force "$(abspath $(ELIXIR_PROTO_OUT))/**/*.pb.ex"
 	@echo "$(COLOR_BOLD)Generated Elixir protobuf code under $(ELIXIR_PROTO_OUT)$(COLOR_RESET)"
 
+.PHONY: vcs-drift-preflight
+vcs-drift-preflight: ## Fail BEFORE any generation if the drift guards cannot observe the tree
+	@if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+		echo "$(COLOR_BOLD)Drift guard cannot run: git status is unavailable here (e.g. a non-colocated jj workspace).$(COLOR_RESET)"; \
+		echo "These guards compare an IN-PLACE regeneration against the VCS working tree, so without git they would pass vacuously."; \
+		echo "Nothing has been regenerated; the working tree is untouched."; \
+		exit 1; \
+	fi
+
 .PHONY: verify-proto-elixir
-verify-proto-elixir: generate-proto-elixir verify-proto-edge-elixir ## Fail if regenerated Elixir bindings differ from the checked-in tree (CI drift guard)
-	@dirty="$$(git status --porcelain --untracked-files=all -- $(ELIXIR_PROTO_OUT))"; \
+verify-proto-elixir: vcs-drift-preflight ## Fail if regenerated Elixir bindings differ from the checked-in tree (CI drift guard)
+	@# Sequential sub-make: GNU Make may run SIBLING prerequisites concurrently under -j, so the
+	@# preflight above must be the only prerequisite and the mutating steps must come after it.
+	@$(MAKE) generate-proto-elixir
+	@$(MAKE) verify-proto-edge-elixir
+	@dirty="$$(git status --porcelain --untracked-files=all -- $(ELIXIR_PROTO_OUT))" || exit 1; \
 	if [ -n "$$dirty" ]; then \
 		echo "$(COLOR_BOLD)Elixir protobuf bindings are out of sync with proto/. Run 'make generate-proto-elixir' and commit the result.$(COLOR_RESET)"; \
 		echo "$$dirty"; git --no-pager diff -- $(ELIXIR_PROTO_OUT); exit 1; \
 	fi
 
 .PHONY: verify-proto-go
-verify-proto-go: generate-proto verify-proto-edge-go ## Fail if regenerated Go bindings differ from the checked-in tree (CI drift guard)
-	@dirty="$$(git status --porcelain --untracked-files=all -- 'proto/*.pb.go' 'proto/**/*.pb.go')"; \
+verify-proto-go: vcs-drift-preflight ## Fail if regenerated Go bindings differ from the checked-in tree (CI drift guard)
+	@$(MAKE) generate-proto
+	@$(MAKE) verify-proto-edge-go
+	@dirty="$$(git status --porcelain --untracked-files=all -- 'proto/*.pb.go' 'proto/**/*.pb.go')" || exit 1; \
 	if [ -n "$$dirty" ]; then \
 		echo "$(COLOR_BOLD)Go protobuf bindings are out of sync with proto/. Run 'make generate-proto' and commit the result.$(COLOR_RESET)"; \
 		echo "$$dirty"; git --no-pager diff -- 'proto/*.pb.go' 'proto/**/*.pb.go'; exit 1; \

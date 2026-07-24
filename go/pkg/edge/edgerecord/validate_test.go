@@ -742,3 +742,224 @@ func TestSemanticDigestPresence(t *testing.T) {
 		t.Fatal("present-5 vs present-zero authority_epoch must differ in the digest")
 	}
 }
+
+// The RETURN path is part of the same frozen ABI: both ACK validators must reject recursively
+// retained unknown fields. Without this an older sender reclaims spool state while silently
+// ignoring a future/unsupported qualifier it never evaluated.
+func TestAckValidatorsRejectRetainedUnknownFields(t *testing.T) {
+	e5 := mustUUID(t)
+	sess := Session{
+		SpoolID: mustUUID(t), Nonce: mustUUID(t), NextSequence: 6, HighestSent: 5, ResolvedThrough: 4,
+		SentEvents: map[uint64][]byte{5: e5},
+	}
+	ack := &edgev1.EdgeDeliveryAckV1{
+		SpoolId: sess.SpoolID, SessionNonce: sess.Nonce, ResolvedThroughSequence: 5,
+		Dispositions: []*edgev1.EdgeRecordDisposition{
+			{Sequence: 5, EventId: e5, Kind: edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE},
+		},
+	}
+	// Control: the ack validates before any unknown field is introduced.
+	if err := ValidateAck(ack, sess, 100, 1<<16); err != nil {
+		t.Fatalf("control ack must validate: %v", err)
+	}
+
+	// ROOT-level ordinary unknown field 15 (0x78 0x01), retained by proto.Unmarshal.
+	rootUnknown := reparseWithSuffix(t, ack, []byte{0x78, 0x01})
+	if len(rootUnknown.ProtoReflect().GetUnknown()) == 0 {
+		t.Fatal("Go must RETAIN the unknown field so validation can see it")
+	}
+	if err := ValidateAck(rootUnknown, sess, 100, 1<<16); !errors.Is(err, ErrUnknownFields) {
+		t.Fatalf("ack with a root unknown field = %v, want ErrUnknownFields", err)
+	}
+
+	// NESTED unknown field inside an EdgeRecordDisposition: the check must be recursive.
+	nested := proto.Clone(ack).(*edgev1.EdgeDeliveryAckV1)
+	nestedDisp := reparseWithSuffix(t, nested.GetDispositions()[0], []byte{0x78, 0x01})
+	nested.Dispositions = []*edgev1.EdgeRecordDisposition{nestedDisp}
+	if err := ValidateAck(nested, sess, 100, 1<<16); !errors.Is(err, ErrUnknownFields) {
+		t.Fatalf("ack with a NESTED unknown field = %v, want ErrUnknownFields", err)
+	}
+
+	// The lane-open ACK shares the policy.
+	req := &edgev1.EdgeRecordLaneOpen{
+		RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+		TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
+		SpoolId:      sess.SpoolID, SequenceBase: 1, FirstUnresolvedSequence: 1,
+		SessionNonce: sess.Nonce, RequestedByteCredits: 1 << 20, RequestedFrameCredits: 256,
+	}
+	laneAck := &edgev1.EdgeRecordLaneOpenAck{
+		RouteProfile: req.GetRouteProfile(), TrafficClass: req.GetTrafficClass(),
+		SpoolId: sess.SpoolID, SessionNonce: sess.Nonce,
+		GrantedByteCredits: 1 << 20, GrantedFrameCredits: 256,
+	}
+	if err := ValidateLaneOpenAck(reparseWithSuffix(t, laneAck, []byte{0x78, 0x01}), req); !errors.Is(err, ErrUnknownFields) {
+		t.Fatalf("lane-open ack with an unknown field = %v, want ErrUnknownFields", err)
+	}
+}
+
+// reparseWithSuffix marshals m, appends raw wire bytes, and re-parses so the extra bytes are
+// RETAINED as unknown fields exactly as they would arrive from a future peer.
+func reparseWithSuffix[T proto.Message](t *testing.T, m T, suffix []byte) T {
+	t.Helper()
+
+	raw, err := proto.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	out, ok := m.ProtoReflect().Type().New().Interface().(T)
+	if !ok {
+		t.Fatal("unexpected message type")
+	}
+
+	if err := proto.Unmarshal(append(raw, suffix...), out); err != nil {
+		t.Fatalf("Go must RETAIN a well-formed unknown field, not reject it: %v", err)
+	}
+
+	return out
+}
+
+// The gateway-to-agent envelope and the grammar-covered plan/recovery validators must reject
+// recursively retained unknown fields too, or the return path and the content-addressed plan path
+// stay asymmetric with the recursive client-message boundary.
+func TestServerWrapperAndGrammarValidatorsRejectUnknownFields(t *testing.T) {
+	unknown := []byte{0x78, 0x01} // ordinary field 15, varint
+	group := []byte{0x33, 0x34}   // well-formed unknown GROUP (field 6)
+
+	// --- server envelope: unknown bytes live on the WRAPPER, not the extracted ack ---
+	e5 := mustUUID(t)
+	sess := Session{
+		SpoolID: mustUUID(t), Nonce: mustUUID(t), NextSequence: 6, HighestSent: 5, ResolvedThrough: 4,
+		SentEvents: map[uint64][]byte{5: e5},
+	}
+	ack := &edgev1.EdgeDeliveryAckV1{
+		SpoolId: sess.SpoolID, SessionNonce: sess.Nonce, ResolvedThroughSequence: 5,
+		Dispositions: []*edgev1.EdgeRecordDisposition{
+			{Sequence: 5, EventId: e5, Kind: edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE},
+		},
+	}
+	server := &edgev1.EdgeRecordServerMessage{Payload: &edgev1.EdgeRecordServerMessage_Ack{Ack: ack}}
+
+	if err := ValidateServerMessage(server); err != nil {
+		t.Fatalf("control server message must validate: %v", err)
+	}
+
+	for name, suffix := range map[string][]byte{"ordinary": unknown, "group": group} {
+		tainted := reparseWithSuffix(t, server, suffix)
+		if len(tainted.ProtoReflect().GetUnknown()) == 0 {
+			t.Fatalf("%s: Go must RETAIN the wrapper unknown bytes", name)
+		}
+		// The inner ack alone is CLEAN -- which is exactly why the wrapper needs its own boundary.
+		if err := ValidateAck(tainted.GetAck(), sess, 100, 1<<16); err != nil {
+			t.Fatalf("%s: inner ack unexpectedly rejected: %v", name, err)
+		}
+		if err := ValidateServerMessage(tainted); !errors.Is(err, ErrUnknownFields) {
+			t.Fatalf("%s: wrapper unknown field = %v, want ErrUnknownFields", name, err)
+		}
+	}
+
+	// --- grammar-covered plan / recovery validators ---
+	header, pages := buildPlan(t, mustUUID(t), d32(0x77), [][]uint64{{256, 256}, {512}})
+	if err := ValidatePlanHeader(header); err != nil {
+		t.Fatalf("control plan header must validate: %v", err)
+	}
+
+	if err := ValidatePlanHeader(reparseWithSuffix(t, header, unknown)); !errors.Is(err, ErrUnknownFields) {
+		t.Fatalf("plan header with unknown field must be rejected before hashing")
+	}
+
+	taintedPages := append([]*edgev1.ScheduledPlanPageV1{}, pages...)
+	taintedPages[0] = reparseWithSuffix(t, pages[0], unknown)
+
+	if err := ValidatePlanPages(header, taintedPages); !errors.Is(err, ErrUnknownFields) {
+		t.Fatalf("plan page with unknown field must be rejected before hashing")
+	}
+}
+
+// The server envelope must carry exactly ONE SET variant, and the exactly-one-OCCURRENCE rule needs
+// a RAW boundary because the decoded struct has already collapsed duplicates last-one-wins.
+func TestValidateServerMessageOneofAndRawEnvelope(t *testing.T) {
+	if err := ValidateServerMessage(nil); !errors.Is(err, ErrNilRecord) {
+		t.Fatalf("nil wrapper = %v, want ErrNilRecord", err)
+	}
+	// Unset oneof.
+	if err := ValidateServerMessage(&edgev1.EdgeRecordServerMessage{}); !errors.Is(err, ErrNilRecord) {
+		t.Fatalf("unset payload = %v, want ErrNilRecord", err)
+	}
+	// TYPED-NIL inner messages: the variant is set but carries nothing to validate.
+	typedNils := []*edgev1.EdgeRecordServerMessage{
+		{Payload: &edgev1.EdgeRecordServerMessage_Ack{Ack: nil}},
+		{Payload: &edgev1.EdgeRecordServerMessage_LaneOpenAck{LaneOpenAck: nil}},
+	}
+	for i, m := range typedNils {
+		if err := ValidateServerMessage(m); !errors.Is(err, ErrNilRecord) {
+			t.Fatalf("typed-nil variant %d = %v, want ErrNilRecord", i, err)
+		}
+	}
+	// Control: a set variant validates.
+	ok := &edgev1.EdgeRecordServerMessage{
+		Payload: &edgev1.EdgeRecordServerMessage_Ack{Ack: &edgev1.EdgeDeliveryAckV1{}},
+	}
+	if err := ValidateServerMessage(ok); err != nil {
+		t.Fatalf("control server message = %v, want nil", err)
+	}
+
+	// RAW envelope: exactly one payload occurrence.
+	laneAck := mustMarshalT(t, &edgev1.EdgeRecordServerMessage{
+		Payload: &edgev1.EdgeRecordServerMessage_LaneOpenAck{LaneOpenAck: &edgev1.EdgeRecordLaneOpenAck{}},
+	})
+	ackRaw := mustMarshalT(t, ok)
+
+	if err := ValidateServerMessageRawEnvelope(ackRaw); err != nil {
+		t.Fatalf("single-payload envelope = %v, want nil", err)
+	}
+	// Concatenation decodes last-one-wins into ONE valid ack, so only the raw check can see it.
+	dup := append(append([]byte{}, laneAck...), ackRaw...)
+
+	var decoded edgev1.EdgeRecordServerMessage
+	if err := proto.Unmarshal(dup, &decoded); err != nil {
+		t.Fatalf("duplicate envelope must still DECODE (last-one-wins): %v", err)
+	}
+
+	if err := ValidateServerMessage(&decoded); err != nil {
+		t.Fatalf("decoded duplicate looks clean (%v) -- which is why the raw check exists", err)
+	}
+
+	if err := ValidateServerMessageRawEnvelope(dup); !errors.Is(err, ErrRecordDecode) {
+		t.Fatalf("duplicate payload occurrence = %v, want ErrRecordDecode", err)
+	}
+	// Zero payloads is equally invalid.
+	if err := ValidateServerMessageRawEnvelope(nil); !errors.Is(err, ErrRecordDecode) {
+		t.Fatalf("empty envelope = %v, want ErrRecordDecode", err)
+	}
+}
+
+// ValidatePlanPages consumes the header's declared fields, so a tainted header must not drive the
+// chain check just because the pages themselves are clean.
+func TestValidatePlanPagesRejectsUnknownFieldsOnHeader(t *testing.T) {
+	header, pages := buildPlan(t, mustUUID(t), d32(0x77), [][]uint64{{256, 256}, {512}})
+	tainted := reparseWithSuffix(t, header, []byte{0x78, 0x01})
+
+	if err := ValidatePlanHeader(tainted); !errors.Is(err, ErrUnknownFields) {
+		t.Fatalf("precondition: tainted header must be rejected, got %v", err)
+	}
+
+	if err := ValidatePlanPages(tainted, pages); !errors.Is(err, ErrUnknownFields) {
+		t.Fatalf("ValidatePlanPages(tainted header, clean pages) = %v, want ErrUnknownFields", err)
+	}
+
+	if err := ValidatePlanPages(header, pages); err != nil {
+		t.Fatalf("control plan must validate: %v", err)
+	}
+}
+
+func mustMarshalT(t *testing.T, m proto.Message) []byte {
+	t.Helper()
+
+	b, err := proto.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	return b
+}

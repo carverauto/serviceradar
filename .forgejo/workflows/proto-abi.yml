@@ -29,6 +29,7 @@ on:
       - 'elixir/serviceradar_core/lib/serviceradar/proto/**'
       - 'elixir/serviceradar_core/lib/serviceradar/edge/**'
       - 'elixir/serviceradar_core/test/serviceradar/proto/**'
+      - 'elixir/serviceradar_core/test/serviceradar/edge/**'
       - 'elixir/serviceradar_core/mix.exs'
       - 'elixir/serviceradar_core/mix.lock'
       - 'elixir/serviceradar_core/.formatter.exs'
@@ -46,6 +47,7 @@ on:
       - 'elixir/serviceradar_core/lib/serviceradar/proto/**'
       - 'elixir/serviceradar_core/lib/serviceradar/edge/**'
       - 'elixir/serviceradar_core/test/serviceradar/proto/**'
+      - 'elixir/serviceradar_core/test/serviceradar/edge/**'
       - 'elixir/serviceradar_core/mix.exs'
       - 'elixir/serviceradar_core/mix.lock'
       - 'elixir/serviceradar_core/.formatter.exs'
@@ -133,3 +135,9 @@ jobs:
       - name: Edge ABI golden parity (Elixir cross-language)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/proto/edge_v1_golden_test.exs
+      # The stacked PRs in this series are based on each other, NOT on `staging`, so the
+      # general Elixir Quality workflow (filtered to base=staging) never runs for them.
+      # The wire-parity proof must therefore be a REQUIRED status in this stack-aware job.
+      - name: Edge wire-hygiene parity (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/wire_validate_test.exs
