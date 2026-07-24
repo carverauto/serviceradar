@@ -694,6 +694,13 @@ func validatePayloadBinding(r *edgev1.EdgeRecordV1) error {
 	if len(r.GetPayloadSha256()) != sha256Len || !bytes.Equal(sum[:], r.GetPayloadSha256()) {
 		return ErrPayloadDigest
 	}
+	// GATE: knownCompression is the single authority for which codecs are accepted, and it runs
+	// BEFORE the per-codec logic below. The switch then only decides HOW to validate an accepted
+	// codec, so the accepted SET lives in exactly one place -- the same place the cross-runtime
+	// enum-policy manifest reads it from.
+	if !knownCompression(r.GetCompression()) {
+		return ErrCompression
+	}
 	//nolint:exhaustive // fail-closed: the default arm rejects any unlisted/unsupported value
 	switch r.GetCompression() {
 	case edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_NONE:
@@ -1432,8 +1439,7 @@ func validateProducerContext(p *edgev1.EdgeProducerContext) error {
 	if p == nil {
 		return ErrProducerContext
 	}
-	if p.GetOriginKind() != edgev1.EdgeOriginKind_EDGE_ORIGIN_KIND_AGENT &&
-		p.GetOriginKind() != edgev1.EdgeOriginKind_EDGE_ORIGIN_KIND_CLUSTER_SERVICE {
+	if !knownOriginKind(p.GetOriginKind()) {
 		return ErrOrigin
 	}
 	if len(p.GetProducerInstanceId()) == 0 {
@@ -1463,6 +1469,34 @@ func validateProducerContext(p *edgev1.EdgeProducerContext) error {
 		return fmt.Errorf("%w: missing/malformed package identity", ErrProducerContext)
 	}
 	return nil
+}
+
+// knownOriginKind is the single authority for which origin kinds are accepted. It is used by
+// production validation AND by the cross-runtime enum-policy manifest, so a policy edit cannot
+// leave the manifest (and therefore the Elixir parity assertion) silently stale.
+// knownCompression is the single authority for accepted compression codecs: it mirrors the arms of
+// the payload switch below, whose default returns ErrCompression. Shared with the enum-policy
+// manifest so a codec change cannot leave the cross-runtime parity fixture stale.
+func knownCompression(v edgev1.EdgeRecordCompression) bool {
+	//nolint:exhaustive // fail-closed: the default arm rejects any unlisted/unsupported value
+	switch v {
+	case edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_NONE,
+		edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_ZSTD:
+		return true
+	default:
+		return false
+	}
+}
+
+func knownOriginKind(v edgev1.EdgeOriginKind) bool {
+	//nolint:exhaustive // fail-closed: the default arm rejects any unlisted/unsupported value
+	switch v {
+	case edgev1.EdgeOriginKind_EDGE_ORIGIN_KIND_AGENT,
+		edgev1.EdgeOriginKind_EDGE_ORIGIN_KIND_CLUSTER_SERVICE:
+		return true
+	default:
+		return false
+	}
 }
 
 func knownPayloadFamily(v edgev1.EdgeRecordPayloadFamily) bool {
