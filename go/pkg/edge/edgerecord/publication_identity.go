@@ -32,7 +32,7 @@ import (
 // gateway derives when publishing a record to JetStream. They are PROJECT-OWNED, field-framed
 // codecs (NOT a protobuf message): each transcript leads with a string domain tag, a u64
 // version, then length-framed / fixed-width fields, so Go and Elixir
-// (Serviceradar.Edge.PublicationIdentity) produce byte-identical output. Nats-Msg-Id and
+// (ServiceRadar.Edge.PublicationIdentity) produce byte-identical output. Nats-Msg-Id and
 // Sr-Edge-Delivery-Id are base64url(no-pad) of the SHA-256 of the transcript; Sr-Edge-
 // Transport-Provenance is base64url(no-pad) of the framed envelope itself (not a digest).
 //

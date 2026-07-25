@@ -144,7 +144,7 @@
   clean-temp `verify-proto-edge-elixir` path BEFORE formatting/comparison so the byte-exact drift
   gate stays meaningful, and it is IDEMPOTENT and FAILS CLOSED on generator-version,
   module-inventory, or source-shape drift. (2) the SAME explicit semantic validator as Go
-  (`Serviceradar.Edge.SemanticValidate`, mirroring `knownTrafficClass`/`knownRouteProfile`/...,
+  (`ServiceRadar.Edge.SemanticValidate`, mirroring `knownTrafficClass`/`knownRouteProfile`/...,
   with UNSPECIFIED excluded exactly as Go excludes it) then REJECTS a retained non-member on the
   DECODED struct, where the effective value is already resolved, so a retained negative/unknown enum
   can never be silently ADMITTED. Cross-language N (known, accepted) and negative/unknown (rejected)
@@ -158,7 +158,7 @@
   per the stage/slot, never prejudged as quarantine here) while leaving genuine codegen/metadata
   failures `:systemic`, so no decodable slot is retryable forever; it too is a PREREQUISITE
   of task 1.16. ADDITIONALLY, a project-owned RECURSIVE STRUCTURAL validator
-  (`Serviceradar.Edge.WireValidate`, run on the raw bytes BEFORE the generated decoder) SHALL
+  (`ServiceRadar.Edge.WireValidate`, run on the raw bytes BEFORE the generated decoder) SHALL
   REJECT, RECURSIVELY at EVERY
   message depth -- the outer frame, the inner record, and every nested capability/message -- the FULL
   set of wire-hygiene inputs that protobuf-elixir MASKS or SILENTLY DISCARDS while Go REJECTS them:
@@ -348,7 +348,7 @@
   kinds, both delivery-proof states, and unknown-version fail-closed rejection.
   IMPLEMENTED as the single-source pure codec in `usp-v2-04-publication-identity`
   (`go/pkg/edge/edgerecord/publication_identity.go` +
-  `Serviceradar.Edge.PublicationIdentity`): validated encoders, a strict decoder
+  `ServiceRadar.Edge.PublicationIdentity`): validated encoders, a strict decoder
   (canonical base64url incl. CR/LF rejection, exact EOF, bounded length prefixes,
   known domain/version/kind/mode), a `ValidateHeaderSet` trust-context validator,
   and Go/Elixir vectors covering every mode, raw preimages, values above 2^32,
@@ -372,7 +372,7 @@
   and applies the credential-vs-principal comparison ONLY on the service-ingress
   path -- it NEVER compares the gateway credential to the agent principal for edge
   records; (d) route ALL untrusted edge-protobuf decoding at these boundaries
-  through the total `Serviceradar.Edge.WireDecode` boundary, which exposes ONLY a
+  through the total `ServiceRadar.Edge.WireDecode` boundary, which exposes ONLY a
   FINITE set of stage decoders (`decode_client_message/1`, `decode_frame/1`,
   `decode_record/1`) -- the generic decode engine is PRIVATE, so a caller-defined
   struct decoder can never yield `{:ok, fake_struct}` -- each enforcing its FROZEN raw

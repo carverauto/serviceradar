@@ -1,4 +1,4 @@
-defmodule Serviceradar.Edge.SemanticDigest do
+defmodule ServiceRadar.Edge.SemanticDigest do
   @moduledoc """
   Elixir peer of `go/pkg/edge/edgerecord.SemanticEnvelopeDigest`. It recomputes
   the immutable semantic-envelope digest of an `EdgeRecordV1` from the decoded
@@ -10,7 +10,7 @@ defmodule Serviceradar.Edge.SemanticDigest do
   serialization at any depth (protobuf has no canonical wire form).
   """
 
-  alias Serviceradar.Edge.ClaimsFraming
+  alias ServiceRadar.Edge.ClaimsFraming
   alias Serviceradar.Edge.V1.EdgeRecordCompression
   alias Serviceradar.Edge.V1.EdgeRecordPayloadFamily
   alias Serviceradar.Edge.V1.EdgeRecordRouteProfile

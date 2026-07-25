@@ -1,4 +1,4 @@
-defmodule Serviceradar.Edge.WireValidate do
+defmodule ServiceRadar.Edge.WireValidate do
   @moduledoc """
   Project-owned RECURSIVE protobuf STRUCTURAL wire-hygiene validator for edge messages (task 1.5).
 
@@ -17,7 +17,7 @@ defmodule Serviceradar.Edge.WireValidate do
   nested capability carries any of them decodes `{:ok, ...}` in Elixir while the Go side rejects it
   -- an admit-vs-reject divergence on a durable-record boundary.
 
-  `Serviceradar.Edge.WireDecode`'s scanner closes these at the FRAME TOP level only. This module
+  `ServiceRadar.Edge.WireDecode`'s scanner closes these at the FRAME TOP level only. This module
   closes them at EVERY message depth by walking the raw bytes against the generated schema
   (`__message_props__/0`), recursing ONLY into fields the schema marks as embedded messages (so a
   `bytes`/`string` field whose content happens to look like protobuf is never misparsed).
@@ -38,7 +38,7 @@ defmodule Serviceradar.Edge.WireValidate do
 
   Value-level verdicts (unknown/negative enums, version/unit/range/bound checks) therefore belong to
   the SEMANTIC validator that runs on the DECODED struct, where the effective value is already
-  resolved by the real decoder. See `Serviceradar.Edge.WireDecode` for the decode-stage contract.
+  resolved by the real decoder. See `ServiceRadar.Edge.WireDecode` for the decode-stage contract.
 
   ## Outcomes
 

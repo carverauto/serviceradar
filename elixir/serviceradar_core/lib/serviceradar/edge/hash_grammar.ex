@@ -1,4 +1,4 @@
-defmodule Serviceradar.Edge.HashGrammar do
+defmodule ServiceRadar.Edge.HashGrammar do
   @moduledoc """
   Elixir peer of the plan/recovery digest grammars in
   `go/pkg/edge/edgerecord` (plan.go, recovery.go). The framing MUST match the Go

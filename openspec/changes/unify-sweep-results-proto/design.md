@@ -857,7 +857,7 @@ three accumulators to hold the zero 32-byte value, matching the empty
 `ScheduledPlanHeaderV1`/commitment representation. Digest version, leaf encoding, and
 empty/partial/duplicate/
 wrong-range rejection have independent Go/Elixir golden fixtures
-(`Serviceradar.Edge.HashGrammar.mtr_completion_root` / `mtr_completion_verify`).
+(`ServiceRadar.Edge.HashGrammar.mtr_completion_root` / `mtr_completion_verify`).
 
 The agent emits `SweepExecutionEventV1` start/progress evidence and, when it can,
 one stable completed/aborted terminal evidence event per attempt. Those events
@@ -2709,7 +2709,7 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
      (bytes), `page_sha256` (bytes).
    - ResolvedScopeDigest (body kind 2): `version` (u64), `2` (u64), `recovery_id` (bytes),
      `manifest_root_sha256` (bytes), `applied_through_sequence` (u64).
-   Go and Elixir (`Serviceradar.Edge.HashGrammar`) reproduce every self-hash AND scope digest
+   Go and Elixir (`ServiceRadar.Edge.HashGrammar`) reproduce every self-hash AND scope digest
    byte-for-byte; the committed testdata (`tombstone_scope.bin` / `manifest_page_scope.bin` /
    `resolved_scope.bin` + the plan/manifest `*.bin`) are the cross-language vectors.
 5. MTR completion proof -- `u64 MtrCompletionDigestVersion = 2`; MATCHES the code exactly
