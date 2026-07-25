@@ -311,6 +311,15 @@ jobs:
           SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
           SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
           SERVICERADAR_SKIP_UNREACHABLE_INTEGRATION_DB: "1"
+          # sr-testing NATS JetStream fixture (namespace sr-testing, svc
+          # sr-testing-nats-ext, NodePort 31819). When these are absent the e2e
+          # test skips itself rather than failing the job.
+          NATS_TEST_HOST: ${{ secrets.NATS_TEST_HOST }}
+          NATS_TEST_PORT: ${{ secrets.NATS_TEST_PORT }}
+          NATS_TEST_SERVER_NAME: ${{ secrets.NATS_TEST_SERVER_NAME }}
+          NATS_TEST_CA_CERT: ${{ secrets.NATS_TEST_CA_CERT }}
+          NATS_TEST_CLIENT_CERT: ${{ secrets.NATS_TEST_CLIENT_CERT }}
+          NATS_TEST_CLIENT_KEY: ${{ secrets.NATS_TEST_CLIENT_KEY }}
         run: |
           set -euo pipefail
 
@@ -326,6 +335,36 @@ jobs:
           export CNPG_CA_FILE="${ca_file}"
           export SERVICERADAR_TEST_DATABASE_CA_CERT_FILE="${ca_file}"
           export SRQL_TEST_DATABASE_CA_CERT_FILE="${ca_file}"
+
+          # NATS mTLS material -> NATS_TEST_CERT_DIR/{ca,client}.crt + client.key.
+          # Leaving NATS_TEST_CERT_DIR unset is a supported state: the e2e test
+          # skips when it (or NATS_TEST_HOST) is empty.
+          if [ -n "${NATS_TEST_HOST:-}" ] && [ -n "${NATS_TEST_CA_CERT:-}" ] &&
+            [ -n "${NATS_TEST_CLIENT_CERT:-}" ] && [ -n "${NATS_TEST_CLIENT_KEY:-}" ]; then
+            nats_cert_dir="${RUNNER_TEMP}/sr-testing-nats-certs"
+            mkdir -p "${nats_cert_dir}"
+            chmod 700 "${nats_cert_dir}"
+            printf "%s" "${NATS_TEST_CA_CERT}" > "${nats_cert_dir}/ca.crt"
+            printf "%s" "${NATS_TEST_CLIENT_CERT}" > "${nats_cert_dir}/client.crt"
+            printf "%s" "${NATS_TEST_CLIENT_KEY}" > "${nats_cert_dir}/client.key"
+            chmod 600 "${nats_cert_dir}"/*
+            export NATS_TEST_CERT_DIR="${nats_cert_dir}"
+            export NATS_TEST_PORT="${NATS_TEST_PORT:-31819}"
+            # Authenticates the fixture: the CA is only meaningful with verify_peer
+            # plus the expected server name.
+            export NATS_TEST_SERVER_NAME="${NATS_TEST_SERVER_NAME:-sr-testing-nats}"
+          elif [ -n "${NATS_TEST_HOST:-}${NATS_TEST_CA_CERT:-}${NATS_TEST_CLIENT_CERT:-}${NATS_TEST_CLIENT_KEY:-}" ]; then
+            # PARTIAL configuration: fail loudly. A silent skip here would let a
+            # renamed or deleted secret quietly disable the integration coverage
+            # this job exists to provide.
+            echo "::error::sr-testing NATS fixture is PARTIALLY configured. Set all of" \
+              "NATS_TEST_HOST, NATS_TEST_CA_CERT, NATS_TEST_CLIENT_CERT," \
+              "NATS_TEST_CLIENT_KEY (and optionally NATS_TEST_PORT," \
+              "NATS_TEST_SERVER_NAME), or none of them." >&2
+            exit 1
+          else
+            echo "sr-testing NATS fixture not configured; the NATS e2e test will skip" >&2
+          fi
 
           ./scripts/sweep-stale-core-test-dbs.sh "${SRQL_TEST_ADMIN_URL}" 86400
 

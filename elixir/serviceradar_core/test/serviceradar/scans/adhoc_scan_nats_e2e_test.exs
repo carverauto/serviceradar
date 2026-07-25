@@ -8,7 +8,19 @@ defmodule ServiceRadar.Scans.AdhocScanNatsE2ETest do
   exercising the full durable-results path (publish -> JetStream -> processor ->
   `adhoc_scan_results`) rather than any single unit.
 
-  Requires NATS + DB and is excluded by default (`:external`). To run:
+  Requires NATS + DB. The broker is the `sr-testing-nats` fixture in the
+  `sr-testing` namespace (NodePort 31819, mTLS via the `sr-testing-nats-tls`
+  secret, whose `ca.crt`/`client.crt`/`client.key` are exactly the three files
+  NATS_TEST_CERT_DIR must contain).
+
+  NOTE on tags: `:external` alone does NOT keep this out of a run. An ExUnit
+  `--include` filter OVERRIDES `--exclude`, so `mix test --include integration`
+  (what scripts/test-integration.sh runs in CI) matches the `:integration` tag
+  and pulls this test in regardless of `:external`. The env guard below is what
+  actually keeps it from failing when the fixture is not wired up -- it SKIPS
+  rather than flunks, so an unconfigured runner is green instead of red.
+
+  To run:
 
       NATS_TEST_HOST=192.168.10.31 NATS_TEST_PORT=31819 \\
       NATS_TEST_CERT_DIR=/path/to/mtls/certs \\
@@ -27,6 +39,25 @@ defmodule ServiceRadar.Scans.AdhocScanNatsE2ETest do
   @moduletag :integration
   @moduletag :external
 
+  # Without the fixture wired up this test used to FLUNK on every CI run
+  # (NATS_TEST_HOST is not set), which is why `CI / build` was red on staging
+  # and on every pull request. Skip instead: configured -> exercised, not
+  # configured -> skipped, never a false red.
+  # Three distinct states, so a lost secret can never masquerade as "no fixture":
+  #   none configured        -> SKIP (untrusted fork / local dev, no secrets at all)
+  #   PARTIALLY configured   -> FAIL, naming the missing variables
+  #   fully configured       -> RUN
+  @nats_vars ["NATS_TEST_HOST", "NATS_TEST_CERT_DIR"]
+  @nats_present Enum.filter(@nats_vars, &(System.get_env(&1) not in [nil, ""]))
+  @nats_missing @nats_vars -- @nats_present
+  @nats_configured @nats_missing == []
+  @nats_partial @nats_present != [] and @nats_missing != []
+
+  # A partial configuration must FAIL rather than skip, so renaming or deleting
+  # one secret on a trusted runner is loud instead of silently disabling this
+  # test. Only a completely unconfigured environment skips.
+  @moduletag skip: not @nats_configured and not @nats_partial
+
   @stream "scan_results"
   @subject_prefix "scans.results"
 
@@ -40,6 +71,13 @@ defmodule ServiceRadar.Scans.AdhocScanNatsE2ETest do
     port = String.to_integer(System.get_env("NATS_TEST_PORT") || "4222")
     cert_dir = require_env("NATS_TEST_CERT_DIR")
 
+    # The server name is what makes the supplied CA meaningful. Under
+    # `verify: :verify_none` the `cacertfile` authenticates nothing, so this test
+    # would pass against ANY TLS-speaking endpoint at the configured address
+    # without ever proving it reached the sr-testing fixture. Default matches
+    # k8s/sr-testing/export-nats-env.sh (NATS_SERVER_NAME=sr-testing-nats).
+    server_name = System.get_env("NATS_TEST_SERVER_NAME") || "sr-testing-nats"
+
     {:ok, conn} =
       Gnat.start_link(%{
         host: host,
@@ -49,7 +87,9 @@ defmodule ServiceRadar.Scans.AdhocScanNatsE2ETest do
           certfile: String.to_charlist(Path.join(cert_dir, "client.crt")),
           keyfile: String.to_charlist(Path.join(cert_dir, "client.key")),
           cacertfile: String.to_charlist(Path.join(cert_dir, "ca.crt")),
-          verify: :verify_none
+          verify: :verify_peer,
+          server_name_indication: String.to_charlist(server_name),
+          depth: 2
         ]
       })
 
@@ -121,5 +161,39 @@ defmodule ServiceRadar.Scans.AdhocScanNatsE2ETest do
       value when is_binary(value) and value != "" -> value
       _ -> flunk("#{name} must be set to run this external NATS test")
     end
+  end
+end
+
+defmodule ServiceRadar.Scans.AdhocScanNatsFixtureConfigTest do
+  @moduledoc """
+  Guards the sr-testing NATS fixture CONFIGURATION itself.
+
+  Deliberately does NOT use `DataCase`: a partial configuration must report which
+  variables are missing even where no database is reachable. Sharing the e2e
+  module's DB-dependent `setup_all` turned this into an "invalid" result whose
+  message was never shown.
+  """
+
+  use ExUnit.Case, async: true
+
+  @nats_vars ["NATS_TEST_HOST", "NATS_TEST_CERT_DIR"]
+  @nats_present Enum.filter(@nats_vars, &(System.get_env(&1) not in [nil, ""]))
+  @nats_missing @nats_vars -- @nats_present
+  @nats_partial @nats_present != [] and @nats_missing != []
+
+  @moduletag :integration
+  @moduletag :external
+  @moduletag skip: not @nats_partial
+
+  test "the sr-testing NATS fixture is fully configured or not configured at all" do
+    flunk(
+      "sr-testing NATS fixture is PARTIALLY configured; missing: " <>
+        Enum.join(@nats_missing, ", ") <>
+        ". Set all of " <>
+        Enum.join(@nats_vars, ", ") <>
+        " (plus NATS_TEST_CA_CERT / NATS_TEST_CLIENT_CERT / NATS_TEST_CLIENT_KEY in CI), " <>
+        "or none of them. A partial configuration must fail rather than silently " <>
+        "skip the integration coverage."
+    )
   end
 end
