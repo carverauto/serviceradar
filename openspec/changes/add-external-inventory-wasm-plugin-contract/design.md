@@ -60,21 +60,36 @@ A generic reconciler matches enabled credential rules to catalog profiles. It va
 
 Rule metadata contains only public `plugin_config`, schedule state, cadence, and a package-integration marker. The producer dispatcher resolves the stored secret reference into endpoint-scoped, short-lived grants immediately before command dispatch.
 
-### Inventory envelope
-A complete inventory producer emits `serviceradar.device_discovery.v1` with:
-- a valid generic source identifier;
-- stable source instance, collection, observed time, content hash, and completion marker;
-- one bounded source object ID per row;
-- a stable integration ID beginning with the source identifier;
-- standard device fields for identity/reconciliation; and
-- optional provider data under a bounded `source_metadata` map.
+### Inventory record stream
+An approved inventory producer opens a host-issued run and emits independently
+bounded binary inventory pages through the agent-owned durable producer sink.
+The agent binds every page to the exact output-contract bundle, package digest,
+assignment, run, authenticated network scope, generic source, and stable source
+instance. Each page carries a stable producer idempotency key, page ordinal and
+content digest, provider cursor/checkpoint, one bounded source object ID per row,
+a stable integration ID beginning with the source identifier, standard device
+fields for identity/reconciliation, and optional provider data under a bounded
+`source_metadata` map. `serviceradar.plugin_result.v1` carries only bounded
+action/check status and never persistent inventory pages.
 
-Only complete snapshots update source presence. Ordinary discovery envelopes continue through canonical discovery without source-snapshot activation. A later complete snapshot marks omitted observations absent but never deletes the canonical device.
+EventWriter stages each PubAcked page incrementally. A bounded terminal manifest
+binds the exact source instance, assignment-authorized coverage scope, page and
+object counts, ordered Merkle/checkpoint root, and provider snapshot token,
+revision, or contract-specific consistency proof. Only a terminal whose declared
+pages, digests, object uniqueness, coverage, and provider proof all validate may
+atomically replace the current source-snapshot pointer and make omission
+authoritative. Missing, partial, aborted, stale, or conflicting runs preserve the
+prior current snapshot. A provider without trustworthy snapshot consistency is
+upsert-only and cannot infer absence or deletion. Ordinary discovery envelopes
+continue through canonical discovery without source-snapshot activation, and
+source omission never deletes the canonical device.
 
 ### DIRE behavior
 The source integration ID remains stable across endpoint, credential, IP, and hostname changes. Existing manufacturer-scoped serial and globally unique MAC evidence may converge observations with another source under normal conflict/cooldown rules. IP and hostname cannot override conflicting strong identities.
 
-Complete plugin inventory upserts do not replace another source's canonical integration identity. Source observations retain provider metadata and follow the winning canonical UID during merges.
+Activated plugin inventory snapshots do not replace another source's canonical
+integration identity. Source observations retain provider metadata and follow
+the winning canonical UID during merges.
 
 ### External release workflow
 One manually dispatched core workflow accepts an allowlisted `carverauto/serviceradar-plugin-*` repository and exact release tag. The unprivileged build checks tag ancestry, uses pinned Go/TinyGo, assembles the bundle with core-owned tooling, and includes conventional `docs/`, `display/`, and `schemas/` resources.
@@ -94,13 +109,19 @@ Its package declares the `opentext-network-automation` provider/source and daily
 - A malformed descriptor could affect operator configuration. Strict parsing, package approval, duplicate detection, and no dynamic code loading constrain this risk.
 - Runtime catalog reads add database work. The initial implementation favors correctness; a package-status/version-keyed cache can be added after measurement.
 - Nested JSON configuration is less ergonomic than custom UI. Schema-driven controls keep the trust boundary simple and can be improved generically.
-- Complete snapshots can be large. Row, metadata, bundle, action-result, and serialized-byte limits remain enforced before activation.
+- Inventory snapshots can be large. Page, record, metadata, run, outstanding-byte,
+  provider-consistency, and terminal-manifest limits remain enforced before
+  activation; neither the guest, agent, gateway, nor EventWriter materializes the
+  whole snapshot in memory.
 
 ## Migration Plan
 1. Land the generic contract with no active external package.
 2. Remove the unmerged provider-specific core modules, docs, fields, workflow, and tests.
 3. Import and approve the first package and verify its descriptor-generated settings.
-4. Create the credential rule and disabled schedule, then run a manual collection.
-5. Verify counts, source observations, DIRE convergence, and redaction before enabling daily cadence.
+4. Create the credential rule and disabled schedule, then run a manual collection
+   through the durable inventory-page ABI.
+5. Verify page replay, crash/resume, terminal completeness, partial-run
+   non-deletion, counts, source observations, DIRE convergence, and redaction
+   before enabling daily cadence.
 
 Rollback revokes the package or disables its schedule/assignment. Existing canonical devices and source observations remain auditable.

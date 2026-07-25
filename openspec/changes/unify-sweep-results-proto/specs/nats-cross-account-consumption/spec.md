@@ -8,7 +8,7 @@ The ServiceRadar runtime SHALL NOT export data streams based on an in-runtime
 customer/tenant identity. Each customer installation owns its NATS durability
 authority; any future cross-cluster northbound export SHALL use a separately
 specified, authenticated, replay-safe integration contract. Authoritative edge
-sweep/MTR result, recovery, and DLQ subjects SHALL NOT be exported across an
+durable-record, recovery, and DLQ subjects SHALL NOT be exported across an
 account or cluster boundary by this change.
 
 #### Scenario: Runtime provisioning evaluates a customer-prefixed export
@@ -18,10 +18,10 @@ account or cluster boundary by this change.
 - **THEN** it SHALL reject the request as outside the installation data-plane
   contract
 
-#### Scenario: Provisioning evaluates an edge result subject
+#### Scenario: Provisioning evaluates an edge record subject
 
-- **WHEN** account configuration is generated for any canonical sweep, MTR,
-  result-recovery, or result-DLQ subject
+- **WHEN** account configuration is generated for any canonical edge-record,
+  recovery, or record-DLQ subject
 - **THEN** it SHALL NOT add an export for that subject
 
 ### Requirement: Platform Imports for Shared Consumers
@@ -29,7 +29,7 @@ account or cluster boundary by this change.
 The runtime SHALL NOT depend on a shared cross-customer platform account or
 imports for persistence consumers. Installation-local consumers SHALL subscribe
 directly to their configured authoritative streams. No import, mapping, source,
-or cross-account subscription SHALL sit between an authoritative edge result
+or cross-account subscription SHALL sit between an authoritative edge record
 PubAck and EventWriter.
 
 #### Scenario: Shared platform import is requested
@@ -39,13 +39,13 @@ PubAck and EventWriter.
 - **THEN** provisioning SHALL reject it
 - **AND** the installation SHALL keep its direct consumer authority
 
-#### Scenario: Shared consumer requests a result import
+#### Scenario: Shared consumer requests a record import
 
 - **WHEN** platform configuration requests an import or subject mapping for a
-  canonical result subject
+  canonical edge-record subject
 - **THEN** provisioning SHALL reject the configuration
 - **AND** the installation-local EventWriter SHALL continue consuming the
-  authoritative physical result streams directly
+  authoritative physical record streams directly
 
 ### Requirement: JetStream mirrors for tenant streams
 
@@ -61,11 +61,11 @@ acceptance into the source PubAck.
   installations
 - **THEN** it SHALL reject the configuration as outside the runtime contract
 
-#### Scenario: Result mirror is requested
+#### Scenario: Record mirror is requested
 
 - **WHEN** provisioning requests a mirror or source whose filter captures any
-  canonical result subject
-- **THEN** readiness SHALL fail and no result publisher SHALL be enabled
+  canonical edge-record subject
+- **THEN** readiness SHALL fail and no record publisher SHALL be enabled
 
 ### Requirement: KV rule stream mirroring
 
@@ -84,8 +84,8 @@ configuration contract, not implicit KV mirroring.
 ### Requirement: Tenant Identity from Subject Prefix
 
 Runtime consumers SHALL NOT derive customer/tenant identity or database authority
-from a subject prefix. Installation-local result consumers SHALL validate the
-gateway-attested envelope and collection proof and SHALL use `network_scope_id`
+from a subject prefix. Installation-local record consumers SHALL validate the
+authoritative `EdgeRecordV1` and its signed grants and SHALL use `network_scope_id`
 only as the site/address-space component of domain identity. They SHALL NOT infer
 network scope, agent, traffic class, or authorization context from a subject token.
 
@@ -96,32 +96,33 @@ network scope, agent, traffic class, or authorization context from a subject tok
   policy
 - **AND** SHALL NOT use the prefix to select a database schema or authorization
 
-#### Scenario: Installation-local result is consumed
+#### Scenario: Installation-local record is consumed
 
-- **GIVEN** EventWriter receives `telemetry.sweep.v1.bulk.p07`
+- **GIVEN** EventWriter receives `telemetry.edge-record.v1.bulk.p07`
 - **WHEN** it validates the persisted message
 - **THEN** it SHALL derive network scope, authenticated agent, traffic class, and
-  authorization from the immutable gateway envelope and proof
+  authorization from the verified authoritative record and signed grants
 - **AND** `network_scope_id` SHALL distinguish sites or overlapping RFC1918
   address spaces without becoming a SaaS customer identity
 
 ## ADDED Requirements
 
-### Requirement: Authoritative edge results remain in installation NATS authority
+### Requirement: Authoritative edge records remain in installation NATS authority
 
-Sweep, MTR, result-recovery, and result-DLQ streams SHALL be published and
+All approved edge durable-record, recovery, and record-DLQ streams SHALL be published and
 consumed directly inside the single-customer installation's configured NATS
 durability authority. They SHALL use fixed installation-local subjects,
 class-separated physical streams and durables, one explicit logical-to-physical
 stream map, and installation-level admission. They SHALL NOT require a
-  per-customer, per-network-scope, per-agent, per-execution, or per-logical-partition
+per-customer, per-network-scope, per-agent, per-producer-assignment,
+per-run/execution, per-output-contract, per-package, or per-logical-partition
 account, durable, connection, or process. This change SHALL NOT create a
-cross-cluster result aggregation path.
+cross-cluster durable-record aggregation path.
 
-#### Scenario: Many result partitions are active
+#### Scenario: Many record partitions are active
 
 - **GIVEN** installation-local processing covers many logical partitions,
-  network scopes, agents, and executions
+  network scopes, agents, producer assignments, and runs/executions
 - **WHEN** EventWriter replicas scale out
 - **THEN** they SHALL share bounded durable, connection, and process pools aligned
   with the class-separated physical stream shards

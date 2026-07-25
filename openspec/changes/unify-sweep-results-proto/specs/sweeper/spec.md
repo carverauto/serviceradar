@@ -3,13 +3,17 @@
 ## MODIFIED Requirements
 
 ### Requirement: Sweep Results Push to Agent-Gateway
-The agent SHALL stream sweep observations to the agent-gateway as versioned,
-byte-bounded protobuf frames while a sweep is running. It SHALL durably spool
-each frame before transmission, retain it through restart until cumulatively
-acknowledged, and SHALL NOT require full-scan result materialization. An
+The agent's producer adapter SHALL encode each sweep observation once as a
+bounded `SweepObservationBatchV1` contract payload; the agent-owned sink SHALL
+construct and encode the versioned, byte-bounded `EdgeRecordV1` and carry those
+exact bytes to the agent-gateway inside `EdgeDeliveryFrameV1` while a sweep is
+running. It SHALL durably spool each
+record plus its delivery binding before transmission, retain it through restart
+until cumulatively acknowledged, and SHALL NOT require full-scan result
+materialization. An
 execution MAY be long-lived, but every start, data, progress, trace, and terminal
-frame SHALL remain an independently bounded microbatch with its own durable
-spool and acknowledgement lifecycle.
+record SHALL remain an independently bounded microbatch with its own durable
+delivery and acknowledgement lifecycle.
 
 #### Scenario: Agent starts a sweep execution stream
 - **GIVEN** an enabled agent starts a sweep execution shard
@@ -82,21 +86,28 @@ spool and acknowledgement lifecycle.
 - **THEN** the agent SHALL NOT emit periodic sweep result frames
 
 ### Requirement: Gateway Forwards Sweep Results to Core
-The agent-gateway SHALL authenticate, validate, and publish sweep result frames
-to the installation-local, partitioned JetStream sweep stream selected by the
-immutable scheduler-signed traffic class. Bulk and interactive frames SHALL use
+The agent-gateway SHALL authenticate and validate sweep `EdgeDeliveryFrameV1`
+messages, then publish their exact `EdgeRecordV1` bytes to the installation-local,
+partitioned shared JetStream edge-record route
+selected by the platform profile and immutable scheduler-signed traffic class.
+Bulk and interactive frames SHALL use
 disjoint physical streams and durable consumers. The gateway SHALL preserve the
-inner protobuf bytes, persist the complete authoritative broker-header envelope,
-wait for a valid PubAck, and only then return an accepted disposition.
+exact `EdgeRecordV1` bytes carried by `EdgeDeliveryFrameV1`, publish those bytes
+unchanged with transport-minimal broker headers, wait for a valid PubAck, and
+only then return an accepted disposition.
 
 #### Scenario: Gateway receives a valid sweep frame
-- **GIVEN** the gateway authenticates an agent and validates a supported frame
+- **GIVEN** the gateway authenticates an agent and validates a supported delivery
+  frame and its contained record
 - **WHEN** it routes the frame
 - **THEN** it SHALL compute the partition from trusted network scope, agent,
   execution, immutable traffic class, and stable shard keys
-- **AND** publish the inner protobuf bytes to the expected class-specific sweep
-  stream
-- **AND** advance the contiguous resolved watermark only after PubAck
+- **AND** publish the exact `record_bytes` to the expected class-specific
+  edge-record stream without re-encoding or semantic broker headers
+- **AND** advance the contiguous resolved watermark only after an
+  authoritative-stream PubAck (accept) or an audit/DLQ PubAck (permanent reject);
+  a retryable/transient publication failure SHALL leave the sequence unresolved
+  and SHALL NOT advance the watermark
 
 #### Scenario: JetStream or its consumer is unavailable
 - **GIVEN** a frame cannot be durably accepted because the stream is unavailable
@@ -108,7 +119,7 @@ wait for a valid PubAck, and only then return an accepted disposition.
   oldest result, or route it directly to a database writer
 
 #### Scenario: Gateway receives spoofed routing metadata
-- **WHEN** frame metadata conflicts with the authoritative network scope,
+- **WHEN** decoded record metadata conflicts with the authoritative network scope,
   authenticated agent, execution assignment, or signed traffic class
 - **THEN** the gateway SHALL reject it without publishing
 - **AND** record an attributable protocol/security error
@@ -166,7 +177,8 @@ retaining or reconstructing a full scan or issuing one lookup per host.
 - **AND** SYN and connect outcomes for the same port SHALL remain distinct
 
 #### Scenario: Batch is redelivered
-- **WHEN** a previously committed event ID and checksum are received again
+- **WHEN** a previously committed `(network_scope_id, event_id)` is received
+  again with a matching stored `semantic_envelope_sha256`
 - **THEN** the consumer SHALL acknowledge it without duplicating sweep history,
   OCSF events, state transitions, or execution counts
 

@@ -3,8 +3,10 @@
 ### Requirement: Processor contributions normalize package signals
 Package-contributed EventWriter processors SHALL normalize package-emitted logs, OCSF
 events, security findings, scan activity, and promoted events using bounded
-platform-owned processor engines. The normalized records SHALL preserve package signal
-schema/display references and gateway/agent-attested provenance.
+platform-owned processor engines selected by an approved immutable output-contract
+bundle. The normalized records SHALL preserve package signal schema/display references
+and host-attested installation, network-scope, agent, package, assignment, instance,
+run, contract, and route provenance.
 
 #### Scenario: PowerDNS emits OCSF DNS Activity
 - **GIVEN** the PowerDNS add-on package contributes an `ocsf_passthrough` processor for
@@ -46,21 +48,25 @@ payload expansion.
 ### Requirement: Device correlation hints remain non-authoritative
 The system SHALL allow processor contributions to declare device-correlation hints using
 bounded payload paths and known provenance fields. The correlation engine SHALL combine
-those hints with gateway/agent-attested metadata and SHALL NOT treat package-supplied
-identity fields as authoritative tenant, partition, or agent identity.
+those hints with host-attested, gateway-verified canonical record context and
+SHALL NOT treat package-supplied
+identity fields as authoritative installation, network-scope, partition, agent,
+package, assignment, route, traffic-class, or cost identity.
 
 #### Scenario: Package supplies source hostname
 - **GIVEN** a package contribution maps `host.hostname` as a device-correlation hint
 - **WHEN** EventWriter normalizes a matching event
 - **THEN** the stored signal SHALL include correlation candidates for inventory lookup
-- **AND** tenant, partition, and agent identity SHALL still come from authenticated
-  ingestion provenance
+- **AND** installation scope, network scope, partition, and agent identity SHALL still
+  come from authenticated ingestion provenance
 
 ### Requirement: SDKs produce valid signal contribution contracts
 The add-on SDK and the Go/Rust plugin SDKs SHALL provide typed helpers for generating
-signal schema references, EventWriter processor contributions, OCSF finding mappings,
-scan activity mappings, and device-correlation hints. SDK-generated contracts SHALL
-validate with the same core schema used during package import.
+signal schema references, output-contract/projector requests, OCSF finding mappings,
+scan activity mappings, and device-correlation hints. SDK helpers SHALL NOT expose
+broker subjects, physical streams, traffic class, database destination, SQL, DDL, or
+trusted provenance fields. SDK-generated contracts SHALL validate with the same core
+schema used during package import.
 
 #### Scenario: Go plugin SDK emits a processor contribution
 - **GIVEN** a Go plugin author uses the SDK to declare an OCSF finding processor
