@@ -7,6 +7,16 @@ defmodule Serviceradar.Edge.V1.EdgeRecordPayloadFamily do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
+
   field :EDGE_RECORD_PAYLOAD_FAMILY_UNSPECIFIED, 0
   field :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1, 1
   field :EDGE_RECORD_PAYLOAD_FAMILY_RUN_EVENT_V1, 2
@@ -24,6 +34,16 @@ defmodule Serviceradar.Edge.V1.EdgeRecordCompression do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
+
   field :EDGE_RECORD_COMPRESSION_UNSPECIFIED, 0
   field :EDGE_RECORD_COMPRESSION_NONE, 1
   field :EDGE_RECORD_COMPRESSION_ZSTD, 2
@@ -38,6 +58,16 @@ defmodule Serviceradar.Edge.V1.EdgeRecordTrafficClass do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
+
   field :EDGE_RECORD_TRAFFIC_CLASS_UNSPECIFIED, 0
   field :EDGE_RECORD_TRAFFIC_CLASS_BULK, 1
   field :EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE, 2
@@ -51,6 +81,16 @@ defmodule Serviceradar.Edge.V1.EdgeRecordRouteProfile do
     full_name: "serviceradar.edge.v1.EdgeRecordRouteProfile",
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
+
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
 
   field :EDGE_RECORD_ROUTE_PROFILE_UNSPECIFIED, 0
   field :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1, 1
@@ -67,6 +107,16 @@ defmodule Serviceradar.Edge.V1.EdgeOriginKind do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
+
   field :EDGE_ORIGIN_KIND_UNSPECIFIED, 0
   field :EDGE_ORIGIN_KIND_AGENT, 1
   field :EDGE_ORIGIN_KIND_CLUSTER_SERVICE, 2
@@ -80,6 +130,16 @@ defmodule Serviceradar.Edge.V1.EdgeSourceAuthorizationKind do
     full_name: "serviceradar.edge.v1.EdgeSourceAuthorizationKind",
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
+
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
 
   field :EDGE_SOURCE_AUTHORIZATION_KIND_UNSPECIFIED, 0
   field :EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP, 1
@@ -100,6 +160,16 @@ defmodule Serviceradar.Edge.V1.EdgeCapabilityPurpose do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
+
   field :EDGE_CAPABILITY_PURPOSE_UNSPECIFIED, 0
   field :EDGE_CAPABILITY_PURPOSE_PRODUCTION, 1
   field :EDGE_CAPABILITY_PURPOSE_SOURCE, 2
@@ -114,6 +184,16 @@ defmodule Serviceradar.Edge.V1.EdgeRecordDispositionKind do
     full_name: "serviceradar.edge.v1.EdgeRecordDispositionKind",
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
+
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
 
   field :EDGE_RECORD_DISPOSITION_KIND_UNSPECIFIED, 0
   field :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE, 1
