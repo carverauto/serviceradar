@@ -108,7 +108,7 @@ func CapabilityPurpose(c *edgev1.EdgeSignedCapabilityV1) edgev1.EdgeCapabilityPu
 // (CapabilitySigningDomain) provides protocol separation and the purpose (role) is
 // bound in, so a production grant's signature cannot verify in a source or delivery
 // position nor be replayed from another protocol. Go and Elixir agree on this
-// framing (see Serviceradar.Edge.CapabilitySigning + ClaimsFraming).
+// framing (see ServiceRadar.Edge.CapabilitySigning + ClaimsFraming).
 func CapabilitySigningBytes(c *edgev1.EdgeSignedCapabilityV1) []byte {
 	d := newDigest()
 	d.str(CapabilitySigningDomain)

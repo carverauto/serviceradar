@@ -691,7 +691,7 @@ defmodule Serviceradar.Edge.SemanticValidateTest do
 
   import Bitwise
 
-  alias Serviceradar.Edge.SemanticValidate
+  alias ServiceRadar.Edge.SemanticValidate
   alias Serviceradar.Edge.V1
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
   alias Serviceradar.Edge.V1.EdgeRecordClientMessage
@@ -701,7 +701,7 @@ defmodule Serviceradar.Edge.SemanticValidateTest do
   alias Serviceradar.Edge.V1.MtrTraceBatchV1
   alias Serviceradar.Edge.V1.SweepExecutionEventV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
-  alias Serviceradar.Edge.WireDecode
+  alias ServiceRadar.Edge.WireDecode
 
   @testdata Path.expand("../../../../../proto/edge/v1/testdata", __DIR__)
 

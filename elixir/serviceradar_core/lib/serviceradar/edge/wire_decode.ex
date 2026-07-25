@@ -1,4 +1,4 @@
-defmodule Serviceradar.Edge.WireDecode do
+defmodule ServiceRadar.Edge.WireDecode do
   @moduledoc """
   Total protobuf-decode boundary for edge wire messages.
 
@@ -37,7 +37,7 @@ defmodule Serviceradar.Edge.WireDecode do
 
   ## Structural preflight (task 1.5)
 
-  Every stage decode runs `Serviceradar.Edge.WireValidate` on the raw bytes BEFORE the generated
+  Every stage decode runs `ServiceRadar.Edge.WireValidate` on the raw bytes BEFORE the generated
   decoder. It walks the schema RECURSIVELY -- the inner record and every nested capability, not just
   the frame envelope this module's own scanner covers -- and rejects what Go rejects but
   protobuf-elixir masks or silently discards: groups, out-of-range field numbers, 10-byte
@@ -85,14 +85,14 @@ defmodule Serviceradar.Edge.WireDecode do
   which Go ACCEPTS) blew up on the FIRST occurrence, so Elixir REJECTED a message Go ACCEPTS.
   `scripts/patch_edge_enum_negatives.exs` injects negative identity clauses into the generated edge
   enums so the integer is RETAINED exactly as Go retains it, and
-  `Serviceradar.Edge.SemanticValidate` then rejects any retained non-member on the DECODED struct --
+  `ServiceRadar.Edge.SemanticValidate` then rejects any retained non-member on the DECODED struct --
   where the effective value is already resolved -- with the stage-correct disposition.
   """
 
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
   alias Serviceradar.Edge.V1.EdgeRecordClientMessage
   alias Serviceradar.Edge.V1.EdgeRecordV1
-  alias Serviceradar.Edge.WireValidate
+  alias ServiceRadar.Edge.WireValidate
 
   @typedoc "Typed decode outcome; only `:poison`/`:too_large` authorize permanent resolution."
   @type outcome ::
@@ -379,7 +379,7 @@ defmodule Serviceradar.Edge.WireDecode do
   # implementation of the wire primitives. This scanner (frame TOP level) and the recursive
   # validator (every message depth) MUST agree byte-for-byte on varint/field framing -- notably the
   # 10th-byte uint64-overflow rule that matches `protowire.ConsumeVarint` -- so a second copy here
-  # could drift out of Go parity silently. See `Serviceradar.Edge.WireValidate`.
+  # could drift out of Go parity silently. See `ServiceRadar.Edge.WireValidate`.
   defp take_varint(bin), do: WireValidate.take_varint(bin)
 
   defp take_field(wire_type, bin), do: WireValidate.take_field(wire_type, bin)

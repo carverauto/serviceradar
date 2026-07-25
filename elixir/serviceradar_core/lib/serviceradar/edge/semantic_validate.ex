@@ -1,11 +1,11 @@
-defmodule Serviceradar.Edge.SemanticValidate do
+defmodule ServiceRadar.Edge.SemanticValidate do
   @moduledoc """
   Go-parity SEMANTIC validation of DECODED edge structs (task 1.5), and the stage-aware disposition
   it resolves to.
 
   This is the second half of the two-layer parity mechanism:
 
-    1. `Serviceradar.Edge.WireValidate` -- STRUCTURAL: would Go's wire parser reject these bytes?
+    1. `ServiceRadar.Edge.WireValidate` -- STRUCTURAL: would Go's wire parser reject these bytes?
        It makes no value judgement, because a raw walk cannot reproduce protobuf's effective-value
        semantics (last-one-wins, oneof resolution, embedded-message merging).
     2. THIS module -- SEMANTIC: run on the struct the real decoder produced, where the effective
@@ -205,7 +205,7 @@ defmodule Serviceradar.Edge.SemanticValidate do
 
   # Derived from the SHARED bound `WireValidate` and the decoder are aligned to, so the three layers
   # cannot drift apart. Exceeding it is its OWN failure, not an enum verdict.
-  @max_depth Serviceradar.Edge.WireValidate.max_message_depth()
+  @max_depth ServiceRadar.Edge.WireValidate.max_message_depth()
 
   @typedoc """
   A semantic failure names the PATH to the offending field.
