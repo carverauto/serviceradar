@@ -691,7 +691,7 @@ defmodule Serviceradar.Edge.SemanticValidateTest do
 
   import Bitwise
 
-  alias Serviceradar.Edge.SemanticValidate
+  alias ServiceRadar.Edge.SemanticValidate
   alias Serviceradar.Edge.V1
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
   alias Serviceradar.Edge.V1.EdgeRecordClientMessage
@@ -701,7 +701,7 @@ defmodule Serviceradar.Edge.SemanticValidateTest do
   alias Serviceradar.Edge.V1.MtrTraceBatchV1
   alias Serviceradar.Edge.V1.SweepExecutionEventV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
-  alias Serviceradar.Edge.WireDecode
+  alias ServiceRadar.Edge.WireDecode
 
   @testdata Path.expand("../../../../../proto/edge/v1/testdata", __DIR__)
 
@@ -1287,75 +1287,77 @@ defmodule Serviceradar.Edge.SemanticValidateTest do
                SemanticValidate.validate_message(struct(FakeMapProps, %{m: %{}}))
     end
 
-    test "the validator ABI is a COMPILE-TIME literal, not a runtime module lookup" do
-      # A runtime `module_info(:md5)` would be read by an in-flight process still executing the OLD
-      # code version during a hot upgrade: it resolves to the NEWEST loaded module, so old code would
-      # compute the NEW namespace key and write an OLD verdict into it -- the cross-version
-      # contamination the ABI exists to prevent. The constant must therefore travel with the code
-      # version that computed it.
-      record = EdgeRecordV1.decode(load("record.bin"))
-      assert :ok = SemanticValidate.validate_record(record)
+    test "a schema hot-replaced and rolled back never admits retained invalid enum data" do
+      # REGRESSION for the cache race that this validator's `:persistent_term` memo made possible.
+      #
+      # The cache derived its key from a LIVE read of the module (own MD5 plus a direct-dependency
+      # fingerprint) and then reread that module independently when computing the value. A hot
+      # replacement landing between those two reads published the REPLACEMENT's props under the
+      # ORIGINAL module's key. Restoring the original binary then served the stale entry -- an empty
+      # schema, which validates nothing -- so a retained invalid enum was ADMITTED (`:ok`).
+      #
+      # The cache is gone and the verdict is recomputed per call, so no interleaving of replacement
+      # and rollback can produce an admit. Asserting "never `:ok`" is the durable property: which
+      # non-ok failure is reported depends on policy coverage for a synthetic module, but an admit
+      # is always wrong.
+      defmodule_src = fn body ->
+        """
+        defmodule RacedSchemaProbe do
+          use Protobuf, syntax: :proto3
 
-      [{{_, _, abi, _mod, _md5, _fp}, _} | _] =
-        Enum.filter(:persistent_term.get(), fn {k, _v} ->
-          match?({SemanticValidate, :schema, _abi, EdgeRecordV1, _md5, _fp}, k)
-        end)
+          #{body}
+        end
+        """
+      end
 
-      # It is the compile-time hash of this module's SOURCE ...
-      source_hash =
-        :erlang.md5(File.read!("lib/serviceradar/edge/semantic_validate.ex"))
+      populated = defmodule_src.("field(:kind, 1, type: RacedSchemaProbeEnum, enum: true)")
+      emptied = defmodule_src.("")
 
-      assert abi == source_hash
+      Code.compile_string("""
+      defmodule RacedSchemaProbeEnum do
+        use Protobuf, enum: true, syntax: :proto3
 
-      # ... and specifically NOT the live module's md5, which is what a runtime lookup would yield.
-      refute abi == SemanticValidate.module_info(:md5)
+        field(:RACED_SCHEMA_PROBE_ENUM_UNSPECIFIED, 0)
+        field(:RACED_SCHEMA_PROBE_ENUM_A, 1)
+      end
+      """)
+
+      compile = fn src ->
+        ExUnit.CaptureIO.capture_io(:stderr, fn -> Code.compile_string(src) end)
+      end
+
+      compile.(populated)
+      invalid = struct(RacedSchemaProbe, %{kind: -1})
+
+      before = SemanticValidate.validate_message(invalid)
+      refute before == :ok, "a retained -1 enum must never be admitted"
+
+      # Hot replacement with a schema that describes nothing, then rollback to the ORIGINAL shape.
+      compile.(emptied)
+      _ = SemanticValidate.validate_message(struct(RacedSchemaProbe, %{}))
+      compile.(populated)
+
+      after_rollback = SemanticValidate.validate_message(struct(RacedSchemaProbe, %{kind: -1}))
+
+      refute after_rollback == :ok,
+             "invalid enum admitted after hot replacement + rollback: stale schema was reused"
     end
 
-    test "cache entries from a PRIOR validator binary are never reused" do
-      # An in-VM upgrade of SemanticValidate must not inherit the old validator's verdicts: a stale
-      # `:error` would keep a node pinned past the fix that clears it, and a legacy `{:ok, props}`
-      # would bypass any stricter congruence the new validator added. The key is therefore versioned
-      # by THIS module's binary.
+    test "no schema verdict is memoised in :persistent_term" do
+      # The memo is the mechanism the race needed. If one is reintroduced, this fails and the
+      # interleaving regression above must be re-argued rather than silently weakened.
       record = EdgeRecordV1.decode(load("record.bin"))
       assert :ok = SemanticValidate.validate_record(record)
 
-      live =
-        Enum.filter(:persistent_term.get(), fn {k, _v} ->
-          match?({SemanticValidate, :schema, _abi, EdgeRecordV1, _md5, _fp}, k)
+      memoised =
+        Enum.filter(:persistent_term.get(), fn
+          {{SemanticValidate, :schema, _, _, _, _}, _} -> true
+          {{SemanticValidate, :schema, _, _}, _} -> true
+          _ -> false
         end)
 
-      assert [{{_, _, _abi, mod, md5, fingerprint}, _} | _] = live
-
-      # A key written by a DIFFERENT (previous) validator binary.
-      prior_key = {SemanticValidate, :schema, <<0::128>>, mod, md5, fingerprint}
-
-      :persistent_term.put(prior_key, :error)
-      assert :ok = SemanticValidate.validate_record(record)
-
-      # Bogus props that describe NO fields: if they were honoured, every field -- including an
-      # invalid enum -- would be skipped. The control below proves they were not.
-      :persistent_term.put(prior_key, {:ok, %{field_props: %{}, oneof: []}})
-      assert :ok = SemanticValidate.validate_record(record)
-
-      assert {:error, {:unsupported_enum, [:compression]}} =
-               SemanticValidate.validate_record(%{record | compression: -1})
-
-      :persistent_term.erase(prior_key)
-    end
-
-    test "an :error cached under the CURRENT key is treated as a miss and recomputed" do
-      # Defence in depth for a node upgrading from the immediately preceding implementation, which
-      # did write errors.
-      record = EdgeRecordV1.decode(load("record.bin"))
-      assert :ok = SemanticValidate.validate_record(record)
-
-      [{key, _} | _] =
-        Enum.filter(:persistent_term.get(), fn {k, _v} ->
-          match?({SemanticValidate, :schema, _abi, EdgeRecordV1, _md5, _fp}, k)
-        end)
-
-      :persistent_term.put(key, :error)
-      assert :ok = SemanticValidate.validate_record(record)
+      assert memoised == [],
+             "SemanticValidate must not memoise schema verdicts: #{inspect(memoised)}"
     end
 
     test "a TRANSITIVE readiness failure is not pinned once the missing module loads" do

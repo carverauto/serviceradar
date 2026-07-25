@@ -1,4 +1,4 @@
-defmodule Serviceradar.Edge.CapabilitySigning do
+defmodule ServiceRadar.Edge.CapabilitySigning do
   @moduledoc """
   Elixir peer of `go/pkg/edge/edgerecord.CapabilitySigningBytes` +
   `VerifyCapabilitySignature`. It recomputes the canonical signing preimage of an
@@ -7,11 +7,11 @@ defmodule Serviceradar.Edge.CapabilitySigning do
   byte-for-byte. The preimage is domain-separated and role-bound; the framing MUST
   match the Go `digestWriter`: a frozen domain tag, big-endian u64, length-framed
   bytes/strings, a u64 claims-oneof discriminant, and field-by-field framing of the
-  typed claim message (via `Serviceradar.Edge.ClaimsFraming`) -- NO protobuf
+  typed claim message (via `ServiceRadar.Edge.ClaimsFraming`) -- NO protobuf
   serialization.
   """
 
-  alias Serviceradar.Edge.ClaimsFraming
+  alias ServiceRadar.Edge.ClaimsFraming
 
   @domain "serviceradar.edge.capability.v1"
   @known_versions [1]

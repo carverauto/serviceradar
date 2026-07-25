@@ -58,7 +58,7 @@ var (
 // (or of a recovery object). Without this, RangeDigest / PlanPageDigest / PlanRoot
 // / PlanHeaderDigest all lead with the same PlanDigestVersion and are distinguished
 // only by field structure. These tags are part of the frozen ABI (see #4710
-// Appendix A) and mirrored by Serviceradar.Edge.HashGrammar.
+// Appendix A) and mirrored by ServiceRadar.Edge.HashGrammar.
 const (
 	planRangeDomain  = "serviceradar.edge.plan.range.v1"
 	planPageDomain   = "serviceradar.edge.plan.page.v1"

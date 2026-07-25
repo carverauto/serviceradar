@@ -62,7 +62,7 @@ var (
 // Per-object domain tags: each recovery self-hash preimage leads with its own frozen
 // string tag so a manifest-page digest can never equal a manifest-root (or any plan)
 // digest by field-structure coincidence. Part of the frozen ABI (#4710 Appendix A),
-// mirrored by Serviceradar.Edge.HashGrammar. (The recovery-OPERATION SCOPE digests --
+// mirrored by ServiceRadar.Edge.HashGrammar. (The recovery-OPERATION SCOPE digests --
 // TombstoneScopeDigest and the manifest-page/resolved scope digests -- carry their own
 // RecoveryScopeDigestVersion + u64 body-kind discriminant and are a separate family.)
 const (
