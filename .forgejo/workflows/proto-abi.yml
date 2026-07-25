@@ -30,6 +30,8 @@ on:
       - 'elixir/serviceradar_core/lib/serviceradar/edge/**'
       - 'elixir/serviceradar_core/test/serviceradar/proto/**'
       - 'elixir/serviceradar_core/test/serviceradar/edge/**'
+      - 'scripts/patch_edge_enum_negatives.exs'
+      - 'scripts/test_patch_edge_enum_negatives.exs'
       - 'elixir/serviceradar_core/mix.exs'
       - 'elixir/serviceradar_core/mix.lock'
       - 'elixir/serviceradar_core/.formatter.exs'
@@ -48,6 +50,8 @@ on:
       - 'elixir/serviceradar_core/lib/serviceradar/edge/**'
       - 'elixir/serviceradar_core/test/serviceradar/proto/**'
       - 'elixir/serviceradar_core/test/serviceradar/edge/**'
+      - 'scripts/patch_edge_enum_negatives.exs'
+      - 'scripts/test_patch_edge_enum_negatives.exs'
       - 'elixir/serviceradar_core/mix.exs'
       - 'elixir/serviceradar_core/mix.lock'
       - 'elixir/serviceradar_core/.formatter.exs'
@@ -141,3 +145,10 @@ jobs:
       - name: Edge wire-hygiene parity (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/wire_validate_test.exs
+      - name: Edge enum parity (Elixir semantic validation)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/semantic_validate_test.exs
+      # Fixture test for the post-generation transform itself: proves it is idempotent and
+      # fails closed on inventory / generator-version / partial-patch drift.
+      - name: Edge enum transform fail-closed fixture
+        run: elixir scripts/test_patch_edge_enum_negatives.exs
