@@ -147,6 +147,13 @@ func ValidatePlanHeader(h *edgev1.ScheduledPlanHeaderV1) error {
 	if h == nil {
 		return ErrNilRecord
 	}
+	// Appendix A requires unknown fields to be REJECTED in every grammar-covered position BEFORE
+	// hashing: the field-framed digests walk declared fields only, so retained unknown bytes would be
+	// invisible to the digest while still riding along on the wire. That is load-bearing for
+	// immutable plan/recovery CONTENT ADDRESSING.
+	if hasUnknownFields(h) {
+		return ErrUnknownFields
+	}
 	if err := ValidateUUIDv7(h.GetExecutionPlanId()); err != nil {
 		return ErrIdentity
 	}
@@ -179,6 +186,23 @@ func ValidatePlanHeader(h *edgev1.ScheduledPlanHeaderV1) error {
 // per-page digest, plan/index/count relations, predecessor chaining, matching
 // check-set identity, and the header's plan root.
 func ValidatePlanPages(h *edgev1.ScheduledPlanHeaderV1, pages []*edgev1.ScheduledPlanPageV1) error {
+	// Appendix A requires unknown fields to be REJECTED in every grammar-covered position BEFORE
+	// hashing: the field-framed digests walk declared fields only, so retained unknown bytes would be
+	// invisible to the digest while still riding along on the wire. That is load-bearing for
+	// immutable plan/recovery CONTENT ADDRESSING.
+	// The HEADER is consumed here too (page_count, digests, plan id), so its grammar-covered
+	// position must be clean before any of its declared fields are trusted -- otherwise a tainted
+	// header that ValidatePlanHeader rejects still drives this chain check.
+	if err := ValidatePlanHeader(h); err != nil {
+		return err
+	}
+
+	for _, p := range pages {
+		if hasUnknownFields(p) {
+			return ErrUnknownFields
+		}
+	}
+
 	if int(h.GetPageCount()) != len(pages) {
 		return ErrPlanChain
 	}

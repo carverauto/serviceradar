@@ -129,6 +129,15 @@ func ValidateManifestChain(pages []*edgev1.EdgeLossManifestPageV1, expectedRoot 
 	if len(pages) == 0 {
 		return ErrManifestEmpty
 	}
+	// Appendix A requires unknown fields to be REJECTED in every grammar-covered position BEFORE
+	// hashing: the field-framed digests walk declared fields only, so retained unknown bytes would be
+	// invisible to the digest while still riding along on the wire. That is load-bearing for
+	// immutable plan/recovery CONTENT ADDRESSING.
+	for _, p := range pages {
+		if hasUnknownFields(p) {
+			return ErrUnknownFields
+		}
+	}
 	if len(pages) > MaxManifestPages {
 		return ErrManifestBounds
 	}
@@ -295,6 +304,13 @@ func rangeCoveredBy(from, through uint64, affected []*edgev1.EdgeAffectedScopeV1
 func ValidateTombstone(t *edgev1.SpoolLossTombstoneV1, pages []*edgev1.EdgeLossManifestPageV1) error {
 	if t == nil {
 		return ErrNilRecord
+	}
+	// Appendix A requires unknown fields to be REJECTED in every grammar-covered position BEFORE
+	// hashing: the field-framed digests walk declared fields only, so retained unknown bytes would be
+	// invisible to the digest while still riding along on the wire. That is load-bearing for
+	// immutable plan/recovery CONTENT ADDRESSING.
+	if hasUnknownFields(t) {
+		return ErrUnknownFields
 	}
 	if err := validateUUIDv7Field(t.GetRecoveryId()); err != nil {
 		return ErrIdentity

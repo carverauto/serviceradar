@@ -29,8 +29,25 @@ defmodule Serviceradar.Edge.WireDecode do
                                 it. TRANSIENT.
     * `{:error, :systemic}`  -- an UNEXPECTED fault that is NOT a decode-of-bad-bytes: a decoder bug
                                 (a raise/throw/exit not attributable to malformed wire or an edge
-                                enum), or a decode that returned a non-struct. PAUSE; MUST NOT resolve
+                                enum), a codegen/metadata defect reported by the structural preflight,
+                                or a decode that returned a non-struct. PAUSE; MUST NOT resolve
                                 the delivery as poison.
+
+  ## Structural preflight (task 1.5)
+
+  Every stage decode runs `Serviceradar.Edge.WireValidate` on the raw bytes BEFORE the generated
+  decoder. It walks the schema RECURSIVELY -- the inner record and every nested capability, not just
+  the frame envelope this module's own scanner covers -- and rejects what Go rejects but
+  protobuf-elixir masks or silently discards: groups, out-of-range field numbers, 10-byte
+  uint64-overflow varints (including packed elements), mis-sized packed fixed payloads, and
+  truncation. Those are `:poison`; a missing/undeployed nested schema is `:not_ready` and a
+  codegen/metadata defect is `:systemic`, NEVER poison.
+
+  The preflight is STRUCTURAL ONLY. It makes no value-level judgement, because a raw walker cannot
+  reproduce protobuf's EFFECTIVE-value semantics (last-one-wins, oneof resolution, embedded-message
+  merging) without reimplementing the decoder -- e.g. `traffic_class = -1` followed by
+  `traffic_class = BULK` has the effective value BULK, which Go accepts. Value-level verdicts belong
+  to the semantic validator that runs on the DECODED struct.
 
   ## Classification is STACK-INDEPENDENT (by exception value, never the stacktrace)
 
@@ -63,6 +80,7 @@ defmodule Serviceradar.Edge.WireDecode do
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
   alias Serviceradar.Edge.V1.EdgeRecordClientMessage
   alias Serviceradar.Edge.V1.EdgeRecordV1
+  alias Serviceradar.Edge.WireValidate
 
   @typedoc "Typed decode outcome; only `:poison`/`:too_large` authorize permanent resolution."
   @type outcome ::
@@ -89,7 +107,12 @@ defmodule Serviceradar.Edge.WireDecode do
   @frame_record_bytes_field 5
   # Max protobuf field number (2^29 - 1). A tag whose field number exceeds this (an overflow/masking
   # varint the generated decoder might reinterpret) is rejected rather than trusted.
-  @max_field_number 0x1FFFFFFF
+  @max_field_number WireValidate.max_field_number()
+
+  # protobuf-elixir counts EMBEDDED levels (the root is depth 0) while `WireValidate` counts
+  # messages INCLUDING the root, so 10,000 messages == 9,999 embedded levels. Deriving this from
+  # WireValidate keeps the decoder and the preflight from drifting apart.
+  @max_nesting_depth WireValidate.max_message_depth() - 1
 
   @doc """
   Decodes the raw bytes of an `EdgeRecordClientMessage` -- the gRPC ingress request type on
@@ -164,15 +187,33 @@ defmodule Serviceradar.Edge.WireDecode do
       byte_size(bytes) > max_bytes -> {:error, :too_large}
       # An expected edge decoder that is not deployed yet -> pause, do not quarantine.
       not Code.ensure_loaded?(mod) -> {:error, :not_ready}
-      true -> attempt(mod, bytes)
+      true -> validated_attempt(mod, bytes)
     end
   end
 
   # A non-binary argument is a caller/programming fault, never permanent poison.
   defp run(_mod, _max_bytes, _bytes), do: {:error, :systemic}
 
+  # RECURSIVE STRUCTURAL wire-hygiene gate (task 1.5) BEFORE the generated decode. The top-level
+  # scanner above only covers the frame envelope; `WireValidate` walks the schema at EVERY message
+  # depth -- the inner record and every nested capability -- rejecting the inputs protobuf-elixir
+  # masks or silently discards but Go rejects (groups, out-of-range field numbers, 10-byte
+  # uint64-overflow varints incl. packed elements, truncation) as `:poison`. It reports a
+  # codegen/metadata defect as `:systemic`/`:not_ready`, NEVER poison. It makes NO value-level
+  # judgement -- see its moduledoc for why effective-value semantics belong to the semantic layer.
+  defp validated_attempt(mod, bytes) do
+    case WireValidate.validate(bytes, mod) do
+      :ok -> attempt(mod, bytes)
+      {:error, _} = err -> err
+    end
+  end
+
   defp attempt(mod, bytes) do
-    decoded = mod.decode(bytes)
+    # `mod.decode/1` uses protobuf-elixir's DEFAULT `:max_nesting_depth` of 100 embedded levels,
+    # which would reject nesting the preflight (and Go) accept -- making the end-to-end parity claim
+    # false. `Protobuf.decode/3` takes the option, so the decoder is aligned with the SAME bound
+    # WireValidate enforces: 10,000 messages counting the root == 9,999 embedded levels.
+    decoded = Protobuf.decode(bytes, mod, max_nesting_depth: @max_nesting_depth)
 
     # Reject an enum module / fake / wrong-type result that decoded WITHOUT raising: only a genuine
     # struct of the TARGET module is an accepted message.
@@ -202,11 +243,18 @@ defmodule Serviceradar.Edge.WireDecode do
 
   def classify(_other), do: :systemic
 
-  # True only for a loaded generated EDGE protobuf ENUM module: an edge-namespace module exporting the
-  # generated `__reverse_mapping__/0` (enum modules have it; message modules do not). The module is
-  # guaranteed loaded (the exception came from it), so function_exported?/3 is safe.
+  # True only for a generated EDGE protobuf ENUM module: an edge-namespace module exporting the
+  # generated `__reverse_mapping__/0` (enum modules have it; message modules do not).
+  #
+  # `Code.ensure_loaded?/1` is REQUIRED, not defensive dressing: `function_exported?/3` answers false
+  # for a module that is merely not loaded YET, which would misclassify a genuine enum poison as
+  # `:systemic` -- leaving a permanently-dead record retryable forever, the exact failure task 1.5
+  # closes. In production the raising module is already loaded, but relying on that is incidental --
+  # the structural preflight makes NO enum judgement, so whether the enum module has been loaded
+  # depends only on what earlier traffic happened to decode. This must not depend on load order.
   defp edge_enum_module?(mod) when is_atom(mod) do
     String.starts_with?(Atom.to_string(mod), @edge_module_prefix) and
+      Code.ensure_loaded?(mod) and
       function_exported?(mod, :__reverse_mapping__, 0)
   end
 
@@ -330,49 +378,12 @@ defmodule Serviceradar.Edge.WireDecode do
     end
   end
 
-  # take_varint/1: {value, rest} | :error. A VALID uint64 varint (<= 10 bytes) -- NOT a canonical/minimal
-  # one: Go-compatible NON-MINIMAL encodings (e.g. 1 written in 10 bytes) are ACCEPTED, exactly as
-  # Go/protowire accepts them. Bytes 1-9 (shift 0..56)
-  # carry 7 bits each. The 10th byte (shift 63) holds ONLY bit 63, so it MUST be TERMINAL with chunk 0 or 1:
-  # a continuation bit at byte 10, or a terminal chunk >= 2, sets bits >= 64 (uint64 OVERFLOW) and is
-  # :error, matching Go/protowire. Without this a 2^64 + N varint (e.g. sequence = 2^64 + 1) is accepted
-  # here as an Elixir bignum while the generated decoder MASKS it to N and accepts the frame -- an
-  # admit-vs-reject divergence. The max valid uint64 (2^64 - 1) has a 10th-byte chunk of 1 and is accepted.
-  defp take_varint(bin), do: take_varint(bin, 0, 0)
+  # take_varint/1 and take_field/2 are DELEGATED to `WireValidate`, which owns the single
+  # implementation of the wire primitives. This scanner (frame TOP level) and the recursive
+  # validator (every message depth) MUST agree byte-for-byte on varint/field framing -- notably the
+  # 10th-byte uint64-overflow rule that matches `protowire.ConsumeVarint` -- so a second copy here
+  # could drift out of Go parity silently. See `Serviceradar.Edge.WireValidate`.
+  defp take_varint(bin), do: WireValidate.take_varint(bin)
 
-  defp take_varint(<<1::1, chunk::7, rest::binary>>, shift, acc) when shift < 63,
-    do: take_varint(rest, shift + 7, Bitwise.bor(acc, Bitwise.bsl(chunk, shift)))
-
-  defp take_varint(<<0::1, chunk::7, rest::binary>>, shift, acc) when shift < 63,
-    do: {Bitwise.bor(acc, Bitwise.bsl(chunk, shift)), rest}
-
-  defp take_varint(<<0::1, chunk::7, rest::binary>>, 63, acc) when chunk <= 1,
-    do: {Bitwise.bor(acc, Bitwise.bsl(chunk, 63)), rest}
-
-  defp take_varint(_, _, _), do: :error
-
-  # take_field/2: consume one field's payload by wire type -> {value_or_nil, rest} | :error. Only wire
-  # type 2 yields a value binary (the length-delimited payload); 0/1/5 are skipped (nil).
-  defp take_field(0, bin) do
-    case take_varint(bin) do
-      {_v, rest} -> {nil, rest}
-      :error -> :error
-    end
-  end
-
-  defp take_field(1, <<_::binary-size(8), rest::binary>>), do: {nil, rest}
-
-  defp take_field(2, bin) do
-    case take_varint(bin) do
-      {len, rest} when byte_size(rest) >= len ->
-        <<value::binary-size(len), rest2::binary>> = rest
-        {value, rest2}
-
-      _ ->
-        :error
-    end
-  end
-
-  defp take_field(5, <<_::binary-size(4), rest::binary>>), do: {nil, rest}
-  defp take_field(_wire_type, _bin), do: :error
+  defp take_field(wire_type, bin), do: WireValidate.take_field(wire_type, bin)
 end
