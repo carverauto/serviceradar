@@ -1,14 +1,19 @@
 name: Proto ABI
 
-# Stack-aware ABI gate: unlike the full Go/Elixir suites (which trigger only on a
-# `staging` base), this runs on EVERY pull request that touches the proto ABI,
-# its generated bindings, or the edge record-plane validators, regardless of
-# base branch, so stacked contract PRs are gated too. It is path-filtered so it
-# stays cheap.
+# Stack-aware ABI gate: this runs on EVERY pull request that touches the proto ABI,
+# its generated bindings, or the edge record-plane validators, regardless of base
+# branch, so stacked contract PRs are gated too. It is path-filtered so it stays
+# cheap.
 #
-# This job installs no Bazel toolchain: `main.yml` already builds the full
-# Go/Elixir/Bazel graph on every pull request, so the edge bindings are compiled
-# under Bazel there. The regeneration drift guards below are the gate here.
+# Single-source model: protoc (via `make generate-proto`) is the ONE generator for
+# the checked-in *.pb.go; Bazel compiles those exact files (a plain go_library), so
+# there is no second generator to drift against and no Bazel-vs-Make parity gate.
+# `make verify-proto-go` / `make verify-proto-elixir` (regenerate into a clean temp
+# tree, then compare the file manifest AND bytes vs committed) are the sole drift
+# guards. This job needs no Bazel toolchain because `main.yml` already runs the full
+# Go/Elixir/Bazel graph on every pull request -- its `pull_request:` trigger is
+# unrestricted, so stacked PRs get the edge Bazel build there too. That full-CI/Bazel
+# check must remain a required status.
 #
 # The pull_request and push path lists MUST stay identical (Forgejo's parser does
 # not support YAML anchors, so they are duplicated verbatim).
@@ -24,6 +29,9 @@ on:
       - 'elixir/serviceradar_core/lib/serviceradar/proto/**'
       - 'elixir/serviceradar_core/lib/serviceradar/edge/**'
       - 'elixir/serviceradar_core/test/serviceradar/proto/**'
+      - 'elixir/serviceradar_core/mix.exs'
+      - 'elixir/serviceradar_core/mix.lock'
+      - 'elixir/serviceradar_core/.formatter.exs'
       - 'Makefile'
       - '.forgejo/workflows/proto-abi.yml'
   push:
@@ -38,6 +46,9 @@ on:
       - 'elixir/serviceradar_core/lib/serviceradar/proto/**'
       - 'elixir/serviceradar_core/lib/serviceradar/edge/**'
       - 'elixir/serviceradar_core/test/serviceradar/proto/**'
+      - 'elixir/serviceradar_core/mix.exs'
+      - 'elixir/serviceradar_core/mix.lock'
+      - 'elixir/serviceradar_core/.formatter.exs'
       - 'Makefile'
       - '.forgejo/workflows/proto-abi.yml'
 
@@ -65,10 +76,10 @@ jobs:
           elixir-version: '1.19.4'
       # verify-proto-elixir compiles the Elixir tree, which includes the
       # serviceradar_srql path dependency's Rust NIF; without cargo on PATH `mix`
-      # aborts with `System.cmd("cargo", ...) :enoent` before the drift guard runs.
-      # Install the moving-stable toolchain, matching main.yml -- this job only needs
-      # a cargo that can compile the NIF so the drift guard runs; the authoritative
-      # Rust build is elsewhere.
+      # aborts with `System.cmd("cargo", ...) :enoent` before the drift guard runs
+      # (the root cause of the earlier red run #38747). Install the moving-stable
+      # toolchain, matching main.yml -- this job only needs a cargo that can compile
+      # the NIF so the drift guard runs; the authoritative Rust build is elsewhere.
       - name: Setup Rust
         run: |
           set -euo pipefail
@@ -100,15 +111,14 @@ jobs:
           unzip -o -q /tmp/protoc.zip -d "$HOME/.local"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/protoc" --version
-      # protoc-gen-go / protoc-gen-go-grpc are pinned by the Makefile's
-      # `proto-tools` target (protoc-gen-go built from go.mod, go-grpc pinned to
-      # the release go_grpc_v2 emits) so regenerated Go bindings can never drift
-      # from the versions Bazel uses.
+      # protoc-gen-go / protoc-gen-go-grpc are pinned by the Makefile's `proto-tools`
+      # target (protoc-gen-go built from go.mod, go-grpc pinned to v1.5.1) so the
+      # regenerated Go bindings match the committed ones byte-for-byte.
       - name: Build pinned proto codegen toolchain
         run: make proto-tools
       # Elixir codegen + the golden test need project deps and the pinned
       # protoc-gen-elixir escript. Without deps.get, `mix format`/`mix test` fail
-      # before the drift guard even runs (root cause of the earlier red run).
+      # before the drift guard even runs.
       - name: Fetch Elixir deps
         working-directory: elixir/serviceradar_core
         run: mix deps.get

@@ -1,7 +1,17 @@
 # gazelle:ignore
+#
+# Single-source Go bindings: protoc (via the Makefile `generate-proto` target) is
+# the ONE generator for the checked-in *.pb.go, and Bazel compiles those exact
+# files as an ordinary go_library (the same pattern as //proto/identitymap/v1).
+# `make verify-proto-go` is the sole drift guard (regenerate + compare vs committed).
+#
+# The public `edgev1_proto` (proto_library) and `edge_proto_src` (filegroup) remain
+# the schema/descriptor build targets. Only the SECOND Go generator
+# (`go_proto_library`) is removed: regenerating a second Go copy under Bazel is what
+# created the Bazel-vs-Make descriptor divergence and forced the old parity gate +
+# comment-stripping normalizer, all now removed.
 
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
-load("@io_bazel_rules_go//proto:def.bzl", "go_proto_library")
 load("@rules_proto//proto:defs.bzl", "proto_library")
 
 proto_library(
@@ -12,8 +22,7 @@ proto_library(
     ],
     # Match the Makefile's `protoc -I=proto`: the descriptor source path (and the
     # generated file-level registration symbols) must be `edge/v1/*.proto`, not
-    # `proto/edge/v1/*.proto`, so Bazel and Make emit byte-identical bindings.
-    # Safe because no proto imports these edge protos.
+    # `proto/edge/v1/*.proto`. Safe because no proto imports these edge protos.
     strip_import_prefix = "/proto",
     visibility = ["//visibility:public"],
 )
@@ -27,22 +36,22 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 
-go_proto_library(
-    name = "edgev1_go_proto",
-    compilers = [
-        "@io_bazel_rules_go//proto:go_proto",
-        "@io_bazel_rules_go//proto:go_grpc_v2",
-    ],
-    importpath = "github.com/carverauto/serviceradar/proto/edge/v1",
-    proto = ":edgev1_proto",
-    visibility = ["//visibility:public"],
-)
-
 go_library(
     name = "edgev1",
-    embed = [":edgev1_go_proto"],
+    srcs = [
+        "record.pb.go",
+        "record_grpc.pb.go",
+        "sweep.pb.go",
+    ],
     importpath = "github.com/carverauto/serviceradar/proto/edge/v1",
     visibility = ["//visibility:public"],
+    deps = [
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_protobuf//reflect/protoreflect",
+        "@org_golang_google_protobuf//runtime/protoimpl",
+    ],
 )
 
 go_test(
