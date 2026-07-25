@@ -168,7 +168,7 @@ require (
 	github.com/go-openapi/swag/typeutils v0.25.5 // indirect
 	github.com/go-openapi/swag/yamlutils v0.25.5 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
-	github.com/klauspost/compress v1.18.5 // indirect
+	github.com/klauspost/compress v1.18.5
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260330125221-c963978e514e // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect

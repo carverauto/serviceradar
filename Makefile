@@ -481,66 +481,95 @@ clean: ## Clean up build artifacts
 	@cd rust/otel && $(CARGO) clean
 	@cd rust/flowgger && $(CARGO) clean
 
+# Proto Go codegen toolchain
+# -----------------------------------------------------------------------------
+# Pinned so the Makefile and Bazel emit byte-identical Go bindings. The message
+# generator is BUILT FROM go.mod's google.golang.org/protobuf, so it can never
+# drift from the version Bazel's go_proto rule resolves via go_deps. The gRPC
+# generator is pinned to the protoc-gen-go-grpc release that rules_go's
+# go_grpc_v2 compiler emits (SupportPackageIsVersion9). A version mismatch here
+# silently produces different server interfaces in the two build graphs, which
+# is exactly what the proto-abi equivalence gate exists to catch.
+PROTOC_GEN_GO_GRPC_VERSION ?= v1.5.1
+PROTO_TOOLS_BIN ?= $(CURDIR)/bin/prototools
+
+.PHONY: proto-tools
+proto-tools: ## Build the pinned protoc-gen-go / protoc-gen-go-grpc into a hermetic bin
+	@mkdir -p $(PROTO_TOOLS_BIN)
+	@$(GO) build -o $(PROTO_TOOLS_BIN)/protoc-gen-go google.golang.org/protobuf/cmd/protoc-gen-go
+	@GOBIN=$(PROTO_TOOLS_BIN) $(GO) install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
+
 .PHONY: generate-proto
-generate-proto: ## Generate Go and Rust code from protobuf definitions
+generate-proto: proto-tools ## Generate Go and Rust code from protobuf definitions
 	@echo "$(COLOR_BOLD)Generating Go code from protobuf definitions$(COLOR_RESET)"
-	@protoc -I=proto -I=. \
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/discovery/discovery.proto
-	@protoc -I=proto -I=. \
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/kv.proto
-	@protoc -I=proto -I=. \
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/data_service.proto
-	@protoc -I=proto -I=. \
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/identitymap/v1/identity_map.proto
-	@protoc -I=proto -I=. \
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/core_service.proto
-	@protoc -I=proto -I=. \
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		proto/automation_launch_envelope.proto
-	@protoc -I=proto -I=. \
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/monitoring.proto
-	@protoc -I=proto -I=. \
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/camera_media.proto
-	@protoc -I=proto -I=. \
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/desktop_media.proto
-	@protoc -I=proto -I=. \
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/rperf/rperf.proto
-	@protoc -I=proto -I=. \
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/flow/flow.proto
-	@protoc -I=proto -I=. \
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/nats_account.proto
-	@protoc -I=proto -I=. \
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		proto/agent/netprobe/v1/netprobe.proto
-	@protoc -I=proto -I=. \
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/agent/addon/v1/addon.proto
-	@protoc -I=proto -I=. \
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		proto/metric/v1/metric.proto
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
+		--go_out=proto --go_opt=paths=source_relative \
+		proto/edge/v1/sweep.proto
+	@# require_unimplemented_servers=false matches rules_go's go_grpc_v2 (the Bazel
+	@# compiler that generates the shipped bindings), so the committed edge grpc
+	@# stub is byte-identical to what Bazel emits (enforced by the parity gate).
+	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
+		--go_out=proto --go_opt=paths=source_relative \
+		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
+		--go-grpc_opt=require_unimplemented_servers=false \
+		proto/edge/v1/record.proto
 	@echo "$(COLOR_BOLD)Generated Go protobuf code$(COLOR_RESET)"
 
 # Elixir protobuf regeneration
@@ -551,10 +580,15 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 # target keeps the .pb.ex stubs in lockstep with the proto contract so manual
 # edits (such as the B-6 `cmdline` -> `redacted_cmdline` rename) cannot drift.
 #
-# The escript is pinned to the same protobuf hex version declared in
-# elixir/serviceradar_core/mix.exs ({:protobuf, "~> 0.16.0"}) and is invoked
-# via the protoc plugin discovery path so contributors do not need to mutate
-# their shell rc files.
+# The escript is pinned to the protobuf codegen version the checked-in bindings
+# (including manual edits) were generated with -- this is the version
+# verify-proto-elixir enforces. mix.exs declares {:protobuf, "~> 0.16.0"} and the
+# runtime hex dep currently RESOLVES to 0.16.1, a wire-compatible patch of the
+# 0.16.0 generator: the escript is deliberately held at the generator version so
+# regeneration stays byte-stable and does not clobber manual .pb.ex edits, while
+# the resolved runtime carries the patch. Bump both together (regenerate every
+# binding) only when intentionally moving the generator. Invoked via the protoc
+# plugin discovery path so contributors need not mutate their shell rc files.
 ELIXIR_PROTOBUF_VERSION ?= 0.16.0
 ELIXIR_PROTO_OUT ?= elixir/serviceradar_core/lib/serviceradar/proto
 PROTOC_GEN_ELIXIR ?= $(HOME)/.mix/escripts/protoc-gen-elixir
@@ -584,21 +618,60 @@ generate-proto-elixir: install-protoc-gen-elixir ## Generate Elixir code from pr
 		proto/desktop_media.proto \
 		proto/identitymap/v1/identity_map.proto \
 		proto/agent/netprobe/v1/netprobe.proto \
-		proto/metric/v1/metric.proto
+		proto/metric/v1/metric.proto \
+		proto/edge/v1/sweep.proto \
+		proto/edge/v1/record.proto
 	@cd elixir/serviceradar_core && \
 		mix format --force "$(abspath $(ELIXIR_PROTO_OUT))/**/*.pb.ex"
 	@echo "$(COLOR_BOLD)Generated Elixir protobuf code under $(ELIXIR_PROTO_OUT)$(COLOR_RESET)"
 
 .PHONY: verify-proto-elixir
 verify-proto-elixir: generate-proto-elixir ## Fail if regenerated Elixir bindings differ from the checked-in tree (CI drift guard)
-	@git diff --exit-code -- $(ELIXIR_PROTO_OUT) || ( \
+	@dirty="$$(git status --porcelain --untracked-files=all -- $(ELIXIR_PROTO_OUT))"; \
+	if [ -n "$$dirty" ]; then \
 		echo "$(COLOR_BOLD)Elixir protobuf bindings are out of sync with proto/. Run 'make generate-proto-elixir' and commit the result.$(COLOR_RESET)"; \
-		exit 1; \
-	)
+		echo "$$dirty"; git --no-pager diff -- $(ELIXIR_PROTO_OUT); exit 1; \
+	fi
+
+.PHONY: verify-proto-go
+verify-proto-go: generate-proto ## Fail if regenerated Go bindings differ from the checked-in tree (CI drift guard)
+	@dirty="$$(git status --porcelain --untracked-files=all -- 'proto/*.pb.go' 'proto/**/*.pb.go')"; \
+	if [ -n "$$dirty" ]; then \
+		echo "$(COLOR_BOLD)Go protobuf bindings are out of sync with proto/. Run 'make generate-proto' and commit the result.$(COLOR_RESET)"; \
+		echo "$$dirty"; git --no-pager diff -- 'proto/*.pb.go' 'proto/**/*.pb.go'; exit 1; \
+	fi
+
+BAZEL ?= bazel
+
+.PHONY: verify-proto-bazel-parity
+verify-proto-bazel-parity: ## Fail if Bazel and Make emit non-comment-equivalent edge Go bindings
+	@echo "$(COLOR_BOLD)Comparing Bazel go_grpc_v2 output vs committed Make bindings (comment-insensitive, Go-AST)$(COLOR_RESET)"
+	@# The go_proto_library archive does NOT expose the generated .go; the
+	@# go_generated_srcs output group does. Build it and locate the files under the
+	@# REAL bazel-bin (this repo sets --experimental_convenience_symlinks=clean, so
+	@# the bazel-bin convenience symlink does not exist; resolve it via `bazel info`).
+	@$(BAZEL) build //proto/edge/v1:edgev1_go_proto --output_groups=go_generated_srcs
+	@status=0; tmp="$$(mktemp -d)"; bb="$$($(BAZEL) info bazel-bin 2>/dev/null)"; \
+	if [ -z "$$bb" ]; then echo "  could not resolve bazel-bin"; exit 1; fi; \
+	for f in record.pb.go record_grpc.pb.go sweep.pb.go; do \
+		bf="$$(find -L "$$bb/proto/edge/v1" -path '*edgev1_go_proto*' -name "$$f" 2>/dev/null | head -1)"; \
+		if [ -z "$$bf" ]; then echo "  bazel output for $$f not found (go_generated_srcs)"; status=1; continue; fi; \
+		normalize() { $(GO) run ./build/tools/gostripcomments < "$$1" | grep -vE '^[[:space:]]*$$'; }; \
+		normalize "$$bf" > "$$tmp/bz_$$f"; \
+		normalize "proto/edge/v1/$$f" > "$$tmp/mk_$$f"; \
+		if ! diff -u "$$tmp/mk_$$f" "$$tmp/bz_$$f"; then \
+			echo "$(COLOR_BOLD)Bazel vs Make Go binding drift in $$f (descriptor/server interface differs)$(COLOR_RESET)"; status=1; \
+		fi; \
+	done; \
+	rm -rf "$$tmp"; \
+	if [ "$$status" -ne 0 ]; then \
+		echo "$(COLOR_BOLD)Bazel and Make emit different edge bindings. Align protoc-gen-go / go_grpc_v2 versions.$(COLOR_RESET)"; \
+	fi; \
+	exit $$status
 
 .PHONY: proto-lint
 proto-lint: ## Lint protobuf definitions with Buf
-	@$(BUF) lint proto --path proto/agent/netprobe/v1
+	@$(BUF) lint proto --path proto/agent/netprobe/v1 --path proto/edge/v1
 
 .PHONY: build-binaries
 build-binaries: generate-proto ## Build all binaries locally (Go + Rust)
