@@ -1,4 +1,4 @@
-defmodule Serviceradar.Edge.PublicationIdentity do
+defmodule ServiceRadar.Edge.PublicationIdentity do
   @moduledoc """
   Elixir peer of `go/pkg/edge/edgerecord/publication_identity.go` (#4710 Appendix A
   grammars 6-8): the transport headers a gateway derives when publishing a record to
@@ -24,7 +24,7 @@ defmodule Serviceradar.Edge.PublicationIdentity do
   the provenance envelope.
   """
 
-  alias Serviceradar.Edge.CapabilitySigning
+  alias ServiceRadar.Edge.CapabilitySigning
   alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
 
   @msgid_version 1

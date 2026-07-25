@@ -12,11 +12,11 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
   import Bitwise
 
-  alias Serviceradar.Edge.CapabilitySigning
-  alias Serviceradar.Edge.HashGrammar
-  alias Serviceradar.Edge.PublicationIdentity
-  alias Serviceradar.Edge.SemanticDigest
-  alias Serviceradar.Edge.SemanticValidate
+  alias ServiceRadar.Edge.CapabilitySigning
+  alias ServiceRadar.Edge.HashGrammar
+  alias ServiceRadar.Edge.PublicationIdentity
+  alias ServiceRadar.Edge.SemanticDigest
+  alias ServiceRadar.Edge.SemanticValidate
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
   alias Serviceradar.Edge.V1.EdgeLossManifestPageV1
   alias Serviceradar.Edge.V1.EdgeRecordClientMessage
@@ -32,7 +32,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
   alias Serviceradar.Edge.V1.SpoolLossTombstoneV1
   alias Serviceradar.Edge.V1.SweepExecutionEventV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
-  alias Serviceradar.Edge.WireDecode
+  alias ServiceRadar.Edge.WireDecode
 
   @testdata Path.expand("../../../../../proto/edge/v1/testdata", __DIR__)
   @fixed_millis 1_784_000_000_000

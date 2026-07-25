@@ -385,7 +385,7 @@ func TestGoldenRecordAndDelivery(t *testing.T) {
 // enum (production traffic_class = -1). Go marshals it and RETAINS the unknown value on decode,
 // rejecting it later in the explicit semantic validator. The Elixir generated enums are patched
 // (scripts/patch_edge_enum_negatives.exs) to retain it the same way instead of raising, so the two
-// runtimes now agree: the value DECODES and `Serviceradar.Edge.SemanticValidate` rejects it as a
+// runtimes now agree: the value DECODES and `ServiceRadar.Edge.SemanticValidate` rejects it as a
 // permanent rejection with the stage-correct disposition -- not a decode-time poison/quarantine.
 // (The fixture name predates that change; it is kept so the committed vector stays stable.)
 func TestGoldenPoisonNegativeEnum(t *testing.T) {
@@ -429,7 +429,7 @@ func TestGoldenPoisonNegativeEnum(t *testing.T) {
 // TestGoldenPublicationIdentity exports the grammar 6-8 publication-identity headers
 // (Nats-Msg-Id, Sr-Edge-Delivery-Id, Sr-Edge-Transport-Provenance -- edge and
 // service-ingress variants, delivery-proof present and absent) so the Elixir peer
-// (Serviceradar.Edge.PublicationIdentity) can prove byte-identical header derivation.
+// (ServiceRadar.Edge.PublicationIdentity) can prove byte-identical header derivation.
 func TestGoldenPublicationIdentity(t *testing.T) {
 	record := canonicalRecord(t)
 	rb := mustMarshal(record)

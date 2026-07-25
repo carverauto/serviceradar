@@ -86,8 +86,8 @@ defmodule Serviceradar.Edge.WireValidateTest do
   alias Serviceradar.Edge.V1.EdgeRecordLaneOpen
   alias Serviceradar.Edge.V1.EdgeRecordTrafficClass
   alias Serviceradar.Edge.V1.EdgeRecordV1
-  alias Serviceradar.Edge.WireDecode
-  alias Serviceradar.Edge.WireValidate
+  alias ServiceRadar.Edge.WireDecode
+  alias ServiceRadar.Edge.WireValidate
 
   @testdata Path.expand("../../../../../proto/edge/v1/testdata", __DIR__)
 
