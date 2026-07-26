@@ -148,6 +148,12 @@ jobs:
       - name: Edge enum parity (Elixir semantic validation)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/semantic_validate_test.exs
+      # Fail-closed compression ADMISSION (task 1.5, PARTIAL -- deliberately NOT
+      # compression parity). Asserts NONE is decided completely, encoded_size is
+      # bound to the actual payload, and ZSTD is never admitted without a decoder.
+      - name: Edge compression readiness (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/compression_readiness_test.exs
       # Fixture test for the post-generation transform itself: proves it is idempotent and
       # fails closed on inventory / generator-version / partial-patch drift.
       - name: Edge enum transform fail-closed fixture

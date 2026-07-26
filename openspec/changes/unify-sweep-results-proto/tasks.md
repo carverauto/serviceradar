@@ -195,7 +195,19 @@
   discriminants; `u64` repeated-element counts; recursive field-by-field nested
   framing; NO `proto.Marshal` at any depth),
   streaming
-  compression expansion, recursion, and trailing-frame rejection. Define the
+  compression expansion, recursion, and trailing-frame rejection.
+  COMPRESSION STATUS: `ServiceRadar.Edge.CompressionReadiness` provides fail-closed
+  ADMISSION only -- `encoded_size` bound to the actual payload for EVERY codec,
+  `NONE` decided completely, ZSTD rejected when provably bad and otherwise typed
+  `{:not_ready, :zstd_decoder_unavailable}` (never admitted), ZSTD unadvertised.
+  That is NOT compression parity and does NOT complete this task: a structural walk
+  inspects LENGTHS, not CONTENT, so it cannot see a corrupt checksum, bad block,
+  dictionary id, oversized window, out-of-range block size, or FCS mismatch --
+  proven with `28b52ffd24010900004100000000`, which a structural walker admitted
+  while Go returned "not a valid zstd frame". A bounded DECODER slice MUST land
+  before task 1.16 enables ZSTD, validating dictionaries, windows, blocks,
+  checksums, trailing frames, output limits, and exact decoded size through real
+  gateway/EventWriter admission. Define the
   immutable semantic-envelope digest separately from gateway receipt, physical
   placement, spool coordinates, and renewable delivery proof; define broker
   publication identity separately. Make projected row cost cover every
