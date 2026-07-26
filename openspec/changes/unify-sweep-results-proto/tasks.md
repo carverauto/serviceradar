@@ -222,6 +222,26 @@
   grammar (never whole-record byte equality; protobuf has no canonical wire form,
   so two compliant encoders MAY emit different `record_sha256` for the same
   semantics).
+- [ ] 1.6a **Freeze the loss-classification span shape BEFORE the 1.7 ABI freeze.**
+  Replace the ad-hoc `lost_ranges` + `affected` pairing on
+  `EdgeLossManifestPageV1` with ONE ordered classification-span representation.
+  Each span carries a PHYSICAL sequence interval plus exactly one classification:
+  `ATTRIBUTED_ACTIVE` (asserts a produced target range), `ATTRIBUTED_PASSIVE`
+  (asserts none -- but still carries its lost DELIVERY interval), and
+  `UNATTRIBUTABLE(reason)`. `classification_spans` REPLACES both `lost_ranges` and
+  `affected` -- there is NO separate lost-range array for spans to agree with, and
+  a page carrying one MUST be rejected. Total loss is exactly the union of the
+  pages' spans. The list MUST be strictly ordered and internally well-formed (no
+  gaps within the page's coverage, no overlaps, duplicates, out-of-coverage, or
+  out-of-order spans), enforced in BOTH runtimes. Freeze enum numbers, span fields, per-page/per-manifest
+  bounds, unknown-field and unknown-enum handling, the recovery digest version,
+  and the Appendix A digest transcript for the new shape. Byte ceilings MUST be
+  measured against EXACT RECEIVED page bytes -- the current Go validator
+  re-marshals decoded pages, so duplicate fields and non-minimal varints evade
+  the physical ceiling. Add cross-language vectors for each classification, each
+  unattributable reason, partition violations, and the non-canonical-bloat case.
+  This must land BEFORE 1.7 because 1.7 freezes the transport ABI these pages
+  travel on, and it gates 2.20-2.28.
 - [ ] 1.7 Freeze the agent-gateway frame and lane handshake as an internal,
   producer-neutral transport ABI only after Go/Elixir golden fixtures cover
   `EdgeOutputContractRef`, authenticated `EdgeProducerContext`, production,
@@ -541,13 +561,22 @@
   restart without overwriting unacknowledged data; cover record/tail checksums,
   directory fsync, private permissions, never-reused sequence high-water,
   `ENOSPC`, `EIO`, torn-tail recovery, corrupt-segment quarantine, and emergency
-  metadata capacity. Implement signed, bounded/chained loss-manifest/new-spool
-  rollover with a durable phase journal, one-segment scratch reserve, fsynced
-  old-to-new copy watermarks, replacement delivery capabilities, and per-segment
-  delete-after-copy ordering. Never enumerate an outage-sized recoverable tail;
+  metadata capacity. Implement journalled, content-addressed loss-manifest/new-spool
+  rollover with a durable phase journal; an AGGREGATE scratch reserve sized for
+  destination segment + attribution sidecar + BOTH journal copies +
+  manifest/tombstone pages + old->new mapping + filesystem metadata, times the
+  bounded number of concurrent recoveries (NOT a one-segment reserve); fsynced
+  old-to-new copy watermarks; replacement delivery capabilities; and per-segment
+  delete-after-COVERAGE ordering, where coverage means every unreclaimed ALLOCATED
+  sequence in `(durable_local_reclaim_watermark, sequence_high_water]` is either a
+  FULLY COMMITTED, SENDER-VISIBLE destination slot or a PubAcked frozen
+  classification span -- a destination fsync plus mapping is NOT sufficient. Never enumerate an outage-sized recoverable tail;
   re-enqueue it with stable semantic identity and make affected coverage partial.
-  Bind every recovery generation and manifest page immutably, coarsen an
-  overlarge manifest to a conservative uncertain scope, and retain both recovery
+  Bind every recovery generation and manifest page immutably, SPLIT an overlarge
+  manifest across recoveries rather than coarsening proven attribution into an
+  uncertain scope (known attribution is never relabelled UNATTRIBUTABLE to shed
+  bytes), enforce page/manifest byte ceilings against EXACT RECEIVED bytes, and
+  retain both recovery
   journal copies until a signed, consumer-committed `RecoveryResolvedV1` (or its
   idempotent query result) is durable locally. Put every lane, quarantine,
   journal copy, segment/metadata overhead, rollover amplification, and scratch
@@ -594,8 +623,13 @@
 - [ ] 2.10 Implement the agent-owned producer sink and run API for in-process
   collectors. Validate the effective output grant, bind trusted agent/package/
   assignment/scope identity, allocate stable event and spool coordinates,
-  derive conservative cost/routing metadata, and return success only after the
-  exact record bytes and producer idempotency binding are fsynced. Compute
+  derive conservative cost/routing metadata, DERIVE the `RecoveryAttribution` for
+  the append from the record's own authenticated fields (output contract bundle
+  digest, producer context assignment/run/shard, production and source claim
+  authority/scope) and submit it with the append so the spool can verify the
+  semantic join, and return success only after the exact record bytes, the bound
+  attribution, and the producer idempotency binding are fsynced under one commit
+  marker. Compute
   `submission_sha256` over the producer's UNCOMPRESSED contract-payload
   submission and perform the retry/receipt lookup BEFORE compression/re-encoding.
   On a HIT return the ORIGINAL durable artifact (its original `payload_sha256`/
@@ -645,6 +679,153 @@
   inventory, events, enrichment, and other durable output out of
   `serviceradar.plugin_result.v1` and drain-before-send memory queues. Document
   and enforce the durable/ephemeral boundary in every producer SDK.
+
+- [ ] 2.15 **Correct `fairsched`: derive lanes from the platform taxonomy.** It
+  hardcodes sweep/MTR lanes; lanes MUST come from the finite (route profile,
+  traffic class) taxonomy, so a new profile or class needs no scheduler change.
+  Test that an unknown-to-the-scheduler lane is scheduled by taxonomy, not
+  dropped or aliased onto a sweep/MTR lane.
+- [ ] 2.16 **Correct `gwprefix`: separate dispositions and separate remote
+  resolution from local reclaim.** It collapses distinct dispositions and treats a
+  remote resolved prefix as a local reclaim signal. Each disposition MUST remain
+  distinguishable, and a resolved prefix MUST NOT advance local reclamation.
+  Test that a PubAcked prefix leaves spool bytes retained until the agent durably
+  records the terminal outcome.
+- [ ] 2.17 **Correct `admission`: free bytes on durable terminal outcome only.**
+  It releases reserved bytes when the gateway resolves, which reclaims evidence
+  before the agent can prove the outcome survived its own restart. Release MUST
+  follow the durable terminal record and the coverage proof. Test that a crash
+  after PubAck but before the terminal record leaves the bytes present.
+- [ ] 2.18 **Correct `projection`: use the v2 idempotency and cost model.** It
+  applies the wrong idempotency key and cost model for v2 records. Align both with
+  the record identities and the versioned cost contract, and test replay
+  idempotence plus cost accounting against the v2 model.
+- [ ] 2.19 **Hold PR #4685 until 2.15-2.18 are demonstrated.** The edge feature
+  branch carries `fairsched`, `admission`, `gwprefix`, and `projection` as PARTIAL
+  SCAFFOLDING: they compile and pass their tests against the v2 contract without
+  being semantically correct under it. This is a temporary integration gate, not a
+  durable requirement, which is why it lives here and not in the spec. Promotion of
+  the edge feature branch to `staging` is BLOCKED until each correction is
+  demonstrated against the specification rather than against compilation success.
+- [ ] 2.20 **Implement the frozen classification spans in both runtimes (needs
+  1.6a).** Update `ValidateManifestChain` and `ValidateTombstone` so an
+  `UNATTRIBUTABLE` span validates WITHOUT a covering affected scope, so
+  `ATTRIBUTED_PASSIVE` validates with a delivery interval and no produced range,
+  and so the exact-partition rule is enforced. Today's validators reject an
+  unattributable manifest outright, so recovery of a corrupt segment cannot be
+  reported at all until this lands — it gates 2.21-2.28.
+- [ ] 2.21 **Scope generations to lanes and freeze one identity per lane.** Bind
+  each generation to ONE (route profile, traffic class) lane drawn from the finite
+  platform taxonomy, with its own open generation, sequence space, and reclamation
+  state, so bulk, interactive, and recovery run CONCURRENTLY — not one open
+  generation per agent. Freeze that lane's `network_scope_id` and authenticated
+  agent identity for every record in the generation, and enforce single-scope as a
+  stable AUTHENTICATED-AGENT invariant rather than by serializing scopes. A valid
+  transition that merely requires rotation MUST answer `ROTATION_REQUIRED` as a
+  RETRYABLE outcome so the producer can retry the same append; PERMANENT is
+  reserved for a malformed lane or an unauthorized scope/agent identity.
+  Closed-but-unreclaimed generations must remain independently recoverable under
+  their own frozen identity. Test concurrent lanes, per-lane rotation isolation,
+  and that rotation is retryable while unauthorized identity is permanent.
+- [ ] 2.22 **Bind attribution to the accepted record in the spool
+  (`usp2-05b-spool-attribution`; needs 2.10 and 2.21).** FIRST verify the SEMANTIC
+  JOIN, field by field, refusing the append as a PERMANENT error on any mismatch
+  and never storing a mismatch as unattributable: attribution
+  `contract_bundle_sha256` == the record's `EdgeOutputContractRef` bundle digest;
+  `producer_assignment_id`/`run_id`/`run_shard` == its `EdgeProducerContext`;
+  `authority_epoch` and scope == its production and source claims; and for ACTIVE
+  attribution `range_sha256` == the signed source range or the frozen
+  contract-owned range derivation. THEN persist a sequence -> `RecoveryAttribution`
+  relation under the FROZEN local binding grammar (own domain literal, numeric
+  version, ordered transcript, active/passive discriminant, and lane/spool
+  generation identity alongside sequence, `event_id`, record hash, and the
+  complete attribution tuple);
+  checksum it independently of `record_bytes`; and make it readable when the
+  record segment is corrupt. Dictionary/RLE encoding per segment is allowed. Both
+  the record and its bound attribution MUST pass one durability barrier before the
+  producer receipt is issued. Include a corrupt-segment test proving every lost
+  sequence still resolves to its authority, and TWO distinct binding-failure tests: an
+  APPEND-TIME semantic-join mismatch, which MUST be a permanent refusal with
+  nothing stored; and LATER CORRUPTION of a binding that verified at append time,
+  which MUST degrade the span to unattributable rather than to a wrong authority.
+- [ ] 2.23 **Make restart resolution total over redundant commit evidence.**
+  Store commit evidence with redundancy INDEPENDENT of the record segment, each
+  copy carrying a MONOTONIC EVIDENCE GENERATION and a digest over its own
+  contents, so copies can be COMPARED and not merely read. Never classify evidence
+  discardable because its only marker copy became unreadable. Copies cannot be
+  updated atomically with respect to each other, so a crash between writing copy A
+  as COMMITTED and updating copy B leaves two READABLE copies in DIFFERENT states:
+  agreeing valid copies -> the agreed state; ANY valid-copy DISAGREEMENT ->
+  AMBIGUOUS ALLOCATED SLOT, regardless of which copy holds the higher generation
+  (a higher generation proves only that one write landed, not that the append was
+  acknowledged). Withhold the producer receipt until ALL required evidence copies
+  AND the directory metadata that makes them discoverable are durable. Resolve
+  every slot to exactly one outcome over wrapper, sequence high-water, producer
+  idempotency/receipt binding, attribution binding, and record bytes:
+  - evidence intact + bindings valid + bytes intact -> COMMITTED (sender-visible);
+  - evidence intact + bindings valid + bytes missing/corrupt -> ATTRIBUTED LOSS;
+  - evidence intact + attribution/wrapper/receipt binding missing or unverifiable
+    -> AMBIGUOUS ALLOCATED SLOT;
+  - evidence missing/corrupt where the append may have been ACKNOWLEDGED —
+    including a high-water-allocated sequence with no marker, and a COMPLETE
+    prepared record with no marker -> AMBIGUOUS ALLOCATED SLOT;
+  - no evidence, no allocation, no complete record -> DISCARDABLE PREPARATION.
+  An AMBIGUOUS ALLOCATED SLOT enters rollover coverage: ATTRIBUTED when its
+  binding verifies, otherwise UNATTRIBUTABLE with reason. The sender exposes
+  committed entries only; ambiguous/quarantined sequences are never reused; the
+  scan is bounded by segment count. Tests: crash-injection at each barrier
+  position; a single corrupted marker copy does not cause discard; an
+  allocated-but-unmarked sequence reaches rollover coverage rather than vanishing;
+  a SPLIT-WRITE crash injected BETWEEN writing copy A as COMMITTED and updating
+  copy B yields AMBIGUOUS ALLOCATED SLOT (not COMMITTED, and not discarded) in
+  both orderings; and no producer receipt is observable when any required copy or
+  its directory metadata is not yet durable.
+- [ ] 2.24 **Bound segments on keys, runs, AND manifest size.** Rotate on
+  whichever binds first. Include an ALTERNATING-attribution test (keys A,B,A,B,…)
+  proving the run bound triggers rotation where a distinct-key bound alone would
+  not, and that the manifest for any single corrupt segment stays within the
+  recovery grammar's page and byte ceilings.
+- [ ] 2.25 **Preserve attribution across relocation.** Carry the bound relation
+  through rollover, compaction, and scratch copies; re-verify the binding and
+  re-checksum at the destination BEFORE the source becomes eligible for release;
+  degrade a span that cannot be verified to unattributable rather than dropping or
+  blindly copying it.
+- [ ] 2.26 **Implement the reserve and allocation primitives (no coordinator
+  dependency).** Reserve a budget excluded from producer admission and sized for
+  the AGGREGATE a recovery must durably write — destination segment, attribution
+  sidecar, BOTH journal copies, manifest/tombstone pages, old->new mapping, and
+  filesystem metadata — multiplied by the bounded number of CONCURRENT recoveries.
+  Provide the allocator, the unborrowable floor, and the admission refusal path.
+  Make ENOSPC and EIO FAIL-STOP with explicit tests: exhausting the reserve or
+  failing a barrier write must stop recovery deterministically, never silently
+  proceed or partially delete. This task depends only on the spool, so it does NOT
+  wait on the coordinator.
+- [ ] 2.27 **Resume the saved rollover work as the agent recovery coordinator
+  (needs 2.20-2.26 and 2.10).** The paged-manifest/tombstone implementation
+  preserved at `rescue/usp13-v2-wip-20260725` (`9a3a701f`) already builds pages,
+  links them, and defers every digest to `edgerecord`'s `ManifestPageDigest` /
+  `ManifestRoot`. Convert it into the agent-owned coordinator that freezes, pages,
+  hashes, and JOURNALS — never signs (no agent-signature ABI exists) and never the
+  sender. It MUST emit the frozen `classification_spans` from 1.6a, not the
+  retired `lost_ranges`/`affected` pairing.
+- [ ] 2.28 **Integrate post-coordinator reclamation behind the coverage proof
+  (needs 2.26 and 2.27).** A source segment is deleted only when a durable
+  coverage proof accounts for EVERY UNRECLAIMED ALLOCATED SEQUENCE in
+  `(durable_local_reclaim_watermark, sequence_high_water]` — not merely every
+  committed slot — as either a FULLY COMMITTED,
+  SENDER-VISIBLE destination slot — its own commit evidence covering the new
+  wrapper/coordinates, rebound attribution, old->new mapping, destination
+  high-water, and directory metadata — or a FROZEN loss span whose required
+  recovery pages have PubAcked. Journalling a manifest alone MUST NOT authorize
+  deletion. Persist phase and delete INTENT before any destructive step and resume
+  from it after a crash; retain both journal copies and page proofs until a
+  durable `RecoveryResolvedV1`. Test: deletion blocked on an fsynced-but-
+  uncommitted destination; deletion blocked without PubAck; crash mid-phase
+  resumes from intent; a full-spool recovery completes against the reserve; and
+  the SEQUENCE 9/10 case — sequence 9 committed, sequence 10 allocated and
+  MARKERLESS in the same segment — where covering only sequence 9 MUST NOT
+  authorize deletion, and sequence 10 MUST appear in the coverage proof rather
+  than disappearing with no manifest entry.
 
 ## 3. Make the gateway a durable authenticated relay
 
@@ -948,7 +1129,16 @@
   retain durable state and alert if recovery-stream expiry approaches. After
   commit, expose/emit a signed idempotent `RecoveryResolvedV1` bound to recovery
   ID, manifest root, and applied state; a recovery-stream PubAck alone MUST NOT
-  authorize agent journal deletion.
+  authorize agent journal deletion. Handle the three classification spans
+  distinctly: `ATTRIBUTED_ACTIVE` marks its produced range partial/lost;
+  `ATTRIBUTED_PASSIVE` marks the delivery interval lost WITHOUT asserting a
+  produced range; `UNATTRIBUTABLE(reason)` MUST durably record the span in the
+  loss audit/quarantine store, FENCE the affected agent/scope generation, and
+  enqueue scheduler reconciliation, and MUST BLOCK `RecoveryResolvedV1` for that
+  recovery until those actions are durably committed. Never treat an
+  unattributable span as merely uncounted, and never infer passive from record
+  kind -- lost terminal/lifecycle evidence is unattributable when its attribution
+  cannot be proven.
 - [ ] 5.7 Copy poison events and diagnostics to the durable DLQ, wait for its
   PubAck, and only then terminate the source delivery; use a stable network-scope/
   source-sequence/checksum/error-class DLQ ID and retry ambiguous acknowledgments.

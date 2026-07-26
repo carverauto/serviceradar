@@ -788,3 +788,529 @@ telemetry SHALL remain JetStream-first.
   requires a future version
 - **AND** a fresh service record whose provenance carries no `delivery_proof_digest`
   SHALL remain valid
+
+### Requirement: Spool generations are per lane and freeze one authenticated identity
+A spool generation SHALL be scoped to exactly ONE lane, where a lane is one
+(route profile, traffic class) pair drawn from the finite platform taxonomy, and
+SHALL freeze that lane's `network_scope_id` and authenticated agent identity for
+every record it contains.
+
+One OPEN generation SHALL exist per lane, not per agent. Bulk, interactive, and
+recovery lanes therefore run concurrently, each with its own open generation,
+sequence space, and reclamation state. Serializing them behind a single open
+generation would collapse the lane architecture and let a slow bulk lane block
+interactive or recovery traffic.
+
+The authenticated agent identity and `network_scope_id` SHALL be stable for the
+agent across its lanes: an agent serves ONE scope, enforced as an authenticated
+identity invariant, not by serializing generations. Closed-but-unreclaimed
+generations MAY coexist with the open one on the same lane and SHALL remain
+independently recoverable under their own frozen identity.
+
+A record presenting a lane that has no open generation SHALL cause that lane's
+generation to be opened, not an append onto another lane's generation.
+
+#### Scenario: Lanes have independent open generations
+- **WHEN** the agent has records for the bulk and interactive lanes
+- **THEN** each lane SHALL have its own open generation
+- **AND** neither SHALL block the other's appends or reclamation
+
+#### Scenario: Lane change rotates only that lane
+- **WHEN** a lane's route profile or traffic class changes
+- **THEN** that lane's generation SHALL close and a successor open
+- **AND** other lanes' generations SHALL be unaffected
+
+#### Scenario: Valid transition is retryable, not permanent
+- **WHEN** an append arrives for a lane whose generation must rotate first
+- **THEN** the spool SHALL answer `ROTATION_REQUIRED` as a RETRYABLE outcome
+- **AND** the producer SHALL be able to retry the same append after rotation
+
+#### Scenario: Malformed or unauthorized identity is permanent
+- **WHEN** an append presents a malformed lane, or a `network_scope_id` or agent
+  identity the authenticated session does not authorize
+- **THEN** the spool SHALL refuse it as a PERMANENT error
+
+### Requirement: Attribution is semantically joined to its record before durability
+Attribution SHALL be proven to DESCRIBE the record it is committed with, by exact
+join against that record's own authenticated fields, before the append is durable.
+Physical binding alone is insufficient.
+
+The spool SHALL verify, field by field, that the attribution's
+`contract_bundle_sha256` equals the record's `EdgeOutputContractRef` bundle digest;
+that `producer_assignment_id`, `run_id`, and `run_shard` equal the record's
+`EdgeProducerContext` values; that `authority_epoch` and the scope identity equal
+those asserted by the record's production claims and source claims; and, for
+ACTIVE attribution, that `range_sha256` equals either the signed source range the
+record's authorization carries, or a range derivation that the output contract
+explicitly owns and that is itself frozen. Only then SHALL it commit the physical
+binding.
+
+`range_sha256` is not optional to the join. It is the field that says WHICH
+produced output the attribution claims; leaving it unverified would let a valid
+join name the right contract, assignment, run, and authority while asserting a
+range the record never produced.
+
+Physical binding without the semantic join is forgeable by construction: a sink
+may attach record B's provenance to record A and compute a perfectly valid
+`event_id`/sequence/`record_sha256` binding over A. The manifest would then
+validate while naming the wrong contract, assignment, run, or authority. The join
+is what makes the binding mean "this provenance came from this record".
+
+An attribution failing ANY join SHALL be refused as a permanent error, and SHALL
+NOT be committed as unattributable — a refused append never became durable, so
+there is no loss to attribute.
+
+#### Scenario: Mismatched provenance is refused, not stored
+- **WHEN** an append presents attribution whose contract bundle, assignment, run,
+  shard, authority epoch, or scope does not equal the record's own fields
+- **THEN** the spool SHALL refuse the append as a permanent error
+- **AND** SHALL NOT report the record durable
+
+#### Scenario: Join precedes physical binding
+- **WHEN** the spool commits an attribution entry
+- **THEN** every join above SHALL have been verified against that record
+- **BEFORE** the physical binding is written
+
+### Requirement: The local attribution-binding grammar is versioned and domain-separated
+The on-disk attribution-binding grammar SHALL be versioned and domain-separated,
+and SHALL be defined independently of any wire grammar.
+
+It SHALL carry its own version constant and its own frozen domain tag, so a local
+binding digest can never collide with a manifest-page, manifest-root, plan, or
+semantic-envelope digest by field-structure coincidence. It SHALL be written
+field-by-field over declared fields, never by re-marshalling a decoded message.
+
+The transcript SHALL include LANE AND SPOOL/GENERATION IDENTITY alongside the
+sequence, `event_id`, record hash, the active/passive discriminant, and the
+COMPLETE attribution tuple. Without spool identity the same record at sequence 1
+in two different spools digests identically, so a destination binding would be
+indistinguishable from its source and REBINDING could not be represented at all —
+which the rollover coverage proof depends on.
+
+The grammar SHALL be frozen with CONCRETE values before the spool attribution work
+begins, not described abstractly. It is:
+
+- domain literal `serviceradar.edge.recovery.local_binding.v1`;
+- `binding_version` = 1 (u64), immediately after the domain;
+- 8-byte big-endian integers, 8-byte big-endian length prefixes on every
+  variable-length field, and 1-byte discriminants (`0x00`/`0x01`);
+- field-by-field over declared fields only — never `proto.Marshal`, at any depth;
+- ordered transcript, exactly:
+  1. `str` domain literal
+  2. `binding_version` (u64)
+  3. `lane_route_profile` (u64), `lane_traffic_class` (u64)
+  4. `spool_generation_id` (bytes)
+  5. `sequence` (u64)
+  6. `event_id` (bytes)
+  7. `record_sha256` (bytes)
+  8. `attribution_kind` (1-byte discriminant: `0x00` PASSIVE, `0x01` ACTIVE)
+  9. `contract_bundle_sha256` (bytes)
+  10. `producer_assignment_id` (bytes)
+  11. `run_id` (bytes)
+  12. `run_shard` (u64)
+  13. `authority_epoch` (u64)
+  14. `scope_sha256` (bytes)
+  15. `range_sha256` (bytes) — present ONLY when `attribution_kind` is ACTIVE, and
+      absent entirely for PASSIVE rather than encoded as empty, so a passive
+      binding can never collide with an active one whose range digest is zero.
+
+Cross-language GOLDEN vectors SHALL cover an active binding, a passive binding,
+and a REBINDING vector proving the same `event_id`/`record_sha256` at the same
+sequence in two different `spool_generation_id`s produces two different digests.
+
+The binding record SHALL be stored corruption-independently of `record_bytes`:
+independently checksummed, separately addressable, and readable when the record
+segment is unreadable. Dictionary or RLE encoding per segment is permitted
+provided the checksum covers the encoded form and decoding does not depend on any
+record payload.
+
+#### Scenario: Local binding digest cannot collide with a wire digest
+- **WHEN** a local attribution binding is digested
+- **THEN** its preimage SHALL lead with its own domain tag and version
+- **AND** SHALL NOT equal any wire-grammar digest over the same values
+
+#### Scenario: Same record in two spools binds differently
+- **WHEN** the same record occupies sequence 1 in two different spool generations
+- **THEN** their local binding digests SHALL differ
+- **AND** a destination rebinding SHALL be distinguishable from its source
+
+#### Scenario: Binding store is readable without records
+- **WHEN** a record segment is unreadable
+- **THEN** the attribution bindings for its sequences SHALL still be readable and
+  checksum-verifiable
+
+### Requirement: Loss is described by one ordered classification-span list
+The recovery page SHALL describe loss with ONE ordered `classification_spans`
+list, which REPLACES both `lost_ranges` and `affected`. There SHALL NOT be a
+separate lost-range array for the spans to agree with: a second array would make
+two schemas describe the same fact and admit manifests where they disagree.
+
+Each span SHALL carry a PHYSICAL sequence interval and exactly one classification
+body:
+
+- `ATTRIBUTED_ACTIVE` — attributed, asserting a produced target range;
+- `ATTRIBUTED_PASSIVE` — attributed, asserting NO produced target range;
+- `UNATTRIBUTABLE(reason)` — not attributable, carrying its reason.
+
+Every variant SHALL carry a physical interval, including passive: a passive record
+still occupies a lost DELIVERY sequence, and omitting its interval would leave a
+hole no consumer could distinguish from undetected loss. Passive differs only in
+asserting no produced target range.
+
+The list SHALL be strictly ordered by sequence and SHALL be internally
+well-formed: no gaps within the page's declared coverage, no overlaps, no
+duplicates, and no interval outside the page's coverage. Total loss for the
+manifest is exactly the union of its pages' spans; it SHALL NOT be declared
+anywhere else.
+
+Because task 1.7 has NOT yet frozen the transport ABI and no agent emits the
+candidate recovery-v1 grammar, this replacement SHALL be made ATOMICALLY rather
+than carried alongside the old arrays. Retaining compatibility machinery for an
+unshipped format would preserve exactly the dual-schema ambiguity this removes.
+The following SHALL be updated together, in one change: the page and manifest
+messages, Appendix A's digest transcript, EVERY `recovery_grammar_version = 1`
+reference, both runtimes' validators, and all fixtures.
+
+The classification enum numbers, span fields, per-page and per-manifest bounds,
+unknown-field and unknown-enum handling, and the recovery digest version SHALL be
+FROZEN before any implementation depends on them.
+
+#### Scenario: Spans are the only loss declaration
+- **WHEN** a manifest page declares loss
+- **THEN** it SHALL do so ONLY through `classification_spans`
+- **AND** a page carrying a separate lost-range or affected array SHALL be
+  rejected
+
+#### Scenario: Span list is well-formed
+- **WHEN** a page's classification spans are validated
+- **THEN** a gap, overlap, duplicate, out-of-coverage, or out-of-order span SHALL
+  be rejected
+
+#### Scenario: Passive carries its delivery interval
+- **WHEN** a lost sequence held a passive record
+- **THEN** its span SHALL carry that physical interval
+- **AND** SHALL assert no produced target range
+
+#### Scenario: Grammar is frozen before use
+- **WHEN** an implementation consumes the classification spans
+- **THEN** enum numbers, fields, bounds, unknown handling, digest version, and
+  the Appendix A transcript SHALL already be frozen
+
+### Requirement: Unattributable loss forces conservative repair before resolution
+An unattributable span SHALL trigger conservative repair, and SHALL NOT be merely
+accepted and excluded from attribution. Acknowledging unknown data loss without
+repairing anything is not a safe consumer behaviour.
+
+On applying a manifest containing an unattributable span, the platform SHALL:
+
+- durably record the span in a loss audit/quarantine store, retained
+  independently of the manifest;
+- FENCE the affected generation for the agent and scope, so no consumer treats
+  that generation's coverage as complete;
+- reconcile with the scheduler, so work whose output may have been lost is
+  re-planned rather than assumed delivered.
+
+`RecoveryResolvedV1` SHALL NOT be emitted or accepted for a recovery containing an
+unattributable span until those actions are durably committed. Resolution asserts
+the loss was accounted for; emitting it while a span is unexplained asserts
+something false.
+
+Terminal and lifecycle evidence SHALL NOT be classified passive automatically. A
+lost terminal record can hide the completion state of produced work, so it SHALL
+be classified from its attribution, and treated as unattributable when that
+attribution cannot be proven.
+
+#### Scenario: Resolution is blocked until repair commits
+- **WHEN** a manifest contains an unattributable span
+- **THEN** `RecoveryResolvedV1` SHALL NOT be emitted or accepted
+- **UNTIL** audit, fencing, and scheduler reconciliation are durably committed
+
+#### Scenario: Generation is fenced, not silently trusted
+- **WHEN** an unattributable span is applied
+- **THEN** the affected agent/scope generation SHALL be fenced
+- **AND** its coverage SHALL NOT be reported complete
+
+#### Scenario: Lost terminal evidence is not assumed harmless
+- **WHEN** a lost span held terminal or lifecycle records
+- **THEN** it SHALL NOT be classified passive by kind alone
+- **AND** SHALL be unattributable when its attribution cannot be proven
+
+### Requirement: Restart resolution is total over redundant commit evidence
+Restart resolution SHALL be TOTAL over COMMIT EVIDENCE that is itself redundant
+and corruption-independent, considering the record wrapper, the assigned sequence
+high-water, the producer idempotency/receipt binding, and the attribution binding
+together with the record bytes.
+
+Commit evidence SHALL NOT be a single point of failure. It SHALL be stored with
+redundancy independent of the record segment, so that losing ONE copy never
+decides an outcome. Evidence SHALL NEVER be classified discardable merely because
+its only marker copy became unreadable — that would convert a storage fault into
+silent deletion of proof that data was acknowledged.
+
+Every copy SHALL carry a monotonically increasing EVIDENCE GENERATION and a digest
+over its own contents, so copies can be compared rather than merely read. Because
+copies cannot be updated atomically with respect to each other, a crash between
+writing copy A as COMMITTED and updating copy B leaves two READABLE copies in
+DIFFERENT states, which unreadable-copy handling does not cover. Resolution SHALL
+therefore be:
+
+- all valid copies AGREE -> use the agreed state;
+- any two valid copies DISAGREE -> AMBIGUOUS ALLOCATED SLOT, regardless of which
+  copy carries the higher generation. A higher generation proves only that one
+  write landed, not that the append was acknowledged, so preferring it would
+  invent a commit the producer may never have been told about.
+
+A producer receipt SHALL NOT be issued until ALL required evidence copies AND the
+directory metadata that makes them discoverable are durable. Issuing earlier makes
+the acknowledged/unacknowledged distinction unrecoverable by construction.
+
+For every slot present after restart, exactly one outcome SHALL apply:
+
+- commit evidence intact, attribution/wrapper/receipt binding valid, record bytes
+  present and intact -> COMMITTED; the receipt stands and the sender MAY expose it.
+- commit evidence intact, bindings valid, record bytes MISSING OR CORRUPT ->
+  ATTRIBUTED LOSS; manifested as an attributed lost span.
+- commit evidence intact but ATTRIBUTION, WRAPPER, or RECEIPT BINDING missing or
+  unverifiable -> AMBIGUOUS ALLOCATED SLOT (below).
+- commit evidence MISSING OR CORRUPT for a slot whose append may have been
+  ACKNOWLEDGED — including a sequence high-water allocated with no marker, and a
+  COMPLETE prepared record with no marker -> AMBIGUOUS ALLOCATED SLOT.
+- no commit evidence, no high-water allocation, and no complete record ->
+  DISCARDABLE PREPARATION; the append never became durable.
+
+An AMBIGUOUS ALLOCATED SLOT SHALL enter rollover coverage rather than being
+discarded or silently retained. It SHALL be classified ATTRIBUTED when its
+attribution binding verifies against the record, and UNATTRIBUTABLE with the
+corresponding reason when it does not. A slot whose sequence was allocated cannot
+simply vanish: the sequence is already reflected in the high-water, so an
+unresolved slot permanently pins the cumulative prefix.
+
+The sender SHALL expose COMMITTED entries only. The deciding scan SHALL be bounded
+by the generation's segment count, and a quarantined or ambiguous sequence SHALL
+NOT be reused.
+
+#### Scenario: Committed slot with lost bytes is attributed loss
+- **WHEN** restart finds intact commit evidence and valid bindings but missing or
+  corrupt record bytes
+- **THEN** the slot SHALL be manifested as an ATTRIBUTED lost span
+
+#### Scenario: A single corrupt marker copy decides nothing
+- **WHEN** one copy of a slot's commit evidence is unreadable
+- **THEN** resolution SHALL use the redundant copy
+- **AND** the slot SHALL NOT be classified discardable on that basis alone
+
+#### Scenario: Disagreeing readable copies are ambiguous
+- **WHEN** two valid evidence copies for one slot record different states
+- **THEN** the slot SHALL be an AMBIGUOUS ALLOCATED SLOT
+- **AND** the higher evidence generation SHALL NOT be taken as authoritative
+
+#### Scenario: Receipt waits for all copies and directory metadata
+- **WHEN** any required evidence copy or its directory metadata is not yet durable
+- **THEN** the producer receipt SHALL NOT be issued
+
+#### Scenario: Allocated high-water without a marker is ambiguous
+- **WHEN** restart finds a sequence allocated in the high-water with no readable
+  commit evidence
+- **THEN** the slot SHALL enter rollover coverage as an AMBIGUOUS ALLOCATED SLOT
+- **AND** SHALL be attributed if its binding verifies, otherwise unattributable
+
+#### Scenario: Complete prepared record without a marker is ambiguous
+- **WHEN** restart finds a complete record whose commit evidence is absent
+- **THEN** it SHALL be treated as an AMBIGUOUS ALLOCATED SLOT, not as preparation
+
+#### Scenario: Committed marker with missing bindings is ambiguous
+- **WHEN** commit evidence is intact but attribution, wrapper, or receipt binding
+  is missing or unverifiable
+- **THEN** the slot SHALL enter rollover coverage
+- **AND** SHALL be unattributable unless its attribution binding verifies
+
+#### Scenario: True preparation is discarded
+- **WHEN** restart finds no commit evidence, no high-water allocation, and no
+  complete record
+- **THEN** the slot SHALL be discarded as preparation
+
+#### Scenario: Sender never exposes non-committed state
+- **WHEN** the sender selects entries to transmit
+- **THEN** it SHALL transmit only committed entries
+
+### Requirement: Segment deletion requires a durable coverage proof
+A source segment SHALL NOT be deleted until a durable COVERAGE PROOF accounts for
+every UNRECLAIMED ALLOCATED sequence it held — that is, every sequence in
+`(durable_local_reclaim_watermark, sequence_high_water]` — as exactly one of:
+
+- a FULLY COMMITTED, SENDER-VISIBLE destination slot — not merely an fsynced
+  destination record. Its own commit evidence SHALL cover the new wrapper and
+  coordinates, the REBOUND attribution, the durable old->new mapping, the
+  destination sequence high-water, and the directory metadata that makes the slot
+  discoverable after restart; or
+- a FROZEN loss span whose required recovery pages have been PubAcked.
+
+An fsynced destination record alone is insufficient: a copy that is durable but
+not yet committed and sender-visible is indistinguishable, after a crash, from an
+ambiguous allocated slot — so deleting the source would destroy the only intact
+evidence for a slot the destination cannot yet serve.
+
+Coverage SHALL be over ALLOCATED sequences, not committed slots. A markerless but
+high-water-allocated sequence is exactly the slot restart classifies as ambiguous,
+and it is not "committed" — so a predicate over committed slots alone is
+satisfiable while such a sequence exists. Concretely: sequence 9 committed,
+sequence 10 allocated and markerless; copying 9 satisfies a committed-only
+predicate, the segment is deleted, and sequence 10 disappears with no manifest
+entry and no evidence it ever existed.
+
+The phase and delete INTENT SHALL be persisted before any destructive step, so a
+crash mid-rollover resumes deterministically instead of re-deriving intent from
+whatever survived.
+
+Copying SHALL rebind attribution to the destination spool and sequence while
+PRESERVING the verified source binding and the mapping, so the destination remains
+provably descended from the same authenticated record rather than newly asserted.
+
+Both recovery journal copies and the manifest page proofs SHALL be retained until a
+durable `RecoveryResolvedV1` for that recovery. Journalling a manifest alone SHALL
+NOT authorize deleting the source, because an unacknowledged manifest is not yet
+proof that the loss was reportable.
+
+#### Scenario: Deletion blocked without full coverage
+- **WHEN** any sequence in `(durable_local_reclaim_watermark, sequence_high_water]`
+  is neither committed and sender-visible at the destination nor covered by a
+  PubAcked frozen classification span
+- **THEN** the source segment SHALL NOT be deleted
+
+#### Scenario: Markerless allocated sequence blocks deletion
+- **WHEN** a segment holds a committed sequence and a later allocated, markerless
+  sequence
+- **THEN** covering only the committed sequence SHALL NOT authorize deletion
+- **AND** the allocated sequence SHALL appear in the coverage proof
+
+#### Scenario: Durable-but-uncommitted destination does not authorize deletion
+- **WHEN** a destination record is fsynced but its commit evidence does not yet
+  cover wrapper, coordinates, rebound attribution, mapping, high-water, and
+  directory metadata
+- **THEN** the source segment SHALL NOT be deleted
+
+#### Scenario: Intent persists before destruction
+- **WHEN** rollover begins a destructive phase
+- **THEN** the phase and delete intent SHALL already be durable
+- **AND** a crash SHALL resume from that intent
+
+#### Scenario: Rebinding preserves ancestry
+- **WHEN** a record is copied to a new spool and sequence
+- **THEN** its attribution SHALL be rebound to the destination
+- **AND** the verified source binding and old->new mapping SHALL be preserved
+
+#### Scenario: Proofs retained until resolved
+- **WHEN** a manifest has been journalled but not resolved
+- **THEN** both journal copies and the page proofs SHALL be retained
+- **UNTIL** a durable `RecoveryResolvedV1` for that recovery
+
+### Requirement: Recovery bounds hold for a whole generation
+Recovery sizing SHALL be bounded for an entire recovery GENERATION, not only per
+segment. Implementations SHALL either emit one bounded recovery manifest per
+corrupt segment, or enforce a cumulative per-generation manifest budget; per
+segment bounds alone do not prove a multi-segment recovery fits.
+
+Known attribution SHALL NEVER be downgraded to `UNATTRIBUTABLE` because coarsening
+or sizing failed. `UNATTRIBUTABLE` states that provenance could not be proven; using
+it to shed bytes would forge that claim and silently discard evidence the spool
+actually holds. Where bounds cannot be met with attribution retained, the recovery
+SHALL be split across manifests rather than degraded.
+
+Manifest byte ceilings SHALL be enforced against the EXACT RECEIVED page bytes. A
+validator that re-marshals a decoded page measures its own canonical encoding, so
+duplicate fields, non-minimal varints, and other non-canonical wire bloat evade the
+physical ceiling while inflating what the receiver actually stored and forwarded.
+
+The recovery reserve SHALL cover, concurrently for the bounded number of
+simultaneous recoveries: a destination segment, the attribution sidecar, BOTH
+journal copies, the manifest and tombstone pages, the old->new mapping, and
+filesystem metadata overhead. Reserving for "one corrupt segment" understates every
+other artifact recovery must durably write.
+
+#### Scenario: Generation budget is enforced
+- **WHEN** several segments in one generation are corrupt
+- **THEN** either each SHALL produce its own bounded manifest, or a cumulative
+  generation budget SHALL bound the total
+
+#### Scenario: Sizing pressure never forges unattributable
+- **WHEN** coarsening or sizing cannot fit a manifest with attribution retained
+- **THEN** the recovery SHALL be split
+- **AND** known attribution SHALL NOT be relabelled `UNATTRIBUTABLE`
+
+#### Scenario: Byte ceiling measures received bytes
+- **WHEN** a page arrives with duplicate fields or non-minimal encoding
+- **THEN** the ceiling SHALL be applied to the exact received bytes
+- **AND** SHALL NOT be applied to a re-marshalled canonical form
+
+#### Scenario: Reserve covers every recovery artifact
+- **WHEN** the recovery reserve is sized
+- **THEN** it SHALL cover destination segment, attribution sidecar, both journal
+  copies, manifest/tombstone pages, mapping, and filesystem metadata
+- **FOR** the bounded number of concurrent recoveries
+
+### Requirement: Coarsening preserves attribution truth
+Coarsening MAY combine intervals belonging to the SAME attribution key, and SHALL
+NOT collapse unrelated assignments or runs into a single fabricated affected
+scope, nor widen a scope to cover sequences that key never produced.
+
+Where a span cannot be coarsened without merging distinct keys, the manifest SHALL
+retain the separate intervals or split the recovery, never invent coverage and
+never relabel proven attribution as unattributable.
+
+#### Scenario: Same-key intervals merge
+- **WHEN** adjacent lost intervals share one attribution key
+- **THEN** coarsening MAY emit a single interval for that key
+
+#### Scenario: Distinct keys never merge
+- **WHEN** adjacent lost intervals belong to different attribution keys
+- **THEN** coarsening SHALL NOT emit one affected scope spanning both
+- **AND** the manifest SHALL remain rejectable if it does
+
+### Requirement: Recovery ownership is separated by authority
+Recovery responsibilities SHALL be owned as follows, and SHALL NOT be relocated
+into a component that lacks the authority or the evidence:
+
+- the SPOOL detects corruption and retains attribution and copy evidence;
+- the agent RECOVERY COORDINATOR freezes, pages, hashes, and JOURNALS the manifest
+  and tombstone;
+- the SENDER transmits already-frozen committed recovery records and never authors
+  them;
+- the GATEWAY validates, stamps transport provenance, and publishes the bytes
+  unchanged;
+- the EVENTWRITER applies only a complete validated manifest.
+
+The coordinator SHALL NOT be specified as SIGNING the manifest unless and until an
+agent-signature ABI exists to sign with. Integrity within the agent is provided by
+the journalled content-addressed chain; authenticity on the wire is provided by the
+existing authenticated session and capability model.
+
+#### Scenario: Sender does not author manifests
+- **WHEN** a sender retries or crashes mid-transmission
+- **THEN** the manifest and tombstone identity SHALL be unchanged
+- **AND** SHALL remain exactly what the coordinator froze and journalled
+
+#### Scenario: Gateway does not synthesize recovery
+- **WHEN** the gateway receives a recovery record
+- **THEN** it SHALL validate and publish the frozen bytes
+- **AND** SHALL NOT construct, extend, or re-page the manifest
+
+### Requirement: Reclamation follows durable outcome without starving recovery
+A gateway PubAck or a remote resolved prefix SHALL NOT by itself reclaim local
+spool bytes; reclamation SHALL follow the agent durably recording the terminal
+outcome for the affected sequences, subject to the coverage proof above.
+
+Recovery SHALL NOT deadlock against that rule. The reserve described above is
+excluded from producer admission. When only recovery-critical work remains, the
+spool SHALL admit recovery's own freeze/journal/copy writes against the reserve,
+and SHALL refuse further producer appends rather than reclaim evidence that no
+coverage proof yet accounts for.
+
+#### Scenario: PubAck alone does not free bytes
+- **WHEN** the gateway acknowledges a published prefix
+- **THEN** the spool SHALL retain those bytes
+- **UNTIL** the agent durably records the terminal outcome
+
+#### Scenario: Recovery proceeds on a full spool
+- **WHEN** the spool is at capacity and a corrupt segment requires a manifest
+- **THEN** recovery SHALL proceed against the reserve
+- **AND** producer appends SHALL be refused rather than recovery blocked
