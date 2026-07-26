@@ -8,6 +8,7 @@ module(
 bazel_dep(name = "rules_go", version = "0.60.0", repo_name = "io_bazel_rules_go")
 bazel_dep(name = "gazelle", version = "0.45.0", repo_name = "bazel_gazelle")
 bazel_dep(name = "rules_rust", version = "0.65.0")
+bazel_dep(name = "rules_rust_prost", version = "0.65.0")
 bazel_dep(name = "rules_python", version = "1.7.0")
 bazel_dep(name = "rules_nodejs", version = "6.5.0")
 bazel_dep(name = "rules_proto", version = "7.1.0")
@@ -566,12 +567,18 @@ use_repo(
     "rust_linux_x86_64__x86_64-unknown-linux-musl__stable_tools",
 )
 
+register_toolchains("@rust_toolchains//:all")
+
 register_toolchains(
     "//build/rust:linux_aarch64_musl_toolchain",
     "//build/rust:linux_x86_64_musl_toolchain",
 )
 
-register_toolchains("@rust_toolchains//:all")
+# Custom Prost toolchain
+register_toolchains(
+    "//build/rust/prost_toolchain",
+    "//build/rust/proto_toolchain",
+)
 
 # TODO(bazel-migration): add rust_host_tools for pinned host binaries and expand
 # crate_universe coverage as additional Rust targets migrate.

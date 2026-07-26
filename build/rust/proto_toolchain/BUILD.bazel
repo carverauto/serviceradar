@@ -1,0 +1,9 @@
+load("@rules_proto//proto:proto_toolchain.bzl", "proto_toolchain")
+
+package(default_visibility = ["//visibility:public"])
+
+# This macro implicitly creates `{name}_toolchain`
+proto_toolchain(
+    name = "proto",
+    proto_compiler = "@com_google_protobuf//:protoc",
+)
