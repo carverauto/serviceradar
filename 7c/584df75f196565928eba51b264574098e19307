@@ -1,0 +1,20 @@
+.forgejo/workflows/main.yml
+  s_1243381eb5fb18::t_8651000243cb8e 234-237
+  s_1243381eb5fb18::t_d43863a9605b6f 281
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "7c584df75f196565928eba51b264574098e19307",
+  "prompts": {},
+  "sessions": {
+    "s_1243381eb5fb18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c80cd9b1-98fc-432b-9832-9538fb1ae01c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
