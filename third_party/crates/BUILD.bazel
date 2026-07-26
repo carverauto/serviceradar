@@ -379,6 +379,18 @@ alias(
 )
 
 alias(
+    name = "docker_utils-0.2.4",
+    actual = "//third_party/crates/docker_utils-0.2.4:docker_utils",
+    tags = ["manual"],
+)
+
+alias(
+    name = "docker_utils",
+    actual = "//third_party/crates/docker_utils-0.2.4:docker_utils",
+    tags = ["manual"],
+)
+
+alias(
     name = "ed25519-dalek-3.0.0",
     actual = "//third_party/crates/ed25519-dalek-3.0.0:ed25519_dalek",
     tags = ["manual"],

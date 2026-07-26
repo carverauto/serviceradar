@@ -26,5 +26,8 @@ tracing = { workspace = true }
 urlencoding = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+# Starts a throwaway dgraph/standalone container for the integration suite.
+docker_utils = { workspace = true }
+# No "macros": the acceptance test is a plain #[test] driving one explicit runtime.
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }
 pretty_assertions = { workspace = true }

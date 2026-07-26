@@ -1034,6 +1034,7 @@ _NORMAL_DEV_DEPENDENCIES = {
     },
     "rust/dgraph-client": {
         _COMMON_CONDITION: {
+            "docker_utils": Label("//third_party/crates/docker_utils-0.2.4:docker_utils"),
             "pretty_assertions": Label("//third_party/crates/pretty_assertions-1.4.1:pretty_assertions"),
         },
     },

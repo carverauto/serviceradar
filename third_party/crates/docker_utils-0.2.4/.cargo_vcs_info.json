@@ -1,0 +1,6 @@
+{
+  "git": {
+    "sha1": "45e531c06184ca9014add96f36d0856cc132499f"
+  },
+  "path_in_vcs": "crates/docker_utils"
+}
