@@ -1022,8 +1022,11 @@ or the configured production rate times the supported gateway/NATS outage, with
 at least 25 percent headroom. Those lane limits are subordinate to one atomic
 filesystem allocator covering every lane, the producer-receipt/idempotency
 journal, raw quarantine, both recovery-journal copies, rollover copy
-amplification, directory/segment metadata, and one-segment
-scratch. The allocator enforces a hard minimum-free-space floor reserved for
+amplification, directory/segment metadata, and the AGGREGATE recovery reserve --
+destination segment, attribution sidecar, BOTH journal copies, manifest/tombstone
+pages, the old->new mapping, and filesystem metadata, times the bounded number of
+CONCURRENT recoveries. A one-segment scratch reserve counts only the input and
+none of the artifacts a recovery must durably write. The allocator enforces a hard minimum-free-space floor reserved for
 recovery/control and terminal evidence; the sum of nominal lane quotas can never
 overcommit the filesystem. When a lane or the global allocator reaches its
 high-water mark, the scheduler defers lower-priority or overlapping work and
@@ -1053,28 +1056,44 @@ A corrupt committed record in the middle of a lane is not silently skipped and
 does not permanently pin every later valid record. Using separately reserved
 recovery metadata/capacity, the agent durably fences the old lane from normal
 publication, creates a new spool identity, and records a crash-resumable rollover
-journal. Normal spool admission permanently reserves at least one maximum segment
-plus recovery metadata as rollover scratch. The agent copies one readable old
-segment at a time to the new lane by placing the exact unchanged
+journal. Normal spool admission permanently reserves the aggregate recovery
+budget defined above. The agent copies one readable old segment at a time to the
+new lane by placing the exact unchanged
 `EdgeRecordV1` bytes/checksum in a new `EdgeDeliveryFrameV1`, fsyncs the new
 segment and copy watermark, and only then advances the journal.
-After the tombstone pages have PubAcked, that exact old source segment may be
-deleted before copying the next, so recovery needs bounded scratch rather than a
-second full-spool allocation. Copying to a new spool ID/sequence is a
+That exact old source segment may be deleted before copying the next ONLY once the
+coverage proof holds for every unreclaimed ALLOCATED sequence it held -- each one
+either a FULLY COMMITTED, SENDER-VISIBLE destination slot (its own commit evidence
+covering wrapper/coordinates, rebound attribution, old->new mapping, destination
+high-water, and directory metadata) or a PubAcked frozen classification span. An
+fsynced copy plus a PubAcked tombstone is NOT sufficient on its own. Recovery
+therefore needs bounded scratch rather than a second full-spool allocation. Copying to a new spool ID/sequence is a
 delivery-coordinate change; database semantic idempotency absorbs any original
 publication whose PubAck or edge ACK was lost.
 
-The agent also submits a signed, hard-size-bounded `SpoolLossTombstoneV1` on an
+The agent also submits a journalled, content-addressed, hard-size-bounded
+`SpoolLossTombstoneV1` (NOT agent-signed; no agent-signature ABI exists) on an
 independent recovery-control lane. It names the abandoned spool, compact
-lost/uncertain sequence intervals, bounded affected attempt/range summaries, a
+one ordered `classification_spans` list (each span carrying its physical interval
+plus an ATTRIBUTED_ACTIVE / ATTRIBUTED_PASSIVE / UNATTRIBUTABLE(reason) body,
+replacing the former lost-interval + affected-summary pair), a
 cryptographic segment/quarantine manifest root, and reason. It never enumerates
 millions of later recoverable records; those records are evidenced by their
-fsynced copy and are simply re-enqueued. If loss metadata itself cannot fit one
+fsynced copy and are simply re-enqueued. A destination copy authorizes source
+deletion only when it is FULLY COMMITTED AND SENDER-VISIBLE -- its own commit
+evidence covering the new wrapper/coordinates, rebound attribution, old->new
+mapping, destination high-water, and directory metadata -- and coverage is
+required for every unreclaimed ALLOCATED sequence, not only committed slots. If loss metadata itself cannot fit one
 record, pages share a stable `recovery_id`, page count, ordered page digest chain,
 and terminal manifest; the terminal page records copy completion or a bounded
 failed/uncertain remainder. Both page size and total page count/manifest bytes are
-hard bounded; when interval detail would exceed them, the producer coarsens to
-one conservative uncertain sequence/attempt scope. Admission reserves the entire
+hard bounded, and measured against the EXACT RECEIVED page bytes rather than a
+re-marshalled canonical form. When interval detail would exceed them, the producer
+SPLITS the recovery across manifests; it never coarsens proven attribution into
+one uncertain scope. Coarsening may merge intervals sharing an attribution key,
+and known attribution is never relabelled UNATTRIBUTABLE to shed bytes -- that
+would forge a claim that provenance could not be proven while the spool still
+holds it. Admission reserves the entire
 manifest, all pages share an assembly deadline inside the recovery retention
 window, and the agent retries them until the durable page store records terminal
 completion. Each page obeys the normal record limit. The recovery consumer durably
@@ -1083,13 +1102,16 @@ only after the complete manifest validates; an early page cannot expire while a
 later required page remains admissible.
 
 The scheduler issues a spool-recovery capability bound to network scope, agent,
-abandoned spool/range, affected attempts, recovery ID, and expiry; the
-authenticated agent signs each page and the gateway verifies identity,
-capability, and chain. The gateway publishes pages to the deployment recovery
+abandoned spool/range, affected attempts, recovery ID, and expiry. Pages are NOT
+agent-signed: no agent-signature ABI exists. Page integrity is the journalled
+content-addressed chain, and authenticity is the authenticated session plus that
+capability, which the gateway verifies along with the chain. The gateway publishes pages to the deployment recovery
 stream with stable IDs derived from network scope, agent, recovery ID, page
 index, lost scope, and manifest digest. An old segment is physically deleted
-only after its readable events and mapping watermark are fsynced in the new lane
-and the required loss-manifest pages have PubAcked; full old-lane retirement also
+only after the coverage proof accounts for every unreclaimed ALLOCATED sequence it
+held -- each a fully committed, sender-visible destination slot or a PubAcked
+frozen classification span; an fsynced copy and mapping watermark alone are NOT
+sufficient; full old-lane retirement also
 requires the terminal copy-completion page. The journal distinguishes publication
 fencing, per-segment copy, recovery publication, and physical deletion, and
 startup resumes any phase idempotently. A dedicated recovery consumer atomically
@@ -2234,6 +2256,121 @@ Go `MarshalAppend`, buffer pools, compression, and custom allocators are later
 optimizations gated by profiles. They must not complicate the correctness path
 before allocation data shows a remaining bottleneck.
 
+## Decision 11: Recovery attribution is captured at append time and bound to the record
+
+v2 requires a loss manifest whose pages carry attribution -- as the ordered
+`classification_spans` list that task 1.6a freezes, replacing the candidate
+`lost_ranges` + `EdgeAffectedScopeV1` pair -- so a recovery
+manifest must be ATTRIBUTABLE to the producers whose output was lost. The pre-v2
+rollover journal recorded lost sequence RANGES only, and no downstream component
+can supply the missing provenance after the fact:
+
+- the GATEWAY never observed the records that were lost locally;
+- the SENDER cannot own manifest identity, because that identity must survive
+  sender crashes and retries;
+- `record_bytes` cannot be the only home, because the corruption that triggers
+  recovery is exactly what makes those bytes undecodable.
+
+Attribution is therefore captured where the authority exists — at spool append,
+from the producer sink — and stored as a separately checksummed
+sequence-to-attribution relation that survives loss of the records it describes.
+
+### Why the attribution must be BOUND, not merely adjacent
+
+An index stored beside the records is not sufficient. After partial corruption, a
+truncated tail, or a mis-replayed compaction, an adjacent index can pair one
+record's provenance with another's sequence. The manifest would then validate
+while attributing loss to the wrong authority — a silent integrity failure that is
+worse than declaring the span unknown.
+
+The spool therefore verifies SEMANTIC JOINS first, then commits the physical
+binding. The joins prove the provenance came from THIS record: attribution
+`contract_bundle_sha256` against the record's `EdgeOutputContractRef` bundle
+digest; `producer_assignment_id`/`run_id`/`run_shard` against its
+`EdgeProducerContext`; `authority_epoch` and scope against its production and
+source claims; and, for ACTIVE attribution, `range_sha256` against the signed
+source range or the frozen contract-owned derivation. Only then does it commit the
+physical binding over (`event_id`, sequence, `record_sha256`) plus lane and
+spool/generation identity.
+
+Physical binding alone is forgeable: a sink can attach record B's provenance to
+record A and compute a perfectly valid binding over A. The joins are what make the
+binding mean "this provenance came from this record".
+
+The two failure times are DIFFERENT outcomes and must not be conflated:
+
+- APPEND-TIME semantic mismatch -> PERMANENT REFUSAL. The append never becomes
+  durable, so there is no loss to attribute and nothing is stored.
+- LATER CORRUPTION of a binding that verified at append time -> UNATTRIBUTABLE.
+  The append WAS acknowledged, so the span must be reported, and the reason
+  records that its binding no longer verifies.
+
+### Why "unattributable" must exist on the wire
+
+Recovery is precisely the situation in which evidence may be missing. A contract
+that can express only "attributed" leaves a producer two bad options: fabricate an
+affected scope, which is a correctness violation, or emit a manifest its own
+validators reject, which makes recovery impossible. So unattributable is a
+first-class, explicitly encoded state carrying its reason, and manifest validation
+accepts it without demanding a covering scope.
+
+### Why distinct-key bounds alone do not bound recovery
+
+Bounding the number of distinct attribution keys per segment does not bound the
+manifest. Attribution alternating between two keys stays within any distinct-key
+bound while producing one RUN per record, so a corrupt segment's manifest would
+grow with record count and could exceed the recovery grammar's page and byte
+ceilings — making the loss unreportable at exactly the moment it must be reported.
+Segments are therefore bounded on distinct keys, on runs, and on resulting
+manifest size, and rotate on whichever binds first.
+
+### Why reclamation needs a reserved budget
+
+"Do not reclaim until the terminal outcome is durably recorded" is correct but, as
+a blanket rule, self-defeating: a full spool awaiting terminal outcomes has no room
+to write the manifest that produces them, and recovery deadlocks against its own
+precondition. The spool therefore reserves a bounded scratch budget, excluded from
+producer admission and sized for the AGGREGATE of what a recovery must durably
+write -- destination segment, attribution sidecar, both journal copies,
+manifest/tombstone pages, the old->new mapping, and filesystem metadata --
+multiplied by the bounded number of concurrent recoveries. Sizing it for "one
+corrupt segment" counts only the input and none of the artifacts.
+
+The releasable thing is EVIDENCE, not bytes -- but journalling a manifest is NOT
+by itself that evidence. A journalled manifest that has not been PubAcked is not
+yet proof the loss was reportable, so releasing on it can destroy the only intact
+record of an acknowledged append. Source bytes may be released only under the
+coverage proof: every unreclaimed ALLOCATED sequence in
+`(durable_local_reclaim_watermark, sequence_high_water]` -- not merely every
+committed slot, since a markerless allocated sequence is exactly what restart
+calls ambiguous -- either committed and sender-visible at the
+destination (wrapper, coordinates, rebound attribution, old->new mapping,
+high-water, and directory metadata all covered by the destination's own commit
+evidence), or inside a frozen loss span whose required recovery pages have
+PubAcked. When only recovery-critical work remains, producer appends are refused
+rather than un-covered evidence reclaimed.
+
+### Ownership
+
+```
+producer sink        -> creates immutable EdgeRecordV1 + RecoveryAttribution
+spool                -> atomically persists record bytes AND bound, corruption-
+                        independent attribution; detects corruption; retains
+                        attribution and copy evidence
+recovery coordinator -> freezes, pages, hashes, journals manifest/tombstone
+                        (NOT "signs": no agent-signature ABI exists; integrity is
+                        the journalled content-addressed chain, authenticity is the
+                        authenticated session + capability model)
+recovery sender      -> transmits already-frozen recovery records
+gateway              -> validates, stamps transport provenance, publishes
+                        unchanged bytes
+EventWriter          -> applies only a complete validated manifest
+```
+
+Each boundary is placed where the authority and the evidence coexist. Moving any
+step outward — letting the sender author manifests, or the gateway assemble
+them — puts the decision somewhere that cannot see what it is deciding about.
+
 ## Failure Semantics
 
 | Failure | Required behavior |
@@ -2250,7 +2387,7 @@ before allocation data shows a remaining bottleneck.
 | Output contract is unknown or deployment-not-ready | Grant no new run and retain ownership at the producer; do not classify a rollout mismatch as ordinary poison. |
 | Output contract is security-revoked | Stop new output and hold/quarantine matching backlog until an operator selects a safe historical/fixed bundle or waives it. |
 | Inventory terminal is incomplete, conflicting, stale, or lacks completeness proof | Keep pages staged/upsert-only, preserve the current snapshot, poison conflicts, and garbage-collect abandoned staging only after its repair horizon. |
-| Corrupt committed spool sequence | PubAck a signed loss tombstone through the recovery lane, abandon the old spool, re-enqueue recoverable later events with stable semantic IDs, and mark lost coverage partial/retriable. |
+| Corrupt committed spool sequence | PubAck a journalled, content-addressed loss tombstone (NOT agent-signed; no agent-signature ABI exists) through the recovery lane, abandon the old spool, re-enqueue recoverable later events with stable semantic IDs, and mark lost coverage partial/retriable. |
 | Collection capability expires with backlog | Stop new probes; obtain event/checksum-bound delivery-only authority or leave the frame unresolved, then apply scheduler fencing at projection. |
 | Consumer or database failure | No ACK and no TERM/poison; pause new pulls; the reservation lapses at the bounded processing deadline via AckWait expiry (redelivery, not counted toward a finite MaxDeliver); never renew heartbeats forever; agent ownership not restored. |
 | AGE graph projection failure | Keep the atomically created outbox pending, retry idempotently, expose lag/error, and never treat a rescued exception as success. |
@@ -2681,6 +2818,12 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
      `total_target_count` (u64), `plan_root_sha256` (bytes), `check_set_sha256` (bytes),
      `availability_policy_id` (bytes), `assignment_epoch` (u64), `network_scope_id` (bytes),
      `mtr_ordinal_range_commitment` (bytes).
+   - **UNFROZEN CANDIDATE — retired atomically by task 1.6a.** The
+     ManifestPageDigest entry below hashes the `lost_ranges` + `affected` pair,
+     which 1.6a replaces with ONE ordered `classification_spans` list. Nothing has
+     shipped against it; 1.6a rewrites this transcript, the page/manifest messages,
+     every `recovery_grammar_version = 1` reference, both runtimes' validators, and
+     all fixtures together. Do NOT implement against the entry below.
    - ManifestPageDigest (recovery.go, excl `page_sha256`): `str
      "serviceradar.edge.recovery.manifest_page.v1"`, `digest_version` (u64), `recovery_id`
      (bytes), `page_index` (u64), `page_count` (u64), `prev_page_sha256` (bytes), `terminal`

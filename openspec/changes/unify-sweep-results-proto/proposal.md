@@ -215,7 +215,8 @@ class.
   recovery journals, rollover
   amplification, metadata, and scratch so nominal per-lane limits cannot
   overcommit disk or consume the recovery/terminal floor.
-- A corrupt committed middle record uses a signed loss tombstone on a separately
+- A corrupt committed middle record uses a journalled, content-addressed loss
+  tombstone (NOT agent-signed; no agent-signature ABI exists) on a separately
   reserved recovery stream plus crash-journaled, segment-at-a-time new-spool
   rollover. Bounded/chained loss manifests never enumerate the recoverable tail.
   A recovery consumer records the audit and partializes/reschedules affected
