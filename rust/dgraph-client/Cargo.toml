@@ -1,0 +1,12 @@
+[package]
+name = "dgraph-client"
+version = "0.1.0"
+description = "Rust client for DGraph DB"
+edition = "2024"
+license = "Apache-2.0"
+
+
+[dependencies]
+tonic = { workspace = true }
+prost = { workspace = true }
+

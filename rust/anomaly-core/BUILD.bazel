@@ -1,18 +1,6 @@
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 load("//third_party/crates:defs.bzl", "all_crate_deps")
 
-filegroup(
-    name = "srcs",
-    srcs = glob(
-        ["**"],
-        exclude = [
-            "target/**",
-            "bazel-*",
-        ],
-    ),
-    visibility = ["//visibility:public"],
-)
-
 rust_library(
     name = "serviceradar_anomaly_core",
     srcs = glob(

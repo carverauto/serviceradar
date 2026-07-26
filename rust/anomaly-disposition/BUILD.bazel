@@ -1,18 +1,6 @@
 load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 load("//third_party/crates:defs.bzl", "all_crate_deps")
 
-filegroup(
-    name = "srcs",
-    srcs = glob(
-        ["**"],
-        exclude = [
-            "target/**",
-            "bazel-*",
-        ],
-    ),
-    visibility = ["//visibility:public"],
-)
-
 # Plain rlib disposition kernel crate. NO cdylib bazel rule: the NIF cdylib is
 # built by Rustler during `mix compile`, not bazel (the core-elx app filegroup
 # already globs native/**). This `rust_library` exists for non-NIF consumers and

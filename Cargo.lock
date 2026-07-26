@@ -1422,6 +1422,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dgraph-client"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "tonic",
+]
+
+[[package]]
 name = "diesel"
 version = "2.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
