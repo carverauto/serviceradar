@@ -696,6 +696,18 @@
   before the agent can prove the outcome survived its own restart. Release MUST
   follow the durable terminal record and the coverage proof. Test that a crash
   after PubAck but before the terminal record leaves the bytes present.
+  SCOPE: this task covers the ADMISSION side of that boundary only -- charging
+  bytes to an immutable slot identity, refusing to release on gateway resolution,
+  and consuming an opaque monotonic reclaim authorization it cannot construct.
+  PRODUCING that authorization, and proving it holds across a crash end to end,
+  is task 2.28. Admission MUST NOT own, store, or infer gateway resolution --
+  that lifecycle is `gwprefix`'s (task 2.16), and holding an unread copy of it
+  here is duplicate state that can only drift. It MUST NOT own spool generation
+  lifecycle (task 2.21), redundant commit evidence or restart classification
+  (task 2.23), the reserve/allocation capacity primitives (task 2.26), or
+  coverage computation (task 2.28); modelling any of them here means inventing
+  semantics for an owner that does not exist yet and then keeping two
+  definitions in agreement by hand.
 - [ ] 2.18 **Correct `projection`: use the v2 idempotency and cost model.** It
   applies the wrong idempotency key and cost model for v2 records. Align both with
   the record identities and the versioned cost contract, and test replay

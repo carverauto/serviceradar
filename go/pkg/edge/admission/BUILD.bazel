@@ -9,6 +9,9 @@ go_library(
 
 go_test(
     name = "admission_test",
-    srcs = ["controller_test.go"],
+    srcs = [
+        "controller_test.go",
+        "sealed_test.go",
+    ],
     embed = [":admission"],
 )
