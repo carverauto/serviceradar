@@ -8,10 +8,18 @@ go_library(
     ],
     importpath = "github.com/carverauto/serviceradar/go/pkg/edge/fairsched",
     visibility = ["//visibility:public"],
+    deps = [
+        "//proto/edge/v1:edgev1",
+        "@org_golang_google_protobuf//reflect/protoreflect",
+    ],
 )
 
 go_test(
     name = "fairsched_test",
-    srcs = ["fairsched_test.go"],
+    srcs = [
+        "fairsched_test.go",
+        "scheduler_taxonomy_test.go",
+    ],
     embed = [":fairsched"],
+    deps = ["//proto/edge/v1:edgev1"],
 )
