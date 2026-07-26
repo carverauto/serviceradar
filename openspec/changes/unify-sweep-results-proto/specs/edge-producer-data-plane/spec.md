@@ -296,8 +296,24 @@ hashed preimage (the semantic-envelope digest carries NO string domain tag). It 
 be validated fail-closed; an unknown ABI/grammar version SHALL be rejected WITHOUT
 trial-hashing alternative grammars. Capability-signing and plan/recovery/completion
 hash grammars SHALL each declare their OWN explicit version (not necessarily equal
-numerics) and SHALL each commit that version, preceded by a per-grammar string
-domain-separation tag, as the leading bytes of their preimage. Every grammar SHALL be
+numerics) and SHALL each commit that version as the leading bytes of their
+preimage, preceded by a per-grammar string domain-separation tag WHERE ONE IS
+DEFINED. A domain tag is not universal: the MTR leaf and root and the
+recovery-operation scope grammars deliberately have none, using a `u64` body-kind
+discriminant instead.
+
+Fail-closed version handling has TWO forms, matching how the version reaches the
+receiver:
+
+- EXPLICIT-VERSION REJECTION, where the object DECODES a version from its input --
+  reject an unsupported value.
+- ALTERED-CONSTANT DIGEST MISMATCH, where the version is a compile-time constant in
+  the preimage and the received value is a digest or opaque identifier -- there is
+  no version input to reject, so the fail-closed property is that recomputing under
+  a different constant yields a digest that does not match.
+
+The semantic-envelope version is the SECOND form: it is not a wire input, so no
+record can "declare" it. Neither form SHALL trial-hash alternative grammars. Every grammar SHALL be
 byte-frozen with a FIXED field order (no per-field numeric tags), 8-byte big-endian
 integers and enums, 8-byte big-endian length prefixes on bytes/string fields, 1-byte
 presence markers, `u64` (8-byte big-endian) oneof discriminants, `u64` element counts
@@ -336,12 +352,16 @@ invariant.
   distinct publication ID and SHALL NOT be removed by broker deduplication before
   this rejection can occur
 
-#### Scenario: A record declares an unknown digest grammar version
-- **WHEN** the record-schema/proto ABI version that fixes the semantic-digest grammar
-  (or the version of any signing/hash grammar it carries) is not a known version
+#### Scenario: An input-carried grammar version is unknown
+- **WHEN** an object that DECODES a version from its input carries an unsupported one
 - **THEN** the receiver SHALL reject it fail-closed
-- **AND** it SHALL NOT trial-hash the record under other grammar versions to find a
-  match
+- **AND** it SHALL NOT trial-hash the object under other grammar versions
+
+#### Scenario: A constant-version grammar fails closed by mismatch
+- **WHEN** an object's version is a compile-time preimage constant and the receiver
+  computes under a different constant
+- **THEN** the resulting digest SHALL NOT match and the object SHALL be rejected
+- **AND** the receiver SHALL NOT trial-hash to find a matching version
 
 ### Requirement: Record authorization is four separate decisions
 Record authorization SHALL be evaluated as four distinct decisions and SHALL NOT be
@@ -838,12 +858,104 @@ Physical binding alone is insufficient.
 The spool SHALL verify, field by field, that the attribution's
 `contract_bundle_sha256` equals the record's `EdgeOutputContractRef` bundle digest;
 that `producer_assignment_id`, `run_id`, and `run_shard` equal the record's
-`EdgeProducerContext` values; that `authority_epoch` and the scope identity equal
-those asserted by the record's production claims and source claims; and, for
-ACTIVE attribution, that `range_sha256` equals either the signed source range the
-record's authorization carries, or a range derivation that the output contract
-explicitly owns and that is itself frozen. Only then SHALL it commit the physical
-binding.
+`EdgeProducerContext` values; that `production_scope_id` and `scope_sha256` equal
+the PRODUCTION scope's ID and digest, ALWAYS; that the attribution's SOURCE
+IDENTITY -- kind, `context_id`, `source_scope_id`, and `source_scope_sha256`,
+JOINTLY PRESENT and each compared against the record's signed source
+authorization, or JOINTLY ABSENT -- matches, so a supplied attribution can neither
+name a source the record does not carry nor substitute one of its members; that
+`authority_epoch` equals the value asserted by the record's PRODUCTION claims, and
+by its SOURCE claims when one is present; and, for ACTIVE attribution,
+that `range_sha256` equals either the signed source range the record's
+authorization carries, or a range derivation that the output contract explicitly
+owns and that is itself frozen. Only then SHALL it commit the physical binding.
+
+The attribution carries TWO scope digests, not one. A single `scope_sha256` cannot
+equal both: in the canonical accepted record the production scope is
+`digest32(0x75)` while the source scope is the target range `sweepRangeSha()`, and
+`ValidateSweepRecord` accepts it today. A join demanding one value satisfy both
+would permanently refuse the canonical valid ACTIVE append. `scope_sha256`
+therefore means the PRODUCTION scope, and `source_scope_sha256` -- part of the
+source identity, present exactly when it is -- means the SOURCE scope.
+
+Production-claim agreement is unconditional; source-claim agreement is performed
+WHENEVER A SOURCE AUTHORIZATION IS PRESENT.
+
+Classification and source-authorization presence are INDEPENDENT AXES.
+`ATTRIBUTED_PASSIVE` means "asserts no produced target range"; it does NOT mean "no
+source authorization". Recovery-control work is a live example of a
+source-authorized record with no produced target range. All four combinations of
+{ACTIVE, PASSIVE} x {source present, source absent} are permitted, and the source
+join follows PRESENCE, never classification. An earlier revision of this document
+tied them together; that conflation would have made a source-authorized passive
+record either unjoinable or forced to fabricate a produced range.
+
+The join SHALL NOT equate `EdgeProducerContext.run_id` with a source correlation
+key or an execution identity. That equality was proposed in an earlier revision of
+this document and is WITHDRAWN as false: `run_id` is the HOST-ISSUED PRODUCER-RUN
+identity, signed independently in both the production and source claims, and it is
+a different fact from the source action's correlation key. A committed accepted
+record proves it -- the canonical scheduled-check vector carries producer
+`run_id = uuidv7(0x73)` while its source `context_id` and body `execution_id` are
+`uuidv7(0x20)`, and `ValidateSweepRecord` accepts it today.
+
+The two correspondences that DO hold are `run_shard == execution_shard` and
+`authority_epoch == assignment_epoch`, and they hold ONLY where the originating
+contract carries those fields: `SweepObservationBatchV1` and `MtrSweepContextV1`
+do; `MtrScheduledCheckContextV1`, `MtrAdHocContextV1`, and `MtrCommandContextV1`
+carry neither. Generalising from two pairs to a third was the error; generalising
+them across contracts that cannot express them would be the same error again.
+
+Source correlation SHALL be proven PER PAYLOAD CONTRACT AND CORRELATION VARIANT,
+against the operands that body actually carries, never against a universal
+execution identity -- because there is none. `MtrSweepContextV1` carries
+`sweep_execution_id`, but `MtrScheduledCheckContextV1` carries `check_id`,
+`MtrAdHocContextV1` carries `scan_run_id`, and `MtrCommandContextV1` carries
+`command_id`; `SweepObservationBatchV1` carries BOTH `execution_id` and
+`source_run_id`, so a source-authorization kind alone does not determine which one
+-- if either -- a correlation should be proven against.
+
+The MTR matrix is CONCRETE: the existing per-variant dispatch is the correct shape
+and is implemented. The `SweepObservationBatchV1` matrix is NOT yet defined -- the
+current join always compares the signed context to `execution_id` and never reads
+`source_run_id` -- and task 1.3 owns freezing it. Those two states SHALL NOT be
+described as one settled rule.
+
+Recovery attribution therefore SHALL obtain any source/execution correlation it
+needs from the DURABLE ASSIGNMENT MAPPING (task 1.3), not by equating record
+fields. A span freezes the producer-side assignment identity; resolving that
+identity to a scheduler execution is a lookup against an authoritative record, and
+attempting to shortcut it by field equality would encode a relationship the wire
+contract does not have.
+
+Task 1.3 SHALL own the ONE shared validated-attribution result; the
+contract-specific validators SHALL produce that result from the operands their own
+body carries, and task 2.22 SHALL consume it.
+
+#### Scenario: A record without source authorization joins on production claims
+- **WHEN** a record carrying no source authorization is appended
+- **THEN** the join SHALL prove agreement against its production claims
+- **AND** SHALL NOT require source claims to exist
+
+#### Scenario: A passive record with source authorization still joins on it
+- **WHEN** an `ATTRIBUTED_PASSIVE` record carries a source authorization
+- **THEN** the source join SHALL be performed
+- **AND** classification SHALL NOT be used to skip it
+
+#### Scenario: Production and source scopes are distinct
+- **WHEN** a record's production scope differs from its source scope
+- **THEN** the join SHALL compare each against its own attribution member
+- **AND** SHALL NOT require one value to satisfy both
+
+#### Scenario: Producer run identity is not a correlation key
+- **WHEN** a record's producer `run_id` differs from its source `context_id`
+- **THEN** the join SHALL NOT reject it on that basis alone
+
+#### Scenario: Correlation is proven against the body's own operands
+- **WHEN** a batch carries a scheduled-check, ad-hoc, or command correlation
+- **THEN** the join SHALL prove correlation against `check_id`, `scan_run_id`, or
+  `command_id` respectively
+- **AND** SHALL NOT require an execution identity the body does not carry
 
 `range_sha256` is not optional to the join. It is the field that says WHICH
 produced output the attribution claims; leaving it unverified would let a valid
@@ -890,33 +1002,108 @@ which the rollover coverage proof depends on.
 The grammar SHALL be frozen with CONCRETE values before the spool attribution work
 begins, not described abstractly. It is:
 
+- digest algorithm SHA-256, output width 32 bytes, consistent with every other
+  identity in this design -- a transcript alone does not determine an artifact, so
+  two implementations could follow the field order exactly and still emit different
+  digests;
 - domain literal `serviceradar.edge.recovery.local_binding.v1`;
-- `binding_version` = 1 (u64), immediately after the domain;
+- `binding_version` = 1 (u64), immediately after the domain; an UNSUPPORTED
+  `binding_version` SHALL fail closed WITHOUT trial hashing -- a reader SHALL NOT
+  attempt other versions to find one that matches -- and the affected slot SHALL be
+  classified UNATTRIBUTABLE with the corresponding reason rather than discarded or
+  silently retained;
 - 8-byte big-endian integers, 8-byte big-endian length prefixes on every
   variable-length field, and 1-byte discriminants (`0x00`/`0x01`);
 - field-by-field over declared fields only — never `proto.Marshal`, at any depth;
 - ordered transcript, exactly:
   1. `str` domain literal
   2. `binding_version` (u64)
-  3. `lane_route_profile` (u64), `lane_traffic_class` (u64)
-  4. `spool_generation_id` (bytes)
-  5. `sequence` (u64)
-  6. `event_id` (bytes)
-  7. `record_sha256` (bytes)
-  8. `attribution_kind` (1-byte discriminant: `0x00` PASSIVE, `0x01` ACTIVE)
-  9. `contract_bundle_sha256` (bytes)
-  10. `producer_assignment_id` (bytes)
-  11. `run_id` (bytes)
-  12. `run_shard` (u64)
-  13. `authority_epoch` (u64)
-  14. `scope_sha256` (bytes)
-  15. `range_sha256` (bytes) — present ONLY when `attribution_kind` is ACTIVE, and
+  3. `network_scope_id` (bytes)
+  4. `authenticated_agent_id` (bytes)
+  5. `lane_route_profile` (u64), `lane_traffic_class` (u64)
+  6. `spool_generation_id` (bytes)
+  7. `sequence` (u64)
+  8. `event_id` (bytes)
+  9. `record_sha256` (bytes)
+  10. `attribution_kind` (1-byte discriminant: `0x00` PASSIVE, `0x01` ACTIVE)
+  11. `contract_bundle_sha256` (bytes)
+  12. `producer_assignment_id` (bytes)
+  13. `run_id` (bytes)
+  14. `run_shard` (u64)
+  15. `authority_epoch` (u64)
+  16. `production_scope_id` (bytes)
+  17. `scope_sha256` (bytes) — the PRODUCTION scope digest
+  18. `source_identity_present` (1-byte discriminant: `0x00` ABSENT, `0x01`
+      PRESENT)
+  19. `source_authorization_kind` (u64) — present ONLY when
+      `source_identity_present` is `0x01`
+  20. `source_context_id` (bytes) — present ONLY when `source_identity_present` is
+      `0x01`
+  21. `source_scope_id` (bytes) — present ONLY when `source_identity_present` is
+      `0x01`
+  22. `source_scope_sha256` (bytes) — present ONLY when `source_identity_present`
+      is `0x01`; the SOURCE scope digest, distinct from step 17
+  23. `range_sha256` (bytes) — present ONLY when `attribution_kind` is ACTIVE, and
       absent entirely for PASSIVE rather than encoded as empty, so a passive
       binding can never collide with an active one whose range digest is zero.
 
-Cross-language GOLDEN vectors SHALL cover an active binding, a passive binding,
-and a REBINDING vector proving the same `event_id`/`record_sha256` at the same
-sequence in two different `spool_generation_id`s produces two different digests.
+Steps 3-4 are the generation's TRUST NAMESPACE. A generation freezes its
+`network_scope_id` and authenticated agent identity, and without them an intact
+sidecar can be transplanted or mis-replayed under another agent or scope carrying
+the same `spool_generation_id` without changing the digest -- the same
+substitution class this binding exists to detect.
+
+Both SCOPE IDS travel with their digests. The wire signs `scope_id` and
+`scope_sha256` independently -- on production claims, on source claims, and on the
+outer source authorization -- and validation compares them independently; nothing
+derives a unique ID from a digest. Carrying only the digests would let two accepted
+records differing in a signed logical scope ID share one recovery key, collide in
+the assignment mapping, and leave the binding unable to prove which scope ID was
+originally attached after record-byte loss.
+
+Steps 18-22 are the SOURCE IDENTITY, and they are inside the corruption-independent
+digest for the same reason the rest of the tuple is. If the source identity lived
+only in the sidecar, then after record-byte corruption a sidecar context could be
+changed without invalidating the digest that is supposed to prove the attribution
+came from THAT record -- which is precisely the substitution this binding exists to
+prevent.
+
+Steps 16-17 are the PRODUCTION scope and steps 21-22 are the SOURCE scope; they
+are different values in the canonical accepted record, so one pair cannot serve
+both.
+
+The KIND is carried with the context and is not optional decoration: the same UUID
+can name a scheduled check, an ad-hoc scan, a command, or a sweep execution, and
+after the record bytes are lost a consumer cannot choose the correlation variant
+from the context alone. Kind and context SHALL be present together or absent
+together; a partial combination SHALL be rejected.
+
+Cross-language GOLDEN vectors SHALL cover an active binding, a passive binding, a
+REBINDING vector proving the same `event_id`/`record_sha256` at the same sequence
+in two different `spool_generation_id`s produces two different digests, a
+source-identity-present and a source-identity-absent binding proving they digest
+differently, a partial-combination REJECT vector (any one of kind, context, source scope id, or
+source scope digest without the others), a SAME-CONTEXT/DIFFERENT-KIND vector
+proving the two digests differ, an UNSUPPORTED-`binding_version` REJECT vector, a
+SAME-BINDING/DIFFERENT-NAMESPACE vectors that mutate `network_scope_id` and the
+authenticated agent SEPARATELY -- not one vector changing "either" -- so omitting
+EITHER transcript field fails its own vector, and SAME-DIGEST/DIFFERENT-ID vectors
+for BOTH the production and source scopes.
+
+The APPEND-TIME SEMANTIC JOIN SHALL have its own substitution vectors, not only the
+binding/span/mapping layers: one PRODUCTION-scope-ID mismatch and one
+SOURCE-scope-ID mismatch, each holding the corresponding DIGEST FIXED, both
+rejected. A digest-only comparison passes those cases, which is exactly the
+substitution the ID was added to stop.
+
+The four combinations of {ACTIVE, PASSIVE} x {source present, source absent} SHALL
+EACH have a cross-language binding vector AND an append-join vector. Two diagonal
+fixtures -- ACTIVE+present and PASSIVE+absent -- would satisfy the letter of the
+list while leaving the independent-axis rule untested, which is the case that
+motivated it. The same-context/different-kind and same-digest/different-ID
+regressions SHALL also exist at the SPAN and ASSIGNMENT-MAPPING layers, not only in
+the binding digest: a collision there is a mapping collision, not merely a digest
+coincidence.
 
 The binding record SHALL be stored corruption-independently of `record_bytes`:
 independently checksummed, separately addressable, and readable when the record
@@ -957,11 +1144,58 @@ still occupies a lost DELIVERY sequence, and omitting its interval would leave a
 hole no consumer could distinguish from undetected loss. Passive differs only in
 asserting no produced target range.
 
-The list SHALL be strictly ordered by sequence and SHALL be internally
-well-formed: no gaps within the page's declared coverage, no overlaps, no
-duplicates, and no interval outside the page's coverage. Total loss for the
-manifest is exactly the union of its pages' spans; it SHALL NOT be declared
-anywhere else.
+A page's EXTENT SHALL be DERIVED from its spans -- the first span's lower bound
+through the last span's upper bound -- and SHALL NOT be declared in a separate
+range. A declared extent would be a second schema for a fact the spans already
+carry, admitting pages whose declaration and spans disagree; that is the same
+dual-schema ambiguity this requirement removes by deleting `lost_ranges`, and
+re-introducing it one field over would defeat the change.
+
+It SHALL be called an EXTENT, never "coverage". Elsewhere in this design coverage
+is PER-SEQUENCE evidence that can authorize reclamation; a page's extent is a
+bounding interval that legally contains not-lost gaps. Naming it coverage would
+invite a consumer to treat the bound as evidence and release sequences no span
+ever described.
+
+Every page SHALL carry AT LEAST ONE span. An empty page has no derivable extent,
+so it can be neither validated nor chained.
+
+Each span's interval SHALL be primitively valid on its own: `from_sequence >= 1`
+and `through_sequence >= from_sequence`, with `MaxUint64` a legal bound. A single
+span with a zero or inverted interval violates no ordering rule, so ordering alone
+does not exclude it.
+
+Ordering SHALL be total across the WHOLE page chain, not merely within a page:
+spans SHALL be strictly ascending by sequence, non-overlapping, and non-duplicate,
+and page N's last span SHALL end strictly below page N+1's first span's start. A
+within-page-only rule lets two individually valid pages describe overlapping loss,
+which would double-count the union.
+
+GAPS ARE PERMITTED and carry meaning: a sequence covered by no span was NOT lost.
+This holds identically within a page and at a page boundary -- adjacency is not
+special. A gap DOES make the loss intervals mathematically disjoint; what it does
+NOT do is require a separate page or a separate manifest. The union stays one
+manifest's loss regardless of how many disjoint intervals compose it. The earlier "no gaps within coverage" rule existed only because
+coverage was DECLARED, where a gap contradicted the declaration; with coverage
+derived there is nothing to contradict, and forbidding gaps would force a
+manifest to invent spans for sequences that were never lost.
+
+Total loss for the manifest is exactly the union of its pages' spans; it SHALL
+NOT be declared anywhere else.
+
+That includes the TOMBSTONE. `SpoolLossTombstoneV1` SHALL NOT carry a loss
+interval: `lost_from_sequence` and `lost_through_sequence` SHALL be removed, along
+with their scope-digest entries, their Appendix A transcript entries, and the
+validator equality that forces them to the manifest's global min/max. With gaps
+legal, that min/max is not the loss -- for spans `[1,1]` and `[100,100]` the pages
+say `2..99` were NOT lost while the tombstone would declare `[1,100]` lost, and
+because the tombstone scope is SIGNED that second source of truth would be
+authenticated. It is strictly worse than the page-level duplication this
+requirement removes.
+
+Removing the fields is part of the SAME atomic change, for the same reason the
+page arrays are: retaining them as a "non-loss allocation envelope" would keep a
+signed interval that every existing consumer already reads as loss.
 
 Because task 1.7 has NOT yet frozen the transport ABI and no agent emits the
 candidate recovery-v1 grammar, this replacement SHALL be made ATOMICALLY rather
@@ -983,8 +1217,27 @@ FROZEN before any implementation depends on them.
 
 #### Scenario: Span list is well-formed
 - **WHEN** a page's classification spans are validated
-- **THEN** a gap, overlap, duplicate, out-of-coverage, or out-of-order span SHALL
-  be rejected
+- **THEN** an overlap, a duplicate, or an out-of-order span SHALL be rejected
+- **AND** a page carrying no spans SHALL be rejected
+
+#### Scenario: Ordering is total across the chain
+- **WHEN** page N's last span ends at or above page N+1's first span's start
+- **THEN** the manifest SHALL be rejected
+
+#### Scenario: A gap means not lost
+- **WHEN** a sequence falls between two spans, within a page or across a boundary
+- **THEN** it SHALL be read as NOT lost
+- **AND** the manifest SHALL NOT be rejected for the gap
+
+#### Scenario: Extent is derived, never declared
+- **WHEN** a page declares its extent in a field separate from its spans
+- **THEN** the page SHALL be rejected
+- **AND** a page's extent SHALL be read as its first span's lower bound through
+  its last span's upper bound
+
+#### Scenario: A span interval is primitively valid
+- **WHEN** a span carries `from_sequence == 0` or `through_sequence < from_sequence`
+- **THEN** it SHALL be rejected regardless of its position in the ordering
 
 #### Scenario: Passive carries its delivery interval
 - **WHEN** a lost sequence held a passive record
@@ -995,6 +1248,351 @@ FROZEN before any implementation depends on them.
 - **WHEN** an implementation consumes the classification spans
 - **THEN** enum numbers, fields, bounds, unknown handling, digest version, and
   the Appendix A transcript SHALL already be frozen
+
+### Requirement: MTR completion disposition is one generated enum
+The MTR completion leaf's terminal disposition SHALL be declared ONCE, as a
+generated protobuf enum `MtrCompletionDisposition`, with these exact
+Buf-compatible symbols and frozen numbers:
+
+- `MTR_COMPLETION_DISPOSITION_UNSPECIFIED = 0`
+- `MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED = 1`
+- `MTR_COMPLETION_DISPOSITION_NOT_ADMITTED = 2`
+- `MTR_COMPLETION_DISPOSITION_PROBE_FAILED = 3`
+- `MTR_COMPLETION_DISPOSITION_QUARANTINED = 4`
+- `MTR_COMPLETION_DISPOSITION_SCHEDULER_LOST = 5`
+
+The proto enum SHALL be the SOLE declaration. Go and Elixir are CONSUMERS: the Go
+`MtrTerminalDisposition` constants and the Elixir integer guards SHALL be replaced
+by references to the generated enum, and no document SHALL describe the values as
+pinned in `domain.go`.
+
+This is not tidiness. The disposition number is hashed INTO the frozen completion
+leaf preimage, so the numbering is part of the digest grammar. It is currently
+written twice and generated from nothing -- as a Go `iota` block
+(`MtrTerminalDisposition`) and as literal integers in Elixir guards -- which is
+exactly the hand-maintained numeric parity that can silently diverge. Two
+implementations that disagree by one produce two different completion roots for
+the same completion, and the disagreement surfaces as an unexplained proof
+mismatch rather than as a compile error.
+
+`MtrCompletionDisposition` SHALL be distinct from the per-hop `MtrOutcome` and
+SHALL NOT reuse its numbering. They describe different things -- what happened to
+a planned MTR ordinal versus what a probe observed at a hop -- and collapsing them
+would make the leaf grammar depend on an enum that evolves for unrelated reasons.
+
+No new leaf message SHALL be introduced: the disposition is a field of the
+existing completion leaf grammar. `MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED`
+SHALL be the ONLY value carrying a `trace_id`.
+
+The disposition SHALL be a CLOSED SET at the leaf. Zero, negative, and
+unknown-positive values SHALL be rejected BEFORE the value is widened to `u64` and
+hashed -- otherwise an unrecognised number silently enters the frozen preimage and
+produces a root no other implementation can reproduce. A value declared in a LATER
+proto revision SHALL remain rejected by this grammar until the completion grammar
+version itself changes; the leaf grammar is frozen, so widening the accepted set
+is a version bump, not a regeneration. Shared vectors SHALL cover `0`, `-1`, `6`,
+and `999` as rejects alongside each valid member.
+
+#### Scenario: One declaration, two runtimes
+- **WHEN** either runtime evaluates a completion leaf disposition
+- **THEN** it SHALL use the generated enum
+- **AND** a runtime restating the numbering locally SHALL be rejected in review
+
+#### Scenario: Disposition numbering is independent of MtrOutcome
+- **WHEN** `MtrOutcome` gains or renumbers a value
+- **THEN** `MtrCompletionDisposition` SHALL be unaffected
+
+#### Scenario: Only allocated carries a trace id
+- **WHEN** a completion leaf carries a disposition other than
+  `MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED`
+- **THEN** it SHALL carry no `trace_id`
+
+#### Scenario: The leaf disposition is a closed set
+- **WHEN** a leaf carries `0`, a negative value, or an unknown positive value
+- **THEN** it SHALL be rejected BEFORE the value is hashed
+
+#### Scenario: A later declared value does not widen a frozen grammar
+- **WHEN** a value declared in a later proto revision reaches this leaf grammar
+- **THEN** it SHALL be rejected until the completion grammar version changes
+
+### Requirement: Physical byte ceilings are measured on exact received bytes
+Every physical byte ceiling on a paged contract SHALL be measured against the
+EXACT bytes received, never against a re-encode of the decoded message.
+
+A ceiling checked after `proto.Marshal` of a decoded page measures what the
+receiver would have written, not what the sender sent. Duplicate singular fields
+collapse to the last one, and non-minimal varints for known fields re-encode
+minimally, so a sender can present a page far larger than the ceiling and have it
+pass. (Unknown fields are NOT an example: protobuf-Go retains and re-emits them,
+so they survive the round trip.) The ceiling exists to bound what the receiver
+must hold and forward, which is the received size.
+
+This applies to every paged contract that declares a ceiling, including the
+recovery manifest page and the scheduler plan page.
+
+#### Scenario: Bloated page is refused
+- **WHEN** a page's received bytes exceed its ceiling but its re-encode does not
+- **THEN** the page SHALL be rejected
+
+### Requirement: The durable assignment mapping is an authoritative record
+The mapping from a producer-side assignment identity to its scheduler execution SHALL be a durable authoritative record, not an implementation convenience. The
+span omits execution and plan identity BECAUSE this mapping recovers them; if it
+is not contractual, the span has simply lost that information.
+
+Its KEY SHALL be the complete frozen span identity -- network scope, authenticated
+agent, `producer_assignment_id`, `run_id`, `run_shard`, `authority_epoch`,
+`contract_bundle_sha256`, `production_scope_id`, `scope_sha256`, the SOURCE
+IDENTITY (kind, `context_id`, `source_scope_id`, `source_scope_sha256`, or their
+joint absence), and, for ACTIVE, `range_sha256` --
+or a digest over exactly that tuple whose grammar is frozen with it.
+`producer_assignment_id` SHALL NOT be assumed globally unique.
+
+Its VALUE SHALL be a TAGGED body with exactly two forms:
+
+- POSITIVE -- carries the execution, plan, and range identities and digests, shard,
+  epoch, and the contract-specific correlation operand.
+- EXPLICIT NEGATIVE -- carries its durable negative evidence and reason, and SHALL
+  NOT carry any positive-only field.
+
+A single untagged value schema cannot express both: NOT_SCHEDULED is a durable
+negative meaning there is no execution, so under a positive-only schema an
+implementation would have to fabricate execution/plan/range fields or violate the
+value rule. A POSITIVE and an EXPLICIT NEGATIVE under one key SHALL be a CONFLICT.
+
+Idempotent replay SHALL be defined for BOTH forms: re-writing the same positive
+value, and re-writing the same explicit negative, are each a no-op preserving the
+first record.
+
+CANDIDATE EVIDENCE and the SELECTED PROJECTION SHALL be distinct. The candidate
+log is APPEND-ONLY and MAY hold more than one candidate under a key; the SELECTED
+PROJECTION SHALL resolve to at most ONE value. Writing a differing second candidate
+SHALL be an integrity CONFLICT that leaves the projection UNRESOLVED, never an
+overwrite. "Exactly one value" always refers to the projection, never to the
+evidence -- an earlier revision of this requirement used the phrase for both, which
+cannot hold once conflicting candidates are retained.
+
+The mapping SHALL be durably committed BEFORE the assignment or grant can produce
+an accepted record. That ordering is what makes a definite absence meaningful.
+
+It SHALL outlive spool recovery, redrive, and lifecycle GC for at least as long as
+any manifest that can reference it. Collection SHALL be safety-based, never
+time-based.
+
+A write of the SAME value under an existing key SHALL be an idempotent NO-OP that
+preserves the FIRST record; assignment and grant creation can be replayed, and a
+replay is not a conflict.
+
+A CONFLICT SHALL be resolved by an APPEND-ONLY conflict-resolution record that
+SELECTS one candidate as the projection. The rejected candidate SHALL be retained
+as evidence. Freezing the resolution record's OWN replay semantics and authority --
+same-selection replay, a later record selecting the other candidate, a stale or
+future resolver fence, and conflicting resolution records -- belongs to task 1.3,
+which implements the mapping; without it two append-only resolution records could
+select A then B with no deterministic lookup. MISSING repair SHALL likewise require
+evidence that a backfilled record is the ORIGINAL authoritative pre-accept mapping,
+not merely a value that appeared later.
+
+Lookup SHALL return one of SIX DISTINCT results, each with a defined consumer
+transition:
+
+- FOUND -- resolve and proceed.
+- NOT_SCHEDULED -- an explicit, durably committed NEGATIVE mapping. Because the
+  mapping is committed before any accepted record can exist, a lookup MISS is NOT
+  this result: a definite missing entry is an INTEGRITY condition. Only a recorded
+  negative means "there is no execution", and it is a terminal, resolvable answer.
+- TEMPORARILY_UNAVAILABLE -- the recovery stays PENDING with NO terminal
+  disposition and NO ACK, and it SHALL be retried. It SHALL NOT be downgraded to
+  NOT_SCHEDULED.
+- MISSING -- the durable action is to record an integrity audit entry, FENCE the
+  affected generation against further reclamation, and leave the delivery PENDING
+  with no terminal disposition. Retry SHALL be permitted only once a durably
+  committed mapping (positive or negative) appears.
+- CORRUPT or CONFLICTING -- the durable action is to record an integrity audit
+  entry and QUARANTINE the affected slot; the delivery receives NO terminal ACK.
+  Retry SHALL be permitted only once repair evidence resolves the PROJECTION to a
+  single value: for CORRUPT, a re-read that verifies; for CONFLICTING, an
+  authoritative resolution record selecting one candidate.
+
+MISSING, CORRUPT, and CONFLICTING SHALL each BLOCK `RecoveryResolvedV1`. A recovery
+SHALL NOT resolve over evidence it could not read or could not reconcile.
+
+#### Scenario: A lookup miss is not a negative answer
+- **WHEN** a lookup finds no entry for an accepted record's identity
+- **THEN** the result SHALL be MISSING, an integrity condition
+- **AND** SHALL NOT be reported as NOT_SCHEDULED
+
+#### Scenario: Unavailability does not resolve a recovery
+- **WHEN** a lookup is temporarily unavailable
+- **THEN** the recovery SHALL remain pending with no terminal disposition or ACK
+
+#### Scenario: Unreadable evidence blocks resolution
+- **WHEN** a lookup is MISSING, CORRUPT, or CONFLICTING
+- **THEN** `RecoveryResolvedV1` SHALL be blocked
+- **AND** retry SHALL require the defined repair evidence
+
+#### Scenario: A second differing value is a conflict
+- **WHEN** a DIFFERING second value is written under an existing key
+- **THEN** it SHALL be an integrity conflict, not an overwrite
+
+#### Scenario: An identical replay is a no-op, positive or negative
+- **WHEN** the SAME positive value, or the SAME explicit negative, is written again
+  under an existing key
+- **THEN** it SHALL be an idempotent no-op preserving the first record
+- **AND** SHALL NOT be reported as a conflict
+
+#### Scenario: Positive and negative under one key conflict
+- **WHEN** a POSITIVE value and an EXPLICIT NEGATIVE exist under one key
+- **THEN** it SHALL be an integrity conflict
+- **AND** the projection SHALL remain unresolved until a resolution record selects
+  one
+
+#### Scenario: Conflict resolution preserves the rejected evidence
+- **WHEN** a conflict is resolved
+- **THEN** an append-only resolution record SHALL select one authoritative value
+- **AND** the rejected value SHALL be retained as audit evidence
+
+### Requirement: An attributed span carries one frozen assignment identity
+An `ATTRIBUTED_ACTIVE` or `ATTRIBUTED_PASSIVE` span SHALL carry exactly ONE
+assignment identity, frozen as `producer_assignment_id`, `run_id`, `run_shard`,
+`authority_epoch`, `production_scope_id`, `scope_sha256`, and
+`contract_bundle_sha256`, plus `range_sha256` on ACTIVE only. IDs and digests
+travel together: the wire signs and validates each independently, and no invariant
+derives one from the other.
+
+These are the PRODUCER's names for the identity, because the manifest is authored
+by the producer from what it actually wrote -- not from what a scheduler intended,
+and not every producer has a scheduler.
+
+`run_id` is INDEPENDENT of any execution identity and SHALL NOT be required to
+equal one; resolving a span to an execution is a lookup against the durable
+assignment mapping. The only producer/scheduler correspondences that hold are
+`run_shard == execution_shard` and `authority_epoch == assignment_epoch`, and even
+those are QUALIFIED BY CONTRACT AND CORRELATION VARIANT rather than universal:
+`SweepObservationBatchV1` carries both fields, and among the MTR variants only
+`MtrSweepContextV1` does -- `MtrScheduledCheckContextV1`, `MtrAdHocContextV1`, and
+`MtrCommandContextV1` carry neither, and the existing join checks them only for the
+sweep variant. A span SHALL NOT be rejected for the absence of a correspondence its
+originating contract cannot express.
+
+A span SHALL NOT embed `execution_plan_id`, because plan identity is NOT
+UNIVERSAL: ad-hoc, integration, and recovery producers have no compiled plan, so a
+span field for it would be absent for whole producer classes and could not be part
+of one frozen identity. A scheduled producer CAN know its plan identity -- the
+sweep batch carries it -- so the reason is universality, not ignorance.
+Binding an assignment to the plan it was compiled from is the authoritative
+assignment record's job (task 1.3), which SHALL guarantee a durable unique
+assignment-to-plan binding; omitting the field here is only defensible because
+that binding exists.
+
+The correspondences that hold between the producer and scheduler namings are
+`run_shard == execution_shard` and `authority_epoch == assignment_epoch`, enforced
+at the append-time join for the contracts that carry them -- unconditionally for
+`SweepObservationBatchV1`, and for MTR only on the sweep variant. `run_id` is NOT one of them: it is the
+host-issued producer-run identity, and a signed source claim legitimately carries
+a different `context_id`. A span therefore freezes the PRODUCER-side identity and
+nothing more; resolving it to a scheduler execution is a lookup against the durable
+assignment record (task 1.3), not a field equality.
+
+Task 1.6a freezes the span shape and validates it STRUCTURALLY only.
+
+`authority_epoch` SHALL be a plain `u64`, REQUIRED on every attributed span, with
+no presence marker. It is ONE authority fence value -- control-plane/scheduler
+issued and host-attested into `EdgeProducerContext` -- required for every accepted
+producer: a record whose epoch is absent is rejected before any manifest can
+attribute it. Where the work is scheduled, `assignment_epoch` IS that same fence
+value, not a second epoch.
+
+A presence-sensitive epoch SHALL NOT be introduced for spans alone. Absence IS
+representable on the wire and in the semantic preimage -- `EdgeProducerContext`
+declares the field optional and the preimage frames it with a presence bit -- but
+it is REJECTED there, and it is representable in neither the SIGNED CLAIMS nor the
+LOCAL BINDING: both claims-signing grammars and the local-binding transcript frame
+a plain `u64`, and proto3 `uint64 authority_epoch` on the signed claims cannot
+distinguish absent from zero. So an optional span field would carry a distinction
+that cannot be authenticated and cannot survive corruption-independent local
+binding. Making
+it optional is a change to producer context, both signed claims, both framing
+grammars, local binding, the semantic joins, fence policy, both validators, and
+absent-versus-zero vectors TOGETHER, or not at all.
+
+`ATTRIBUTED_PASSIVE` SHALL carry the identity but SHALL NOT carry `range_sha256`:
+it asserts no produced target range, and a range digest would be a claim about
+output it declares does not exist.
+
+An attributed span SHALL ALSO carry the record's SIGNED SOURCE IDENTITY -- the
+source authorization KIND, its `context_id`, its `source_scope_id`, and its
+`source_scope_sha256` -- when the record carried a source authorization, and its
+ABSENCE SHALL be part of the identity. All four are present together or absent
+together; a partial combination
+SHALL be rejected. The kind is required because the same UUID can name a scheduled check,
+an ad-hoc scan, a command, or a sweep execution, and after record loss the
+consumer cannot otherwise choose the correlation variant. Without it the tuple is not one-to-one with an
+execution: two accepted records can share every other member -- including ACTIVE
+`range_sha256` -- while carrying DIFFERENT signed source contexts, and a PASSIVE
+record has no range discriminator at all. Merging those into one span would erase
+which execution was lost, and no later lookup can recreate information the span
+already merged away. The assignment mapping resolves an identity; it cannot
+un-merge one.
+
+`UNATTRIBUTABLE` SHALL carry NO assignment identity and SHALL carry its reason. A
+partial identity is worse than none, because a consumer cannot distinguish a
+recovered fact from a guess.
+
+Where records are known to differ in a discriminator the frozen tuple does not
+carry, the manifest SHALL NOT emit them as ATTRIBUTED evidence. Either the
+discriminator belongs in the frozen identity -- if the difference affects authority
+or partialization, add it -- or the evidence SHALL be classified UNATTRIBUTABLE
+with the corresponding reason.
+
+`coarsened` SHALL NOT be used as permission to emit attributed evidence after
+dropping a required identity member. Neither separate spans nor a page-level
+boolean preserves the missing fact: two spans with an identical key resolve to the
+same single mapping value, and a boolean cannot recreate a discriminator. Only
+TRUTH-PRESERVING same-key coarsening is permitted, consistent with the coarsening
+rule elsewhere in this specification.
+
+Spans SHALL NOT be merged across differing assignment identities, even when their
+sequence intervals are adjacent and their classification matches.
+
+#### Scenario: Shard and epoch agree where the contract carries them
+- **WHEN** an attributed span originates from a contract that carries
+  `execution_shard` and `assignment_epoch`
+- **THEN** its `run_shard` and `authority_epoch` SHALL equal them
+- **AND** a span from a contract carrying neither SHALL NOT be rejected for their
+  absence
+- **AND** its `run_id` SHALL NOT be required to equal any execution identity
+
+#### Scenario: A span freezes producer identity only
+- **WHEN** an attributed span is resolved to a scheduler execution
+- **THEN** the resolution SHALL use the durable assignment record
+- **AND** SHALL NOT be derived from equality between `run_id` and any execution
+  identity
+
+#### Scenario: Passive asserts no produced range
+- **WHEN** a span is `ATTRIBUTED_PASSIVE`
+- **THEN** it SHALL carry the assignment identity
+- **AND** SHALL NOT carry `range_sha256`
+
+#### Scenario: Unattributable carries no identity
+- **WHEN** a span is `UNATTRIBUTABLE`
+- **THEN** it SHALL carry a reason and NO assignment identity
+- **AND** a span carrying a partial identity SHALL be rejected
+
+#### Scenario: Different source contexts do not merge
+- **WHEN** two records share every other identity member but differ in signed
+  source `context_id`, or in whether one is present
+- **THEN** they SHALL NOT share a span
+
+#### Scenario: Adjacent spans of different assignments stay separate
+- **WHEN** two adjacent spans share a classification but differ in assignment
+  identity
+- **THEN** they SHALL remain separate spans
+
+#### Scenario: Every attributed span carries a fence
+- **WHEN** an attributed span is validated
+- **THEN** it SHALL carry an `authority_epoch`
+- **AND** the value SHALL be the control-plane/scheduler-issued, host-attested
+  fence the attributed records carried
 
 ### Requirement: Unattributable loss forces conservative repair before resolution
 An unattributable span SHALL trigger conservative repair, and SHALL NOT be merely
