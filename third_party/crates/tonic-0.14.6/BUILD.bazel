@@ -38,6 +38,7 @@ rust_library(
         "_tls-any",
         "channel",
         "codegen",
+        "default",
         "gzip",
         "router",
         "server",

@@ -122,7 +122,7 @@
 
 ## 8. Integration test against a live Dgraph (optional, gated)
 
-- [ ] 8.1 Decide whether a live-Dgraph integration suite is in scope for this change or a
+- [x] 8.1 Decide whether a live-Dgraph integration suite is in scope for this change or a
       follow-up; if in scope, tag it so the default `bazel test //...` sweep skips it
-- [ ] 8.2 If added, cover: login, upsert, concurrent-modification abort, namespace
+- [x] 8.2 If added, cover: login, upsert, concurrent-modification abort, namespace
       lifecycle, and schema drop

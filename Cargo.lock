@@ -717,6 +717,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "bon"
+version = "3.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a602c73c7b0148ec6d12af6fd5cc7a46e2eacc8878271a999abac56eed12f561"
+dependencies = [
+ "bon-macros",
+ "rustversion",
+]
+
+[[package]]
+name = "bon-macros"
+version = "3.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6dee98b0db6a962de883bf5d20362dee4d7ca0d12fe39a7c6c73c844e1cd7c1f"
+dependencies = [
+ "darling",
+ "ident_case",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "rustversion",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1425,6 +1450,7 @@ dependencies = [
 name = "dgraph-client"
 version = "0.1.0"
 dependencies = [
+ "docker_utils",
  "pretty_assertions",
  "prost",
  "proto_dgraph",
@@ -1540,6 +1566,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "docker_utils"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c2ed30ba459d792c03f6d4160a13e517aed79b49d43932c3db630f1024f5a0c"
+dependencies = [
+ "bon",
+ "tokio",
+ "wait_utils",
 ]
 
 [[package]]
@@ -6130,6 +6167,17 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "wait_utils"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "168546681e240b1fba83e7f511863005da05f170fcfc763311c44c933d5e974b"
+dependencies = [
+ "tokio",
+ "tonic",
+ "tonic-health",
+]
 
 [[package]]
 name = "walkdir"

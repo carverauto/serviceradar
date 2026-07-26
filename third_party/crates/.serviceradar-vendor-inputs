@@ -1,5 +1,5 @@
-FILE:@@//Cargo.lock 5af36dcd42c213593ecec666361fd8dc95f9cf47b43b1f206f732b906515a253
-FILE:@@//Cargo.toml e347e23bc25e1f5fd98efe6dd2419a7a62ba6eb02f3cc353f955ed185fb70cfb
+FILE:@@//Cargo.lock fc60ff146bcd252005cd4beed0c2592d4c061fc5dc2e38c9aa7fd1dd03b20853
+FILE:@@//Cargo.toml d20b2d3b02ffec8d5887f51b71f4a988f96b4bc982314309586d8067941bf15a
 FILE:@@//integration_tests/srql/Cargo.toml c047a421087d35281c3161a948100f0c082c988ecd5a18a56f21abfddd707c6a
 FILE:@@//proto/dgraph/Cargo.toml 122c820729402b715ddba34da04e1deb85a450b50b8fb0f05c5080f1ac0bf535
 FILE:@@//rust/addon-sdk/Cargo.toml c672ef640c69fe506f64d9eee8d4d3bb009b18a8832253de50da5fa115e352dc
@@ -19,7 +19,7 @@ FILE:@@//rust/causal-ports/Cargo.toml 4222976686d8ac895d1e247e5b0c734ab6b8f1df05
 FILE:@@//rust/causal-reasoning/Cargo.toml f44e6594a04b07c809b317d92323178e41be6a2dabdef9028d91cdb24cc2ab70
 FILE:@@//rust/config-bootstrap/Cargo.toml b8a7223f5ba6d6b75f4c11d7292a7606e3fe3b9d97d3c929f34a17c8c2cd651c
 FILE:@@//rust/correlation-engine/Cargo.toml 9c55fd9f9e2994ab948097889bd3e6496ea78c82172593022fd03b4f8efef7da
-FILE:@@//rust/dgraph-client/Cargo.toml a58ec0ad72b7378820f06006acc9b902bd10aac1dad4588d582424f686857079
+FILE:@@//rust/dgraph-client/Cargo.toml a6fcc60bfba3d81bedad0af235ef535fab0f7a102e1368ebd0e1e64b2618bb28
 FILE:@@//rust/edge-onboarding/Cargo.toml 4121274eaf400e3603970433a4f434e8d4ef30c7bb0279bbb033592f43ed320d
 FILE:@@//rust/fieldsurvey-sidekick/Cargo.toml 91aa8984bd2eebf21c9e657c40d425b06c0ee60eaf5d011dd1f759ebb91c80ea
 FILE:@@//rust/flow-collector/Cargo.toml 835c9e44ecdb77a17d3b782efe84cc62b572972f80730506ac7b2cdd1e655fd1

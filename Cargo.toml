@@ -85,6 +85,8 @@ deep_causality_data_structures = "0.10"
 deep_causality_uncertain = "0.5"
 diesel = { version = "2.3", default-features = false }
 diesel-async = { version = "0.7.1", default-features = false }
+# Test-only: starts throwaway Docker containers for integration tests.
+docker_utils = "0.2.4"
 ed25519-dalek = { version = "3", default-features = false }
 # default = auto-color/humantime/regex. All three are expected logging behaviour
 # (humantime is timestamp_seconds; dropping regex would silently breaks RUST_LOG filters).

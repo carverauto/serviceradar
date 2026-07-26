@@ -1,7 +1,7 @@
-load("@rules_rust//rust:defs.bzl", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_test", "rust_test_suite")
 load("//third_party/crates:defs.bzl", "all_crate_deps")
 
-# Both test targets live here so the whole test surface is declared in one place.
+# All test targets live here so the whole test surface is declared in one place.
 #
 # `package_name` is required on every all_crate_deps() call in this file: it otherwise
 # resolves against the package it is called from, and there is no Cargo.toml at
@@ -23,13 +23,65 @@ rust_test(
     ) + ["//proto/dgraph:proto_dgraph_bindings"],
 )
 
-# Integration tests. The tests/ tree mirrors src/ and every module is registered from
-# lib_tests.rs, so a single rust_test target covers the whole tree.
+# Hermetic integration tests. The tests/ tree mirrors src/ and every module is registered
+# from lib_tests.rs, so one target covers the whole tree.
+#
+# dgraph_container_test.rs is excluded: it needs a Docker daemon and is built by the
+# acceptance suite below instead.
 rust_test(
     name = "dgraph_client_integration_test",
-    srcs = glob(["**/*.rs"]),
+    srcs = glob(
+        ["**/*.rs"],
+        exclude = ["dgraph_container_test.rs"],
+    ),
     crate_root = "lib_tests.rs",
     edition = "2024",
+    deps = all_crate_deps(
+        normal = True,
+        normal_dev = True,
+        package_name = "rust/dgraph-client",
+    ) + [
+        "//proto/dgraph:proto_dgraph_bindings",
+        "//rust/dgraph-client:dgraph_client",
+    ],
+)
+
+# Acceptance tests against a real dgraph/standalone container.
+#
+# These need a Docker daemon. The exec_properties below are what let BuildBuddy provide
+# one; a workstation without Docker running will fail this target.
+#
+# Everything lives in a single test function because Bazel runs test functions
+# concurrently and does not honour --test-threads=1, so parallel scenarios would race over
+# the one shared container. See the module docs in dgraph_container_test.rs.
+#
+# The exec_properties are: a Firecracker microVM with a
+# Docker daemon inside, and a recycled runner keyed so the whole suite lands on the same VM
+# and reuses the already-pulled dgraph image rather than pulling it per test.
+rust_test_suite(
+    name = "acceptance_tests",
+    srcs = ["dgraph_container_test.rs"],
+    # The test is #[ignore] so `cargo test` stays hermetic. Without this flag Bazel would
+    # honour that attribute too and the target would report success having run nothing.
+    args = ["--include-ignored"],
+    edition = "2024",
+    exec_properties = {
+        # Run this test inside a Firecracker microVM.
+        "test.workload-isolation-type": "firecracker",
+        # Ensure the Docker daemon is started inside that microVM.
+        "test.init-dockerd": "true",
+        # Preserve microVM state across runs so the dgraph image stays in the local cache.
+        "test.recycle-runner": "true",
+        # Send every test in this suite to the same recycled runner.
+        "test.runner-recycling-key": "dgraph_client_test_runner",
+    },
+    tags = [
+        # Local selector for running just this suite.
+        "dgraph_acceptance_test",
+        # CI selector for the acceptance job.
+        "acceptance_test",
+    ],
+    visibility = ["//visibility:public"],
     deps = all_crate_deps(
         normal = True,
         normal_dev = True,
