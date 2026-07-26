@@ -108,7 +108,7 @@ fn dgraph_client_acceptance() {
 
     println!("dgraph container '{container_id}' listening on port {port}");
 
-    // The health check is necessary but not sufficient because it returns ready too early before alpha can serve requests; 
+    // The health check is necessary but not sufficient because it returns ready too early before alpha can serve requests;
     // give alpha a moment to finish starting before the first RPC. The readiness loop below still guards the remainder,
     // so this only has to cover the common case rather than be exactly right.
     std::thread::sleep(POST_HEALTH_SETTLE);
@@ -303,7 +303,9 @@ async fn best_effort_read_only_transaction_queries(client: &DgraphClient) -> Res
     // Freshness is a property of a normal read-only transaction, so check it there.
     let json = query_json(client, r#"{ q(func: eq(name, "besteffort")) { name } }"#).await?;
     if !json.contains("besteffort") {
-        return Err(format!("committed data not visible to a normal read: {json}"));
+        return Err(format!(
+            "committed data not visible to a normal read: {json}"
+        ));
     }
 
     Ok(())
