@@ -1,0 +1,41 @@
+load("@rules_rust//rust:defs.bzl", "rust_test")
+load("//third_party/crates:defs.bzl", "all_crate_deps")
+
+# Both test targets live here so the whole test surface is declared in one place.
+#
+# `package_name` is required on every all_crate_deps() call in this file: it otherwise
+# resolves against the package it is called from, and there is no Cargo.toml at
+# rust/dgraph-client/tests. Without it the load fails with
+# "that package had no Cargo.toml file".
+
+# Unit tests living in src/ behind #[cfg(test)]. `crate` must be the full label: a
+# relative ":dgraph_client" would resolve inside this tests package, where no such target
+# exists. Note rust_test(crate = ...) does NOT inherit crate_features; if the library ever
+# gains features, repeat them here.
+rust_test(
+    name = "dgraph_client_test",
+    crate = "//rust/dgraph-client:dgraph_client",
+    edition = "2024",
+    deps = all_crate_deps(
+        normal = True,
+        normal_dev = True,
+        package_name = "rust/dgraph-client",
+    ) + ["//proto/dgraph:proto_dgraph_bindings"],
+)
+
+# Integration tests. The tests/ tree mirrors src/ and every module is registered from
+# lib_tests.rs, so a single rust_test target covers the whole tree.
+rust_test(
+    name = "dgraph_client_integration_test",
+    srcs = glob(["**/*.rs"]),
+    crate_root = "lib_tests.rs",
+    edition = "2024",
+    deps = all_crate_deps(
+        normal = True,
+        normal_dev = True,
+        package_name = "rust/dgraph-client",
+    ) + [
+        "//proto/dgraph:proto_dgraph_bindings",
+        "//rust/dgraph-client:dgraph_client",
+    ],
+)

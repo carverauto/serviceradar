@@ -1425,8 +1425,15 @@ dependencies = [
 name = "dgraph-client"
 version = "0.1.0"
 dependencies = [
+ "pretty_assertions",
  "prost",
+ "proto_dgraph",
+ "rustls",
+ "tokio",
  "tonic",
+ "tonic-prost",
+ "tracing",
+ "urlencoding",
 ]
 
 [[package]]
@@ -5725,6 +5732,7 @@ dependencies = [
  "hyper-util",
  "percent-encoding",
  "pin-project",
+ "rustls-native-certs",
  "socket2 0.6.3",
  "sync_wrapper",
  "tokio",
