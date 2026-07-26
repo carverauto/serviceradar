@@ -1,0 +1,26 @@
+proto/dgraph/Cargo.toml
+  s_1243381eb5fb18::t_2555ee8ccfc3d0 8-11,16-18
+proto/dgraph/src/lib.rs
+  s_1243381eb5fb18::t_f90733725e4315 6-12
+proto/dgraph/build.rs
+  s_1243381eb5fb18::t_11b1939cd3c251 6
+  s_1243381eb5fb18::t_eda4d9ec6d263d 11
+Cargo.lock
+  s_1243381eb5fb18::t_361516c12c7bac 3797-3798
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "71ab51a1d2a65c91acf7b2eeb7e24790185e1b80",
+  "prompts": {},
+  "sessions": {
+    "s_1243381eb5fb18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c80cd9b1-98fc-432b-9832-9538fb1ae01c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
