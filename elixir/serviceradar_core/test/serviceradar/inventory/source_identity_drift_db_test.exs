@@ -184,9 +184,11 @@ defmodule ServiceRadar.Inventory.SourceIdentityDriftDbTest do
 
     :ok =
       SourceIdentityDrift.record_conflicts([
-        conflict(source_id, "metadata_identifier_disagreement", unique("armis-meta"))
+        source_id
+        |> conflict("metadata_identifier_disagreement", unique("armis-meta"))
         |> Map.put(:device_uid, device_uid),
-        conflict(source_id, "split_typed_generic_identifier", unique("armis-split"))
+        source_id
+        |> conflict("split_typed_generic_identifier", unique("armis-split"))
         |> Map.put(:device_uid, device_uid)
       ])
 
