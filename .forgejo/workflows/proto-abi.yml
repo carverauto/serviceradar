@@ -148,6 +148,12 @@ jobs:
       - name: Edge enum parity (Elixir semantic validation)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/semantic_validate_test.exs
+      # Compression-envelope parity (task 1.5: streaming compression expansion and
+      # trailing-frame rejection). Asserts against a manifest Go authors from its own
+      # validator, so a Go behaviour change fails the Go side of this same job.
+      - name: Edge compression parity (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/compression_validate_test.exs
       # Fixture test for the post-generation transform itself: proves it is idempotent and
       # fails closed on inventory / generator-version / partial-patch drift.
       - name: Edge enum transform fail-closed fixture

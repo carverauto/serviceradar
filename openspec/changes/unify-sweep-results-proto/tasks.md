@@ -116,6 +116,22 @@
   completion never depends on arrival order, on per-block buffering, on a
   `proto.Marshal` re-encode, or on execution-wide trace materialization. Allocate and durably record UUIDv7 trace
   IDs before probing and add cross-language UUIDv7/identity-time fixtures.
+<!-- 1.5 IMPLEMENTATION STATUS (updated as slices land; do NOT check 1.5 until every
+     bullet below is DONE, because the value-parity half is what task 1.16 needs).
+     DONE:
+       - enum retention + semantic rejection (scripts/patch_edge_enum_negatives.exs,
+         ServiceRadar.Edge.SemanticValidate)                              [usp-v2-06]
+       - malformed-wire preflight classification (ServiceRadar.Edge.WireDecode) [usp-v2-05]
+       - recursive structural wire-hygiene validator, depth 10,000 counting the
+         ROOT (ServiceRadar.Edge.WireValidate)                            [usp-v2-05]
+       - streaming compression expansion + trailing-frame rejection
+         (ServiceRadar.Edge.CompressionValidate, verdicts anchored to Go via
+         proto/edge/v1/testdata/zstd_parity_manifest.txt)                 [usp-v2-07]
+         RESIDUAL: Elixir cannot check Go's decoded-size equality (no zstd decoder
+         in serviceradar_core); declared in CompressionValidate.verified_scope/0.
+     REMAINING: unsupported versions; timestamp units (ns -> PostgreSQL us before
+       identity/order comparison); optional zero-valued measurements; ASN range;
+       string/count/byte/relational-row bounds; projected row cost. -->
 - [ ] 1.5 Define compatibility rules for unknown fields/enums, unsupported
   versions, timestamp units, optional zero-valued measurements, ASN range,
   ENUM COMPATIBILITY (cross-language parity): Go retains an unknown/negative int32 enum

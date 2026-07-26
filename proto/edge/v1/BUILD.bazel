@@ -64,7 +64,10 @@ filegroup(
 
 go_test(
     name = "edgev1_golden_test",
-    srcs = ["golden_test.go"],
+    srcs = [
+        "golden_test.go",
+        "zstd_parity_test.go",
+    ],
     data = glob(["testdata/**"]),
     deps = [
         ":edgev1",

@@ -1,0 +1,10 @@
+# fixture	declared	encoded	go_verdict
+# go_verdict is edgerecord.ValidateZstdPayload's result, or the
+# declared-size guard from validateCompression when that fires first.
+zstd_single_frame	1920	53	ok
+zstd_trailing_byte	1920	54	zstd_trailing
+zstd_two_frames	1920	106	zstd_trailing
+zstd_skippable_suffix	1920	61	zstd_trailing
+zstd_truncated	1920	50	zstd_invalid
+zstd_bad_magic	16	5	zstd_invalid
+zstd_tiny_incompressible	96	109	ok
