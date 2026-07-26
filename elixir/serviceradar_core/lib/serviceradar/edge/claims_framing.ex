@@ -1,12 +1,12 @@
-defmodule Serviceradar.Edge.ClaimsFraming do
+defmodule ServiceRadar.Edge.ClaimsFraming do
   @moduledoc """
   Elixir peer of `go/pkg/edge/edgerecord/claims_framing.go`. Frames the nested
   messages that participate in a signing/digest preimage field-by-field, so no
   protobuf-elixir whole-message encode -- which diverges from protobuf-go on oneof
   member ordering and default elision -- appears in any preimage at any depth.
 
-  Shared by `Serviceradar.Edge.SemanticDigest` (the capability sub-frame and the
-  output_contract frame) and `Serviceradar.Edge.CapabilitySigning` (the signed
+  Shared by `ServiceRadar.Edge.SemanticDigest` (the capability sub-frame and the
+  output_contract frame) and `ServiceRadar.Edge.CapabilitySigning` (the signed
   claims), so both bind the claims identically. The framing primitives MUST match
   the Go `digestWriter`: 8-byte big-endian ints, 8-byte length-prefixed bytes/str,
   1-byte presence, and a u64 oneof discriminant equal to the set member's proto

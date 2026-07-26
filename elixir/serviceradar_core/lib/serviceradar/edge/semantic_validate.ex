@@ -1,11 +1,11 @@
-defmodule Serviceradar.Edge.SemanticValidate do
+defmodule ServiceRadar.Edge.SemanticValidate do
   @moduledoc """
   Go-parity SEMANTIC validation of DECODED edge structs (task 1.5), and the stage-aware disposition
   it resolves to.
 
   This is the second half of the two-layer parity mechanism:
 
-    1. `Serviceradar.Edge.WireValidate` -- STRUCTURAL: would Go's wire parser reject these bytes?
+    1. `ServiceRadar.Edge.WireValidate` -- STRUCTURAL: would Go's wire parser reject these bytes?
        It makes no value judgement, because a raw walk cannot reproduce protobuf's effective-value
        semantics (last-one-wins, oneof resolution, embedded-message merging).
     2. THIS module -- SEMANTIC: run on the struct the real decoder produced, where the effective
@@ -171,19 +171,6 @@ defmodule Serviceradar.Edge.SemanticValidate do
   @doc false
   def enum_field_policy, do: @enum_field_policy
 
-  # VALIDATOR/CACHE ABI, computed at COMPILE time and baked into this module's binary as a literal.
-  #
-  # It must NOT be read at runtime (e.g. `module_info(:md5)`): during a hot code upgrade an in-flight
-  # process still executing the OLD code version would resolve `__MODULE__.module_info/1` to the
-  # NEWEST loaded module, compute the NEW namespace key, and write an OLD verdict into it -- exactly
-  # the cross-version contamination this ABI exists to prevent. A compile-time literal travels with
-  # the code version that computed it, so old code can only ever write into the old namespace.
-  #
-  # Hashing this module's own SOURCE keeps it automatic: any edit to the algorithm or the cached
-  # shape changes the constant, with no hand-bumped counter to forget.
-  @external_resource __ENV__.file
-  @validator_abi :erlang.md5(File.read!(__ENV__.file))
-
   # Struct keys that are protobuf/runtime bookkeeping rather than declared fields.
   @runtime_struct_keys [:__struct__, :__unknown_fields__]
 
@@ -205,7 +192,7 @@ defmodule Serviceradar.Edge.SemanticValidate do
 
   # Derived from the SHARED bound `WireValidate` and the decoder are aligned to, so the three layers
   # cannot drift apart. Exceeding it is its OWN failure, not an enum verdict.
-  @max_depth Serviceradar.Edge.WireValidate.max_message_depth()
+  @max_depth ServiceRadar.Edge.WireValidate.max_message_depth()
 
   @typedoc """
   A semantic failure names the PATH to the offending field.
@@ -539,90 +526,23 @@ defmodule Serviceradar.Edge.SemanticValidate do
   # proven to load and be of the right kind) before any of its values are read, and a CHILD's full
   # congruence is established when `scan/3` actually descends into a child value. That deliberately
   # avoids traversing branches a given record never populates, and keeps the verdict live rather than
-  # frozen at first use. Each verdict is memoised under the module's own binary AND the binaries of
-  # every module it directly references, so a child-only load or replacement is never served stale.
+  # frozen at first use.
+  # The verdict is this module's LOCAL congruence. It is recomputed on every call, deliberately.
+  #
+  # A `:persistent_term` cache lived here and was removed: its key was derived from a LIVE read of
+  # the module (own MD5 plus a direct-dependency fingerprint), and the recompute path then reread
+  # that module independently. A hot replacement landing between those two reads published the NEW
+  # module's props under the OLD module's key, so a rollback to the original binary was served an
+  # empty schema and ADMITTED retained invalid enum values. Rechecking the target module's MD5
+  # after the fact does not close it -- that covers neither a dependency change nor ABA replacement
+  # of the same-length binary.
+  #
+  # Recomputation is cheap and non-recursive: it inspects one module's own metadata and fails fast.
+  # `scan/3` still descends into real child VALUES and consults each child's own current verdict, so
+  # the graph guarantee stays live rather than frozen at first use.
   defp schema(mod) do
-    # The cached verdict is this module's LOCAL congruence, keyed by its own binary AND by the
-    # binaries of every module it DIRECTLY references. Keying on the root alone was stale in both
-    # directions: loading a previously-missing child never cleared the parent's sticky `:error`, and
-    # replacing only a child left the parent's `:ok` in place. Deep validity is not baked into this
-    # entry -- `scan/3` descends into real child VALUES and checks each child's own current verdict,
-    # so the graph guarantee stays live rather than frozen at first use.
-    # The key is versioned by THIS module's binary as well as the target schema's. Without that, a
-    # value written by a PREVIOUS validator survives an in-VM upgrade: a stale `:error` keeps a node
-    # pinned even after the fix that clears it, and a legacy `{:ok, props}` bypasses any stricter
-    # congruence the new validator added. Using the validator's own MD5 rather than a hand-bumped
-    # integer means ANY change to this module -- algorithm or cached shape -- invalidates the
-    # namespace automatically, with no discipline to forget.
-    key = {__MODULE__, :schema, @validator_abi, mod, module_md5(mod), dep_fingerprint(mod)}
-
-    case :persistent_term.get(key, :miss) do
-      # Defence in depth for a node upgrading from the immediately preceding implementation, which
-      # DID write errors: a cached `:error` is always treated as a miss and recomputed.
-      :error ->
-        recompute(key, mod)
-
-      :miss ->
-        recompute(key, mod)
-
-      cached ->
-        cached
-    end
+    compute_schema(mod)
   end
-
-  # ONLY successes are cached. A readiness FAILURE can be repaired by something this key cannot see
-  # -- `validate_module/1` consumes TRANSITIVE state (a map Entry's own enum and message references)
-  # while the fingerprint covers only DIRECT references -- so caching it would pin valid traffic
-  # paused until process restart even after the missing module loaded. Recomputing a failure is
-  # cheap: the check is local and fails fast.
-  defp recompute(key, mod) do
-    case compute_schema(mod) do
-      {:ok, _props} = ok ->
-        :persistent_term.put(key, ok)
-        ok
-
-      :error ->
-        :error
-    end
-  end
-
-  defp module_md5(mod) do
-    mod.module_info(:md5)
-  rescue
-    _ -> :unavailable
-  catch
-    _kind, _reason -> :unavailable
-  end
-
-  # Every module this one directly references (embedded messages, map Entries, enums), paired with
-  # its current binary. A child edit changes this fingerprint, so the parent's entry is recomputed.
-  defp dep_fingerprint(mod) do
-    case raw_props(mod) do
-      {:ok, %{field_props: fps}} ->
-        fps
-        |> Map.values()
-        |> Enum.flat_map(&referenced_modules/1)
-        |> Enum.uniq()
-        |> Enum.sort()
-        |> Enum.map(&{&1, module_md5(&1)})
-
-      :error ->
-        :unavailable
-    end
-  rescue
-    _ -> :unavailable
-  catch
-    _kind, _reason -> :unavailable
-  end
-
-  defp referenced_modules(%{type: {:enum, enum_mod}})
-       when is_atom(enum_mod) and not is_nil(enum_mod), do: [enum_mod]
-
-  defp referenced_modules(%{type: type}) when is_atom(type) and not is_nil(type) do
-    if module_atom?(type), do: [type], else: []
-  end
-
-  defp referenced_modules(_fp), do: []
 
   defp compute_schema(mod) do
     case validate_module(mod) do
