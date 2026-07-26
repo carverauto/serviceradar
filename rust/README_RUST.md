@@ -281,7 +281,167 @@ too, or the next vendor run fails after `rm -rf` has already emptied the tree.
 
 ---
 
-## 6. Quick reference
+## 6. Crate code structure
+
+Everything above is about *dependencies*. This section is about *layout*, and it applies to
+every crate under `/rust/`.
+
+### One type, one module
+
+Three base directories, each holding one item per file:
+
+```
+src/errors/mod.rs    # each error type in its own file
+src/traits/mod.rs    # each trait in its own file
+src/types/mod.rs     # each type in its own file
+```
+
+A **small** type -- whole implementation under ~25 lines -- is a single file named for the
+type in snake_case:
+
+```
+src/types/small_type.rs
+```
+
+A **complex** type is a folder module. `mod.rs` holds the type definition and its
+constructors; every trait implementation gets its own file named after the trait (or trait
+group) it implements:
+
+```
+src/types/uncertain/mod.rs                  # definition + constructors
+src/types/uncertain/uncertain_debug.rs      # impl Debug
+src/types/uncertain/uncertain_part_eq.rs    # impl PartialEq
+```
+
+### Tests mirror `src/`
+
+`tests/` replicates the `src/` tree exactly, with `_tests` appended to the file name:
+
+```
+src/errors/normal_error/normal_error.rs
+tests/errors/normal_error/normal_error_tests.rs
+```
+
+Every test file must be registered in its `mod.rs` with the correct `#[cfg(test)]`
+annotation, and each module registered with its parent. Folder modules must also be
+declared in `rust/<crate>/tests/BUILD.bazel` -- see also *Every crate's tests must be
+declared in Bazel* in section 3.
+
+**Shared test helpers live in the `src/` tree, not `tests/`:**
+
+```
+src/utils_tests/mod.rs
+```
+
+This is not a style preference. Bazel cannot reach helper files that live inside `tests/`,
+but it can reach all of `src/` during testing. Putting helpers under `src/` is what makes
+them visible to the Bazel test targets at all -- with the deliberate side effect that the
+helpers are themselves tested and count toward coverage.
+
+### Exports and imports
+
+- All public types, traits, and errors are re-exported from `src/lib.rs`.
+- Internal modules stay private at the root.
+- **Prelude files are prohibited.**
+- Import from another crate at its root, never a nested path:
+
+```rust
+use deep_causality_discovery::{ConsoleFormatter, ProcessAnalysis, ProcessResultFormatter};
+```
+
+### Error types
+
+A public error is a **tuple struct wrapping a classification enum**, not a bare public
+enum. The wrapper is what makes new failure modes non-breaking: variants can be added, and
+the internal representation can later gain context or a source chain, without changing the
+public type.
+
+```rust
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PhysicsError(PhysicsErrorEnum);           // field is PRIVATE
+
+/// Detailed classification of physics-related errors.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum PhysicsErrorEnum {
+    /// A fundamental physical invariant was violated.
+    PhysicalInvariantBroken(String),
+    /// Operations attempted on quantities with incompatible dimensions.
+    DimensionMismatch(String),
+    /// Absolute zero violations.
+    ZeroKelvinViolation,
+}
+
+impl PhysicsError {
+    pub(crate) fn new(variant: PhysicsErrorEnum) -> Self {
+        Self(variant)
+    }
+
+    /// Classification, for callers that need to branch on the failure.
+    pub fn kind(&self) -> &PhysicsErrorEnum {
+        &self.0
+    }
+
+    #[allow(non_snake_case)]
+    pub fn PhysicalInvariantBroken(msg: String) -> Self {
+        Self(PhysicsErrorEnum::PhysicalInvariantBroken(msg))
+    }
+}
+```
+
+`Display` is written by hand, matching on the inner enum, and lives in its own file per the
+one-trait-one-file rule (`physics_error_display.rs`). `std::error::Error` likewise. Because
+`Display` is hand-written, `thiserror` buys nothing -- do not add it.
+
+```rust
+impl Display for PhysicsError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        match &self.0 {
+            PhysicsErrorEnum::PhysicalInvariantBroken(msg) => {
+                write!(f, "Physical Invariant Broken: {}", msg)
+            }
+            PhysicsErrorEnum::DimensionMismatch(msg) => write!(f, "Dimension Mismatch: {}", msg),
+            PhysicsErrorEnum::ZeroKelvinViolation => {
+                write!(f, "Zero Kelvin Violation: Temperature cannot be negative")
+            }
+        }
+    }
+}
+```
+
+Rules that make the pattern actually work:
+
+- **The wrapper's field stays private.** A `pub` field lets callers `match err.0 { .. }`
+  exhaustively, which reintroduces exactly the API break the pattern exists to prevent --
+  and it violates the field-visibility rule below. Callers branch through `kind()`.
+- **Mark the enum `#[non_exhaustive]`.** Private field plus `#[non_exhaustive]` is what
+  makes adding a variant a non-event for downstream crates.
+- **Give every variant an associated constructor**, `#[allow(non_snake_case)]` and named
+  for the variant, so construction reads the same as the variant it produces.
+- **Prefer payloads that keep the derives.** `Debug, Clone, PartialEq` should hold for
+  every error type, with `Eq, Hash` wherever payloads allow. Watch for third-party types
+  that block this: `tonic::Status`, for instance, is `#[derive(Clone)]` only, so store
+  `tonic::Code` plus the message instead. That also keeps transport types out of the
+  public API.
+
+### Conventions
+
+**Field visibility.** Public types keep *all* fields private; access goes through
+constructors, getters, and setters as appropriate. Private types may use public fields
+provided they cannot leak outside their defined scope.
+
+**Static dispatch.** Use static dispatch. Avoid `dyn`, trait objects, and dynamic dispatch.
+This has a concrete consequence worth stating: `Box<dyn Error>` must not appear in a public
+signature -- model errors as concrete typed variants instead.
+
+**Style.** Prefer idiomatic zero-cost abstractions, and functional style (`map`, `flat_map`,
+`filter`) over manual loops when working with collections.
+
+**Safety.** No `unsafe`. Exemptions are rare and must be documented at the site.
+
+---
+
+## 7. Quick reference
 
 ```bash
 # bump + re-vendor + verify, in one go
