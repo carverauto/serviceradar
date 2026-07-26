@@ -1,0 +1,16 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "execstate",
+    srcs = ["tracker.go"],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/edge/execstate",
+    visibility = ["//visibility:public"],
+    deps = ["//proto/edge/v1:edgev1"],
+)
+
+go_test(
+    name = "execstate_test",
+    srcs = ["tracker_test.go"],
+    embed = [":execstate"],
+    deps = ["//proto/edge/v1:edgev1"],
+)
