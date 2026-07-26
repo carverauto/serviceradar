@@ -1,0 +1,25 @@
+rust/anomaly-core/BUILD.bazel
+  s_1243381eb5fb18::t_922250bd6e1449 4-15
+rust/anomaly-disposition/BUILD.bazel
+  s_1243381eb5fb18::t_922250bd6e1449 4-15
+rust/kvutil/BUILD.bazel
+  s_1243381eb5fb18::t_922250bd6e1449 5-16
+rust/srql/BUILD.bazel
+  s_1243381eb5fb18::t_922250bd6e1449 4-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "dfcb548b7e70bf8db269495c2551df9a13a8eb50",
+  "prompts": {},
+  "sessions": {
+    "s_1243381eb5fb18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c80cd9b1-98fc-432b-9832-9538fb1ae01c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
