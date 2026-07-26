@@ -436,7 +436,12 @@ _NORMAL_DEPENDENCIES = {
     "rust/dgraph-client": {
         _COMMON_CONDITION: {
             "prost": Label("//third_party/crates/prost-0.14.4:prost"),
+            "rustls": Label("//third_party/crates/rustls-0.23.40:rustls"),
+            "tokio": Label("//third_party/crates/tokio-1.52.3:tokio"),
             "tonic": Label("//third_party/crates/tonic-0.14.6:tonic"),
+            "tonic-prost": Label("//third_party/crates/tonic-prost-0.14.6:tonic_prost"),
+            "tracing": Label("//third_party/crates/tracing-0.1.44:tracing"),
+            "urlencoding": Label("//third_party/crates/urlencoding-2.1.3:urlencoding"),
         },
     },
     "rust/edge-onboarding": {
@@ -1028,6 +1033,9 @@ _NORMAL_DEV_DEPENDENCIES = {
     "rust/correlation-engine": {
     },
     "rust/dgraph-client": {
+        _COMMON_CONDITION: {
+            "pretty_assertions": Label("//third_party/crates/pretty_assertions-1.4.1:pretty_assertions"),
+        },
     },
     "rust/edge-onboarding": {
         _COMMON_CONDITION: {
@@ -1154,6 +1162,8 @@ _NORMAL_DEV_ALIASES = {
     "rust/correlation-engine": {
     },
     "rust/dgraph-client": {
+        _COMMON_CONDITION: {
+        },
     },
     "rust/edge-onboarding": {
         _COMMON_CONDITION: {
@@ -1546,6 +1556,8 @@ _PROC_MACRO_DEV_ALIASES = {
     "rust/correlation-engine": {
     },
     "rust/dgraph-client": {
+        _COMMON_CONDITION: {
+        },
     },
     "rust/edge-onboarding": {
         _COMMON_CONDITION: {
