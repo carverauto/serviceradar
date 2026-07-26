@@ -1,0 +1,21 @@
+third_party/crates/.serviceradar-vendor-inputs
+  s_1243381eb5fb18::t_b5e63edda4971d 1-2,4
+third_party/crates/defs.bzl
+  s_1243381eb5fb18::t_797ec5a1064083 303-309,806-809,976-977,1104-1105,1213-1214,1320-1321,1403-1404,1488-1489,1597-1601,1720-1723,1827-1828,1910-1911
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "c74c497c64a01051e1004e0c83956aafe0626997",
+  "prompts": {},
+  "sessions": {
+    "s_1243381eb5fb18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c80cd9b1-98fc-432b-9832-9538fb1ae01c",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
