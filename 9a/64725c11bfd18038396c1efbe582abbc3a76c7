@@ -1,0 +1,50 @@
+Cargo.toml
+  s_1243381eb5fb18::t_e62c97b0d1177e 127-130
+third_party/BUILD.bazel
+  s_1243381eb5fb18::t_984fc7ed257fbb 11-14
+  s_1243381eb5fb18::t_b04226514ac092 27-47,49-57
+proto/dgraph/BUILD.bazel
+  s_1243381eb5fb18::t_14eee6bdc97a8c 8
+  s_1243381eb5fb18::t_2f28c47949c82e 5-7
+  s_1243381eb5fb18::t_4574ef3d1daf26 9-11
+  s_1243381eb5fb18::t_29700d336e3d0d 1-4,12-20
+build/rust/prost_toolchain/BUILD.bazel
+  s_1243381eb5fb18::t_60871de622a47f 11-20
+  s_1243381eb5fb18::t_b2a71417db71d9 8-10
+  s_1243381eb5fb18::t_ded790290721de 21-23
+  s_1243381eb5fb18::t_b066052a0885ed 1-7,24-40
+third_party/crates/.serviceradar-vendor-inputs
+  s_1243381eb5fb18::t_01b0dd0de71326 1-2
+third_party/crates/BUILD.bazel
+  s_1243381eb5fb18::t_058e0287091e6a 106-107,113,813-848,1448-1460
+third_party/crates/async-nats-0.50.0/BUILD.bazel
+  s_1243381eb5fb18::t_a175f209a47533 117
+third_party/crates/defs.bzl
+  s_1243381eb5fb18::t_69da48031f15f9 294-300,355,415,464,480,539,584,700,793-796,946-947,1085-1086,1194-1195,1299-1300,1380-1381,1461-1462,1570-1571,1688-1689,1791-1792,1872-1873
+third_party/crates/prost-build-0.14.4/BUILD.bazel
+  s_1243381eb5fb18::t_7491bece0e9d3c 37-114,184-276
+third_party/crates/protoc-gen-prost-0.5.0/BUILD.bazel
+  s_1243381eb5fb18::t_e97bb9eb6c273c 1-194
+third_party/crates/protoc-gen-tonic-0.5.0/BUILD.bazel
+  s_1243381eb5fb18::t_1f69467cecb506 1-206
+third_party/crates/syn-2.0.117/BUILD.bazel
+  s_1243381eb5fb18::t_47cabb09e34c19 45-137
+third_party/crates/tonic-build-0.14.6/BUILD.bazel
+  s_1243381eb5fb18::t_54d9d5183fddc6 38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "9a64725c11bfd18038396c1efbe582abbc3a76c7",
+  "prompts": {},
+  "sessions": {
+    "s_1243381eb5fb18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c80cd9b1-98fc-432b-9832-9538fb1ae01c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
