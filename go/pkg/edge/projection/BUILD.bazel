@@ -1,0 +1,16 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "projection",
+    srcs = ["projection.go"],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/edge/projection",
+    visibility = ["//visibility:public"],
+    deps = ["//proto/edge/v1:edgev1"],
+)
+
+go_test(
+    name = "projection_test",
+    srcs = ["projection_test.go"],
+    embed = [":projection"],
+    deps = ["//proto/edge/v1:edgev1"],
+)
