@@ -1,0 +1,195 @@
+rust/dgraph-client/src/types/dgraph_client/no_certificate_verification.rs
+  s_1243381eb5fb18::t_97da2f8dc15755 1-82
+rust/dgraph-client/tests/errors/connection_string_error_tests.rs
+  s_1243381eb5fb18::t_50d09079655b06 1-51
+rust/dgraph-client/src/types/dgraph_client/dgraph_client_admin.rs
+  s_1243381eb5fb18::t_68b31ca198b2d9 207,213-215
+  s_1243381eb5fb18::t_e3c6795603e3f8 1-206,208-212,216-246
+rust/dgraph-client/tests/types/lease_range_tests.rs
+  s_1243381eb5fb18::t_fcd3ef663dbaea 8-9,15-16,18-19,22,24-25,28-30
+  s_1243381eb5fb18::t_5294fecdf3dd54 1-7,10-14,17,20-21,23,26-27,31
+rust/dgraph-client/tests/lib_tests.rs
+  s_1243381eb5fb18::t_c552353e781fa2 1-13
+rust/dgraph-client/tests/errors/connect_error_tests.rs
+  s_1243381eb5fb18::t_f45e6fbd10c74d 25
+  s_1243381eb5fb18::t_50d09079655b06 1-24,26-33
+rust/dgraph-client/src/types/lease_range.rs
+  s_1243381eb5fb18::t_7b933e1f121eb7 1-24,30-49
+  s_1243381eb5fb18::t_fcd3ef663dbaea 25-29
+rust/dgraph-client/BUILD.bazel
+  s_1243381eb5fb18::t_7000e451e19907 4-5
+  s_1243381eb5fb18::t_be1c6a6ac5f560 6
+  s_1243381eb5fb18::t_0bca508d2665c5 11
+rust/dgraph-client/src/errors/auth_error/mod.rs
+  s_1243381eb5fb18::t_dbf8618c56114b 1-55,57-60,62-73,75-83,85-86
+  s_1243381eb5fb18::t_323de03070175d 56,61,74,84
+rust/dgraph-client/src/errors/connect_error/mod.rs
+  s_1243381eb5fb18::t_323de03070175d 56,61,66,71,76,81
+  s_1243381eb5fb18::t_63769b84e1a27a 1-55,57-60,62-65,67-70,72-75,77-80,82-83
+rust/dgraph-client/src/errors/connect_error/connect_error_error.rs
+  s_1243381eb5fb18::t_de3ff68dc31309 1-9
+rust/dgraph-client/src/types/client_config/client_config_debug.rs
+  s_1243381eb5fb18::t_ea46057f085928 1-23
+rust/dgraph-client/tests/types/connection_string_tests.rs
+  s_1243381eb5fb18::t_4930bf47c85076 1-209,212-229,234-235,240-248,253-264
+  s_1243381eb5fb18::t_f45e6fbd10c74d 210-211,230-233,236-239,249-252
+rust/dgraph-client/src/errors/connect_error/connect_error_display.rs
+  s_1243381eb5fb18::t_ff39c0f2fb0ea6 1-33
+rust/dgraph-client/src/errors/transaction_error/transaction_error_display.rs
+  s_1243381eb5fb18::t_b67109a99334ff 1-36
+rust/dgraph-client/tests/types/secret_tests.rs
+  s_1243381eb5fb18::t_dc3e205b0f0b24 1-46,50-56
+  s_1243381eb5fb18::t_32d6a058daee35 47-49
+rust/dgraph-client/src/types/secret/secret_debug.rs
+  s_1243381eb5fb18::t_3144f1cb39e178 1-15
+rust/dgraph-client/src/types/read_write.rs
+  s_1243381eb5fb18::t_1f3bd87a8cf8d1 1-9
+rust/dgraph-client/src/types/txn/mod.rs
+  s_1243381eb5fb18::t_995b5fbef6cf22 51-54,59,71,81
+  s_1243381eb5fb18::t_a2f341d26a47a8 1-50,55-58,60-70,72-80,82-335
+rust/dgraph-client/src/errors/connection_string_error/connection_string_error_display.rs
+  s_1243381eb5fb18::t_c16a8f39dcc137 1-52
+rust/dgraph-client/src/types/mod.rs
+  s_1243381eb5fb18::t_f45e6fbd10c74d 16
+  s_1243381eb5fb18::t_2b3c9fbbd8ec7a 8
+  s_1243381eb5fb18::t_d8c2eb106fd6b8 7,15
+  s_1243381eb5fb18::t_455a99cadf7414 9-11
+  s_1243381eb5fb18::t_ea46057f085928 5
+  s_1243381eb5fb18::t_86797f9fd356a8 6,13-14
+  s_1243381eb5fb18::t_da3680e09f2a31 1-4,12
+rust/dgraph-client/Cargo.toml
+  s_1243381eb5fb18::t_2b5d33ffee01b6 10-12,17-19,24-26,28-30
+  s_1243381eb5fb18::t_d8c2eb106fd6b8 20-22
+  s_1243381eb5fb18::t_559b544ddc4ee8 13-16
+rust/dgraph-client/tests/errors/mod.rs
+  s_1243381eb5fb18::t_c552353e781fa2 1-14
+rust/dgraph-client/src/types/dgraph_client/dgraph_client_debug.rs
+  s_1243381eb5fb18::t_d8c2eb106fd6b8 1-17
+rust/dgraph-client/src/types/dgraph_client/dgraph_client_auth.rs
+  s_1243381eb5fb18::t_f45e6fbd10c74d 85-87,131-146
+  s_1243381eb5fb18::t_3cc3456b0fc673 1-84,88-130,147-157
+rust/dgraph-client/src/errors/dgraph_error/dgraph_error_from.rs
+  s_1243381eb5fb18::t_19498095974f7d 1-44
+rust/dgraph-client/tests/BUILD.bazel
+  s_1243381eb5fb18::t_15bc9c8a2f90b1 4-22
+  s_1243381eb5fb18::t_9f00fafed01db3 1-3,24,26-41
+  s_1243381eb5fb18::t_09066cc6fd0ec8 23
+  s_1243381eb5fb18::t_1e488ed9a6a17a 25
+rust/dgraph-client/src/types/read_only.rs
+  s_1243381eb5fb18::t_1f3bd87a8cf8d1 1-12
+rust/dgraph-client/src/types/txn/txn_read_only.rs
+  s_1243381eb5fb18::t_995b5fbef6cf22 1-26
+rust/dgraph-client/src/types/connection_string/connection_string_from_str.rs
+  s_1243381eb5fb18::t_86797f9fd356a8 1-16
+rust/dgraph-client/src/types/secret/secret_display.rs
+  s_1243381eb5fb18::t_3144f1cb39e178 1-13
+rust/dgraph-client/src/types/dgraph_client/dgraph_client_txn.rs
+  s_1243381eb5fb18::t_455a99cadf7414 1-29
+rust/dgraph-client/src/lib.rs
+  s_1243381eb5fb18::t_2b3c9fbbd8ec7a 147
+  s_1243381eb5fb18::t_ea46057f085928 144
+  s_1243381eb5fb18::t_455a99cadf7414 148-150,154
+  s_1243381eb5fb18::t_d8c2eb106fd6b8 146
+  s_1243381eb5fb18::t_da3680e09f2a31 1-8,10,133-143,151
+  s_1243381eb5fb18::t_b894f37855462f 9,11-132
+  s_1243381eb5fb18::t_86797f9fd356a8 145,152-153
+rust/dgraph-client/src/errors/dgraph_error/dgraph_error_display.rs
+  s_1243381eb5fb18::t_31a2cc77b3dfbf 1-21
+rust/dgraph-client/tests/errors/dgraph_error_tests.rs
+  s_1243381eb5fb18::t_50d09079655b06 1-58
+rust/dgraph-client/src/types/txn/txn_drop.rs
+  s_1243381eb5fb18::t_995b5fbef6cf22 1-20
+rust/dgraph-client/tests/types/client_config_tests.rs
+  s_1243381eb5fb18::t_5294fecdf3dd54 1-60
+rust/dgraph-client/src/errors/dgraph_error/mod.rs
+  s_1243381eb5fb18::t_bd8182a4743004 1-66,68-71,73-76,78-81,83-86,88-89
+  s_1243381eb5fb18::t_323de03070175d 67,72,77,82,87
+rust/dgraph-client/tests/types/mutation_tests.rs
+  s_1243381eb5fb18::t_5294fecdf3dd54 1-51
+rust/dgraph-client/src/errors/dgraph_error/dgraph_error_error.rs
+  s_1243381eb5fb18::t_ad38c5315761c3 1-10
+third_party/crates/defs.bzl
+  s_1243381eb5fb18::t_34de5a021f31e4 439
+  s_1243381eb5fb18::t_a3ecadd320f6b8 440,442-444,1036-1038,1165-1166,1559-1560
+rust/dgraph-client/tests/errors/transaction_error_tests.rs
+  s_1243381eb5fb18::t_50d09079655b06 1-47
+third_party/crates/tonic-0.14.6/BUILD.bazel
+  s_1243381eb5fb18::t_6742a9ce1c0d3f 46,127
+rust/dgraph-client/src/errors/auth_error/auth_error_display.rs
+  s_1243381eb5fb18::t_de215c0cc2f561 1-40
+rust/dgraph-client/src/types/response/mod.rs
+  s_1243381eb5fb18::t_4ac0ddc3b851b5 1-67
+rust/dgraph-client/src/types/dgraph_client/mod.rs
+  s_1243381eb5fb18::t_f45e6fbd10c74d 100-101,158-162
+  s_1243381eb5fb18::t_5ac3b3078da053 1-4,7,9-99,102-157,163-183
+  s_1243381eb5fb18::t_d8c2eb106fd6b8 6
+  s_1243381eb5fb18::t_2b3c9fbbd8ec7a 5
+  s_1243381eb5fb18::t_455a99cadf7414 8
+rust/dgraph-client/src/errors/transaction_error/mod.rs
+  s_1243381eb5fb18::t_bf330d1cf59495 1-69,71-74,76-79,81-84,86-91
+  s_1243381eb5fb18::t_323de03070175d 70,75,80,85
+rust/dgraph-client/src/types/connection_string/connection_string_debug.rs
+  s_1243381eb5fb18::t_86797f9fd356a8 1-25
+rust/dgraph-client/src/types/client_config/mod.rs
+  s_1243381eb5fb18::t_e8dfb1e569d2e3 1-166
+rust/dgraph-client/tests/types/mod.rs
+  s_1243381eb5fb18::t_c552353e781fa2 1-5,8,13-16
+  s_1243381eb5fb18::t_5294fecdf3dd54 6-7,9-12
+rust/dgraph-client/src/errors/connection_string_error/mod.rs
+  s_1243381eb5fb18::t_323de03070175d 54,59,64,69,74,79,84,89,94,99,104
+  s_1243381eb5fb18::t_bf92c427463c6c 1-53,55-58,60-63,65-68,70-73,75-78,80-83,85-88,90-93,95-98,100-103,105-106
+rust/dgraph-client/src/errors/auth_error/auth_error_error.rs
+  s_1243381eb5fb18::t_514532b9cefe4a 1-9
+third_party/crates/.serviceradar-vendor-inputs
+  s_1243381eb5fb18::t_34de5a021f31e4 1,22
+rust/dgraph-client/tests/types/tls_mode_tests.rs
+  s_1243381eb5fb18::t_dc3e205b0f0b24 1-25
+rust/dgraph-client/src/errors/connection_string_error/connection_string_error_error.rs
+  s_1243381eb5fb18::t_9f9b366b9214c6 1-10
+rust/dgraph-client/src/types/tls_mode.rs
+  s_1243381eb5fb18::t_d1495babee19c5 1-44
+rust/dgraph-client/src/types/token_cache/token_cache_debug.rs
+  s_1243381eb5fb18::t_d8c2eb106fd6b8 1-24
+rust/dgraph-client/src/types/token_cache/mod.rs
+  s_1243381eb5fb18::t_bf2c77fbc8a9f9 1-106
+rust/dgraph-client/src/types/connection_string/mod.rs
+  s_1243381eb5fb18::t_38220bbed2419f 150,154-156,158-160
+  s_1243381eb5fb18::t_10c1c005b41fce 186-188
+  s_1243381eb5fb18::t_f45e6fbd10c74d 84-86
+  s_1243381eb5fb18::t_e454f008c9ab8c 1-83,87-149,151-153,157,161-185,189-274
+rust/dgraph-client/tests/errors/auth_error_tests.rs
+  s_1243381eb5fb18::t_50d09079655b06 1-46
+openspec/changes/add-rust-dgraph-client/tasks.md
+  s_1243381eb5fb18::t_ab3497bcf774f4 55,62,64,66-68,75-79,81,83,85,87,93-95,97-100,104,106,110-111,113-116
+  s_1243381eb5fb18::t_52da71dc71f0b2 3,7-8,10,12,14,16,19,25,30-32,34,36-37,40,42-43,48,50,52-53,57
+  s_1243381eb5fb18::t_5138a9e7569bc6 118,120
+rust/dgraph-client/src/errors/transaction_error/transaction_error_error.rs
+  s_1243381eb5fb18::t_ec3c884c436f36 1-9
+rust/dgraph-client/src/types/secret/mod.rs
+  s_1243381eb5fb18::t_9ddbe6d7e56519 1-38
+rust/dgraph-client/src/errors/mod.rs
+  s_1243381eb5fb18::t_da3680e09f2a31 1-9
+rust/dgraph-client/src/types/txn/txn_read_write.rs
+  s_1243381eb5fb18::t_995b5fbef6cf22 1-47,49-76,80-83
+  s_1243381eb5fb18::t_f45e6fbd10c74d 48,77-79
+rust/dgraph-client/src/types/mutation/mod.rs
+  s_1243381eb5fb18::t_0a4bed340feefd 1-92
+Cargo.lock
+  s_1243381eb5fb18::t_0148b41d79d707 1428,1430-1432,1434-1436,5735
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "ba2c34f9fcb64a7f7ce437a8fd695592a9dae84f",
+  "prompts": {},
+  "sessions": {
+    "s_1243381eb5fb18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c80cd9b1-98fc-432b-9832-9538fb1ae01c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
