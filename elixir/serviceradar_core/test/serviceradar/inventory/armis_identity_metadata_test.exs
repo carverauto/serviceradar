@@ -54,7 +54,14 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
              record.identifier_type == :integration_id
            end)
 
-    assert SourcePolicy.identifier_types(update, ids) == [:armis_device_id]
+    # Policy check, mirroring how Lookups/IdentifierRecords derive `ids`:
+    # Armis carries a typed, source-authoritative identifier, so its raw
+    # integration_id must NOT also be offered as a device identity.
+    ids = SourcePolicy.effective_identifiers(update)
+    id_types = SourcePolicy.identifier_types(update, ids)
+
+    assert :armis_device_id in id_types
+    refute :integration_id in id_types
   end
 
   test "generic integration IDs are scoped by sync source and keep raw value lookup-only" do
