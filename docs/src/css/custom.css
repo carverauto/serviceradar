@@ -6,14 +6,18 @@
  * Docusaurus layout chrome stays intact — use utilities on custom components.
  */
 
-/* Tailwind theme + utilities only (no preflight) */
-@import "tailwindcss/theme.css" layer(theme);
-@import "tailwindcss/utilities.css" layer(utilities);
+/*
+ * Tailwind v4: theme + utilities only (no Preflight).
+ * source(none) prevents auto-scanning the monorepo/docs markdown (SRQL
+ * fragments like [limit:<n>] generate invalid CSS utility selectors).
+ * Explicitly scan only React UI sources under src/.
+ */
+@import "tailwindcss/theme.css" layer(theme) source(none);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
 
-/* Scan React/MDX sources for class names */
-@source "../**/*.{js,jsx,ts,tsx,md,mdx}";
-@source "../../docs/**/*.{md,mdx}";
-@source "../../blog/**/*.{md,mdx}";
+@source "../pages/**/*.{js,jsx,ts,tsx}";
+@source "../theme/**/*.{js,jsx,ts,tsx}";
+@source "../components/**/*.{js,jsx,ts,tsx}";
 
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
