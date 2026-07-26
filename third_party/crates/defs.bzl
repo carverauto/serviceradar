@@ -300,6 +300,13 @@ _NORMAL_DEPENDENCIES = {
     },
     "integration_tests/srql": {
     },
+    "proto/dgraph": {
+        _COMMON_CONDITION: {
+            "prost": Label("//third_party/crates/prost-0.14.4:prost"),
+            "tonic": Label("//third_party/crates/tonic-0.14.6:tonic"),
+            "tonic-prost": Label("//third_party/crates/tonic-prost-0.14.6:tonic_prost"),
+        },
+    },
     "rust/addon-sdk": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
@@ -796,6 +803,10 @@ _NORMAL_ALIASES = {
     },
     "integration_tests/srql": {
     },
+    "proto/dgraph": {
+        _COMMON_CONDITION: {
+        },
+    },
     "rust/addon-sdk": {
         _COMMON_CONDITION: {
         },
@@ -962,6 +973,8 @@ _NORMAL_DEV_DEPENDENCIES = {
             "tracing-subscriber": Label("//third_party/crates/tracing-subscriber-0.3.23:tracing_subscriber"),
         },
     },
+    "proto/dgraph": {
+    },
     "rust/addon-sdk": {
         _COMMON_CONDITION: {
             "hyper-util": Label("//third_party/crates/hyper-util-0.1.20:hyper_util"),
@@ -1088,6 +1101,8 @@ _NORMAL_DEV_ALIASES = {
         _COMMON_CONDITION: {
         },
     },
+    "proto/dgraph": {
+    },
     "rust/addon-sdk": {
         _COMMON_CONDITION: {
         },
@@ -1195,6 +1210,8 @@ _PROC_MACRO_DEPENDENCIES = {
     },
     "integration_tests/srql": {
     },
+    "proto/dgraph": {
+    },
     "rust/addon-sdk": {
         _COMMON_CONDITION: {
             "async-trait": Label("//third_party/crates/async-trait-0.1.89:async_trait"),
@@ -1300,6 +1317,8 @@ _PROC_MACRO_ALIASES = {
     },
     "integration_tests/srql": {
     },
+    "proto/dgraph": {
+    },
     "rust/addon-sdk": {
     },
     "rust/anomaly-addon": {
@@ -1380,6 +1399,8 @@ _PROC_MACRO_DEV_DEPENDENCIES = {
     "": {
     },
     "integration_tests/srql": {
+    },
+    "proto/dgraph": {
     },
     "rust/addon-sdk": {
     },
@@ -1463,6 +1484,8 @@ _PROC_MACRO_DEV_ALIASES = {
     "integration_tests/srql": {
         _COMMON_CONDITION: {
         },
+    },
+    "proto/dgraph": {
     },
     "rust/addon-sdk": {
         _COMMON_CONDITION: {
@@ -1570,6 +1593,11 @@ _BUILD_DEPENDENCIES = {
     "": {
     },
     "integration_tests/srql": {
+    },
+    "proto/dgraph": {
+        _COMMON_CONDITION: {
+            "tonic-prost-build": Label("//third_party/crates/tonic-prost-build-0.14.6:tonic_prost_build"),
+        },
     },
     "rust/addon-sdk": {
         _COMMON_CONDITION: {
@@ -1689,6 +1717,10 @@ _BUILD_ALIASES = {
     },
     "integration_tests/srql": {
     },
+    "proto/dgraph": {
+        _COMMON_CONDITION: {
+        },
+    },
     "rust/addon-sdk": {
         _COMMON_CONDITION: {
         },
@@ -1792,6 +1824,8 @@ _BUILD_PROC_MACRO_DEPENDENCIES = {
     },
     "integration_tests/srql": {
     },
+    "proto/dgraph": {
+    },
     "rust/addon-sdk": {
     },
     "rust/anomaly-addon": {
@@ -1872,6 +1906,8 @@ _BUILD_PROC_MACRO_ALIASES = {
     "": {
     },
     "integration_tests/srql": {
+    },
+    "proto/dgraph": {
     },
     "rust/addon-sdk": {
     },
