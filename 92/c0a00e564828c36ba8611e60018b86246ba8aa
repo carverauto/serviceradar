@@ -1,0 +1,574 @@
+third_party/crates/bon-3.9.3/.cargo-checksum.json
+  s_1243381eb5fb18::t_4f7d122effc9bd 1
+rust/dgraph-client/Cargo.toml
+  s_1243381eb5fb18::t_9399f42a99aa12 29-30
+  s_1243381eb5fb18::t_b6f7e41bf5e361 31-32
+third_party/crates/bon-3.9.3/BUILD.bazel
+  s_1243381eb5fb18::t_4f7d122effc9bd 1-100
+rust/dgraph-client/tests/dgraph_container_test.rs
+  s_1243381eb5fb18::t_49afd42a9c643a 111,306-308
+  s_1243381eb5fb18::t_2c4704152aa8ec 287-293,297,299-304
+  s_1243381eb5fb18::t_947999b5a7acd1 29-30,50-52,55-56,146-147,149,164-167,175-176,178,180,183-184,186
+  s_1243381eb5fb18::t_18965ca436d59a 58-65,110,113-114
+  s_1243381eb5fb18::t_cbd30d332d6881 7-8,11,13-14,16-19,47-48,53-54,66-67,95-98,100,120-129,131-145,163,179,185,188,200-201,205,207,209-221,223-225,230,233-235,237,239,241-244,246,249-250,255-256,258,260-263,265-266,268-270,278,283-285,294,305,309,311,314,318,322,333,335,338-342,344-353,355-359,361,364,367-379
+  s_1243381eb5fb18::t_29d96caa491800 1-6,9-10,12,15,20,28,31-46,49,57,68-73,78-89,91-94,102-109,115,130,198-199,202-204,206,208,222,226-229,231-232,236,238,240,245,247-248,251-254,257,259,264,267,271-277,279-282,286,295-296,298,310,312-313,319-321,323-332,334,336-337,343,354,360,362-363,365-366,380
+  s_1243381eb5fb18::t_4cccdbf8073834 112
+  s_1243381eb5fb18::t_d87ebc892c198d 74-77,315-317
+  s_1243381eb5fb18::t_ab985522ce40c2 148,150-162,168-174,177,181-182,187,189-197
+  s_1243381eb5fb18::t_b6f7e41bf5e361 21-27,99,101,116-119
+  s_1243381eb5fb18::t_055649fab55312 90
+third_party/crates/docker_utils-0.2.4/BUILD.bazel
+  s_1243381eb5fb18::t_4f7d122effc9bd 1-101
+third_party/crates/bon-macros-3.9.3/.cargo-checksum.json
+  s_1243381eb5fb18::t_4f7d122effc9bd 1
+third_party/crates/defs.bzl
+  s_1243381eb5fb18::t_4f7d122effc9bd 1037
+openspec/changes/add-rust-dgraph-client/tasks.md
+  s_1243381eb5fb18::t_5da1c26e22d466 125,127
+third_party/crates/.serviceradar-vendor-inputs
+  s_1243381eb5fb18::t_4f7d122effc9bd 1-2,22
+third_party/crates/docker_utils-0.2.4/.cargo-checksum.json
+  s_1243381eb5fb18::t_4f7d122effc9bd 1
+third_party/crates/bon-macros-3.9.3/BUILD.bazel
+  s_1243381eb5fb18::t_4f7d122effc9bd 1-110
+third_party/crates/tonic-0.14.6/BUILD.bazel
+  s_1243381eb5fb18::t_4f7d122effc9bd 41
+Cargo.toml
+  s_1243381eb5fb18::t_9399f42a99aa12 88
+  s_1243381eb5fb18::t_da0fb20c82f2f6 89
+third_party/crates/BUILD.bazel
+  s_1243381eb5fb18::t_4f7d122effc9bd 381-392
+rust/dgraph-client/tests/BUILD.bazel
+  s_1243381eb5fb18::t_8ee346595e9586 1,4,26-30,33-36,48-50,53,59-63,68-78,80-84,92
+  s_1243381eb5fb18::t_e1a78d4ee4ee6a 51-52,54-58,79
+  s_1243381eb5fb18::t_e0f7b32d497d7e 64-66
+  s_1243381eb5fb18::t_e838d73111d9e5 67,85-91,93
+Cargo.lock
+  s_1243381eb5fb18::t_c0dced96434512 719-743,1453,1571-1581,6171-6181
+third_party/crates/bon-3.9.3/.cargo_vcs_info.json
+  s_1243381eb5fb18::t_44ef8a78a33f72 1-6
+third_party/crates/bon-3.9.3/Cargo.lock
+  s_1243381eb5fb18::t_aa74413089dafe 1-401
+third_party/crates/bon-3.9.3/Cargo.toml
+  s_1243381eb5fb18::t_4e28f41202acc1 1-246
+third_party/crates/bon-3.9.3/Cargo.toml.orig
+  s_1243381eb5fb18::t_42e1ed5842974e 1-100
+third_party/crates/bon-3.9.3/LICENSE-APACHE
+  s_1243381eb5fb18::t_998c51f91f7de0 1-176
+third_party/crates/bon-3.9.3/LICENSE-MIT
+  s_1243381eb5fb18::t_6cba5277452f8a 1-27
+third_party/crates/bon-3.9.3/README.md
+  s_1243381eb5fb18::t_139608a953edf2 1-267
+third_party/crates/bon-3.9.3/src/__/better_errors.rs
+  s_1243381eb5fb18::t_ee75bf631a2388 1-26
+third_party/crates/bon-3.9.3/src/__/cfg_eval.rs
+  s_1243381eb5fb18::t_97d38ee015b3f4 1-137
+third_party/crates/bon-3.9.3/src/__/ide.rs
+  s_1243381eb5fb18::t_fbb0ef4ce692e4 1-141
+third_party/crates/bon-3.9.3/src/__/mod.rs
+  s_1243381eb5fb18::t_40a618b6cc007d 1-46
+third_party/crates/bon-3.9.3/src/builder_state.rs
+  s_1243381eb5fb18::t_68d09d651fc7bf 1-38
+third_party/crates/bon-3.9.3/src/collections.rs
+  s_1243381eb5fb18::t_d3b155a3e85855 1-154
+third_party/crates/bon-3.9.3/src/lib.rs
+  s_1243381eb5fb18::t_74ce4440712f94 1-28
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_bon.rs
+  s_1243381eb5fb18::t_fdc0656213fa77 1-309
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_builder.rs
+  s_1243381eb5fb18::t_b5c5526e682957 1-40
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_const.rs
+  s_1243381eb5fb18::t_cbf6beb73dd3c5 1-226
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_crate.rs
+  s_1243381eb5fb18::t_420197c6acc6e9 1-122
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_default.rs
+  s_1243381eb5fb18::t_9930e6891d3c36 1-359
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_derive.rs
+  s_1243381eb5fb18::t_37bd2737fc6a5c 1-416
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_field.rs
+  s_1243381eb5fb18::t_fdb29d5cfade0b 1-177
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_getter.rs
+  s_1243381eb5fb18::t_a3226b7c170518 1-264
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_into.rs
+  s_1243381eb5fb18::t_255aa4984d4cf9 1-68
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_into_future.rs
+  s_1243381eb5fb18::t_c65cecf82681b8 1-308
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_on.rs
+  s_1243381eb5fb18::t_070b080e59875f 1-72
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_overwritable.rs
+  s_1243381eb5fb18::t_b179753ed6d691 1-116
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_required.rs
+  s_1243381eb5fb18::t_2d024848704dc5 1-285
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_setters.rs
+  s_1243381eb5fb18::t_6631d88ce984d4 1-436
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_skip.rs
+  s_1243381eb5fb18::t_6f2fc082ce3bef 1-129
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_top_level_start_fn.rs
+  s_1243381eb5fb18::t_da3030e37d004a 1-98
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_with/from_iter.rs
+  s_1243381eb5fb18::t_b03b82080666fc 1-476
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_with/mod.rs
+  s_1243381eb5fb18::t_36b7f01eccac12 1-14
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_with/multi_arg.rs
+  s_1243381eb5fb18::t_c9563a7b729b5b 1-115
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_with/overwritable.rs
+  s_1243381eb5fb18::t_499bf28f12a8fb 1-119
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_with/single_arg.rs
+  s_1243381eb5fb18::t_69997c0fa368c0 1-459
+third_party/crates/bon-3.9.3/tests/integration/builder/attr_with/some.rs
+  s_1243381eb5fb18::t_ccbf070d8ca0a0 1-185
+third_party/crates/bon-3.9.3/tests/integration/builder/cfgs.rs
+  s_1243381eb5fb18::t_a8f5d233ba993d 1-160
+third_party/crates/bon-3.9.3/tests/integration/builder/generics.rs
+  s_1243381eb5fb18::t_720b26c69cac3e 1-344
+third_party/crates/bon-3.9.3/tests/integration/builder/generics_setters.rs
+  s_1243381eb5fb18::t_9a8c9a69861c2e 1-170
+third_party/crates/bon-3.9.3/tests/integration/builder/init_order.rs
+  s_1243381eb5fb18::t_ddc2a53148fcc9 1-72
+third_party/crates/bon-3.9.3/tests/integration/builder/lints.rs
+  s_1243381eb5fb18::t_f53614c09b50f6 1-25
+third_party/crates/bon-3.9.3/tests/integration/builder/many_params.rs
+  s_1243381eb5fb18::t_60610aa26de209 1-62
+third_party/crates/bon-3.9.3/tests/integration/builder/mod.rs
+  s_1243381eb5fb18::t_7fe34b6acd7674 1-149
+third_party/crates/bon-3.9.3/tests/integration/builder/name_conflicts/builder_state.rs
+  s_1243381eb5fb18::t_a417f1631ac8ea 1-335
+third_party/crates/bon-3.9.3/tests/integration/builder/name_conflicts/generics.rs
+  s_1243381eb5fb18::t_db5e0215b787c2 1-114
+third_party/crates/bon-3.9.3/tests/integration/builder/name_conflicts/member_and_type_named_the_same.rs
+  s_1243381eb5fb18::t_4881be48154194 1-36
+third_party/crates/bon-3.9.3/tests/integration/builder/name_conflicts/member_names_state.rs
+  s_1243381eb5fb18::t_b9a756836ad288 1-45
+third_party/crates/bon-3.9.3/tests/integration/builder/name_conflicts/mod.rs
+  s_1243381eb5fb18::t_6b48e59426fe47 1-4
+third_party/crates/bon-3.9.3/tests/integration/builder/native_fields.rs
+  s_1243381eb5fb18::t_58f98dda1be0d2 1-145
+third_party/crates/bon-3.9.3/tests/integration/builder/orig_fn_naming.rs
+  s_1243381eb5fb18::t_28744e4a4d0dee 1-58
+third_party/crates/bon-3.9.3/tests/integration/builder/positional_members.rs
+  s_1243381eb5fb18::t_9d37952c970ef7 1-419
+third_party/crates/bon-3.9.3/tests/integration/builder/raw_idents.rs
+  s_1243381eb5fb18::t_5f1edb30efa02c 1-107
+third_party/crates/bon-3.9.3/tests/integration/builder/smoke.rs
+  s_1243381eb5fb18::t_220c3779ad78fb 1-109
+third_party/crates/bon-3.9.3/tests/integration/builder/target_feature.rs
+  s_1243381eb5fb18::t_3605e9713ff121 1-41
+third_party/crates/bon-3.9.3/tests/integration/builder/track_caller.rs
+  s_1243381eb5fb18::t_7fb344e98248ba 1-56
+third_party/crates/bon-3.9.3/tests/integration/main.rs
+  s_1243381eb5fb18::t_2ec7f6cf0e9b95 1-64
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_bon.rs
+  s_1243381eb5fb18::t_d92d203725da6c 1-59
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_bon.stderr
+  s_1243381eb5fb18::t_c209e88f274d6f 1-92
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_builder.rs
+  s_1243381eb5fb18::t_9c06a1101b7173 1-78
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_builder.stderr
+  s_1243381eb5fb18::t_8a6f2a0eb5e79b 1-97
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_const.rs
+  s_1243381eb5fb18::t_f5f3285c001fa4 1-63
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_const.stderr
+  s_1243381eb5fb18::t_02cb362f1b1265 1-53
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_crate.rs
+  s_1243381eb5fb18::t_caf796325c3f16 1-52
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_crate.stderr
+  s_1243381eb5fb18::t_4bf0ac4a0073a0 1-59
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_derive.rs
+  s_1243381eb5fb18::t_714c5401867638 1-137
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_derive.stderr
+  s_1243381eb5fb18::t_ac44155efa63e3 1-518
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_field.rs
+  s_1243381eb5fb18::t_054f18f8e8c187 1-22
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_field.stderr
+  s_1243381eb5fb18::t_cf4b10a16cf8b2 1-11
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_getter.rs
+  s_1243381eb5fb18::t_dc67c77f01700b 1-102
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_getter.stderr
+  s_1243381eb5fb18::t_554d94968da936 1-242
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_into.rs
+  s_1243381eb5fb18::t_5e6f5de2674c7c 1-6
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_into.stderr
+  s_1243381eb5fb18::t_0716fe0b47b21f 1-5
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_into_future.rs
+  s_1243381eb5fb18::t_a972899d9f8480 1-46
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_into_future.stderr
+  s_1243381eb5fb18::t_02a4bd4f64cbc1 1-43
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_on.rs
+  s_1243381eb5fb18::t_298c3286ec4f8c 1-54
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_on.stderr
+  s_1243381eb5fb18::t_b2ed75351a380a 1-73
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_required.rs
+  s_1243381eb5fb18::t_d66df7a700362c 1-53
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_required.stderr
+  s_1243381eb5fb18::t_3642913130e710 1-75
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_setters.rs
+  s_1243381eb5fb18::t_9f2fc5b4982e9f 1-112
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_setters.stderr
+  s_1243381eb5fb18::t_84cdc9804614aa 1-77
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_skip.rs
+  s_1243381eb5fb18::t_b185fc6b47ab5e 1-40
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_skip.stderr
+  s_1243381eb5fb18::t_bb28ff7df7e099 1-53
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_top_level_start_finish_fn.rs
+  s_1243381eb5fb18::t_d08d54b8bdf21a 1-74
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_top_level_start_finish_fn.stderr
+  s_1243381eb5fb18::t_dff6da261d0aaa 1-83
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_with.rs
+  s_1243381eb5fb18::t_19506ec2a14ea0 1-125
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/attr_with.stderr
+  s_1243381eb5fb18::t_6d37cd58d45968 1-236
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/broken_intra_doc_links.rs
+  s_1243381eb5fb18::t_c5be623141b547 1-74
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/broken_intra_doc_links.stderr
+  s_1243381eb5fb18::t_64eedb9f4b3a8e 1-53
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/collections.rs
+  s_1243381eb5fb18::t_d7e859c02a9453 1-10
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/collections.stderr
+  s_1243381eb5fb18::t_0140e2a839eebf 1-23
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/derive_builder.rs
+  s_1243381eb5fb18::t_c23318038239ea 1-12
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/derive_builder.stderr
+  s_1243381eb5fb18::t_45267e360b66ab 1-19
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/diagnostic_on_unimplemented.rs
+  s_1243381eb5fb18::t_6e4fdbf1eba7e2 1-18
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/diagnostic_on_unimplemented.stderr
+  s_1243381eb5fb18::t_563dc544fcd664 1-60
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/generics_setters/array.rs
+  s_1243381eb5fb18::t_b1e326577cda15 1-18
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/generics_setters/array.stderr
+  s_1243381eb5fb18::t_fa032725e29404 1-16
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/generics_setters/assoc_type.rs
+  s_1243381eb5fb18::t_84df7ec0f4a92f 1-30
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/generics_setters/assoc_type.stderr
+  s_1243381eb5fb18::t_b613b59afc30e9 1-16
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/generics_setters/fn_pointer.rs
+  s_1243381eb5fb18::t_010162566c03e6 1-39
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/generics_setters/fn_pointer.stderr
+  s_1243381eb5fb18::t_fb2dd7af1f3566 1-50
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/generics_setters/interdependent_bounds.rs
+  s_1243381eb5fb18::t_3ba22827d26c19 1-18
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/generics_setters/interdependent_bounds.stderr
+  s_1243381eb5fb18::t_948d92dc352288 1-7
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/generics_setters/interdependent_param_bounds.rs
+  s_1243381eb5fb18::t_564f0c7f554e3b 1-12
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/generics_setters/interdependent_param_bounds.stderr
+  s_1243381eb5fb18::t_72f877a7115229 1-7
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/generics_setters/option.rs
+  s_1243381eb5fb18::t_261555b0b54e0e 1-18
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/generics_setters/option.stderr
+  s_1243381eb5fb18::t_4bbd7d27c0d515 1-16
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/generics_setters/qualified_path.rs
+  s_1243381eb5fb18::t_338c5096446e6d 1-30
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/generics_setters/qualified_path.stderr
+  s_1243381eb5fb18::t_60c6212e1b1c8e 1-16
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/generics_setters/raw_pointer.rs
+  s_1243381eb5fb18::t_1b0f7257e2d4cb 1-18
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/generics_setters/raw_pointer.stderr
+  s_1243381eb5fb18::t_02f22107033033 1-16
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/generics_setters/tuple.rs
+  s_1243381eb5fb18::t_f17e5e9136a1b1 1-18
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/generics_setters/tuple.stderr
+  s_1243381eb5fb18::t_fa0cd5ae659432 1-16
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/members_order.rs
+  s_1243381eb5fb18::t_70feb0820bce70 1-118
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/members_order.stderr
+  s_1243381eb5fb18::t_733e4a47b27630 1-129
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/name_conflicts.rs
+  s_1243381eb5fb18::t_0385d18d0006ce 1-21
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/name_conflicts.stderr
+  s_1243381eb5fb18::t_ece4c9f3e8e393 1-35
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/overwritable/attr_on.rs
+  s_1243381eb5fb18::t_ca92ca21fe508a 1-6
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/overwritable/attr_on.stderr
+  s_1243381eb5fb18::t_4e98d3b8fa7b8f 1-5
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/positional_members.rs
+  s_1243381eb5fb18::t_8c0af04769d8f4 1-31
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/positional_members.stderr
+  s_1243381eb5fb18::t_f756330a585178 1-37
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/private_fields_access.rs
+  s_1243381eb5fb18::t_a08de68043fd44 1-43
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/private_fields_access.stderr
+  s_1243381eb5fb18::t_96420dd5aa3c18 1-30
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/std_or_alloc/attr_into_future.rs
+  s_1243381eb5fb18::t_b7d0f02fdbaefc 1-27
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/std_or_alloc/attr_into_future.stderr
+  s_1243381eb5fb18::t_cbd9113a9953ce 1-39
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/warnings.rs
+  s_1243381eb5fb18::t_09a5ad54992d8c 1-79
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/warnings.stderr
+  s_1243381eb5fb18::t_c1c9d235361e21 1-146
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/wrong_delimiters.rs
+  s_1243381eb5fb18::t_d9865c01e8fbd1 1-58
+third_party/crates/bon-3.9.3/tests/integration/ui/compile_fail/wrong_delimiters.stderr
+  s_1243381eb5fb18::t_b5ba506f58f19f 1-107
+third_party/crates/bon-3.9.3/tests/integration/ui/mod.rs
+  s_1243381eb5fb18::t_e23664cd6ae482 1-19
+third_party/crates/bon-macros-3.9.3/.cargo_vcs_info.json
+  s_1243381eb5fb18::t_61fcaed9459e66 1-6
+third_party/crates/bon-macros-3.9.3/Cargo.lock
+  s_1243381eb5fb18::t_df04432c919a17 1-143
+third_party/crates/bon-macros-3.9.3/Cargo.toml
+  s_1243381eb5fb18::t_29867fe10ab9cb 1-235
+third_party/crates/bon-macros-3.9.3/Cargo.toml.orig
+  s_1243381eb5fb18::t_6d678e2b191282 1-81
+third_party/crates/bon-macros-3.9.3/LICENSE-APACHE
+  s_1243381eb5fb18::t_eecd8bdd45dd6f 1-176
+third_party/crates/bon-macros-3.9.3/LICENSE-MIT
+  s_1243381eb5fb18::t_843941cf92d05f 1-27
+third_party/crates/bon-macros-3.9.3/README.md
+  s_1243381eb5fb18::t_38730a5ae1fb94 1-5
+third_party/crates/bon-macros-3.9.3/src/bon.rs
+  s_1243381eb5fb18::t_fdcc06d2d86b12 1-37
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/builder_decl.rs
+  s_1243381eb5fb18::t_00f3d6ec03dc81 1-123
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/builder_derives/clone.rs
+  s_1243381eb5fb18::t_c5fce54d81cd2d 1-98
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/builder_derives/debug.rs
+  s_1243381eb5fb18::t_bc0b55bcc327b4 1-105
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/builder_derives/into.rs
+  s_1243381eb5fb18::t_381fb8a582ec7d 1-70
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/builder_derives/into_future.rs
+  s_1243381eb5fb18::t_a805d2decc0b8b 1-219
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/builder_derives/mod.rs
+  s_1243381eb5fb18::t_b2968b89b5faf5 1-83
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/finish_fn.rs
+  s_1243381eb5fb18::t_079a796bf06506 1-191
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/generic_setters.rs
+  s_1243381eb5fb18::t_d26769bf38bd49 1-416
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/getters.rs
+  s_1243381eb5fb18::t_2de6fecbba3e9e 1-298
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/input_fn/mod.rs
+  s_1243381eb5fb18::t_d98125d05ad05c 1-535
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/input_fn/validation.rs
+  s_1243381eb5fb18::t_42492ac3b0ddbf 1-83
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/input_struct.rs
+  s_1243381eb5fb18::t_e28935833b6e15 1-268
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/member/config/blanket.rs
+  s_1243381eb5fb18::t_cbbcabe8fa9d17 1-90
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/member/config/getter.rs
+  s_1243381eb5fb18::t_f8200dc6f88a5b 1-105
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/member/config/mod.rs
+  s_1243381eb5fb18::t_bad050f6a11059 1-379
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/member/config/setters.rs
+  s_1243381eb5fb18::t_29b82c567abf2e 1-144
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/member/config/with/closure.rs
+  s_1243381eb5fb18::t_2f5e92bc83d48d 1-120
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/member/config/with/mod.rs
+  s_1243381eb5fb18::t_18f7da392a9c20 1-70
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/member/into_conversion.rs
+  s_1243381eb5fb18::t_f3a02f20f95f16 1-72
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/member/mod.rs
+  s_1243381eb5fb18::t_ed3d7b472ececb 1-320
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/member/named.rs
+  s_1243381eb5fb18::t_7540f223911df4 1-320
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/mod.rs
+  s_1243381eb5fb18::t_98e26004d39442 1-331
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/models.rs
+  s_1243381eb5fb18::t_5c023ee633abd0 1-433
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/setters/mod.rs
+  s_1243381eb5fb18::t_4db313b5d91db7 1-711
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/start_fn.rs
+  s_1243381eb5fb18::t_e3090d9c41615a 1-152
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/state_mod.rs
+  s_1243381eb5fb18::t_39ad8487e960c1 1-279
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/top_level_config/generics.rs
+  s_1243381eb5fb18::t_7ed58b143c1eeb 1-60
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/top_level_config/mod.rs
+  s_1243381eb5fb18::t_3d44be45cb2a5d 1-324
+third_party/crates/bon-macros-3.9.3/src/builder/builder_gen/top_level_config/on.rs
+  s_1243381eb5fb18::t_5955a1494ef46e 1-130
+third_party/crates/bon-macros-3.9.3/src/builder/item_fn.rs
+  s_1243381eb5fb18::t_6d8b06882fcd67 1-50
+third_party/crates/bon-macros-3.9.3/src/builder/item_impl.rs
+  s_1243381eb5fb18::t_91d04a9feb7d0b 1-225
+third_party/crates/bon-macros-3.9.3/src/builder/item_struct.rs
+  s_1243381eb5fb18::t_a281278fa77042 1-28
+third_party/crates/bon-macros-3.9.3/src/builder/mod.rs
+  s_1243381eb5fb18::t_fa912557707bf7 1-85
+third_party/crates/bon-macros-3.9.3/src/collections/map.rs
+  s_1243381eb5fb18::t_f8d7eca40f1fd4 1-49
+third_party/crates/bon-macros-3.9.3/src/collections/mod.rs
+  s_1243381eb5fb18::t_f93eca12395698 1-41
+third_party/crates/bon-macros-3.9.3/src/collections/set.rs
+  s_1243381eb5fb18::t_a8690e6507de4e 1-26
+third_party/crates/bon-macros-3.9.3/src/error/mod.rs
+  s_1243381eb5fb18::t_a78dfb9891f006 1-160
+third_party/crates/bon-macros-3.9.3/src/error/panic_context.rs
+  s_1243381eb5fb18::t_b9d1182f9bd973 1-226
+third_party/crates/bon-macros-3.9.3/src/lib.rs
+  s_1243381eb5fb18::t_d409f0226923f1 1-329
+third_party/crates/bon-macros-3.9.3/src/normalization/cfg/mod.rs
+  s_1243381eb5fb18::t_d0b3b33c377625 1-260
+third_party/crates/bon-macros-3.9.3/src/normalization/cfg/parse.rs
+  s_1243381eb5fb18::t_c3cc982d5f52a5 1-105
+third_party/crates/bon-macros-3.9.3/src/normalization/cfg/visit.rs
+  s_1243381eb5fb18::t_693dadadf0b45e 1-99
+third_party/crates/bon-macros-3.9.3/src/normalization/generics_namespace.rs
+  s_1243381eb5fb18::t_f0c49566df224a 1-75
+third_party/crates/bon-macros-3.9.3/src/normalization/impl_traits.rs
+  s_1243381eb5fb18::t_b7a3ec0c1e58b6 1-90
+third_party/crates/bon-macros-3.9.3/src/normalization/lifetimes.rs
+  s_1243381eb5fb18::t_bbff3ea6b26949 1-265
+third_party/crates/bon-macros-3.9.3/src/normalization/mod.rs
+  s_1243381eb5fb18::t_bbda7a7b7ba1bc 1-13
+third_party/crates/bon-macros-3.9.3/src/normalization/self_ty.rs
+  s_1243381eb5fb18::t_86c4ac2fa5b0a4 1-76
+third_party/crates/bon-macros-3.9.3/src/normalization/syntax_variant.rs
+  s_1243381eb5fb18::t_8977f7ca46bfa7 1-28
+third_party/crates/bon-macros-3.9.3/src/parsing/bon_crate_path.rs
+  s_1243381eb5fb18::t_f0784bdd6349f6 1-60
+third_party/crates/bon-macros-3.9.3/src/parsing/const_.rs
+  s_1243381eb5fb18::t_b62537ae2e8fa2 1-179
+third_party/crates/bon-macros-3.9.3/src/parsing/docs.rs
+  s_1243381eb5fb18::t_672010b555ba44 1-69
+third_party/crates/bon-macros-3.9.3/src/parsing/item_sig.rs
+  s_1243381eb5fb18::t_d12a13cbc5d08a 1-98
+third_party/crates/bon-macros-3.9.3/src/parsing/mod.rs
+  s_1243381eb5fb18::t_e8f64f7e1b45ba 1-108
+third_party/crates/bon-macros-3.9.3/src/parsing/simple_closure.rs
+  s_1243381eb5fb18::t_dd0b23744a1736 1-87
+third_party/crates/bon-macros-3.9.3/src/parsing/spanned_key.rs
+  s_1243381eb5fb18::t_1ac0cc968dcd57 1-80
+third_party/crates/bon-macros-3.9.3/src/privatize.rs
+  s_1243381eb5fb18::t_dba868c5ea7d97 1-29
+third_party/crates/bon-macros-3.9.3/src/tests/attr_setters.rs
+  s_1243381eb5fb18::t_a880ff2cde32d5 1-180
+third_party/crates/bon-macros-3.9.3/src/tests/mod.rs
+  s_1243381eb5fb18::t_82db38f840f59b 1-19
+third_party/crates/bon-macros-3.9.3/src/tests/syntax_errors.rs
+  s_1243381eb5fb18::t_6afc4bc7519a71 1-60
+third_party/crates/bon-macros-3.9.3/src/util/attrs.rs
+  s_1243381eb5fb18::t_118f77398d166b 1-52
+third_party/crates/bon-macros-3.9.3/src/util/expr.rs
+  s_1243381eb5fb18::t_f772718ff7e131 1-21
+third_party/crates/bon-macros-3.9.3/src/util/fn_arg.rs
+  s_1243381eb5fb18::t_e0e28ca07d2c8b 1-36
+third_party/crates/bon-macros-3.9.3/src/util/generic_param.rs
+  s_1243381eb5fb18::t_8c1e71fa4f280d 1-19
+third_party/crates/bon-macros-3.9.3/src/util/ide.rs
+  s_1243381eb5fb18::t_51c1077fb8130f 1-276
+third_party/crates/bon-macros-3.9.3/src/util/ident.rs
+  s_1243381eb5fb18::t_dc59fa73699734 1-89
+third_party/crates/bon-macros-3.9.3/src/util/item.rs
+  s_1243381eb5fb18::t_abac4c7d2409d2 1-28
+third_party/crates/bon-macros-3.9.3/src/util/iterator.rs
+  s_1243381eb5fb18::t_0e53250baa4e46 1-73
+third_party/crates/bon-macros-3.9.3/src/util/meta_list.rs
+  s_1243381eb5fb18::t_c9943a2ec6bae9 1-66
+third_party/crates/bon-macros-3.9.3/src/util/mod.rs
+  s_1243381eb5fb18::t_8eabdf9730eeda 1-67
+third_party/crates/bon-macros-3.9.3/src/util/path.rs
+  s_1243381eb5fb18::t_90ec16bbd6edc3 1-37
+third_party/crates/bon-macros-3.9.3/src/util/punctuated.rs
+  s_1243381eb5fb18::t_67534c6e095dbd 1-24
+third_party/crates/bon-macros-3.9.3/src/util/ty/match_types.rs
+  s_1243381eb5fb18::t_9c0388e87a9db9 1-414
+third_party/crates/bon-macros-3.9.3/src/util/ty/mod.rs
+  s_1243381eb5fb18::t_bd3156a2411407 1-113
+third_party/crates/bon-macros-3.9.3/src/util/vec.rs
+  s_1243381eb5fb18::t_e2abd0a1b14750 1-21
+third_party/crates/bon-macros-3.9.3/src/util/visibility.rs
+  s_1243381eb5fb18::t_f7aa47bca2f55b 1-131
+third_party/crates/bon-macros-3.9.3/tests/snapshots/bon_incomplete_if.rs
+  s_1243381eb5fb18::t_34ea8c95c55121 1
+third_party/crates/bon-macros-3.9.3/tests/snapshots/setters_docs_and_vis.rs
+  s_1243381eb5fb18::t_8281e8f9128809 1-208
+third_party/crates/docker_utils-0.2.4/.cargo_vcs_info.json
+  s_1243381eb5fb18::t_792b964c759c42 1-6
+third_party/crates/docker_utils-0.2.4/CHANGELOG.md
+  s_1243381eb5fb18::t_2ed12a6fe1aa62 1-41
+third_party/crates/docker_utils-0.2.4/Cargo.lock
+  s_1243381eb5fb18::t_22caa548c69958 1-946
+third_party/crates/docker_utils-0.2.4/Cargo.toml
+  s_1243381eb5fb18::t_fe9c0a6eefd172 1-70
+third_party/crates/docker_utils-0.2.4/Cargo.toml.orig
+  s_1243381eb5fb18::t_593ae35aebc399 1-27
+third_party/crates/docker_utils-0.2.4/LICENSE
+  s_1243381eb5fb18::t_b4ca903b114c29 1-21
+third_party/crates/docker_utils-0.2.4/README.md
+  s_1243381eb5fb18::t_cf814a77af5e5b 1-191
+third_party/crates/docker_utils-0.2.4/src/api.rs
+  s_1243381eb5fb18::t_585bf928a2af1a 1-331
+third_party/crates/docker_utils-0.2.4/src/container_config.rs
+  s_1243381eb5fb18::t_2612d41f969bd5 1-193
+third_party/crates/docker_utils-0.2.4/src/docker/build.rs
+  s_1243381eb5fb18::t_3a095c0108a778 1-48
+third_party/crates/docker_utils-0.2.4/src/docker/check_running.rs
+  s_1243381eb5fb18::t_1db53307686651 1-24
+third_party/crates/docker_utils-0.2.4/src/docker/dbg.rs
+  s_1243381eb5fb18::t_8e434bdc3b9410 1-14
+third_party/crates/docker_utils-0.2.4/src/docker/default.rs
+  s_1243381eb5fb18::t_a6de052cb9eab3 1-12
+third_party/crates/docker_utils-0.2.4/src/docker/mod.rs
+  s_1243381eb5fb18::t_2136ec57ce2100 1-21
+third_party/crates/docker_utils-0.2.4/src/docker/prune.rs
+  s_1243381eb5fb18::t_d15e64deb987a2 1-30
+third_party/crates/docker_utils-0.2.4/src/docker/pull.rs
+  s_1243381eb5fb18::t_b968b808a83168 1-81
+third_party/crates/docker_utils-0.2.4/src/docker/setup.rs
+  s_1243381eb5fb18::t_895285400ca1b9 1-104
+third_party/crates/docker_utils-0.2.4/src/docker/start.rs
+  s_1243381eb5fb18::t_d786b36dd7e053 1-309
+third_party/crates/docker_utils-0.2.4/src/docker/stop.rs
+  s_1243381eb5fb18::t_f66096785f9d60 1-54
+third_party/crates/docker_utils-0.2.4/src/docker/utils.rs
+  s_1243381eb5fb18::t_6307efd2493204 1-217
+third_party/crates/docker_utils-0.2.4/src/error/docker_error.rs
+  s_1243381eb5fb18::t_e436b0fe9b81ee 1-38
+third_party/crates/docker_utils-0.2.4/src/error/mod.rs
+  s_1243381eb5fb18::t_c93ecfa730205b 1-8
+third_party/crates/docker_utils-0.2.4/src/lib.rs
+  s_1243381eb5fb18::t_e2d8ae6e325396 1-16
+third_party/crates/wait_utils-0.1.4/.cargo-checksum.json
+  s_1243381eb5fb18::t_547739ac7729ec 1
+third_party/crates/wait_utils-0.1.4/.cargo_vcs_info.json
+  s_1243381eb5fb18::t_6c224d24c05f9b 1-6
+third_party/crates/wait_utils-0.1.4/BUILD.bazel
+  s_1243381eb5fb18::t_08b861288992e7 1-101
+third_party/crates/wait_utils-0.1.4/CHANGELOG.md
+  s_1243381eb5fb18::t_c37885328b0f37 1-33
+third_party/crates/wait_utils-0.1.4/Cargo.lock
+  s_1243381eb5fb18::t_2e55e6a22445a8 1-847
+third_party/crates/wait_utils-0.1.4/Cargo.toml
+  s_1243381eb5fb18::t_a29dea3cc19948 1-71
+third_party/crates/wait_utils-0.1.4/Cargo.toml.orig
+  s_1243381eb5fb18::t_eafe5036115cec 1-24
+third_party/crates/wait_utils-0.1.4/LICENSE
+  s_1243381eb5fb18::t_56c7cad4531b1e 1-21
+third_party/crates/wait_utils-0.1.4/README.md
+  s_1243381eb5fb18::t_cdc5bad3ddf06d 1-86
+third_party/crates/wait_utils-0.1.4/src/enum_wait_strategy.rs
+  s_1243381eb5fb18::t_37934b764e022c 1-59
+third_party/crates/wait_utils-0.1.4/src/errors/mod.rs
+  s_1243381eb5fb18::t_f78743872ba1dc 1-6
+third_party/crates/wait_utils-0.1.4/src/errors/wait_strategy_error.rs
+  s_1243381eb5fb18::t_4bb219e45b342a 1-38
+third_party/crates/wait_utils-0.1.4/src/lib.rs
+  s_1243381eb5fb18::t_963f0a9ba85aff 1-15
+third_party/crates/wait_utils-0.1.4/src/wait_strategies/mod.rs
+  s_1243381eb5fb18::t_570b109ab949f7 1-9
+third_party/crates/wait_utils-0.1.4/src/wait_strategies/wait_until_console_output.rs
+  s_1243381eb5fb18::t_871a0ef04af6fe 1-72
+third_party/crates/wait_utils-0.1.4/src/wait_strategies/wait_until_grpc_health_check.rs
+  s_1243381eb5fb18::t_c6c46a5004204a 1-75
+third_party/crates/wait_utils-0.1.4/src/wait_strategies/wait_until_http_health_check.rs
+  s_1243381eb5fb18::t_23f35b14cd6d82 1-65
+third_party/crates/wait_utils-0.1.4/src/wait_strategies/wait_until_timeout.rs
+  s_1243381eb5fb18::t_0ec60be366cdab 1-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "92c0a00e564828c36ba8611e60018b86246ba8aa",
+  "prompts": {},
+  "sessions": {
+    "s_1243381eb5fb18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c80cd9b1-98fc-432b-9832-9538fb1ae01c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
