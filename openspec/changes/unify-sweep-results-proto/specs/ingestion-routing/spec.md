@@ -450,8 +450,15 @@ before a hot producer exhausts shared capacity.
   recovery-capability-bound bounded/chained loss manifest naming the abandoned/
   lost/uncertain scope without enumerating every recoverable tail event
 - **AND** a durable rollover journal SHALL copy and fsync each recoverable segment
-  plus old-to-new watermark before deleting that old segment, using reserved
-  one-segment scratch and resuming idempotently after any crash
+  plus old-to-new watermark, resuming idempotently after any crash
+- **AND** the old segment SHALL NOT be deleted on that basis alone: deletion
+  REQUIRES the allocated-sequence COVERAGE PROOF -- every allocated sequence in the
+  segment, INCLUDING MARKERLESS ALLOCATED SLOTS, covered by a fully committed,
+  sender-visible destination slot with its rebound attribution and directory
+  evidence, or by a PubAcked frozen loss span -- and the AGGREGATE recovery reserve,
+  not one-segment scratch. A markerless allocated slot is often the only intact
+  evidence that the sequence existed; copy-and-fsync does not see it, so a
+  watermark-only rule deletes it
 - **AND** every unresolved recoverable event SHALL retain semantic identity/body
   on the new spool even though its spool coordinates and broker ID change
 - **AND** the recovery consumer SHALL wait for the complete terminal manifest,

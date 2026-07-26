@@ -120,9 +120,15 @@ share one connection-level flow-control budget across traffic classes.
   readable
 - **WHEN** the agent records a durable rollover journal and bounded loss manifest
 - **THEN** it SHALL copy each unresolved readable segment to a fresh lane with
-  original semantic ID/body, fsync the new segment and mapping watermark, and
-  only then reclaim that exact old source segment after required recovery
-  PubAcks
+  original semantic ID/body, and fsync the new segment and mapping watermark
+- **AND** it SHALL reclaim that exact old source segment ONLY after the
+  allocated-sequence COVERAGE PROOF holds for it -- every allocated sequence,
+  INCLUDING MARKERLESS ALLOCATED SLOTS, covered by a fully committed,
+  sender-visible destination slot with rebound attribution and directory evidence,
+  or by a PubAcked frozen loss span -- funded by the AGGREGATE recovery reserve.
+  Destination fsync plus a mapping watermark and recovery PubAcks is NOT
+  sufficient: it says nothing about slots that were allocated but never committed,
+  and reclaiming over one destroys the only intact evidence they existed
 - **AND** startup SHALL resume idempotently at every copy, fsync, PubAck, and
   delete boundary
 - **AND** a recovery PubAck SHALL stop publication retry but SHALL NOT authorize
