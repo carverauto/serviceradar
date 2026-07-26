@@ -5,9 +5,15 @@ edition = "2024"
 
 [dependencies]
 tonic = { workspace = true }
+# tonic 0.14 moved the prost codec out of `tonic`; the generated service code calls
+# tonic_prost::ProstCodec::default() for every method, so this is a real dependency of
+# the emitted code, not an implementation detail of the build script.
+tonic-prost = { workspace = true }
 prost = { workspace = true }
 
 
 [build-dependencies]
-tonic-build = { workspace = true }
+# NOT tonic-build: 0.14 split codegen so that tonic-build carries only the
+# codec-agnostic CodeGenBuilder, and configure()/compile_protos() live here.
+tonic-prost-build = { workspace = true }
 
