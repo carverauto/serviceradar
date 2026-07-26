@@ -852,9 +852,14 @@ never assigned. The completion ROOT is `SHA-256(version(u64=2) || expected(u64) 
 plan_root_sha256(32) || mtr_ordinal_range_commitment(32) || content-accumulator(32))`:
 `plan_root_sha256` AND `mtr_ordinal_range_commitment` (each 32 bytes) are committed IN
 the root, while the ordinal and membership accumulators are verification gates rather
-than root inputs. An empty completion (`expected == 0`) requires `count == 0` and all
-three accumulators to hold the zero 32-byte value, matching the empty
-`ScheduledPlanHeaderV1`/commitment representation. Digest version, leaf encoding, and
+than root inputs. UNFROZEN CANDIDATE -- OPEN DECISION, see task 1.15: the empty
+completion (`expected == 0`) is DESCRIBED here as requiring `count == 0` and all
+three accumulators at the zero 32-byte value, matching the empty
+`ScheduledPlanHeaderV1`/commitment representation, but all three implementations
+currently CONTRADICT it (the Go accumulator and the Elixir verifier both reject
+`expected == 0`, and the Go lifecycle validator requires a 32-byte proof on every
+COMPLETED event). Nothing SHALL depend on this paragraph until 1.15 selects
+no-proof or always-proof. Digest version, leaf encoding, and
 empty/partial/duplicate/
 wrong-range rejection have independent Go/Elixir golden fixtures
 (`ServiceRadar.Edge.HashGrammar.mtr_completion_root` / `mtr_completion_verify`).
@@ -1073,11 +1078,15 @@ publication whose PubAck or edge ACK was lost.
 
 The agent also submits a journalled, content-addressed, hard-size-bounded
 `SpoolLossTombstoneV1` (NOT agent-signed; no agent-signature ABI exists) on an
-independent recovery-control lane. It names the abandoned spool, compact
-one ordered `classification_spans` list (each span carrying its physical interval
-plus an ATTRIBUTED_ACTIVE / ATTRIBUTED_PASSIVE / UNATTRIBUTABLE(reason) body,
-replacing the former lost-interval + affected-summary pair), a
-cryptographic segment/quarantine manifest root, and reason. It never enumerates
+independent recovery-control lane. It names the abandoned spool, the destination
+`new_spool_id`, the cryptographic segment/quarantine manifest root with its page
+count, and the reason. The tombstone does NOT carry the spans: the ordered
+`classification_spans` list lives on `EdgeLossManifestPageV1` (each span carrying
+its physical interval plus an ATTRIBUTED_ACTIVE / ATTRIBUTED_PASSIVE /
+UNATTRIBUTABLE(reason) body, replacing the former lost-interval +
+affected-summary pair), and the tombstone binds them by committing that root and
+count. Putting the list in both messages would restore the dual-schema ambiguity
+1.6a removes. It never enumerates
 millions of later recoverable records; those records are evidenced by their
 fsynced copy and are simply re-enqueued. A destination copy authorizes source
 deletion only when it is FULLY COMMITTED AND SENDER-VISIBLE -- its own commit
@@ -1102,12 +1111,27 @@ only after the complete manifest validates; an early page cannot expire while a
 later required page remains admissible.
 
 The scheduler issues a spool-recovery capability bound to network scope, agent,
-abandoned spool/range, affected attempts, recovery ID, and expiry. Pages are NOT
+abandoned SPOOL, affected attempts, recovery ID, and expiry -- NOT to an abandoned
+range, which after 1.6a is not a single interval. Pages are NOT
 agent-signed: no agent-signature ABI exists. Page integrity is the journalled
 content-addressed chain, and authenticity is the authenticated session plus that
-capability, which the gateway verifies along with the chain. The gateway publishes pages to the deployment recovery
-stream with stable IDs derived from network scope, agent, recovery ID, page
-index, lost scope, and manifest digest. An old segment is physically deleted
+capability, which the gateway verifies along with the chain. The gateway publishes
+pages to the deployment recovery stream with stable IDs derived from IMMUTABLE
+identities only. The PUBLICATION id may include content digests so conflicting
+bytes reach the consumer; the DURABLE key must not. Durable page key is
+(network scope, authenticated agent, recovery ID, page index), comparing one fixed
+page digest; durable recovery key is (network scope, agent, recovery ID),
+comparing the COMPLETE immutable tombstone identity: abandoned/prior spool,
+`new_spool_id`, manifest root, page count, and the derived `coarsened` flag.
+`new_spool_id` is signed by the
+tombstone scope, so omitting it from the comparison lets a same-key replay naming a
+DIFFERENT destination look identical. The tenant/agent
+namespace stays in the PER-PAGE identity too -- the deployment recovery stream is
+shared, so dropping it would let one agent's page collide with another's; removing
+the obsolete loss range never required removing the trust namespace. A "lost scope" or abandoned RANGE MUST NOT appear in
+either binding: after 1.6a the exact loss is the ordered span union and no single
+interval describes it, so binding identity to one would make the identity
+unstable or wrong. An old segment is physically deleted
 only after the coverage proof accounts for every unreclaimed ALLOCATED sequence it
 held -- each a fully committed, sender-visible destination slot or a PubAcked
 frozen classification span; an fsynced copy and mapping watermark alone are NOT
@@ -1124,9 +1148,13 @@ acknowledged data-loss handling, not a success disposition for the missing
 result.
 
 Recovery identity is immutable independently of broker deduplication. A binding
-keyed by `(network_scope_id, agent_id, recovery_id)` fixes abandoned spool,
-manifest root/page count, and conservative loss scope; each `(recovery_id,
-page_index)` fixes one page digest. A later conflict is quarantined as integrity
+keyed by `(network_scope_id, agent_id, recovery_id)` fixes the COMPLETE immutable
+tombstone identity -- abandoned/prior spool, `new_spool_id`, manifest root, page
+count, and the derived `coarsened` flag. `new_spool_id` is signed by the tombstone scope, so omitting it here
+would let a same-key replay naming a different destination look identical. The
+committed manifest root IS the loss commitment, and there is no "conservative loss
+scope" interval after 1.6a. Each
+`(network_scope_id, agent_id, recovery_id, page_index)` fixes one page digest. A later conflict is quarantined as integrity
 failure and cannot apply a second partialization/fence/retry transition.
 
 Recovery-stream PubAck only stops publication retry; it does not allow the agent
@@ -2168,8 +2196,8 @@ cross-language identity. Full byte-exact field tables are in Appendix A:
 | --- | --- | --- |
 | semantic-envelope digest | `semanticDigestVersion = 3` (committed grammar CONSTANT fixed by the record-schema ABI, NOT a wire field) | frozen: NO leading string domain tag; leads with the `u64` version; FIXED field order (no numeric tags); 8-byte big-endian ints; 8-byte big-endian length prefixes on bytes/string; 1-byte presence markers; `u64` oneof discriminants; field-by-field nested framing; NO `proto.Marshal` at any depth |
 | capability signing bytes | `capability_version = 1` | frozen: a SINGLE leading str domain `serviceradar.edge.capability.v1` plus a `purpose` field (NOT per-purpose tags); then the `u64` version; FIXED field order; 8-byte big-endian ints; `i64` not_before/expires; 8-byte big-endian length prefixes; the claims message framed field-by-field; EXCLUDES the signature; Ed25519 signs the RAW framed preimage bytes; NO `proto.Marshal` |
-| plan / range / recovery content hashes | `PlanDigestVersion = 1` / recovery version `1` | frozen: DOMAIN-FIRST -- leads with a per-object `str` domain sub-tag (`serviceradar.edge.plan.{range,page,root,header}.v1`, `serviceradar.edge.recovery.{manifest_page,manifest_root}.v1`), THEN the `u64` version; FIXED field order; 8-byte big-endian ints; 8-byte big-endian length prefixes; each excludes its self-hash; NO `proto.Marshal` |
-| MTR completion proof | `MtrCompletionDigestVersion = 2` | frozen: leads with the `u64` version; each leaf = version, ordinal (`u64`), disposition (`u64`), trace_id (bytes, empty unless TRACE_ALLOCATED), `range_sha256`; three accumulators folded by BIG-endian 256-bit modular addition (mod 2^256), arrival-order-independent, no per-block Merkle/sort; ROOT = `SHA-256(version || expected || plan_root_sha256(32) || mtr_ordinal_range_commitment(32) || content-acc(32))`; NO `proto.Marshal` |
+| plan / range / recovery content hashes | `PlanDigestVersion = 1` / recovery version `1` | plan: frozen. RECOVERY: **CANDIDATE, NOT FROZEN** -- task 1.6a atomically rewrites the manifest-page and tombstone-scope grammars, so no recovery entry here may be relied on for cross-language identity until it lands. DOMAIN-FIRST -- leads with a per-object `str` domain sub-tag (`serviceradar.edge.plan.{range,page,root,header}.v1`, `serviceradar.edge.recovery.{manifest_page,manifest_root}.v1`), THEN the `u64` version; FIXED field order; 8-byte big-endian ints; 8-byte big-endian length prefixes; each excludes its self-hash; NO `proto.Marshal` |
+| MTR completion proof | `MtrCompletionDigestVersion = 2` | **CANDIDATE, NOT FROZEN** -- the leaf `disposition` is the not-yet-generated `MtrCompletionDisposition` enum (tasks 1.4/1.15) and the zero-MTR behaviour is an open decision. Otherwise: leads with the `u64` version; each leaf = version, ordinal (`u64`), disposition (`u64`), trace_id (bytes, empty unless TRACE_ALLOCATED), `range_sha256`; three accumulators folded by BIG-endian 256-bit modular addition (mod 2^256), arrival-order-independent, no per-block Merkle/sort; ROOT = `SHA-256(version || expected || plan_root_sha256(32) || mtr_ordinal_range_commitment(32) || content-acc(32))`; NO `proto.Marshal` |
 
 Raw `proto.Marshal` output MUST NOT be a runtime-neutral semantic, signing,
 authorization, merge, or logical-content grammar, and there is no decode ->
@@ -2287,11 +2315,26 @@ The spool therefore verifies SEMANTIC JOINS first, then commits the physical
 binding. The joins prove the provenance came from THIS record: attribution
 `contract_bundle_sha256` against the record's `EdgeOutputContractRef` bundle
 digest; `producer_assignment_id`/`run_id`/`run_shard` against its
-`EdgeProducerContext`; `authority_epoch` and scope against its production and
-source claims; and, for ACTIVE attribution, `range_sha256` against the signed
+`EdgeProducerContext`; `authority_epoch` against EACH APPLICABLE claim;
+`production_scope_id` + `scope_sha256` against the PRODUCTION scope ONLY, and
+`source_scope_id` + `source_scope_sha256` against the SOURCE scope ONLY WHEN a
+source authorization is present -- those are DIFFERENT values in the canonical
+accepted record, so one member cannot serve both, and IDs travel with digests
+because the wire signs and validates each independently; the SOURCE IDENTITY
+(kind, `context_id`, `source_scope_id`, `source_scope_sha256`, or their joint
+absence) against the record's signed source authorization. CLASSIFICATION and
+source presence are INDEPENDENT axes: `ATTRIBUTED_PASSIVE` means "no produced
+target range", NOT "no source authorization", and the source join follows PRESENCE
+alone. Correlation is checked against the operands
+the body actually carries, per payload contract and correlation variant -- NOT a
+`run_id == context_id == execution_id` equality, which the accepted golden vectors
+already falsify; and, for ACTIVE attribution, `range_sha256` against the signed
 source range or the frozen contract-owned derivation. Only then does it commit the
-physical binding over (`event_id`, sequence, `record_sha256`) plus lane and
-spool/generation identity.
+physical binding over the EXACT local-binding transcript: the generation's TRUST
+NAMESPACE (`network_scope_id` and authenticated agent identity -- neither lane nor
+spool generation subsumes them), lane and spool/generation identity, sequence,
+`event_id`, `record_sha256`, and the complete attribution tuple including both
+logical scope IDs.
 
 Physical binding alone is forgeable: a sink can attach record B's provenance to
 record A and compute a perfectly valid binding over A. The joins are what make the
@@ -2643,7 +2686,16 @@ Benchmark results may lower operational limits or increase partition count
 before first rollout. Changing the wire meanings, ACK boundary, event split, or
 idempotency model requires a new OpenSpec revision.
 
-## Appendix A: Frozen cryptographic grammars
+## Appendix A: Cryptographic grammars
+
+SCOPE NOTE: this appendix is frozen EXCEPT where an entry is marked a candidate.
+The recovery manifest-page, tombstone-scope, RESOLVED-scope, and MTR-completion
+entries are CANDIDATES until tasks 1.6a and 1.4/1.15 land. "TombstoneScopeDigest
+retired" means the OLD TRANSCRIPT is replaced -- the scope OBJECT itself remains,
+and stays in task 1.6's proof inventory; task 1.7 is the freeze gate and
+carries those prerequisites explicitly. Reading the appendix title as "everything
+here is frozen" would let an implementer pin a grammar this plan already schedules
+for atomic rewrite.
 
 Every SIGNING/DIGEST grammar below is byte-frozen and interoperable ONLY when Go
 and Elixir implement it byte-for-byte. A grammar that does not pin all of the
@@ -2842,7 +2894,12 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
    1 = manifest page, 2 = resolved) -- NOT a string domain tag. SpoolLossTombstoneV1 and
    RecoveryResolvedV1 have NO self-hash field, so these scope digests (not a self-hash) are
    their only grammar:
-   - TombstoneScopeDigest (body kind 0): `version` (u64), `0` (u64), `recovery_id` (bytes),
+   - TombstoneScopeDigest (body kind 0) -- UNFROZEN CANDIDATE, RETIRED BY TASK 1.6a:
+     the `lost_from_sequence`/`lost_through_sequence` members below are REMOVED by
+     that task, because with gaps legal the manifest min/max is not the loss and a
+     SIGNED interval would be an authenticated second source of truth. The
+     transcript here describes the pre-1.6a candidate only; the target transcript
+     lands with 1.6a. Members: `version` (u64), `0` (u64), `recovery_id` (bytes),
      `prior_spool_id` (bytes), `new_spool_id` (bytes), `lost_from_sequence` (u64),
      `lost_through_sequence` (u64), `manifest_root_sha256` (bytes), `manifest_page_count`
      (u64), `coarsened` (bool as 1-byte marker (0x00/0x01)). It does NOT cover `reason`,
@@ -2851,11 +2908,19 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
    - ManifestPageScopeDigest (body kind 1): `version` (u64), `1` (u64), `recovery_id`
      (bytes), `page_sha256` (bytes).
    - ResolvedScopeDigest (body kind 2): `version` (u64), `2` (u64), `recovery_id` (bytes),
-     `manifest_root_sha256` (bytes), `applied_through_sequence` (u64).
+     `manifest_root_sha256` (bytes), `applied_through_sequence` (u64) -- CANDIDATE
+     pending task 1.6a, which freezes this scalar as the consumer's durably applied
+     CONTIGUOUS PREFIX over the allocated sequence space (not the maximum span
+     end); with gaps legal those differ, and the value gates journal release.
    Go and Elixir (`ServiceRadar.Edge.HashGrammar`) reproduce every self-hash AND scope digest
    byte-for-byte; the committed testdata (`tombstone_scope.bin` / `manifest_page_scope.bin` /
    `resolved_scope.bin` + the plan/manifest `*.bin`) are the cross-language vectors.
-5. MTR completion proof -- `u64 MtrCompletionDigestVersion = 2`; MATCHES the code exactly
+5. MTR completion proof -- `u64 MtrCompletionDigestVersion = 2`. CANDIDATE MIGRATION
+   TARGET, not a description of the code: the leaf `disposition` becomes the generated
+   `MtrCompletionDisposition` enum (tasks 1.4/1.15), which does NOT exist yet, and the
+   zero-MTR behaviour is an open decision every implementation currently contradicts.
+   It therefore does NOT "match the code exactly", and it supersedes rather than
+   matches #4713's local declarations. Framing below
    (domain.go:706-847):
    - leaf element (`mtrLeafHash`): `version` (u64 = 2), `ordinal` (u64), `disposition`
      (u64, the uint32 widened to u64), `trace_id` (bytes, empty unless TRACE_ALLOCATED),
@@ -2873,19 +2938,30 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
    - gates (domain.go:821-838): `len(plan_root_sha256) == 32` && `len(commitment) == 32`;
      `count == expected`; `ordinalAcc ==` the big-endian add of `mtrOrdinalHash(i)` for
      `i in 1..expected`; `memberAcc == mtr_ordinal_range_commitment`.
-   - empty (`expected == 0`, the plan admits NO MTR targets): NO completion proof is
-     required; the plan's `mtr_ordinal_range_commitment` (`ScheduledPlanHeaderV1` field 11)
-     is EMPTY bytes; if a root is computed it is over zero leaves (`count == 0`, all three
-     32-byte accumulators the zero value, with `plan_root_sha256` still committed). This
-     matches the empty `ScheduledPlanHeaderV1` / commitment representation (sweep.proto:390).
-   - terminal disposition values (the u64) -- FROZEN `MTR_COMPLETION_DISPOSITION` enum,
+   - empty (`expected == 0`, the plan admits NO MTR targets) -- UNFROZEN CANDIDATE,
+     OPEN DECISION (task 1.15): the candidate says NO completion proof is required; the
+     plan's `mtr_ordinal_range_commitment` (`ScheduledPlanHeaderV1` field 11) is EMPTY
+     bytes; and if a root is computed it is over zero leaves (`count == 0`, all three
+     32-byte accumulators the zero value, with `plan_root_sha256` still committed). Every
+     current implementation contradicts this, so it is NOT authoritative and MUST NOT be
+     frozen at 1.7 until 1.15 chooses one behaviour.
+   - terminal disposition values (the u64) -- `MTR_COMPLETION_DISPOSITION` enum, CANDIDATE
+     (not frozen; see below),
      DISTINCT from the per-hop `MtrOutcome` enum:
      `MTR_COMPLETION_DISPOSITION_UNSPECIFIED = 0`; `TRACE_ALLOCATED = 1` (the ONLY value
      carrying a UUIDv7 `trace_id`); `NOT_ADMITTED = 2`; `PROBE_FAILED = 3`;
-     `QUARANTINED = 4`; `SCHEDULER_LOST = 5`. Pinned in domain.go, with cross-language leaf
-     vectors per value. Do NOT reuse the per-hop `MtrOutcome` numbering (`REACHED = 1`,
+     `QUARANTINED = 4`; `SCHEDULER_LOST = 5`. CANDIDATE, NOT FROZEN: this enum is not
+     generated yet (tasks 1.4/1.15); calling it FROZEN while it exists only as a Go
+     `iota` block and Elixir integer guards is what the 1.1-1.6 audit found. Declared ONCE as the generated proto enum
+     `MtrCompletionDisposition` (full symbols `MTR_COMPLETION_DISPOSITION_*`); Go and Elixir are
+     CONSUMERS, not co-owners -- the number is hashed into the frozen leaf preimage, so two
+     hand-maintained copies can produce two roots for one completion. Cross-language leaf
+     vectors are NOT "per value": VALID vectors for `1..5`, and REJECT vectors for `0`,
+     `-1`, `6`, and `999` -- zero is rejected before hashing, so an accepted vector for it
+     would contradict the rule. Do NOT reuse the per-hop `MtrOutcome` numbering (`REACHED = 1`,
      `PROBE_FAILED = 3`, `NOT_ADMITTED = 5`, `QUARANTINED = 6`, `SCHEDULER_LOST = 7`) --
-     they are a different enum. This MUST match #4713's implementation (see the
+     they are a different enum. This SUPERSEDES #4713's local declarations, which the
+     generated enum replaces (see the
      restack/implementation prerequisite in tasks.md).
 6. `Nats-Msg-Id` transcript -- string domain `serviceradar.edge.msgid` FIRST, then
    `version` (u64 = 1), then the 6 fields in order: `authenticated_agent_id` (bytes),
@@ -2948,7 +3024,11 @@ with no domain tag or version prefix.
 ### Parity requirement
 
 Every grammar (1-8) has independent Go and Elixir preimage fixtures and, where the
-grammar is signed, signature parity fixtures, including unknown-version
-fail-closed vectors, and a digest-algorithm line (SHA-256). A grammar without
+grammar is signed, signature parity fixtures, and a digest-algorithm line
+(SHA-256). Fail-closed version coverage is the vector ASSIGNED BY EACH OBJECT'S
+PROOF CLASS (task 1.6): Class A objects carry an unsupported-INPUT-version reject;
+Class B objects have no version input and instead carry an altered-version
+preimage/digest/header MISMATCH reject. An unsupported-input vector SHALL NOT be
+demanded of a Class-B object -- it cannot be constructed. A grammar without
 both-language preimage (and signature, where applicable) golden fixtures is not yet
 frozen.

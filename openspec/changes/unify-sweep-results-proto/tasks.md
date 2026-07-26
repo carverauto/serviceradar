@@ -92,6 +92,110 @@
   assignment records including scheduler-authored lost/expired/superseded
   terminals, shard/range digests, terminal sequences, counts, expected MTR,
   configuration identity, epoch, lease/fence, and authorization metadata.
+  AUDIT (1.1-1.6, post-#4739): the plan header/pages and `SweepExecutionEventV1`
+  EXIST, but the authoritative assignment-record message DOES NOT -- there is no
+  such message in `proto/edge/v1`. It must be designed before the 1.7 freeze or
+  explicitly cut from it, because it is an append-only authoritative contract on
+  the frozen ABI. It is also what binds a span's `producer_assignment_id` to the
+  scheduler's `execution_plan_id`, which is why the span itself does not carry
+  the plan identity.
+  ALSO IN SCOPE (assigned here by the 1.6a spec decision): own the ONE shared
+  VALIDATED-ATTRIBUTION RESULT that task 2.22 consumes, produced by the
+  contract-specific validators from the operands their OWN body carries. Do NOT
+  add a `run_id == context_id == execution_id` equality: an earlier revision of
+  this plan proposed it and it is WITHDRAWN as false -- `run_id` is the host-issued
+  producer-run identity, the canonical accepted scheduled-check vector carries
+  `run_id = uuidv7(0x73)` against `context_id`/`execution_id = uuidv7(0x20)`
+  (`proto/edge/v1/golden_test.go:235-267`), and `ValidateSweepRecord` accepts it.
+  Correlation is per payload contract and correlation variant --
+  `MtrSweepContextV1.sweep_execution_id`, `MtrScheduledCheckContextV1.check_id`,
+  `MtrAdHocContextV1.scan_run_id`, `MtrCommandContextV1.command_id` -- which
+  `joinMtrAuthority` already implements for MTR -- and, SEPARATELY,
+  `SweepObservationBatchV1`'s `execution_id` plus `source_run_id`, which is NOT yet
+  frozen -- `joinSweepAuthority` today compares only the signed context to
+  `execution_id` and never reads `source_run_id`. What recovery attribution needs instead is
+  the DURABLE ASSIGNMENT MAPPING this task creates: a span freezes producer-side
+  identity, and resolving it to a scheduler execution is a lookup, not an equality.
+  FREEZE THE MAPPING ITSELF -- it is load-bearing for the span shape (the span omits
+  execution and plan identity BECAUSE this exists), so it cannot stay a noun:
+  (a) KEY and TRUST NAMESPACE: the key SHALL be the COMPLETE frozen span identity,
+  or an authoritative mapping-record digest over exactly that tuple with its digest
+  grammar frozen alongside it. The tuple is (`network_scope_id`, authenticated
+  `agent_id`, `producer_assignment_id`, `run_id`, `run_shard`, `authority_epoch`,
+  `contract_bundle_sha256`, `production_scope_id` + `scope_sha256` = PRODUCTION
+  scope, SOURCE IDENTITY = signed source KIND + `context_id` + `source_scope_id` +
+  `source_scope_sha256`, or their joint absence) plus, for ACTIVE, `range_sha256`.
+  IDs travel with digests -- the wire signs each independently. The normative form of this mapping now
+  lives in the spec requirement "The durable assignment mapping is an authoritative
+  record"; this task implements it.
+  `producer_assignment_id` is NOT assumed globally unique. The source identity and
+  the ACTIVE range are NOT optional here: omitting them while allowing one value
+  per key would make the two records that motivated the source discriminator
+  collide in the map -- the second becoming a spurious conflict -- which is the
+  same information loss one field further down the path;
+  (b) VALUE: a TAGGED body -- POSITIVE (execution/plan/range IDs and digests,
+  shard, epoch, and the CONTRACT-SPECIFIC correlation operand, see the matrices
+  below) or EXPLICIT NEGATIVE (durable negative evidence and reason, NO
+  positive-only fields). A positive and a negative under one key is a CONFLICT;
+  idempotent replay is defined for BOTH forms;
+  (c) CARDINALITY, REPLAY, AND CONFLICT: the SELECTED PROJECTION resolves to at
+  most one value per key -- the append-only CANDIDATE log may retain several.
+  Writing the SAME value again is an IDEMPOTENT NO-OP preserving the first record -- assignment
+  and grant creation can be replayed, and a replay is not a conflict. A DIFFERING
+  second value is an integrity CONFLICT, never an overwrite, resolved by an
+  APPEND-ONLY conflict-resolution record that SELECTS one candidate as the
+  PROJECTION while RETAINING the rejected candidate as evidence. CANDIDATE EVIDENCE
+  and the SELECTED PROJECTION are distinct: the candidate log may hold several
+  under a key, the projection resolves to at most one. FREEZE THE RESOLUTION
+  RECORD'S OWN SEMANTICS HERE -- same-selection replay, a later record selecting the
+  OTHER candidate, a stale/future resolver fence, and conflicting resolution
+  records -- or two append-only resolutions can select A then B with no
+  deterministic lookup. MISSING repair additionally requires evidence that a
+  backfilled record is the ORIGINAL authoritative pre-accept mapping, not a value
+  that merely appeared later. Cover positive replay, explicit-negative replay,
+  differing-value conflict, positive-vs-negative conflict, and resolution;
+  (d) ORDERING: the mapping SHALL be durably committed BEFORE the assignment/grant
+  can produce an accepted record, so no accepted record can exist without a
+  resolvable mapping;
+  (e) RETENTION: it SHALL outlive spool recovery, redrive, and lifecycle GC for at
+  least as long as any manifest that can reference it -- GC SHALL be safe, not
+  time-based;
+  (f) LOOKUP OUTCOMES with FROZEN CONSUMER TRANSITIONS -- naming them is not enough,
+  each needs interoperable behaviour:
+  FOUND -> resolve and proceed.
+  NOT_SCHEDULED -> an EXPLICIT, DURABLY COMMITTED NEGATIVE MAPPING, never a lookup
+  miss. Because (d) commits the mapping before any accepted record can exist, a
+  DEFINITE MISSING entry is an INTEGRITY CONDITION, not ordinary non-scheduled
+  work; only a recorded negative means "there is no execution".
+  TEMPORARILY_UNAVAILABLE -> recovery stays PENDING, no terminal ACK, retry; it
+  SHALL NOT be downgraded to NOT_SCHEDULED.
+  MISSING -> integrity audit entry, FENCE the affected generation against further
+  reclamation, delivery stays PENDING with no terminal disposition; retry only once
+  a durably committed mapping (positive or negative) appears.
+  CORRUPT / CONFLICTING -> integrity audit entry, QUARANTINE the affected slot, no
+  terminal ACK; retry only once repair evidence resolves the key to a single value
+  (CORRUPT: a verifying re-read; CONFLICTING: an authoritative resolution leaving
+  exactly one value).
+  MISSING, CORRUPT, and CONFLICTING each BLOCK `RecoveryResolvedV1`; a recovery
+  SHALL NOT resolve over evidence it could not read or could not reconcile.
+  A consumer SHALL NOT collapse these: "no execution" and "cannot tell yet" have
+  opposite safe behaviours.
+  FREEZE THE `SweepObservationBatchV1` CORRELATION MATRIX explicitly, per permitted
+  `SweepExecutionSource`: which field is the SIGNED CONTEXT, whether `source_run_id`
+  is REQUIRED or FORBIDDEN, and which mismatch is rejected. Today
+  `joinSweepAuthority` (`domain.go:985-1007`) always compares signed
+  `context_id == batch.execution_id` and NEVER reads `source_run_id`, while the
+  proto documents `source_run_id` as, for example, the ad-hoc `scan_run_id` -- so
+  the two-field shape is undefined, not merely unimplemented. Add a positive and a
+  mismatch vector per source variant. Keep the MTR matrix SEPARATE: its
+  `sweep_execution_id` / `check_id` / `scan_run_id` / `command_id` dispatch is
+  already concrete in `joinMtrAuthority`, which is an MTR-only validator and does
+  NOT cover sweep observation.
+  ALSO IN SCOPE: `ScheduledPlanPageV1` measures `MaxPlanPageBytes` against a
+  `proto.Marshal` re-encode of the decoded page (`plan.go`), so duplicate fields
+  and non-minimal varints evade the ceiling. Measure the EXACT received bytes.
+  This is the same defect 1.6a fixes for the recovery page; 1.6a does not fix
+  this one.
 - [ ] 1.4 Add lossless `MtrTraceBatchV1` and `MtrTraceEventV1` contracts covering
   every current trace/hop/ECMP/MPLS/ASN/DNS/timing/outcome/source/correlation
   field without generic metric attributes. Require every batch to share one
@@ -116,6 +220,24 @@
   completion never depends on arrival order, on per-block buffering, on a
   `proto.Marshal` re-encode, or on execution-wide trace materialization. Allocate and durably record UUIDv7 trace
   IDs before probing and add cross-language UUIDv7/identity-time fixtures.
+  AUDIT (1.1-1.6): the proof machinery is implemented in both runtimes, but the
+  completion-leaf disposition is declared NOWHERE in the protos -- it is a Go
+  `iota` block (`MtrTerminalDisposition`) and separately a set of literal
+  integers in Elixir guards. Declare it ONCE as the generated enum
+  `MtrCompletionDisposition`, with the FULL Buf-compatible symbols:
+  `MTR_COMPLETION_DISPOSITION_UNSPECIFIED=0`,
+  `MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED=1` (the ONLY value carrying a UUIDv7
+  `trace_id`), `..._NOT_ADMITTED=2`, `..._PROBE_FAILED=3`, `..._QUARANTINED=4`,
+  `..._SCHEDULER_LOST=5`. Distinct from the per-hop `MtrOutcome` numbering
+  (REACHED=1, PROBE_FAILED=3, NOT_ADMITTED=5, QUARANTINED=6, SCHEDULER_LOST=7),
+  which it SHALL NOT reuse. Go's `MtrTerminalDisposition` constants and Elixir's
+  integer guards become CONSUMERS of the generated enum. NO new leaf message is
+  needed: the disposition is a field of the existing leaf grammar. Reject zero,
+  negative, and unknown-positive values BEFORE widening to `u64` and hashing, and
+  keep later-declared values rejected until the completion grammar version itself
+  changes. The number is hashed into the frozen leaf preimage, so a hand-maintained
+  pair can produce two different roots for one completion. (This target was
+  previously duplicated inside checked task 1.13; it lives here and in 1.15 only.)
 - [ ] 1.5 Define compatibility rules for unknown fields/enums, unsupported
   versions, timestamp units, optional zero-valued measurements, ASN range,
   ENUM COMPATIBILITY (cross-language parity): Go retains an unknown/negative int32 enum
@@ -195,12 +317,23 @@
   discriminants; `u64` repeated-element counts; recursive field-by-field nested
   framing; NO `proto.Marshal` at any depth),
   streaming
-  compression expansion, recursion, and trailing-frame rejection. Define the
+  compression expansion, recursion, and trailing-frame rejection. OPEN CANDIDATE
+  PR for the compression-admission half: **#4734** (base `usp-01-proposal`) --
+  awaiting review, NOT merged; check it before starting that piece. Define the
   immutable semantic-envelope digest separately from gateway receipt, physical
   placement, spool coordinates, and renewable delivery proof; define broker
   publication identity separately. Make projected row cost cover every
   synchronous ledger/domain/outbox/work/current-state mutation and canonicalize
   nanoseconds to PostgreSQL microseconds before identity/order comparison.
+  AUDIT (1.1-1.6): the negative-enum divergence this task exists for IS closed --
+  `WireValidate` structural preflight then `SemanticValidate.disposition/2`
+  mapping to `REJECTED_PERMANENT`, with the LAST-ONE-WINS case covered by the
+  SHARED fixture `lane_open_negative_then_valid.bin` referenced from both
+  runtimes. The residual clauses (timestamp units, optional zero-valued
+  measurements, ASN range, unsupported-version handling) were NOT verified
+  clause-by-clause and remain open. The exact-received-bytes rule also applies
+  here: `ScheduledPlanPageV1` still measures its ceiling on a re-marshal.
+
 - [ ] 1.6 Generate Go and Elixir modules, update Bazel targets, and add
   cross-language golden fixtures proving equivalence across Go and Elixir for the
   semantic-envelope digest (`semantic_digest_version = 3`), payload digest,
@@ -217,11 +350,48 @@
   the `edge` and `service-ingress` slot kinds -- proving delivery-proof-present
   (late/renewal/rollover) and delivery-proof-absent (fresh/service) presence-byte
   encodings and the base64url(no-pad) framed-envelope header -- plus
-  unknown-version
-  fail-closed vectors for every
-  grammar (never whole-record byte equality; protobuf has no canonical wire form,
+  the unknown-version fail-closed vector ASSIGNED BY EACH OBJECT'S PROOF CLASS
+  below (Class-B objects have no input version and SHALL NOT be asked for an
+  unsupported-input vector) (never whole-record byte equality; protobuf has no canonical wire form,
   so two compliant encoders MAY emit different `record_sha256` for the same
   semantics).
+  AUDIT (1.1-1.6): equivalence IS proven -- Elixir reads the SAME
+  `proto/edge/v1/testdata` corpus as Go, and both regeneration drift guards run
+  in `proto-abi.yml`. The gap is the fail-closed half. Exactly ONE grammar has an
+  unsupported-version fixture today: transport provenance's `unknown-version` row in
+  `pubid_reject_vectors.txt`. (`lane_open_unknown_group.bin` is an unknown
+  protobuf GROUP/field fixture, not an unknown-VERSION vector.)
+  The gate is OBJECT-LEVEL, not per version family, and it has TWO exhaustive
+  proof classes, because most versions are compile-time preimage constants no
+  sender can present:
+  CLASS A -- DIRECT UNSUPPORTED-INPUT-VERSION REJECTION. The object decodes a
+  version from its input; set it unsupported and require rejection. Members:
+  capability (`EdgeSignedCapabilityV1.capability_version`); recovery manifest page
+  (`EdgeLossManifestPageV1.digest_version`); tombstone
+  (`SpoolLossTombstoneV1.digest_version`); MTR completion
+  (`SweepExecutionEventV1.mtr_completion_digest_version`); plan header
+  (`ScheduledPlanHeaderV1.digest_version`); plan page
+  (`ScheduledPlanPageV1.digest_version`); and `Sr-Edge-Transport-Provenance`,
+  whose framed envelope carries a decodable version (DONE).
+  CLASS B -- ALTERED-VERSION PREIMAGE/DIGEST/HEADER MISMATCH. The version is a
+  constant inside the preimage and the received value is a digest or opaque
+  identifier, so there is no version input to corrupt: recompute the object with an
+  altered version constant and require the resulting digest/header to be REJECTED
+  as a mismatch. Members: semantic envelope (`semantic_digest_version = 3`);
+  `Nats-Msg-Id` edge and service (`msgid_version = 1`); `Sr-Edge-Delivery-Id` edge
+  and service (`delivery_id_version = 1`); `RangeDigest` and `PlanRoot`
+  (`plan_grammar_version = 1`); `ManifestRoot` (`recovery_grammar_version = 1`);
+  and EACH of the three recovery-operation scope transcripts SEPARATELY -- tombstone
+  scope, manifest-page scope, resolved scope (`RecoveryScopeDigestVersion = 1`) --
+  which are three objects, not one family.
+  `ManifestPageDigest`, `PlanHeaderDigest`, and `PlanPageDigest` belong ONLY to
+  Class A: they are the digests OVER those messages, and the version they commit is
+  the `digest_version` field the message itself carries, so the Class-A vector
+  already exercises them. Listing them in both classes double-counted one object.
+  An earlier revision of this task classified `Nats-Msg-Id` and
+  `Sr-Edge-Delivery-Id` as Class A. That was WRONG: their received values are
+  digests and their versions are compile-time constants, exactly like the semantic
+  envelope. EVERY Appendix A object SHALL appear in exactly ONE class.
 - [ ] 1.6a **Freeze the loss-classification span shape BEFORE the 1.7 ABI freeze.**
   Replace the ad-hoc `lost_ranges` + `affected` pairing on
   `EdgeLossManifestPageV1` with ONE ordered classification-span representation.
@@ -232,18 +402,116 @@
   `affected` -- there is NO separate lost-range array for spans to agree with, and
   a page carrying one MUST be rejected. Total loss is exactly the union of the
   pages' spans. The list MUST be strictly ordered and internally well-formed (no
-  gaps within the page's coverage, no overlaps, duplicates, out-of-coverage, or
-  out-of-order spans), enforced in BOTH runtimes. Freeze enum numbers, span fields, per-page/per-manifest
+  overlaps, duplicates, or out-of-order spans; at least one span per page; each
+  span primitively valid on its own with `from_sequence >= 1` and
+  `through_sequence >= from_sequence`; and ordering total across the WHOLE page
+  chain, page N ending strictly below page N+1's start), enforced in BOTH
+  runtimes. The page's derived first-to-last quantity is its EXTENT, never
+  "coverage" -- coverage elsewhere is per-sequence evidence that can authorize
+  reclamation, and an extent legally contains not-lost gaps. GAPS ARE LEGAL and
+  mean "not lost", within a page and at a page boundary alike.
+  ALSO ATOMIC -- the RECOVERY-OPERATION SCOPE family is separately named and is NOT
+  covered by "every `recovery_grammar_version = 1` reference"; name it explicitly:
+  `RecoveryScopeDigestVersion = 1`, Go `TombstoneScopeDigest`, Elixir
+  `HashGrammar.tombstone_scope_digest`, the goldens `tombstone_scope.bin` and
+  `tombstone.bin`, and their cross-language regeneration. `SpoolLossTombstoneV1`
+  SHALL lose `lost_from_sequence` / `lost_through_sequence`, their scope-digest
+  members, their Appendix A transcript entries, and the `ValidateTombstone`
+  equality against the manifest's global min/max.
+  TWO FROZEN ABI CHOICES this removal creates: (a) `RecoveryScopeDigestVersion`
+  STAYS `1` -- the grammar is an unshipped candidate rewritten atomically, and
+  bumping a version would preserve a compatibility story for bytes no agent has
+  ever emitted; (b) protobuf tags `3` and `4` are RESERVED, by NUMBER and by NAME
+  (`lost_from_sequence`, `lost_through_sequence`), and later tags are NOT
+  renumbered -- reserving both stops stale candidate bytes being reinterpreted as
+  a future field and stops the retired names being reused for a different meaning.
+  TWO SIGNED SCALARS NEED ONE AUTHORITATIVE MEANING IN THE SAME PASS:
+  (i) `RecoveryResolvedV1.applied_through_sequence` stays in the signed scope
+  transcript, but with the tombstone range gone and gaps legal it could mean the
+  maximum span end, a contiguous processed prefix, or the allocated high-water --
+  which differ for `[1,1]` plus `[100,100]`, and the value GATES durable local
+  journal release. FREEZE it as the consumer's DURABLY APPLIED CONTIGUOUS PREFIX
+  over the ALLOCATED sequence space: the highest S such that EVERY allocated
+  sequence at or below S is either durably applied by the consumer transaction, or
+  ABSENT FROM a VALIDATED COMPLETE span union (the union is the LOST set, so only
+  absence from a complete union establishes not-lost -- an earlier revision of this
+  task said "proven not-lost by the span union", which is backwards). The gapped
+  fixture SHALL supply COMPLETE inputs -- prior watermark, allocated high-water,
+  per-sequence durable state, and the validated union -- and an EXPECTED value; a
+  bare `[1,1]` + `[100,100]` pair pins nothing. It is NOT the maximum span end -- that would
+  release a journal over sequences the consumer never processed. Add a
+  gapped-union vector (`[1,1]` + `[100,100]`) pinning the value. If that meaning
+  cannot be made to hold, REMOVE or REPLACE the field in this same atomic rewrite
+  rather than shipping an ambiguous signed scalar.
+  (ii) Tombstone `coarsened` remains a SEPARATELY SIGNED field while the "complete
+  immutable tombstone comparison" omits it. FREEZE its derivation (true iff any
+  page in the manifest is coarsened), VALIDATE it against the pages BEFORE the
+  replay comparison, and INCLUDE it in the comparison -- or remove the redundant
+  aggregate. A signed field excluded from the identity comparison is a replay hole
+  of the same shape as the `new_spool_id` one.
+  `reserved 3, 4` prevents SOURCE reuse but does NOT by itself prove old bytes are
+  rejected at runtime, and the grammar keeps version 1 -- so add SHARED Go/Elixir
+  REJECT fixtures: an old-candidate tombstone carrying tags 3/4, and an old
+  manifest page carrying the retired `lost_ranges`/`affected` fields. Those are the
+  executable gate that a same-version atomic rewrite cannot admit stale candidate
+  bytes. With gaps legal that min/max is not the loss, and because the
+  tombstone scope is SIGNED, keeping it would leave an AUTHENTICATED second source
+  of truth -- strictly worse than the page arrays this task removes. Freeze enum numbers, span fields, per-page/per-manifest
   bounds, unknown-field and unknown-enum handling, the recovery digest version,
   and the Appendix A digest transcript for the new shape. Byte ceilings MUST be
   measured against EXACT RECEIVED page bytes -- the current Go validator
   re-marshals decoded pages, so duplicate fields and non-minimal varints evade
   the physical ceiling. Add cross-language vectors for each classification, each
-  unattributable reason, partition violations, and the non-canonical-bloat case.
+  unattributable reason, and the non-canonical-bloat case. Instead of the
+  now-meaningless "partition violations" (gaps no longer partition a declared
+  interval), use this explicit matrix -- REJECT: empty page; zero or inverted
+  interval; overlap, duplicate, or out-of-order spans WITHIN a page; the same
+  ACROSS a page boundary. ACCEPT: gaps within a page; gaps across a page boundary;
+  adjacent spans; a span bounded at `MaxUint64` (no overflow arithmetic).
+  The page's EXTENT (never "coverage") is DERIVED from the ordered spans -- first
+  lower bound through last upper bound; do NOT add a second declared range for the
+  spans to agree with. An
+  attributed span carries the frozen assignment identity in the PRODUCER's
+  naming: `producer_assignment_id`, `run_id`, `run_shard`,
+  `authority_epoch`, `production_scope_id` + `scope_sha256` (the PRODUCTION scope,
+  ALWAYS present), `contract_bundle_sha256`, and `range_sha256` on ACTIVE only;
+  plus the SIGNED SOURCE IDENTITY -- KIND + `context_id` + `source_scope_id` +
+  `source_scope_sha256` -- ALL FOUR jointly present when the record carried a
+  source authorization and ALL FOUR jointly absent otherwise, with the absence
+  itself part of the identity and partial combinations rejected. IDs travel WITH
+  their digests: the wire signs and validates each independently and nothing
+  derives one from the other.
+  ALSO IN 1.6a: correct the still-live proto/code comments that equate an absent
+  source authorization with "passive output" (`record.proto` lines 82-86 and
+  234-237, the `absent = passive output` comment on `source_authorization`, and
+  `go/pkg/edge/edgerecord/validate.go:785`, which still says a nil source
+  authorization means a passive record -- generated comments follow the proto
+  edit, hand-written ones do not).
+  After this change "passive" means ONLY "asserts no produced target range";
+  leaving those comments gives the word two incompatible meanings in one file. `run_shard`
+  and `authority_epoch` equal `execution_shard` / `assignment_epoch` ONLY where the
+  originating contract carries them -- `SweepObservationBatchV1` and
+  `MtrSweepContextV1` do; the scheduled-check, ad-hoc, and command MTR variants
+  carry neither. `run_id` is INDEPENDENT and is NOT REQUIRED to equal
+  `execution_id`. A span does NOT embed `execution_plan_id`.
+  SCOPE: the exact-received-bytes ceiling fix in this task covers the RECOVERY
+  MANIFEST PAGE only. `ScheduledPlanPageV1` has the SAME re-marshal bypass
+  (`go/pkg/edge/edgerecord/plan.go`, `MaxPlanPageBytes` measured over a
+  `proto.Marshal` of the decoded page) and is NOT fixed here -- it is recorded
+  under 1.3/1.5. This task MUST NOT claim to have closed the bypass for all paged
+  contracts.
   This must land BEFORE 1.7 because 1.7 freezes the transport ABI these pages
   travel on, and it gates 2.20-2.28.
 - [ ] 1.7 Freeze the agent-gateway frame and lane handshake as an internal,
-  producer-neutral transport ABI only after Go/Elixir golden fixtures cover
+  producer-neutral transport ABI. EXPLICIT PREREQUISITES -- this task SHALL NOT be
+  checked while any of these is open: 1.3 (the authoritative assignment-record
+  contract, the durable assignment mapping, and the frozen
+  `SweepObservationBatchV1` correlation matrix); 1.4/1.15 (the generated
+  `MtrCompletionDisposition` enum AND the zero-MTR decision); 1.5's residual
+  compatibility clauses; 1.6's Class-A/Class-B version vectors; and 1.6a (the
+  classification-span freeze). Each freezes wire shape or fail-closed behaviour
+  that this ABI would otherwise fix in place unresolved. Freeze only after
+  Go/Elixir golden fixtures cover
   `EdgeOutputContractRef`, authenticated `EdgeProducerContext`, production,
   optional source, and delivery authority, registry epochs, and finite platform
   route profiles. Separately freeze the producer-facing sink/run API only after
@@ -294,7 +562,10 @@
   EventWriter SHALL recompute decoded actual rows/write bytes before refund or
   commit. Underdeclared, unknown-model, overflow, or nondeterministic cost is a
   protocol failure, never authority to perform a partial write.
-- [x] 1.13 Restack prerequisite -- IMPLEMENTED as the stacked CANDIDATE slices
+- [x] 1.13 Restack prerequisite -- IMPLEMENTED as the stacked CANDIDATE slices.
+  SCOPE: item (7) is MOVED OUT to tasks 1.4/1.15 and is NOT delivered here, so no
+  statement in this task asserts the generated `MtrCompletionDisposition` enum
+  exists or that the freeze prerequisite it represents is met. Slices:
   `usp-v2-02-wire-contract` (#4713), `usp-v2-03-ci-harness` (#4714), and
   `usp-v2-04-publication-identity` (#4715). This is a field/schema CANDIDATE (draft PRs,
   reviewable), NOT a frozen/accepted cross-runtime ABI: the freeze/accept gate is task 1.7
@@ -328,12 +599,6 @@
     `Sr-Edge-Transport-Provenance` grammars plus their `service-ingress` slot
     variants (`serviceradar.edge.msgid.service` /
     `serviceradar.edge.delivery-id.service`) per tasks 1.6 and 1.14.
-  - (7) Freeze the completion-leaf disposition enum values in `domain.go`
-    (`MTR_COMPLETION_DISPOSITION_UNSPECIFIED=0`, `TRACE_ALLOCATED=1` (the only
-    value carrying a UUIDv7 `trace_id`), `NOT_ADMITTED=2`, `PROBE_FAILED=3`,
-    `QUARANTINED=4`, `SCHEDULER_LOST=5`), distinct from the per-hop `MtrOutcome`
-    numbering (REACHED=1, PROBE_FAILED=3, NOT_ADMITTED=5, QUARANTINED=6,
-    SCHEDULER_LOST=7).
   - (8) Rewrite the semantic-envelope (`semantic_digest_version = 3`),
     capability-signing (`capability_version = 1`), plan/range
     (`plan_grammar_version = 1`), recovery (`recovery_grammar_version = 1`), and
@@ -343,9 +608,13 @@
     depth; then regenerate ALL Go and Elixir golden preimage/signature/completion
     fixtures (including the Elixir peers) and add the new grammar/vector fixtures
     so two clean-room implementations produce identical bytes.
-  This restack is IMPLEMENTED with matching cross-language Go/Elixir fixtures, so it no
-  longer blocks the wire-ABI FREEZE gate (task 1.7); the freeze itself remains task 1.7
-  and is NOT implied by this candidate being implemented.
+  THE RESTACK SLICES ACTUALLY LISTED ABOVE -- items (1)-(6) and (8); there is no
+  item (7), which was moved to tasks 1.4/1.15 -- are IMPLEMENTED with matching
+  cross-language Go/Elixir fixtures, so THOSE SLICES no longer block the wire-ABI
+  FREEZE gate. This says nothing about the other freeze prerequisites: the
+  generated `MtrCompletionDisposition` enum (tasks 1.4/1.15), the 1.3
+  assignment-record contract, 1.5's residual clauses, 1.6's version vectors, and
+  1.6a all remain open, and the freeze itself is task 1.7.
 - [x] 1.14 Define and implement the `Sr-Edge-Transport-Provenance` header grammar
   and the service-slot variants of the two publication transcripts, per the frozen
   Appendix A field-framed framing (fixed field order, no per-field numeric tags,
@@ -523,22 +792,48 @@
   is owned by the governed service publisher, NOT the gateway/EventWriter; see task
   4.6.)
 - [ ] 1.15 Add Go and Elixir cross-language vector fixtures for the frozen
-  completion-leaf disposition enum values -- a leaf vector for each of
-  `MTR_COMPLETION_DISPOSITION_UNSPECIFIED=0`, `TRACE_ALLOCATED=1` (the only value
-  carrying a UUIDv7 `trace_id`), `NOT_ADMITTED=2`, `PROBE_FAILED=3`,
-  `QUARANTINED=4`, and `SCHEDULER_LOST=5` (distinct from the per-hop `MtrOutcome`
-  numbering) -- plus the zero-MTR case (`expected == 0`: no completion proof
-  required, `mtr_ordinal_range_commitment` is EMPTY bytes, and any computed root
-  is over zero leaves with all three 32-byte accumulators the zero value while
-  `plan_root_sha256` is still committed). Add matching field-framed grammar
+  completion-leaf disposition enum. The inventory is NOT "one per value": VALID
+  leaf/preimage vectors for `MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED=1` (the
+  only value carrying a UUIDv7 `trace_id`), `..._NOT_ADMITTED=2`,
+  `..._PROBE_FAILED=3`, `..._QUARANTINED=4`, and `..._SCHEDULER_LOST=5`; plus
+  REJECT vectors for `MTR_COMPLETION_DISPOSITION_UNSPECIFIED=0`, `-1`, `6`, and
+  `999`. Zero is rejected BEFORE hashing, so an accepted leaf vector for it would
+  contradict the normative rule. The numbering is distinct from the per-hop
+  `MtrOutcome`.
+  ZERO-MTR (`expected == 0`) IS AN OPEN DECISION, NOT A SELECTION. Two candidates:
+  (A) no completion proof required, `mtr_ordinal_range_commitment` EMPTY, and any
+  computed root over zero leaves (all three 32-byte accumulators zero,
+  `plan_root_sha256` still committed); or (B) a proof always required, with a
+  defined zero-leaf root the accumulator accepts. Choose ONE before writing
+  vectors.
+  BLOCKER, MUST BE RESOLVED BEFORE 1.4/1.15 AND THE 1.7 FREEZE: the zero-MTR
+  behaviour described here CONTRADICTS all three implementations. Verified at this
+  base: `NewMtrCompletionAccumulator` sets an error when `expected == 0`
+  (`go/pkg/edge/edgerecord/domain.go:722`); the Elixir verifier rejects zero
+  (`hash_grammar.ex`); and the Go lifecycle validator requires a 32-byte
+  completion digest, a matching digest version, and 32-byte plan/range roots for
+  EVERY COMPLETED event unconditionally (`domain.go:182-186`), so a COMPLETED
+  sweep with no admitted MTR targets can neither omit a proof nor construct a
+  valid one. Record ONE authoritative behaviour -- candidate (A) with the lifecycle
+  validator relaxed, or candidate (B) -- and add vectors, before
+  either task proceeds. Do NOT freeze the ABI over an unreconciled rule.
+  UNSUPPORTED-VERSION coverage is the vector ASSIGNED BY EACH OBJECT'S PROOF CLASS
+  in task 1.6 -- Class-B objects have NO version input and SHALL NOT be asked for
+  an unsupported-input vector. Add matching field-framed grammar
   vectors proving Go/Elixir byte equality for the `EdgeOutputContractRef`
   output-contract grammar, the `EdgeProductionClaimsV1` / `EdgeSourceClaimsV1` /
   `EdgeDeliveryClaimsV1` claim grammars (including the field-framed `transition`
   oneof and its framed member), the plan grammars (`RangeDigest` /
   `PlanPageDigest` / `PlanRoot` / `PlanHeaderDigest`, `plan_grammar_version = 1`),
   and the recovery grammars (`EdgeLossManifestPageV1` / `SpoolLossTombstoneV1` /
-  `RecoveryResolvedV1`, `recovery_grammar_version = 1`), each with an
-  unknown-version fail-closed vector.
+  `RecoveryResolvedV1`, `recovery_grammar_version = 1`). FOR UNSUPPORTED-VERSION
+  coverage do NOT restate a per-grammar list here -- use the EXHAUSTIVE Class-A /
+  Class-B gate frozen in task 1.6, which assigns every Appendix A object to exactly
+  one proof class -- each Appendix A object carries the rejection vector ASSIGNED BY
+  ITS CLASS, and Class-B objects have no input version so they SHALL NOT be asked
+  for one. The shorter list here omitted objects such as `ManifestRoot` and the
+  manifest-page scope digest while requesting an unsupported-INPUT vector for
+  objects that have no version input.
 
 ## 2. Stream completed observations from the agent
 
@@ -626,7 +921,11 @@
   derive conservative cost/routing metadata, DERIVE the `RecoveryAttribution` for
   the append from the record's own authenticated fields (output contract bundle
   digest, producer context assignment/run/shard, production and source claim
-  authority/scope) and submit it with the append so the spool can verify the
+  authority, the PRODUCTION scope as `production_scope_id` + `scope_sha256`, the
+  SOURCE IDENTITY -- signed source KIND, `context_id`, `source_scope_id`, AND
+  `source_scope_sha256`, all four jointly, or their JOINT ABSENCE -- the
+  `attribution_kind` (ACTIVE/PASSIVE) discriminant, and, for ACTIVE, the
+  `range_sha256`) and submit it with the append so the spool can verify the
   semantic join, and return success only after the exact record bytes, the bound
   attribution, and the producer idempotency binding are fsynced under one commit
   marker. Compute
@@ -680,22 +979,38 @@
   `serviceradar.plugin_result.v1` and drain-before-send memory queues. Document
   and enforce the durable/ephemeral boundary in every producer SDK.
 
-- [ ] 2.15 **Correct `fairsched`: derive lanes from the platform taxonomy.** It
-  hardcodes sweep/MTR lanes; lanes MUST come from the finite (route profile,
-  traffic class) taxonomy, so a new profile or class needs no scheduler change.
-  Test that an unknown-to-the-scheduler lane is scheduled by taxonomy, not
-  dropped or aliased onto a sweep/MTR lane.
-- [ ] 2.16 **Correct `gwprefix`: separate dispositions and separate remote
-  resolution from local reclaim.** It collapses distinct dispositions and treats a
-  remote resolved prefix as a local reclaim signal. Each disposition MUST remain
-  distinguishable, and a resolved prefix MUST NOT advance local reclamation.
-  Test that a PubAcked prefix leaves spool bytes retained until the agent durably
-  records the terminal outcome.
+- [x] 2.15 **Correct `fairsched`: derive lanes from the platform taxonomy.**
+  MERGED as PR #4735 into `usp-01-proposal`. It hardcoded sweep/MTR lanes; lanes
+  now come from the finite (route profile, traffic class) taxonomy via an injected
+  `LaneTaxonomy`, with `LaneKey`, an explicit recovery lane, positive bounded
+  weights, and typed `ErrLaneInvalid`/`ErrLaneNotReady`/`ErrTaxonomyInvalid`.
+  Unknown enum members are rejected generically through `protoreflect` descriptor
+  membership rather than a switch, so a member added to the proto is accepted by
+  regeneration alone. Regressions cover taxonomy-driven scheduling of an
+  unknown-to-the-scheduler lane and rejection of undeclared enum numbers.
+- [x] 2.16 **Correct `gwprefix`: separate dispositions and separate remote
+  resolution from local reclaim.** MERGED as PR #4736 into `usp-01-proposal`. All
+  five frozen dispositions stay distinguishable (the tracker uses
+  `EdgeRecordDispositionKind` directly rather than a local copy), only the four
+  resolving kinds advance the remote prefix, and a `retryable_rejection` caps the
+  prefix PROVISIONALLY -- a later resolving kind for the same sequence supersedes
+  it, so a retry cannot permanently wedge the prefix. `ResolvedThrough` and
+  `ReclaimableThrough` are separate watermarks and a PubAcked prefix does not
+  advance local reclamation.
 - [ ] 2.17 **Correct `admission`: free bytes on durable terminal outcome only.**
   It releases reserved bytes when the gateway resolves, which reclaims evidence
   before the agent can prove the outcome survived its own restart. Release MUST
   follow the durable terminal record and the coverage proof. Test that a crash
   after PubAck but before the terminal record leaves the bytes present.
+  STATUS -- DELIBERATELY UNCHECKED. The ADMISSION-SIDE boundary MERGED as PR #4739
+  into `usp-01-proposal`: bytes are charged to an immutable `SlotKey{Spool, Seq}`,
+  nothing releases them except a SEALED `ReclaimAuthorization` (an opaque carrier
+  with no exported fields and deliberately NO producer, so no caller can mint one
+  today), applied monotonically per generation. `NoteGatewayResolved` was REMOVED
+  outright, so admission holds no remote-resolution state at all. Do NOT redo that
+  work. This box stays unchecked because the END-TO-END demonstration -- producing
+  the authorization and proving it across a crash -- is task 2.28, and 2.17 is not
+  a completed freeze prerequisite until then.
   SCOPE: this task covers the ADMISSION side of that boundary only -- charging
   bytes to an immutable slot identity, refusing to release on gateway resolution,
   and consuming an opaque monotonic reclaim authorization it cannot construct.
@@ -723,7 +1038,11 @@
   1.6a).** Update `ValidateManifestChain` and `ValidateTombstone` so an
   `UNATTRIBUTABLE` span validates WITHOUT a covering affected scope, so
   `ATTRIBUTED_PASSIVE` validates with a delivery interval and no produced range,
-  and so the exact-partition rule is enforced. Today's validators reject an
+  and so the FROZEN span rules are enforced (strict ascending order,
+  non-overlapping, non-duplicate, primitively valid intervals, at least one span
+  per page, and ordering total ACROSS the page chain). There is NO "exact-partition
+  rule": gaps are legal and mean "not lost", so the spans do not partition a
+  declared interval. Today's validators reject an
   unattributable manifest outright, so recovery of a corrupt segment cannot be
   reported at all until this lands — it gates 2.21-2.28.
 - [ ] 2.21 **Scope generations to lanes and freeze one identity per lane.** Bind
@@ -740,18 +1059,35 @@
   their own frozen identity. Test concurrent lanes, per-lane rotation isolation,
   and that rotation is retryable while unauthorized identity is permanent.
 - [ ] 2.22 **Bind attribution to the accepted record in the spool
-  (`usp2-05b-spool-attribution`; needs 2.10 and 2.21).** FIRST verify the SEMANTIC
+  (`usp2-05b-spool-attribution`; needs 1.3, 2.10 and 2.21).** INVOKE the shared
+  validated join implemented in 1.3 rather than restating its rules here. FIRST verify the SEMANTIC
   JOIN, field by field, refusing the append as a PERMANENT error on any mismatch
   and never storing a mismatch as unattributable: attribution
   `contract_bundle_sha256` == the record's `EdgeOutputContractRef` bundle digest;
   `producer_assignment_id`/`run_id`/`run_shard` == its `EdgeProducerContext`;
-  `authority_epoch` and scope == its production and source claims; and for ACTIVE
-  attribution `range_sha256` == the signed source range or the frozen
-  contract-owned range derivation. THEN persist a sequence -> `RecoveryAttribution`
+`authority_epoch` == each APPLICABLE claim;
+  `production_scope_id` + `scope_sha256` == the PRODUCTION scope ONLY;
+  `source_scope_id` + `source_scope_sha256` == the SOURCE scope, compared ONLY when
+  a source authorization is present -- source presence is INDEPENDENT of the
+  ACTIVE/PASSIVE classification, and `ATTRIBUTED_PASSIVE` does NOT imply absent
+  source authorization (recovery-control work is source-authorized with no produced
+  range). Do NOT invent source claims to satisfy a comparison; for
+  correlation, the per-variant operands the body actually carries (NOT a
+  `run_id == context_id` equality, which is false); the attribution's SOURCE
+  IDENTITY -- signed source KIND, `context_id`, `source_scope_id`, and
+  `source_scope_sha256`, or their JOINT ABSENCE -- == the record's signed source
+  authorization, rejecting partial combinations (ONE scope member cannot satisfy
+  both sides: the canonical accepted record has production `digest32(0x75)` against
+  source `sweepRangeSha()`); and for ACTIVE attribution
+  `range_sha256` == the signed source range or the frozen contract-owned range
+  derivation. THEN persist a sequence -> `RecoveryAttribution`
   relation under the FROZEN local binding grammar (own domain literal, numeric
-  version, ordered transcript, active/passive discriminant, and lane/spool
-  generation identity alongside sequence, `event_id`, record hash, and the
-  complete attribution tuple);
+  version, ordered transcript, active/passive discriminant, and the generation's
+  TRUST NAMESPACE -- `network_scope_id` AND the authenticated agent identity, which
+  neither lane nor spool generation subsumes -- alongside lane/spool generation
+  identity, sequence, `event_id`, record hash, and the complete attribution tuple
+  including both logical scope IDs; follow the EXACT transcript in the spec rather
+  than this summary);
   checksum it independently of `record_bytes`; and make it readable when the
   record segment is corrupt. Dictionary/RLE encoding per segment is allowed. Both
   the record and its bound attribution MUST pass one durability barrier before the
@@ -859,8 +1195,10 @@
   stale-epoch immutable replay only under an exact
   event-ID/`record_sha256`-bound delivery capability and stamp it for audit-only/fenced
   projection.
-- [ ] 3.3 Implement a project-owned JetStream publisher that sends a publish
-  request, derives `Nats-Msg-Id` from trusted delivery identity
+- [ ] 3.3 OPEN CANDIDATE PR: **#4733** (`usp-19`, base `usp-01-proposal`) --
+  awaiting review, NOT merged. Check it before starting: duplicating it is how the
+  earlier 22-PR chain accumulated. Implement a project-owned JetStream publisher
+  that sends a publish request, derives `Nats-Msg-Id` from trusted delivery identity
   (`authenticated_agent_id` + spool ID/sequence -- the spool IS the lane), the delivery
   frame's exact-record checksum `record_sha256`,
   and the immutable semantic digest -- so a slot reused with different bytes gets
@@ -1133,8 +1471,31 @@
   `(network_scope, execution)` dirty-row update per batch. Emit deterministic immutable
   observation events; generate lifecycle transitions only through an event-time
   watermark reconciler with explicit provisional and late-correction semantics.
-- [ ] 5.6 Implement the idempotent recovery consumer keyed by network-scope/agent/
-  recovery-ID/page/abandoned-spool/lost-range/manifest digest. Persist chained
+- [ ] 5.6 Implement the idempotent recovery consumer with DURABLE KEYS that contain
+  IDENTITY ONLY, never comparison values: the page key is
+  (`network_scope_id`, `agent_id`, `recovery_id`, `page_index`) and it COMPARES one
+  fixed page digest; the recovery key is (`network_scope_id`, `agent_id`,
+  `recovery_id`) and it COMPARES the COMPLETE immutable tombstone identity --
+  abandoned/prior spool, `new_spool_id`, manifest root, page count, AND the
+  `coarsened` flag, which 1.6a makes derived and validated; a signed field left out
+  of the comparison is the same replay hole as `new_spool_id`.
+  `new_spool_id` is signed by the tombstone scope, so leaving it out lets a
+  same-key replay naming a DIFFERENT destination look identical. Putting the digest or root INTO the key defeats the idempotency it exists
+  for: a replay carrying a different digest would miss the row and INSERT a second
+  one instead of raising an integrity conflict. Broker publication IDs MAY still
+  include content digests, so conflicting bytes reach the consumer at all. Add
+  same-key/different-page-digest, same-key/different-root,
+  same-key/different-new-spool, and same-key/different-coarsened regressions.
+  ALSO OWNED HERE: `RecoveryResolvedV1` replay semantics -- its durable key, what is
+  COMPARED, and the verdict when the same recovery/root arrives with a different
+  `applied_through_sequence` (conflict, monotonic progress, or valid replay), plus
+  whether `resolved_at_unix_nano` participates in the comparison. Calling the
+  consumer idempotent without freezing those is not a definition. This is
+  deliberately NOT frozen in 1.6a: 1.6a freezes the SCALAR'S MEANING, this task
+  owns its replay behaviour. The
+  tenant/agent namespace stays in BOTH keys; the recovery stream is shared. It
+  SHALL NOT be keyed on a singular `lost-range`: after 1.6a the loss is the ordered
+  span union and no single interval describes it. Persist chained
   pages idempotently, validate the bounded terminal copy manifest, then in one
   transaction persist the loss audit, mark affected attempts/ranges partial or
   lost, fence unsafe authority, and enqueue scheduler retry intent before ACK;
