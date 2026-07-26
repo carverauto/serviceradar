@@ -1,0 +1,13 @@
+[package]
+name = "proto_dgraph"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+tonic = { workspace = true }
+prost = { workspace = true }
+
+
+[build-dependencies]
+tonic-build = { workspace = true }
+

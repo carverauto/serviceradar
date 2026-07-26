@@ -38,15 +38,103 @@ rust_library(
         "clone-impls",
         "default",
         "derive",
-        "extra-traits",
-        "fold",
         "full",
         "parsing",
         "printing",
         "proc-macro",
-        "visit",
-        "visit-mut",
-    ],
+    ] + select({
+        "@rules_rust//rust/platform:aarch64-apple-darwin": [
+            "extra-traits",  # aarch64-apple-darwin
+            "fold",  # aarch64-apple-darwin
+            "visit",  # aarch64-apple-darwin
+            "visit-mut",  # aarch64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
+            "extra-traits",  # aarch64-pc-windows-msvc
+            "fold",  # aarch64-pc-windows-msvc
+            "visit",  # aarch64-pc-windows-msvc
+            "visit-mut",  # aarch64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
+            "extra-traits",  # aarch64-unknown-linux-gnu
+            "fold",  # aarch64-unknown-linux-gnu
+            "visit",  # aarch64-unknown-linux-gnu
+            "visit-mut",  # aarch64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
+            "extra-traits",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "fold",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "visit",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "visit-mut",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
+            "extra-traits",  # arm-unknown-linux-gnueabi
+            "fold",  # arm-unknown-linux-gnueabi
+            "visit",  # arm-unknown-linux-gnueabi
+            "visit-mut",  # arm-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:i686-pc-windows-msvc": [
+            "extra-traits",  # i686-pc-windows-msvc
+            "fold",  # i686-pc-windows-msvc
+            "visit",  # i686-pc-windows-msvc
+            "visit-mut",  # i686-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
+            "extra-traits",  # i686-unknown-linux-gnu
+            "fold",  # i686-unknown-linux-gnu
+            "visit",  # i686-unknown-linux-gnu
+            "visit-mut",  # i686-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
+            "extra-traits",  # powerpc-unknown-linux-gnu
+            "fold",  # powerpc-unknown-linux-gnu
+            "visit",  # powerpc-unknown-linux-gnu
+            "visit-mut",  # powerpc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
+            "extra-traits",  # riscv64gc-unknown-linux-gnu
+            "fold",  # riscv64gc-unknown-linux-gnu
+            "visit",  # riscv64gc-unknown-linux-gnu
+            "visit-mut",  # riscv64gc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
+            "extra-traits",  # s390x-unknown-linux-gnu
+            "fold",  # s390x-unknown-linux-gnu
+            "visit",  # s390x-unknown-linux-gnu
+            "visit-mut",  # s390x-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-darwin": [
+            "extra-traits",  # x86_64-apple-darwin
+            "fold",  # x86_64-apple-darwin
+            "visit",  # x86_64-apple-darwin
+            "visit-mut",  # x86_64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
+            "extra-traits",  # x86_64-pc-windows-msvc
+            "fold",  # x86_64-pc-windows-msvc
+            "visit",  # x86_64-pc-windows-msvc
+            "visit-mut",  # x86_64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
+            "extra-traits",  # x86_64-unknown-freebsd
+            "fold",  # x86_64-unknown-freebsd
+            "visit",  # x86_64-unknown-freebsd
+            "visit-mut",  # x86_64-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
+            "extra-traits",  # x86_64-unknown-linux-gnu
+            "fold",  # x86_64-unknown-linux-gnu
+            "visit",  # x86_64-unknown-linux-gnu
+            "visit-mut",  # x86_64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
+            "extra-traits",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "fold",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "visit",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "visit-mut",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+        ],
+        "//conditions:default": [],
+    }),
     crate_root = "src/lib.rs",
     edition = "2021",
     rustc_env_files = [

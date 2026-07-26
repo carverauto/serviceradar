@@ -103,14 +103,14 @@ alias(
 )
 
 alias(
-    name = "async-nats-0.49.1",
-    actual = "//third_party/crates/async-nats-0.49.1:async_nats",
+    name = "async-nats-0.50.0",
+    actual = "//third_party/crates/async-nats-0.50.0:async_nats",
     tags = ["manual"],
 )
 
 alias(
     name = "async-nats",
-    actual = "//third_party/crates/async-nats-0.49.1:async_nats",
+    actual = "//third_party/crates/async-nats-0.50.0:async_nats",
     tags = ["manual"],
 )
 
@@ -811,6 +811,42 @@ alias(
 )
 
 alias(
+    name = "prost-types-0.14.4",
+    actual = "//third_party/crates/prost-types-0.14.4:prost_types",
+    tags = ["manual"],
+)
+
+alias(
+    name = "prost-types",
+    actual = "//third_party/crates/prost-types-0.14.4:prost_types",
+    tags = ["manual"],
+)
+
+alias(
+    name = "protoc-gen-prost-0.5.0",
+    actual = "//third_party/crates/protoc-gen-prost-0.5.0:protoc_gen_prost",
+    tags = ["manual"],
+)
+
+alias(
+    name = "protoc-gen-prost",
+    actual = "//third_party/crates/protoc-gen-prost-0.5.0:protoc_gen_prost",
+    tags = ["manual"],
+)
+
+alias(
+    name = "protoc-gen-tonic-0.5.0",
+    actual = "//third_party/crates/protoc-gen-tonic-0.5.0:protoc_gen_tonic",
+    tags = ["manual"],
+)
+
+alias(
+    name = "protoc-gen-tonic",
+    actual = "//third_party/crates/protoc-gen-tonic-0.5.0:protoc_gen_tonic",
+    tags = ["manual"],
+)
+
+alias(
     name = "quick-xml-0.41.0",
     actual = "//third_party/crates/quick-xml-0.41.0:quick_xml",
     tags = ["manual"],
@@ -1407,5 +1443,18 @@ alias(
 alias(
     name = "zeroize",
     actual = "//third_party/crates/zeroize-1.8.2:zeroize",
+    tags = ["manual"],
+)
+
+# Binaries
+alias(
+    name = "protoc-gen-prost__protoc-gen-prost",
+    actual = "//third_party/crates/protoc-gen-prost-0.5.0:protoc-gen-prost__bin",
+    tags = ["manual"],
+)
+
+alias(
+    name = "protoc-gen-tonic__protoc-gen-tonic",
+    actual = "//third_party/crates/protoc-gen-tonic-0.5.0:protoc-gen-tonic__bin",
     tags = ["manual"],
 )

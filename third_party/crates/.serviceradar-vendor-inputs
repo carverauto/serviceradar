@@ -1,5 +1,5 @@
-FILE:@@//Cargo.lock e10708f64f8afe9a1b86c1762e9d25b65ea79e8ba1cd68ae615bb2b33230092f
-FILE:@@//Cargo.toml 5519ce288bb6871262c9ceb2db46ac3db230cd64679523c3d3fb14b2c225985c
+FILE:@@//Cargo.lock 635b6c0153d63a9d63d9a4c40dc62b18478499e3ed44dc155c31ebb5b35aa432
+FILE:@@//Cargo.toml 0ac5eb7aa939a2f247513318f0a2dc2287218e12bab0a95ece9ebd311ec42764
 FILE:@@//integration_tests/srql/Cargo.toml c047a421087d35281c3161a948100f0c082c988ecd5a18a56f21abfddd707c6a
 FILE:@@//rust/addon-sdk/Cargo.toml c672ef640c69fe506f64d9eee8d4d3bb009b18a8832253de50da5fa115e352dc
 FILE:@@//rust/anomaly-addon/Cargo.toml c0d08b8a7ee8873b17809bd12965225ac2188414ec90f77efcf4bdc7b69e45e4
