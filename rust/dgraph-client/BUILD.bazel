@@ -1,0 +1,11 @@
+load("@rules_rust//rust:defs.bzl", "rust_library")
+load("//third_party/crates:defs.bzl", "all_crate_deps")
+
+
+rust_library(
+    name = "dgraph_client",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = all_crate_deps(normal = True),
+    visibility = ["//visibility:public"],
+)

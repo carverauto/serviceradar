@@ -433,6 +433,12 @@ _NORMAL_DEPENDENCIES = {
             "ultragraph": Label("//third_party/crates/ultragraph-0.9.0:ultragraph"),
         },
     },
+    "rust/dgraph-client": {
+        _COMMON_CONDITION: {
+            "prost": Label("//third_party/crates/prost-0.14.4:prost"),
+            "tonic": Label("//third_party/crates/tonic-0.14.6:tonic"),
+        },
+    },
     "rust/edge-onboarding": {
         _COMMON_CONDITION: {
             "base64": Label("//third_party/crates/base64-0.22.1:base64"),
@@ -863,6 +869,10 @@ _NORMAL_ALIASES = {
         _COMMON_CONDITION: {
         },
     },
+    "rust/dgraph-client": {
+        _COMMON_CONDITION: {
+        },
+    },
     "rust/edge-onboarding": {
         _COMMON_CONDITION: {
         },
@@ -1017,6 +1027,8 @@ _NORMAL_DEV_DEPENDENCIES = {
     },
     "rust/correlation-engine": {
     },
+    "rust/dgraph-client": {
+    },
     "rust/edge-onboarding": {
         _COMMON_CONDITION: {
             "tempfile": Label("//third_party/crates/tempfile-3.27.0:tempfile"),
@@ -1141,6 +1153,8 @@ _NORMAL_DEV_ALIASES = {
     },
     "rust/correlation-engine": {
     },
+    "rust/dgraph-client": {
+    },
     "rust/edge-onboarding": {
         _COMMON_CONDITION: {
         },
@@ -1255,6 +1269,8 @@ _PROC_MACRO_DEPENDENCIES = {
             "async-trait": Label("//third_party/crates/async-trait-0.1.89:async_trait"),
         },
     },
+    "rust/dgraph-client": {
+    },
     "rust/edge-onboarding": {
     },
     "rust/fieldsurvey-sidekick": {
@@ -1353,6 +1369,8 @@ _PROC_MACRO_ALIASES = {
     },
     "rust/correlation-engine": {
     },
+    "rust/dgraph-client": {
+    },
     "rust/edge-onboarding": {
     },
     "rust/fieldsurvey-sidekick": {
@@ -1435,6 +1453,8 @@ _PROC_MACRO_DEV_DEPENDENCIES = {
     "rust/config-bootstrap": {
     },
     "rust/correlation-engine": {
+    },
+    "rust/dgraph-client": {
     },
     "rust/edge-onboarding": {
     },
@@ -1524,6 +1544,8 @@ _PROC_MACRO_DEV_ALIASES = {
         },
     },
     "rust/correlation-engine": {
+    },
+    "rust/dgraph-client": {
     },
     "rust/edge-onboarding": {
         _COMMON_CONDITION: {
@@ -1635,6 +1657,8 @@ _BUILD_DEPENDENCIES = {
     "rust/config-bootstrap": {
     },
     "rust/correlation-engine": {
+    },
+    "rust/dgraph-client": {
     },
     "rust/edge-onboarding": {
     },
@@ -1757,6 +1781,8 @@ _BUILD_ALIASES = {
     },
     "rust/correlation-engine": {
     },
+    "rust/dgraph-client": {
+    },
     "rust/edge-onboarding": {
     },
     "rust/fieldsurvey-sidekick": {
@@ -1860,6 +1886,8 @@ _BUILD_PROC_MACRO_DEPENDENCIES = {
     },
     "rust/correlation-engine": {
     },
+    "rust/dgraph-client": {
+    },
     "rust/edge-onboarding": {
     },
     "rust/fieldsurvey-sidekick": {
@@ -1942,6 +1970,8 @@ _BUILD_PROC_MACRO_ALIASES = {
     "rust/config-bootstrap": {
     },
     "rust/correlation-engine": {
+    },
+    "rust/dgraph-client": {
     },
     "rust/edge-onboarding": {
     },

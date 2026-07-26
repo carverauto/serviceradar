@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "proto/dgraph",
+    "rust/dgraph-client",
     "rust/kvutil",
     "rust/config-bootstrap",
     "rust/edge-onboarding",
