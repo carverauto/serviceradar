@@ -4,10 +4,13 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadarWebNGWeb.SRQL.Builder
+  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNGWeb.TraceLive.Show
 
   @recent_window "last_1h"
   @recent_limit 60
+  @srql_default_limit 20
 
   @impl true
   def mount(_params, _session, socket) do
@@ -19,18 +22,22 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
      |> assign(:recent, [])
      |> assign(:histogram, nil)
      |> assign(:error, nil)
-     |> assign(:recent_window, @recent_window)}
+     |> assign(:recent_window, @recent_window)
+     |> assign(:limit, @srql_default_limit)
+     |> SRQLPage.init("otel_metrics", default_limit: @srql_default_limit)}
   end
 
   @impl true
-  def handle_params(%{"span_id" => span_id}, _uri, socket) do
+  def handle_params(%{"span_id" => span_id}, uri, socket) do
     srql = srql_module()
     span_id = span_id |> to_string() |> String.trim()
+    detail_query = detail_query_for_span(span_id)
 
     socket =
       socket
       |> assign(:span_id, span_id)
       |> load_metric(srql, span_id)
+      |> prefill_srql_bar(detail_query, uri, span_id)
 
     {:noreply, socket}
   end
@@ -40,9 +47,52 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
   end
 
   @impl true
+  def handle_event("srql_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
+  end
+
+  def handle_event("srql_submit", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_submit", params,
+       fallback_path: "/observability",
+       extra_params: %{"tab" => "metrics"}
+     )}
+  end
+
+  def handle_event("srql_builder_toggle", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "otel_metrics")}
+  end
+
+  def handle_event("srql_builder_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", params)}
+  end
+
+  def handle_event("srql_builder_apply", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
+  end
+
+  def handle_event("srql_builder_run", _params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_run", %{},
+       fallback_path: "/observability",
+       extra_params: %{"tab" => "metrics"}
+     )}
+  end
+
+  def handle_event("srql_builder_add_filter", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "otel_metrics")}
+  end
+
+  def handle_event("srql_builder_remove_filter", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "otel_metrics")}
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <.header>
           Metric
@@ -268,8 +318,51 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
     """
   end
 
+  # Query that pinpoints the open metric span (SRQL chrome / re-run from detail).
+  defp detail_query_for_span(span_id) when is_binary(span_id) and span_id != "" do
+    ~s|in:otel_metrics span_id:"#{escape_srql(span_id)}" time:last_24h sort:timestamp:desc|
+  end
+
+  defp detail_query_for_span(_), do: "in:otel_metrics time:last_24h sort:timestamp:desc"
+
+  defp prefill_srql_bar(socket, query, uri, span_id) when is_binary(query) do
+    page_path =
+      case uri do
+        path when is_binary(path) and path != "" ->
+          URI.parse(uri).path || "/observability/metrics/#{span_id}"
+
+        _ ->
+          "/observability/metrics/#{span_id}"
+      end
+
+    srql =
+      socket.assigns.srql
+      |> Map.merge(%{
+        enabled: true,
+        entity: "otel_metrics",
+        query: query,
+        draft: query,
+        page_path: page_path || "/observability/metrics/#{span_id}",
+        error: nil,
+        loading: false
+      })
+      |> sync_builder_state(query)
+
+    assign(socket, :srql, srql)
+  end
+
+  defp sync_builder_state(srql, query) do
+    case Builder.parse(query) do
+      {:ok, builder} ->
+        Map.merge(srql, %{builder: builder, builder_supported: true, builder_sync: true})
+
+      {:error, _reason} ->
+        Map.merge(srql, %{builder_supported: false, builder_sync: false})
+    end
+  end
+
   defp load_metric(socket, srql, span_id) do
-    query = "in:otel_metrics span_id:\"#{escape_srql(span_id)}\" sort:timestamp:desc limit:1"
+    query = detail_query_for_span(span_id) <> " limit:1"
 
     case srql.query(query) do
       {:ok, %{"results" => [%{} = metric | _]}} ->
