@@ -65,6 +65,7 @@ go_library(
         "plugin_runtime_media.go",
         "plugin_runtime_memory.go",
         "plugin_runtime_network.go",
+        "plugin_runtime_oauth.go",
         "plugin_runtime_telemetry.go",
         "plugin_runtime_wazero.go",
         "proxmox_console.go",
