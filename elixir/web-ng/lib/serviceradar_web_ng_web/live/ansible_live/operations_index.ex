@@ -152,7 +152,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
         :if={@history_loaded and @operation_count == 0 and is_nil(@history_error)}
         id="secure-operations-empty"
         role="status"
-        class="rounded-box border border-dashed border-sr-line p-8 text-center text-sm text-sr-muted"
+        class="rounded-sr-surface border border-dashed border-sr-line p-8 text-center text-sm text-sr-muted"
       >
         No secure operations match the current filter.
       </div>

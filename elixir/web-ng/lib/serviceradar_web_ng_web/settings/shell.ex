@@ -324,41 +324,38 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
         <li :for={{crumb, index} <- Enum.with_index(@breadcrumbs)}>
           <%= cond do %>
             <% index == @last_index and @views != [] -> %>
-              <div class="dropdown dropdown-bottom">
-                <div
-                  tabindex="0"
-                  role="button"
-                  class="inline-flex items-center gap-1 font-medium text-accent cursor-pointer"
-                  title="Jump to a sibling view"
-                >
-                  <span class="truncate">{crumb.label}</span>
-                  <.icon name="hero-chevron-down" class="size-3.5" />
-                </div>
-                <div
-                  tabindex="0"
-                  class="dropdown-content z-[60] mt-1 w-64 rounded-lg border border-sr-line bg-sr-surface shadow-lg"
-                >
-                  <div class="px-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-sr-muted">
+              <.ui_dropdown align="start" menu_class="z-[60] w-64 max-w-64">
+                <:trigger>
+                  <span
+                    class="inline-flex cursor-pointer items-center gap-1 font-medium text-sr-brand"
+                    title="Jump to a sibling view"
+                  >
+                    <span class="truncate">{crumb.label}</span>
+                    <.icon name="hero-chevron-down" class="size-3.5" />
+                  </span>
+                </:trigger>
+                <:item>
+                  <span class="px-1 text-[11px] font-semibold uppercase tracking-wide text-sr-muted">
                     Navigate Views
-                  </div>
-                  <ul class="menu w-full p-2">
-                    <li :for={view <- @views}>
-                      <.link
-                        navigate={view.route}
-                        class={active_view?(@active_view, view) && "text-accent font-semibold"}
-                      >
-                        <.icon name={view.icon} class="size-4 shrink-0" />
-                        <span class="truncate">{view.title}</span>
-                        <.icon
-                          :if={active_view?(@active_view, view)}
-                          name="hero-check"
-                          class="size-4 ml-auto text-accent"
-                        />
-                      </.link>
-                    </li>
-                  </ul>
-                </div>
-              </div>
+                  </span>
+                </:item>
+                <:item :for={view <- @views}>
+                  <.link
+                    navigate={view.route}
+                    class={
+                      active_view?(@active_view, view) && "font-semibold text-sr-brand"
+                    }
+                  >
+                    <.icon name={view.icon} class="size-4 shrink-0" />
+                    <span class="truncate">{view.title}</span>
+                    <.icon
+                      :if={active_view?(@active_view, view)}
+                      name="hero-check"
+                      class="ml-auto size-4 text-sr-brand"
+                    />
+                  </.link>
+                </:item>
+              </.ui_dropdown>
             <% crumb.route -> %>
               <.link navigate={crumb.route}>{crumb.label}</.link>
             <% true -> %>

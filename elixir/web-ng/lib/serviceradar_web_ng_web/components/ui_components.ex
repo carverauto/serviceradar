@@ -225,7 +225,9 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   end
 
   attr :align, :string, default: "end", values: ~w(start end)
+  attr :placement, :string, default: "bottom", values: ~w(bottom top)
   attr :class, :any, default: nil
+  attr :menu_class, :any, default: nil
   slot :trigger, required: true
   slot :item, required: true
 
@@ -245,14 +247,17 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
       </summary>
       <ul
         class={[
-          "sr-ui-dropdown-menu absolute z-[var(--sr-z-menu)] mt-1.5 grid min-w-44 w-max max-w-64 gap-0.5 rounded-sr-surface border border-sr-line bg-sr-raised p-1.5 shadow-sr-raised",
+          "sr-ui-dropdown-menu absolute z-[var(--sr-z-menu)] grid min-w-44 w-max max-w-64 gap-0.5 rounded-sr-surface border border-sr-line bg-sr-raised p-1.5 shadow-sr-raised",
+          @placement == "bottom" && "top-full mt-1.5",
+          @placement == "top" && "bottom-full mb-1.5",
           @align == "end" && "right-0 origin-top-right",
-          @align == "start" && "left-0 origin-top-left"
+          @align == "start" && "left-0 origin-top-left",
+          @menu_class
         ]}
         role="menu"
       >
         <%= for item <- @item do %>
-          <li class="min-w-0 [&>a]:flex [&>a]:items-center [&>a]:gap-2 [&>a]:rounded-sr-control [&>a]:px-3 [&>a]:py-2 [&>a]:text-sm [&>a]:text-sr-ink [&>a]:outline-none [&>a]:hover:bg-sr-subtle [&>a]:focus-visible:ring-2 [&>a]:focus-visible:ring-sr-focus [&>button]:flex [&>button]:w-full [&>button]:items-center [&>button]:gap-2 [&>button]:rounded-sr-control [&>button]:px-3 [&>button]:py-2 [&>button]:text-left [&>button]:text-sm [&>button]:text-sr-ink [&>button]:outline-none [&>button]:hover:bg-sr-subtle">
+          <li class="min-w-0 [&>a]:flex [&>a]:items-center [&>a]:gap-2 [&>a]:rounded-sr-control [&>a]:px-3 [&>a]:py-2 [&>a]:text-sm [&>a]:text-sr-ink [&>a]:outline-none [&>a]:hover:bg-sr-subtle [&>a]:focus-visible:ring-2 [&>a]:focus-visible:ring-sr-focus [&>button]:flex [&>button]:w-full [&>button]:items-center [&>button]:gap-2 [&>button]:rounded-sr-control [&>button]:px-3 [&>button]:py-2 [&>button]:text-left [&>button]:text-sm [&>button]:text-sr-ink [&>button]:outline-none [&>button]:hover:bg-sr-subtle [&>span]:flex [&>span]:w-full [&>span]:items-center [&>span]:gap-2 [&>span]:rounded-sr-control [&>span]:px-3 [&>span]:py-2 [&>span]:text-sm [&>span]:text-sr-muted">
             {render_slot(item)}
           </li>
         <% end %>

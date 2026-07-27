@@ -388,24 +388,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
         <.success_rate_badge execution={@execution} />
       </td>
       <td>
-        <div :if={@has_metrics} class="dropdown dropdown-end">
-          <div
-            tabindex="0"
-            role="button"
-            class="inline-flex min-h-7 cursor-pointer items-center justify-center rounded-sr-control px-2 text-xs font-semibold text-sr-muted hover:bg-sr-subtle hover:text-sr-ink"
-          >
-            <.icon name="hero-chart-bar" class="size-4" />
+        <details :if={@has_metrics} class="sr-ui-dropdown group relative inline-block text-left">
+          <summary class="sr-ui-dropdown-trigger list-none cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-sr-focus [&::-webkit-details-marker]:hidden">
+            <span class="pointer-events-none inline-flex items-center">
+              <.ui_icon_button size="xs" variant="ghost" aria-label="Scanner metrics">
+                <.icon name="hero-chart-bar" class="size-4" />
+              </.ui_icon_button>
+            </span>
+          </summary>
+          <div class="absolute right-0 z-[var(--sr-z-menu)] mt-1.5 w-80 rounded-sr-surface border border-sr-line bg-sr-raised p-3 shadow-sr-raised">
+            <h3 class="mb-2 text-sm font-semibold text-sr-ink">Scanner Metrics</h3>
+            <.scanner_metrics_grid metrics={@execution.scanner_metrics} />
           </div>
-          <div
-            tabindex="0"
-            class="dropdown-content z-[1] card card-compact w-80 p-2 shadow bg-sr-surface border border-sr-line"
-          >
-            <div class="card-body p-2">
-              <h3 class="text-sm font-semibold mb-2">Scanner Metrics</h3>
-              <.scanner_metrics_grid metrics={@execution.scanner_metrics} />
-            </div>
-          </div>
-        </div>
+        </details>
         <span :if={!@has_metrics} class="text-sr-muted text-xs">—</span>
       </td>
     </tr>

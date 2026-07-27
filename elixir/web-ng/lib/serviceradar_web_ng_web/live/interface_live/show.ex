@@ -1205,7 +1205,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                     min={if @form[:threshold_type].value == "percentage", do: "0", else: nil}
                     max={if @form[:threshold_type].value == "percentage", do: "100", else: nil}
                     step={if @form[:threshold_type].value == "percentage", do: "1", else: "any"}
-                    class={ui_field_class(size: "sm", class: "w-full join-item")}
+                    class={ui_field_class(size: "sm", class: "w-full sr-ui-join-item")}
                   />
                   <span class="inline-flex min-h-9 items-center rounded-r-sr-control border border-l-0 border-sr-line bg-sr-subtle px-3 text-sm text-sr-muted">
                     {threshold_unit(@form[:threshold_type].value)}

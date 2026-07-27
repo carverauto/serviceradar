@@ -309,7 +309,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
 
   defp diagnostics(assigns) do
     ~H"""
-    <section class="rounded-box border border-sr-line p-3" aria-label={"#{@subject} diagnostics"}>
+    <section class="rounded-sr-surface border border-sr-line p-3" aria-label={"#{@subject} diagnostics"}>
       <h3 class="text-xs font-semibold uppercase tracking-wide text-sr-muted">
         Safe diagnostics
       </h3>
@@ -354,7 +354,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
 
   defp evidence_card(assigns) do
     ~H"""
-    <div class="rounded-box border border-sr-line p-3 min-w-0">
+    <div class="rounded-sr-surface border border-sr-line p-3 min-w-0">
       <p class="text-xs uppercase tracking-wide text-sr-muted">{@label}</p>
       <p class={["mt-1 text-sm break-all", @mono && "font-mono"]}>{display(@value)}</p>
     </div>

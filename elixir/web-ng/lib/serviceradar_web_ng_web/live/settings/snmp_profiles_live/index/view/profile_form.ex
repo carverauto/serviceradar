@@ -519,45 +519,43 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
           </div>
           
     <!-- Template Dropdown -->
-          <div class="dropdown dropdown-bottom w-full max-w-md">
-            <div
-              tabindex="0"
-              role="button"
-              class="inline-flex min-h-9 w-full cursor-pointer items-center justify-between rounded-sr-control border border-sr-line-strong bg-transparent px-3 text-sm font-semibold text-sr-ink hover:border-sr-line-hover hover:bg-sr-subtle"
-            >
-              <span class="inline-flex items-center">
-                <.icon name="hero-plus" class="mr-2 size-4" /> Add OID Template
-              </span>
-              <.icon name="hero-chevron-down" class="size-4" />
-            </div>
-            <ul
-              tabindex="0"
-              class="dropdown-content menu bg-sr-surface rounded-box z-[1] w-full max-h-60 overflow-y-auto p-2 shadow border border-sr-line"
-            >
-              <li :if={@available_templates == []}>
-                <span class="text-sr-muted">No templates available</span>
-              </li>
-              <%= for template <- @available_templates do %>
-                <% selected = template.id in @selected_template_ids %>
-                <li>
-                  <button
-                    type="button"
-                    class={"flex items-center justify-between #{if selected, do: "bg-sr-brand/10"}"}
-                    phx-click="toggle_template"
-                    phx-value-id={template.id}
-                  >
-                    <div class="flex flex-col items-start">
-                      <span class="font-medium">{template.name}</span>
-                      <span class="text-xs text-sr-muted">
-                        {template.vendor} · {template.oid_count} OID(s)
-                      </span>
-                    </div>
-                    <.icon :if={selected} name="hero-check" class="size-4 text-sr-brand" />
-                  </button>
-                </li>
-              <% end %>
-            </ul>
-          </div>
+          <.ui_dropdown
+            align="start"
+            class="w-full max-w-md"
+            menu_class="w-full max-w-md min-w-full max-h-60 overflow-y-auto"
+          >
+            <:trigger>
+              <.ui_button type="button" size="sm" variant="outline" class="w-full justify-between">
+                <span class="inline-flex items-center">
+                  <.icon name="hero-plus" class="mr-2 size-4" /> Add OID Template
+                </span>
+                <.icon name="hero-chevron-down" class="size-4" />
+              </.ui_button>
+            </:trigger>
+            <:item :if={@available_templates == []}>
+              <span>No templates available</span>
+            </:item>
+            <:item :for={template <- @available_templates}>
+              <% selected = template.id in @selected_template_ids %>
+              <button
+                type="button"
+                class={[
+                  "flex w-full items-center justify-between",
+                  selected && "bg-sr-brand/10"
+                ]}
+                phx-click="toggle_template"
+                phx-value-id={template.id}
+              >
+                <div class="flex flex-col items-start">
+                  <span class="font-medium">{template.name}</span>
+                  <span class="text-xs text-sr-muted">
+                    {template.vendor} · {template.oid_count} OID(s)
+                  </span>
+                </div>
+                <.icon :if={selected} name="hero-check" class="size-4 text-sr-brand" />
+              </button>
+            </:item>
+          </.ui_dropdown>
 
           <p class="text-xs text-sr-muted">
             OID templates define which SNMP metrics (OIDs) to poll. Select one or more templates to monitor

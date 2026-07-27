@@ -75,10 +75,10 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   defp standard_app(assigns) do
     ~H"""
-    <div class="drawer lg:drawer-open bg-sr-canvas text-sr-ink">
-      <input id="sr-sidebar" type="checkbox" class="drawer-toggle" />
+    <div class="sr-ui-drawer lg:sr-ui-drawer-open bg-sr-canvas text-sr-ink">
+      <input id="sr-sidebar" type="checkbox" class="sr-ui-drawer-toggle" />
 
-      <div class="drawer-content flex min-h-screen flex-col">
+      <div class="sr-ui-drawer-content flex min-h-screen flex-col">
         <%!-- Public shell topbar aligned with marketing/control brand chrome --%>
         <header id="standard-topbar" class="sr-public-topbar">
           <div class="sr-public-topbar-inner flex-col gap-2 sm:flex-row sm:items-center">
@@ -164,8 +164,8 @@ defmodule ServiceRadarWebNGWeb.Layouts do
         <.flash_group flash={@flash} />
       </div>
 
-      <div :if={@signed_in?} class="drawer-side z-30 overflow-visible">
-        <label for="sr-sidebar" class="drawer-overlay" aria-label="Close navigation"></label>
+      <div :if={@signed_in?} class="sr-ui-drawer-side z-30 overflow-visible">
+        <label for="sr-sidebar" class="sr-ui-drawer-overlay" aria-label="Close navigation"></label>
         <aside class="flex min-h-full w-48 flex-col overflow-visible border-r border-sr-line bg-sr-surface">
           <div class="p-3">
             <.link href={~p"/"} class="sr-public-brand mb-4">
@@ -272,62 +272,46 @@ defmodule ServiceRadarWebNGWeb.Layouts do
             </ul>
           </div>
 
-          <div class="mt-auto p-3 border-t border-sr-line">
-            <div class="dropdown dropdown-top w-full">
-              <div
-                tabindex="0"
-                role="button"
-                class="flex items-center gap-2 p-2 rounded-lg hover:bg-sr-subtle cursor-pointer w-full"
-              >
-                <div class="avatar avatar-placeholder">
-                  <div class="bg-neutral text-neutral-content w-8 rounded-full">
-                    <span class="text-xs">{user_initials(@current_scope.user.email)}</span>
+          <div class="mt-auto border-t border-sr-line p-3">
+            <.ui_dropdown
+              align="start"
+              placement="top"
+              class="w-full"
+              menu_class="w-56 max-w-56 left-0 right-auto"
+            >
+              <:trigger>
+                <div class="flex w-full cursor-pointer items-center gap-2 rounded-lg p-2 hover:bg-sr-subtle">
+                  <div class="flex size-8 items-center justify-center rounded-full bg-sr-subtle text-xs font-semibold text-sr-ink">
+                    {user_initials(@current_scope.user.email)}
                   </div>
+                  <.icon name="hero-chevron-up" class="ml-auto size-3 text-sr-muted" />
                 </div>
-                <.icon name="hero-chevron-up" class="size-3 text-sr-muted ml-auto" />
-              </div>
-              <ul
-                tabindex="0"
-                class="dropdown-content menu bg-sr-subtle rounded-box z-10 w-56 p-2 shadow-lg mb-2"
-              >
-                <li :if={@current_scope && @current_scope.user}>
-                  <div class="flex flex-col gap-1">
-                    <span class="text-[10px] uppercase tracking-wider text-sr-muted">
-                      Signed in as
-                    </span>
-                    <span class="text-sm font-medium truncate max-w-[180px]">
-                      {@current_scope.user.email}
-                    </span>
-                    <span class="text-[10px] uppercase tracking-wider text-sr-muted mt-1">
-                      Role
-                    </span>
-                    <span class="text-xs font-medium">
-                      {format_role(@current_scope.user.role)}
-                    </span>
-                  </div>
-                </li>
-                <%!-- Theme toggle hidden; app defaults to dark.
-                <li>
-                  <div class="flex flex-col gap-2">
-                    <span class="text-[10px] uppercase tracking-wider text-sr-muted">
-                      Theme
-                    </span>
-                    <.theme_toggle />
-                  </div>
-                </li>
-                --%>
-                <li>
-                  <.link href={~p"/settings/profile"} class="text-sm">
-                    <.icon name="hero-cog-6-tooth" class="size-4" /> Account
-                  </.link>
-                </li>
-                <li>
-                  <.link href={~p"/users/log-out"} method="delete" class="text-sm">
-                    <.icon name="hero-arrow-right-on-rectangle" class="size-4" /> Log out
-                  </.link>
-                </li>
-              </ul>
-            </div>
+              </:trigger>
+              <:item :if={@current_scope && @current_scope.user}>
+                <div class="flex flex-col gap-1 px-1 py-1">
+                  <span class="text-[10px] uppercase tracking-wider text-sr-muted">
+                    Signed in as
+                  </span>
+                  <span class="max-w-[180px] truncate text-sm font-medium text-sr-ink">
+                    {@current_scope.user.email}
+                  </span>
+                  <span class="mt-1 text-[10px] uppercase tracking-wider text-sr-muted">Role</span>
+                  <span class="text-xs font-medium text-sr-ink">
+                    {format_role(@current_scope.user.role)}
+                  </span>
+                </div>
+              </:item>
+              <:item>
+                <.link href={~p"/settings/profile"}>
+                  <.icon name="hero-cog-6-tooth" class="size-4" /> Account
+                </.link>
+              </:item>
+              <:item>
+                <.link href={~p"/users/log-out"} method="delete">
+                  <.icon name="hero-arrow-right-on-rectangle" class="size-4" /> Log out
+                </.link>
+              </:item>
+            </.ui_dropdown>
           </div>
         </aside>
       </div>

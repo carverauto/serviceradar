@@ -291,71 +291,53 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               </p>
             </div>
             <div class="flex flex-wrap gap-2">
-              <div class="dropdown dropdown-end">
-                <div
-                  tabindex="0"
-                  role="button"
-                  class="inline-flex min-h-9 cursor-pointer items-center justify-center rounded-sr-control px-3 text-sm font-semibold text-sr-muted hover:bg-sr-subtle hover:text-sr-ink"
-                >
-                  New Secret
-                </div>
-                <ul
-                  tabindex="0"
-                  class="dropdown-content menu bg-sr-surface rounded-box z-[1] w-60 p-2 shadow border border-sr-line"
-                >
-                  <li>
-                    <button type="button" phx-click="new_proxmox_secret">Proxmox API Token</button>
-                  </li>
-                  <li>
-                    <button type="button" phx-click="new_api_key_secret">API Key</button>
-                  </li>
-                  <li>
-                    <button type="button" phx-click="new_awx_secret">AWX API Token</button>
-                  </li>
-                  <li>
-                    <button type="button" phx-click="new_username_password_secret">
-                      Username &amp; Password
-                    </button>
-                  </li>
-                  <li>
-                    <button type="button" phx-click="new_ssh_secret">SSH Private Key</button>
-                  </li>
-                </ul>
-              </div>
-              <div class="dropdown dropdown-end">
-                <div
-                  tabindex="0"
-                  role="button"
-                  class="inline-flex min-h-9 cursor-pointer items-center justify-center rounded-sr-control border border-transparent bg-sr-brand px-3 text-sm font-semibold text-sr-on-brand shadow-sr-button hover:bg-sr-brand-strong"
-                >
-                  New Rule
-                </div>
-                <ul
-                  tabindex="0"
-                  class="dropdown-content menu bg-sr-surface rounded-box z-[1] w-60 p-2 shadow border border-sr-line"
-                >
-                  <li>
-                    <.link navigate={~p"/settings/networks/credentials/new"}>Proxmox VE</.link>
-                  </li>
-                  <li>
-                    <.link navigate={~p"/settings/networks/credentials/new?provider=unifi-protect"}>
-                      UniFi Protect
-                    </.link>
-                  </li>
-                  <li>
-                    <.link navigate={~p"/settings/networks/credentials/new?provider=axis"}>
-                      Axis (VAPIX)
-                    </.link>
-                  </li>
-                  <li :for={profile <- @integration_profile_list}>
-                    <.link navigate={
-                      ~p"/settings/networks/credentials/new?provider=#{profile["provider"]}"
-                    }>
-                      {profile["label"]}
-                    </.link>
-                  </li>
-                </ul>
-              </div>
+              <.ui_dropdown align="end" menu_class="w-60 max-w-60">
+                <:trigger>
+                  <.ui_button type="button" size="sm" variant="ghost">New Secret</.ui_button>
+                </:trigger>
+                <:item>
+                  <button type="button" phx-click="new_proxmox_secret">Proxmox API Token</button>
+                </:item>
+                <:item>
+                  <button type="button" phx-click="new_api_key_secret">API Key</button>
+                </:item>
+                <:item>
+                  <button type="button" phx-click="new_awx_secret">AWX API Token</button>
+                </:item>
+                <:item>
+                  <button type="button" phx-click="new_username_password_secret">
+                    Username &amp; Password
+                  </button>
+                </:item>
+                <:item>
+                  <button type="button" phx-click="new_ssh_secret">SSH Private Key</button>
+                </:item>
+              </.ui_dropdown>
+              <.ui_dropdown align="end" menu_class="w-60 max-w-60">
+                <:trigger>
+                  <.ui_button type="button" size="sm" variant="primary">New Rule</.ui_button>
+                </:trigger>
+                <:item>
+                  <.link navigate={~p"/settings/networks/credentials/new"}>Proxmox VE</.link>
+                </:item>
+                <:item>
+                  <.link navigate={~p"/settings/networks/credentials/new?provider=unifi-protect"}>
+                    UniFi Protect
+                  </.link>
+                </:item>
+                <:item>
+                  <.link navigate={~p"/settings/networks/credentials/new?provider=axis"}>
+                    Axis (VAPIX)
+                  </.link>
+                </:item>
+                <:item :for={profile <- @integration_profile_list}>
+                  <.link navigate={
+                    ~p"/settings/networks/credentials/new?provider=#{profile["provider"]}"
+                  }>
+                    {profile["label"]}
+                  </.link>
+                </:item>
+              </.ui_dropdown>
             </div>
           </div>
 

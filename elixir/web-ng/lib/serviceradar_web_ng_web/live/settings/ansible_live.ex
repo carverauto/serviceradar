@@ -556,7 +556,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             falls back automatically.
           </div>
 
-          <fieldset class="fieldset rounded-box border border-sr-line p-3 md:col-span-2">
+          <fieldset class="fieldset rounded-sr-surface border border-sr-line p-3 md:col-span-2">
             <legend class="fieldset-legend">Sync credential</legend>
             <label class="flex items-center justify-between gap-2">
               <span class="text-sm font-medium text-sr-ink">
@@ -614,7 +614,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </fieldset>
 
-          <fieldset class="fieldset rounded-box border border-sr-line p-3 md:col-span-2">
+          <fieldset class="fieldset rounded-sr-surface border border-sr-line p-3 md:col-span-2">
             <legend class="fieldset-legend">Execution credential</legend>
             <select
               id="controller-execution-credential-secret-id"
@@ -648,7 +648,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             </p>
           </fieldset>
 
-          <fieldset class="fieldset rounded-box border border-sr-line p-3 md:col-span-2">
+          <fieldset class="fieldset rounded-sr-surface border border-sr-line p-3 md:col-span-2">
             <legend class="fieldset-legend">Callback credential lifecycle</legend>
             <select
               id="controller-callback-credential-secret-id"

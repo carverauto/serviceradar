@@ -110,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
                 <div class={ui_join_class(class: "w-full")}>
                   <button
                     type="button"
-                    class={"join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "auto")}"}
+                    class={"sr-ui-join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "auto")}"}
                     phx-click="set_zoom_mode"
                     phx-value-mode="auto"
                     title="Auto Focus"
@@ -119,7 +119,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
                   </button>
                   <button
                     type="button"
-                    class={"join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "global")}"}
+                    class={"sr-ui-join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "global")}"}
                     phx-click="set_zoom_mode"
                     phx-value-mode="global"
                     title="World Aggregate"
@@ -128,7 +128,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
                   </button>
                   <button
                     type="button"
-                    class={"join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "regional")}"}
+                    class={"sr-ui-join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "regional")}"}
                     phx-click="set_zoom_mode"
                     phx-value-mode="regional"
                     title="Region Cells"
@@ -137,7 +137,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
                   </button>
                   <button
                     type="button"
-                    class={"join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "local")}"}
+                    class={"sr-ui-join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "local")}"}
                     phx-click="set_zoom_mode"
                     phx-value-mode="local"
                     title="Device Detail"

@@ -748,7 +748,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
               <.ui_button type="submit" size="sm" variant="primary">Run Simulation</.ui_button>
             </.form>
 
-            <div :if={@simulation_result} class="bg-sr-subtle rounded-box p-3 text-sm space-y-2">
+            <div :if={@simulation_result} class="bg-sr-subtle rounded-sr-surface p-3 text-sm space-y-2">
               <div>
                 <span class="font-semibold">Rule:</span> {@simulation_result.classification.rule_id ||
                   "none"}

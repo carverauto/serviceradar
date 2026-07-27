@@ -1095,6 +1095,139 @@ samp,
   font-weight: 600;
 }
 
+/* Drawer shell — brand CSS (mobile off-canvas + sticky desktop side) */
+.sr-ui-drawer,
+.drawer {
+  position: relative;
+  display: grid;
+  width: 100%;
+  grid-auto-columns: max-content auto;
+}
+
+.sr-ui-drawer-content,
+.drawer-content {
+  grid-column-start: 2;
+  grid-row-start: 1;
+  min-width: 0;
+}
+
+.sr-ui-drawer-side,
+.drawer-side {
+  pointer-events: none;
+  visibility: hidden;
+  position: fixed;
+  inset-inline-start: 0;
+  top: 0;
+  z-index: 30;
+  grid-column-start: 1;
+  grid-row-start: 1;
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  grid-template-rows: repeat(1, minmax(0, 1fr));
+  align-items: flex-start;
+  justify-items: start;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  opacity: 0;
+  transition:
+    opacity 0.2s ease-out,
+    visibility 0.25s ease-out;
+  height: 100vh;
+  height: 100dvh;
+}
+
+.sr-ui-drawer-side > .sr-ui-drawer-overlay,
+.sr-ui-drawer-side > .drawer-overlay,
+.drawer-side > .drawer-overlay,
+.drawer-side > .sr-ui-drawer-overlay {
+  position: sticky;
+  top: 0;
+  cursor: pointer;
+  place-self: stretch;
+  background-color: color-mix(in srgb, #020617 55%, transparent);
+}
+
+.sr-ui-drawer-side > *,
+.drawer-side > * {
+  grid-column-start: 1;
+  grid-row-start: 1;
+}
+
+.sr-ui-drawer-side > *:not(.sr-ui-drawer-overlay):not(.drawer-overlay),
+.drawer-side > *:not(.drawer-overlay):not(.sr-ui-drawer-overlay) {
+  will-change: transform;
+  transition: transform 0.25s ease-out;
+  transform: translateX(-100%);
+}
+
+.sr-ui-drawer-toggle,
+.drawer-toggle {
+  position: fixed;
+  height: 0;
+  width: 0;
+  appearance: none;
+  opacity: 0;
+}
+
+.sr-ui-drawer-toggle:checked ~ .sr-ui-drawer-side,
+.sr-ui-drawer-toggle:checked ~ .drawer-side,
+.drawer-toggle:checked ~ .drawer-side,
+.drawer-toggle:checked ~ .sr-ui-drawer-side {
+  pointer-events: auto;
+  visibility: visible;
+  overflow-y: auto;
+  opacity: 1;
+}
+
+.sr-ui-drawer-toggle:checked ~ .sr-ui-drawer-side > *:not(.sr-ui-drawer-overlay):not(.drawer-overlay),
+.sr-ui-drawer-toggle:checked ~ .drawer-side > *:not(.drawer-overlay):not(.sr-ui-drawer-overlay),
+.drawer-toggle:checked ~ .drawer-side > *:not(.drawer-overlay):not(.sr-ui-drawer-overlay),
+.drawer-toggle:checked ~ .sr-ui-drawer-side > *:not(.sr-ui-drawer-overlay):not(.drawer-overlay) {
+  transform: translateX(0);
+}
+
+/* Desktop always-open sidebar */
+@media (min-width: 1024px) {
+  .lg\:sr-ui-drawer-open > .sr-ui-drawer-side,
+  .lg\:sr-ui-drawer-open > .drawer-side,
+  .lg\:drawer-open > .drawer-side,
+  .lg\:drawer-open > .sr-ui-drawer-side {
+    pointer-events: auto;
+    visibility: visible;
+    position: sticky;
+    display: block;
+    width: auto;
+    height: 100vh;
+    height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: auto;
+    opacity: 1;
+  }
+
+  .lg\:sr-ui-drawer-open > .sr-ui-drawer-toggle,
+  .lg\:sr-ui-drawer-open > .drawer-toggle,
+  .lg\:drawer-open > .drawer-toggle,
+  .lg\:drawer-open > .sr-ui-drawer-toggle {
+    display: none;
+  }
+
+  .lg\:sr-ui-drawer-open > .sr-ui-drawer-side > .sr-ui-drawer-overlay,
+  .lg\:sr-ui-drawer-open > .sr-ui-drawer-side > .drawer-overlay,
+  .lg\:sr-ui-drawer-open > .drawer-side > .drawer-overlay,
+  .lg\:drawer-open > .drawer-side > .drawer-overlay,
+  .lg\:drawer-open > .drawer-side > .sr-ui-drawer-overlay {
+    display: none;
+  }
+
+  .lg\:sr-ui-drawer-open > .sr-ui-drawer-side > *:not(.sr-ui-drawer-overlay):not(.drawer-overlay),
+  .lg\:sr-ui-drawer-open > .drawer-side > *:not(.drawer-overlay):not(.sr-ui-drawer-overlay),
+  .lg\:drawer-open > .drawer-side > *:not(.drawer-overlay):not(.sr-ui-drawer-overlay),
+  .lg\:drawer-open > .sr-ui-drawer-side > *:not(.sr-ui-drawer-overlay):not(.drawer-overlay) {
+    transform: none;
+  }
+}
+
 /* Daisy-style details/summary dropdown (ops profile / settings crumbs) */
 .dropdown {
   position: relative;
@@ -1151,15 +1284,19 @@ details.dropdown[open] > .dropdown-content {
 }
 
 .join > :where(.join-item:not(:first-child)),
+.join > :where(.sr-ui-join-item:not(:first-child)),
 .join > :where(*:not(:first-child) .join-item),
-.join > :where(*:not(:first-child)):not(.join-item) {
+.join > :where(*:not(:first-child) .sr-ui-join-item),
+.join > :where(*:not(:first-child)):not(.join-item):not(.sr-ui-join-item) {
   border-start-start-radius: 0 !important;
   border-end-start-radius: 0 !important;
 }
 
 .join > :where(.join-item:not(:last-child)),
+.join > :where(.sr-ui-join-item:not(:last-child)),
 .join > :where(*:not(:last-child) .join-item),
-.join > :where(*:not(:last-child)):not(.join-item) {
+.join > :where(*:not(:last-child) .sr-ui-join-item),
+.join > :where(*:not(:last-child)):not(.join-item):not(.sr-ui-join-item) {
   border-start-end-radius: 0 !important;
   border-end-end-radius: 0 !important;
 }

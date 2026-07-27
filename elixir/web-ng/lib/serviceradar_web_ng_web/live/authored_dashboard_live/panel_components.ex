@@ -107,53 +107,56 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
 
   def panel_action_menu(assigns) do
     ~H"""
-    <div class="dropdown dropdown-end">
-      <.ui_button type="button" tabindex="0" aria-label={"Actions for #{@panel.title}"} title="Panel actions" size="xs" variant="ghost">
-        <.icon name="hero-ellipsis-vertical" class="size-4" />
-      </.ui_button>
-      <ul
-        tabindex="0"
-        class="menu dropdown-content z-[80] mt-2 w-52 rounded-box border border-slate-800 bg-slate-950 p-2 text-xs shadow-2xl shadow-cyan-950/30"
-      >
-        <li>
-          <button type="button" phx-click="refresh_panel" phx-value-id={@panel.id}>
-            <.icon name="hero-arrow-path" class="size-4" /> Refresh
-          </button>
-        </li>
-        <li>
-          <button type="button" phx-click="toggle_panel_srql" phx-value-id={@panel.id}>
-            <.icon name="hero-code-bracket-square" class="size-4" />
-            {if @expanded_srql?, do: "Hide SRQL", else: "View SRQL"}
-          </button>
-        </li>
-        <li :if={@can_manage?}>
-          <button type="button" phx-click="edit_panel" phx-value-id={@panel.id}>
-            <.icon name="hero-pencil-square" class="size-4" /> Open in Builder
-          </button>
-        </li>
-        <li :if={@can_manage?}>
-          <button type="button" phx-click="duplicate_panel" phx-value-id={@panel.id}>
-            <.icon name="hero-document-duplicate" class="size-4" /> Duplicate
-          </button>
-        </li>
-        <li :if={@csv_data_url}>
-          <a href={@csv_data_url} download={"#{safe_filename(@panel.title)}.csv"}>
-            <.icon name="hero-arrow-down-tray" class="size-4" /> Export CSV
-          </a>
-        </li>
-        <li :if={@can_manage?}>
-          <button
-            type="button"
-            class="text-error"
-            phx-click="delete_panel"
-            phx-value-id={@panel.id}
-            data-confirm={"Delete panel \"#{@panel.title}\"?"}
-          >
-            <.icon name="hero-trash" class="size-4" /> Delete
-          </button>
-        </li>
-      </ul>
-    </div>
+    <.ui_dropdown align="end" menu_class="z-[80] w-52 max-w-52">
+      <:trigger>
+        <.ui_button
+          type="button"
+          aria-label={"Actions for #{@panel.title}"}
+          title="Panel actions"
+          size="xs"
+          variant="ghost"
+        >
+          <.icon name="hero-ellipsis-vertical" class="size-4" />
+        </.ui_button>
+      </:trigger>
+      <:item>
+        <button type="button" phx-click="refresh_panel" phx-value-id={@panel.id}>
+          <.icon name="hero-arrow-path" class="size-4" /> Refresh
+        </button>
+      </:item>
+      <:item>
+        <button type="button" phx-click="toggle_panel_srql" phx-value-id={@panel.id}>
+          <.icon name="hero-code-bracket-square" class="size-4" />
+          {if @expanded_srql?, do: "Hide SRQL", else: "View SRQL"}
+        </button>
+      </:item>
+      <:item :if={@can_manage?}>
+        <button type="button" phx-click="edit_panel" phx-value-id={@panel.id}>
+          <.icon name="hero-pencil-square" class="size-4" /> Open in Builder
+        </button>
+      </:item>
+      <:item :if={@can_manage?}>
+        <button type="button" phx-click="duplicate_panel" phx-value-id={@panel.id}>
+          <.icon name="hero-document-duplicate" class="size-4" /> Duplicate
+        </button>
+      </:item>
+      <:item :if={@csv_data_url}>
+        <a href={@csv_data_url} download={"#{safe_filename(@panel.title)}.csv"}>
+          <.icon name="hero-arrow-down-tray" class="size-4" /> Export CSV
+        </a>
+      </:item>
+      <:item :if={@can_manage?}>
+        <button
+          type="button"
+          class="text-error"
+          phx-click="delete_panel"
+          phx-value-id={@panel.id}
+          data-confirm={"Delete panel \"#{@panel.title}\"?"}
+        >
+          <.icon name="hero-trash" class="size-4" /> Delete
+        </button>
+      </:item>
+    </.ui_dropdown>
     """
   end
 

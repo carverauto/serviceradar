@@ -362,7 +362,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
           </:header>
 
           <%= if @packages == [] do %>
-            <div class="rounded-box border border-dashed border-sr-line bg-sr-surface p-8 text-center">
+            <div class="rounded-sr-surface border border-dashed border-sr-line bg-sr-surface p-8 text-center">
               <div class="text-sm font-semibold">No dashboard packages imported</div>
               <p class="mt-1 text-xs text-sr-muted">
                 Import a manifest JSON file and matching renderer artifact to create the first package.
@@ -578,7 +578,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
             </div>
           <% end %>
 
-          <div class="rounded-box border border-sr-line bg-sr-subtle/40 p-3">
+          <div class="rounded-sr-surface border border-sr-line bg-sr-subtle/40 p-3">
             <label class="flex cursor-pointer items-center justify-start gap-3 p-0">
               <input
                 type="checkbox"
@@ -640,7 +640,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
         <div class="mt-5 grid gap-4 lg:grid-cols-[1fr_18rem]">
           <div class="space-y-4">
-            <div class="rounded-box border border-sr-line p-4">
+            <div class="rounded-sr-surface border border-sr-line p-4">
               <div class="text-sm font-semibold">Renderer</div>
               <dl class="mt-3 grid gap-2 text-xs sm:grid-cols-2">
                 <div>
@@ -660,7 +660,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               </dl>
             </div>
 
-            <div class="rounded-box border border-sr-line p-4">
+            <div class="rounded-sr-surface border border-sr-line p-4">
               <div class="text-sm font-semibold">Data Frames</div>
               <div class="mt-3 space-y-3">
                 <div :for={frame <- @package.data_frames || []} class="rounded-lg bg-sr-subtle/60 p-3">
@@ -678,7 +678,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
           </div>
 
           <aside class="space-y-4">
-            <div class="rounded-box border border-sr-line p-4">
+            <div class="rounded-sr-surface border border-sr-line p-4">
               <div class="text-sm font-semibold">Status</div>
               <div class="mt-3 flex flex-wrap gap-2">
                 <.ui_badge size="sm" variant={status_badge_variant(@package.status)}>
@@ -698,7 +698,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               </div>
             </div>
 
-            <div class="rounded-box border border-sr-line p-4">
+            <div class="rounded-sr-surface border border-sr-line p-4">
               <div class="text-sm font-semibold">Routes</div>
               <div :if={@instances == []} class="mt-2 text-xs text-sr-muted">
                 No enabled routes.
@@ -740,7 +740,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               phx-submit={
                 if editing_instance?(@instance_form), do: "update_instance", else: "create_instance"
               }
-              class="rounded-box border border-sr-line p-4 space-y-3"
+              class="rounded-sr-surface border border-sr-line p-4 space-y-3"
             >
               <input
                 :if={editing_instance?(@instance_form)}

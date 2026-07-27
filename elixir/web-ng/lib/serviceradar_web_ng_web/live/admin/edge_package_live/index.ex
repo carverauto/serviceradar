@@ -782,7 +782,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
         <div class="sr-ui-tabs sr-ui-tabs-boxed">
           <input type="radio" name="install_tabs" class="sr-ui-tab" aria-label="Docker" checked />
-          <div class="sr-ui-tab-content bg-sr-surface border-sr-line rounded-box p-4 mt-2">
+          <div class="sr-ui-tab-content bg-sr-surface border-sr-line rounded-sr-surface p-4 mt-2">
             <p class="text-sm text-sr-muted mb-3">
               Run this command on your target server to install via Docker:
             </p>
@@ -795,7 +795,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           </div>
 
           <input type="radio" name="install_tabs" class="sr-ui-tab" aria-label="systemd" />
-          <div class="sr-ui-tab-content bg-sr-surface border-sr-line rounded-box p-4 mt-2">
+          <div class="sr-ui-tab-content bg-sr-surface border-sr-line rounded-sr-surface p-4 mt-2">
             <p class="text-sm text-sr-muted mb-3">
               Run this command on your target server to install via systemd:
             </p>
