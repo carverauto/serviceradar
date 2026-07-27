@@ -864,17 +864,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp log_headline(body) when is_binary(body) do
     body = body |> String.replace(~r/\s+/, " ") |> String.trim()
 
-    cond do
-      body == "" ->
-        nil
-
-      title = extract_event_title(body) ->
-        title
-
-      title = extract_bracket_title(body) ->
-        title
-
-      true ->
+    if body == "" do
+      nil
+    else
+      extract_event_title(body) ||
+        extract_bracket_title(body) ||
         message_preview(strip_syslog_noise(body), 240)
     end
   end
@@ -885,9 +879,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp extract_event_title(body) when is_binary(body) do
     patterns = [
       # function / method style event before KEY= or end
-      ~r/\b([A-Za-z_][\w.]{2,80}\(\))\s*:?(?=\s+\b[A-Za-z_][A-Za-z0-9_]{0,24}=|\s*$)/,
+      ~r"\b([A-Za-z_][\w.]{2,80}\(\))\s*:?(?=\s+\b[A-Za-z_][A-Za-z0-9_]{0,24}=|\s*$)",
       # last colon-delimited segment that looks like an event, not a host/pid
-      ~r/:\s*([A-Za-z_][\w.]{2,80}(?:\(\))?)\s*:?\s*(?=\b[A-Za-z_][A-Za-z0-9_]{0,24}=)/
+      ~r":\s*([A-Za-z_][\w.]{2,80}(?:\(\))?)\s*:?\s*(?=\b[A-Za-z_][A-Za-z0-9_]{0,24}=)"
     ]
 
     Enum.find_value(patterns, fn pattern ->
@@ -905,7 +899,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp extract_event_title(_), do: nil
 
   defp extract_bracket_title(body) when is_binary(body) do
-    ~r/\[([^\]]{2,64})\]/
+    ~r"\[([^\]]{2,64})\]"
     |> Regex.scan(body)
     |> Enum.map(fn
       [_, title] -> String.trim(title)
@@ -920,12 +914,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp meaningful_bracket_title?(title) when is_binary(title) do
     cond do
       title == "" -> false
-      # process ids, pure numbers
-      Regex.match?(~r/^\d+$/, title) -> false
-      # bare hex hashes (a-f only) — not real labels
-      Regex.match?(~r/^[0-9a-fA-F]+$/, title) -> false
-      # need at least one alphabetic character
-      Regex.match?(~r/[A-Za-z]/ title) -> true
+      pure_integer_string?(title) -> false
+      pure_hex_string?(title) -> false
+      has_latin_letter?(title) -> true
       true -> false
     end
   end
@@ -933,10 +924,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp meaningful_bracket_title?(_), do: false
 
   defp meaningful_title?(title) when is_binary(title) do
-    title != "" and Regex.match?(~r/[A-Za-z]/ title) and not Regex.match?(~r/^\d+$/, title)
+    title != "" and has_latin_letter?(title) and not pure_integer_string?(title)
   end
 
   defp meaningful_title?(_), do: false
+
+  defp pure_integer_string?(s), do: match?({_, ""}, Integer.parse(s))
+
+  defp pure_hex_string?(s) do
+    byte_size(s) > 0 and Regex.match?(~r"^[0-9A-Fa-f]+$", s)
+  end
+
+  defp has_latin_letter?(s), do: Regex.match?(~r"[A-Za-z]", s)
 
   # Drop leading "mac,hostname: daemon: daemon[pid]:" style noise for previews.
   defp strip_syslog_noise(body) when is_binary(body) do
