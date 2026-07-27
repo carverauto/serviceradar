@@ -34,32 +34,99 @@ defmodule ServiceRadar.Edge.HashGrammar do
       u64(p.page_count),
       bytes(p.prev_page_sha256),
       present(p.terminal),
-      present(p.coarsened),
-      u64(length(p.lost_ranges)),
-      Enum.map(p.lost_ranges, fn r -> [u64(r.from_sequence), u64(r.through_sequence)] end),
-      u64(length(p.affected)),
-      Enum.map(p.affected, &affected_scope/1)
+      u64(length(p.classification_spans)),
+      Enum.map(p.classification_spans, &classification_span/1)
     ]
 
     :crypto.hash(:sha256, io)
   end
 
-  # EdgeAffectedScopeV1 framed field-by-field per #4710 Appendix A -- NOT a whole-
+  # Frozen oneof member field numbers. These ARE the transcript discriminant, so they
+  # are written out rather than derived: a renumbered oneof would silently change
+  # every page digest.
+  @span_member_active 3
+  @span_member_passive 4
+  @span_member_unattributable 5
+
+  # EdgeClassificationSpanV1 framed field-by-field per Appendix A -- NOT a whole-
   # message encode, so it stays byte-identical to the Go peer at any depth.
-  defp affected_scope(a) do
+  #
+  # A repeated entry carries NO per-entry presence marker (the element count above
+  # already establishes how many follow) and the oneof body carries none (the u64
+  # discriminant names which body is set). Every OTHER nested message keeps its marker.
+  defp classification_span(sp) do
     [
-      u64(a.from_sequence || 0),
-      u64(a.through_sequence || 0),
-      bytes(a.contract_bundle_sha256),
-      bytes(a.producer_assignment_id),
-      bytes(a.run_id),
-      u64(a.run_shard || 0),
-      u64(a.authority_epoch || 0),
-      bytes(a.scope_sha256),
-      bytes(a.range_sha256),
-      present(a.coarsened)
+      u64(sp.from_sequence || 0),
+      u64(sp.through_sequence || 0),
+      span_body(sp.classification)
     ]
   end
+
+  defp span_body({:attributed_active, b}) do
+    [u64(@span_member_active), span_identity(b.identity), bytes(b.range_sha256)]
+  end
+
+  defp span_body({:attributed_passive, b}) do
+    [u64(@span_member_passive), span_identity(b.identity)]
+  end
+
+  defp span_body({:unattributable, b}) do
+    [u64(@span_member_unattributable), u64(reason_value(b.reason))]
+  end
+
+  # An unset oneof is REJECTED by the validator, but the grammar must still be total:
+  # returning [] here keeps a digest computable for an invalid page rather than
+  # raising, so the validator -- not this function -- decides the verdict.
+  defp span_body(nil), do: []
+
+  # The identity marker is emitted even though an unset identity is REJECTED: omitting
+  # a marker for a field that "cannot" be absent is how two runtimes end up disagreeing
+  # about whether the byte is there. The SOURCE marker is load-bearing rather than
+  # merely structural -- absence is part of the span identity, so source-present and
+  # source-absent spans MUST produce different preimages.
+  defp span_identity(nil), do: present(false)
+
+  defp span_identity(id) do
+    [
+      present(true),
+      bytes(id.producer_assignment_id),
+      bytes(id.run_id),
+      u64(id.run_shard || 0),
+      u64(id.authority_epoch || 0),
+      bytes(id.production_scope_id),
+      bytes(id.scope_sha256),
+      bytes(id.contract_bundle_sha256),
+      source_identity(id.source)
+    ]
+  end
+
+  defp source_identity(nil), do: present(false)
+
+  defp source_identity(src) do
+    [
+      present(true),
+      u64(kind_value(src.kind)),
+      bytes(src.context_id),
+      bytes(src.source_scope_id),
+      bytes(src.source_scope_sha256)
+    ]
+  end
+
+  # Enum -> wire integer, resolved through the OWNING module. Deliberately two
+  # functions rather than one generic helper: a shared one would take the module as a
+  # parameter, and passing the wrong module would hash a different enum's numbering
+  # for the same atom without anything failing.
+  #
+  # An UNKNOWN value arrives as a plain integer (protobuf-elixir keeps the tag for an
+  # open proto3 enum, and the negative-tag patch preserves negatives), so it passes
+  # through unchanged. The validator rejects values outside the frozen accepted set
+  # BEFORE this is reached; keeping the grammar total means an invalid page still has
+  # a computable digest rather than raising here.
+  defp reason_value(v) when is_integer(v), do: v
+  defp reason_value(v), do: Serviceradar.Edge.V1.EdgeUnattributableReason.value(v)
+
+  defp kind_value(v) when is_integer(v), do: v
+  defp kind_value(v), do: Serviceradar.Edge.V1.EdgeSourceAuthorizationKind.value(v)
 
   @spec manifest_root([map()]) :: binary()
   def manifest_root(pages) do
@@ -169,11 +236,8 @@ defmodule ServiceRadar.Edge.HashGrammar do
       bytes(t.recovery_id),
       bytes(t.prior_spool_id),
       bytes(t.new_spool_id),
-      u64(t.lost_from_sequence),
-      u64(t.lost_through_sequence),
       bytes(t.manifest_root_sha256),
-      u64(t.manifest_page_count),
-      present(t.coarsened)
+      u64(t.manifest_page_count)
     ]
 
     :crypto.hash(:sha256, io)
