@@ -55,7 +55,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         class="relative srql-input-frame"
         data-srql-input-frame
         style={[
-          "--srql-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;",
+          "--srql-font-family: var(--sr-font-mono);",
           "--srql-font-size: 0.75rem;",
           "--srql-line-height: 1rem;",
           "--srql-padding-inline: 0.75rem;",

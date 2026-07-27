@@ -565,16 +565,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp stream_sev_chip(assigns) do
     assigns =
-      assign(assigns, :label, if(assigns.severity == "all", do: "ALL", else: String.upcase(assigns.severity)))
+      assign(assigns, :label, if(assigns.severity == "all", do: "All", else: String.upcase(assigns.severity)))
 
     ~H"""
     <.ui_button
       type="button"
       size="xs"
       variant={if(@active, do: "soft", else: "ghost")}
+      active={@active}
       phx-click="set_stream_severity"
       phx-value-severity={@severity}
-      class="min-h-7 px-2 text-[11px] tracking-wide"
+      class="min-h-7 px-2 text-[11px] font-medium tracking-wide"
     >
       {@label}
     </.ui_button>
@@ -1313,11 +1314,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   attr :value, :any, default: nil
 
   defp format_value(%{value: nil} = assigns) do
-    ~H|<span class="text-base-content/40">—</span>|
+    ~H|<span class="text-sr-muted">—</span>|
   end
 
   defp format_value(%{value: ""} = assigns) do
-    ~H|<span class="text-base-content/40">—</span>|
+    ~H|<span class="text-sr-muted">—</span>|
   end
 
   defp format_value(%{value: value} = assigns) when is_boolean(value) do
@@ -1329,7 +1330,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp format_value(%{value: value} = assigns) when is_integer(value) and value == 0 do
-    ~H|<span class="text-base-content/40">—</span>|
+    ~H|<span class="text-sr-muted">—</span>|
   end
 
   defp format_value(%{value: value} = assigns) when is_map(value) or is_list(value) do
@@ -1337,7 +1338,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     assigns = assign(assigns, :formatted, formatted)
 
     ~H"""
-    <pre class="text-xs font-mono bg-base-200/30 p-2 rounded overflow-x-auto max-h-48">{@formatted}</pre>
+    <pre class="max-h-48 overflow-x-auto rounded-sr-control border border-sr-line bg-sr-subtle/50 p-2 font-mono text-xs text-sr-ink">{@formatted}</pre>
     """
   end
 
@@ -1350,28 +1351,28 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
           assigns = assign(assigns, :formatted, formatted)
 
           ~H"""
-          <pre class="text-xs font-mono bg-base-200/30 p-2 rounded overflow-x-auto max-h-48">{@formatted}</pre>
+          <pre class="max-h-48 overflow-x-auto rounded-sr-control border border-sr-line bg-sr-subtle/50 p-2 font-mono text-xs text-sr-ink">{@formatted}</pre>
           """
 
         {:error, _} ->
           assigns = assign(assigns, :value, redact_secret_text(value))
 
           ~H"""
-          <span class="font-mono text-xs">{@value}</span>
+          <span class="font-mono text-xs text-sr-ink">{@value}</span>
           """
       end
     else
       assigns = assign(assigns, :value, redact_secret_text(value))
 
       ~H"""
-      <span>{@value}</span>
+      <span class="text-sr-ink">{@value}</span>
       """
     end
   end
 
   defp format_value(assigns) do
     ~H"""
-    <span>{to_string(@value)}</span>
+    <span class="text-sr-ink">{to_string(@value)}</span>
     """
   end
 
