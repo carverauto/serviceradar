@@ -460,7 +460,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       )
 
     ~H"""
-    <dialog class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
+    <dialog
+      id="network-credential-secret-form-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+    >
       <div class="sr-ui-modal-box sr-ui-modal-box-lg rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">{@secret_title}</h2>
@@ -574,7 +578,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp rule_preview_modal(assigns) do
     ~H"""
-    <dialog class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
+    <dialog
+      id="network-credential-rule-preview-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+    >
       <div class="sr-ui-modal-box sr-ui-modal-box-xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">Target Preview</h2>
@@ -795,7 +803,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       )
 
     ~H"""
-    <dialog class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
+    <dialog
+      id="network-credential-rule-form-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+    >
       <div class="sr-ui-modal-box sr-ui-modal-box-xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">
