@@ -12,7 +12,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @redacted "[REDACTED]"
+  # Side stream only — must not drive the main Observability logs list limit.
   @stream_page_size 10
+  # Matches LogLive.Index / SRQL bar defaults when running a query from detail.
+  @srql_default_limit 20
   @sensitive_log_keys ~w(
     authorization api_key apikey bearer cookie credential credentials jwt password
     private_key secret secret_key seed signing_key token nkey_seed nkey
@@ -37,8 +40,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
      |> assign(:stream_page, 1)
      |> assign(:stream_page_size, @stream_page_size)
      |> assign(:body_mode, "highlighted")
-     |> assign(:limit, @stream_page_size)
-     |> SRQLPage.init("logs", default_limit: @stream_page_size)}
+     |> assign(:limit, @srql_default_limit)
+     |> SRQLPage.init("logs", default_limit: @srql_default_limit)}
   end
 
   @impl true
