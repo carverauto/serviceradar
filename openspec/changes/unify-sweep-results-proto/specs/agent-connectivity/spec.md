@@ -2,54 +2,6 @@
 
 ## ADDED Requirements
 
-### Requirement: Edge record capability negotiation is bidirectional
-Agents SHALL advertise the edge-record protocol, supported platform payload
-families/encodings/compression, durable spool-reader versions, frame bounds, and
-output-contract registry epoch/digest in Hello. The gateway SHALL return
-record-ingest readiness derived from
-the complete installation-local path, including mandatory disjoint bulk and
-interactive streams, PubAck publication, supported schemas, and consumers,
-rather than its binary version alone. Readiness SHALL require the configured
-minimum agent/gateway version that can send, retain, replay, and drain v1 frames
-for the selected contract registry; legacy emission capability SHALL NOT satisfy
-readiness.
-
-#### Scenario: Agent and installation path support v1
-- **GIVEN** an agent satisfies the minimum edge-record version and advertises
-  `edge-records:v1`, its spool version, and the required registry epoch
-- **WHEN** the connected installation gateway pool has writable
-  class-separated authoritative streams and compatible consumers
-- **THEN** the gateway SHALL advertise v1 ready
-- **AND** explicit config MAY select v1 for a new producer run
-
-#### Scenario: One gateway pool member is not ready
-- **GIVEN** an agent may reconnect to any gateway in its installation pool
-- **WHEN** a pool member cannot accept and drain v1
-- **THEN** fleet/cohort configuration SHALL NOT assume uniform v1 readiness
-- **AND** a v1-spooled run SHALL be retried through a compatible gateway,
-  not converted to legacy in flight
-
-#### Scenario: Binary is below the edge-record minimum
-- **WHEN** an agent or reachable gateway does not satisfy the configured minimum
-  v1 protocol, spool-reader, and contract-registry version
-- **THEN** no new affected durable producer run SHALL be assigned through that path
-- **AND** the system SHALL require upgrade rather than provide a legacy JSON
-  sender or compatibility bridge
-
-#### Scenario: Agent lacks the selected contract or encoder
-- **WHEN** configuration requests an output contract/encoding the agent did not
-  advertise under the required registry
-- **THEN** the agent SHALL reject or defer that new run with an explicit
-  capability error
-- **AND** SHALL NOT infer a format from config content hash
-
-#### Scenario: Cohort crosses the hard cutover
-- **WHEN** the control plane enables a ready cohort for v1
-- **THEN** every new affected producer run in that cohort SHALL use its compiled
-  v1 contract grant
-- **AND** only identified records accepted before the barrier MAY drain on an old
-  path; reconnect or retry SHALL NOT start new legacy emission
-
 ### Requirement: Output contract and format are sticky per producer run
 The output contract and format SHALL remain sticky for each producer run. The
 exact v1 output-contract bundle, registry epoch, encoding, route profile, and
@@ -125,7 +77,10 @@ share one connection-level flow-control budget across traffic classes.
   allocated-sequence COVERAGE PROOF holds for it -- every allocated sequence,
   INCLUDING MARKERLESS ALLOCATED SLOTS, covered by a fully committed,
   sender-visible destination slot with rebound attribution and directory evidence,
-  or by a PubAcked frozen loss span -- funded by the AGGREGATE recovery reserve.
+  or by a PubAcked frozen loss span WHOSE COVERED SEQUENCES ARE EACH BACKED BY
+  DURABLE PER-SEQUENCE LOSS EVIDENCE WHOSE JOURNALED CLASSIFICATION MATCHES THE
+  SPAN'S COMPLETE ONEOF BODY (the PubAck alone does not authorize deletion)
+  -- funded by the AGGREGATE recovery reserve.
   Destination fsync plus a mapping watermark and recovery PubAcks is NOT
   sufficient: it says nothing about slots that were allocated but never committed,
   and reclaiming over one destroys the only intact evidence they existed
@@ -154,3 +109,50 @@ data and reserved for recovery/control and terminal evidence.
 - **THEN** the allocator SHALL refuse new ordinary producer reservations
 - **AND** SHALL preserve enough space to durably abort/terminalize work and report
   or recover already-committed spool state
+
+### Requirement: Edge record readiness and cutover are installation-derived
+The gateway SHALL derive record-ingest readiness from the COMPLETE installation-local path, not from a binary version alone.
+
+The handshake's advertised field set is frozen by the
+`freeze-edge-record-v1-abi` change. This requirement owns what a deployment does
+with it: readiness SHALL be derived from mandatory disjoint bulk and interactive
+streams, PubAck publication, supported schemas, and consumers. Readiness SHALL
+require the configured minimum agent/gateway version that can send, retain,
+replay, and drain v1 frames for the selected contract registry; legacy emission
+capability SHALL NOT satisfy readiness.
+
+#### Scenario: Agent and installation path support v1
+- **GIVEN** an agent satisfies the minimum edge-record version and advertises
+  `edge-records:v1`, its spool version, and the required registry epoch
+- **WHEN** the connected installation gateway pool has writable
+  class-separated authoritative streams and compatible consumers
+- **THEN** the gateway SHALL advertise v1 ready
+- **AND** explicit config MAY select v1 for a new producer run
+
+#### Scenario: One gateway pool member is not ready
+- **GIVEN** an agent may reconnect to any gateway in its installation pool
+- **WHEN** a pool member cannot accept and drain v1
+- **THEN** fleet/cohort configuration SHALL NOT assume uniform v1 readiness
+- **AND** a v1-spooled run SHALL be retried through a compatible gateway,
+  not converted to legacy in flight
+
+#### Scenario: Binary is below the edge-record minimum
+- **WHEN** an agent or reachable gateway does not satisfy the configured minimum
+  v1 protocol, spool-reader, and contract-registry version
+- **THEN** no new affected durable producer run SHALL be assigned through that path
+- **AND** the system SHALL require upgrade rather than provide a legacy JSON
+  sender or compatibility bridge
+
+#### Scenario: Agent lacks the selected contract or encoder
+- **WHEN** configuration requests an output contract/encoding the agent did not
+  advertise under the required registry
+- **THEN** the agent SHALL reject or defer that new run with an explicit
+  capability error
+- **AND** SHALL NOT infer a format from config content hash
+
+#### Scenario: Cohort crosses the hard cutover
+- **WHEN** the control plane enables a ready cohort for v1
+- **THEN** every new affected producer run in that cohort SHALL use its compiled
+  v1 contract grant
+- **AND** only identified records accepted before the barrier MAY drain on an old
+  path; reconnect or retry SHALL NOT start new legacy emission

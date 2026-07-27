@@ -61,7 +61,7 @@ run-wide or interval-wide collection of completed traces before encoding.
   the same transaction
 
 #### Scenario: MTR result is too large
-- **WHEN** a collected trace would exceed configured field or 512 KiB frame
+- **WHEN** a collected trace would exceed configured field or `MaxFrameBytes`
   bounds
 - **THEN** collection SHALL enforce bounded hops, variants, labels, strings, and
   metadata or quarantine the invalid trace

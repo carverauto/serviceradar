@@ -119,7 +119,7 @@ package-selected subjects, or one generic status handler for persistent data.
 - **AND** an already-spooled frame SHALL remain retryable rather than be
   classified as poison or permanently quarantined
 
-#### Scenario: Signed spool-loss tombstone is routed
+#### Scenario: Journalled spool-loss tombstone is routed
 - **WHEN** a recovery-capability-bound tombstone arrives on the reserved control
   lane
 - **THEN** the gateway SHALL publish it to the installation-local
@@ -168,7 +168,7 @@ from `GatewayServiceStatus` directly to CNPG.
 #### Scenario: Sysmon payload size tolerance
 - **WHEN** one sysmon collection interval exceeds one edge-record frame
 - **THEN** the agent SHALL split it at canonical record boundaries within the
-  output-contract and 512 KiB frame limits
+  output-contract and the frozen `MaxFrameBytes` bound
 - **AND** an individually oversize sample SHALL be rejected explicitly rather
   than accepted through a larger status-message exception
 
@@ -196,7 +196,8 @@ Core-to-CNPG metric path.
 
 ### Requirement: Sysmon payload size handling
 The agent SHALL split persistent sysmon samples into independently decodable
-canonical metric records within the output-contract and 512 KiB frame bounds.
+canonical metric records within the output-contract and the frozen
+`MaxFrameBytes` bound.
 The gateway SHALL publish each accepted `EdgeRecordV1` byte-for-byte unchanged
 and SHALL NOT
 truncate, whole-run materialize, or silently divert an oversize payload.
@@ -289,3 +290,7 @@ persistent result volume or volatile fallback queue to prevent data loss.
   IDs, sequences, network scope, producer/run context, and traffic class
 - **AND** the replacement gateway SHALL resume publishing without recovering
   private state from the prior gateway
+
+> `MaxRecordBytes` bounds one `EdgeRecordV1` and `MaxFrameBytes` bounds one
+> `EdgeDeliveryFrameV1`. Their values are frozen by the edge record v1 wire ABI and
+> are deliberately NOT restated here; cite the symbols.
