@@ -161,6 +161,10 @@ platform(
         "Arch": "amd64",
         "dockerNetwork": "host",
         "Pool": "default",
+        # Firecracker microVM size (see #4752/#4755). Rustc+ld and pure-Go
+        # GoLink need headroom above the historical ~2.5Gi default.
+        "EstimatedCPU": "4",
+        "EstimatedMemory": "8Gi",
     },
     visibility = ["//visibility:public"],
 )
@@ -180,6 +184,8 @@ platform(
         "Arch": "amd64",
         "dockerNetwork": "host",
         "Pool": "default",
+        "EstimatedCPU": "4",
+        "EstimatedMemory": "8Gi",
     },
     visibility = ["//visibility:public"],
 )
@@ -210,6 +216,10 @@ platform(
         "Arch": "amd64",
         "dockerNetwork": "host",
         "Pool": "default",
+        # Native-addons CI uses --config=el9. Without these, Firecracker VMs
+        # stay tiny and rustc/ld dies with signal 9 (//rust/anomaly-addon).
+        "EstimatedCPU": "4",
+        "EstimatedMemory": "8Gi",
     },
     visibility = ["//visibility:public"],
 )

@@ -170,7 +170,7 @@ jobs:
       - name: Publish images
         env:
           EXTRA_TAG: ${{ steps.release.outputs.tag }}
-          OPENBAO_ADDR: http://openbao-active.openbao-system.svc.cluster.local:8200
+          OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: forgejo-signing-runner
           OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/heads/staging$'
           COSIGN_KEY_REF: hashivault://cosign-release

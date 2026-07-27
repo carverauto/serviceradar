@@ -77,6 +77,10 @@ rust_library(
 
 rust_binary(
     name = "rdp_adapter",
+    exec_properties = {
+        "EstimatedCPU": "4",
+        "EstimatedMemory": "8Gi",
+    },
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
     deps = [":rdp_adapter_lib"],
@@ -84,6 +88,10 @@ rust_binary(
 
 rust_binary(
     name = "rdp_adapter_ironrdp",
+    exec_properties = {
+        "EstimatedCPU": "4",
+        "EstimatedMemory": "8Gi",
+    },
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
     deps = [":rdp_adapter_ironrdp_lib"],
@@ -91,6 +99,10 @@ rust_binary(
 
 rust_binary(
     name = "rdp_adapter_ironrdp_connector_experimental",
+    exec_properties = {
+        "EstimatedCPU": "4",
+        "EstimatedMemory": "8Gi",
+    },
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
     deps = [":rdp_adapter_ironrdp_connector_experimental_lib"],

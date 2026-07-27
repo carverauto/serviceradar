@@ -56,7 +56,19 @@ config:
   executor:
     app_target: grpcs://remote.buildbuddy.io:443
     enable_oci: true
+    # Default to OCI isolation for release reliability. Firecracker (#4752)
+    # mis-sized VMs when EstimatedMemory used invalid units ("8GB" is not a
+    # k8s quantity — use "8Gi") and when default_task_size was not applied,
+    # producing mem_size_mib≈44 + initrd failures / signal: killed OOMs.
+    # enable_firecracker stays on so isolation=firecracker can be re-enabled
+    # after default_task_size is verified live.
     default_isolation_type: oci
+    enable_firecracker: true
+    # Used when isolation=firecracker; quantities are bytes/millicpu.
+    default_task_size:
+      estimated_milli_cpu: 4000
+      estimated_memory_bytes: 8589934592 # 8 GiB
+      estimated_free_disk_bytes: 21474836480 # 20 GiB
     image_pull_timeout: 15m
     startup_warmup_max_wait_secs: 300
     warmup_timeout_secs: 300

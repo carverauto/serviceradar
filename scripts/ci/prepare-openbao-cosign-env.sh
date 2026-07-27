@@ -6,7 +6,10 @@
 
 set -euo pipefail
 
-: "${OPENBAO_ADDR:=http://openbao-active.openbao-system.svc.cluster.local:8200}"
+# OpenBao was switched to native TLS (ops/openbao-native-tls). Plain HTTP hits
+# the TLS listener and fails with HTTP 400 ("client sent an HTTP request to an
+# HTTPS server"). Always use HTTPS in-cluster.
+: "${OPENBAO_ADDR:=https://openbao-active.openbao-system.svc.cluster.local:8200}"
 : "${OPENBAO_K8S_ROLE:=forgejo-runner}"
 : "${COSIGN_KEY_REF:=hashivault://cosign-release}"
 
@@ -23,11 +26,25 @@ fi
 unset COSIGN_PRIVATE_KEY
 unset COSIGN_PASSWORD
 
+# Private cluster CA is not mounted into job containers by default. Prefer an
+# explicit CA when provided; otherwise skip verification for the in-cluster
+# private OpenBao endpoint so cosign/vault can talk Transit over HTTPS.
+curl_tls_args=()
+if [[ -n "${OPENBAO_CACERT:-${VAULT_CACERT:-}}" ]]; then
+  cacert="${OPENBAO_CACERT:-${VAULT_CACERT}}"
+  curl_tls_args+=(--cacert "${cacert}")
+  export VAULT_CACERT="${cacert}"
+  unset VAULT_SKIP_VERIFY || true
+else
+  curl_tls_args+=(--insecure)
+  export VAULT_SKIP_VERIFY=true
+fi
+
 sa_token_file="${OPENBAO_K8S_TOKEN_FILE:-/var/run/secrets/kubernetes.io/serviceaccount/token}"
 
 if [[ -f "${sa_token_file}" ]]; then
   vault_token="$(
-    curl -fsSL \
+    curl -fsSL "${curl_tls_args[@]}" \
       -H 'Content-Type: application/json' \
       -d "{\"role\":\"${OPENBAO_K8S_ROLE}\",\"jwt\":\"$(tr -d '\n' < "${sa_token_file}")\"}" \
       "${OPENBAO_ADDR}/v1/auth/kubernetes/login" \

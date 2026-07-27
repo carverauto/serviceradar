@@ -1,3 +1,47 @@
+# ServiceRadar v1.4.25
+
+Delivered a brand-aligned observability console, operator-facing ad-hoc network
+scans, AWX live launch preflight, prefix-tag flow enrichment with NetBox
+import, and package-owned credential profiles — plus MTR sweep foundations and
+fleet-health surfaces for native add-ons.
+
+## Whats New
+
+**1.4.25**
+- Observability console: web-ng drops daisyUI in favor of ServiceRadar brand
+  tokens, redesigns log/event/alert detail viewers, path-based observability
+  tabs with shareable intent URLs, session-held SRQL pagination, and dialog
+  top-layer modals that sit above the ops chrome with outside-click dismiss.
+  (web-ng UI track after v1.4.24)
+- Ad-hoc network scans: operators can launch scans from web-ng with REST and
+  LiveView surfaces; core dispatches work and ingests results over JetStream.
+  (PR #4673)
+- AWX live launch preflight: controller-bound checks, immutable evidence
+  snapshots, survey-default review gates, and drift categories surface before
+  a launch proceeds. (PR #4617)
+- Prefix tagging and inventory: LPM trie enrichment for flows, NetBox-driven
+  prefix import, and a first-party NetBox inventory-sync Wasm plugin.
+  (PRs #4642, #4643)
+- Package-owned credentials: external packages declare and own credential
+  profile rules; the UI restyles those rules onto design-system chrome.
+  (PR #4711)
+- MTR foundations: HostResult carries MTRStatus for first-class sweep mode
+  work, and fresh installs retain MTR policy correctly. (PRs #4678, #4663)
+- Native add-on fleet: rollout health is queryable via API and SRQL; failed
+  rollouts can retry; zero-touch release reconciliation selects the right
+  extension package. (PRs #4670, #4667, #4649)
+- Runtime hardening: agent-gateway buffers stream forward failures; password-
+  only tenants no longer report SSO; event severity stats include current
+  events; web-ng liveness stays up during migrations; synthetic liveness
+  alerts are suppressed; continuous-aggregate privileges for seasonal
+  disposition are repaired; topology attachment metadata is retained.
+  (PRs #4664, #4662, #4661, #4660, #4659, #4658, #4672, #4651)
+- Armis identity: generic identity bridges are removed; hermetic DIRE E2E
+  coverage and integration NATS fixtures land in CI. (PRs #4707, #4712, #4719)
+- Docs and build: ServiceRadar Cloud quickstart runbook; product docs aligned
+  to the design system; Bazel-generated Rust gRPC bindings for dgraph protos.
+  (docs track, PR #4737)
+
 # ServiceRadar v1.4.24
 
 Made verified releases and trusted extension maintenance zero-touch, added

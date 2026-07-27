@@ -44,6 +44,17 @@ const (
 	defaultRunID    = "armis-e2e-run"
 )
 
+// Static validation and HTTP errors for err113 compliance.
+var (
+	errEndpointRequired           = errors.New("-endpoint is required")
+	errOutputRequired             = errors.New("-output is required")
+	errPageSizeOutOfRange         = errors.New("-page-size must be between 1 and 1000")
+	errChurnSwapsNegative         = errors.New("-churn-swaps must not be negative")
+	errRepeatAfterChurnRequires   = errors.New("-repeat-after-churn requires -churn-swaps")
+	errTriggerFakerChurnHTTP      = errors.New("trigger faker churn failed")
+	errFakerChurnNoDevicesChanged = errors.New("faker churn did not change any devices")
+)
+
 type fixturePage struct {
 	Run     int                      `json:"run"`
 	Page    int                      `json:"page"`
@@ -105,19 +116,19 @@ func main() {
 
 func validateOptions(options fixtureOptions) error {
 	if strings.TrimSpace(options.Endpoint) == "" {
-		return errors.New("-endpoint is required")
+		return errEndpointRequired
 	}
 	if strings.TrimSpace(options.Output) == "" {
-		return errors.New("-output is required")
+		return errOutputRequired
 	}
 	if options.PageSize <= 0 || options.PageSize > 1000 {
-		return errors.New("-page-size must be between 1 and 1000")
+		return errPageSizeOutOfRange
 	}
 	if options.ChurnSwaps < 0 {
-		return errors.New("-churn-swaps must not be negative")
+		return errChurnSwapsNegative
 	}
 	if options.RepeatAfterChurn && options.ChurnSwaps == 0 {
-		return errors.New("-repeat-after-churn requires -churn-swaps")
+		return errRepeatAfterChurnRequires
 	}
 	return nil
 }
@@ -127,7 +138,7 @@ func produceFixture(ctx context.Context, options fixtureOptions) (fixtureSummary
 	if err != nil {
 		return fixtureSummary{}, fmt.Errorf("create output: %w", err)
 	}
-	defer output.Close()
+	defer func() { _ = output.Close() }()
 
 	client := options.HTTPClient
 	if client == nil {
@@ -136,7 +147,7 @@ func produceFixture(ctx context.Context, options fixtureOptions) (fixtureSummary
 
 	summary := fixtureSummary{Runs: make([]runSummary, 0, 2)}
 	for runIndex := 0; ; runIndex++ {
-		run, err := produceRun(ctx, output, options, client, runIndex)
+		run, err := produceRun(ctx, output, options, runIndex)
 		if err != nil {
 			return summary, err
 		}
@@ -159,7 +170,6 @@ func produceRun(
 	ctx context.Context,
 	output io.Writer,
 	options fixtureOptions,
-	client *http.Client,
 	runIndex int,
 ) (runSummary, error) {
 	page := 0
@@ -238,10 +248,10 @@ func triggerChurn(ctx context.Context, client *http.Client, endpoint string, swa
 	if err != nil {
 		return fmt.Errorf("trigger faker churn: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return fmt.Errorf("trigger faker churn: status %s: %s", response.Status, strings.TrimSpace(string(body)))
+		return fmt.Errorf("%w: status %s: %s", errTriggerFakerChurnHTTP, response.Status, strings.TrimSpace(string(body)))
 	}
 
 	var result struct {
@@ -254,7 +264,7 @@ func triggerChurn(ctx context.Context, client *http.Client, endpoint string, swa
 		return fmt.Errorf("decode faker churn response: %w", err)
 	}
 	if !result.Success || result.Data.ChangedDevices == 0 {
-		return fmt.Errorf("faker churn did not change any devices: %+v", result)
+		return fmt.Errorf("%w: %+v", errFakerChurnNoDevicesChanged, result)
 	}
 	return nil
 }

@@ -13,6 +13,10 @@ platform(
         "Arch": "amd64",
         "dockerNetwork": "host",
         "container-image": "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.23",
+        # Firecracker isolation (#4752) sizes VMs from these estimates. Rust
+        # link (anomaly-addon) and pure-Go GoLink need ~8Gi class VMs.
+        "EstimatedCPU": "4",
+        "EstimatedMemory": "8Gi",
     },
     visibility = ["//visibility:public"],
 )

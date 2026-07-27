@@ -31,6 +31,13 @@ import (
 const (
 	credentialBrokerTokenResponseLimit = 64 * 1024
 	credentialBrokerTokenLimit         = 8 * 1024
+
+	// OAuth2 password-grant form fields (goconst: reused across credential broker inject paths).
+	credentialFormFieldUsername  = "username"
+	credentialFormFieldPassword  = "password"
+	credentialFormFieldGrantType = "grant_type"
+	// Same wire value as the password form field for RFC 6749 password grant.
+	oauth2GrantTypePassword = credentialFormFieldPassword
 )
 
 type credentialBrokerOAuth2TokenResponse struct {
@@ -155,7 +162,9 @@ func credentialBrokerTokenForm(
 		}
 		form.Set(field, value)
 	}
-	if form.Get("username") == "" || form.Get("password") == "" || form.Get("grant_type") != "password" {
+	if form.Get(credentialFormFieldUsername) == "" ||
+		form.Get(credentialFormFieldPassword) == "" ||
+		form.Get(credentialFormFieldGrantType) != oauth2GrantTypePassword {
 		return nil, errCredentialBrokerTokenExchangeInvalid
 	}
 	return form, nil

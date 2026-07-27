@@ -80,7 +80,7 @@ func TestProduceFixtureUsesRealArmisDriverPaginationAndNormalization(t *testing.
 
 	file, err := os.Open(output)
 	require.NoError(t, err)
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	decoder := json.NewDecoder(file)
 	var pages []fixturePage
