@@ -441,6 +441,8 @@
   --sr-z-shell: 50;
   --sr-z-menu: 60;
   --sr-z-toast: 70;
+  /* Above shell/menu; still below native dialog top-layer when showModal is used */
+  --sr-z-modal: 200;
 
   --sr-color-canvas: #f7f9f8;
   --sr-color-surface: #fcfdfd;
@@ -928,7 +930,9 @@ samp,
   color: #047857;
 }
 
-/* Modals — brand layout (no daisy modal dependency) */
+/* Modals — brand layout (no daisy modal dependency).
+   Prefer native <dialog showModal()> (DialogTopLayer hook) so overlays live in
+   the browser top layer and win over .sr-ops-sidebar / isolation:isolate. */
 .sr-ui-modal,
 .modal {
   pointer-events: none;
@@ -944,11 +948,12 @@ samp,
   align-items: center;
   justify-items: center;
   background-color: transparent;
+  border: none;
   padding: 0;
   color: var(--color-sr-ink);
   overflow: hidden;
   overscroll-behavior: contain;
-  z-index: 999;
+  z-index: var(--sr-z-modal, 200);
   opacity: 0;
   transition:
     visibility 0.2s ease-out,
@@ -963,7 +968,20 @@ samp,
   pointer-events: auto;
   visibility: visible;
   opacity: 1;
+  /* Dim lives on the overlay for div-based modals; dialog uses ::backdrop */
   background-color: color-mix(in srgb, #020617 72%, transparent);
+}
+
+/* Native dialog top-layer dim (showModal). */
+.sr-ui-modal::backdrop,
+.modal::backdrop {
+  background-color: color-mix(in srgb, #020617 72%, transparent);
+}
+
+/* Top-layer dialog already has a backdrop; keep the panel surface transparent. */
+dialog.sr-ui-modal[open],
+dialog.sr-ui-modal.sr-ui-modal-open {
+  background-color: transparent;
 }
 
 .sr-ui-modal-box,

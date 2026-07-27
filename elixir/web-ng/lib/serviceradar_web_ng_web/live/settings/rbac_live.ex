@@ -756,7 +756,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   defp new_profile_modal(assigns) do
     ~H"""
-    <dialog class="sr-ui-modal sr-ui-modal-open">
+    <dialog id="rbac-create-profile-modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
       <div class="sr-ui-modal-box">
         <h3 class="text-lg font-bold">Create Role Profile</h3>
         <p class="py-2 text-sm text-sr-muted">
@@ -786,7 +786,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   defp delete_profile_modal(assigns) do
     ~H"""
-    <dialog class="sr-ui-modal sr-ui-modal-open">
+    <dialog id="rbac-delete-profile-modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
       <div class="sr-ui-modal-box">
         <h3 class="text-lg font-bold">Delete Role Profile?</h3>
         <p class="py-2 text-sm text-sr-muted">

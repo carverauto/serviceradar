@@ -12,7 +12,14 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
 
   def render(assigns) do
     ~H"""
-    <dialog class="sr-ui-modal sr-ui-modal-open" phx-window-keydown="netflow_close" phx-key="escape">
+    <dialog
+      id="netflow-visualize-flow-details-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="netflow_close"
+      phx-window-keydown="netflow_close"
+      phx-key="escape"
+    >
       <div class="sr-ui-modal-box sr-ui-modal-box-xl">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">

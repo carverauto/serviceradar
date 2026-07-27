@@ -5113,7 +5113,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:attribution, attribution)
 
     ~H"""
-    <dialog class="sr-ui-modal sr-ui-modal-open" phx-window-keydown="netflow_close" phx-key="escape">
+    <dialog
+      id="observability-netflow-details-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="netflow_close"
+      phx-window-keydown="netflow_close"
+      phx-key="escape"
+    >
       <div class="sr-ui-modal-box sr-ui-modal-box-wide">
         <div class="flex shrink-0 items-start justify-between gap-4 border-b border-sr-line px-5 py-4">
           <div class="min-w-0">

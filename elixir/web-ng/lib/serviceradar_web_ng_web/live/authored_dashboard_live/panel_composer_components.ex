@@ -22,7 +22,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComposerComponents do
       class="sr-ui-modal sr-ui-modal-open"
       phx-window-keydown="cancel_panel_edit"
       phx-key="Escape"
-    >
+     phx-hook="DialogTopLayer">
       <div class="sr-ui-modal-box sr-ui-modal-box-2xl flex max-h-[90vh] flex-col overflow-hidden p-0">
         <div class="flex flex-col gap-3 border-b border-sr-line bg-sr-surface px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>

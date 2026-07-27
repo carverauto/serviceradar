@@ -424,7 +424,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       |> assign(:lifecycle_notice, detail_lifecycle_notice(assigns.detail))
 
     ~H"""
-    <dialog id="anomaly-capacity-detail-modal" class="sr-ui-modal sr-ui-modal-open">
+    <dialog
+      id="anomaly-capacity-detail-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="close_anomaly_capacity_detail"
+    >
       <div class="sr-ui-modal-box sr-ui-modal-box-xl">
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">

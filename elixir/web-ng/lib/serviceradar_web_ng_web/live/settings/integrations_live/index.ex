@@ -1114,7 +1114,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp create_modal(assigns) do
     ~H"""
-    <dialog id="create_modal" class="sr-ui-modal sr-ui-modal-open">
+    <dialog id="create_modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
       <div class="sr-ui-modal-box sr-ui-modal-box-md">
         <form method="dialog">
           <.ui_icon_button
@@ -1329,7 +1329,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp edit_modal(assigns) do
     ~H"""
-    <dialog id="edit_modal" class="sr-ui-modal sr-ui-modal-open">
+    <dialog id="edit_modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
       <div class="sr-ui-modal-box sr-ui-modal-box-md">
         <form method="dialog">
           <.ui_icon_button
@@ -1533,7 +1533,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp details_modal(assigns) do
     ~H"""
-    <dialog id="details_modal" class="sr-ui-modal sr-ui-modal-open">
+    <dialog id="details_modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
       <div class="sr-ui-modal-box sr-ui-modal-box-md">
         <form method="dialog">
           <.ui_icon_button

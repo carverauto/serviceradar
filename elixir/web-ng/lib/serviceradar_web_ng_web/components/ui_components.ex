@@ -574,12 +574,17 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   def ui_modal(assigns) do
     ~H"""
-    <div
+    <%!--
+      Native <dialog> + DialogTopLayer (showModal) escapes ops-shell stacking
+      (sidebar z-index + .sr-ops-content isolation) so overlays always win.
+    --%>
+    <dialog
       :if={@open}
       id={@id}
       class={["sr-ui-modal sr-ui-modal-open", @class]}
-      role="dialog"
-      aria-modal="true"
+      phx-hook="DialogTopLayer"
+      data-cancel={@on_cancel}
+      data-cancel-target={@on_cancel_target}
       {@rest}
     >
       <div class={[
@@ -605,8 +610,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
         <div class="space-y-3">{render_slot(@inner_block)}</div>
         <div :if={@actions != []} class="sr-ui-modal-action">{render_slot(@actions)}</div>
       </div>
-      <div class="sr-ui-modal-backdrop" phx-click={@on_cancel} phx-target={@on_cancel_target}></div>
-    </div>
+    </dialog>
     """
   end
 

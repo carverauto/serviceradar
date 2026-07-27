@@ -67,7 +67,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
       |> assign(:is_custom_tab, is_custom_tab)
 
     ~H"""
-    <dialog id="template_browser_modal" class="sr-ui-modal sr-ui-modal-open">
+    <dialog id="template_browser_modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
       <div class="sr-ui-modal-box sr-ui-modal-box-lg max-h-[80vh]">
         <form method="dialog">
           <.ui_icon_button

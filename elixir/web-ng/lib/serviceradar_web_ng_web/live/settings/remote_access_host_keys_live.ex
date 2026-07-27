@@ -357,7 +357,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
 
   defp rotation_modal(assigns) do
     ~H"""
-    <dialog class="sr-ui-modal sr-ui-modal-open">
+    <dialog id="remote-access-host-keys--modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
       <div class="sr-ui-modal-box sr-ui-modal-box-md">
         <h2 class="text-lg font-semibold">Rotate Host Key</h2>
         <p class="mt-1 text-sm text-sr-muted">
