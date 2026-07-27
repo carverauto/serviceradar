@@ -187,7 +187,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
             />
           </div>
 
-          <div class="divider text-xs text-sr-muted">Match Conditions</div>
+          <div class="sr-ui-divider text-xs text-sr-muted">Match Conditions</div>
           
     <!-- Message Body Contains -->
           <div class="flex flex-col gap-1.5">
@@ -329,7 +329,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
             </div>
           </div>
 
-          <div class="divider text-xs text-sr-muted">Event Options</div>
+          <div class="sr-ui-divider text-xs text-sr-muted">Event Options</div>
           
     <!-- Auto-create Alert -->
           <div class="flex flex-col gap-1.5">

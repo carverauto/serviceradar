@@ -50,7 +50,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
           class={[
             "inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
             chip.tip &&
-              "tooltip tooltip-bottom cursor-help border-secondary/30 bg-secondary/5 text-sr-ink/90 hover:border-secondary/50",
+              "sr-ui-tooltip sr-ui-tooltip-bottom cursor-help border-secondary/30 bg-secondary/5 text-sr-ink/90 hover:border-secondary/50",
             !chip.tip && "border-sr-line bg-sr-subtle/40 text-sr-muted"
           ]}
           data-tip={chip.tip}

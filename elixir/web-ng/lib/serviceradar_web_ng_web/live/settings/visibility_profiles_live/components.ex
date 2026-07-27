@@ -267,7 +267,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
               type="checkbox"
               name="form[enabled]"
               value="true"
-              class="toggle toggle-primary"
+              class={ui_toggle_class()}
               checked={truthy?(@form["enabled"])}
             />
             <span class="text-sm font-medium text-sr-ink">Enabled</span>
@@ -403,7 +403,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
                 type="checkbox"
                 name="form[dpi][enabled]"
                 value="true"
-                class="toggle toggle-primary toggle-sm"
+                class={ui_toggle_class(size: "sm")}
                 checked={truthy?(@form["dpi"]["enabled"])}
               />
               <span class="text-sm font-medium text-sr-ink">Enabled</span>

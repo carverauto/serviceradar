@@ -431,7 +431,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                               !testable_rule?(rule) and
                                 !plugin_integration_provider?(rule.provider, @integration_profiles)
                             }
-                            class="tooltip tooltip-left"
+                            class="sr-ui-tooltip sr-ui-tooltip-left"
                             data-tip="Credential test is not yet available for this provider"
                           >
                             <.ui_button type="button" disabled size="xs" variant="ghost">

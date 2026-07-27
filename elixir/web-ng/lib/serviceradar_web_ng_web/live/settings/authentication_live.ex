@@ -110,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                       name="settings[is_enabled]"
                       checked={sso_enabled}
                       disabled={password_only_mode?(@form[:mode].value)}
-                      class="toggle toggle-primary"
+                      class={ui_toggle_class()}
                     />
                   </label>
                 </div>
@@ -287,7 +287,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                         type="checkbox"
                         name="settings[sso_auto_provision]"
                         checked={@form[:sso_auto_provision].value}
-                        class="toggle toggle-warning"
+                        class={ui_toggle_class(class: "toggle-warning")}
                       />
                     </label>
                   </div>
@@ -651,7 +651,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
           </label>
         </div>
 
-        <div class="divider text-xs text-sr-muted">OR</div>
+        <div class="sr-ui-divider text-xs text-sr-muted">OR</div>
 
         <div class="flex flex-col gap-1.5">
           <label class="flex items-center justify-between gap-2">
@@ -766,7 +766,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
           </label>
         </div>
 
-        <div class="divider text-xs text-sr-muted">OR</div>
+        <div class="sr-ui-divider text-xs text-sr-muted">OR</div>
 
         <div class="flex flex-col gap-1.5">
           <label class="flex items-center justify-between gap-2">

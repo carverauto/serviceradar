@@ -353,7 +353,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                             name={"anomaly[classes][#{class_key}][enabled]"}
                             value="true"
                             checked={class_enabled?(class_values)}
-                            class="toggle toggle-sm toggle-primary"
+                            class={ui_toggle_class(size: "sm")}
                           />
                         </label>
                       </div>

@@ -64,7 +64,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Badges do
       <.link
         :if={@has_snmp and is_binary(@device_path)}
         navigate={@device_path}
-        class="tooltip inline-flex hover:opacity-90"
+        class="sr-ui-tooltip inline-flex hover:opacity-90"
         data-tip="SNMP metrics available (last 24h)"
         aria-label="View device details (SNMP metrics available)"
       >
@@ -72,7 +72,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Badges do
       </.link>
       <span
         :if={@has_snmp and not is_binary(@device_path)}
-        class="tooltip"
+        class="sr-ui-tooltip"
         data-tip="SNMP metrics available (last 24h)"
       >
         <.icon name="hero-chart-bar" class="size-4 text-info" />
@@ -81,7 +81,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Badges do
       <.link
         :if={@has_sysmon and is_binary(@device_path)}
         navigate={@device_path}
-        class="tooltip inline-flex hover:opacity-90"
+        class="sr-ui-tooltip inline-flex hover:opacity-90"
         data-tip="Host Health metrics available (last 24h)"
         aria-label="View device details (Host Health metrics available)"
       >
@@ -89,7 +89,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Badges do
       </.link>
       <span
         :if={@has_sysmon and not is_binary(@device_path)}
-        class="tooltip"
+        class="sr-ui-tooltip"
         data-tip="Host Health metrics available (last 24h)"
       >
         <.icon name="hero-cpu-chip" class="size-4 text-success" />

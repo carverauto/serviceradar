@@ -753,7 +753,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       </div>
 
       <%= if @component_type == "agent" do %>
-        <div class="divider">Enroll Agent</div>
+        <div class="sr-ui-divider">Enroll Agent</div>
         <div class="space-y-3">
           <p class="text-sm text-sr-muted">
             Run this command on the target host to enroll the agent. Uses sudo to write
@@ -778,7 +778,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           <% end %>
         </div>
       <% else %>
-        <div class="divider">Quick Install</div>
+        <div class="sr-ui-divider">Quick Install</div>
 
         <div class="sr-ui-tabs sr-ui-tabs-boxed">
           <input type="radio" name="install_tabs" class="sr-ui-tab" aria-label="Docker" checked />
@@ -809,7 +809,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         </div>
       <% end %>
 
-      <div class="divider">Package Details</div>
+      <div class="sr-ui-divider">Package Details</div>
 
       <div class="grid grid-cols-2 gap-4 text-sm">
         <div>
@@ -1011,7 +1011,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
             </div>
           <% end %>
 
-          <div class="divider">Events</div>
+          <div class="sr-ui-divider">Events</div>
 
           <%= if @events == [] do %>
             <p class="text-sm text-sr-muted">No events recorded yet.</p>

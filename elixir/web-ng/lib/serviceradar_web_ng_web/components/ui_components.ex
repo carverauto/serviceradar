@@ -635,7 +635,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
     extra = Keyword.get(opts, :class)
 
     [
-      "rounded border-sr-line-strong text-sr-brand accent-sr-brand focus-visible:ring-2 focus-visible:ring-sr-focus",
+      "sr-ui-checkbox rounded border-sr-line-strong text-sr-brand accent-sr-brand focus-visible:ring-2 focus-visible:ring-sr-focus",
       ui_checkbox_size_class(size),
       extra
     ]
@@ -644,6 +644,25 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   defp ui_checkbox_size_class("xs"), do: "size-3.5"
   defp ui_checkbox_size_class("md"), do: "size-5"
   defp ui_checkbox_size_class(_), do: "size-4"
+
+  @doc """
+  Brand switch/toggle classes (prefer over daisy `toggle toggle-*`).
+
+  ## Options
+
+    * `:size` - `"sm" | "md"` (default `"md"`)
+    * `:class` - extra classes
+  """
+  def ui_toggle_class(opts \\ []) when is_list(opts) do
+    size = opts |> Keyword.get(:size, "md") |> to_string()
+    extra = Keyword.get(opts, :class)
+
+    [
+      "sr-ui-toggle",
+      size == "sm" && "sr-ui-toggle-sm",
+      extra
+    ]
+  end
 
   @doc """
   Brand loading spinner. Prefer over daisy `loading loading-spinner`.

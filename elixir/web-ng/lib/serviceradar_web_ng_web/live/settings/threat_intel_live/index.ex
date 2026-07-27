@@ -541,7 +541,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                         type="checkbox"
                         name="settings[otx_enabled]"
                         value="true"
-                        class="toggle toggle-sm"
+                        class={ui_toggle_class(size: "sm")}
                         checked={@otx_settings_form["otx_enabled"] == "true"}
                       /> OTX enabled
                     </label>
@@ -551,7 +551,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                         type="checkbox"
                         name="settings[threat_intel_enabled]"
                         value="true"
-                        class="toggle toggle-sm"
+                        class={ui_toggle_class(size: "sm")}
                         checked={
                           @otx_settings_form["threat_intel_enabled"] == "true" or
                             @otx_settings_form["otx_enabled"] == "true"
@@ -568,7 +568,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                         type="checkbox"
                         name="settings[otx_raw_payload_archive_enabled]"
                         value="true"
-                        class="toggle toggle-sm"
+                        class={ui_toggle_class(size: "sm")}
                         checked={@otx_settings_form["otx_raw_payload_archive_enabled"] == "true"}
                       /> Raw archive
                     </label>
@@ -799,7 +799,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                       type="checkbox"
                       name="assignment[enabled]"
                       value="true"
-                      class="toggle toggle-sm"
+                      class={ui_toggle_class(size: "sm")}
                       checked={@assignment_form["enabled"] == "true"}
                       disabled={is_nil(@approved_package)}
                     /> Enabled

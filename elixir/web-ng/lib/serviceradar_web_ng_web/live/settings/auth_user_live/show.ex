@@ -359,7 +359,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
                   </.ui_button>
                 </.form>
 
-                <div class="divider"></div>
+                <div class="sr-ui-divider"></div>
 
                 <div class="flex items-center justify-between gap-3">
                   <div>
@@ -381,7 +381,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
                   </div>
                   <input
                     type="checkbox"
-                    class="toggle toggle-primary"
+                    class={ui_toggle_class()}
                     phx-click="toggle_local_login"
                     checked={@user.local_login_enabled == true}
                     aria-label="Local password login enabled"

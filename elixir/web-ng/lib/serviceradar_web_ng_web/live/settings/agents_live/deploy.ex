@@ -96,7 +96,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
                 </div>
               </div>
 
-              <div class="divider"></div>
+              <div class="sr-ui-divider"></div>
 
               <h3 class="font-medium text-sr-ink">Deployment Steps</h3>
               <ol class="list-decimal list-inside space-y-2 text-sm text-sr-muted">

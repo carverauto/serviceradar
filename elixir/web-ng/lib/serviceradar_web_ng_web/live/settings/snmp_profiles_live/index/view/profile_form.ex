@@ -277,7 +277,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                       type="checkbox"
                       name="form[agent_ids][]"
                       value={agent.uid}
-                      class="checkbox"
+                      class={ui_checkbox_class()}
                       checked={Enum.member?(selected_agents, to_string(agent.uid))}
                     />
                     <span>{agent_display_name(agent)}</span>

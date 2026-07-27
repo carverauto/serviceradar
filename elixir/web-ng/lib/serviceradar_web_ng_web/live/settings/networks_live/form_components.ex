@@ -433,7 +433,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
                 type="checkbox"
                 name="form[sweep_modes][]"
                 value="icmp"
-                class="checkbox"
+                class={ui_checkbox_class()}
                 checked={Enum.member?(selected_modes, "icmp")}
               />
               <span>ICMP (Ping)</span>
@@ -443,7 +443,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
                 type="checkbox"
                 name="form[sweep_modes][]"
                 value="tcp"
-                class="checkbox"
+                class={ui_checkbox_class()}
                 checked={Enum.member?(selected_modes, "tcp")}
               />
               <span>TCP</span>
@@ -453,7 +453,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
                 type="checkbox"
                 name="form[sweep_modes][]"
                 value="arp"
-                class="checkbox"
+                class={ui_checkbox_class()}
                 checked={Enum.member?(selected_modes, "arp")}
               />
               <span>ARP</span>
@@ -483,7 +483,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
                   type="checkbox"
                   name="form[banner_grab][enabled]"
                   value="true"
-                  class="toggle toggle-primary toggle-sm"
+                  class={ui_toggle_class(size: "sm")}
                   checked={truthy?(banner_grab_value(banner_grab, "enabled", false))}
                 />
                 <span class="text-sm font-medium text-sr-ink">Enabled</span>

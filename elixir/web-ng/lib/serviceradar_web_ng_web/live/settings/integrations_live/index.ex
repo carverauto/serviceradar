@@ -996,7 +996,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               <label class="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  class="toggle toggle-primary"
+                  class={ui_toggle_class()}
                   name="mapbox[enabled]"
                   value="true"
                   checked={truthy_param?(Map.get(@mapbox_form.source, "enabled"))}
@@ -1211,7 +1211,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             </div>
           <% end %>
 
-          <div class="divider text-xs text-sr-muted">Credentials</div>
+          <div class="sr-ui-divider text-xs text-sr-muted">Credentials</div>
 
           <.dynamic_credentials_fields
             form={@form}
@@ -1226,7 +1226,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             custom_fields_value={@form_custom_fields}
           />
 
-          <div class="divider text-xs text-sr-muted">Queries</div>
+          <div class="sr-ui-divider text-xs text-sr-muted">Queries</div>
 
           <div class="space-y-3">
             <%= for query <- @form_queries do %>
@@ -1276,7 +1276,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           </div>
 
           <%= if shows_network_blacklist?(@form[:source_type].value) do %>
-            <div class="divider text-xs text-sr-muted">Network Settings</div>
+            <div class="sr-ui-divider text-xs text-sr-muted">Network Settings</div>
 
             <div class="flex flex-col gap-1.5">
               <label class="flex items-center justify-between gap-2">
@@ -1401,7 +1401,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             </div>
           <% end %>
 
-          <div class="divider text-xs text-sr-muted">Credentials</div>
+          <div class="sr-ui-divider text-xs text-sr-muted">Credentials</div>
 
           <.dynamic_credentials_fields
             form={@form}
@@ -1416,7 +1416,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             custom_fields_value={@form_custom_fields}
           />
 
-          <div class="divider text-xs text-sr-muted">Queries</div>
+          <div class="sr-ui-divider text-xs text-sr-muted">Queries</div>
 
           <div class="space-y-3">
             <%= for query <- @form_queries do %>
@@ -1466,7 +1466,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           </div>
 
           <%= if shows_network_blacklist?(@source && @source.source_type) do %>
-            <div class="divider text-xs text-sr-muted">Network Settings</div>
+            <div class="sr-ui-divider text-xs text-sr-muted">Network Settings</div>
 
             <div class="flex flex-col gap-1.5">
               <label class="flex items-center justify-between gap-2">
@@ -1545,7 +1545,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           </div>
 
           <%= if armis_source?(@source) do %>
-            <div class="divider">Credentials</div>
+            <div class="sr-ui-divider">Credentials</div>
 
             <div class="grid grid-cols-2 gap-4">
               <div>
@@ -1598,7 +1598,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             </div>
           <% end %>
 
-          <div class="divider">Discovery Status</div>
+          <div class="sr-ui-divider">Discovery Status</div>
 
           <div class="grid grid-cols-3 gap-4">
             <div class="stat bg-sr-subtle rounded-lg p-3">
@@ -1634,7 +1634,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             </div>
           <% end %>
 
-          <div class="divider">Agent Config Dispatch</div>
+          <div class="sr-ui-divider">Agent Config Dispatch</div>
 
           <%= if @selected_source_config_diagnostics == [] do %>
             <div class="rounded-lg border border-dashed border-sr-line bg-sr-surface p-4 text-sm text-sr-muted">
@@ -1685,7 +1685,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <% end %>
 
           <%= if armis_source?(@source) do %>
-            <div class="divider">Armis Northbound</div>
+            <div class="sr-ui-divider">Armis Northbound</div>
 
             <div class="grid grid-cols-2 gap-4">
               <div>
@@ -2454,7 +2454,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               </label>
             <% end %>
           </div>
-          <div class="divider my-2">V3 OAuth</div>
+          <div class="sr-ui-divider my-2">V3 OAuth</div>
           <div class="flex flex-col gap-1.5">
             <label class="flex items-center justify-between gap-2">
               <span class="text-sm font-medium text-sr-ink">Client ID</span>
@@ -2650,7 +2650,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp armis_northbound_fields(assigns) do
     ~H"""
-    <div class="divider text-xs text-sr-muted">Armis Northbound</div>
+    <div class="sr-ui-divider text-xs text-sr-muted">Armis Northbound</div>
 
     <div class="space-y-4 rounded-xl border border-sr-line bg-sr-surface/70 p-4">
       <label class="flex items-center gap-3 text-sm">
@@ -2659,7 +2659,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           type="checkbox"
           name="form[northbound_enabled]"
           value="true"
-          class="toggle toggle-primary"
+          class={ui_toggle_class()}
           checked={truthy(@form[:northbound_enabled].value)}
         />
         <span>Enable northbound Armis availability updates</span>

@@ -425,7 +425,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
           name={@input_name}
           value="true"
           checked={@value in [true, "true", "on", "1", 1]}
-          class="toggle toggle-primary"
+          class={ui_toggle_class()}
         />
       </div>
 

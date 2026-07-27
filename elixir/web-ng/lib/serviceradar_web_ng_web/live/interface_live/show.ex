@@ -1109,7 +1109,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                 type="checkbox"
                 name="metric[enabled]"
                 value="true"
-                class="toggle toggle-info"
+                class={ui_toggle_class(class: "toggle-info")}
                 checked={@form[:enabled].value}
               />
             </div>
@@ -1262,7 +1262,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
           </div>
 
-          <div class="divider text-xs text-sr-muted">Alert Promotion</div>
+          <div class="sr-ui-divider text-xs text-sr-muted">Alert Promotion</div>
 
           <div class="space-y-3">
             <div class="flex items-center justify-between">
@@ -1276,7 +1276,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                 type="checkbox"
                 name="metric[alert_enabled]"
                 value="true"
-                class="toggle toggle-success"
+                class={ui_toggle_class(class: "toggle-success")}
                 checked={@form[:alert_enabled].value}
               />
             </div>

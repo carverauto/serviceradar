@@ -762,11 +762,16 @@ samp,
   border-color: var(--color-sr-line);
 }
 
+/* Checkbox / radio / toggle — brand native controls (daisy class aliases) */
+.sr-ui-checkbox,
 .checkbox {
   accent-color: var(--color-sr-brand);
   border-color: var(--color-sr-line-strong);
   border-radius: 0.25rem;
   color: var(--color-sr-brand);
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
 }
 
 .checkbox-primary,
@@ -775,10 +780,14 @@ samp,
   accent-color: var(--color-sr-brand);
 }
 
+.sr-ui-radio,
 .radio {
   accent-color: var(--color-sr-brand);
   border-color: var(--color-sr-line-strong);
   color: var(--color-sr-brand);
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
 }
 
 .radio-primary,
@@ -787,13 +796,83 @@ samp,
   accent-color: var(--color-sr-brand);
 }
 
+/* Toggle: native checkbox styled as a switch */
+.sr-ui-toggle,
 .toggle {
-  accent-color: var(--color-sr-brand);
-  color: var(--color-sr-brand);
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  display: inline-block;
+  width: 2.5rem;
+  height: 1.35rem;
+  flex-shrink: 0;
+  margin: 0;
+  border-radius: 9999px;
+  border: 1px solid var(--color-sr-line-strong);
+  background: color-mix(in srgb, var(--color-sr-subtle) 80%, transparent);
+  cursor: pointer;
+  transition:
+    background-color 160ms var(--ease-sr-out, cubic-bezier(0.16, 1, 0.3, 1)),
+    border-color 160ms var(--ease-sr-out, cubic-bezier(0.16, 1, 0.3, 1));
+  vertical-align: middle;
 }
 
-.toggle-primary {
-  accent-color: var(--color-sr-brand);
+.sr-ui-toggle::after,
+.toggle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0.15rem;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 9999px;
+  background: var(--color-sr-raised);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.18);
+  transform: translateY(-50%);
+  transition: transform 160ms var(--ease-sr-out, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+.sr-ui-toggle:checked,
+.toggle:checked,
+.sr-ui-toggle:checked.toggle-primary,
+.toggle:checked.toggle-primary,
+.toggle-primary:checked {
+  border-color: color-mix(in srgb, var(--color-sr-brand) 55%, transparent);
+  background: color-mix(in srgb, var(--color-sr-brand) 75%, transparent);
+}
+
+.sr-ui-toggle:checked::after,
+.toggle:checked::after {
+  transform: translate(1.05rem, -50%);
+  background: var(--color-sr-on-brand, #f8fffb);
+}
+
+.sr-ui-toggle-sm,
+.toggle-sm {
+  width: 2.1rem;
+  height: 1.15rem;
+}
+
+.sr-ui-toggle-sm::after,
+.toggle-sm::after {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.sr-ui-toggle-sm:checked::after,
+.toggle-sm:checked::after {
+  transform: translate(0.85rem, -50%);
+}
+
+.toggle-warning:checked {
+  border-color: color-mix(in srgb, #f59e0b 55%, transparent);
+  background: color-mix(in srgb, #f59e0b 70%, transparent);
+}
+
+.toggle-success:checked,
+.toggle-info:checked {
+  border-color: color-mix(in srgb, var(--color-sr-brand) 55%, transparent);
+  background: color-mix(in srgb, var(--color-sr-brand) 75%, transparent);
 }
 
 /* Alerts */
@@ -927,9 +1006,137 @@ samp,
   margin-top: 1rem;
 }
 
+/* Divider — brand (sr-ui-*) with daisy class alias */
+.sr-ui-divider,
 .divider {
-  border-color: var(--color-sr-line);
+  display: flex;
+  height: 1rem;
+  flex-direction: row;
+  align-items: center;
+  align-self: stretch;
+  white-space: nowrap;
+  margin: 1rem 0;
   color: var(--color-sr-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  --sr-divider-color: color-mix(in srgb, var(--color-sr-line) 90%, transparent);
+}
+
+.sr-ui-divider::before,
+.sr-ui-divider::after,
+.divider::before,
+.divider::after {
+  content: "";
+  height: 1px;
+  width: 100%;
+  flex-grow: 1;
+  background-color: var(--sr-divider-color);
+}
+
+.sr-ui-divider:not(:empty),
+.divider:not(:empty) {
+  gap: 0.75rem;
+}
+
+/* Menu lists — brand (used in drawers / dropdown panels) */
+.sr-ui-menu,
+.menu {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem;
+  gap: 0.125rem;
+  font-size: 0.875rem;
+}
+
+.sr-ui-menu.menu-sm,
+.menu.menu-sm {
+  font-size: 0.8125rem;
+  padding: 0.35rem;
+}
+
+.sr-ui-menu.menu-vertical,
+.menu.menu-vertical {
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+.sr-ui-menu > li > a,
+.sr-ui-menu > li > button,
+.menu > li > a,
+.menu > li > button,
+.menu > li > details > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  border-radius: var(--radius-sr-control);
+  padding: 0.45rem 0.65rem;
+  color: var(--color-sr-ink);
+  text-align: left;
+  transition: background-color 140ms var(--ease-sr-out, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+.sr-ui-menu > li > a:hover,
+.sr-ui-menu > li > button:hover,
+.menu > li > a:hover,
+.menu > li > button:hover,
+.menu > li > details > summary:hover {
+  background: color-mix(in srgb, var(--color-sr-subtle) 85%, transparent);
+}
+
+.sr-ui-menu > li > a.active,
+.menu > li > a.active {
+  background: color-mix(in srgb, var(--color-sr-brand) 12%, transparent);
+  color: var(--color-sr-brand-strong);
+  font-weight: 600;
+}
+
+/* Daisy-style details/summary dropdown (ops profile / settings crumbs) */
+.dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.dropdown-content {
+  position: absolute;
+  visibility: hidden;
+  opacity: 0;
+  z-index: 40;
+  transform-origin: top;
+  transition:
+    opacity 120ms ease-out,
+    visibility 120ms ease-out;
+}
+
+.dropdown:focus-within > .dropdown-content,
+.dropdown:hover > .dropdown-content,
+.dropdown.dropdown-open > .dropdown-content,
+details.dropdown[open] > .dropdown-content {
+  visibility: visible;
+  opacity: 1;
+}
+
+.dropdown-end .dropdown-content,
+.dropdown.dropdown-end > .dropdown-content {
+  right: 0;
+  left: auto;
+}
+
+.dropdown-top .dropdown-content,
+.dropdown.dropdown-top > .dropdown-content {
+  bottom: 100%;
+  top: auto;
+  margin-bottom: 0.35rem;
+}
+
+.dropdown-bottom .dropdown-content,
+.dropdown.dropdown-bottom > .dropdown-content {
+  top: 100%;
+  margin-top: 0.35rem;
 }
 
 /* Join groups (input + button clusters) */
@@ -1127,11 +1334,121 @@ input[type="radio"].sr-ui-tab:checked + .sr-ui-tab-content {
   display: block;
 }
 
-/* Tooltip soft brand */
-.tooltip:before,
-.tooltip:after {
+/* Tooltip — brand CSS tooltips via data-tip (no daisy dependency) */
+.sr-ui-tooltip,
+.tooltip {
+  position: relative;
+  display: inline-flex;
   --tooltip-color: var(--color-sr-raised);
   --tooltip-text-color: var(--color-sr-ink);
+}
+
+.sr-ui-tooltip:before,
+.sr-ui-tooltip:after,
+.tooltip:before,
+.tooltip:after {
+  position: absolute;
+  z-index: 40;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.sr-ui-tooltip:before,
+.tooltip:before {
+  content: attr(data-tip);
+  max-width: 16rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: var(--radius-sr-control);
+  border: 1px solid var(--color-sr-line);
+  background: var(--tooltip-color);
+  color: var(--tooltip-text-color);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.25;
+  white-space: normal;
+  box-shadow: var(--shadow-sr-raised);
+}
+
+.sr-ui-tooltip:after,
+.tooltip:after {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  background: var(--tooltip-color);
+  border: 1px solid var(--color-sr-line);
+  transform: rotate(45deg);
+}
+
+.sr-ui-tooltip:hover:before,
+.sr-ui-tooltip:hover:after,
+.sr-ui-tooltip:focus-visible:before,
+.sr-ui-tooltip:focus-visible:after,
+.tooltip:hover:before,
+.tooltip:hover:after,
+.tooltip:focus-visible:before,
+.tooltip:focus-visible:after {
+  opacity: 1;
+}
+
+/* default: top */
+.sr-ui-tooltip:before,
+.tooltip:before,
+.sr-ui-tooltip-top:before,
+.tooltip-top:before {
+  bottom: calc(100% + 0.45rem);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.sr-ui-tooltip:after,
+.tooltip:after,
+.sr-ui-tooltip-top:after,
+.tooltip-top:after {
+  bottom: calc(100% + 0.2rem);
+  left: 50%;
+  margin-left: -0.2rem;
+  border-top: 0;
+  border-left: 0;
+}
+
+.sr-ui-tooltip-bottom:before,
+.tooltip-bottom:before {
+  top: calc(100% + 0.45rem);
+  bottom: auto;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.sr-ui-tooltip-bottom:after,
+.tooltip-bottom:after {
+  top: calc(100% + 0.2rem);
+  bottom: auto;
+  left: 50%;
+  margin-left: -0.2rem;
+  border-bottom: 0;
+  border-right: 0;
+}
+
+.sr-ui-tooltip-left:before,
+.tooltip-left:before {
+  right: calc(100% + 0.45rem);
+  left: auto;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+
+.sr-ui-tooltip-left:after,
+.tooltip-left:after {
+  right: calc(100% + 0.2rem);
+  left: auto;
+  top: 50%;
+  bottom: auto;
+  margin-top: -0.2rem;
+  margin-left: 0;
+  border-bottom: 0;
+  border-left: 0;
 }
 
 .sr-ops-shell {

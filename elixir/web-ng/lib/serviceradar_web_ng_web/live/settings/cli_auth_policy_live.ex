@@ -107,7 +107,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
                   name="settings[cli_auth_enabled]"
                   value="true"
                   checked={@form_values.cli_auth_enabled}
-                  class="toggle toggle-primary"
+                  class={ui_toggle_class()}
                 />
                 <span class="text-sm font-medium text-sr-ink">
                   Allow new CLI device-code authorizations on this instance

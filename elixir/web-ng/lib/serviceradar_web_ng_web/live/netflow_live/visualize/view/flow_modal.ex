@@ -79,7 +79,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
                   <div class="mt-1 flex flex-wrap gap-1">
                     <%= for flag <- ["CWR", "ECE", "URG", "ACK", "PSH", "RST", "SYN", "FIN"] do %>
                       <% active = MapSet.member?(flag_set, flag) %>
-                      <span class="tooltip tooltip-top" data-tip={tcp_flag_tooltip(flag)}>
+                      <span class="sr-ui-tooltip sr-ui-tooltip-top" data-tip={tcp_flag_tooltip(flag)}>
                         <span class={[
                           "inline-flex h-5 min-w-6 items-center justify-center rounded border px-1 text-[10px] font-mono cursor-help",
                           if(active,

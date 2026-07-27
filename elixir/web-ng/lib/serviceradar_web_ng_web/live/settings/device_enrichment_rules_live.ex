@@ -909,7 +909,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
               </label>
             </div>
 
-            <div class="divider">Match Conditions</div>
+            <div class="sr-ui-divider">Match Conditions</div>
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div class="space-y-2">
                 <h4 class="text-sm font-semibold text-sr-ink">ALL</h4>
@@ -933,7 +933,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
               </div>
             </div>
 
-            <div class="divider">Set Values</div>
+            <div class="sr-ui-divider">Set Values</div>
             <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
               <%= for {key, set_field} <- @set_field_defs do %>
                 <.input field={@rule_form[set_field]} type="text" label={key} />
