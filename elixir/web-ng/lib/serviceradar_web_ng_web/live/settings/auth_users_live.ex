@@ -261,37 +261,33 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                       </td>
                       <td class="text-right">
                         <%= if show_actions_menu?(user, @active_admin_count) do %>
-                          <div class="dropdown dropdown-end">
-                            <.ui_icon_button tabindex="0" size="xs" variant="ghost">
-                              <.icon name="hero-ellipsis-vertical" class="size-4" />
-                            </.ui_icon_button>
-                            <ul
-                              tabindex="0"
-                              class="dropdown-content z-[1] menu p-2 shadow bg-sr-surface rounded-box w-40 border border-sr-line"
-                            >
-                              <%= if user.status == :active do %>
-                                <li :if={can_deactivate?(user, @active_admin_count)}>
-                                  <button
-                                    class="text-error"
-                                    phx-click="deactivate"
-                                    phx-value-id={user.id}
-                                  >
-                                    <.icon name="hero-no-symbol" class="size-4" /> Deactivate
-                                  </button>
-                                </li>
-                              <% else %>
-                                <li>
-                                  <button
-                                    class="text-success"
-                                    phx-click="reactivate"
-                                    phx-value-id={user.id}
-                                  >
-                                    <.icon name="hero-check-circle" class="size-4" /> Reactivate
-                                  </button>
-                                </li>
-                              <% end %>
-                            </ul>
-                          </div>
+                          <.ui_dropdown align="end">
+                            <:trigger>
+                              <.ui_icon_button size="xs" variant="ghost" aria-label="User actions">
+                                <.icon name="hero-ellipsis-vertical" class="size-4" />
+                              </.ui_icon_button>
+                            </:trigger>
+                            <:item :if={user.status == :active and can_deactivate?(user, @active_admin_count)}>
+                              <button
+                                type="button"
+                                class="text-error"
+                                phx-click="deactivate"
+                                phx-value-id={user.id}
+                              >
+                                <.icon name="hero-no-symbol" class="size-4" /> Deactivate
+                              </button>
+                            </:item>
+                            <:item :if={user.status != :active}>
+                              <button
+                                type="button"
+                                class="text-success"
+                                phx-click="reactivate"
+                                phx-value-id={user.id}
+                              >
+                                <.icon name="hero-check-circle" class="size-4" /> Reactivate
+                              </button>
+                            </:item>
+                          </.ui_dropdown>
                         <% end %>
                       </td>
                     </tr>

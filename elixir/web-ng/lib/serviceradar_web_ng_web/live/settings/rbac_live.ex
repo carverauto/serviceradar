@@ -561,34 +561,28 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
           <.ui_button :if={@dirty} phx-click="save_profile" phx-value-profile-id={@profile.id} size="xs" variant="primary">
             Save
           </.ui_button>
-          <div class="dropdown dropdown-end">
-            <div
-              tabindex="0"
-              role="button"
-              class="inline-flex size-9 cursor-pointer items-center justify-center rounded-sr-control text-sr-muted hover:bg-sr-subtle hover:text-sr-ink"
-            >
-              <.icon name="hero-ellipsis-vertical" class="h-5 w-5" />
-            </div>
-            <ul
-              tabindex="0"
-              class="dropdown-content z-[1] menu p-2 shadow-lg bg-sr-surface rounded-box w-44 border border-sr-line"
-            >
-              <li>
-                <button phx-click="open_new_profile" phx-value-clone-source-id={@profile.id}>
-                  <.icon name="hero-document-duplicate" class="h-4 w-4" /> Clone
-                </button>
-              </li>
-              <li :if={!@profile.system}>
-                <button
-                  phx-click="open_delete_profile"
-                  phx-value-profile-id={@profile.id}
-                  class="text-error"
-                >
-                  <.icon name="hero-trash" class="h-4 w-4" /> Delete
-                </button>
-              </li>
-            </ul>
-          </div>
+          <.ui_dropdown align="end">
+            <:trigger>
+              <.ui_icon_button size="sm" variant="ghost" aria-label="Profile actions">
+                <.icon name="hero-ellipsis-vertical" class="size-5" />
+              </.ui_icon_button>
+            </:trigger>
+            <:item>
+              <button type="button" phx-click="open_new_profile" phx-value-clone-source-id={@profile.id}>
+                <.icon name="hero-document-duplicate" class="size-4" /> Clone
+              </button>
+            </:item>
+            <:item :if={!@profile.system}>
+              <button
+                type="button"
+                phx-click="open_delete_profile"
+                phx-value-profile-id={@profile.id}
+                class="text-error"
+              >
+                <.icon name="hero-trash" class="size-4" /> Delete
+              </button>
+            </:item>
+          </.ui_dropdown>
         </div>
       </div>
 

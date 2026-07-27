@@ -165,51 +165,33 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                         <td class="text-sm">{client.use_count}</td>
                         <td>
                           <%= if is_nil(client.revoked_at) do %>
-                            <div class="dropdown dropdown-end">
-                              <div
-                                tabindex="0"
-                                role="button"
-                                class="inline-flex min-h-7 cursor-pointer items-center justify-center rounded-sr-control px-2 text-xs font-semibold text-sr-muted hover:bg-sr-subtle hover:text-sr-ink"
-                              >
-                                <svg
-                                  xmlns="http://www.w3.org/2000/svg"
-                                  fill="none"
-                                  viewBox="0 0 24 24"
-                                  stroke-width="1.5"
-                                  stroke="currentColor"
-                                  class="w-4 h-4"
+                            <.ui_dropdown align="end">
+                              <:trigger>
+                                <.ui_icon_button size="xs" variant="ghost" aria-label="Credential actions">
+                                  <.icon name="hero-ellipsis-vertical" class="size-4" />
+                                </.ui_icon_button>
+                              </:trigger>
+                              <:item>
+                                <button
+                                  type="button"
+                                  phx-click="open_revoke_modal"
+                                  phx-value-id={client.id}
+                                  class="text-warning"
                                 >
-                                  <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z"
-                                  />
-                                </svg>
-                              </div>
-                              <ul
-                                tabindex="0"
-                                class="dropdown-content z-[1] menu p-2 shadow bg-sr-surface rounded-box w-40"
-                              >
-                                <li>
-                                  <button
-                                    phx-click="open_revoke_modal"
-                                    phx-value-id={client.id}
-                                    class="text-warning"
-                                  >
-                                    Revoke
-                                  </button>
-                                </li>
-                                <li>
-                                  <button
-                                    phx-click="delete_client"
-                                    phx-value-id={client.id}
-                                    class="text-error"
-                                  >
-                                    Delete
-                                  </button>
-                                </li>
-                              </ul>
-                            </div>
+                                  Revoke
+                                </button>
+                              </:item>
+                              <:item>
+                                <button
+                                  type="button"
+                                  phx-click="delete_client"
+                                  phx-value-id={client.id}
+                                  class="text-error"
+                                >
+                                  Delete
+                                </button>
+                              </:item>
+                            </.ui_dropdown>
                           <% else %>
                             <.ui_button phx-click="delete_client" phx-value-id={client.id} size="xs" variant="ghost" class="text-error">
                               Delete
