@@ -79,7 +79,7 @@ rust_binary(
     name = "rdp_adapter",
     exec_properties = {
         "EstimatedCPU": "4",
-        "EstimatedMemory": "8GB",
+        "EstimatedMemory": "8Gi",
     },
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
@@ -90,7 +90,7 @@ rust_binary(
     name = "rdp_adapter_ironrdp",
     exec_properties = {
         "EstimatedCPU": "4",
-        "EstimatedMemory": "8GB",
+        "EstimatedMemory": "8Gi",
     },
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
@@ -101,7 +101,7 @@ rust_binary(
     name = "rdp_adapter_ironrdp_connector_experimental",
     exec_properties = {
         "EstimatedCPU": "4",
-        "EstimatedMemory": "8GB",
+        "EstimatedMemory": "8Gi",
     },
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",

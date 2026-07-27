@@ -28,7 +28,7 @@ rust_binary(
     # Firecracker RBE: rustc final link (aws-lc, ring, zstd) OOMs ~2.5–4Gi VMs.
     exec_properties = {
         "EstimatedCPU": "4",
-        "EstimatedMemory": "8GB",
+        "EstimatedMemory": "8Gi",
     },
     deps = [":serviceradar_anomaly_addon"] + all_crate_deps(normal = True) + [
         "//rust/addon-sdk:addon_sdk",

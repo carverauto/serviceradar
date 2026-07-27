@@ -29,7 +29,7 @@ go_binary(
     # (~2.5Gi) OOMs the linker (signal: killed). Ask for a larger task size.
     exec_properties = {
         "EstimatedCPU": "4",
-        "EstimatedMemory": "8GB",
+        "EstimatedMemory": "8Gi",
     },
     visibility = ["//visibility:public"],
     x_defs = {

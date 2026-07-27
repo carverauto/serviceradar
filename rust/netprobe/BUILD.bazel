@@ -98,7 +98,7 @@ rust_binary(
     name = "netprobe",
     exec_properties = {
         "EstimatedCPU": "4",
-        "EstimatedMemory": "8GB",
+        "EstimatedMemory": "8Gi",
     },
     srcs = glob(["src/**/*.rs"]),
     compile_data = [
