@@ -2,21 +2,27 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
   @moduledoc false
   use Phoenix.Component
 
+  import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
   attr(:widgets, :list, required: true)
 
   def signal_display_panel(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-6 space-y-5">
-      <span class="text-xs text-base-content/50 uppercase tracking-wider block">
-        Signal Details
-      </span>
+    <.ui_panel>
+      <:header>
+        <div class="flex items-center gap-2">
+          <.icon name="hero-signal" class="size-4 text-sr-muted" />
+          <span class="text-sm font-semibold text-sr-ink">Signal details</span>
+        </div>
+      </:header>
 
-      <%= for widget <- @widgets do %>
-        <.signal_display_widget widget={widget} />
-      <% end %>
-    </div>
+      <div class="space-y-5">
+        <%= for widget <- @widgets do %>
+          <.signal_display_widget widget={widget} />
+        <% end %>
+      </div>
+    </.ui_panel>
     """
   end
 
@@ -26,14 +32,16 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
     ~H"""
     <div class="space-y-2">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <h2 class="text-lg font-semibold leading-tight">{@widget.title || "Signal event"}</h2>
+        <h2 class="text-base font-semibold leading-tight text-sr-ink">
+          {@widget.title || "Signal event"}
+        </h2>
         <.signal_severity_badge value={@widget.severity} />
       </div>
-      <p :if={@widget.message} class="text-sm text-base-content/80 whitespace-pre-wrap">
+      <p :if={@widget.message} class="whitespace-pre-wrap text-sm text-sr-ink/90">
         {@widget.message}
       </p>
-      <p :if={@widget.source} class="text-xs text-base-content/50">
-        Source: <span class="font-mono">{@widget.source}</span>
+      <p :if={@widget.source} class="text-xs text-sr-muted">
+        Source: <span class="font-mono text-sr-ink">{@widget.source}</span>
       </p>
     </div>
     """
@@ -54,21 +62,23 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
 
     ~H"""
     <div>
-      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-3">
+      <span class="mb-3 block text-[10px] font-medium uppercase tracking-[0.14em] text-sr-muted">
         {@heading}
       </span>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
-        <div :for={field <- @widget.fields} class="flex flex-col gap-0.5 min-w-0">
-          <span class="text-xs text-base-content/50">{field.label}</span>
+      <div class="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+        <div :for={field <- @widget.fields} class="flex min-w-0 flex-col gap-0.5">
+          <span class="text-[11px] text-sr-muted">{field.label}</span>
           <.link
             :if={Map.get(field, :href)}
             navigate={field.href}
-            class="link link-primary text-sm break-words"
-            aria-label={"View device for #{field.label} #{field.value}"}
+            class="break-words text-sm text-sr-brand underline-offset-2 hover:underline"
+            aria-label={Map.get(field, :href_label) || "Open #{field.label} #{field.value}"}
           >
             {field.value}
           </.link>
-          <span :if={!Map.get(field, :href)} class="text-sm break-words">{field.value}</span>
+          <span :if={!Map.get(field, :href)} class="break-words text-sm text-sr-ink">
+            {field.value}
+          </span>
         </div>
       </div>
     </div>
@@ -76,18 +86,34 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
   end
 
   def signal_display_widget(%{widget: %{type: :json_section}} = assigns) do
+    # Prefer flattened key/value facts over raw JSON walls.
+    facts =
+      assigns.widget
+      |> Map.get(:sections, [])
+      |> Enum.flat_map(fn section ->
+        case Map.get(section, :value) do
+          %{} = map -> flatten_json_facts(map)
+          list when is_list(list) -> [%{label: "Items", value: "#{length(list)} entries"}]
+          _ -> []
+        end
+      end)
+      |> Enum.take(24)
+
+    assigns =
+      assigns
+      |> assign(:facts, facts)
+      |> assign(:title, assigns.widget.title || "Details")
+
     ~H"""
-    <div>
-      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-3">
-        {@widget.title || "JSON"}
+    <div :if={@facts != []}>
+      <span class="mb-3 block text-[10px] font-medium uppercase tracking-[0.14em] text-sr-muted">
+        {@title}
       </span>
-      <div class="space-y-3">
-        <details :for={section <- @widget.sections} class="rounded-lg border border-base-200 p-3">
-          <summary class="cursor-pointer text-xs font-mono text-base-content/70">
-            {section.path}
-          </summary>
-          <pre class="mt-3 text-xs font-mono bg-base-200/30 p-2 rounded overflow-x-auto max-h-48">{section.json}</pre>
-        </details>
+      <div class="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+        <div :for={fact <- @facts} class="flex min-w-0 flex-col gap-0.5">
+          <span class="text-[11px] text-sr-muted">{fact.label}</span>
+          <span class="break-all text-sm text-sr-ink">{fact.value}</span>
+        </div>
       </div>
     </div>
     """
@@ -96,11 +122,11 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
   def signal_display_widget(%{widget: %{type: :table}} = assigns) do
     ~H"""
     <div>
-      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-3">
+      <span class="mb-3 block text-[10px] font-medium uppercase tracking-[0.14em] text-sr-muted">
         {@widget.title || "Rows"}
       </span>
-      <div class="max-w-full overflow-x-auto rounded-lg border border-base-200">
-        <table class="table table-sm">
+      <div class="sr-ui-table-shell max-w-full overflow-x-auto">
+        <table class={ui_table_class(size: "sm")}>
           <thead>
             <tr>
               <th :for={column <- @widget.columns}>{column.label}</th>
@@ -120,6 +146,42 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
   end
 
   def signal_display_widget(assigns), do: ~H""
+
+  defp flatten_json_facts(map, prefix \\ nil) when is_map(map) do
+    map
+    |> Enum.sort_by(fn {k, _} -> to_string(k) end)
+    |> Enum.flat_map(fn {key, value} ->
+      label =
+        key
+        |> to_string()
+        |> String.replace("_", " ")
+        |> String.split()
+        |> Enum.map_join(" ", &String.capitalize/1)
+
+      label = if prefix, do: "#{prefix} · #{label}", else: label
+
+      cond do
+        value in [nil, "", []] ->
+          []
+
+        is_map(value) and map_size(value) == 0 ->
+          []
+
+        is_map(value) and map_size(value) <= 6 and flat_map?(value) ->
+          flatten_json_facts(value, label)
+
+        is_map(value) or is_list(value) ->
+          []
+
+        true ->
+          [%{label: label, value: to_string(value)}]
+      end
+    end)
+  end
+
+  defp flat_map?(%{} = map) do
+    Enum.all?(map, fn {_k, v} -> is_binary(v) or is_number(v) or is_boolean(v) or is_nil(v) end)
+  end
 
   attr(:value, :any, default: nil)
 

@@ -3,12 +3,11 @@ import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 import type * as Redocusaurus from 'redocusaurus';
 
-
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
 const config: Config = {
   title: 'ServiceRadar',
-  tagline: 'IT operations and network management platform',
+  tagline: 'Network management, security, and observability',
   favicon: 'img/favicon.ico',
 
   url: 'https://docs.serviceradar.cloud',
@@ -24,12 +23,6 @@ const config: Config = {
     locales: ['en'],
   },
 
-  // Load the shared monospace font used across ServiceRadar web properties.
-  stylesheets: [
-    'https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap',
-  ],
-
-  // Add markdown configuration with Mermaid enabled
   markdown: {
     mermaid: true,
     hooks: {
@@ -37,30 +30,10 @@ const config: Config = {
     },
   },
 
-  // Add theme-mermaid to the themes array
   themes: ['@docusaurus/theme-mermaid'],
 
-  plugins: [
-    [
-      '@docusaurus/plugin-client-redirects',
-      {
-        // Redirects for pages removed or renamed in the docs reorganization,
-        // so existing external/bookmarked links continue to resolve.
-        redirects: [
-          {from: '/docs/god-view-topology', to: '/docs/network-topology'},
-          {from: '/docs/topology-reset-rebuild', to: '/docs/network-topology'},
-          {from: '/docs/self-signed', to: '/docs/tls-security'},
-          {from: '/docs/falco-integration', to: '/docs/falco'},
-          {from: '/docs/mtr-automation-rollout', to: '/docs/troubleshooting-guide'},
-          {from: '/docs/cnpg-pg18-upgrade-and-search-policy', to: '/docs/cnpg-monitoring'},
-          {from: '/docs/repository-layout', to: '/docs/architecture'},
-          {from: '/docs/rust-bazel-deps', to: '/docs/intro'},
-          {from: '/docs/camera-analysis-reference-worker', to: '/docs/sdks'},
-          {from: '/docs/wifi-map-local-compose', to: '/docs/dashboard-sdk'},
-        ],
-      },
-    ],
-  ],
+  // Tailwind v4 via PostCSS (utilities + theme only; no global Preflight).
+  plugins: ['./src/plugins/tailwind-config.js'],
 
   presets: [
     [
@@ -68,6 +41,9 @@ const config: Config = {
       {
         docs: {
           sidebarPath: './sidebars.ts',
+        },
+        blog: {
+          showReadingTime: true,
         },
         theme: {
           customCss: './src/css/custom.css',
@@ -77,19 +53,16 @@ const config: Config = {
     [
       'redocusaurus',
       {
-        // Plugin Options for loading OpenAPI files
         specs: [
-          // Pass it a path to a local OpenAPI YAML file
           {
-            // Redocusaurus will automatically bundle your spec into a single file during the build
             spec: 'openapi/index.yaml',
             route: '/api/',
           },
         ],
-        // Theme Options for modifying how redoc renders them
         theme: {
-          // Change with your site colors
-          primaryColor: '#0369a1',
+          // Brand green (dark-mode primary)
+          primaryColor: '#3ecf87',
+          primaryColorDark: '#3ecf87',
         },
       },
     ] satisfies Redocusaurus.PresetEntry,
@@ -97,12 +70,18 @@ const config: Config = {
 
   themeConfig: {
     image: 'img/serviceradar-social-card.png',
+    colorMode: {
+      defaultMode: 'dark',
+      disableSwitch: true,
+      respectPrefersColorScheme: false,
+    },
     navbar: {
       title: 'ServiceRadar',
       logo: {
         alt: 'ServiceRadar logo',
         src: 'img/logo.svg',
       },
+      hideOnScroll: false,
       items: [
         {
           type: 'docSidebar',
@@ -110,10 +89,31 @@ const config: Config = {
           position: 'left',
           label: 'Docs',
         },
-        {to: '/blog', label: 'Blog', position: 'left'},
+        {
+          href: 'https://serviceradar.cloud/blog',
+          label: 'Blog',
+          position: 'left',
+        },
+        {to: '/api/', label: 'API', position: 'left'},
+        {
+          href: 'https://developer.serviceradar.cloud',
+          label: 'Developer',
+          position: 'right',
+        },
         {
           href: 'https://github.com/carverauto/serviceradar',
           label: 'GitHub',
+          position: 'right',
+        },
+        {
+          href: 'https://serviceradar.cloud',
+          label: 'Cloud',
+          position: 'right',
+          className: 'navbar__link--cloud',
+        },
+        {
+          href: 'https://demo.serviceradar.cloud',
+          label: 'Live demo',
           position: 'right',
         },
       ],
@@ -129,8 +129,33 @@ const config: Config = {
               to: '/docs/intro',
             },
             {
-              label: 'Quickstart',
+              label: 'Cloud Quickstart',
+              to: '/docs/cloud-quickstart',
+            },
+            {
+              label: 'Self-hosted Quickstart',
               to: '/docs/quickstart',
+            },
+            {
+              label: 'API reference',
+              to: '/api/',
+            },
+          ],
+        },
+        {
+          title: 'Product',
+          items: [
+            {
+              label: 'Marketing site',
+              href: 'https://serviceradar.cloud',
+            },
+            {
+              label: 'Developer portal',
+              href: 'https://developer.serviceradar.cloud',
+            },
+            {
+              label: 'Live demo',
+              href: 'https://demo.serviceradar.cloud',
             },
           ],
         },
@@ -138,7 +163,11 @@ const config: Config = {
           title: 'Community',
           items: [
             {
-              label: 'GitHub Discussions',
+              label: 'GitHub',
+              href: 'https://github.com/carverauto/serviceradar',
+            },
+            {
+              label: 'Discussions',
               href: 'https://github.com/carverauto/serviceradar/discussions',
             },
             {
@@ -147,25 +176,15 @@ const config: Config = {
             },
           ],
         },
-        {
-          title: 'More',
-          items: [
-            {
-              label: 'GitHub',
-              href: 'https://github.com/carverauto/serviceradar',
-            },
-          ],
-        },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Carver Automation Corporation. Built with Docusaurus.`,
+      copyright: `© ${new Date().getFullYear()} Carver Automation Corporation. All rights reserved.<br/>ServiceRadar® is a registered trademark of Carver Automation Corporation.`,
     },
     prism: {
       theme: prismThemes.github,
-      darkTheme: prismThemes.palenight,
+      darkTheme: prismThemes.dracula,
     },
-    // Mermaid diagram theme configuration
     mermaid: {
-      theme: { light: 'neutral', dark: 'dark' },
+      theme: {light: 'neutral', dark: 'dark'},
     },
   } satisfies Preset.ThemeConfig,
 };

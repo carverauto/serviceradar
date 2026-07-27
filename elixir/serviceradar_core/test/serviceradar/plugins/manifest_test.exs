@@ -1,7 +1,9 @@
 defmodule ServiceRadar.Plugins.ManifestTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Plugins.IntegrationDescriptor
   alias ServiceRadar.Plugins.Manifest
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   @wasm_plugins_root Path.expand("../../../../../go/cmd/wasm-plugins", __DIR__)
   @first_party_config_schema_paths (case Path.wildcard(
@@ -13,8 +15,18 @@ defmodule ServiceRadar.Plugins.ManifestTest do
                                       [] -> raise "no first-party Wasm config schemas found"
                                       paths -> paths
                                     end)
+  @first_party_manifest_paths (case Path.wildcard(
+                                      Path.join(@wasm_plugins_root, "**/plugin*.yaml")
+                                    ) do
+                                 [] -> raise "no first-party Wasm manifests found"
+                                 paths -> paths
+                               end)
 
   for path <- @first_party_config_schema_paths do
+    @external_resource path
+  end
+
+  for path <- @first_party_manifest_paths do
     @external_resource path
   end
 
@@ -52,6 +64,12 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     assert manifest.outputs == "serviceradar.plugin_result.v1"
     assert manifest.resources.requested_memory_mb == 32
     assert manifest.schema_version == 1
+  end
+
+  test "every first-party Wasm package passes the same manifest contract" do
+    for path <- @first_party_manifest_paths do
+      assert {:ok, _manifest} = path |> File.read!() |> Manifest.from_yaml(), path
+    end
   end
 
   test "signal schema declarations parse and normalize" do
@@ -185,6 +203,12 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     assert [profile] = parsed.integrations["credential_profiles"]
     assert profile["provider"] == "example-inventory"
     assert profile["provisioning"]["schedule_id"] == "example-inventory.refresh"
+    assert [method] = profile["auth_methods"]
+    assert method["label"] == "Username and password"
+    assert Enum.map(method["fields"], & &1["id"]) == ["username", "password"]
+    assert method["payload"] == %{"format" => "json"}
+    refute Map.has_key?(method, "description")
+    refute Enum.any?(method, fn {_key, value} -> value == "nil" end)
 
     assert [source] = parsed.integrations["inventory_sources"]
     assert source["source"] == "example-inventory"
@@ -209,6 +233,41 @@ defmodule ServiceRadar.Plugins.ManifestTest do
 
     assert {:error, errors} = Manifest.from_map(manifest)
     assert Enum.any?(errors, &String.contains?(&1, "must be an HTTPS URL"))
+  end
+
+  test "integration descriptors reject defaults for secret fields" do
+    manifest =
+      put_in(
+        integration_manifest(),
+        [
+          "integrations",
+          "credential_profiles",
+          Access.at(0),
+          "auth_methods",
+          Access.at(0),
+          "fields",
+          Access.at(1),
+          "default"
+        ],
+        "must-not-ship-in-a-package"
+      )
+
+    assert {:error, errors} = Manifest.from_map(manifest)
+    assert Enum.any?(errors, &String.contains?(&1, "default is not allowed for secret fields"))
+  end
+
+  test "integration descriptors reject malformed HTTP methods without raising" do
+    profile =
+      put_in(
+        CredentialIntegrationFixtures.target_policy_profile(),
+        ["provisioning", "consumers", Access.at(0), "grant", "allow", "methods"],
+        [%{"unexpected" => "map"}]
+      )
+
+    assert {:error, errors} =
+             IntegrationDescriptor.validate(%{"credential_profiles" => [profile]}, [])
+
+    assert Enum.any?(errors, &String.contains?(&1, "unsupported HTTP method"))
   end
 
   test "integration descriptors reject undeclared schedules and credential requirements" do
@@ -506,7 +565,28 @@ defmodule ServiceRadar.Plugins.ManifestTest do
           "provider" => "example-inventory",
           "label" => "Example Inventory",
           "auth_methods" => [
-            %{"id" => "username_password", "credential_kind" => "username_password"}
+            %{
+              "id" => "username_password",
+              "label" => "Username and password",
+              "credential_kind" => "username_password",
+              "fields" => [
+                %{
+                  "id" => "username",
+                  "label" => "Username",
+                  "control" => "text",
+                  "required" => true,
+                  "secret" => false,
+                  "public" => true
+                },
+                %{
+                  "id" => "password",
+                  "label" => "Password",
+                  "control" => "password",
+                  "required" => true,
+                  "secret" => true
+                }
+              ]
+            }
           ],
           "purposes" => ["device_inventory"],
           "scope_types" => ["agent"],

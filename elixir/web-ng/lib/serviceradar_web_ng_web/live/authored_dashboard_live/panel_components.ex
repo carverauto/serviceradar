@@ -26,16 +26,16 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2">
             <h2 class="truncate text-sm font-semibold text-slate-100">{@panel.title}</h2>
-            <span :if={refresh_interval_label(@panel)} class="badge badge-xs badge-ghost">
+            <.ui_badge :if={refresh_interval_label(@panel)} size="xs" variant="ghost">
               {refresh_interval_label(@panel)}
-            </span>
+            </.ui_badge>
           </div>
           <p class="mt-1 truncate font-mono text-xs text-slate-400">{@panel.srql_query}</p>
         </div>
         <div class="flex shrink-0 flex-wrap items-center gap-1">
-          <span class="badge badge-outline border-cyan-500/30 text-cyan-300">
+          <.ui_badge size="sm" variant="outline" class="border-cyan-500/30 text-cyan-300">
             {@panel.visual_type}
-          </span>
+          </.ui_badge>
           <.panel_action_menu
             panel={@panel}
             expanded_srql?={@expanded_srql?}
@@ -107,59 +107,56 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
 
   def panel_action_menu(assigns) do
     ~H"""
-    <div class="dropdown dropdown-end">
-      <button
-        type="button"
-        class="btn btn-xs btn-ghost"
-        tabindex="0"
-        aria-label={"Actions for #{@panel.title}"}
-        title="Panel actions"
-      >
-        <.icon name="hero-ellipsis-vertical" class="size-4" />
-      </button>
-      <ul
-        tabindex="0"
-        class="menu dropdown-content z-[80] mt-2 w-52 rounded-box border border-slate-800 bg-slate-950 p-2 text-xs shadow-2xl shadow-cyan-950/30"
-      >
-        <li>
-          <button type="button" phx-click="refresh_panel" phx-value-id={@panel.id}>
-            <.icon name="hero-arrow-path" class="size-4" /> Refresh
-          </button>
-        </li>
-        <li>
-          <button type="button" phx-click="toggle_panel_srql" phx-value-id={@panel.id}>
-            <.icon name="hero-code-bracket-square" class="size-4" />
-            {if @expanded_srql?, do: "Hide SRQL", else: "View SRQL"}
-          </button>
-        </li>
-        <li :if={@can_manage?}>
-          <button type="button" phx-click="edit_panel" phx-value-id={@panel.id}>
-            <.icon name="hero-pencil-square" class="size-4" /> Open in Builder
-          </button>
-        </li>
-        <li :if={@can_manage?}>
-          <button type="button" phx-click="duplicate_panel" phx-value-id={@panel.id}>
-            <.icon name="hero-document-duplicate" class="size-4" /> Duplicate
-          </button>
-        </li>
-        <li :if={@csv_data_url}>
-          <a href={@csv_data_url} download={"#{safe_filename(@panel.title)}.csv"}>
-            <.icon name="hero-arrow-down-tray" class="size-4" /> Export CSV
-          </a>
-        </li>
-        <li :if={@can_manage?}>
-          <button
-            type="button"
-            class="text-error"
-            phx-click="delete_panel"
-            phx-value-id={@panel.id}
-            data-confirm={"Delete panel \"#{@panel.title}\"?"}
-          >
-            <.icon name="hero-trash" class="size-4" /> Delete
-          </button>
-        </li>
-      </ul>
-    </div>
+    <.ui_dropdown align="end" menu_class="z-[80] w-52 max-w-52">
+      <:trigger>
+        <.ui_button
+          type="button"
+          aria-label={"Actions for #{@panel.title}"}
+          title="Panel actions"
+          size="xs"
+          variant="ghost"
+        >
+          <.icon name="hero-ellipsis-vertical" class="size-4" />
+        </.ui_button>
+      </:trigger>
+      <:item>
+        <button type="button" phx-click="refresh_panel" phx-value-id={@panel.id}>
+          <.icon name="hero-arrow-path" class="size-4" /> Refresh
+        </button>
+      </:item>
+      <:item>
+        <button type="button" phx-click="toggle_panel_srql" phx-value-id={@panel.id}>
+          <.icon name="hero-code-bracket-square" class="size-4" />
+          {if @expanded_srql?, do: "Hide SRQL", else: "View SRQL"}
+        </button>
+      </:item>
+      <:item :if={@can_manage?}>
+        <button type="button" phx-click="edit_panel" phx-value-id={@panel.id}>
+          <.icon name="hero-pencil-square" class="size-4" /> Open in Builder
+        </button>
+      </:item>
+      <:item :if={@can_manage?}>
+        <button type="button" phx-click="duplicate_panel" phx-value-id={@panel.id}>
+          <.icon name="hero-document-duplicate" class="size-4" /> Duplicate
+        </button>
+      </:item>
+      <:item :if={@csv_data_url}>
+        <a href={@csv_data_url} download={"#{safe_filename(@panel.title)}.csv"}>
+          <.icon name="hero-arrow-down-tray" class="size-4" /> Export CSV
+        </a>
+      </:item>
+      <:item :if={@can_manage?}>
+        <button
+          type="button"
+          class="text-error"
+          phx-click="delete_panel"
+          phx-value-id={@panel.id}
+          data-confirm={"Delete panel \"#{@panel.title}\"?"}
+        >
+          <.icon name="hero-trash" class="size-4" /> Delete
+        </button>
+      </:item>
+    </.ui_dropdown>
     """
   end
 
@@ -230,7 +227,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
     <div class="flex h-full min-h-0 flex-col gap-2">
       <div class="shrink-0 text-sm font-medium text-slate-100">Pivot Table</div>
       <div class="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-800/80">
-        <table class="table table-sm">
+        <table class={ui_table_class(size: "sm")}>
           <thead>
             <tr>
               <th>{@pivot.row_label}</th>
@@ -293,7 +290,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
 
     ~H"""
     <div class="h-full min-h-0 overflow-auto rounded-lg border border-slate-800/80">
-      <table class="table table-sm">
+      <table class={ui_table_class(size: "sm")}>
         <thead>
           <tr>
             <th :for={column <- @columns}>{column.label}</th>
@@ -382,7 +379,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
 
   defp empty_rows(assigns) do
     ~H"""
-    <div class="flex min-h-24 items-center justify-center text-sm text-base-content/70">
+    <div class="flex min-h-24 items-center justify-center text-sm text-sr-muted">
       No rows returned.
     </div>
     """
@@ -397,22 +394,22 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
     ~H"""
     <%= case @cell do %>
       <% {:status, text, tone} -> %>
-        <span class={["badge badge-sm", status_badge_class(tone)]} title={text}>
+        <.ui_badge size="sm" variant={status_badge_variant(tone)} title={text}>
           <.icon name={status_icon(tone)} class="size-3" /> {text}
-        </span>
+        </.ui_badge>
       <% {:boolean, true} -> %>
-        <span class="badge badge-sm badge-success" title="true">
+        <.ui_badge size="sm" variant="success" title="true">
           <.icon name="hero-check" class="size-3" /> true
-        </span>
+        </.ui_badge>
       <% {:boolean, false} -> %>
-        <span class="badge badge-sm badge-error badge-outline" title="false">
+        <.ui_badge size="sm" variant="error" title="false">
           <.icon name="hero-x-mark" class="size-3" /> false
-        </span>
+        </.ui_badge>
       <% {:sparkline, points, title} -> %>
         <svg
           viewBox="0 0 100 24"
           preserveAspectRatio="none"
-          class="h-6 w-28 text-primary"
+          class="h-6 w-28 text-sr-brand"
           role="img"
           aria-label="sparkline"
         >
@@ -874,10 +871,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
     end
   end
 
-  defp status_badge_class(:success), do: "badge-success"
-  defp status_badge_class(:warning), do: "badge-warning"
-  defp status_badge_class(:error), do: "badge-error"
-  defp status_badge_class(_tone), do: "badge-outline"
+  defp status_badge_variant(:success), do: "success"
+  defp status_badge_variant(:warning), do: "warning"
+  defp status_badge_variant(:error), do: "error"
+  defp status_badge_variant(_tone), do: "outline"
 
   defp status_icon(:success), do: "hero-check-circle"
   defp status_icon(:warning), do: "hero-exclamation-triangle"

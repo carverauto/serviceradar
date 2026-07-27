@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
 
   use Phoenix.Component
 
+  import ServiceRadarWebNGWeb.UIComponents
+
   attr :schema, :map, default: %{}
   attr :params, :map, default: %{}
   attr :base_name, :string, default: "params"
@@ -50,10 +52,15 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
     <div class="space-y-4">
       <div
         :if={@docs_url}
-        class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80"
+        class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-sr-ink/90"
       >
         Need help with these settings?
-        <a class="link link-primary" href={@docs_url} target="_blank" rel="noopener noreferrer">
+        <a
+          class="text-sr-brand hover:underline"
+          href={@docs_url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           Open the configuration guide
         </a>
       </div>
@@ -76,9 +83,9 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
 
       <details
         :if={@advanced_properties != []}
-        class="rounded-lg border border-base-300 bg-base-200/40"
+        class="rounded-lg border border-sr-line bg-sr-subtle/40"
       >
-        <summary class="cursor-pointer select-none px-3 py-2 text-sm font-medium text-base-content/80">
+        <summary class="cursor-pointer select-none px-3 py-2 text-sm font-medium text-sr-ink/90">
           Advanced settings (optional)
         </summary>
         <div class="space-y-4 p-3 pt-1">
@@ -105,14 +112,14 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
 
     ~H"""
     <div
-      class="rounded-lg border border-base-300 bg-base-200/40 p-3 space-y-1"
+      class="rounded-lg border border-sr-line bg-sr-subtle/40 p-3 space-y-1"
       data-credential-materialized={@name}
     >
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-sm font-medium">{Map.get(@prop, "title") || @name}</span>
-        <span class="badge badge-ghost badge-sm">Provided by credential rules</span>
+        <.ui_badge size="sm" variant="ghost">Provided by credential rules</.ui_badge>
       </div>
-      <p :if={is_binary(@description) and @description != ""} class="text-xs text-base-content/60">
+      <p :if={is_binary(@description) and @description != ""} class="text-xs text-sr-muted">
         {@description}
       </p>
       <%= case coverage_state(@coverage) do %>
@@ -126,7 +133,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
             this input will be missing at runtime until a matching rule is enabled.
           </p>
         <% _ -> %>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs text-sr-muted">
             Value is materialized per target by credential rules at runtime.
           </p>
       <% end %>
@@ -143,8 +150,8 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   def config_field(assigns) do
     ~H"""
     <div class="space-y-2">
-      <label class="label">
-        <span class="label-text">
+      <label class="flex items-center justify-between gap-2">
+        <span class="text-sm font-medium text-sr-ink">
           {Map.get(@prop, "title") || @name}
           <%= if @name in @required do %>
             <span class="text-error">*</span>
@@ -158,18 +165,18 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
             type="password"
             name={input_name(@base_name, @name)}
             value=""
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
             placeholder={secret_placeholder(@params, @name)}
           />
           <%= if current_secret_ref(@params, @name) do %>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               Stored secret ref: {current_secret_ref(@params, @name)}
             </p>
           <% end %>
         <% :select -> %>
           <select
             name={input_name(@base_name, @name)}
-            class="select select-bordered w-full"
+            class={ui_field_class(class: "w-full")}
           >
             <%= for option <- Map.get(@prop, "enum", []) do %>
               <option
@@ -187,15 +194,15 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
               type="checkbox"
               name={input_name(@base_name, @name)}
               value="true"
-              class="checkbox checkbox-sm"
+              class={ui_checkbox_class()}
               checked={truthy?(value_for(@params, @name))}
             />
-            <span class="text-xs text-base-content/60">Enable</span>
+            <span class="text-xs text-sr-muted">Enable</span>
           </div>
         <% :textarea -> %>
           <textarea
             name={input_name(@base_name, @name)}
-            class="textarea textarea-bordered w-full font-mono text-xs min-h-[100px]"
+            class={ui_field_class(mono: true, class: "w-full min-h-[100px] py-2.5 text-xs")}
             placeholder={array_placeholder(@prop)}
           ><%= value_for(@params, @name) %></textarea>
         <% :number -> %>
@@ -206,7 +213,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
             min={Map.get(@prop, "minimum")}
             max={Map.get(@prop, "maximum")}
             step={number_step(@prop)}
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
           />
         <% :text -> %>
           <input
@@ -216,12 +223,12 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
             minlength={Map.get(@prop, "minLength")}
             maxlength={Map.get(@prop, "maxLength")}
             pattern={Map.get(@prop, "pattern")}
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
           />
       <% end %>
 
       <%= if is_binary(Map.get(@prop, "description")) and Map.get(@prop, "description") != "" do %>
-        <p class="text-xs text-base-content/60">{Map.get(@prop, "description")}</p>
+        <p class="text-xs text-sr-muted">{Map.get(@prop, "description")}</p>
       <% end %>
     </div>
     """

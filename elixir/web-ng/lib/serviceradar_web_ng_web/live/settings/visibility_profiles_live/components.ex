@@ -19,7 +19,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
         <div class="flex items-center justify-between w-full">
           <div>
             <div class="text-sm font-semibold">Visibility Profiles</div>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               {length(@profiles)} profile(s) configured
             </p>
           </div>
@@ -31,10 +31,10 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
         </div>
       </:header>
 
-      <div class="overflow-x-auto">
-        <table class="table table-sm">
+      <div class="sr-ui-table-shell">
+        <table class={ui_table_class(size: "sm")}>
           <thead>
-            <tr class="text-xs uppercase tracking-wide text-base-content/60">
+            <tr class="text-xs uppercase tracking-wide text-sr-muted">
               <th>Status</th>
               <th>Name</th>
               <th>Targeting</th>
@@ -47,12 +47,12 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
           </thead>
           <tbody>
             <tr :if={@profiles == []}>
-              <td colspan="8" class="text-center text-base-content/60 py-8">
+              <td colspan="8" class="text-center text-sr-muted py-8">
                 No visibility profiles configured.
               </td>
             </tr>
             <%= for profile <- @profiles do %>
-              <tr class="hover:bg-base-200/40">
+              <tr class="hover:bg-sr-subtle/40">
                 <td>
                   <button
                     :if={@can_write}
@@ -60,12 +60,12 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
                     phx-value-id={profile.id}
                     class="flex items-center gap-1.5 cursor-pointer"
                   >
-                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-base-content/30"}"}>
+                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}>
                     </span>
                     <span class="text-xs">{if profile.enabled, do: "Enabled", else: "Disabled"}</span>
                   </button>
                   <div :if={not @can_write} class="flex items-center gap-1.5">
-                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-base-content/30"}"}>
+                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}>
                     </span>
                     <span class="text-xs">{if profile.enabled, do: "Enabled", else: "Disabled"}</span>
                   </div>
@@ -74,22 +74,22 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
                   <.link
                     :if={@can_write}
                     navigate={~p"/settings/networks/visibility-profiles/#{profile.id}/edit"}
-                    class="font-medium hover:text-primary"
+                    class="font-medium hover:text-sr-brand"
                   >
                     {profile.name}
                   </.link>
                   <span :if={not @can_write} class="font-medium">{profile.name}</span>
-                  <p :if={profile.description} class="text-xs text-base-content/60 truncate max-w-xs">
+                  <p :if={profile.description} class="text-xs text-sr-muted truncate max-w-xs">
                     {profile.description}
                   </p>
                 </td>
                 <td class="text-xs max-w-xs">
                   <%= if profile.target_query && profile.target_query != "" do %>
-                    <code class="font-mono text-[11px] bg-base-200/50 px-1.5 py-0.5 rounded truncate block max-w-[220px]">
+                    <code class="font-mono text-[11px] bg-sr-subtle/50 px-1.5 py-0.5 rounded truncate block max-w-[220px]">
                       {profile.target_query}
                     </code>
                   <% else %>
-                    <span class="text-base-content/40">in:devices</span>
+                    <span class="text-sr-muted">in:devices</span>
                   <% end %>
                 </td>
                 <td>
@@ -103,7 +103,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
                     </.ui_badge>
                     <span
                       :if={(profile.capture_interfaces || []) == []}
-                      class="text-xs text-base-content/40"
+                      class="text-xs text-sr-muted"
                     >
                       none
                     </span>
@@ -221,7 +221,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
                 do: "New Visibility Profile",
                 else: "Edit Visibility Profile"}
             </div>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               {target_count_label(@target_device_count)}
             </p>
           </div>
@@ -239,7 +239,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
         phx-submit="save_profile"
         class="space-y-6"
       >
-        <div :if={@errors != []} class="alert alert-error">
+        <div :if={@errors != []} class={ui_alert_class("error")}>
           <ul class="text-sm">
             <li :for={error <- @errors}>{error}</li>
           </ul>
@@ -261,24 +261,24 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
             value={@form["retention_days"]}
             min="1"
           />
-          <label class="label cursor-pointer justify-start gap-3">
+          <label class="flex cursor-pointer items-center justify-start gap-3">
             <input type="hidden" name="form[enabled]" value="false" />
             <input
               type="checkbox"
               name="form[enabled]"
               value="true"
-              class="toggle toggle-primary"
+              class={ui_toggle_class()}
               checked={truthy?(@form["enabled"])}
             />
-            <span class="label-text">Enabled</span>
+            <span class="text-sm font-medium text-sr-ink">Enabled</span>
           </label>
         </div>
 
-        <div class="rounded-lg border border-base-200 p-4 space-y-3">
+        <div class="rounded-lg border border-sr-line p-4 space-y-3">
           <div class="flex items-center justify-between">
             <div>
               <div class="text-sm font-semibold">Targeting</div>
-              <p class="text-xs text-base-content/60">{target_count_label(@target_device_count)}</p>
+              <p class="text-xs text-sr-muted">{target_count_label(@target_device_count)}</p>
             </div>
             <.ui_button
               type="button"
@@ -292,13 +292,13 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
 
           <textarea
             name="form[target_query]"
-            class="textarea textarea-bordered w-full font-mono text-xs"
+            class={ui_field_class(mono: true, class: "w-full min-h-24 py-2.5 text-xs")}
             rows="3"
           >{@form["target_query"]}</textarea>
 
-          <div :if={@builder_open} class="rounded-lg bg-base-200/40 p-3 space-y-3">
+          <div :if={@builder_open} class="rounded-lg bg-sr-subtle/40 p-3 space-y-3">
             <div class="flex items-center justify-between">
-              <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+              <div class="text-xs font-semibold uppercase tracking-wide text-sr-muted">
                 Device filters
               </div>
               <.ui_button :if={not @builder_sync} type="button" size="xs" phx-click="builder_apply">
@@ -310,7 +310,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
               <div class="flex flex-wrap items-center gap-2">
                 <.query_builder_pill label="Filter">
                   <select
-                    class="select select-bordered select-xs"
+                    class={ui_field_class(size: "xs")}
                     name={"builder[filters][#{idx}][field]"}
                     form="visibility-builder-form"
                   >
@@ -323,7 +323,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
                     </option>
                   </select>
                   <select
-                    class="select select-bordered select-xs"
+                    class={ui_field_class(size: "xs")}
                     name={"builder[filters][#{idx}][op]"}
                     form="visibility-builder-form"
                   >
@@ -336,7 +336,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
                     </option>
                   </select>
                   <input
-                    class="input input-bordered input-xs w-44"
+                    class={ui_field_class(size: "xs", class: "w-44")}
                     name={"builder[filters][#{idx}][value]"}
                     form="visibility-builder-form"
                     value={filter["value"]}
@@ -359,13 +359,13 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
           </div>
         </div>
 
-        <div class="rounded-lg border border-base-200 p-4 space-y-3">
+        <div class="rounded-lg border border-sr-line p-4 space-y-3">
           <div class="text-sm font-semibold">Passive Fingerprinting</div>
-          <label class="form-control">
-            <span class="label-text text-xs">Capture interfaces</span>
+          <label class="flex flex-col gap-1.5">
+            <span class="text-xs font-medium text-sr-ink">Capture interfaces</span>
             <textarea
               name="form[capture_interfaces]"
-              class="textarea textarea-bordered w-full font-mono text-xs"
+              class={ui_field_class(mono: true, class: "w-full min-h-24 py-2.5 text-xs")}
               rows="3"
               placeholder="eth0"
             >{@form["capture_interfaces"]}</textarea>
@@ -389,24 +389,24 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
           </div>
         </div>
 
-        <div class="rounded-lg border border-base-200 p-4 space-y-3">
+        <div class="rounded-lg border border-sr-line p-4 space-y-3">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div class="text-sm font-semibold">Deep Packet Inspection</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Protocol detection only; payloads, URIs, and DNS names are not stored.
               </p>
             </div>
-            <label class="label cursor-pointer justify-start gap-3 py-0">
+            <label class="flex cursor-pointer items-center justify-start gap-3 py-0">
               <input type="hidden" name="form[dpi][enabled]" value="false" />
               <input
                 type="checkbox"
                 name="form[dpi][enabled]"
                 value="true"
-                class="toggle toggle-primary toggle-sm"
+                class={ui_toggle_class(size: "sm")}
                 checked={truthy?(@form["dpi"]["enabled"])}
               />
-              <span class="label-text text-sm">Enabled</span>
+              <span class="text-sm font-medium text-sr-ink">Enabled</span>
             </label>
           </div>
 
@@ -420,12 +420,12 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
           </div>
         </div>
 
-        <div class="rounded-lg border border-base-200 p-4">
+        <div class="rounded-lg border border-sr-line p-4">
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div class="space-y-3">
               <div>
                 <div class="text-sm font-semibold">Flow Attribution</div>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   Attach local process identity to observed connections.
                 </p>
               </div>
@@ -442,7 +442,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
             <div class="space-y-3">
               <div>
                 <div class="text-sm font-semibold">Process Snapshots</div>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   Periodically record local listening sockets with redacted process context.
                 </p>
               </div>
@@ -473,16 +473,20 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
 
   def json_preview_modal(assigns) do
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box max-w-2xl">
+    <dialog
+      id="components-modal-1"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="close_preview"
+    >
+      <div class="sr-ui-modal-box sr-ui-modal-box-md">
         <h3 class="font-bold text-lg mb-4">Compiled Visibility Config</h3>
-        <pre class="bg-base-200/50 p-4 rounded-lg text-xs font-mono overflow-x-auto max-h-96">{@json_preview}</pre>
-        <div class="modal-action">
-          <button phx-click="close_preview" class="btn">Close</button>
+        <pre class="bg-sr-subtle/50 p-4 rounded-lg text-xs font-mono overflow-x-auto max-h-96">{@json_preview}</pre>
+        <div class="sr-ui-modal-action">
+          <.ui_button phx-click="close_preview" size="sm" variant="neutral">Close</.ui_button>
         </div>
       </div>
-      <div class="modal-backdrop" phx-click="close_preview"></div>
-    </div>
+    </dialog>
     """
   end
 
@@ -492,16 +496,16 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
 
   defp fingerprint_toggle(assigns) do
     ~H"""
-    <label class="label cursor-pointer justify-start gap-3">
+    <label class="flex cursor-pointer items-center justify-start gap-3">
       <input type="hidden" name={"form[fingerprint][#{@name}]"} value="false" />
       <input
         type="checkbox"
         name={"form[fingerprint][#{@name}]"}
         value="true"
-        class="checkbox checkbox-primary checkbox-sm"
+        class={ui_checkbox_class()}
         checked={@checked}
       />
-      <span class="label-text">{@label}</span>
+      <span class="text-sm font-medium text-sr-ink">{@label}</span>
     </label>
     """
   end
@@ -512,16 +516,16 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
 
   defp dpi_toggle(assigns) do
     ~H"""
-    <label class="label cursor-pointer justify-start gap-2 rounded-md border border-base-200 px-3 py-2 hover:bg-base-200/40">
+    <label class="flex cursor-pointer items-center gap-2 justify-start gap-2 rounded-md border border-sr-line px-3 py-2 hover:bg-sr-subtle/40">
       <input type="hidden" name={"form[dpi][protocols][#{@name}]"} value="false" />
       <input
         type="checkbox"
         name={"form[dpi][protocols][#{@name}]"}
         value="true"
-        class="checkbox checkbox-primary checkbox-sm"
+        class={ui_checkbox_class()}
         checked={@checked}
       />
-      <span class="label-text text-sm">{@label}</span>
+      <span class="text-sm font-medium text-sr-ink">{@label}</span>
     </label>
     """
   end
@@ -532,16 +536,16 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
 
   defp flow_attribution_toggle(assigns) do
     ~H"""
-    <label class="label cursor-pointer justify-start gap-2 rounded-md border border-base-200 px-3 py-2 hover:bg-base-200/40">
+    <label class="flex cursor-pointer items-center gap-2 justify-start gap-2 rounded-md border border-sr-line px-3 py-2 hover:bg-sr-subtle/40">
       <input type="hidden" name={"form[flow_attribution][#{@name}]"} value="false" />
       <input
         type="checkbox"
         name={"form[flow_attribution][#{@name}]"}
         value="true"
-        class="checkbox checkbox-primary checkbox-sm"
+        class={ui_checkbox_class()}
         checked={@checked}
       />
-      <span class="label-text text-sm">{@label}</span>
+      <span class="text-sm font-medium text-sr-ink">{@label}</span>
     </label>
     """
   end
@@ -553,14 +557,14 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
 
   defp text_input(assigns) do
     ~H"""
-    <label class="form-control">
-      <span class="label-text text-xs">{@label}</span>
+    <label class="flex flex-col gap-1.5">
+      <span class="text-xs font-medium text-sr-ink">{@label}</span>
       <input
         type="text"
         name={@name}
         value={@value}
         required={@required}
-        class="input input-bordered input-sm w-full"
+        class={ui_field_class(size: "sm", class: "w-full")}
       />
     </label>
     """
@@ -573,14 +577,14 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
 
   defp number_input(assigns) do
     ~H"""
-    <label class="form-control">
-      <span class="label-text text-xs">{@label}</span>
+    <label class="flex flex-col gap-1.5">
+      <span class="text-xs font-medium text-sr-ink">{@label}</span>
       <input
         type="number"
         name={@name}
         value={@value}
         min={@min}
-        class="input input-bordered input-sm w-full"
+        class={ui_field_class(size: "sm", class: "w-full")}
       />
     </label>
     """

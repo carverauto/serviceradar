@@ -91,6 +91,7 @@ export default {
 
       this._map.on("load", () => {
         this._map.resize()
+        this._applyBrandBasemapTint()
         this._syncMarkers()
         this._fitToMarkers()
         this._stampStyleUrl(style)
@@ -180,8 +181,68 @@ export default {
     this._map.setStyle(desired, {diff: true})
     this._map.once("style.load", () => {
       this._stampStyleUrl(desired)
+      this._applyBrandBasemapTint()
       this._syncMarkers()
     })
+  },
+  /**
+   * Retint Mapbox dark-v11 blues toward brand teal-slate canvas.
+   * Light styles are left mostly alone (toggle is hidden; app is dark-first).
+   */
+  _applyBrandBasemapTint() {
+    if (!this._map || !this._isDarkMode()) return
+
+    const ocean = "#0a1114"
+    const water = "#0f1a1e"
+    const land = "#152126"
+    const landCover = "#17252a"
+    const line = "rgba(62, 207, 135, 0.14)"
+    const admin = "rgba(107, 127, 120, 0.35)"
+
+    const setPaint = (layerId, prop, value) => {
+      try {
+        if (this._map.getLayer(layerId)) this._map.setPaintProperty(layerId, prop, value)
+      } catch (_e) {}
+    }
+
+    const style = this._map.getStyle?.()
+    const layers = Array.isArray(style?.layers) ? style.layers : []
+
+    for (const layer of layers) {
+      const id = String(layer?.id || "")
+      const type = layer?.type
+      if (!id) continue
+
+      if (type === "background") {
+        setPaint(id, "background-color", ocean)
+        continue
+      }
+
+      const lower = id.toLowerCase()
+
+      if (type === "fill") {
+        if (lower.includes("water") && !lower.includes("shadow")) {
+          setPaint(id, "fill-color", water)
+        } else if (lower.includes("landcover") || lower.includes("landuse") || lower === "land") {
+          setPaint(id, "fill-color", lower.includes("park") || lower.includes("wood") ? landCover : land)
+        } else if (lower.includes("national-park") || lower.includes("pitch") || lower.includes("grass")) {
+          setPaint(id, "fill-color", landCover)
+        }
+      }
+
+      if (type === "line") {
+        if (lower.includes("water") || lower.includes("waterway")) {
+          setPaint(id, "line-color", water)
+        } else if (lower.includes("admin") || lower.includes("boundary") || lower.includes("border")) {
+          setPaint(id, "line-color", admin)
+        } else if (lower.includes("road") || lower.includes("bridge") || lower.includes("tunnel")) {
+          // mute roads slightly toward teal slate
+          setPaint(id, "line-color", "rgba(59, 76, 80, 0.55)")
+        } else if (lower.includes("coastline") || lower.includes("shore")) {
+          setPaint(id, "line-color", line)
+        }
+      }
+    }
   },
   _syncMarkers() {
     if (!this._map) return
@@ -210,9 +271,9 @@ export default {
 
       const markerColor =
         threatMatched ? "#F43F5E" :
-        side === "source" ? "#00E676" :
-        side === "dest" ? "#FF2A7A" :
-        "#52525B"
+        side === "source" ? "#3ecf87" :
+        side === "dest" ? "#5bde9b" :
+        "#6b7f78"
 
       const marker = new mapboxgl.Marker({color: markerColor}).setLngLat([lng, lat])
       if (popup) marker.setPopup(popup)
@@ -278,7 +339,8 @@ export default {
   },
   _flowLineColor() {
     const hasThreat = (Array.isArray(this._markerData) ? this._markerData : []).some((d) => Boolean(d?.threat_matched))
-    return hasThreat ? "#F43F5E" : "#00D8FF"
+    // Brand green arcs (was electric cyan #00D8FF)
+    return hasThreat ? "#F43F5E" : "#3ecf87"
   },
   _markerPopupHtml(label, marker) {
     const threatMatched = Boolean(marker?.threat_matched)

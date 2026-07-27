@@ -7,97 +7,84 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.DeviceModal do
 
   def add_device_modal(assigns) do
     ~H"""
-    <dialog id="add_device_modal" class="modal modal-open">
-      <div class="modal-box max-w-lg">
-        <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close_add_device_modal"
-          >
-            x
-          </button>
-        </form>
+    <.ui_modal id="add_device_modal" size="form" on_cancel="close_add_device_modal">
+      <:title>Add Device</:title>
 
-        <h3 class="text-lg font-bold">Add Device</h3>
-        <p class="py-2 text-sm text-base-content/70">
-          Add a new device to your inventory. For automatic discovery, use Network Sweeps.
-        </p>
+      <p class="text-sm text-sr-muted">
+        Add a new device to your inventory. For automatic discovery, use Network Sweeps.
+      </p>
 
-        <.form
-          for={@form}
-          id="add-device-form"
-          phx-change="validate_device"
-          phx-submit="save_device"
-          class="space-y-4"
-        >
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text font-medium">Hostname</span>
-            </label>
-            <input
-              type="text"
-              name="device[hostname]"
-              value={@form[:hostname].value}
-              class="input input-bordered"
-              placeholder="server01.example.com"
-            />
-          </div>
+      <.form
+        for={@form}
+        id="add-device-form"
+        phx-change="validate_device"
+        phx-submit="save_device"
+        class="space-y-4"
+      >
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Hostname</span>
+          </label>
+          <input
+            type="text"
+            name="device[hostname]"
+            value={@form[:hostname].value}
+            class={ui_field_class()}
+            placeholder="server01.example.com"
+          />
+        </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text font-medium">IP Address</span>
-            </label>
-            <input
-              type="text"
-              name="device[ip]"
-              value={@form[:ip].value}
-              class="input input-bordered"
-              placeholder="192.168.1.100"
-            />
-          </div>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">IP Address</span>
+          </label>
+          <input
+            type="text"
+            name="device[ip]"
+            value={@form[:ip].value}
+            class={ui_field_class()}
+            placeholder="192.168.1.100"
+          />
+        </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text font-medium">Device Type</span>
-            </label>
-            <select name="device[type]" class="select select-bordered">
-              <option value="">Select type...</option>
-              <option value="server">Server</option>
-              <option value="workstation">Workstation</option>
-              <option value="router">Router</option>
-              <option value="switch">Switch</option>
-              <option value="firewall">Firewall</option>
-              <option value="printer">Printer</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Device Type</span>
+          </label>
+          <select name="device[type]" class={ui_field_class()}>
+            <option value="">Select type...</option>
+            <option value="server">Server</option>
+            <option value="workstation">Workstation</option>
+            <option value="router">Router</option>
+            <option value="switch">Switch</option>
+            <option value="firewall">Firewall</option>
+            <option value="printer">Printer</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text font-medium">Tags</span>
-              <span class="label-text-alt text-base-content/50">Optional, one per line</span>
-            </label>
-            <textarea
-              name="device[tags]"
-              class="textarea textarea-bordered h-20"
-              placeholder="env=production&#10;team=infrastructure"
-            >{@form[:tags].value}</textarea>
-          </div>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Tags</span>
+            <span class="text-xs text-sr-muted">Optional, one per line</span>
+          </label>
+          <textarea
+            name="device[tags]"
+            class={ui_field_class(class: "h-20 py-2.5")}
+            placeholder="env=production&#10;team=infrastructure"
+          >{@form[:tags].value}</textarea>
+        </div>
 
-          <div class="modal-action">
-            <button type="button" class="btn btn-ghost" phx-click="close_add_device_modal">
-              Cancel
-            </button>
-            <button type="submit" class="btn btn-primary">
-              <.icon name="hero-plus" class="size-4" /> Add Device
-            </button>
-          </div>
-        </.form>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button phx-click="close_add_device_modal">close</button>
-      </form>
-    </dialog>
+        <div class="flex justify-end gap-2 pt-2">
+          <.ui_button type="button" phx-click="close_add_device_modal" size="sm" variant="ghost">
+            Cancel
+          </.ui_button>
+          <.ui_button type="submit" size="sm" variant="primary">
+            <.icon name="hero-plus" class="size-4" /> Add Device
+          </.ui_button>
+        </div>
+      </.form>
+    </.ui_modal>
     """
   end
 end

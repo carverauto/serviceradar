@@ -45,38 +45,43 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
       >
         <!-- Basic Info Section -->
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold text-base-content/80 uppercase tracking-wide">
+          <h3 class="text-sm font-semibold text-sr-ink/90 uppercase tracking-wide">
             Basic Information
           </h3>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="label">
-                <span class="label-text">Name</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Name</span>
               </label>
-              <.input type="text" field={@form[:name]} class="input input-bordered w-full" required />
+              <.input
+                type="text"
+                field={@form[:name]}
+                class={ui_field_class(class: "w-full")}
+                required
+              />
             </div>
             <div>
-              <label class="label">
-                <span class="label-text">Partition</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Partition</span>
               </label>
               <.input
                 type="text"
                 field={@form[:partition]}
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="default"
               />
             </div>
           </div>
 
           <div>
-            <label class="label">
-              <span class="label-text">Description</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Description</span>
             </label>
             <.input
               type="textarea"
               field={@form[:description]}
-              class="textarea textarea-bordered w-full"
+              class={ui_field_class(class: "w-full min-h-24 py-2.5")}
               rows="2"
             />
           </div>
@@ -84,17 +89,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
         
     <!-- Schedule Section -->
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold text-base-content/80 uppercase tracking-wide">Schedule</h3>
+          <h3 class="text-sm font-semibold text-sr-ink/90 uppercase tracking-wide">Schedule</h3>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="label">
-                <span class="label-text">Scan Interval</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Scan Interval</span>
               </label>
               <.input
                 type="select"
                 field={@form[:interval]}
-                class="select select-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 options={[
                   {"5 minutes", "5m"},
                   {"15 minutes", "15m"},
@@ -108,13 +113,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
               />
             </div>
             <div>
-              <label class="label">
-                <span class="label-text">Scanner Profile</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Scanner Profile</span>
               </label>
               <.input
                 type="select"
                 field={@form[:profile_id]}
-                class="select select-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 options={[{"Default settings", ""} | Enum.map(@profiles, &{&1.name, &1.id})]}
               />
             </div>
@@ -122,17 +127,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="label">
-                <span class="label-text">Agent</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Agent</span>
               </label>
               <.input
                 type="select"
                 field={@form[:agent_id]}
-                class="select select-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 options={[{"All agents", ""} | Enum.map(@agents, &{agent_display_name(&1), &1.uid})]}
               />
-              <label class="label">
-                <span class="label-text-alt text-base-content/50">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
                   Pin this sweep config to a specific agent
                 </span>
               </label>
@@ -144,23 +149,25 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
         <div class="space-y-4">
           <div class="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
-              <h3 class="text-sm font-semibold text-base-content/80 uppercase tracking-wide">
+              <h3 class="text-sm font-semibold text-sr-ink/90 uppercase tracking-wide">
                 Device Targeting
               </h3>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 SRQL query to select devices for this sweep group.
               </p>
             </div>
           </div>
 
           <div>
-            <label class="label"><span class="label-text">Target Query (SRQL)</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Target Query (SRQL)</span>
+            </label>
             <div class="flex items-center gap-2">
               <div class="flex-1">
                 <.input
                   type="text"
                   field={@form[:target_query]}
-                  class="input input-bordered w-full font-mono text-sm"
+                  class={ui_field_class(mono: true, class: "w-full text-sm")}
                   placeholder="e.g., tags.env:prod hostname:%db%"
                 />
               </div>
@@ -173,15 +180,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
                 <.icon name="hero-adjustments-horizontal" class="size-4" />
               </.ui_icon_button>
             </div>
-            <label class="label">
-              <span class="label-text-alt text-base-content/50">
-                SRQL filters to match devices. Examples: <code class="bg-base-200 px-1 rounded">tags.environment:production</code>, <code class="bg-base-200 px-1 rounded">hostname:%prod%</code>,
-                <code class="bg-base-200 px-1 rounded">type:Server</code>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
+                SRQL filters to match devices. Examples: <code class="bg-sr-subtle px-1 rounded">tags.environment:production</code>, <code class="bg-sr-subtle px-1 rounded">hostname:%prod%</code>,
+                <code class="bg-sr-subtle px-1 rounded">type:Server</code>
               </span>
             </label>
           </div>
 
-          <div :if={@builder_open} class="border border-base-200 rounded-lg p-4 bg-base-100/50">
+          <div :if={@builder_open} class="border border-sr-line rounded-lg p-4 bg-sr-surface/50">
             <div class="flex items-center justify-between mb-4">
               <div class="text-sm font-semibold">Query Builder</div>
               <div class="flex items-center gap-2">
@@ -200,7 +207,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
 
             <div class="flex flex-col gap-4">
               <div class="flex flex-col gap-3">
-                <div class="text-xs text-base-content/60 font-medium">
+                <div class="text-xs text-sr-muted font-medium">
                   Match devices where:
                 </div>
 
@@ -214,7 +221,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
                           value={filter["field"] || ""}
                           placeholder="field"
                           form="sweep-group-builder-form"
-                          class="w-40 placeholder:text-base-content/40"
+                          class="w-40 placeholder:text-sr-muted"
                         />
                       <% else %>
                         <.ui_inline_select
@@ -231,7 +238,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
 
                       <.ui_inline_select
                         name={"builder[filters][#{idx}][op]"}
-                        class="text-xs text-base-content/70"
+                        class="text-xs text-sr-muted"
                         form="sweep-group-builder-form"
                       >
                         <option
@@ -257,7 +264,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
                         value={filter["value"] || ""}
                         placeholder="value"
                         form="sweep-group-builder-form"
-                        class="placeholder:text-base-content/40 w-48"
+                        class="placeholder:text-sr-muted w-48"
                       />
                     </.query_builder_pill>
 
@@ -276,7 +283,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
 
                 <button
                   type="button"
-                  class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit"
+                  class="inline-flex items-center gap-2 rounded-md border border-dashed border-sr-brand/40 px-3 py-2 text-sm text-sr-brand/80 hover:bg-sr-brand/5 w-fit"
                   phx-click="builder_add_filter"
                 >
                   <.icon name="hero-plus" class="size-4" /> Add filter
@@ -286,27 +293,27 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           </div>
 
           <div :if={@target_device_count != nil} class="flex items-center gap-2">
-            <.icon name="hero-device-phone-mobile" class="size-4 text-base-content/60" />
+            <.icon name="hero-device-phone-mobile" class="size-4 text-sr-muted" />
             <span class="text-sm">
               <span class="font-semibold">{@target_device_count}</span>
-              <span class="text-base-content/60">device(s) match this query</span>
+              <span class="text-sr-muted">device(s) match this query</span>
             </span>
           </div>
         </div>
         
     <!-- Static Targets Section -->
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold text-base-content/80 uppercase tracking-wide">
+          <h3 class="text-sm font-semibold text-sr-ink/90 uppercase tracking-wide">
             Static Targets
           </h3>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs text-sr-muted">
             IPs, CIDRs, or ranges to always include, regardless of tags.
           </p>
           <.input
             type="textarea"
             field={@form[:static_targets]}
             value={format_static_targets(@form[:static_targets].value)}
-            class="textarea textarea-bordered w-full font-mono text-sm"
+            class={ui_field_class(mono: true, class: "w-full min-h-24 py-2.5 text-sm")}
             rows="3"
             placeholder="10.0.1.0/24&#10;192.168.1.0/24&#10;10.0.0.10-10.0.0.50"
           />
@@ -314,12 +321,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
         
     <!-- Enable Toggle -->
         <div class="flex items-center gap-2 pt-2">
-          <.input type="checkbox" field={@form[:enabled]} class="checkbox checkbox-primary" />
-          <label class="label-text">Enable this sweep group</label>
+          <.input type="checkbox" field={@form[:enabled]} class={ui_checkbox_class()} />
+          <label class="text-sm font-medium text-sr-ink">Enable this sweep group</label>
         </div>
         
     <!-- Actions -->
-        <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+        <div class="flex justify-end gap-2 pt-4 border-t border-sr-line">
           <.link navigate={~p"/settings/networks"}>
             <.ui_button variant="ghost">Cancel</.ui_button>
           </.link>
@@ -359,19 +366,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
       >
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label class="label">
-              <span class="label-text">Name</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Name</span>
             </label>
-            <.input type="text" field={@form[:name]} class="input input-bordered w-full" required />
+            <.input type="text" field={@form[:name]} class={ui_field_class(class: "w-full")} required />
           </div>
           <div>
-            <label class="label">
-              <span class="label-text">Timeout</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Timeout</span>
             </label>
             <.input
               type="select"
               field={@form[:timeout]}
-              class="select select-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               options={[
                 {"1 second", "1s"},
                 {"3 seconds", "3s"},
@@ -384,38 +391,38 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
         </div>
 
         <div>
-          <label class="label">
-            <span class="label-text">Description</span>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Description</span>
           </label>
           <.input
             type="textarea"
             field={@form[:description]}
-            class="textarea textarea-bordered w-full"
+            class={ui_field_class(class: "w-full min-h-24 py-2.5")}
             rows="2"
           />
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label class="label">
-              <span class="label-text">Ports (comma-separated)</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Ports (comma-separated)</span>
             </label>
             <.input
               type="text"
               field={@form[:ports]}
               value={format_ports_input(@form[:ports].value)}
-              class="input input-bordered w-full font-mono"
+              class={ui_field_class(mono: true, class: "w-full")}
               placeholder="22, 80, 443, 3389, 8080"
             />
           </div>
           <div>
-            <label class="label">
-              <span class="label-text">Concurrency</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Concurrency</span>
             </label>
             <.input
               type="number"
               field={@form[:concurrency]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               min="1"
               max="500"
             />
@@ -423,8 +430,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
         </div>
 
         <div>
-          <label class="label">
-            <span class="label-text">Sweep Modes</span>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Sweep Modes</span>
           </label>
           <% selected_modes = Enum.map(@form[:sweep_modes].value || [], &to_string/1) %>
           <div class="flex flex-wrap gap-4">
@@ -433,7 +440,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
                 type="checkbox"
                 name="form[sweep_modes][]"
                 value="icmp"
-                class="checkbox"
+                class={ui_checkbox_class()}
                 checked={Enum.member?(selected_modes, "icmp")}
               />
               <span>ICMP (Ping)</span>
@@ -443,7 +450,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
                 type="checkbox"
                 name="form[sweep_modes][]"
                 value="tcp"
-                class="checkbox"
+                class={ui_checkbox_class()}
                 checked={Enum.member?(selected_modes, "tcp")}
               />
               <span>TCP</span>
@@ -453,7 +460,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
                 type="checkbox"
                 name="form[sweep_modes][]"
                 value="arp"
-                class="checkbox"
+                class={ui_checkbox_class()}
                 checked={Enum.member?(selected_modes, "arp")}
               />
               <span>ARP</span>
@@ -462,31 +469,31 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
         </div>
 
         <div class="flex items-center gap-2">
-          <.input type="checkbox" field={@form[:enabled]} class="checkbox checkbox-primary" />
-          <label class="label-text">Enabled</label>
+          <.input type="checkbox" field={@form[:enabled]} class={ui_checkbox_class()} />
+          <label class="text-sm font-medium text-sr-ink">Enabled</label>
         </div>
 
         <% banner_grab = banner_grab_form_value(@form) %>
         <% banner_preview = banner_grab_preview(banner_grab, @banner_preview_device_count) %>
-        <div class="rounded-lg border border-base-200 p-4 space-y-4">
+        <div class="rounded-lg border border-sr-line p-4 space-y-4">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div class="text-sm font-semibold">Banner grab</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Active TCP connects for license-clean banner fingerprint matching.
               </p>
             </div>
             <%= if @can_enable_banner_grab do %>
-              <label class="label cursor-pointer justify-start gap-3 py-0">
+              <label class="flex cursor-pointer items-center justify-start gap-3 py-0">
                 <input type="hidden" name="form[banner_grab][enabled]" value="false" />
                 <input
                   type="checkbox"
                   name="form[banner_grab][enabled]"
                   value="true"
-                  class="toggle toggle-primary toggle-sm"
+                  class={ui_toggle_class(size: "sm")}
                   checked={truthy?(banner_grab_value(banner_grab, "enabled", false))}
                 />
-                <span class="label-text text-sm">Enabled</span>
+                <span class="text-sm font-medium text-sr-ink">Enabled</span>
               </label>
             <% else %>
               <.ui_badge variant="ghost" size="sm">Restricted</.ui_badge>
@@ -497,18 +504,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
             <input type="hidden" name="form[banner_grab][protocols][]" value="" />
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div class="lg:col-span-2 space-y-3">
-                <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+                <div class="text-xs font-semibold uppercase tracking-wide text-sr-muted">
                   Protocols and ports
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
                   <%= for {protocol, label} <- banner_grab_protocol_options() do %>
-                    <div class="rounded-md border border-base-200 p-3 space-y-2">
+                    <div class="rounded-md border border-sr-line p-3 space-y-2">
                       <label class="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
                           name="form[banner_grab][protocols][]"
                           value={protocol}
-                          class="checkbox checkbox-sm"
+                          class={ui_checkbox_class()}
                           checked={Enum.member?(banner_grab_protocols(banner_grab), protocol)}
                         />
                         <span class="text-sm font-medium">{label}</span>
@@ -517,7 +524,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
                         type="text"
                         name={"form[banner_grab][ports][#{protocol}]"}
                         value={banner_grab_ports_input(banner_grab, protocol)}
-                        class="input input-bordered input-sm w-full font-mono text-xs"
+                        class={ui_field_class(size: "sm", mono: true, class: "w-full text-xs")}
                         placeholder={banner_grab_default_ports(protocol)}
                       />
                     </div>
@@ -525,25 +532,25 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
                 </div>
               </div>
 
-              <div class="rounded-md border border-base-200 bg-base-100/60 p-3 space-y-3">
-                <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+              <div class="rounded-md border border-sr-line bg-sr-surface/60 p-3 space-y-3">
+                <div class="text-xs font-semibold uppercase tracking-wide text-sr-muted">
                   Outbound traffic preview
                 </div>
                 <div class="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <div class="text-xs text-base-content/60">Inventory</div>
+                    <div class="text-xs text-sr-muted">Inventory</div>
                     <div class="font-semibold">{banner_preview.device_count}</div>
                   </div>
                   <div>
-                    <div class="text-xs text-base-content/60">Ports</div>
+                    <div class="text-xs text-sr-muted">Ports</div>
                     <div class="font-semibold">{banner_preview.port_count}</div>
                   </div>
                   <div>
-                    <div class="text-xs text-base-content/60">Connects</div>
+                    <div class="text-xs text-sr-muted">Connects</div>
                     <div class="font-semibold">{banner_preview.connects}</div>
                   </div>
                   <div>
-                    <div class="text-xs text-base-content/60">Elapsed</div>
+                    <div class="text-xs text-sr-muted">Elapsed</div>
                     <div class="font-semibold">{banner_preview.elapsed}</div>
                   </div>
                 </div>
@@ -628,7 +635,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
               />
             </div>
           <% else %>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               Requires the networks.sweeps.banner_grab permission.
             </p>
           <% end %>
@@ -653,15 +660,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
 
   def banner_number_input(assigns) do
     ~H"""
-    <label class="form-control">
-      <span class="label-text text-xs">{@label}</span>
+    <label class="flex flex-col gap-1.5">
+      <span class="text-xs font-medium text-sr-ink">{@label}</span>
       <input
         type="number"
         name={"form[banner_grab][#{@name}]"}
         value={@value}
         min={@min}
         max={@max}
-        class="input input-bordered input-sm w-full"
+        class={ui_field_class(size: "sm", class: "w-full")}
       />
     </label>
     """
@@ -682,7 +689,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           </.link>
           <div>
             <h2 class="text-xl font-semibold">{@group.name}</h2>
-            <p :if={@group.description} class="text-sm text-base-content/60">{@group.description}</p>
+            <p :if={@group.description} class="text-sm text-sr-muted">{@group.description}</p>
           </div>
         </div>
         <div class="flex items-center gap-2">
@@ -701,23 +708,23 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
 
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
-            <div class="text-xs text-base-content/60 uppercase">Status</div>
+            <div class="text-xs text-sr-muted uppercase">Status</div>
             <div class="flex items-center gap-1.5 mt-1">
-              <span class={"size-2 rounded-full #{if @group.enabled, do: "bg-success", else: "bg-base-content/30"}"}>
+              <span class={"size-2 rounded-full #{if @group.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}>
               </span>
               <span>{if @group.enabled, do: "Enabled", else: "Disabled"}</span>
             </div>
           </div>
           <div>
-            <div class="text-xs text-base-content/60 uppercase">Schedule</div>
+            <div class="text-xs text-sr-muted uppercase">Schedule</div>
             <div class="mt-1 font-mono">{format_schedule(@group)}</div>
           </div>
           <div>
-            <div class="text-xs text-base-content/60 uppercase">Partition</div>
+            <div class="text-xs text-sr-muted uppercase">Partition</div>
             <div class="mt-1">{@group.partition}</div>
           </div>
           <div>
-            <div class="text-xs text-base-content/60 uppercase">Last Run</div>
+            <div class="text-xs text-sr-muted uppercase">Last Run</div>
             <div class="mt-1">{format_last_run(@group.last_run_at)}</div>
           </div>
         </div>
@@ -730,7 +737,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
 
         <div class="space-y-2">
           <div :if={@group.static_targets != []} class="space-y-1">
-            <div class="text-xs text-base-content/60 uppercase">Static Targets</div>
+            <div class="text-xs text-sr-muted uppercase">Static Targets</div>
             <div class="flex flex-wrap gap-2">
               <%= for target <- (@group.static_targets || []) do %>
                 <.ui_badge variant="ghost" size="sm" class="font-mono">{target}</.ui_badge>
@@ -738,13 +745,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
             </div>
           </div>
           <div :if={@group.target_query not in [nil, ""]} class="space-y-2">
-            <div class="text-xs text-base-content/60 uppercase">Target Query (SRQL)</div>
-            <div class="font-mono text-sm text-base-content/80 break-words">
+            <div class="text-xs text-sr-muted uppercase">Target Query (SRQL)</div>
+            <div class="font-mono text-sm text-sr-ink/90 break-words">
               {@group.target_query}
             </div>
           </div>
           <div :if={@group.static_targets == [] and @group.target_query in [nil, ""]}>
-            <p class="text-base-content/60">No targets configured.</p>
+            <p class="text-sr-muted">No targets configured.</p>
           </div>
         </div>
       </.ui_panel>

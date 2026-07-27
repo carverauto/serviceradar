@@ -12,21 +12,21 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.VariableComponents do
     assigns = assign(assigns, :variables, DashboardVariables.list(assigns.dashboard))
 
     ~H"""
-    <section class="rounded-lg border border-base-300 bg-base-100 px-4 py-3">
+    <section class="rounded-lg border border-sr-line bg-sr-surface px-4 py-3">
       <form phx-change="change_variable" class="flex flex-col gap-3 lg:flex-row lg:items-center">
         <div class="shrink-0">
           <h2 class="text-sm font-semibold">Dashboard Variables</h2>
-          <p class="text-xs text-base-content/70">
+          <p class="text-xs text-sr-muted">
             Values substitute into panel SRQL before execution.
           </p>
         </div>
         <div class="flex flex-1 flex-wrap gap-3">
-          <label :for={variable <- @variables} class="form-control min-w-44">
-            <span class="label-text text-xs">{variable.label}</span>
+          <label :for={variable <- @variables} class="flex flex-col gap-1.5 min-w-44">
+            <span class="text-xs font-medium text-sr-ink">{variable.label}</span>
             <select
               :if={variable.options != []}
               name={"variables[#{variable.name}]"}
-              class="select select-sm"
+              class={ui_field_class(size: "sm")}
             >
               <option
                 :for={option <- variable.options}
@@ -39,7 +39,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.VariableComponents do
             <input
               :if={variable.options == []}
               name={"variables[#{variable.name}]"}
-              class="input input-sm"
+              class={ui_field_class(size: "sm")}
               value={Map.get(@values, variable.name, variable.default)}
             />
           </label>

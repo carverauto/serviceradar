@@ -83,34 +83,36 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
       |> assign(:sibling_views, sibling_views(groups, assigns.active_view))
 
     ~H"""
-    <div class="flex flex-col rounded-lg border border-base-200 bg-base-100 overflow-hidden min-h-[70vh]">
-      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 bg-base-200/40 px-4 py-2.5">
+    <div class="sr-settings-shell flex min-h-[70vh] flex-col overflow-hidden rounded-lg border border-sr-line bg-sr-surface font-sans">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-sr-line bg-sr-subtle/40 px-4 py-2.5">
         <div class="min-w-0">
-          <div class="flex items-center gap-2 font-semibold">
-            <.icon name="hero-cog-6-tooth" class="size-4 text-accent" />
+          <div class="flex items-center gap-2 text-sm font-semibold tracking-tight text-sr-ink">
+            <.icon name="hero-cog-6-tooth" class="size-4 text-sr-brand" />
             <span class="truncate">Settings Console</span>
           </div>
-          <p class="text-xs text-base-content/55">
+          <p class="text-xs leading-relaxed text-sr-muted">
             Unified Administrative Platform &amp; Settings Control
           </p>
         </div>
 
-        <button
+        <.ui_button
           type="button"
           data-command-palette-open
-          class="btn btn-sm btn-ghost gap-2 border border-base-300 bg-base-100 font-normal text-base-content/70"
           title="Search settings (Ctrl+K)"
+          size="sm"
+          variant="ghost"
+          class="gap-2 border border-sr-line bg-sr-surface font-normal text-sr-muted"
         >
           <.icon name="hero-magnifying-glass" class="size-4 opacity-60" />
           <span class="hidden sm:inline">Press Ctrl+K to jump anywhere</span>
           <span class="ml-1 flex items-center gap-0.5">
-            <kbd class="kbd kbd-xs">Ctrl</kbd>
-            <kbd class="kbd kbd-xs">K</kbd>
+            <kbd class="sr-ui-kbd sr-ui-kbd-xs">Ctrl</kbd>
+            <kbd class="sr-ui-kbd sr-ui-kbd-xs">K</kbd>
           </span>
-        </button>
+        </.ui_button>
       </div>
 
-      <div class="border-b border-base-200 px-3 py-2">
+      <div class="border-b border-sr-line px-3 py-2">
         <.category_switcher categories={@categories} active_category={@active_category} />
       </div>
 
@@ -129,8 +131,8 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
         <aside class={[
           "hidden peer-checked:block md:block",
           "max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:w-72",
-          "max-md:overflow-y-auto max-md:shadow-xl max-md:bg-base-100",
-          "border-b md:border-b-0 md:border-r border-base-200 bg-base-200/30"
+          "max-md:overflow-y-auto max-md:shadow-xl max-md:bg-sr-surface",
+          "border-b md:border-b-0 md:border-r border-sr-line bg-sr-subtle/30"
         ]}>
           <div class="flex items-center justify-between px-3 pt-2 md:hidden">
             <span class="text-sm font-semibold">
@@ -138,7 +140,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
             </span>
             <label
               for="settings-nav-drawer"
-              class="btn btn-ghost btn-xs btn-circle"
+              class="inline-flex size-7 cursor-pointer items-center justify-center rounded-full text-sr-muted hover:bg-sr-subtle hover:text-sr-ink"
               aria-label="Close navigation"
             >
               <.icon name="hero-x-mark" class="size-4" />
@@ -149,10 +151,10 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
         </aside>
 
         <section class="min-w-0 flex flex-col">
-          <div class="flex items-center gap-2 border-b border-base-200 px-3 py-2 md:px-4">
+          <div class="flex items-center gap-2 border-b border-sr-line px-3 py-2 md:px-4">
             <label
               for="settings-nav-drawer"
-              class="btn btn-ghost btn-sm btn-square md:hidden"
+              class="inline-flex size-9 cursor-pointer items-center justify-center rounded-sr-control text-sr-muted hover:bg-sr-subtle hover:text-sr-ink md:hidden"
               aria-label="Open settings navigation"
               title="Settings menu"
             >
@@ -205,8 +207,8 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
           "flex flex-none md:flex-1 min-w-0 snap-start items-center justify-center gap-1.5",
           "whitespace-nowrap rounded-md px-3 md:px-2 py-1.5 text-sm",
           if(active_category?(@active_category, category),
-            do: "bg-base-300 text-accent border border-base-300 shadow-sm font-bold",
-            else: "text-base-content/70 hover:bg-base-200"
+            do: "bg-sr-control text-accent border border-sr-line shadow-sm font-bold",
+            else: "text-sr-muted hover:bg-sr-subtle"
           )
         ]}
       >
@@ -216,7 +218,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
         />
         <span class="truncate">{category.title}</span>
       </.link>
-      <span :if={@categories == []} class="text-sm text-base-content/50">
+      <span :if={@categories == []} class="text-sm text-sr-muted">
         No settings categories available
       </span>
     </div>
@@ -238,7 +240,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   defp view_tree(assigns) do
     ~H"""
     <div id="settings-view-tree" phx-hook="SettingsNavTree" class="p-2 space-y-1">
-      <label class="input input-sm input-bordered flex items-center gap-2 mb-1">
+      <label class="mb-1 flex min-h-9 items-center gap-2 rounded-sr-control border border-sr-line bg-sr-control px-3 shadow-sr-control">
         <.icon name="hero-magnifying-glass" class="size-4 opacity-60" />
         <input
           type="text"
@@ -252,7 +254,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
 
       <div
         data-view-filter-empty
-        class="hidden px-3 py-2 text-sm text-base-content/50"
+        class="hidden px-3 py-2 text-sm text-sr-muted"
       >
         No matching views.
       </div>
@@ -265,7 +267,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
         open={active_group?(group, @active_view)}
         class="group/nav rounded-lg"
       >
-        <summary class="flex cursor-pointer list-none items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-base-content/80 hover:bg-base-200 [&::-webkit-details-marker]:hidden">
+        <summary class="flex cursor-pointer list-none items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-sr-ink/90 hover:bg-sr-subtle [&::-webkit-details-marker]:hidden">
           <.icon name={group.icon} class="size-4 shrink-0 opacity-70" />
           <span class="truncate flex-1">{group.title}</span>
           <.icon
@@ -279,11 +281,11 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
             <div
               :if={section.subgroup}
               data-view-filter-skip
-              class="px-3 pt-2 pb-0.5 text-[11px] font-semibold uppercase tracking-wide text-base-content/45"
+              class="px-3 pt-2 pb-0.5 text-[11px] font-semibold uppercase tracking-wide text-sr-ink/45"
             >
               {section.subgroup}
             </div>
-            <ul class="menu w-full gap-0.5 p-0">
+            <ul class="sr-ui-menu w-full gap-0.5 p-0">
               <li :for={view <- section.views} data-view-search={view_search(view)}>
                 <.link
                   navigate={view.route}
@@ -296,9 +298,9 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
                 >
                   <.icon name={view.icon} class="size-4 shrink-0" />
                   <span class="truncate">{view.title}</span>
-                  <span :if={view.badge} class="badge badge-sm badge-primary ml-auto">
+                  <.ui_badge :if={view.badge} size="sm" variant="primary" class="ml-auto">
                     {view.badge}
-                  </span>
+                  </.ui_badge>
                 </.link>
               </li>
             </ul>
@@ -306,7 +308,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
         </div>
       </details>
 
-      <div :if={@groups == []} class="px-3 py-2 text-sm text-base-content/50">
+      <div :if={@groups == []} class="px-3 py-2 text-sm text-sr-muted">
         No views available
       </div>
     </div>
@@ -324,46 +326,41 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
     assigns = assign(assigns, :last_index, length(assigns.breadcrumbs) - 1)
 
     ~H"""
-    <nav class="breadcrumbs text-sm min-w-0" aria-label="Breadcrumb">
+    <nav class=" text-sm min-w-0" aria-label="Breadcrumb">
       <ul>
         <li :for={{crumb, index} <- Enum.with_index(@breadcrumbs)}>
           <%= cond do %>
             <% index == @last_index and @views != [] -> %>
-              <div class="dropdown dropdown-bottom">
-                <div
-                  tabindex="0"
-                  role="button"
-                  class="inline-flex items-center gap-1 font-medium text-accent cursor-pointer"
-                  title="Jump to a sibling view"
-                >
-                  <span class="truncate">{crumb.label}</span>
-                  <.icon name="hero-chevron-down" class="size-3.5" />
-                </div>
-                <div
-                  tabindex="0"
-                  class="dropdown-content z-[60] mt-1 w-64 rounded-lg border border-base-200 bg-base-100 shadow-lg"
-                >
-                  <div class="px-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-base-content/50">
+              <.ui_dropdown align="start" menu_class="z-[60] w-64 max-w-64">
+                <:trigger>
+                  <span
+                    class="inline-flex cursor-pointer items-center gap-1 font-medium text-sr-brand"
+                    title="Jump to a sibling view"
+                  >
+                    <span class="truncate">{crumb.label}</span>
+                    <.icon name="hero-chevron-down" class="size-3.5" />
+                  </span>
+                </:trigger>
+                <:item>
+                  <span class="px-1 text-[11px] font-semibold uppercase tracking-wide text-sr-muted">
                     Navigate Views
-                  </div>
-                  <ul class="menu w-full p-2">
-                    <li :for={view <- @views}>
-                      <.link
-                        navigate={view.route}
-                        class={active_view?(@active_view, view) && "text-accent font-semibold"}
-                      >
-                        <.icon name={view.icon} class="size-4 shrink-0" />
-                        <span class="truncate">{view.title}</span>
-                        <.icon
-                          :if={active_view?(@active_view, view)}
-                          name="hero-check"
-                          class="size-4 ml-auto text-accent"
-                        />
-                      </.link>
-                    </li>
-                  </ul>
-                </div>
-              </div>
+                  </span>
+                </:item>
+                <:item :for={view <- @views}>
+                  <.link
+                    navigate={view.route}
+                    class={active_view?(@active_view, view) && "font-semibold text-sr-brand"}
+                  >
+                    <.icon name={view.icon} class="size-4 shrink-0" />
+                    <span class="truncate">{view.title}</span>
+                    <.icon
+                      :if={active_view?(@active_view, view)}
+                      name="hero-check"
+                      class="ml-auto size-4 text-sr-brand"
+                    />
+                  </.link>
+                </:item>
+              </.ui_dropdown>
             <% crumb.route -> %>
               <.link navigate={crumb.route}>{crumb.label}</.link>
             <% true -> %>
@@ -388,25 +385,25 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   defp status_strip(assigns) do
     ~H"""
     <div :if={is_list(@stats) and @stats != []} class="px-3 pt-3 md:px-4">
-      <div class="stats stats-vertical sm:stats-horizontal w-full overflow-x-auto border border-base-200 bg-base-100 shadow-sm">
+      <div class="stats stats-vertical sm:stats-horizontal w-full overflow-x-auto border border-sr-line bg-sr-surface shadow-sm">
         <%= for card <- @stats do %>
           <.link
             :if={card_nav(card)}
             navigate={card_nav(card)}
-            class="stat py-2 group cursor-pointer transition-colors hover:bg-base-200"
+            class="stat py-2 group cursor-pointer transition-colors hover:bg-sr-subtle"
           >
-            <div class="stat-title text-xs flex items-center gap-1">
+            <div class="sr-ui-stat-title text-xs flex items-center gap-1">
               {card.title}
               <.icon
                 name="hero-arrow-up-right"
                 class="size-3 opacity-0 transition-opacity group-hover:opacity-60"
               />
             </div>
-            <div class="stat-value text-lg">{stat_display(card.value)}</div>
+            <div class="sr-ui-stat-value text-lg">{stat_display(card.value)}</div>
           </.link>
           <div :if={!card_nav(card)} class="stat py-2">
-            <div class="stat-title text-xs">{card.title}</div>
-            <div class="stat-value text-lg">{stat_display(card.value)}</div>
+            <div class="sr-ui-stat-title text-xs">{card.title}</div>
+            <div class="sr-ui-stat-value text-lg">{stat_display(card.value)}</div>
           </div>
         <% end %>
       </div>
@@ -425,13 +422,13 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
     ~H"""
     <dialog
       id="settings-command-palette"
-      class="modal"
+      class="sr-ui-modal"
       phx-hook="CommandPalette"
       phx-update="ignore"
     >
-      <div class="modal-box max-w-2xl p-0" data-command-palette-box>
-        <div class="border-b border-base-200 p-3">
-          <label class="input input-bordered flex items-center gap-2">
+      <div class="sr-ui-modal-box sr-ui-modal-box-md p-0" data-command-palette-box>
+        <div class="border-b border-sr-line p-3">
+          <label class="flex min-h-11 items-center gap-2 rounded-sr-control border border-sr-line bg-sr-control px-3.5 shadow-sr-control">
             <.icon name="hero-magnifying-glass" class="size-4 opacity-60" />
             <input
               type="text"
@@ -441,19 +438,19 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
               autocomplete="off"
               autofocus
             />
-            <button type="button" class="btn btn-ghost btn-xs btn-circle" data-command-palette-close>
+            <.ui_icon_button type="button" data-command-palette-close size="xs" variant="ghost">
               <.icon name="hero-x-mark" class="size-4" />
-            </button>
+            </.ui_icon_button>
           </label>
         </div>
 
-        <div class="flex items-center justify-between px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/50">
+        <div class="flex items-center justify-between px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-sr-muted">
           <span>Settings &amp; Deep Sections</span>
           <span>(<span data-command-palette-count>{length(@palette)}</span>)</span>
         </div>
 
         <ul
-          class="menu menu-vertical flex-nowrap w-full max-h-[min(24rem,60vh)] overflow-y-auto p-2"
+          class="sr-ui-menu sr-ui-menu-vertical flex-nowrap w-full max-h-[min(24rem,60vh)] overflow-y-auto p-2"
           data-command-palette-list
         >
           <li
@@ -466,7 +463,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
               class="flex items-start gap-3"
               data-command-palette-link
             >
-              <span class="mt-0.5 rounded-md bg-base-200 p-1.5">
+              <span class="mt-0.5 rounded-md bg-sr-subtle p-1.5">
                 <.icon name={item.icon} class="size-4" />
               </span>
               <span class="min-w-0 flex-1">
@@ -474,11 +471,11 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
                   <span class="truncate font-medium" data-command-palette-title>
                     {item.view_title}
                   </span>
-                  <span class="badge badge-xs badge-ghost uppercase tracking-wide">
+                  <.ui_badge size="xs" variant="ghost" class="uppercase tracking-wide">
                     {item.category_title}
-                  </span>
+                  </.ui_badge>
                 </span>
-                <span :if={item.description} class="block truncate text-xs text-base-content/55">
+                <span :if={item.description} class="block truncate text-xs text-sr-ink/55">
                   {item.description}
                 </span>
               </span>
@@ -486,26 +483,29 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
                 class="ml-auto hidden items-center gap-1 self-center text-xs text-accent"
                 data-command-palette-jump
               >
-                Jump <kbd class="kbd kbd-xs">↵</kbd>
+                Jump <kbd class="sr-ui-kbd sr-ui-kbd-xs">↵</kbd>
               </span>
             </.link>
           </li>
           <li
             data-command-palette-empty
-            class="hidden px-3 py-6 text-center text-sm text-base-content/50"
+            class="hidden px-3 py-6 text-center text-sm text-sr-muted"
           >
             No matching settings.
           </li>
         </ul>
 
-        <div class="flex items-center gap-3 border-t border-base-200 px-3 py-2 text-xs text-base-content/50">
+        <div class="flex items-center gap-3 border-t border-sr-line px-3 py-2 text-xs text-sr-muted">
           <span>Navigation:</span>
-          <span><kbd class="kbd kbd-xs">↑</kbd> <kbd class="kbd kbd-xs">↓</kbd> Arrow Keys</span>
-          <span><kbd class="kbd kbd-xs">↵</kbd> Select</span>
-          <span><kbd class="kbd kbd-xs">ESC</kbd> Close</span>
+          <span>
+            <kbd class="sr-ui-kbd sr-ui-kbd-xs">↑</kbd> <kbd class="sr-ui-kbd sr-ui-kbd-xs">↓</kbd>
+            Arrow Keys
+          </span>
+          <span><kbd class="sr-ui-kbd sr-ui-kbd-xs">↵</kbd> Select</span>
+          <span><kbd class="sr-ui-kbd sr-ui-kbd-xs">ESC</kbd> Close</span>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button>close</button>
       </form>
     </dialog>

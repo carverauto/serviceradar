@@ -389,6 +389,7 @@ type Config struct {
 			Interval            string `json:"interval"`
 			Percentage          int    `json:"percentage"`
 			WarmupCycles        int    `json:"warmup_cycles"`
+			Seed                int64  `json:"seed,omitempty"`
 			LogChanges          bool   `json:"log_changes"`
 			AllowExpansion      bool   `json:"allow_expansion,omitempty"`
 			PoolHeadroomPercent int    `json:"pool_headroom_percent,omitempty"`
@@ -511,6 +512,7 @@ func (c *Config) applyDefaults() {
 	c.Simulation.IPShuffle.Interval = "60s"
 	c.Simulation.IPShuffle.Percentage = 5
 	c.Simulation.IPShuffle.WarmupCycles = 5
+	c.Simulation.IPShuffle.Seed = 4707
 	c.Simulation.IPShuffle.LogChanges = true
 	c.Simulation.IPShuffle.AllowExpansion = false
 	c.Simulation.IPShuffle.PoolHeadroomPercent = 0
@@ -615,6 +617,9 @@ var (
 	northboundUpdatesMu      sync.Mutex
 	northboundUpdates        []northboundUpdateRecord
 	northboundUpdateSequence int64
+
+	simulationChurnMu       sync.Mutex
+	simulationChurnSequence int64
 )
 
 // Initialize sets up the device generator and loads or generates device data
@@ -684,7 +689,12 @@ func shuffleIPs() {
 			config.Simulation.IPShuffle.AllowExpansion = false
 			config.Simulation.IPShuffle.PoolHeadroomPercent = 0
 		}
-		changed = swapDevicePrimaryIPs(deviceGen, numToShuffle, config.Simulation.IPShuffle.LogChanges)
+		changed = swapDevicePrimaryIPsWithRNG(
+			deviceGen,
+			numToShuffle,
+			config.Simulation.IPShuffle.LogChanges,
+			newSimulationChurnRNG(),
+		)
 		if config.Simulation.IPShuffle.LogChanges {
 			log.Printf("    Completed IP changes for %d devices", changed)
 		}
@@ -701,6 +711,10 @@ func shuffleIPs() {
 
 // swapDevicePrimaryIPs swaps primary IPs between random device pairs without expanding the IP set.
 func swapDevicePrimaryIPs(gen *DeviceGenerator, swaps int, logChanges bool) int {
+	return swapDevicePrimaryIPsWithRNG(gen, swaps, logChanges, nil)
+}
+
+func swapDevicePrimaryIPsWithRNG(gen *DeviceGenerator, swaps int, logChanges bool, rng *rand.Rand) int {
 	if gen == nil || len(gen.allDevices) == 0 || swaps <= 0 {
 		return 0
 	}
@@ -709,8 +723,11 @@ func swapDevicePrimaryIPs(gen *DeviceGenerator, swaps int, logChanges bool) int 
 	n := len(gen.allDevices)
 
 	for i := 0; i < swaps; i++ {
-		a := randInt(0, n-1)
-		b := randInt(0, n-1)
+		a, b := randInt(0, n-1), randInt(0, n-1)
+		if rng != nil {
+			a = seededRandInt(rng, 0, n-1)
+			b = seededRandInt(rng, 0, n-1)
+		}
 		if a == b {
 			continue
 		}
@@ -738,6 +755,19 @@ func swapDevicePrimaryIPs(gen *DeviceGenerator, swaps int, logChanges bool) int 
 	}
 
 	return swapped
+}
+
+func newSimulationChurnRNG() *rand.Rand {
+	simulationChurnMu.Lock()
+	defer simulationChurnMu.Unlock()
+
+	simulationChurnSequence++
+	seed := int64(4707)
+	if config != nil && config.Simulation.IPShuffle.Seed != 0 {
+		seed = config.Simulation.IPShuffle.Seed
+	}
+
+	return rand.New(rand.NewSource(seed + simulationChurnSequence))
 }
 
 // reassignIPsFromPool assigns new IPs from a bounded pool and recycles old ones,
@@ -893,6 +923,8 @@ func main() {
 	mux.HandleFunc("/api/v1/access_token/", tokenHandler)
 	mux.HandleFunc("/api/v1/search/", searchHandler)
 	mux.HandleFunc("/api/v1/devices/custom-properties/_bulk/", bulkCustomPropertiesHandler)
+	mux.HandleFunc("/debug/armis/ready", armisReadyHandler)
+	mux.HandleFunc("/debug/armis/simulation/churn", armisChurnHandler)
 	mux.HandleFunc("/debug/armis/northbound/updates", northboundUpdatesHandler)
 	// Legacy endpoint if needed
 	mux.HandleFunc("/v1/devices", devicesHandler)
@@ -928,6 +960,80 @@ func main() {
 			return
 		}
 		log.Fatalf("Server failed: %v", err) //nolint:gocritic // Close is explicitly called before Fatalf
+	}
+}
+
+func armisReadyHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	deviceCount := 0
+	if deviceGen != nil {
+		deviceGen.mu.RLock()
+		deviceCount = len(deviceGen.allDevices)
+		deviceGen.mu.RUnlock()
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"device_count": deviceCount,
+		},
+	})
+}
+
+func armisChurnHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		Swaps int `json:"swaps"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if request.Swaps <= 0 {
+		http.Error(w, "swaps must be greater than zero", http.StatusBadRequest)
+		return
+	}
+
+	if deviceGen == nil {
+		http.Error(w, "device generator is not ready", http.StatusServiceUnavailable)
+		return
+	}
+
+	deviceGen.mu.Lock()
+	changed := swapDevicePrimaryIPsWithRNG(deviceGen, request.Swaps, false, newSimulationChurnRNG())
+	deviceGen.mu.Unlock()
+
+	if config != nil && config.Storage.PersistChanges {
+		deviceGen.saveToStorage()
+	}
+
+	deviceGen.mu.RLock()
+	deviceCount := len(deviceGen.allDevices)
+	deviceGen.mu.RUnlock()
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"requested_swaps": request.Swaps,
+			"changed_devices": changed,
+			"device_count":    deviceCount,
+		},
+	})
+}
+
+func writeJSON(w http.ResponseWriter, status int, value interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		log.Printf("Error encoding JSON response: %v", err)
 	}
 }
 
@@ -977,6 +1083,9 @@ func loadFakerConfig(ctx context.Context, path string, cfg *Config) *cfgbootstra
 	})
 	if err != nil {
 		log.Fatalf("Failed to load faker config: %v", err)
+	}
+	if cfg.Simulation.TotalDevices > 0 {
+		totalDevices = cfg.Simulation.TotalDevices
 	}
 	return result
 }
@@ -1030,7 +1139,8 @@ func bulkCustomPropertiesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
-	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+	if authHeader == "" ||
+		(!strings.HasPrefix(authHeader, "Bearer ") && !strings.HasPrefix(authHeader, "fake-token-")) {
 		http.Error(w, "missing bearer token", http.StatusUnauthorized)
 		return
 	}

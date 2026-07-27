@@ -39,7 +39,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
     <div
       id={"combined-chart-#{@id}"}
       class={[
-        "rounded-lg border border-base-200 bg-base-100 relative",
+        "rounded-lg border border-sr-line bg-sr-surface relative",
         @compact && "p-3",
         not @compact && "p-4"
       ]}
@@ -59,7 +59,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
           </span>
           <span
             :if={Map.get(@data, :overlays, []) != []}
-            class="badge badge-xs badge-outline"
+            class="inline-flex items-center rounded-full border border-sr-line px-1.5 text-[0.65rem] font-semibold text-sr-ink"
             title={"#{length(@data.overlays)} chart overlays"}
           >
             {length(@data.overlays)}
@@ -74,12 +74,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
                 class="size-3"
               />
               <span class={[
-                "text-base-content/70",
+                "text-sr-muted",
                 @compact && "text-[10px]",
                 not @compact && "text-xs"
               ]}>
                 {series.series}
-                <span :if={series.utilization} class="text-base-content/50">
+                <span :if={series.utilization} class="text-sr-muted">
                   ({series.utilization}%)
                 </span>
               </span>
@@ -104,7 +104,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
             <% end %>
           </defs>
 
-          <g stroke="currentColor" class="text-base-content/10" stroke-dasharray="3 4">
+          <g stroke="currentColor" class="text-sr-ink/10" stroke-dasharray="3 4">
             <%= for {y, _label} <- @data.y_ticks do %>
               <line x1={@effective_chart_left_pad} x2={@chart_width - @chart_right_pad} y1={y} y2={y} />
             <% end %>
@@ -113,7 +113,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
             <% end %>
           </g>
 
-          <g stroke="currentColor" class="text-base-content/40">
+          <g stroke="currentColor" class="text-sr-muted">
             <line
               x1={@effective_chart_left_pad}
               x2={@effective_chart_left_pad}
@@ -128,7 +128,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
             />
           </g>
 
-          <g stroke="currentColor" class="text-base-content/40">
+          <g stroke="currentColor" class="text-sr-muted">
             <%= for {y, _label} <- @data.y_ticks do %>
               <line x1={@effective_chart_left_pad - 3} x2={@effective_chart_left_pad} y1={y} y2={y} />
             <% end %>
@@ -142,13 +142,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
             <% end %>
           </g>
 
-          <g class="text-[12px] fill-base-content/70 font-mono">
+          <g class="text-[12px] fill-sr-muted font-mono">
             <%= for {y, label} <- @data.y_ticks do %>
               <text x={@effective_chart_left_pad - 10} y={y + 4} text-anchor="end">{label}</text>
             <% end %>
           </g>
 
-          <g class="text-[11px] fill-base-content/70 font-mono">
+          <g class="text-[11px] fill-sr-muted font-mono">
             <%= for {x, label} <- @data.x_ticks do %>
               <text x={x} y={@chart_height - 4} text-anchor="middle">{label}</text>
             <% end %>
@@ -195,12 +195,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
         </svg>
 
         <div
-          class="absolute hidden pointer-events-none bg-base-300 text-base-content text-xs px-2 py-1 rounded shadow-lg z-10 font-mono whitespace-normal"
+          class="absolute hidden pointer-events-none bg-sr-control text-sr-ink text-xs px-2 py-1 rounded shadow-lg z-10 font-mono whitespace-normal"
           data-tooltip
         >
         </div>
         <div
-          class="absolute hidden pointer-events-none w-px bg-base-content/30 top-0 bottom-0"
+          class="absolute hidden pointer-events-none w-px bg-sr-muted/30 top-0 bottom-0"
           data-hover-line
         >
         </div>
@@ -209,13 +209,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
       <div
         :if={@annotation_window_notice}
         data-testid="timeseries-marker-window-note"
-        class="mt-1 text-[10px] leading-snug text-base-content/60"
+        class="mt-1 text-[10px] leading-snug text-sr-muted"
       >
         {@annotation_window_notice}
       </div>
 
       <div class={[
-        "flex items-center justify-between text-base-content/50 mt-1 gap-4",
+        "flex items-center justify-between text-sr-muted mt-1 gap-4",
         @compact && "text-[10px]",
         not @compact && "text-xs"
       ]}>
@@ -229,14 +229,14 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
             <span class="font-mono">{Metrics.format_value(series.paths.avg, series.unit)}</span>
           </div>
         <% end %>
-        <span :if={@data.max_speed} class="text-base-content/40 ml-auto">
+        <span :if={@data.max_speed} class="text-sr-muted ml-auto">
           interface rate:
           <span class="font-mono">{Metrics.format_value(@data.max_speed, :bytes_per_sec)}</span>
         </span>
       </div>
 
       <div class={[
-        "flex items-center justify-between text-base-content/40 mt-1 font-mono",
+        "flex items-center justify-between text-sr-muted mt-1 font-mono",
         @compact && "text-[9px]",
         not @compact && "text-[10px]"
       ]}>

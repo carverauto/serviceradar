@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -560,6 +561,163 @@ func TestApplyCredentialBrokerFormInjectionRequiresHTTPSAndMaterial(t *testing.T
 	}
 }
 
+func TestCredentialBrokerOAuth2PasswordBearerKeepsTokenExchangeHostSide(t *testing.T) {
+	t.Parallel()
+
+	var tokenForm url.Values
+	tokenServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read token body: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		tokenForm, err = url.ParseQuery(string(body))
+		if err != nil {
+			t.Errorf("parse token form: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"access_token":"derived-host-only-token","token_type":"Bearer","expires_in":300}`)
+	}))
+	defer tokenServer.Close()
+
+	tokenURL := mustParseURL(t, tokenServer.URL+"/oauth/token")
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{HTTPClient: tokenServer.Client()})
+	defer manager.Stop()
+	exec := newPluginExecution(manager, &pluginAssignment{})
+
+	upstreamReq, err := http.NewRequestWithContext(
+		t.Context(), http.MethodPost, "https://inventory.example.test/api/devices", strings.NewReader(`{}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant := credentialBrokerGrant{Inject: oauth2PasswordBearerTestInject(tokenURL)}
+	material := CredentialBrokerMaterial{Fields: map[string]string{
+		"username": "inventory-user",
+		"password": "long-lived-password",
+	}}
+
+	if err := exec.applyCredentialBrokerOAuth2PasswordBearer(
+		t.Context(), upstreamReq, grant, material,
+	); err != nil {
+		t.Fatalf("applyCredentialBrokerOAuth2PasswordBearer returned error: %v", err)
+	}
+	if got := upstreamReq.Header.Get("Authorization"); got != "Bearer derived-host-only-token" {
+		t.Fatalf("Authorization = %q", got)
+	}
+	if tokenForm.Get("username") != "inventory-user" ||
+		tokenForm.Get("password") != "long-lived-password" ||
+		tokenForm.Get("grant_type") != "password" {
+		t.Fatalf("unexpected token form fields: %#v", tokenForm)
+	}
+	if strings.Contains(upstreamReq.Header.Get("Authorization"), "long-lived-password") {
+		t.Fatal("upstream authorization exposed the source credential")
+	}
+}
+
+func TestCredentialBrokerOAuth2PasswordBearerDeniesBeforeTokenExchangeOnTargetMismatch(t *testing.T) {
+	t.Parallel()
+
+	requests := 0
+	tokenServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		_, _ = io.WriteString(w, `{"access_token":"must-not-be-issued"}`)
+	}))
+	defer tokenServer.Close()
+
+	tokenURL := mustParseURL(t, tokenServer.URL+"/oauth/token")
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{HTTPClient: tokenServer.Client()})
+	defer manager.Stop()
+	exec := newPluginExecution(manager, &pluginAssignment{})
+	req, err := http.NewRequestWithContext(
+		t.Context(), http.MethodPost, "https://other.example.test/api/devices", nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = exec.applyCredentialBrokerOAuth2PasswordBearer(
+		t.Context(),
+		req,
+		credentialBrokerGrant{Inject: oauth2PasswordBearerTestInject(tokenURL)},
+		CredentialBrokerMaterial{Fields: map[string]string{
+			"username": "inventory-user",
+			"password": "long-lived-password",
+		}},
+	)
+	if !errors.Is(err, errCredentialBrokerTokenExchangeInvalid) {
+		t.Fatalf("expected target mismatch rejection, got %v", err)
+	}
+	if requests != 0 {
+		t.Fatalf("token endpoint received %d request(s) after target rejection", requests)
+	}
+}
+
+func TestCredentialBrokerOAuth2PasswordBearerDoesNotFollowTokenRedirects(t *testing.T) {
+	t.Parallel()
+
+	redirectTargetRequests := 0
+	redirectTarget := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		redirectTargetRequests++
+		_, _ = io.WriteString(w, `{"access_token":"redirect-token"}`)
+	}))
+	defer redirectTarget.Close()
+
+	tokenServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, redirectTarget.URL+"/token", http.StatusTemporaryRedirect)
+	}))
+	defer tokenServer.Close()
+
+	tokenURL := mustParseURL(t, tokenServer.URL+"/oauth/token")
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{HTTPClient: tokenServer.Client()})
+	defer manager.Stop()
+	exec := newPluginExecution(manager, &pluginAssignment{})
+	req, err := http.NewRequestWithContext(
+		t.Context(), http.MethodPost, "https://inventory.example.test/api/devices", nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = exec.applyCredentialBrokerOAuth2PasswordBearer(
+		t.Context(),
+		req,
+		credentialBrokerGrant{Inject: oauth2PasswordBearerTestInject(tokenURL)},
+		CredentialBrokerMaterial{Fields: map[string]string{
+			"username": "inventory-user",
+			"password": "long-lived-password",
+		}},
+	)
+	if !errors.Is(err, errCredentialBrokerTokenExchangeFailed) {
+		t.Fatalf("expected redirect rejection, got %v", err)
+	}
+	if redirectTargetRequests != 0 {
+		t.Fatalf("redirect target received %d credential-bearing request(s)", redirectTargetRequests)
+	}
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Fatalf("upstream request received authorization after failed exchange: %q", got)
+	}
+}
+
+func oauth2PasswordBearerTestInject(tokenURL *url.URL) map[string]string {
+	return map[string]string{
+		"type":             "oauth2_password_bearer",
+		"method":           http.MethodPost,
+		"host":             "inventory.example.test",
+		"path":             "/api/devices",
+		"token_method":     http.MethodPost,
+		"token_host":       tokenURL.Hostname(),
+		"token_port":       tokenURL.Port(),
+		"token_path":       tokenURL.Path,
+		"field_username":   "username",
+		"field_password":   "password",
+		"fixed_grant_type": "password",
+	}
+}
+
 func TestPluginManagerEnqueueActionResultQueuesFullPayloadAndReturnsBoundedAck(t *testing.T) {
 	t.Parallel()
 
@@ -796,6 +954,31 @@ func TestConfigurePluginHTTPRedirectsDeniesAWXCredentialBackedRedirect(t *testin
 		nil,
 	); !errors.Is(err, http.ErrUseLastResponse) {
 		t.Fatalf("expected redirect denial, got %v", err)
+	}
+}
+
+func TestConfigurePluginHTTPRedirectsDeniesGenericCredentialInjectionRedirect(t *testing.T) {
+	t.Parallel()
+
+	client := &http.Client{}
+	configurePluginHTTPRedirects(
+		client,
+		&credentialBrokerGrant{
+			GrantID: "grant-1",
+			Inject:  map[string]string{"type": "oauth2_password_bearer"},
+		},
+		mustParseURL(t, "https://api.example.com/api/v1/devices"),
+		&pluginPermissions{},
+	)
+
+	if client.CheckRedirect == nil {
+		t.Fatal("expected credential-backed redirect policy")
+	}
+	if err := client.CheckRedirect(
+		&http.Request{URL: mustParseURL(t, "https://api.example.com/api/v1/next")},
+		nil,
+	); !errors.Is(err, http.ErrUseLastResponse) {
+		t.Fatalf("expected generic credential redirect denial, got %v", err)
 	}
 }
 

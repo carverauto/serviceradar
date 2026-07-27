@@ -185,7 +185,7 @@ PacketFlowLayer.defaultProps = {
   getSize: {type: "accessor", value: (d) => d.size},
   getJitter: {type: "accessor", value: (d) => d.jitter},
   getLaneOffset: {type: "accessor", value: (d) => d.laneOffset},
-  getColor: {type: "accessor", value: (d) => (Array.isArray(d.color) ? d.color : [56, 189, 248, 80])},
+  getColor: {type: "accessor", value: (d) => (Array.isArray(d.color) ? d.color : [62, 207, 135, 80])},
   getPosition: {
     type: "accessor",
     value: (d) => (Array.isArray(d?.from) ? [d.from[0] || 0, d.from[1] || 0, 0] : [0, 0, 0]),

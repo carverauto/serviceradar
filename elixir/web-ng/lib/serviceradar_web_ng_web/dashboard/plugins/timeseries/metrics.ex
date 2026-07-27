@@ -124,10 +124,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
 
   def compute_utilization(_, _), do: nil
 
-  def utilization_badge_class(pct) when pct >= 90, do: "badge-error"
-  def utilization_badge_class(pct) when pct >= 75, do: "badge-warning"
-  def utilization_badge_class(pct) when pct >= 50, do: "badge-info"
-  def utilization_badge_class(_), do: "badge-success"
+  def utilization_badge_variant(pct) when pct >= 90, do: "error"
+  def utilization_badge_variant(pct) when pct >= 75, do: "warning"
+  def utilization_badge_variant(pct) when pct >= 50, do: "info"
+  def utilization_badge_variant(_), do: "success"
 
   defp normalize_counter_series({series, points}), do: {series, normalize_points(points), %{}}
 

@@ -7,11 +7,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup
 
   def render(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-6 space-y-6">
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-6 space-y-6">
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h3 class="text-lg font-semibold text-base-content">Inventory Cleanup</h3>
-          <p class="text-sm text-base-content/60">
+          <h3 class="text-lg font-semibold text-sr-ink">Inventory Cleanup</h3>
+          <p class="text-sm text-sr-muted">
             Purge soft-deleted devices after a retention window. Deleted devices can be restored
             if they are discovered again.
           </p>
@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup
         </div>
       </div>
 
-      <div :if={is_nil(@form)} class="alert alert-warning">
+      <div :if={is_nil(@form)} class={ui_alert_class("warning")}>
         <.icon name="hero-exclamation-triangle" class="size-5" />
         <div>
           <div class="font-semibold">Cleanup settings unavailable</div>
@@ -67,7 +67,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup
         </div>
         <div class="flex items-end">
           <div class="space-y-3">
-            <p class="text-sm text-base-content/60">
+            <p class="text-sm text-sr-muted">
               Cleanup runs on the configured interval and deletes devices that have been
               soft-deleted longer than the retention period.
             </p>

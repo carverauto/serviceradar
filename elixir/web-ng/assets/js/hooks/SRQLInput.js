@@ -88,7 +88,10 @@ export default {
 
   async loadCatalog({force = false} = {}) {
     const cache = ensureCache()
-    if (!force && cache.data) {
+    // Revalidate periodically so newly-added catalog fields (e.g. events.id)
+    // are picked up after a hot reload without requiring a full page refresh.
+    const fresh = cache.data && cache.freshUntil && Date.now() < cache.freshUntil
+    if (!force && fresh) {
       this.catalog = cache.data
       this.updateState()
       return
@@ -486,11 +489,15 @@ async function fetchCatalog(cache) {
   const headers = cache.etag ? {"If-None-Match": cache.etag} : {}
   const response = await fetch("/api/srql/catalog", {headers})
 
-  if (response.status === 304 && cache.data) return
+  if (response.status === 304 && cache.data) {
+    cache.freshUntil = Date.now() + 30_000
+    return
+  }
   if (!response.ok) throw new Error(`SRQL catalog request failed with ${response.status}`)
 
   cache.etag = response.headers.get("etag")
   cache.data = await response.json()
+  cache.freshUntil = Date.now() + 30_000
 }
 
 function allFields(entities) {

@@ -5,6 +5,13 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias ServiceRadar.Observability.EventTitle
+  alias ServiceRadarWebNGWeb.AnomalySeriesKey
+  alias ServiceRadarWebNGWeb.Observability.DetailStreamComponents
+  alias ServiceRadarWebNGWeb.SRQL.Builder
+  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+
+  @stream_page_size 10
+  @srql_default_limit 25
 
   @impl true
   def mount(_params, _session, socket) do
@@ -14,100 +21,582 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
      |> assign(:alert_id, nil)
      |> assign(:alert, nil)
      |> assign(:error, nil)
-     |> assign(:srql, %{enabled: false})}
+     |> assign(:stream_entries, [])
+     |> assign(:stream_severity, "all")
+     |> assign(:stream_query, nil)
+     |> assign(:stream_cursor, nil)
+     |> assign(:stream_next_cursor, nil)
+     |> assign(:stream_prev_cursor, nil)
+     |> assign(:stream_page, 1)
+     |> assign(:stream_page_size, @stream_page_size)
+     |> assign(:show_raw_json, false)
+     |> assign(:limit, @srql_default_limit)
+     |> SRQLPage.init("alerts", default_limit: @srql_default_limit)}
   end
 
   @impl true
-  def handle_params(%{"alert_id" => alert_id}, _uri, socket) do
-    query = "in:alerts id:\"#{escape_value(alert_id)}\" limit:1"
+  def handle_params(%{"alert_id" => alert_id}, uri, socket) do
+    {alert, error} = load_alert(alert_id)
+    stream_query = stream_query_for_alert(alert)
+    detail_query = detail_query_for_alert(alert_id)
 
-    {alert, error} =
-      case srql_module().query(query) do
-        {:ok, %{"results" => [alert | _]}} when is_map(alert) ->
-          {alert, nil}
-
-        {:ok, %{"results" => []}} ->
-          {nil, "Alert not found."}
-
-        {:ok, _other} ->
-          {nil, "Unexpected response format"}
-
-        {:error, reason} ->
-          {nil, "Failed to load alert: #{format_error(reason)}"}
-      end
+    {stream, next_cursor, prev_cursor} =
+      load_stream_page(stream_query, alert, alert_id, nil)
 
     {:noreply,
      socket
      |> assign(:alert_id, alert_id)
      |> assign(:alert, alert)
-     |> assign(:error, error)}
+     |> assign(:error, error)
+     |> assign(:stream_entries, stream)
+     |> assign(:stream_query, stream_query)
+     |> assign(:stream_cursor, nil)
+     |> assign(:stream_next_cursor, next_cursor)
+     |> assign(:stream_prev_cursor, prev_cursor)
+     |> assign(:stream_page, 1)
+     |> assign(:stream_severity, "all")
+     |> assign(:show_raw_json, false)
+     |> assign(:page_title, page_title_for(alert, alert_id))
+     |> prefill_srql_bar(detail_query, uri, alert_id)}
+  end
+
+  @impl true
+  def handle_event("set_stream_severity", %{"severity" => severity}, socket)
+      when severity in ~w(all critical warning info) do
+    {:noreply, assign(socket, :stream_severity, severity)}
+  end
+
+  def handle_event("stream_next", _params, socket) do
+    cursor = socket.assigns.stream_next_cursor
+
+    if is_binary(cursor) and cursor != "" do
+      {:noreply, load_stream_into_socket(socket, cursor, socket.assigns.stream_page + 1)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("stream_prev", _params, socket) do
+    cursor = socket.assigns.stream_prev_cursor
+    page = max(socket.assigns.stream_page - 1, 1)
+
+    cond do
+      page <= 1 ->
+        {:noreply, load_stream_into_socket(socket, nil, 1)}
+
+      is_binary(cursor) and cursor != "" ->
+        {:noreply, load_stream_into_socket(socket, cursor, page)}
+
+      true ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("copy_id", _params, socket) do
+    {:noreply, push_event(socket, "clipboard", %{text: socket.assigns.alert_id || ""})}
+  end
+
+  def handle_event("copy_json", _params, socket) do
+    text =
+      case socket.assigns.alert do
+        %{} = alert -> Jason.encode!(alert, pretty: true)
+        _ -> ""
+      end
+
+    {:noreply, push_event(socket, "clipboard", %{text: text})}
+  end
+
+  def handle_event("toggle_raw_json", _params, socket) do
+    {:noreply, assign(socket, :show_raw_json, not socket.assigns.show_raw_json)}
+  end
+
+  def handle_event("srql_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
+  end
+
+  def handle_event("srql_submit", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_submit", params,
+       fallback_path: "/observability",
+       extra_params: %{}
+     )}
+  end
+
+  def handle_event("srql_builder_toggle", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "alerts")}
+  end
+
+  def handle_event("srql_builder_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", params)}
+  end
+
+  def handle_event("srql_builder_apply", _params, socket) do
+    socket = SRQLPage.handle_event(socket, "srql_builder_apply", %{})
+    {:noreply, refresh_stream_from_srql(socket)}
+  end
+
+  def handle_event("srql_builder_run", _params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_run", %{},
+       fallback_path: "/observability",
+       extra_params: %{}
+     )}
+  end
+
+  def handle_event("srql_builder_add_filter", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "alerts")}
+  end
+
+  def handle_event("srql_builder_remove_filter", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "alerts")}
   end
 
   @impl true
   def render(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :visible_stream,
+        DetailStreamComponents.filter_stream_entries(
+          assigns.stream_entries,
+          assigns.stream_severity,
+          :alerts
+        )
+      )
+
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="mx-auto max-w-4xl p-6">
-        <.header>
-          Alert Details
-          <:subtitle>
-            <span class="font-mono text-xs">{@alert_id}</span>
-          </:subtitle>
-          <:actions>
-            <.ui_button href={~p"/alerts"} variant="ghost" size="sm">
-              Back to alerts
-            </.ui_button>
-          </:actions>
-        </.header>
-
-        <div :if={@error} class="rounded-xl border border-error/30 bg-error/5 p-6 text-center">
-          <p class="text-sm text-error">{@error}</p>
+      <div class="sr-alert-viewer flex min-w-0 max-w-full flex-col pt-2 sm:pt-3 lg:h-[calc(100dvh-7.5rem)] lg:max-h-[calc(100dvh-7.5rem)] lg:overflow-hidden">
+        <div :if={@error} class="shrink-0 border-b border-sr-line px-1 py-3 sm:px-2">
+          <div class={ui_alert_class(variant: "error")}>
+            <.icon name="hero-exclamation-circle" class="size-5 shrink-0" />
+            <p>{@error}</p>
+          </div>
         </div>
 
-        <div :if={is_map(@alert)} class="space-y-4">
-          <.alert_summary alert={@alert} />
-          <.stateful_incident_summary :if={stateful_incident?(@alert)} alert={@alert} />
-          <.alert_links alert={@alert} />
-          <.alert_details alert={@alert} />
+        <div
+          :if={is_map(@alert)}
+          class="grid min-h-0 min-w-0 max-w-full flex-1 grid-cols-1 overflow-hidden border-t border-sr-line lg:grid-cols-[15.5rem_minmax(0,1fr)] xl:grid-cols-[16.5rem_minmax(0,1fr)]"
+        >
+          <.detail_stream_pane
+            id="alert-stream"
+            title="Alert stream"
+            class="sr-alert-stream"
+            entries={@visible_stream}
+            page_count={length(@visible_stream)}
+            page={@stream_page}
+            selected_id={@alert_id}
+            stream_severity={@stream_severity}
+            severity_filters={~w(all critical warning info)}
+            context_label={stream_context_label(@alert)}
+            stream_query={@stream_query || Map.get(@srql, :query)}
+            has_prev={@stream_page > 1}
+            has_next={is_binary(@stream_next_cursor) and @stream_next_cursor != ""}
+            empty_label="No matching alerts"
+          />
+
+          <section class="flex min-h-0 min-w-0 flex-col overflow-hidden lg:border-l lg:border-sr-line">
+            <.alert_detail_header alert={@alert} alert_id={@alert_id} />
+            <.alert_meta_strip alert={@alert} />
+
+            <div class="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5">
+              <.alert_message_hero alert={@alert} />
+              <.stateful_incident_summary :if={stateful_incident?(@alert)} alert={@alert} />
+              <.alert_context_panel alert={@alert} />
+              <.related_links alert={@alert} />
+              <.alert_raw_toggle alert={@alert} open?={@show_raw_json} />
+            </div>
+          </section>
         </div>
       </div>
     </Layouts.app>
     """
   end
 
+  # -- data loading -----------------------------------------------------------
+
+  defp load_alert(alert_id) do
+    query = detail_query_for_alert(alert_id) <> " limit:1"
+
+    case srql_module().query(query) do
+      {:ok, %{"results" => [alert | _]}} when is_map(alert) ->
+        {alert, nil}
+
+      {:ok, %{"results" => []}} ->
+        {nil, "Alert not found."}
+
+      {:ok, _} ->
+        {nil, "Unexpected response format"}
+
+      {:error, reason} ->
+        {nil, "Failed to load alert: #{format_error(reason)}"}
+    end
+  end
+
+  defp detail_query_for_alert(alert_id) when is_binary(alert_id) do
+    ~s|in:alerts id:"#{escape_value(alert_id)}" time:last_7d|
+  end
+
+  defp detail_query_for_alert(_), do: "in:alerts time:last_7d"
+
+  defp stream_query_for_alert(%{} = alert) do
+    status = Map.get(alert, "status")
+
+    if is_binary(status) and String.trim(status) != "" do
+      ~s|in:alerts status:"#{escape_value(status)}" time:last_7d sort:timestamp:desc|
+    else
+      "in:alerts time:last_7d sort:timestamp:desc"
+    end
+  end
+
+  defp stream_query_for_alert(_), do: "in:alerts time:last_7d sort:timestamp:desc"
+
+  defp load_stream_into_socket(socket, cursor, page) do
+    query = socket.assigns.stream_query || stream_query_for_alert(socket.assigns.alert)
+
+    {stream, next_cursor, prev_cursor} =
+      load_stream_page(query, socket.assigns.alert, socket.assigns.alert_id, cursor)
+
+    socket
+    |> assign(:stream_entries, stream)
+    |> assign(:stream_cursor, cursor)
+    |> assign(:stream_next_cursor, next_cursor)
+    |> assign(:stream_prev_cursor, prev_cursor)
+    |> assign(:stream_page, page)
+  end
+
+  defp load_stream_page(query, alert, selected_id, cursor) when is_binary(query) do
+    opts =
+      if is_binary(cursor) and cursor != "" do
+        %{limit: @stream_page_size, cursor: cursor}
+      else
+        %{limit: @stream_page_size}
+      end
+
+    case srql_module().query(strip_embedded_limit(query), opts) do
+      {:ok, %{"results" => results} = resp} when is_list(results) ->
+        entries = Enum.map(results, &stream_entry/1)
+
+        entries =
+          if is_nil(cursor) and is_map(alert) do
+            ensure_selected_in_stream(entries, alert, selected_id)
+          else
+            entries
+          end
+
+        pag = Map.get(resp, "pagination") || %{}
+        next_c = Map.get(pag, "next_cursor") || Map.get(pag, :next_cursor)
+        prev_c = Map.get(pag, "prev_cursor") || Map.get(pag, :prev_cursor)
+        {entries, next_c, prev_c}
+
+      _ ->
+        {[], nil, nil}
+    end
+  end
+
+  defp load_stream_page(_, alert, selected_id, cursor) when is_map(alert) do
+    load_stream_page(stream_query_for_alert(alert), alert, selected_id, cursor)
+  end
+
+  defp load_stream_page(_, _, _, _), do: {[], nil, nil}
+
+  defp refresh_stream_from_srql(socket) do
+    raw =
+      case Map.get(socket.assigns.srql || %{}, :query) do
+        q when is_binary(q) -> String.trim(q)
+        _ -> ""
+      end
+
+    fallback = socket.assigns.stream_query || stream_query_for_alert(socket.assigns.alert)
+
+    query =
+      if raw != "" and String.contains?(raw, "in:alerts") do
+        strip_embedded_limit(raw)
+      else
+        fallback
+      end
+
+    {stream, next_cursor, prev_cursor} =
+      load_stream_page(query, socket.assigns.alert, socket.assigns.alert_id, nil)
+
+    socket
+    |> assign(:stream_entries, stream)
+    |> assign(:stream_query, query)
+    |> assign(:stream_cursor, nil)
+    |> assign(:stream_next_cursor, next_cursor)
+    |> assign(:stream_prev_cursor, prev_cursor)
+    |> assign(:stream_page, 1)
+    |> assign(:stream_severity, "all")
+  end
+
+  defp strip_embedded_limit(query) when is_binary(query) do
+    query
+    |> String.replace(~r/\s*limit:\d+\b/i, "")
+    |> String.trim()
+  end
+
+  defp prefill_srql_bar(socket, query, uri, alert_id) when is_binary(query) do
+    page_path =
+      case uri do
+        path when is_binary(path) and path != "" ->
+          URI.parse(uri).path || "/alerts/#{alert_id}"
+
+        _ ->
+          "/alerts/#{alert_id}"
+      end
+
+    srql =
+      (socket.assigns[:srql] || %{})
+      |> Map.merge(%{
+        enabled: true,
+        entity: "alerts",
+        query: query,
+        draft: query,
+        page_path: page_path || "/alerts/#{alert_id}",
+        error: nil,
+        loading: false,
+        builder_available: true,
+        builder_open: false
+      })
+      |> sync_builder_state(query)
+
+    assign(socket, :srql, srql)
+  end
+
+  defp sync_builder_state(srql, query) do
+    case Builder.parse(query) do
+      {:ok, builder} ->
+        Map.merge(srql, %{
+          builder: builder,
+          builder_available: true,
+          builder_supported: true,
+          builder_sync: true
+        })
+
+      {:error, _reason} ->
+        Map.merge(srql, %{
+          builder_available: true,
+          builder_supported: false,
+          builder_sync: false
+        })
+    end
+  end
+
+  defp stream_entry(alert) when is_map(alert) do
+    id = entry_id(alert)
+
+    %{
+      id: id,
+      href: ~p"/alerts/#{id}",
+      severity: Map.get(alert, "severity"),
+      secondary: Map.get(alert, "status") || Map.get(alert, "source_type") || "—",
+      time_short: format_time_short(alert),
+      preview: message_preview(EventTitle.alert_title(alert) || Map.get(alert, "description") || "")
+    }
+  end
+
+  defp ensure_selected_in_stream(entries, alert, selected_id) do
+    if Enum.any?(entries, &(&1.id == selected_id)) do
+      entries
+    else
+      [stream_entry(Map.put(alert, "id", selected_id)) | entries]
+    end
+  end
+
+  defp page_title_for(%{} = alert, alert_id) do
+    case EventTitle.alert_title(alert) do
+      title when is_binary(title) and title != "" -> title
+      _ -> "Alert · #{String.slice(to_string(alert_id), 0, 8)}"
+    end
+  end
+
+  defp page_title_for(_, alert_id), do: "Alert · #{String.slice(to_string(alert_id), 0, 8)}"
+
+  defp stream_context_label(%{} = alert) do
+    Map.get(alert, "status") || Map.get(alert, "source_type")
+  end
+
+  defp stream_context_label(_), do: nil
+
+  # -- header / meta ----------------------------------------------------------
+
   attr :alert, :map, required: true
+  attr :alert_id, :string, required: true
 
-  defp alert_summary(assigns) do
+  defp alert_detail_header(assigns) do
+    title = EventTitle.alert_title(assigns.alert) || "Alert"
+
+    assigns =
+      assigns
+      |> assign(:title, title)
+      |> assign(:source_kind, alert_source_kind(assigns.alert))
+      |> assign(:short_id, String.slice(assigns.alert_id, 0, 8))
+
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-6">
-      <div class="flex flex-wrap gap-x-8 gap-y-4 items-start">
-        <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Severity</span>
-          <.severity_badge value={Map.get(@alert, "severity")} />
+    <header class="space-y-3 border-b border-sr-line px-4 pb-4 pt-5 font-sans sm:px-6 sm:pt-6">
+      <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-sr-muted">
+          <.link navigate={~p"/observability/alerts"} class="hover:text-sr-ink">
+            alerts
+          </.link>
+          <span class="text-sr-line-strong">/</span>
+          <span class="text-sr-ink/80">{@source_kind}</span>
+          <span class="text-sr-line-strong">/</span>
+          <span class="font-mono text-sr-ink">{@short_id}</span>
         </div>
 
-        <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Status</span>
-          <.status_badge value={Map.get(@alert, "status")} />
-        </div>
-
-        <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Triggered</span>
-          <span class="text-sm font-mono">{format_timestamp(@alert)}</span>
+        <div class="flex shrink-0 flex-wrap items-center gap-1.5">
+          <.ui_button
+            navigate={~p"/observability/alerts"}
+            variant="outline"
+            size="xs"
+          >
+            Back to alerts
+          </.ui_button>
+          <.ui_button type="button" variant="outline" size="xs" phx-click="copy_json">
+            Copy JSON
+          </.ui_button>
         </div>
       </div>
 
-      <div class="mt-6 pt-6 border-t border-base-200 space-y-3">
-        <div>
-          <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-1">Title</span>
-          <p class="text-sm font-semibold">{EventTitle.alert_title(@alert)}</p>
+      <div class="min-w-0 space-y-2">
+        <div class="flex min-w-0 flex-wrap items-start gap-2.5">
+          <.severity_badge value={Map.get(@alert, "severity")} />
+          <.status_badge value={Map.get(@alert, "status")} />
+          <h1
+            class="min-w-0 flex-1 font-sans text-lg font-semibold leading-snug tracking-tight text-sr-ink sm:text-xl line-clamp-2"
+            title={@title}
+          >
+            {@title}
+          </h1>
         </div>
-        <div :if={has_value?(@alert, "description")}>
-          <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-1">
-            Description
-          </span>
-          <p class="text-sm whitespace-pre-wrap">{Map.get(@alert, "description")}</p>
+        <div class="flex flex-wrap items-center gap-2">
+          <code class="break-all font-mono text-xs text-sr-muted">{@alert_id}</code>
+          <.ui_button type="button" size="xs" variant="ghost" phx-click="copy_id">Copy ID</.ui_button>
         </div>
+      </div>
+    </header>
+    """
+  end
+
+  attr :alert, :map, required: true
+
+  defp alert_meta_strip(assigns) do
+    device_uid = Map.get(assigns.alert, "device_uid")
+    source_type = Map.get(assigns.alert, "source_type")
+    agent = Map.get(assigns.alert, "agent_uid")
+
+    facts =
+      Enum.reject(
+        [
+          %{label: "Triggered", value: format_timestamp(assigns.alert), mono?: true, href: nil},
+          %{label: "Status", value: status_label(Map.get(assigns.alert, "status")), mono?: false, href: nil},
+          %{
+            label: "Source",
+            value: source_type,
+            mono?: false,
+            href: alerts_filter_href("source_type", source_type)
+          },
+          %{
+            label: "Device",
+            value: short_device(device_uid),
+            mono?: true,
+            href: if(is_binary(device_uid) and device_uid != "", do: ~p"/devices/#{device_uid}"),
+            title: device_uid
+          },
+          %{label: "Agent", value: agent, mono?: true, href: nil},
+          %{label: "Metric", value: Map.get(assigns.alert, "metric_name"), mono?: true, href: nil}
+        ],
+        fn fact -> blank_value?(fact.value) end
+      )
+
+    n = length(facts)
+
+    col_class =
+      cond do
+        n <= 1 -> "grid-cols-1"
+        n == 2 -> "grid-cols-2"
+        n == 3 -> "grid-cols-2 sm:grid-cols-3"
+        n == 4 -> "grid-cols-2 lg:grid-cols-4"
+        true -> "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"
+      end
+
+    assigns =
+      assigns
+      |> assign(:facts, facts)
+      |> assign(:col_class, col_class)
+
+    ~H"""
+    <div class={["grid gap-px border-b border-sr-line bg-sr-line", @col_class]}>
+      <div :for={fact <- @facts} class="flex min-w-0 flex-col gap-1 bg-sr-surface px-4 py-3">
+        <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+          {fact.label}
+        </span>
+        <.link
+          :if={is_binary(fact.href)}
+          navigate={fact.href}
+          class={[
+            "group inline-flex min-w-0 max-w-full items-center gap-1 truncate text-sm text-sr-brand transition-colors hover:text-sr-brand-strong hover:underline",
+            fact.mono? && "font-mono text-[13px] tracking-tight"
+          ]}
+          title={Map.get(fact, :title) || fact.value}
+        >
+          <span class="truncate">{fact.value}</span>
+          <.icon
+            name="hero-arrow-top-right-on-square"
+            class="size-3.5 shrink-0 opacity-60 transition-opacity group-hover:opacity-100"
+          />
+        </.link>
+        <span
+          :if={is_nil(fact.href)}
+          class={[
+            "truncate font-sans text-sm text-sr-ink",
+            fact.mono? && "font-mono text-[13px] tracking-tight"
+          ]}
+          title={Map.get(fact, :title) || fact.value}
+        >
+          {fact.value}
+        </span>
+      </div>
+    </div>
+    """
+  end
+
+  defp alerts_filter_href(_field, value) when not is_binary(value) or value == "", do: nil
+
+  defp alerts_filter_href(field, value) when is_binary(field) and is_binary(value) do
+    value = String.trim(value)
+
+    if value == "" do
+      nil
+    else
+      query = ~s|in:alerts #{field}:"#{escape_value(value)}" time:last_7d sort:timestamp:desc|
+      ~p"/observability/alerts?#{%{q: query}}"
+    end
+  end
+
+  # -- body panels ------------------------------------------------------------
+
+  attr :alert, :map, required: true
+
+  defp alert_message_hero(assigns) do
+    description = Map.get(assigns.alert, "description")
+    empty? = blank?(description)
+
+    assigns =
+      assigns
+      |> assign(:description, description)
+      |> assign(:empty?, empty?)
+
+    ~H"""
+    <div :if={not @empty?} class="space-y-3">
+      <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+        Description
+      </span>
+      <div class="rounded-sr-surface border border-sr-line bg-[color-mix(in_srgb,var(--color-sr-canvas)_78%,var(--color-sr-subtle))] p-4 shadow-sr-surface sm:p-5">
+        <p class="whitespace-pre-wrap break-words font-sans text-[15px] leading-relaxed text-sr-ink">
+          {@description}
+        </p>
       </div>
     </div>
     """
@@ -117,63 +606,339 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
 
   defp stateful_incident_summary(assigns) do
     diagnostics = incident_diagnostics(assigns.alert)
+    group_parts = parse_group_key(diagnostic_value(diagnostics, ["group_key"]))
 
     assigns =
       assigns
       |> assign(:diagnostics, diagnostics)
-      |> assign(:samples, diagnostic_value(diagnostics, ["samples"]) || %{})
+      |> assign(:group_parts, group_parts)
+      |> assign(:group_display, group_key_display(diagnostic_value(diagnostics, ["group_key"]), group_parts))
       |> assign(:process, first_sample(diagnostics, "processes"))
       |> assign(:container, first_sample(diagnostics, "containers"))
       |> assign(:kubernetes, first_sample(diagnostics, "kubernetes"))
+      |> assign(:event_ids, diagnostic_value(diagnostics, ["representative_event_ids"]))
+      |> assign(:device_uid, group_part(group_parts, "device") || Map.get(assigns.alert, "device_uid"))
 
     ~H"""
-    <div class="rounded-xl border border-error/20 bg-error/5 p-6">
-      <div class="flex items-start justify-between gap-4">
+    <div class="overflow-hidden rounded-sr-surface border border-amber-500/25 bg-amber-500/5 shadow-sr-surface">
+      <div class="flex items-start justify-between gap-4 border-b border-amber-500/15 px-4 py-3 sm:px-5">
         <div class="min-w-0">
-          <span class="text-xs text-error uppercase tracking-wider block mb-2">
-            Stateful Incident
+          <span class="mb-1 block font-sans text-xs font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
+            Stateful incident
           </span>
-          <h2 class="text-lg font-semibold leading-tight">
-            {diagnostic_value(@diagnostics, ["rule_name"]) || Map.get(@alert, "title") ||
-              "Rule threshold fired"}
+          <h2 class="text-base font-semibold leading-tight text-sr-ink sm:text-lg">
+            {humanize_rule(diagnostic_value(@diagnostics, ["rule_name"])) ||
+              EventTitle.alert_title(@alert) || "Rule threshold fired"}
           </h2>
         </div>
         <.severity_badge value={Map.get(@alert, "severity")} />
       </div>
 
-      <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <.diagnostic_fact label="Group" value={diagnostic_value(@diagnostics, ["group_key"])} mono />
-        <.diagnostic_fact
-          label="Window Count"
+      <div class="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 sm:p-5">
+        <.fact_cell
+          label="Group"
+          value={@group_display}
+          mono
+          title={diagnostic_value(@diagnostics, ["group_key"])}
+        />
+        <.fact_cell
+          label="Window count"
           value={diagnostic_value(@diagnostics, ["window_count"])}
           mono
         />
-        <.diagnostic_fact
-          label="Threshold"
-          value={diagnostic_value(@diagnostics, ["threshold"])}
+        <.fact_cell label="Threshold" value={diagnostic_value(@diagnostics, ["threshold"])} mono />
+        <.fact_cell label="Window" value={window_display(@diagnostics)} mono />
+        <.fact_cell
+          label="First seen"
+          value={format_any_time(diagnostic_value(@diagnostics, ["first_seen_at"]))}
           mono
         />
-        <.diagnostic_fact label="Window" value={window_display(@diagnostics)} mono />
-        <.diagnostic_fact
-          label="First Seen"
-          value={diagnostic_value(@diagnostics, ["first_seen_at"])}
+        <.fact_cell
+          label="Last seen"
+          value={format_any_time(diagnostic_value(@diagnostics, ["last_seen_at"]))}
           mono
         />
-        <.diagnostic_fact
-          label="Last Seen"
-          value={diagnostic_value(@diagnostics, ["last_seen_at"])}
-          mono
-        />
-        <.diagnostic_fact
-          label="Representative Events"
-          value={diagnostic_value(@diagnostics, ["representative_event_ids"])}
-          mono
-        />
-        <.diagnostic_fact label="Process" value={process_display(@process)} mono />
-        <.diagnostic_fact label="Container" value={container_display(@container)} mono />
-        <.diagnostic_fact label="Image" value={image_display(@container)} mono />
-        <.diagnostic_fact label="Kubernetes Pod" value={kubernetes_display(@kubernetes)} mono />
-        <.diagnostic_fact label="Attribution" value={attribution_display(@kubernetes)} />
+        <.fact_cell label="Process" value={process_display(@process)} mono />
+        <.fact_cell label="Container" value={container_display(@container)} mono />
+        <.fact_cell label="Image" value={image_display(@container)} mono />
+        <.fact_cell label="Kubernetes" value={kubernetes_display(@kubernetes)} mono />
+        <.fact_cell label="Attribution" value={attribution_display(@kubernetes)} />
+      </div>
+
+      <div
+        :if={@group_parts != []}
+        class="border-t border-amber-500/15 px-4 py-4 sm:px-5"
+      >
+        <span class="mb-3 block font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+          Group dimensions
+        </span>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div
+            :for={part <- @group_parts}
+            class="min-w-0 rounded-sr-control border border-sr-line/70 bg-sr-surface/70 px-3 py-2"
+          >
+            <div class="text-[10px] font-medium uppercase tracking-wide text-sr-muted">
+              {part.label}
+            </div>
+            <.link
+              :if={
+                part.key == "device" and is_binary(part.value) and
+                  String.starts_with?(part.value, "sr:")
+              }
+              navigate={~p"/devices/#{part.value}"}
+              class="mt-0.5 block break-all font-mono text-[12px] leading-snug text-sr-brand hover:underline"
+            >
+              {part.display}
+            </.link>
+            <div
+              :if={
+                not (part.key == "device" and is_binary(part.value) and
+                       String.starts_with?(part.value, "sr:"))
+              }
+              class="mt-0.5 break-all font-mono text-[12px] leading-snug text-sr-ink"
+              title={part.value}
+            >
+              {part.display}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        :if={is_list(@event_ids) and @event_ids != []}
+        class="border-t border-amber-500/15 px-4 py-3 sm:px-5"
+      >
+        <span class="mb-2 block font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+          Representative events
+        </span>
+        <div class="flex flex-wrap gap-1.5">
+          <.ui_button
+            :for={event_id <- Enum.take(@event_ids, 8)}
+            href={~p"/events/#{event_id}"}
+            size="xs"
+            variant="outline"
+            class="!font-mono"
+          >
+            {String.slice(to_string(event_id), 0, 8)}…
+          </.ui_button>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :alert, :map, required: true
+
+  defp alert_context_panel(assigns) do
+    facts = alert_context_facts(assigns.alert)
+    assigns = assign(assigns, :facts, facts)
+
+    ~H"""
+    <div
+      :if={@facts != []}
+      class="overflow-hidden rounded-sr-surface border border-sr-line bg-sr-surface shadow-sr-surface"
+    >
+      <div class="border-b border-sr-line bg-sr-subtle/30 px-4 py-2.5">
+        <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+          Context
+        </span>
+      </div>
+      <div class="grid grid-cols-1 divide-y divide-sr-line sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-3">
+        <div
+          :for={fact <- @facts}
+          class="flex min-w-0 flex-col gap-1 px-4 py-3 even:bg-sr-subtle/15 sm:even:bg-transparent sm:[&:nth-child(2n)]:bg-sr-subtle/10 lg:[&:nth-child(2n)]:bg-transparent lg:[&:nth-child(3n+2)]:bg-sr-subtle/10"
+        >
+          <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+            {fact.label}
+          </span>
+          <.link
+            :if={is_binary(Map.get(fact, :href))}
+            navigate={fact.href}
+            class="break-all text-sm text-sr-brand hover:underline"
+          >
+            {fact.value}
+          </.link>
+          <span
+            :if={is_nil(Map.get(fact, :href))}
+            class={[
+              "break-all text-sm text-sr-ink",
+              fact.mono? && "font-mono text-[13px] tracking-tight"
+            ]}
+            title={Map.get(fact, :title)}
+          >
+            {fact.value}
+          </span>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp alert_context_facts(alert) when is_map(alert) do
+    metadata = Map.get(alert, "metadata") || %{}
+    diagnostics = incident_diagnostics(alert)
+
+    base = [
+      %{label: "Source type", value: Map.get(alert, "source_type"), mono?: false},
+      %{label: "Source ID", value: Map.get(alert, "source_id"), mono?: true},
+      %{label: "Event ID", value: Map.get(alert, "event_id"), mono?: true, href: event_href(Map.get(alert, "event_id"))},
+      %{label: "Event time", value: format_any_time(Map.get(alert, "event_time")), mono?: true},
+      %{label: "Metric", value: Map.get(alert, "metric_name"), mono?: true},
+      %{
+        label: "Metric value",
+        value: format_optional_number(Map.get(alert, "metric_value")),
+        mono?: true
+      },
+      %{
+        label: "Threshold",
+        value: format_optional_number(Map.get(alert, "threshold_value")),
+        mono?: true
+      },
+      %{label: "Comparison", value: Map.get(alert, "comparison"), mono?: false},
+      %{
+        label: "Rule",
+        value:
+          humanize_rule(Map.get(metadata, "incident_rule_name")) ||
+            humanize_rule(diagnostic_value(diagnostics, ["rule_name"])),
+        mono?: false
+      },
+      %{
+        label: "Log name",
+        value: Map.get(metadata, "log_name"),
+        mono?: true
+      },
+      %{
+        label: "Provider",
+        value: Map.get(metadata, "log_provider"),
+        mono?: true
+      },
+      %{
+        label: "Occurrence count",
+        value: Map.get(metadata, "incident_occurrence_count") || Map.get(metadata, "incident_window_count"),
+        mono?: true
+      }
+    ]
+
+    (base ++ flatten_scalar_metadata(metadata))
+    |> Enum.reject(fn fact -> blank_value?(fact.value) end)
+    |> Enum.uniq_by(fn fact -> {fact.label, to_string(fact.value)} end)
+  end
+
+  defp alert_context_facts(_), do: []
+
+  # Skip keys already promoted or nested blob keys.
+  @skip_metadata_keys MapSet.new([
+                        "incident_diagnostics",
+                        "incident_group_key",
+                        "incident_group_values",
+                        "incident_rule_name",
+                        "incident_rule_id",
+                        "incident_first_seen_at",
+                        "incident_last_seen_at",
+                        "incident_occurrence_count",
+                        "incident_window_count",
+                        "event_id",
+                        "event_time",
+                        "log_name",
+                        "log_provider",
+                        "severity"
+                      ])
+
+  defp flatten_scalar_metadata(%{} = metadata) do
+    metadata
+    |> Enum.sort_by(fn {k, _} -> to_string(k) end)
+    |> Enum.flat_map(fn {key, value} ->
+      key = to_string(key)
+
+      cond do
+        MapSet.member?(@skip_metadata_keys, key) ->
+          []
+
+        value in [nil, "", []] ->
+          []
+
+        is_map(value) or is_list(value) ->
+          []
+
+        true ->
+          [
+            %{
+              label: humanize_field(key),
+              value: to_string(value),
+              mono?: is_binary(value) and String.length(value) > 20
+            }
+          ]
+      end
+    end)
+  end
+
+  defp flatten_scalar_metadata(_), do: []
+
+  attr :alert, :map, required: true
+
+  defp related_links(assigns) do
+    event_id = Map.get(assigns.alert, "event_id")
+    device_uid = Map.get(assigns.alert, "device_uid")
+
+    assigns =
+      assigns
+      |> assign(:event_id, event_id)
+      |> assign(:device_uid, device_uid)
+
+    ~H"""
+    <div
+      :if={is_binary(@event_id) or is_binary(@device_uid)}
+      class="overflow-hidden rounded-sr-surface border border-sr-line bg-sr-surface shadow-sr-surface"
+    >
+      <div class="border-b border-sr-line bg-sr-subtle/30 px-4 py-2.5">
+        <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+          Related
+        </span>
+      </div>
+      <div class="flex flex-wrap gap-2 p-4">
+        <.ui_button :if={@event_id} href={~p"/events/#{@event_id}"} size="sm" variant="outline">
+          View triggering event
+        </.ui_button>
+        <.ui_button
+          :if={@device_uid}
+          navigate={~p"/devices/#{@device_uid}"}
+          size="sm"
+          variant="outline"
+        >
+          View device
+        </.ui_button>
+      </div>
+    </div>
+    """
+  end
+
+  attr :alert, :map, required: true
+  attr :open?, :boolean, default: false
+
+  defp alert_raw_toggle(assigns) do
+    json =
+      case assigns.alert do
+        %{} = alert -> Jason.encode!(alert, pretty: true)
+        _ -> ""
+      end
+
+    assigns = assign(assigns, :json, json)
+
+    ~H"""
+    <div class="overflow-hidden rounded-sr-surface border border-dashed border-sr-line/80 bg-sr-surface/60">
+      <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+        <span class="font-sans text-xs font-medium text-sr-muted">Technical payload</span>
+        <div class="flex items-center gap-1.5">
+          <.ui_button :if={@open?} type="button" size="xs" variant="ghost" phx-click="copy_json">
+            Copy JSON
+          </.ui_button>
+          <.ui_button type="button" size="xs" variant="outline" phx-click="toggle_raw_json">
+            {if @open?, do: "Hide raw alert", else: "Show raw alert"}
+          </.ui_button>
+        </div>
+      </div>
+      <div :if={@open?} class="border-t border-sr-line px-4 py-3">
+        <pre class="max-h-80 overflow-auto rounded-sr-control border border-sr-line bg-sr-subtle/30 p-3 font-mono text-[11px] leading-relaxed text-sr-ink/90">{@json}</pre>
       </div>
     </div>
     """
@@ -182,152 +947,47 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   attr :label, :string, required: true
   attr :value, :any, default: nil
   attr :mono, :boolean, default: false
+  attr :title, :any, default: nil
 
-  defp diagnostic_fact(assigns) do
+  defp fact_cell(assigns) do
     ~H"""
-    <div class="min-w-0">
-      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-1">
+    <div :if={not blank?(@value)} class="min-w-0">
+      <span class="mb-1 block font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
         {@label}
       </span>
-      <span class={[
-        "text-sm break-words",
-        if(@mono, do: "font-mono", else: nil),
-        if(blank?(@value), do: "text-base-content/40", else: nil)
-      ]}>
-        {display_diagnostic_value(@value)}
+      <span
+        class={[
+          "break-all text-sm text-sr-ink",
+          @mono && "font-mono text-[13px] tracking-tight"
+        ]}
+        title={@title || if(is_binary(@value), do: @value)}
+      >
+        {display_value(@value)}
       </span>
     </div>
     """
   end
 
-  attr :alert, :map, required: true
-
-  defp alert_links(assigns) do
-    event_id = Map.get(assigns.alert, "event_id")
-
-    assigns = assign(assigns, :event_id, event_id)
-
-    ~H"""
-    <div
-      :if={is_binary(@event_id)}
-      class="rounded-xl border border-base-200 bg-base-100 p-6"
-    >
-      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-3">
-        Related Records
-      </span>
-      <div class="flex flex-wrap gap-2">
-        <.ui_button :if={@event_id} href={~p"/events/#{@event_id}"} size="sm" variant="ghost">
-          View triggering event
-        </.ui_button>
-      </div>
-    </div>
-    """
-  end
-
-  attr :alert, :map, required: true
-
-  defp alert_details(assigns) do
-    detail_fields =
-      ~w(source_type source_id service_check_id device_uid agent_uid metric_name metric_value threshold_value comparison event_id event_time)
-
-    metadata = Map.get(assigns.alert, "metadata") || %{}
-
-    assigns =
-      assigns
-      |> assign(:detail_fields, detail_fields)
-      |> assign(:metadata, metadata)
-
-    ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-6 space-y-6">
-      <div>
-        <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-3">
-          Alert Fields
-        </span>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
-          <%= for field <- @detail_fields do %>
-            <div class="flex flex-col gap-0.5 min-w-0">
-              <span class="text-xs text-base-content/50">{field_label(field)}</span>
-              <.inline_value value={Map.get(@alert, field)} />
-            </div>
-          <% end %>
-        </div>
-      </div>
-
-      <div :if={is_map(@metadata) and map_size(@metadata) > 0}>
-        <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-3">
-          Metadata
-        </span>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
-          <%= for {field, value} <- Enum.sort(@metadata) do %>
-            <div class="flex flex-col gap-0.5 min-w-0">
-              <span class="text-xs text-base-content/50">{field_label(field)}</span>
-              <.inline_value value={value} />
-            </div>
-          <% end %>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  attr :value, :any, default: nil
-
-  defp inline_value(%{value: nil} = assigns) do
-    ~H|<span class="text-base-content/40 text-sm">—</span>|
-  end
-
-  defp inline_value(%{value: ""} = assigns) do
-    ~H|<span class="text-base-content/40 text-sm">—</span>|
-  end
-
-  defp inline_value(%{value: value} = assigns) when is_boolean(value) do
-    assigns = assign(assigns, :value_text, to_string(value))
-
-    ~H|<span class="text-sm font-mono">{@value_text}</span>|
-  end
-
-  defp inline_value(%{value: value} = assigns) when is_number(value) do
-    assigns = assign(assigns, :value_text, to_string(value))
-
-    ~H|<span class="text-sm font-mono">{@value_text}</span>|
-  end
-
-  defp inline_value(%{value: value} = assigns) when is_map(value) or is_list(value) do
-    summary =
-      case value do
-        m when is_map(m) -> "{#{map_size(m)} fields}"
-        l when is_list(l) -> "[#{length(l)} items]"
-      end
-
-    assigns = assign(assigns, :summary, summary)
-
-    ~H|<span class="text-sm font-mono">{@summary}</span>|
-  end
-
-  defp inline_value(%{value: value} = assigns) do
-    assigns = assign(assigns, :value_text, to_string(value))
-
-    ~H|<span class="text-sm font-mono">{@value_text}</span>|
-  end
+  # -- badges / formatting ----------------------------------------------------
 
   attr :value, :any, default: nil
 
   defp severity_badge(assigns) do
-    variant = severity_variant(assigns.value)
-    label = severity_label(assigns.value)
-
-    assigns = assigns |> assign(:variant, variant) |> assign(:label, label)
+    assigns =
+      assigns
+      |> assign(:variant, severity_variant(assigns.value))
+      |> assign(:label, severity_label(assigns.value))
 
     ~H"""
-    <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
+    <.ui_badge variant={@variant} size="sm">{@label}</.ui_badge>
     """
   end
 
   defp severity_variant(value) do
     case normalize_severity(value) do
-      s when s in ["emergency", "critical"] -> "error"
-      s when s in ["warning"] -> "warning"
-      s when s in ["info"] -> "info"
+      s when s in ["emergency", "critical", "error", "fatal"] -> "error"
+      s when s in ["warning", "warn", "high"] -> "warning"
+      s when s in ["info", "informational", "medium"] -> "info"
       _ -> "ghost"
     end
   end
@@ -344,13 +1004,13 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   attr :value, :any, default: nil
 
   defp status_badge(assigns) do
-    variant = status_variant(assigns.value)
-    label = status_label(assigns.value)
-
-    assigns = assigns |> assign(:variant, variant) |> assign(:label, label)
+    assigns =
+      assigns
+      |> assign(:variant, status_variant(assigns.value))
+      |> assign(:label, status_label(assigns.value))
 
     ~H"""
-    <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
+    <.ui_badge variant={@variant} size="sm">{@label}</.ui_badge>
     """
   end
 
@@ -374,40 +1034,94 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   defp normalize_status(v) when is_binary(v), do: String.downcase(v)
   defp normalize_status(v), do: v |> to_string() |> normalize_status()
 
-  defp format_timestamp(alert) do
-    ts = Map.get(alert, "triggered_at") || Map.get(alert, "timestamp")
+  # -- group key / diagnostics ------------------------------------------------
 
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> ts || "—"
+  defp parse_group_key(nil), do: []
+  defp parse_group_key(""), do: []
+
+  defp parse_group_key(key) when is_binary(key) do
+    key
+    |> String.split("|")
+    |> Enum.flat_map(fn part ->
+      case String.split(part, "=", parts: 2) do
+        [k, v] when k != "" and v != "" ->
+          display =
+            if String.starts_with?(v, "v2") do
+              AnomalySeriesKey.display(v) || v
+            else
+              maybe_decode_hex(v)
+            end
+
+          [
+            %{
+              key: k,
+              label: humanize_field(String.replace(k, ".", " ")),
+              value: v,
+              display: display
+            }
+          ]
+
+        _ ->
+          []
+      end
+    end)
+  end
+
+  defp parse_group_key(_), do: []
+
+  defp group_part(parts, key) when is_list(parts) do
+    Enum.find_value(parts, fn
+      %{key: ^key, value: value} -> value
+      _ -> nil
+    end)
+  end
+
+  defp group_part(_, _), do: nil
+
+  defp group_key_display(raw, parts) when is_list(parts) and parts != [] do
+    parts
+    |> Enum.take(4)
+    |> Enum.map_join(" · ", & &1.display)
+    |> then(fn s ->
+      if is_binary(raw) and String.length(raw) > 80, do: s, else: s
+    end)
+  end
+
+  defp group_key_display(raw, _) when is_binary(raw), do: String.slice(raw, 0, 96)
+  defp group_key_display(_, _), do: nil
+
+  defp maybe_decode_hex(value) when is_binary(value) do
+    if rem(byte_size(value), 2) == 0 and String.match?(value, ~r/\A[0-9a-fA-F]+\z/) do
+      case Base.decode16(value, case: :mixed) do
+        {:ok, decoded} ->
+          if String.printable?(decoded) and String.trim(decoded) != "", do: decoded, else: value
+
+        :error ->
+          value
+      end
+    else
+      value
     end
   end
 
-  defp parse_timestamp(nil), do: :error
+  defp maybe_decode_hex(value), do: value
 
-  defp parse_timestamp(%DateTime{} = dt), do: {:ok, dt}
+  defp humanize_rule(nil), do: nil
+  defp humanize_rule(""), do: nil
 
-  defp parse_timestamp(ts) when is_binary(ts) do
-    case DateTime.from_iso8601(ts) do
-      {:ok, dt, _} -> {:ok, dt}
-      _ -> :error
-    end
+  defp humanize_rule(name) when is_binary(name) do
+    name
+    |> String.replace("_", " ")
+    |> String.split()
+    |> Enum.map_join(" ", &String.capitalize/1)
   end
 
-  defp parse_timestamp(_), do: :error
-
-  defp has_value?(map, key) do
-    case Map.get(map, key) do
-      nil -> false
-      "" -> false
-      _ -> true
-    end
-  end
+  defp humanize_rule(other), do: to_string(other)
 
   defp stateful_incident?(alert) when is_map(alert) do
     metadata = Map.get(alert, "metadata") || %{}
 
-    is_map(incident_diagnostics(alert)) and
+    is_map(incident_diagnostics(alert)) and map_size(incident_diagnostics(alert)) > 0 and
       (Map.has_key?(metadata, "incident_rule_id") or Map.has_key?(metadata, "incident_diagnostics"))
   end
 
@@ -483,26 +1197,11 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
       {nil, _} -> nil
       {value, []} -> value
       {value, nil} -> value
-      {value, missing_values} -> "#{value} (missing #{display_diagnostic_value(missing_values)})"
+      {value, missing_values} -> "#{value} (missing #{display_value(missing_values)})"
     end
   end
 
   defp attribution_display(_), do: nil
-
-  defp display_diagnostic_value(value) when value in [nil, ""], do: "—"
-  defp display_diagnostic_value(value) when is_binary(value), do: value
-  defp display_diagnostic_value(value) when is_boolean(value), do: to_string(value)
-  defp display_diagnostic_value(value) when is_number(value), do: to_string(value)
-
-  defp display_diagnostic_value(value) when is_list(value) do
-    Enum.map_join(value, ", ", &display_diagnostic_value/1)
-  end
-
-  defp display_diagnostic_value(value) when is_map(value) do
-    Enum.map_join(value, ", ", fn {key, item} ->
-      "#{field_label(to_string(key))}: #{display_diagnostic_value(item)}"
-    end)
-  end
 
   defp diagnostic_value(data, [key]) when is_map(data), do: Map.get(data, key) || Map.get(data, diagnostic_atom_key(key))
 
@@ -540,10 +1239,111 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   defp diagnostic_atom_key("missing"), do: :missing
   defp diagnostic_atom_key(_), do: :__unknown__
 
-  defp blank?(value), do: value in [nil, ""]
+  # -- misc helpers -----------------------------------------------------------
 
-  defp field_label(field) when is_binary(field), do: humanize_field(field)
-  defp field_label(field), do: to_string(field)
+  defp alert_source_kind(%{} = alert) do
+    cond do
+      stateful_incident?(alert) ->
+        "incident"
+
+      is_binary(Map.get(alert, "source_type")) and Map.get(alert, "source_type") != "" ->
+        Map.get(alert, "source_type")
+
+      true ->
+        "alert"
+    end
+  end
+
+  defp alert_source_kind(_), do: "alert"
+
+  defp entry_id(alert) do
+    case Map.get(alert, "id") || Map.get(alert, "alert_id") do
+      id when is_binary(id) and id != "" -> id
+      _ -> "unknown-" <> Integer.to_string(:erlang.phash2(alert))
+    end
+  end
+
+  defp format_timestamp(alert) do
+    ts = Map.get(alert, "triggered_at") || Map.get(alert, "timestamp")
+
+    case parse_timestamp(ts) do
+      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
+      _ -> ts || "—"
+    end
+  end
+
+  defp format_time_short(alert) do
+    ts = Map.get(alert, "triggered_at") || Map.get(alert, "timestamp")
+
+    case parse_timestamp(ts) do
+      {:ok, dt} -> Calendar.strftime(dt, "%H:%M:%S")
+      _ -> "—"
+    end
+  end
+
+  defp format_any_time(nil), do: nil
+  defp format_any_time(""), do: nil
+
+  defp format_any_time(ts) do
+    case parse_timestamp(ts) do
+      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
+      _ -> to_string(ts)
+    end
+  end
+
+  defp parse_timestamp(nil), do: :error
+  defp parse_timestamp(%DateTime{} = dt), do: {:ok, dt}
+
+  defp parse_timestamp(ts) when is_binary(ts) do
+    case DateTime.from_iso8601(String.trim(ts)) do
+      {:ok, dt, _} -> {:ok, dt}
+      _ -> :error
+    end
+  end
+
+  defp parse_timestamp(_), do: :error
+
+  defp format_optional_number(nil), do: nil
+  defp format_optional_number(n) when is_number(n), do: to_string(n)
+  defp format_optional_number(n) when is_binary(n), do: n
+  defp format_optional_number(_), do: nil
+
+  defp short_device(nil), do: nil
+  defp short_device(""), do: nil
+
+  defp short_device(uid) when is_binary(uid) do
+    if String.length(uid) > 28, do: String.slice(uid, 0, 24) <> "…", else: uid
+  end
+
+  defp short_device(other), do: to_string(other)
+
+  defp event_href(id) when is_binary(id) and id != "", do: ~p"/events/#{id}"
+  defp event_href(_), do: nil
+
+  defp message_preview(body, max \\ 72)
+
+  defp message_preview(body, max) when is_binary(body) do
+    body = body |> String.trim() |> String.replace(~r/\s+/, " ")
+
+    cond do
+      body == "" -> "—"
+      String.length(body) <= max -> body
+      true -> String.slice(body, 0, max - 1) <> "…"
+    end
+  end
+
+  defp message_preview(_, _), do: "—"
+
+  defp display_value(value) when value in [nil, ""], do: "—"
+  defp display_value(value) when is_binary(value), do: value
+  defp display_value(value) when is_list(value), do: Enum.map_join(value, ", ", &display_value/1)
+  defp display_value(value), do: to_string(value)
+
+  defp blank?(value), do: value in [nil, ""]
+  defp blank_value?(nil), do: true
+  defp blank_value?(""), do: true
+  defp blank_value?("—"), do: true
+  defp blank_value?(_), do: false
 
   defp humanize_field(field) when is_binary(field) do
     field

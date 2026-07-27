@@ -33,7 +33,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.ActiveScans do
           </div>
         </:header>
 
-        <div :if={@running == []} class="py-8 text-center text-base-content/60">
+        <div :if={@running == []} class="py-8 text-center text-sr-muted">
           <.icon name="hero-clock" class="size-8 mx-auto mb-2 opacity-50" />
           <p>No scans currently running</p>
         </div>
@@ -54,20 +54,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.ActiveScans do
       <.ui_panel>
         <:header>
           <div class="flex items-center gap-2">
-            <.icon name="hero-clock" class="size-5 text-base-content/60" />
+            <.icon name="hero-clock" class="size-5 text-sr-muted" />
             <div class="text-sm font-semibold">Recent Completions</div>
           </div>
         </:header>
 
-        <div :if={@recent == []} class="py-8 text-center text-base-content/60">
+        <div :if={@recent == []} class="py-8 text-center text-sr-muted">
           <.icon name="hero-document-text" class="size-8 mx-auto mb-2 opacity-50" />
           <p>No recent scan executions</p>
         </div>
 
         <div :if={@recent != []} class="overflow-x-auto">
-          <table class="table table-sm">
+          <table class={ui_table_class(size: "sm")}>
             <thead>
-              <tr class="text-xs uppercase tracking-wide text-base-content/60">
+              <tr class="text-xs uppercase tracking-wide text-sr-muted">
                 <th>Status</th>
                 <th>Sweep Group</th>
                 <th>Started</th>

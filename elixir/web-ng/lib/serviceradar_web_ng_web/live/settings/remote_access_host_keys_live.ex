@@ -190,7 +190,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 class="text-xl font-semibold">Remote Access Host Keys</h1>
-              <p class="mt-1 text-sm text-base-content/70">
+              <p class="mt-1 text-sm text-sr-muted">
                 Review SSH host keys observed by routed agents before trusting console and SSH targets.
               </p>
             </div>
@@ -198,30 +198,30 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
 
           <form
             id="host-key-filters"
-            class="grid gap-3 rounded-lg border border-base-200 bg-base-100 p-4 md:grid-cols-[1fr_1fr_14rem_auto]"
+            class="grid gap-3 rounded-lg border border-sr-line bg-sr-surface p-4 md:grid-cols-[1fr_1fr_14rem_auto]"
             phx-submit="filter"
           >
-            <label class="form-control">
-              <span class="label-text">Target host</span>
+            <label class="flex flex-col gap-1.5">
+              <span class="text-sm font-medium text-sr-ink">Target host</span>
               <input
                 type="text"
                 name="target_host"
                 value={@filters["target_host"]}
-                class="input input-bordered input-sm"
+                class={ui_field_class(size: "sm")}
               />
             </label>
-            <label class="form-control">
-              <span class="label-text">Agent</span>
+            <label class="flex flex-col gap-1.5">
+              <span class="text-sm font-medium text-sr-ink">Agent</span>
               <input
                 type="text"
                 name="agent_id"
                 value={@filters["agent_id"]}
-                class="input input-bordered input-sm"
+                class={ui_field_class(size: "sm")}
               />
             </label>
-            <label class="form-control">
-              <span class="label-text">Status</span>
-              <select name="status" class="select select-bordered select-sm">
+            <label class="flex flex-col gap-1.5">
+              <span class="text-sm font-medium text-sr-ink">Status</span>
+              <select name="status" class={ui_field_class(size: "sm")}>
                 <option value="" selected={@filters["status"] == ""}>All</option>
                 <option
                   :for={status <- @statuses}
@@ -233,16 +233,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
               </select>
             </label>
             <div class="flex items-end gap-2">
-              <button type="submit" class="btn btn-primary btn-sm">Filter</button>
-              <button type="button" class="btn btn-ghost btn-sm" phx-click="clear_filters">
+              <.ui_button type="submit" size="sm" variant="primary">Filter</.ui_button>
+              <.ui_button type="button" phx-click="clear_filters" size="sm" variant="ghost">
                 Clear
-              </button>
+              </.ui_button>
             </div>
           </form>
 
-          <div class="overflow-hidden rounded-lg border border-base-200 bg-base-100">
-            <div class="overflow-x-auto">
-              <table class="table table-sm">
+          <div class="overflow-hidden rounded-lg border border-sr-line bg-sr-surface">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr>
                     <th>Target</th>
@@ -257,78 +257,82 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
                 </thead>
                 <tbody>
                   <tr :if={@loading?}>
-                    <td colspan="8" class="py-8 text-center text-sm text-base-content/60">
+                    <td colspan="8" class="py-8 text-center text-sm text-sr-muted">
                       Loading host keys.
                     </td>
                   </tr>
                   <tr :if={!@loading? and @host_keys == []}>
-                    <td colspan="8" class="py-8 text-center text-sm text-base-content/60">
+                    <td colspan="8" class="py-8 text-center text-sm text-sr-muted">
                       No host keys found.
                     </td>
                   </tr>
                   <tr :for={host_key <- @host_keys}>
                     <td>
                       <div class="font-medium">{host_key.target_host}</div>
-                      <div class="text-xs text-base-content/60">
+                      <div class="text-xs text-sr-muted">
                         {host_key.protocol}:{host_key.target_port}
                       </div>
                     </td>
                     <td>
                       <div>{host_key.agent_id}</div>
-                      <div :if={host_key.gateway_id} class="text-xs text-base-content/60">
+                      <div :if={host_key.gateway_id} class="text-xs text-sr-muted">
                         {host_key.gateway_id}
                       </div>
                     </td>
                     <td>
                       <div class="font-mono text-xs">{host_key.fingerprint_sha256}</div>
-                      <div class="text-xs text-base-content/60">{host_key.key_type}</div>
+                      <div class="text-xs text-sr-muted">{host_key.key_type}</div>
                     </td>
                     <td>
-                      <span class={["badge badge-sm", status_badge_class(host_key.status)]}>
+                      <.ui_badge size="sm" variant={status_badge_variant(host_key.status)}>
                         {status_label(host_key.status)}
-                      </span>
+                      </.ui_badge>
                     </td>
                     <td>{source_label(host_key.source)}</td>
                     <td>{host_key.seen_count}</td>
                     <td>{format_datetime(host_key.last_seen_at)}</td>
                     <td class="text-right">
                       <div class="flex flex-wrap justify-end gap-2">
-                        <button
+                        <.ui_button
                           :if={host_key.status == :pending}
                           type="button"
-                          class="btn btn-primary btn-xs"
                           phx-click="trust_host_key"
                           phx-value-id={host_key.id}
+                          size="xs"
+                          variant="primary"
                         >
                           Trust
-                        </button>
-                        <button
+                        </.ui_button>
+                        <.ui_button
                           :if={host_key.status in [:pending, :conflict]}
                           type="button"
-                          class="btn btn-error btn-outline btn-xs"
                           phx-click="reject_host_key"
                           phx-value-id={host_key.id}
+                          size="xs"
+                          variant="outline"
                         >
                           Reject
-                        </button>
-                        <button
+                        </.ui_button>
+                        <.ui_button
                           :if={host_key.status == :trusted}
                           type="button"
-                          class="btn btn-ghost btn-xs"
                           phx-click="show_rotate"
                           phx-value-id={host_key.id}
+                          size="xs"
+                          variant="ghost"
                         >
                           Rotate
-                        </button>
-                        <button
+                        </.ui_button>
+                        <.ui_button
                           :if={host_key.status not in [:revoked, :rejected]}
                           type="button"
-                          class="btn btn-error btn-outline btn-xs"
                           phx-click="revoke_host_key"
                           phx-value-id={host_key.id}
+                          size="xs"
+                          variant="outline"
                         >
                           Revoke
-                        </button>
+                        </.ui_button>
                       </div>
                     </td>
                   </tr>
@@ -353,19 +357,23 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
 
   defp rotation_modal(assigns) do
     ~H"""
-    <dialog class="modal modal-open">
-      <div class="modal-box max-w-2xl">
+    <dialog
+      id="remote-access-host-keys--modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+    >
+      <div class="sr-ui-modal-box sr-ui-modal-box-md">
         <h2 class="text-lg font-semibold">Rotate Host Key</h2>
-        <p class="mt-1 text-sm text-base-content/70">
+        <p class="mt-1 text-sm text-sr-muted">
           {@host_key.target_host}:{@host_key.target_port} via {@host_key.agent_id}
         </p>
 
         <form class="mt-4 space-y-4" phx-submit="rotate_host_key">
-          <label class="form-control">
-            <span class="label-text">Replacement key</span>
+          <label class="flex flex-col gap-1.5">
+            <span class="text-sm font-medium text-sr-ink">Replacement key</span>
             <select
               name="rotation[replacement_host_key_id]"
-              class="select select-bordered"
+              class={ui_field_class()}
               disabled={@candidates == []}
             >
               <option value="">Select a replacement</option>
@@ -375,13 +383,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
             </select>
           </label>
 
-          <label class="form-control">
-            <span class="label-text">Reason</span>
+          <label class="flex flex-col gap-1.5">
+            <span class="text-sm font-medium text-sr-ink">Reason</span>
             <input
               type="text"
               name="rotation[reason]"
               value="operator rotation"
-              class="input input-bordered"
+              class={ui_field_class()}
             />
           </label>
 
@@ -389,15 +397,17 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
             No replacement keys have been observed for this target.
           </p>
 
-          <div class="modal-action">
-            <button type="button" class="btn btn-ghost" phx-click="cancel_rotation">Cancel</button>
-            <button type="submit" class="btn btn-primary" disabled={@candidates == []}>
+          <div class="sr-ui-modal-action">
+            <.ui_button type="button" phx-click="cancel_rotation" size="sm" variant="ghost">
+              Cancel
+            </.ui_button>
+            <.ui_button type="submit" disabled={@candidates == []} size="sm" variant="primary">
               Rotate
-            </button>
+            </.ui_button>
           </div>
         </form>
       </div>
-      <button class="modal-backdrop" phx-click="cancel_rotation">Close</button>
+      <button class="sr-ui-modal-backdrop" phx-click="cancel_rotation">Close</button>
     </dialog>
     """
   end
@@ -496,13 +506,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
   defp status_label(status), do: status |> to_string() |> String.replace("_", " ") |> String.capitalize()
   defp source_label(source), do: source |> to_string() |> String.replace("_", " ")
 
-  defp status_badge_class(:trusted), do: "badge-success"
-  defp status_badge_class(:conflict), do: "badge-error"
-  defp status_badge_class(:pending), do: "badge-warning"
-  defp status_badge_class(:rotated), do: "badge-info"
-  defp status_badge_class(:revoked), do: "badge-neutral"
-  defp status_badge_class(:rejected), do: "badge-neutral"
-  defp status_badge_class(_status), do: "badge-ghost"
+  defp status_badge_variant(:trusted), do: "success"
+  defp status_badge_variant(:conflict), do: "error"
+  defp status_badge_variant(:pending), do: "warning"
+  defp status_badge_variant(:rotated), do: "info"
+  defp status_badge_variant(:revoked), do: "ghost"
+  defp status_badge_variant(:rejected), do: "ghost"
+  defp status_badge_variant(_status), do: "ghost"
 
   defp format_datetime(nil), do: "-"
   defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")

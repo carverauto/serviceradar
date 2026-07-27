@@ -142,7 +142,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
         />
 
         <div class="grid grid-cols-1 gap-4">
-          <div :if={is_nil(@device_row)} class="text-sm text-base-content/70 p-4">
+          <div :if={is_nil(@device_row)} class="text-sm text-sr-muted p-4">
             No device row returned for this query.
           </div>
 
@@ -373,6 +373,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               flows={@device_flows}
               error={@flows_error}
               pagination={@flows_pagination}
+              pagination_page={Map.get(assigns, :pagination_page, 1)}
               rdns_map={@rdns_map}
               geo_iso2_map={@geo_iso2_map}
               device_uid={@device_uid}
@@ -403,6 +404,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               error={@logs_error}
               loading={@logs_loading}
               pagination={@logs_pagination}
+              pagination_page={Map.get(assigns, :pagination_page, 1)}
               device_uid={@device_uid}
               query={QueryData.default_logs_query(@device_uid)}
               limit={@logs_limit}
@@ -493,9 +495,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   def kv_inline(assigns) do
     ~H"""
     <div class="flex items-start gap-2">
-      <span class="shrink-0 text-base-content/60">{@label}:</span>
+      <span class="shrink-0 text-sr-muted">{@label}:</span>
       <span class={[
-        "min-w-0 flex-1 break-words whitespace-normal text-base-content",
+        "min-w-0 flex-1 break-words whitespace-normal text-sr-ink",
         @mono && "font-mono text-xs"
       ]}>
         {format_value(@value)}

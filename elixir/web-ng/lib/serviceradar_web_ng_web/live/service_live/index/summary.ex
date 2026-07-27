@@ -24,7 +24,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.Summary do
       |> assign(:last_updated, last_updated)
 
     ~H"""
-    <div class="flex items-center justify-between text-xs text-base-content/60">
+    <div class="flex items-center justify-between text-xs text-sr-muted">
       <div>Latest plugin check per service</div>
       <div :if={@last_updated}>
         Last updated {format_last_updated(@last_updated)}
@@ -32,19 +32,19 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.Summary do
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+      <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
         <div class="flex items-center justify-between">
           <div>
-            <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">
+            <div class="text-xs text-sr-muted uppercase tracking-wider mb-1">
               Services
             </div>
             <div class="text-2xl font-bold">{@total}</div>
-            <div class="text-xs text-base-content/50">{@active_label}</div>
+            <div class="text-xs text-sr-muted">{@active_label}</div>
           </div>
-          <div class="size-12 rounded-lg bg-base-200/50 flex items-center justify-center">
+          <div class="size-12 rounded-lg bg-sr-subtle/50 flex items-center justify-center">
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              class="size-6 text-base-content/40"
+              class="size-6 text-sr-muted"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -60,12 +60,12 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.Summary do
         </div>
       </div>
 
-      <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+      <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
         <div class="flex items-center justify-between">
           <div>
-            <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Available</div>
+            <div class="text-xs text-sr-muted uppercase tracking-wider mb-1">Available</div>
             <div class="text-2xl font-bold text-success">{@available}</div>
-            <div class="text-xs text-base-content/50">{@availability_percent}% healthy</div>
+            <div class="text-xs text-sr-muted">{@availability_percent}% healthy</div>
           </div>
           <div class="size-12 rounded-lg bg-success/10 flex items-center justify-center">
             <svg
@@ -86,26 +86,26 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.Summary do
         </div>
       </div>
 
-      <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+      <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
         <div class="flex items-center justify-between">
           <div>
-            <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Unavailable</div>
+            <div class="text-xs text-sr-muted uppercase tracking-wider mb-1">Unavailable</div>
             <div class={["text-2xl font-bold", @unavailable > 0 && "text-error"]}>
               {@unavailable}
             </div>
-            <div class="text-xs text-base-content/50">{100 - @availability_percent}% failing</div>
+            <div class="text-xs text-sr-muted">{100 - @availability_percent}% failing</div>
           </div>
           <div class={[
             "size-12 rounded-lg flex items-center justify-center",
             @unavailable > 0 && "bg-error/10",
-            @unavailable == 0 && "bg-base-200/50"
+            @unavailable == 0 && "bg-sr-subtle/50"
           ]}>
             <svg
               xmlns="http://www.w3.org/2000/svg"
               class={[
                 "size-6",
                 @unavailable > 0 && "text-error",
-                @unavailable == 0 && "text-base-content/40"
+                @unavailable == 0 && "text-sr-muted"
               ]}
               fill="none"
               viewBox="0 0 24 24"
@@ -123,7 +123,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.Summary do
       </div>
     </div>
 
-    <div class="mt-2 text-xs text-base-content/50">
+    <div class="mt-2 text-xs text-sr-muted">
       Showing {max(@check_count, @total)} plugin checks sampled.
     </div>
     """

@@ -100,42 +100,46 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
       <header class="flex items-center justify-between">
         <div>
           <h1 class="text-2xl font-semibold">Ansible playbook catalog</h1>
-          <p class="text-sm text-base-content/70">
+          <p class="text-sm text-sr-muted">
             {@playbook_count} playbook{if @playbook_count == 1, do: "", else: "s"} shown
             (capped at {@page_limit}).
           </p>
         </div>
-        <button type="button" class="btn btn-sm btn-ghost" phx-click="refresh">Refresh</button>
+        <.ui_button type="button" phx-click="refresh" size="sm" variant="ghost">Refresh</.ui_button>
       </header>
 
       <div class="flex flex-wrap items-end gap-3">
         <div>
-          <p class="text-xs text-base-content/60 mb-1">Source</p>
-          <div class="join">
-            <button
+          <p class="text-xs text-sr-muted mb-1">Source</p>
+          <div class="flex flex-wrap gap-1">
+            <.ui_button
               :for={src <- @source_filters}
               type="button"
               phx-click="filter_source"
               phx-value-value={src}
-              class={["btn btn-xs join-item", src == @filters.source && "btn-primary"]}
+              size="xs"
+              variant={if(src == @filters.source, do: "primary", else: "ghost")}
+              active={src == @filters.source}
             >
               {src}
-            </button>
+            </.ui_button>
           </div>
         </div>
 
         <div>
-          <p class="text-xs text-base-content/60 mb-1">Binding</p>
-          <div class="join">
-            <button
+          <p class="text-xs text-sr-muted mb-1">Binding</p>
+          <div class="flex flex-wrap gap-1">
+            <.ui_button
               :for={state <- @binding_filters}
               type="button"
               phx-click="filter_binding"
               phx-value-value={state}
-              class={["btn btn-xs join-item", state == @filters.binding && "btn-primary"]}
+              size="xs"
+              variant={if(state == @filters.binding, do: "primary", else: "ghost")}
+              active={state == @filters.binding}
             >
               {state}
-            </button>
+            </.ui_button>
           </div>
         </div>
 
@@ -145,7 +149,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
             name="value"
             value={@filters.search}
             placeholder="Filter by name / description / tag…"
-            class="input input-sm input-bordered w-full"
+            class={ui_field_class(size: "sm", class: "w-full")}
             phx-debounce="250"
           />
         </form>
@@ -153,7 +157,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
 
       <div
         :if={@playbook_count == 0}
-        class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70"
+        class="rounded-lg border border-dashed border-sr-line p-8 text-center text-sm text-sr-muted"
       >
         No playbooks match the current filters.
         <p class="mt-2">
@@ -164,9 +168,9 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
 
       <div
         :if={@playbook_count > 0}
-        class="overflow-x-auto rounded-lg border border-base-300 bg-base-100"
+        class="overflow-x-auto rounded-lg border border-sr-line bg-sr-surface"
       >
-        <table class="table table-zebra table-sm">
+        <table class={ui_table_class(size: "sm", zebra: true)}>
           <thead>
             <tr>
               <th>Name</th>
@@ -181,35 +185,35 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
             <tr :for={{id, pb} <- @playbooks} id={id}>
               <td>
                 <div class="font-medium">{pb.name}</div>
-                <div :if={pb.description} class="text-xs text-base-content/60">{pb.description}</div>
-                <div :if={pb.path} class="text-xs text-base-content/60 font-mono mt-1">{pb.path}</div>
+                <div :if={pb.description} class="text-xs text-sr-muted">{pb.description}</div>
+                <div :if={pb.path} class="text-xs text-sr-muted font-mono mt-1">{pb.path}</div>
               </td>
               <td>
-                <span class={["badge badge-sm", source_badge_class(pb.source_type)]}>
+                <.ui_badge size="sm" variant={source_badge_variant(pb.source_type)}>
                   {pb.source_type}
-                </span>
+                </.ui_badge>
               </td>
               <td>
                 <code class="text-xs">{shorten(pb.repository_id || pb.controller_id)}</code>
               </td>
               <td>
-                <span :if={pb.awx_job_template_id} class="badge badge-sm badge-success">
+                <.ui_badge :if={pb.awx_job_template_id} size="sm" variant="success">
                   {pb.awx_job_template_id}
-                </span>
-                <span :if={!pb.awx_job_template_id} class="badge badge-sm badge-warning">
+                </.ui_badge>
+                <.ui_badge :if={!pb.awx_job_template_id} size="sm" variant="warning">
                   unbound
-                </span>
+                </.ui_badge>
               </td>
               <td>
                 <div class="flex flex-wrap gap-1">
-                  <span :for={tag <- pb.tags || []} class="badge badge-xs badge-ghost">{tag}</span>
-                  <span :if={pb.tags == []} class="text-xs text-base-content/60">—</span>
+                  <.ui_badge :for={tag <- pb.tags || []} size="xs" variant="ghost">{tag}</.ui_badge>
+                  <span :if={pb.tags == []} class="text-xs text-sr-muted">—</span>
                 </div>
               </td>
               <td>
-                <span class={["badge badge-sm", parse_badge_class(pb.parse_status)]}>
+                <.ui_badge size="sm" variant={parse_badge_variant(pb.parse_status)}>
                   {pb.parse_status}
-                </span>
+                </.ui_badge>
               </td>
             </tr>
           </tbody>
@@ -263,14 +267,14 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
 
   defp actor, do: SystemActor.system(:ansible_catalog_index)
 
-  defp source_badge_class(:git), do: "badge-info"
-  defp source_badge_class(:awx), do: "badge-primary"
-  defp source_badge_class(_), do: "badge-ghost"
+  defp source_badge_variant(:git), do: "info"
+  defp source_badge_variant(:awx), do: "primary"
+  defp source_badge_variant(_), do: "ghost"
 
-  defp parse_badge_class(:ok), do: "badge-success"
-  defp parse_badge_class(:error), do: "badge-error"
-  defp parse_badge_class(:pending), do: "badge-ghost"
-  defp parse_badge_class(_), do: "badge-ghost"
+  defp parse_badge_variant(:ok), do: "success"
+  defp parse_badge_variant(:error), do: "error"
+  defp parse_badge_variant(:pending), do: "ghost"
+  defp parse_badge_variant(_), do: "ghost"
 
   defp shorten(nil), do: "—"
   defp shorten(s) when is_binary(s) and byte_size(s) > 8, do: String.slice(s, 0, 8) <> "…"

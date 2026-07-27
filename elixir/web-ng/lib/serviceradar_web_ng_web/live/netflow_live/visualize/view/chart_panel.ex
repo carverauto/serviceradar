@@ -13,13 +13,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.ChartPanel do
     assigns = Map.merge(assigns, visualize)
 
     ~H"""
-    <div class="card bg-base-100 border border-base-200">
-      <div class="card-body gap-3">
+    <div class="sr-ui-card bg-sr-surface border border-sr-line">
+      <div class="sr-ui-card-body gap-3">
         <% chart_empty_state = EmptyState.effective(@srql, @netflow_chart_empty_state) %>
 
         <div class="flex items-center justify-between gap-3">
           <div class="text-sm font-semibold">Chart</div>
-          <div class="text-[11px] text-base-content/50 font-mono">
+          <div class="text-[11px] text-sr-muted font-mono">
             {Map.get(@netflow_viz_state, "graph")}
           </div>
         </div>
@@ -37,7 +37,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.ChartPanel do
               <% sankey_src_label = dim_human_label(Enum.at(sankey_dims, 0)) %>
               <% sankey_mid_label = dim_human_label(Enum.at(sankey_dims, 1)) %>
               <% sankey_dst_label = dim_human_label(Enum.at(sankey_dims, 2)) %>
-              <div class="mb-2 flex items-center gap-3 text-xs text-base-content/60">
+              <div class="mb-2 flex items-center gap-3 text-xs text-sr-muted">
                 <div class="flex items-center gap-1">
                   <span class="inline-block size-2 rounded" style="background:#60a5fa"></span>
                   <span>{sankey_src_label}</span>

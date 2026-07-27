@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.StatesCards do
             icon: "hero-shield-exclamation",
             tone: threat_tone(alerts, events),
             sparkline: Map.get(sparklines, :threats, []),
-            href: "/events",
+            href: "/observability/events",
             aria_label: "Open security events"
           },
           %{
@@ -97,7 +97,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.StatesCards do
             icon: "hero-bell-alert",
             tone: if(active_alert_count(alerts) > 0, do: "error", else: "success"),
             sparkline: Map.get(sparklines, :threats, []),
-            href: "/alerts",
+            href: "/observability/alerts",
             aria_label: "Open active alerts"
           },
           %{
@@ -107,7 +107,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.StatesCards do
             icon: "hero-document-text",
             tone: if(priority_event_count(events) > 0, do: "error", else: "info"),
             sparkline: Map.get(sparklines, :threats, []),
-            href: "/events",
+            href: "/observability/events",
             aria_label: "Open recent events"
           }
         ]
@@ -166,11 +166,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.StatesCards do
       defp netflow_observability_path(view, extra_params \\ %{}) do
         params =
           Map.merge(
-            %{"tab" => "netflows", "view" => view, "q" => "in:flows time:last_15m sort:timestamp:desc limit:100"},
+            %{"view" => view, "q" => "in:flows time:last_15m sort:timestamp:desc limit:100"},
             extra_params
           )
 
-        "/observability?#{URI.encode_query(params)}"
+        ServiceRadarWebNGWeb.ObservabilityPaths.path("netflows", params)
       end
 
       defp observability_metrics(flows, mtr, traces, services, sparklines) do

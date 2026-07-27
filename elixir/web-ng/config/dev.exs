@@ -154,6 +154,12 @@ config :serviceradar_core, ServiceRadar.Repo,
   parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],
   types: ServiceRadar.PostgresTypes
 
+# Do not open a datasvc gRPC client in local Phoenix unless explicitly configured.
+# Default host "datasvc:50057" is unreachable on a laptop and only spams reconnect
+# warnings. In-cluster / scripts/dev-with-k8s-db.sh can set DATASVC_ENABLED=true
+# (and DATASVC_ADDRESS) when KV/object-store is needed.
+config :serviceradar_core, :datasvc_enabled, false
+
 # Set env for serviceradar_core (enables Vault fallback key in dev)
 config :serviceradar_core, env: :dev
 
@@ -201,10 +207,10 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
     System.get_env("DEV_SECRET_KEY_BASE") ||
       System.get_env("SECRET_KEY_BASE") ||
       "dev_secret_key_base_must_be_at_least_64_chars_long_for_development_only!",
+  # Reload browser tabs when matching files change.
   watchers: asset_watchers
 
 if live_reload? do
-  # Reload browser tabs when matching files change.
   config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
     live_reload: [
       web_console_logger: true,

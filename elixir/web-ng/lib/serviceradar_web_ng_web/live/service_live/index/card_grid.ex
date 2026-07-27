@@ -27,12 +27,12 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.CardGrid do
     <.link
       navigate={@card.path}
       class={[
-        "group block h-full rounded-2xl border border-base-200 bg-base-100",
+        "group block h-full rounded-2xl border border-sr-line bg-sr-surface",
         "p-4 transition hover:-translate-y-0.5 hover:shadow-md"
       ]}
     >
       <div class="flex items-center justify-between">
-        <div class="text-[11px] uppercase tracking-wider text-base-content/50">
+        <div class="text-[11px] uppercase tracking-wider text-sr-muted">
           {@card.type || "Service"}
         </div>
         <.status_badge available={@card.available} />
@@ -42,13 +42,13 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.CardGrid do
         {@card.name || "Service"}
       </div>
 
-      <div class="mt-1 text-xs text-base-content/60 line-clamp-2">
+      <div class="mt-1 text-xs text-sr-muted line-clamp-2">
         {@card.summary || "—"}
       </div>
 
-      <div class="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-base-content/50">
+      <div class="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-sr-muted">
         <span>{@card.timestamp || "—"}</span>
-        <span class="text-base-content/30">•</span>
+        <span class="text-sr-ink/30">•</span>
         <span>Agent {@card.agent_id || "—"}</span>
       </div>
 
@@ -86,8 +86,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.CardGrid do
     }
 
     ~H"""
-    <div class="rounded-lg border border-base-200/60 bg-base-200/40 p-3">
-      <div class="text-[11px] text-base-content/60">{@label}</div>
+    <div class="rounded-lg border border-sr-line/60 bg-sr-subtle/40 p-3">
+      <div class="text-[11px] text-sr-muted">{@label}</div>
       <div class={stat_value_class(@tone)}>{@value}</div>
     </div>
     """
@@ -100,9 +100,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.CardGrid do
     }
 
     ~H"""
-    <div class="rounded-lg border border-base-200/60 bg-base-200/40 p-3">
-      <div class="text-[11px] text-base-content/60 mb-2">{@label}</div>
-      <svg viewBox="0 0 100 32" class="w-full h-8 text-primary">
+    <div class="rounded-lg border border-sr-line/60 bg-sr-subtle/40 p-3">
+      <div class="text-[11px] text-sr-muted mb-2">{@label}</div>
+      <svg viewBox="0 0 100 32" class="w-full h-8 text-sr-brand">
         <polyline fill="none" stroke="currentColor" stroke-width="2" points={@points} />
       </svg>
     </div>
@@ -156,7 +156,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.CardGrid do
       "warning" -> [base, "text-warning"]
       "error" -> [base, "text-error"]
       "info" -> [base, "text-info"]
-      _ -> [base, "text-base-content"]
+      _ -> [base, "text-sr-ink"]
     end
   end
 end

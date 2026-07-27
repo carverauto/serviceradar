@@ -186,17 +186,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
               </p>
             </div>
             <div class="flex items-center gap-2">
-              <button class="btn btn-primary" phx-click="open_add_user_modal" type="button">
+              <.ui_button phx-click="open_add_user_modal" type="button" size="sm" variant="primary">
                 <.icon name="hero-user-plus" class="size-4" /> Add account
-              </button>
-              <div class="badge badge-lg badge-neutral">Total {@user_count}</div>
+              </.ui_button>
+              <.ui_badge size="md" variant="ghost">Total {@user_count}</.ui_badge>
             </div>
           </div>
 
           <section class="min-w-0">
-            <div class="card bg-base-100 border border-base-200">
+            <div class="sr-ui-card bg-sr-surface border border-sr-line">
               <div class="overflow-x-auto">
-                <table :if={@user_count > 0} class="table table-zebra w-full">
+                <table :if={@user_count > 0} class={ui_table_class(zebra: true, class: "w-full")}>
                   <thead>
                     <tr>
                       <th>Account</th>
@@ -215,7 +215,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                           class="flex items-center gap-3 hover:opacity-90 text-left"
                         >
                           <div class="avatar placeholder">
-                            <div class="bg-primary/10 text-primary w-10 rounded-full">
+                            <div class="bg-sr-brand/10 text-sr-brand w-10 rounded-full">
                               <span class="text-xs font-bold">{user_initials(user)}</span>
                             </div>
                           </div>
@@ -226,7 +226,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                             </div>
                           </div>
                           <%= if user.status != :active do %>
-                            <span class="badge badge-warning badge-xs">inactive</span>
+                            <.ui_badge size="xs" variant="warning">inactive</.ui_badge>
                           <% end %>
                         </button>
                       </td>
@@ -235,7 +235,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                           <input type="hidden" name="user_id" value={user.id} />
                           <select
                             class={[
-                              "select select-bordered select-xs w-full font-medium",
+                              ui_field_class(size: "xs", class: "w-full font-medium"),
                               is_nil(effective_profile_id(user, @role_profiles)) && "opacity-70"
                             ]}
                             name="role_profile_id"
@@ -252,46 +252,44 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                         </form>
                       </td>
                       <td>
-                        <div class="badge badge-ghost badge-sm font-mono text-xs">
+                        <.ui_badge size="sm" variant="ghost" class="font-mono">
                           {password_label(user)}
-                        </div>
+                        </.ui_badge>
                       </td>
                       <td class="text-xs font-mono opacity-70 whitespace-nowrap">
                         {format_last_activity(user)}
                       </td>
                       <td class="text-right">
                         <%= if show_actions_menu?(user, @active_admin_count) do %>
-                          <div class="dropdown dropdown-end">
-                            <button tabindex="0" class="btn btn-ghost btn-xs btn-square">
-                              <.icon name="hero-ellipsis-vertical" class="size-4" />
-                            </button>
-                            <ul
-                              tabindex="0"
-                              class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-40 border border-base-200"
-                            >
-                              <%= if user.status == :active do %>
-                                <li :if={can_deactivate?(user, @active_admin_count)}>
-                                  <button
-                                    class="text-error"
-                                    phx-click="deactivate"
-                                    phx-value-id={user.id}
-                                  >
-                                    <.icon name="hero-no-symbol" class="size-4" /> Deactivate
-                                  </button>
-                                </li>
-                              <% else %>
-                                <li>
-                                  <button
-                                    class="text-success"
-                                    phx-click="reactivate"
-                                    phx-value-id={user.id}
-                                  >
-                                    <.icon name="hero-check-circle" class="size-4" /> Reactivate
-                                  </button>
-                                </li>
-                              <% end %>
-                            </ul>
-                          </div>
+                          <.ui_dropdown align="end">
+                            <:trigger>
+                              <.ui_icon_button size="xs" variant="ghost" aria-label="User actions">
+                                <.icon name="hero-ellipsis-vertical" class="size-4" />
+                              </.ui_icon_button>
+                            </:trigger>
+                            <:item :if={
+                              user.status == :active and can_deactivate?(user, @active_admin_count)
+                            }>
+                              <button
+                                type="button"
+                                class="text-error"
+                                phx-click="deactivate"
+                                phx-value-id={user.id}
+                              >
+                                <.icon name="hero-no-symbol" class="size-4" /> Deactivate
+                              </button>
+                            </:item>
+                            <:item :if={user.status != :active}>
+                              <button
+                                type="button"
+                                class="text-success"
+                                phx-click="reactivate"
+                                phx-value-id={user.id}
+                              >
+                                <.icon name="hero-check-circle" class="size-4" /> Reactivate
+                              </button>
+                            </:item>
+                          </.ui_dropdown>
                         <% end %>
                       </td>
                     </tr>
@@ -307,83 +305,66 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
           </section>
         </div>
 
-        <div
-          :if={@show_add_user_modal}
-          class="modal modal-open"
+        <.ui_modal
+          id="add-user-modal"
+          open={@show_add_user_modal}
+          on_cancel="close_add_user_modal"
           phx-window-keydown="close_add_user_modal"
           phx-key="escape"
         >
-          <div class="modal-box">
-            <div class="flex items-start justify-between gap-4">
-              <div class="space-y-1">
-                <h3 class="text-lg font-bold">Add account</h3>
-                <p class="text-sm opacity-70">
-                  Create a local user and assign a starting role.
-                </p>
-              </div>
-              <button
-                class="btn btn-ghost btn-sm btn-square"
-                phx-click="close_add_user_modal"
-                type="button"
-              >
-                <.icon name="hero-x-mark" class="size-4" />
-              </button>
+          <:title>Add account</:title>
+
+          <p class="text-sm text-sr-muted">
+            Create a local user and assign a starting role.
+          </p>
+
+          <.form
+            for={@form}
+            id="user-create-form"
+            phx-change="validate"
+            phx-submit="create"
+            class="space-y-4"
+          >
+            <.input
+              field={@form[:email]}
+              type="email"
+              label="Email Address"
+              placeholder="user@example.com"
+              required
+              class={ui_field_class(class: "w-full")}
+            />
+            <.input
+              field={@form[:display_name]}
+              type="text"
+              label="Display Name"
+              placeholder="Jane Doe"
+              class={ui_field_class(class: "w-full")}
+            />
+            <.input
+              field={@form[:role_profile_id]}
+              type="select"
+              label="Access Profile"
+              options={profile_options(@role_profiles)}
+              class={ui_field_class(class: "w-full")}
+            />
+            <.input
+              field={@form[:password]}
+              type="password"
+              label="Temporary Password"
+              placeholder="••••••••"
+              class={ui_field_class(class: "w-full")}
+            />
+
+            <div class="flex justify-end gap-2 pt-1">
+              <.ui_button phx-click="close_add_user_modal" type="button" size="sm" variant="outline">
+                Cancel
+              </.ui_button>
+              <.ui_button type="submit" size="sm" variant="primary">
+                Create account
+              </.ui_button>
             </div>
-
-            <div class="mt-6">
-              <.form
-                for={@form}
-                id="user-create-form"
-                phx-change="validate"
-                phx-submit="create"
-                class="space-y-4"
-              >
-                <.input
-                  field={@form[:email]}
-                  type="email"
-                  label="Email Address"
-                  placeholder="user@example.com"
-                  required
-                  class="input input-bordered w-full"
-                />
-                <.input
-                  field={@form[:display_name]}
-                  type="text"
-                  label="Display Name"
-                  placeholder="Jane Doe"
-                  class="input input-bordered w-full"
-                />
-                <.input
-                  field={@form[:role_profile_id]}
-                  type="select"
-                  label="Access Profile"
-                  options={profile_options(@role_profiles)}
-                  class="select select-bordered w-full"
-                />
-                <.input
-                  field={@form[:password]}
-                  type="password"
-                  label="Temporary Password"
-                  placeholder="••••••••"
-                  class="input input-bordered w-full"
-                />
-
-                <div class="modal-action">
-                  <button class="btn btn-outline" phx-click="close_add_user_modal" type="button">
-                    Cancel
-                  </button>
-                  <button class="btn btn-primary" type="submit">
-                    Create account
-                  </button>
-                </div>
-              </.form>
-            </div>
-          </div>
-
-          <div class="modal-backdrop">
-            <button phx-click="close_add_user_modal" type="button">close</button>
-          </div>
-        </div>
+          </.form>
+        </.ui_modal>
       </Shell.settings_chrome>
     </Layouts.app>
     """

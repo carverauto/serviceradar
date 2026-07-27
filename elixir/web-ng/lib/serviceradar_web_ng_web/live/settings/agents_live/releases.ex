@@ -622,8 +622,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
         <div class="space-y-6">
           <div class="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h1 class="text-2xl font-semibold text-base-content">Agent Releases</h1>
-              <p class="text-sm text-base-content/60">
+              <h1 class="text-2xl font-semibold text-sr-ink">Agent Releases</h1>
+              <p class="text-sm text-sr-muted">
                 Publish signed agent releases and orchestrate fleet rollouts from the existing control plane.
               </p>
             </div>
@@ -639,7 +639,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                   <div class="text-sm font-semibold">Import Forgejo Release</div>
                 </:header>
                 <div class="p-6 space-y-4">
-                  <p class="text-sm text-base-content/70">
+                  <p class="text-sm text-sr-muted">
                     Use the Forgejo release as the source of truth for production rollouts. The
                     release must include a signed manifest asset and signature asset so ServiceRadar
                     can publish the catalog entry directly from <span class="font-mono">code.carverauto.dev</span>.
@@ -677,17 +677,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                       />
                     </div>
 
-                    <div class="rounded-lg border border-base-300 bg-base-200/20">
-                      <div class="flex items-center justify-between gap-3 border-b border-base-300 px-4 py-3">
+                    <div class="rounded-lg border border-sr-line bg-sr-subtle/20">
+                      <div class="flex items-center justify-between gap-3 border-b border-sr-line px-4 py-3">
                         <div>
-                          <div class="text-sm font-semibold text-base-content">
+                          <div class="text-sm font-semibold text-sr-ink">
                             Recent Repository Releases
                           </div>
-                          <div class="text-xs text-base-content/60">
+                          <div class="text-xs text-sr-muted">
                             Showing the latest {@visible_release_limit} agent releases from the selected Forgejo repository.
                           </div>
                         </div>
-                        <span class="text-xs text-base-content/50">
+                        <span class="text-xs text-sr-muted">
                           {repo_name_from_url(@release_import_form[:repo_url].value || "")}
                         </span>
                       </div>
@@ -701,13 +701,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
                       <div
                         :if={@recent_repo_releases == [] and is_nil(@recent_repo_release_error)}
-                        class="px-4 py-6 text-sm text-base-content/60"
+                        class="px-4 py-6 text-sm text-sr-muted"
                       >
                         No recent releases were returned for this repository.
                       </div>
 
                       <div :if={@recent_repo_releases != []} class="overflow-x-auto">
-                        <table class="table table-sm w-full">
+                        <table class={ui_table_class(size: "sm", class: "w-full")}>
                           <thead>
                             <tr>
                               <th>Release</th>
@@ -730,13 +730,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                                         Pre-release
                                       </.ui_badge>
                                     </div>
-                                    <span class="text-xs text-base-content/70">{release.name}</span>
+                                    <span class="text-xs text-sr-muted">{release.name}</span>
                                     <a
                                       :if={release.html_url not in [nil, ""]}
                                       href={release.html_url}
                                       target="_blank"
                                       rel="noreferrer"
-                                      class="link link-hover text-[11px] text-base-content/50"
+                                      class="text-sr-brand hover:underline text-[11px] text-sr-muted"
                                     >
                                       View release page
                                     </a>
@@ -766,12 +766,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                                   </div>
                                 </td>
                                 <td>
-                                  <button
+                                  <.ui_button
                                     id={"quick-import-#{release.tag}"}
                                     type="button"
                                     phx-click="import_recent_repo_release"
                                     phx-value-release_tag={release.tag}
-                                    class="btn btn-xs btn-ghost"
                                     disabled={not release.import_ready?}
                                     title={
                                       if release.import_ready?,
@@ -779,9 +778,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                                         else:
                                           "Release is missing the configured manifest or signature asset"
                                     }
+                                    size="xs"
+                                    variant="ghost"
                                   >
                                     Import
-                                  </button>
+                                  </.ui_button>
                                 </td>
                               </tr>
                             <% end %>
@@ -790,7 +791,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                       </div>
                     </div>
 
-                    <div class="rounded-lg bg-base-200/40 px-4 py-3 text-xs text-base-content/70">
+                    <div class="rounded-lg bg-sr-subtle/40 px-4 py-3 text-xs text-sr-muted">
                       Keep the manual publish path below for local development and one-off testing
                       when you do not want to push a signed release through Forgejo. Use the
                       field below when you want to import a specific tag that is not in the recent list.
@@ -816,7 +817,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                   <div class="text-sm font-semibold">Publish Release Manually</div>
                 </:header>
                 <div class="p-6 space-y-4">
-                  <p class="text-sm text-base-content/70">
+                  <p class="text-sm text-sr-muted">
                     Manual publish stays available for developer testing, local builds, and
                     release-pipeline debugging.
                   </p>
@@ -891,14 +892,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                 <div class="text-sm font-semibold">Create Rollout</div>
               </:header>
               <div class="p-6 space-y-4">
-                <div class="rounded-lg bg-base-200/40 px-4 py-3 text-sm text-base-content/70">
+                <div class="rounded-lg bg-sr-subtle/40 px-4 py-3 text-sm text-sr-muted">
                   Connected agents available now:
-                  <span class="font-semibold text-base-content">{length(@connected_agents)}</span>
+                  <span class="font-semibold text-sr-ink">{length(@connected_agents)}</span>
                 </div>
 
                 <div
                   :if={@rollout_prefill_count > 0}
-                  class="rounded-lg border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-base-content/80"
+                  class="rounded-lg border border-sr-brand/20 bg-sr-brand/10 px-4 py-3 text-sm text-sr-ink/90"
                 >
                   {rollout_prefill_message(@rollout_prefill_count, @rollout_prefill_source)}
                 </div>
@@ -956,11 +957,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                   <div
                     :if={show_rollout_preview?(@rollout_preview)}
                     id="rollout-compatibility-preview"
-                    class="rounded-lg border border-base-300 bg-base-200/30 px-4 py-3 text-sm"
+                    class="rounded-lg border border-sr-line bg-sr-subtle/30 px-4 py-3 text-sm"
                   >
                     <div class="flex flex-wrap items-center justify-between gap-3">
-                      <div class="font-semibold text-base-content">Compatibility Preview</div>
-                      <div class="text-xs text-base-content/60">
+                      <div class="font-semibold text-sr-ink">Compatibility Preview</div>
+                      <div class="text-xs text-sr-muted">
                         {rollout_preview_scope_text(@rollout_preview)}
                       </div>
                     </div>
@@ -1000,7 +1001,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                     </div>
 
                     <div :if={@rollout_preview.supported_platforms != []} class="mt-3 space-y-2">
-                      <div class="text-[11px] uppercase tracking-wider text-base-content/50">
+                      <div class="text-[11px] uppercase tracking-wider text-sr-muted">
                         Release Supports
                       </div>
                       <div class="flex flex-wrap gap-1">
@@ -1059,8 +1060,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
               <:header>
                 <div class="text-sm font-semibold">Published Releases</div>
               </:header>
-              <div class="overflow-x-auto">
-                <table class="table table-sm w-full">
+              <div class="sr-ui-table-shell">
+                <table class={ui_table_class(size: "sm", class: "w-full")}>
                   <thead>
                     <tr>
                       <th>Version</th>
@@ -1072,7 +1073,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                   </thead>
                   <tbody>
                     <tr :if={@releases == []}>
-                      <td colspan="5" class="py-8 text-center text-sm text-base-content/60">
+                      <td colspan="5" class="py-8 text-center text-sm text-sr-muted">
                         No releases have been published yet.
                       </td>
                     </tr>
@@ -1083,25 +1084,26 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                           <div class="flex flex-col gap-1">
                             <div class="flex items-center gap-2">
                               <span>{release.version}</span>
-                              <span :if={index == 0} class="badge badge-success badge-xs">
+                              <.ui_badge :if={index == 0} size="xs" variant="success">
                                 Latest
-                              </span>
-                              <span
+                              </.ui_badge>
+                              <.ui_badge
                                 :if={release_mirror_status(release) == :mirrored}
-                                class="badge badge-info badge-xs"
+                                size="xs"
+                                variant="info"
                               >
                                 Mirrored
-                              </span>
+                              </.ui_badge>
                             </div>
                             <span
                               :if={release_source_summary(release) not in [nil, ""]}
-                              class="text-[11px] text-base-content/50"
+                              class="text-[11px] text-sr-muted"
                             >
                               {release_source_summary(release)}
                             </span>
                             <span
                               :if={release_storage_summary(release) not in [nil, ""]}
-                              class="text-[11px] text-base-content/50"
+                              class="text-[11px] text-sr-muted"
                             >
                               {release_storage_summary(release)}
                             </span>
@@ -1124,15 +1126,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                           {release.release_notes || "—"}
                         </td>
                         <td>
-                          <button
+                          <.ui_button
                             id={"use-release-#{dom_id_fragment(release.version)}"}
                             type="button"
                             phx-click="use_release"
                             phx-value-version={release.version}
-                            class="btn btn-xs btn-ghost"
+                            size="xs"
+                            variant="ghost"
                           >
                             Use for Rollout
-                          </button>
+                          </.ui_button>
                         </td>
                       </tr>
                     <% end %>
@@ -1145,8 +1148,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
               <:header>
                 <div class="text-sm font-semibold">Recent Rollouts</div>
               </:header>
-              <div class="overflow-x-auto">
-                <table class="table table-sm w-full">
+              <div class="sr-ui-table-shell">
+                <table class={ui_table_class(size: "sm", class: "w-full")}>
                   <thead>
                     <tr>
                       <th>Version</th>
@@ -1159,7 +1162,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                   </thead>
                   <tbody>
                     <tr :if={@rollouts == []}>
-                      <td colspan="6" class="py-8 text-center text-sm text-base-content/60">
+                      <td colspan="6" class="py-8 text-center text-sm text-sr-muted">
                         No rollouts have been created yet.
                       </td>
                     </tr>
@@ -1170,7 +1173,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                         <td>
                           <div class="flex flex-col gap-1">
                             <span class="font-mono text-xs">{rollout_version(rollout)}</span>
-                            <span class="text-[11px] text-base-content/50">
+                            <span class="text-[11px] text-sr-muted">
                               Started by {rollout.created_by || "system"}
                             </span>
                           </div>
@@ -1197,43 +1200,47 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                         </td>
                         <td>
                           <div class="flex flex-wrap gap-2">
-                            <button
+                            <.ui_button
                               id={"rollout-details-#{rollout.id}"}
                               type="button"
                               phx-click="show_rollout_details"
                               phx-value-id={rollout.id}
-                              class="btn btn-xs btn-ghost"
+                              size="xs"
+                              variant="ghost"
                             >
                               Details
-                            </button>
-                            <button
+                            </.ui_button>
+                            <.ui_button
                               :if={display_status == :active}
                               type="button"
                               phx-click="pause_rollout"
                               phx-value-id={rollout.id}
-                              class="btn btn-xs btn-ghost"
+                              size="xs"
+                              variant="ghost"
                             >
                               Pause
-                            </button>
-                            <button
+                            </.ui_button>
+                            <.ui_button
                               :if={display_status == :paused}
                               type="button"
                               phx-click="resume_rollout"
                               phx-value-id={rollout.id}
-                              class="btn btn-xs btn-ghost"
+                              size="xs"
+                              variant="ghost"
                             >
                               Resume
-                            </button>
-                            <button
+                            </.ui_button>
+                            <.ui_button
                               :if={display_status in [:active, :paused]}
                               type="button"
                               phx-click="cancel_rollout"
                               phx-value-id={rollout.id}
                               data-confirm="Cancel this rollout?"
-                              class="btn btn-xs btn-error btn-outline"
+                              size="xs"
+                              variant="outline"
                             >
                               Cancel
-                            </button>
+                            </.ui_button>
                           </div>
                         </td>
                       </tr>
@@ -1332,35 +1339,37 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     ~H"""
     <div
       :if={@total_items > 0}
-      class="flex flex-wrap items-center justify-between gap-3 border-t border-base-300 px-4 py-3 text-xs text-base-content/60"
+      class="flex flex-wrap items-center justify-between gap-3 border-t border-sr-line px-4 py-3 text-xs text-sr-muted"
     >
       <span>
         Showing {@first_item}-{@last_item} of {@total_items}
       </span>
-      <div class="join">
-        <button
+      <div class={ui_join_class()}>
+        <.ui_button
           id={"#{@id_prefix}-prev-page"}
           type="button"
           phx-click={@event}
           phx-value-page={@page - 1}
-          class="btn btn-xs join-item"
           disabled={@page <= 1}
+          size="xs"
+          variant="neutral"
         >
           Previous
-        </button>
-        <button type="button" class="btn btn-xs join-item btn-ghost" disabled>
+        </.ui_button>
+        <.ui_button type="button" disabled size="xs" variant="ghost">
           Page {@page} of {@page_count}
-        </button>
-        <button
+        </.ui_button>
+        <.ui_button
           id={"#{@id_prefix}-next-page"}
           type="button"
           phx-click={@event}
           phx-value-page={@page + 1}
-          class="btn btn-xs join-item"
           disabled={@page >= @page_count}
+          size="xs"
+          variant="neutral"
         >
           Next
-        </button>
+        </.ui_button>
       </div>
     </div>
     """
@@ -1373,9 +1382,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   defp rollout_details_modal(assigns) do
     ~H"""
-    <div id="rollout-details-modal" class="modal modal-open">
-      <div class="modal-box max-w-5xl p-0">
-        <div class="flex items-start justify-between gap-4 border-b border-base-300 px-6 py-4">
+    <dialog
+      id="rollout-details-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="hide_rollout_details"
+    >
+      <div class="sr-ui-modal-box sr-ui-modal-box-xl p-0">
+        <div class="flex items-start justify-between gap-4 border-b border-sr-line px-6 py-4">
           <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-2">
               <h2 class="truncate font-mono text-sm font-semibold">
@@ -1383,38 +1397,39 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
               </h2>
               <.rollout_status_badge status={@display_status} />
             </div>
-            <p class="mt-1 text-xs text-base-content/60">
+            <p class="mt-1 text-xs text-sr-muted">
               Started by {@rollout.created_by || "system"} · {length(@rollout.cohort_agent_ids || [])} agents
             </p>
           </div>
-          <button
+          <.ui_icon_button
             type="button"
             phx-click="hide_rollout_details"
-            class="btn btn-sm btn-circle btn-ghost"
             aria-label="Close rollout details"
+            size="sm"
+            variant="ghost"
           >
             <.icon name="hero-x-mark" class="size-4" />
-          </button>
+          </.ui_icon_button>
         </div>
 
         <div class="space-y-5 px-6 py-5">
-          <div class="stats stats-vertical w-full border border-base-300 bg-base-100 shadow-sm md:stats-horizontal">
+          <div class="stats stats-vertical w-full border border-sr-line bg-sr-surface shadow-sm md:stats-horizontal">
             <div class="stat">
-              <div class="stat-title text-xs">Healthy</div>
-              <div class="stat-value text-2xl">{@summary.healthy}</div>
-              <div class="stat-desc">of {@summary.total} targets</div>
+              <div class="sr-ui-stat-title text-xs">Healthy</div>
+              <div class="sr-ui-stat-value text-2xl">{@summary.healthy}</div>
+              <div class="sr-ui-stat-desc">of {@summary.total} targets</div>
             </div>
             <div class="stat">
-              <div class="stat-title text-xs">In Flight</div>
-              <div class="stat-value text-2xl">{@summary.inflight}</div>
-              <div class="stat-desc">{rollout_progress_text(@summary)}</div>
+              <div class="sr-ui-stat-title text-xs">In Flight</div>
+              <div class="sr-ui-stat-value text-2xl">{@summary.inflight}</div>
+              <div class="sr-ui-stat-desc">{rollout_progress_text(@summary)}</div>
             </div>
             <div class="stat">
-              <div class="stat-title text-xs">Failed</div>
-              <div class="stat-value text-2xl text-error">
+              <div class="sr-ui-stat-title text-xs">Failed</div>
+              <div class="sr-ui-stat-value text-2xl text-error">
                 {@summary.failed + @summary.rolled_back}
               </div>
-              <div class="stat-desc">failed or rolled back</div>
+              <div class="sr-ui-stat-desc">failed or rolled back</div>
             </div>
           </div>
 
@@ -1425,11 +1440,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
           </div>
 
           <div>
-            <div class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-base-content/50">
+            <div class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-sr-muted">
               Target States
             </div>
-            <div class="overflow-x-auto rounded-lg border border-base-300">
-              <table class="table table-sm w-full">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm", class: "w-full")}>
                 <thead>
                   <tr>
                     <th>Agent</th>
@@ -1440,7 +1455,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                 </thead>
                 <tbody>
                   <tr :if={@targets == []}>
-                    <td colspan="4" class="py-8 text-center text-sm text-base-content/60">
+                    <td colspan="4" class="py-8 text-center text-sm text-sr-muted">
                       No target states have been reported yet.
                     </td>
                   </tr>
@@ -1452,14 +1467,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                           <span class="font-mono text-xs">{target.agent_id}</span>
                           <span
                             :if={display_target_platform(detail) not in [nil, ""]}
-                            class="text-[11px] text-base-content/50"
+                            class="text-[11px] text-sr-muted"
                           >
                             {display_target_platform(detail)}
                           </span>
                         </div>
                       </td>
                       <td><.target_status_badge status={target.status} /></td>
-                      <td class="text-xs text-base-content/70">{target_progress_summary(target)}</td>
+                      <td class="text-xs text-sr-muted">{target_progress_summary(target)}</td>
                       <td class="max-w-sm text-xs">
                         <div :if={platform_mismatch_error?(target.last_error)} class="mb-1">
                           <.ui_badge variant="error" size="xs">Unsupported Platform</.ui_badge>
@@ -1471,7 +1486,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                         >
                           {target.last_error}
                         </span>
-                        <span :if={target.last_error in [nil, ""]} class="text-base-content/40">
+                        <span :if={target.last_error in [nil, ""]} class="text-sr-muted">
                           —
                         </span>
                         <div
@@ -1481,15 +1496,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                           }
                           class="mt-2"
                         >
-                          <button
+                          <.ui_button
                             id={"retry-target-#{target.id}"}
                             type="button"
                             phx-click="retry_target"
                             phx-value-target_id={target.id}
-                            class="btn btn-xs btn-outline btn-primary"
+                            size="xs"
+                            variant="primary"
                           >
                             <.icon name="hero-arrow-path" class="size-3" /> Retry
-                          </button>
+                          </.ui_button>
                         </div>
                       </td>
                     </tr>
@@ -1500,8 +1516,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
           </div>
         </div>
       </div>
-      <div class="modal-backdrop" phx-click="hide_rollout_details"></div>
-    </div>
+    </dialog>
     """
   end
 

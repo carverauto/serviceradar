@@ -128,9 +128,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessTablePagination do
     <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <label
         id={@id}
-        class="input input-bordered input-sm flex w-full items-center gap-2 sm:max-w-xs"
+        class="flex w-full min-h-9 items-center gap-2 rounded-sr-control border border-sr-line bg-sr-control px-3 text-sm shadow-sr-control sm:max-w-xs"
       >
-        <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
+        <.icon name="hero-magnifying-glass" class="h-4 w-4 text-sr-muted" />
         <input
           type="search"
           name="search"
@@ -139,10 +139,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessTablePagination do
           phx-change={@event}
           phx-debounce="200"
           autocomplete="off"
-          class="grow"
+          class="min-w-0 grow bg-transparent text-sr-ink outline-none placeholder:text-sr-muted"
         />
       </label>
-      <div class="text-xs text-base-content/60">
+      <div class="text-xs text-sr-muted">
         <span :if={@filtered?}>
           {@filtered_total} of {@total} {@unit}
         </span>
@@ -168,31 +168,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessTablePagination do
     ~H"""
     <div
       :if={@page_count > 1}
-      class="flex flex-col gap-2 border-t border-base-200 px-4 py-3 text-xs sm:flex-row sm:items-center sm:justify-between"
+      class="flex flex-col gap-2 border-t border-sr-line px-4 py-3 text-xs sm:flex-row sm:items-center sm:justify-between"
     >
-      <span class="text-base-content/60">
+      <span class="text-sr-muted">
         Showing {@range_start}–{@range_end} of {@filtered_total} {@unit}
       </span>
-      <div class="join">
-        <button
+      <div class="flex items-center gap-1">
+        <.ui_button
           type="button"
-          class="btn btn-ghost btn-xs join-item"
+          size="xs"
+          variant="ghost"
           phx-click={@prev_event}
           disabled={@page <= 1}
         >
           <.icon name="hero-chevron-left" class="size-4" /> Prev
-        </button>
-        <span class="btn btn-ghost btn-xs join-item pointer-events-none font-mono">
+        </.ui_button>
+        <span class="inline-flex min-h-7 items-center px-2 font-mono text-sr-muted">
           Page {@page} / {@page_count}
         </span>
-        <button
+        <.ui_button
           type="button"
-          class="btn btn-ghost btn-xs join-item"
+          size="xs"
+          variant="ghost"
           phx-click={@next_event}
           disabled={@page >= @page_count}
         >
           Next <.icon name="hero-chevron-right" class="size-4" />
-        </button>
+        </.ui_button>
       </div>
     </div>
     """

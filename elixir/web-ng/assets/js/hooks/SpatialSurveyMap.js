@@ -99,7 +99,7 @@ export default {
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getSourcePosition: (d) => d.source,
         getTargetPosition: (d) => d.target,
-        getColor: (d) => d.axis ? [56, 189, 248, 130] : [45, 212, 191, 36],
+        getColor: (d) => d.axis ? [62, 207, 135, 140] : [38, 54, 58, 55],
         getWidth: (d) => d.axis ? 2 : 1,
         widthUnits: "pixels",
         pickable: false,
@@ -155,7 +155,8 @@ export default {
         initialViewState: viewStateForBounds(sceneBounds),
         controller: true,
         parameters: {
-          clearColor: [0.02, 0.04, 0.08, 1],
+          // Brand canvas #0a1114 (normalized 0–1 for WebGL clearColor)
+          clearColor: [10 / 255, 17 / 255, 20 / 255, 1],
         },
         layers: [gridLayer, wallSurfaceLayer, structureLineLayer, pointCloudLayer],
       })
@@ -230,7 +231,7 @@ function parseAsciiPly(text, floorplanSegments) {
       y,
       z,
       position: [x, z, y],
-      color: [red || 178, green || 205, blue || 220, 185],
+      color: [red || 116, green || 223, blue || 166, 185],
     })
   }
 
@@ -359,15 +360,16 @@ function viewStateForBounds(bounds) {
 }
 
 function floorplanColor(kind) {
-  if (kind === "door") return [255, 255, 255, 210]
-  if (kind === "window") return [125, 211, 252, 220]
-  return [103, 232, 249, 220]
+  // Brand green wireframe (not cyan Nocturne)
+  if (kind === "door") return [237, 245, 241, 210]
+  if (kind === "window") return [91, 222, 155, 220]
+  return [62, 207, 135, 220]
 }
 
 function wallFillColor(kind) {
-  if (kind === "door") return [226, 232, 240, 85]
-  if (kind === "window") return [125, 211, 252, 95]
-  return [103, 232, 249, 80]
+  if (kind === "door") return [38, 54, 58, 90]
+  if (kind === "window") return [11, 130, 77, 95]
+  return [62, 207, 135, 70]
 }
 
 function referenceGridLines(bounds) {

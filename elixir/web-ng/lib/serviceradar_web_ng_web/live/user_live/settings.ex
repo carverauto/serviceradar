@@ -37,8 +37,8 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
       >
         <div class="mx-auto w-full max-w-4xl p-6 space-y-6">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">Account Settings</h1>
-            <p class="text-sm text-base-content/60">
+            <h1 class="text-2xl font-semibold text-sr-ink">Account Settings</h1>
+            <p class="text-sm text-sr-muted">
               Manage your login email and account profile settings.
             </p>
           </div>
@@ -47,7 +47,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
             <:header>
               <div>
                 <div class="text-sm font-semibold">Email</div>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   Update the email used to sign in to ServiceRadar.
                 </p>
               </div>
@@ -85,7 +85,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
               <:header>
                 <div>
                   <div class="text-sm font-semibold">Password</div>
-                  <p class="text-xs text-base-content/60">
+                  <p class="text-xs text-sr-muted">
                     Rotate your password and confirm the new credentials.
                   </p>
                 </div>

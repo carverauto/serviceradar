@@ -72,22 +72,26 @@ for the full workflow.
 The **Settings** tree is where administrators and operators configure the
 platform. Common sections include:
 
-- **Auth / Users** — manage users, roles, RBAC role profiles, and
-  authentication providers. See [Authentication](./auth-configuration.md) and
+- **Auth / Users** — manage users (`/settings/auth/users`), authentication
+  providers (`/settings/authentication`), and RBAC policy profiles
+  (`/settings/auth/rbac`). See [Authentication](./auth-configuration.md) and
   [Roles & Permissions](./rbac-and-roles.md).
-- **Networks** — sweep groups, discovery jobs, device enrichment, network
-  credentials, remote-access host keys and desktop targets, BMP, MTR profiles,
-  and field surveys. See [Network Sweeps](./network-sweeps.md).
-- **Integrations** — external inventory and data sources to sync from.
-- **Flows** — NetFlow directionality and enrichment settings.
-- **SNMP / Sysmon profiles** — reusable monitoring profiles for network
-  devices and host system metrics.
-- **Rules** — observability rules that turn events into alerts, including the
-  visual Zen rule editor. See the [Rule Builder](./rule-builder.md).
-- **Agents** — agent releases and deployment, plus plugin assignments.
+- **Networks** — sweep profiles (`/settings/networks`), visibility profiles,
+  discovery jobs, device enrichment, credential rules, remote-access host keys
+  and desktop targets, BMP, MTR profiles, field surveys, integrations, prefix
+  tags, and threat intel. See [Network Sweeps](./network-sweeps.md).
+- **Flows** — NetFlow directionality plus GeoIP / ipinfo enrichment
+  (`/settings/flows`).
+- **SNMP / Host Health** — SNMP profiles (`/settings/snmp`) and Sysmon host
+  metrics (`/settings/sysmon`).
+- **Rules** — Zen log normalization, event promotion, and alerts
+  (`/settings/rules`). See the [Rule Builder](./rule-builder.md).
+- **Agents** — deploy (`/settings/agents/deploy`), releases, plugins manager,
+  and native add-ons catalog/fleet.
 - **API credentials & CLI sessions** — API keys for programmatic access and
   management of `serviceradar-cli` device sessions.
 - **Audit** — version history, the security-event stream, and auth lockouts.
 
-For getting a new agent online and reporting into the UI, see
+For a full hosted SaaS path (control plane + product UI), see the
+[Cloud Quickstart](./cloud-quickstart.md). For agent install only, see
 [Edge Agent Onboarding](./edge-agent-onboarding.md).

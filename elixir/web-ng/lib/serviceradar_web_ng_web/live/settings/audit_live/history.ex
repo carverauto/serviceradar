@@ -215,7 +215,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
       >
         <header class="space-y-1">
           <h1 class="text-2xl font-semibold">Audit · History</h1>
-          <p class="text-sm text-base-content/60">
+          <p class="text-sm text-sr-muted">
             Cross-resource AshPaperTrail timeline. Filter by resource, actor, action, and time range; click a row for the diff.
           </p>
         </header>
@@ -223,7 +223,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
         <%= if @can_view? do %>
           <form phx-change="filter" class="flex flex-wrap items-end gap-3">
             <label class="text-sm">
-              <span class="mb-1 block text-base-content/70">Resource</span>
+              <span class="mb-1 block text-sr-muted">Resource</span>
               <select name="resource" class="ui-select">
                 <option value="">All resources</option>
                 <%= for {label, value} <- @resource_options do %>
@@ -233,7 +233,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
             </label>
 
             <label class="text-sm">
-              <span class="mb-1 block text-base-content/70">Action</span>
+              <span class="mb-1 block text-sr-muted">Action</span>
               <select name="action" class="ui-select">
                 <option value="">All actions</option>
                 <%= for action <- @action_types do %>
@@ -243,7 +243,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
             </label>
 
             <label class="text-sm">
-              <span class="mb-1 block text-base-content/70">Actor</span>
+              <span class="mb-1 block text-sr-muted">Actor</span>
               <input
                 type="text"
                 name="actor"
@@ -256,9 +256,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
             <button type="button" class="ui-button" phx-click="clear-filters">Clear</button>
           </form>
 
-          <div class="overflow-x-auto rounded-lg border border-base-200 bg-base-100">
-            <table class="min-w-full text-sm text-base-content">
-              <thead class="bg-base-200/70 text-base-content/70">
+          <div class="overflow-x-auto rounded-lg border border-sr-line bg-sr-surface">
+            <table class="min-w-full text-sm text-sr-ink">
+              <thead class="bg-sr-subtle/70 text-sr-muted">
                 <tr>
                   <th class="px-4 py-2 text-left">When</th>
                   <th class="px-4 py-2 text-left">Resource</th>
@@ -267,10 +267,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
                   <th class="px-4 py-2 text-left">Source row</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-base-200">
+              <tbody class="divide-y divide-sr-line">
                 <%= for entry <- @versions do %>
                   <tr
-                    class="cursor-pointer hover:bg-base-200/40"
+                    class="cursor-pointer hover:bg-sr-subtle/40"
                     phx-click="select-version"
                     phx-value-resource={to_string(entry.resource)}
                     phx-value-id={entry.version.id}
@@ -286,7 +286,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
                 <% end %>
                 <%= if Enum.empty?(@versions) do %>
                   <tr>
-                    <td colspan="5" class="px-4 py-8 text-center text-base-content/60">
+                    <td colspan="5" class="px-4 py-8 text-center text-sr-muted">
                       No version history for the current filters.
                     </td>
                   </tr>
@@ -296,7 +296,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
           </div>
 
           <%= if @selected_version do %>
-            <div class="space-y-3 rounded-lg border border-base-200 bg-base-100 p-4">
+            <div class="space-y-3 rounded-lg border border-sr-line bg-sr-surface p-4">
               <div class="flex items-center justify-between">
                 <h2 class="font-semibold">
                   {resource_label(@selected_version.resource)} · {@selected_version.version.version_action_type} · {format_dt(
@@ -307,13 +307,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
               </div>
 
               <div>
-                <h3 class="mb-1 text-sm text-base-content/70">Changes</h3>
-                <pre class="overflow-x-auto rounded bg-base-200/70 p-3 text-xs">{truncate_json(@selected_version.version.changes)}</pre>
+                <h3 class="mb-1 text-sm text-sr-muted">Changes</h3>
+                <pre class="overflow-x-auto rounded bg-sr-subtle/70 p-3 text-xs">{truncate_json(@selected_version.version.changes)}</pre>
               </div>
 
               <div>
-                <h3 class="mb-1 text-sm text-base-content/70">Action inputs</h3>
-                <pre class="overflow-x-auto rounded bg-base-200/70 p-3 text-xs">{truncate_json(@selected_version.version.version_action_inputs)}</pre>
+                <h3 class="mb-1 text-sm text-sr-muted">Action inputs</h3>
+                <pre class="overflow-x-auto rounded bg-sr-subtle/70 p-3 text-xs">{truncate_json(@selected_version.version.version_action_inputs)}</pre>
               </div>
             </div>
           <% end %>

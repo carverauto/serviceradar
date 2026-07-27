@@ -33,14 +33,14 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.RDP do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="flex h-[calc(100vh-4rem)] min-h-[620px] flex-col bg-base-100">
-        <div class="flex min-h-14 items-center gap-3 border-b border-base-300 px-4">
-          <.link navigate={~p"/devices/#{@device_uid}"} class="btn btn-ghost btn-sm">
+      <div class="flex h-[calc(100vh-4rem)] min-h-[620px] flex-col bg-sr-surface">
+        <div class="flex min-h-14 items-center gap-3 border-b border-sr-line px-4">
+          <.ui_button navigate={~p"/devices/#{@device_uid}"} size="sm" variant="ghost">
             <.icon name="hero-arrow-left" class="size-4" /> Device
-          </.link>
+          </.ui_button>
           <div class="min-w-0 flex-1">
             <h1 class="truncate text-sm font-semibold">RDP remote access</h1>
-            <p class="truncate text-xs text-base-content/60">
+            <p class="truncate text-xs text-sr-muted">
               {target_label(@target, @device_uid)}
             </p>
           </div>
@@ -60,7 +60,7 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.RDP do
               @load_state in [:forbidden, :unavailable] && "alert-error"
             ]}
           >
-            <span :if={@load_state == :loading} class="loading loading-spinner loading-sm"></span>
+            <span :if={@load_state == :loading} class="sr-ui-spinner sr-ui-spinner-sm"></span>
             <span>{load_state_message(@load_state)}</span>
           </div>
         </div>

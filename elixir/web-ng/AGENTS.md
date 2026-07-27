@@ -125,7 +125,12 @@ custom classes must fully style the input
 
 - **Always use and maintain this import syntax** in the app.css file for projects generated with `phx.new`
 - **Never** use `@apply` when writing raw css
-- **Use daisyUI components by default** for UI consistency and speed. Custom Tailwind is fine for layout tweaks and bespoke visuals when needed.
+- **Prefer shared ServiceRadar design tokens and app primitives** over daisyUI.
+  - Tokens: `sr-*` CSS variables / Tailwind utilities (`bg-sr-surface`, `text-sr-ink`, `rounded-sr-control`, `shadow-sr-button`, …) in `assets/css/app.css` — aligned with marketing and control.
+  - Primitives: `UIComponents` (`ui_button`, `ui_input`, `ui_badge`, `ui_panel`, `ui_dropdown`, `ui_pagination`) and token-styled `<.input>` / `<.button>` in `core_components.ex`.
+  - Shell chrome: ops topbar / public topbar in `layouts.ex` must not introduce new daisyUI `btn`/`menu`/`dropdown` classes.
+  - OpenSpec: `openspec/changes/align-web-ng-with-marketing-design-system` tracks the phased daisyUI retirement. Existing page-level daisy classes may remain until their phase migrates them; do not add new daisy shell chrome.
+  - Custom Tailwind is fine for layout and bespoke visuals when primitives do not cover the case.
 - Out of the box **only the app.js and app.css bundles are supported**
   - You cannot reference an external vendor'd script `src` or link `href` in the layouts
   - You must import the vendor deps into app.js and app.css to use them

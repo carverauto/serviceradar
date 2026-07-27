@@ -18,7 +18,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View do
             <p class="sr-mtr-muted text-sm mt-1">Network path analysis traces from agents</p>
           </div>
           <div class="flex flex-wrap gap-2 sm:justify-end">
-            <.link navigate={~p"/diagnostics/mtr/compare"} class="btn btn-sm btn-outline">
+            <.ui_button navigate={~p"/diagnostics/mtr/compare"} size="sm" variant="outline">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 class="h-4 w-4"
@@ -34,8 +34,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View do
                 />
               </svg>
               Compare
-            </.link>
-            <button type="button" phx-click="open_mtr_modal" class="btn btn-sm btn-primary">
+            </.ui_button>
+            <.ui_button type="button" phx-click="open_mtr_modal" size="sm" variant="primary">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 class="h-4 w-4"
@@ -51,10 +51,10 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View do
                 />
               </svg>
               Run MTR
-            </button>
-            <button type="button" phx-click="open_bulk_mtr_modal" class="btn btn-sm btn-secondary">
+            </.ui_button>
+            <.ui_button type="button" phx-click="open_bulk_mtr_modal" size="sm" variant="soft">
               Bulk MTR
-            </button>
+            </.ui_button>
           </div>
         </div>
 

@@ -24,9 +24,9 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.Index do
           </div>
 
           <div class="flex flex-wrap gap-2">
-            <.link navigate={~p"/spatial/field-surveys"} class="btn btn-sm">
+            <.ui_button navigate={~p"/spatial/field-surveys"} size="sm" variant="neutral">
               <.icon name="hero-map" class="size-4" /> FieldSurvey Review
-            </.link>
+            </.ui_button>
           </div>
         </div>
 
@@ -61,7 +61,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.Index do
                 <span>RoomPlan walls</span>
               </div>
               <div class="flex items-center gap-1 ml-4">
-                <span class="text-base-content/50">
+                <span class="text-sr-muted">
                   Drag to Pan | Scroll to Zoom | Option+Drag to Orbit
                 </span>
               </div>

@@ -11,22 +11,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.LogComponents do
   attr(:error, :string, default: nil)
   attr(:loading, :boolean, default: false)
   attr(:pagination, :map, default: %{})
+  attr(:pagination_page, :integer, default: 1)
   attr(:device_uid, :string, required: true)
   attr(:query, :string, required: true)
   attr(:limit, :integer, required: true)
 
   def device_logs_tab_content(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
-          <.icon name="hero-clipboard-document-list" class="size-4 text-primary" />
+          <.icon name="hero-clipboard-document-list" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Device Logs</span>
-          <span class="text-xs text-base-content/50">({length(@logs)} rows)</span>
+          <span class="text-xs text-sr-muted">({length(@logs)} rows)</span>
         </div>
         <.link
-          navigate={~p"/observability?#{%{"tab" => "logs", "q" => @query, "limit" => @limit}}"}
-          class="text-xs text-primary hover:underline"
+          navigate={~p"/observability/logs?#{%{"q" => @query}}"}
+          class="text-xs text-sr-brand hover:underline"
         >
           Open full logs view
         </.link>
@@ -36,15 +37,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.LogComponents do
         <div :if={is_binary(@error)} class="mb-3 text-xs text-error">{@error}</div>
 
         <%= if @loading do %>
-          <div class="flex items-center gap-2 text-sm text-base-content/60">
-            <span class="loading loading-spinner loading-sm"></span> Loading device logs...
+          <div class="flex items-center gap-2 text-sm text-sr-muted">
+            <.ui_spinner size="sm" /> Loading device logs...
           </div>
         <% else %>
           <%= if @logs == [] and is_nil(@error) do %>
-            <div class="text-sm text-base-content/60">No logs found for this device.</div>
+            <div class="text-sm text-sr-muted">No logs found for this device.</div>
           <% else %>
-            <div class="overflow-x-auto">
-              <table class="table table-sm table-zebra w-full">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
                 <thead>
                   <tr>
                     <th class="w-40">Time</th>
@@ -74,28 +75,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.LogComponents do
                       {log_message(log)}
                     </td>
                     <td class="text-right">
-                      <.link
+                      <.ui_button
                         :if={log_id(log) != "unknown"}
                         navigate={~p"/logs/#{log_id(log)}"}
-                        class="btn btn-ghost btn-xs"
+                        size="xs"
+                        variant="ghost"
                       >
                         Details
-                      </.link>
+                      </.ui_button>
                     </td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
-            <div class="pt-3 border-t border-base-200 mt-3">
+            <div class="pt-3 border-t border-sr-line mt-3">
               <.ui_pagination
                 prev_cursor={Map.get(@pagination, "prev_cursor")}
                 next_cursor={Map.get(@pagination, "next_cursor")}
-                base_path={"/devices/#{@device_uid}"}
-                query={@query}
                 limit={@limit}
+                current_page={@pagination_page}
                 result_count={length(@logs)}
-                extra_params={%{"tab" => "logs"}}
               />
             </div>
           <% end %>

@@ -25,61 +25,44 @@ defmodule ServiceRadarWebNGWeb.AuthLive.LocalSignIn do
     ~H"""
     <Layouts.app flash={@flash} current_scope={%{}}>
       <div class="mx-auto max-w-md p-6">
-        <div class="text-center mb-8 space-y-3">
+        <div class="mb-8 space-y-3 text-center">
           <div class="flex items-center justify-center gap-3">
-            <img
-              src={~p"/images/logo.svg"}
-              alt="ServiceRadar"
-              class="h-10 w-auto"
-              width="40"
-              height="40"
-            />
-            <span class="text-3xl font-semibold tracking-tight text-base-content">
+            <span class="sr-public-brand-mark">
+              <img
+                src={~p"/images/logo-animated.svg"}
+                alt=""
+                aria-hidden="true"
+                width="28"
+                height="28"
+              />
+            </span>
+            <span class="text-3xl font-semibold tracking-tight text-sr-ink">
               ServiceRadar
             </span>
           </div>
-          <h1 class="text-xl font-semibold">Administrator Login</h1>
-          <p class="text-sm text-base-content/60">
+          <h1 class="text-xl font-semibold text-sr-ink">Administrator Login</h1>
+          <p class="text-sm text-sr-muted">
             Local authentication for administrators
           </p>
         </div>
 
-        <div class="alert alert-warning mb-6">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="stroke-current shrink-0 h-6 w-6"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-            />
-          </svg>
-          <span class="text-sm">
+        <div class="mb-6 flex gap-3 rounded-sr-surface border border-amber-500/30 bg-amber-500/10 p-4 text-sr-ink">
+          <.icon
+            name="hero-exclamation-triangle"
+            class="size-6 shrink-0 text-amber-600 dark:text-amber-300"
+          />
+          <span class="text-sm text-sr-muted">
             This login is for administrators only. Regular users should authenticate through
             the organization's identity provider.
           </span>
         </div>
 
         <%= if @rate_limited do %>
-          <div class="alert alert-error mb-6">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="stroke-current shrink-0 h-6 w-6"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-            <span>Too many login attempts. Please try again in {@retry_after} seconds.</span>
+          <div class="mb-6 flex gap-3 rounded-sr-surface border border-rose-500/30 bg-rose-500/10 p-4 text-sr-ink">
+            <.icon name="hero-x-circle" class="size-6 shrink-0 text-rose-600 dark:text-rose-300" />
+            <span class="text-sm">
+              Too many login attempts. Please try again in {@retry_after} seconds.
+            </span>
           </div>
         <% else %>
           <.form
@@ -89,46 +72,47 @@ defmodule ServiceRadarWebNGWeb.AuthLive.LocalSignIn do
             class="space-y-4"
             data-disable-on-submit="true"
           >
-            <div class="form-control w-full">
-              <label class="label" for="user_email">
-                <span class="label-text">Email</span>
-              </label>
+            <div class="grid gap-1.5">
+              <label for="user_email" class="text-sm font-medium text-sr-ink">Email</label>
               <input
                 type="email"
                 id="user_email"
                 name="user[email]"
                 value={@form[:email].value}
-                class="input input-bordered w-full"
+                class="w-full min-h-11 rounded-sr-control border border-sr-line bg-sr-control px-3.5 text-sm text-sr-ink shadow-sr-control outline-none transition-[border-color,box-shadow] duration-200 ease-sr-out placeholder:text-sr-muted focus-visible:border-sr-line-hover focus-visible:ring-2 focus-visible:ring-sr-focus"
                 placeholder="admin@example.com"
                 required
                 autofocus
               />
             </div>
 
-            <div class="form-control w-full">
-              <label class="label" for="user_password">
-                <span class="label-text">Password</span>
-              </label>
+            <div class="grid gap-1.5">
+              <label for="user_password" class="text-sm font-medium text-sr-ink">Password</label>
               <input
                 type="password"
                 id="user_password"
                 name="user[password]"
-                class="input input-bordered w-full"
+                class="w-full min-h-11 rounded-sr-control border border-sr-line bg-sr-control px-3.5 text-sm text-sr-ink shadow-sr-control outline-none transition-[border-color,box-shadow] duration-200 ease-sr-out placeholder:text-sr-muted focus-visible:border-sr-line-hover focus-visible:ring-2 focus-visible:ring-sr-focus"
                 placeholder="Enter your password"
                 required
               />
             </div>
 
-            <div class="form-control">
-              <button type="submit" class="btn btn-primary w-full" data-submit-label="Signing in...">
-                Sign in
-              </button>
-            </div>
+            <button
+              type="submit"
+              class="inline-flex w-full min-h-11 items-center justify-center rounded-sr-control border border-transparent bg-sr-brand px-3.5 text-sm font-semibold text-sr-on-brand shadow-sr-button outline-none transition-[transform,background-color] duration-200 ease-sr-out hover:bg-sr-brand-strong focus-visible:ring-2 focus-visible:ring-sr-focus active:translate-y-px"
+              data-submit-label="Signing in..."
+            >
+              Sign in
+            </button>
           </.form>
         <% end %>
 
         <div class="mt-6 text-center">
-          <a href={~p"/users/log-in"} class="link link-secondary text-sm">
+          <a
+            href={~p"/users/log-in"}
+            class="text-sm font-semibold text-sr-muted outline-none hover:text-sr-brand focus-visible:ring-2 focus-visible:ring-sr-focus"
+          >
             ← Back to main login
           </a>
         </div>

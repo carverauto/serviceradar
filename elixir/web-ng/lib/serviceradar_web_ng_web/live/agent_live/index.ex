@@ -99,6 +99,29 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
     {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
   end
 
+  def handle_event("srql_paginate", params, socket) do
+    socket =
+      SRQLPage.handle_event(socket, "srql_paginate", params,
+        list_assign_key: :agents,
+        default_limit: @default_limit,
+        max_limit: @max_limit
+      )
+
+    query = get_in(socket.assigns, [:srql, :query]) || base_agents_query(socket.assigns.limit)
+
+    summary_agents =
+      load_summary_agents(socket.assigns.current_scope, query, socket.assigns.agents)
+
+    selected_agent_ids =
+      selected_agent_ids_for_visible(socket.assigns.selected_agent_ids, socket.assigns.agents)
+
+    {:noreply,
+     socket
+     |> assign(:selected_agent_ids, selected_agent_ids)
+     |> assign(:version_distribution, summarize_versions(summary_agents))
+     |> assign(:rollout_distribution, summarize_rollout_states(summary_agents))}
+  end
+
   def handle_event("srql_submit", params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/agents")}
   end
@@ -274,103 +297,111 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
       <div class="mx-auto max-w-[100rem] space-y-6 px-4 py-5 sm:px-6">
         <%!-- Live Connected Agents Section --%>
         <.ui_panel>
-          <div class="flex flex-wrap items-start justify-between gap-2 border-b border-base-200 px-4 py-3">
+          <div class="flex flex-wrap items-start justify-between gap-2 border-b border-sr-line px-4 py-3">
             <div class="flex flex-wrap items-center gap-2">
               <span class="text-sm font-semibold">Live Agents</span>
-              <span class="badge badge-sm badge-success">{length(@live_agents)} connected</span>
+              <.ui_badge size="sm" variant="success">
+                {length(@live_agents)} connected
+              </.ui_badge>
             </div>
-            <span class="text-xs leading-5 text-base-content/50">Real-time gateway registry</span>
+            <span class="text-xs leading-5 text-sr-muted">Real-time gateway registry</span>
           </div>
           <.live_agents_table id="live-agents" agents={@live_agents} />
         </.ui_panel>
 
         <%!-- Database Agents Section --%>
         <.ui_panel>
-          <div class="px-4 py-3 border-b border-base-200 flex flex-wrap items-center justify-between gap-3">
+          <div class="px-4 py-3 border-b border-sr-line flex flex-wrap items-center justify-between gap-3">
             <div class="flex items-center gap-2">
               <span class="text-sm font-semibold">Registered Agents</span>
-              <span class="badge badge-sm badge-ghost">{length(@agents)} visible</span>
+              <.ui_badge size="sm" variant="ghost">{length(@agents)} visible</.ui_badge>
             </div>
             <div
               :if={RBAC.can?(@current_scope, "settings.edge.manage")}
               class="flex flex-wrap items-center gap-2"
             >
-              <.link
+              <.ui_button
                 :if={@selected_agent_ids != []}
                 navigate={selected_rollout_handoff_path(@selected_agent_ids, @release_filters)}
-                class="btn btn-sm btn-secondary"
+                size="sm"
+                variant="soft"
               >
                 <.icon name="hero-bolt" class="size-4" /> Roll Out Selected
-              </.link>
-              <.link
+              </.ui_button>
+              <.ui_button
                 :if={@agents != []}
                 navigate={visible_rollout_handoff_path(@agents, @release_filters)}
-                class="btn btn-sm btn-primary"
+                size="sm"
+                variant="primary"
               >
                 <.icon name="hero-play" class="size-4" /> Roll Out Visible Cohort
-              </.link>
-              <button
+              </.ui_button>
+              <.ui_button
                 :if={@agents != []}
                 type="button"
                 phx-click="select_visible_agents"
-                class="btn btn-sm btn-ghost"
+                size="sm"
+                variant="ghost"
               >
                 Select Visible
-              </button>
-              <button
+              </.ui_button>
+              <.ui_button
                 :if={@selected_agent_ids != []}
                 type="button"
                 phx-click="clear_selected_agents"
-                class="btn btn-sm btn-ghost"
+                size="sm"
+                variant="ghost"
               >
                 Clear Selected
-              </button>
-              <.link navigate={~p"/settings/agents/releases"} class="btn btn-sm btn-outline">
+              </.ui_button>
+              <.ui_button navigate={~p"/settings/agents/releases"} size="sm" variant="outline">
                 <.icon name="hero-rocket-launch" class="size-4" /> Manage Releases
-              </.link>
+              </.ui_button>
             </div>
           </div>
 
-          <div class="px-4 py-4 border-b border-base-200 space-y-4">
+          <div class="px-4 py-4 border-b border-sr-line space-y-4">
             <div class="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-              <.ui_panel class="border border-base-200/70 bg-base-100 shadow-none">
+              <.ui_panel class="border border-sr-line/70 bg-sr-surface shadow-none">
                 <:header>
                   <div class="text-sm font-semibold">Version Distribution</div>
                 </:header>
                 <div class="p-4">
-                  <div :if={@version_distribution == []} class="text-sm text-base-content/60">
+                  <div :if={@version_distribution == []} class="text-sm text-sr-muted">
                     No version data in the current result set.
                   </div>
                   <div :if={@version_distribution != []} class="flex flex-wrap gap-2">
                     <%= for %{version: version, count: count} <- @version_distribution do %>
-                      <span class="badge badge-sm badge-outline gap-2 px-3 py-3">
+                      <.ui_badge size="sm" variant="outline" class="gap-2 px-3 py-3">
                         <span class="font-mono text-[11px]">{version}</span>
-                        <span class="text-base-content/60">{count}</span>
-                      </span>
+                        <span class="text-sr-muted">{count}</span>
+                      </.ui_badge>
                     <% end %>
                   </div>
                 </div>
               </.ui_panel>
 
-              <.ui_panel class="border border-base-200/70 bg-base-100 shadow-none">
+              <.ui_panel class="border border-sr-line/70 bg-sr-surface shadow-none">
                 <:header>
                   <div class="text-sm font-semibold">Rollout States</div>
                 </:header>
                 <div class="p-4">
-                  <div :if={@rollout_distribution == []} class="text-sm text-base-content/60">
+                  <div :if={@rollout_distribution == []} class="text-sm text-sr-muted">
                     No rollout activity in the current result set.
                   </div>
                   <div :if={@rollout_distribution != []} class="flex flex-wrap gap-2">
                     <%= for %{state: state, count: count, label: label, variant: variant} <- @rollout_distribution do %>
-                      <button
+                      <.ui_button
                         type="button"
+                        size="xs"
+                        variant={rollout_filter_badge_variant(variant)}
                         phx-click="quick_release_state_filter"
                         phx-value-state={state}
-                        class={"badge badge-sm gap-2 px-3 py-3 cursor-pointer #{rollout_filter_badge_class(variant)}"}
+                        class="gap-2 px-3 py-2"
                       >
                         <span>{label}</span>
                         <span class="opacity-80">{count}</span>
-                      </button>
+                      </.ui_button>
                     <% end %>
                   </div>
                 </div>
@@ -426,13 +457,12 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
             allow_selection={RBAC.can?(@current_scope, "settings.edge.manage")}
           />
 
-          <div class="mt-4 pt-4 border-t border-base-200">
+          <div class="mt-4 pt-4 border-t border-sr-line">
             <.ui_pagination
               prev_cursor={Map.get(@pagination, "prev_cursor")}
               next_cursor={Map.get(@pagination, "next_cursor")}
-              base_path="/agents"
-              query={Map.get(@srql, :query, "")}
               limit={@limit}
+              current_page={Map.get(assigns, :pagination_page, 1)}
               result_count={length(@agents)}
             />
           </div>
@@ -447,39 +477,26 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
 
   defp live_agents_table(assigns) do
     ~H"""
-    <div class="overflow-x-auto">
-      <table id={@id} class="table table-sm table-zebra w-full min-w-[72rem] table-fixed">
+    <div class="sr-ui-table-shell">
+      <table
+        id={@id}
+        class={ui_table_class(size: "sm", zebra: true, fixed: true, class: "w-full min-w-[72rem]")}
+      >
         <thead>
           <tr>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-10">
-              Status
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-48">
-              Agent ID
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-32">
-              Partition
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
-              Gateway Node
-            </th>
-            <th class="w-80 whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
-              Capabilities
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20">
-              Host Health
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-36">
-              Connected
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-36">
-              Last Heartbeat
-            </th>
+            <th class="w-10">Status</th>
+            <th class="w-48">Agent ID</th>
+            <th class="w-32">Partition</th>
+            <th class="w-40">Gateway Node</th>
+            <th class="w-80">Capabilities</th>
+            <th class="w-20">Host Health</th>
+            <th class="w-36">Connected</th>
+            <th class="w-36">Last Heartbeat</th>
           </tr>
         </thead>
         <tbody>
           <tr :if={@agents == []}>
-            <td colspan="8" class="text-sm text-base-content/60 py-8 text-center">
+            <td colspan="8" class="text-sm text-sr-muted py-8 text-center">
               No live agents connected. Agents will appear here when they register with the Horde cluster.
             </td>
           </tr>
@@ -487,7 +504,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
           <%= for {agent, idx} <- Enum.with_index(@agents) do %>
             <tr
               id={"#{@id}-row-#{idx}"}
-              class="hover:bg-base-200/40 transition-colors"
+              class="hover:bg-sr-subtle/40 transition-colors"
             >
               <td class="whitespace-nowrap">
                 <.status_indicator status={agent.status} />
@@ -496,15 +513,15 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
                 class="whitespace-nowrap text-xs font-mono truncate max-w-[12rem]"
                 title={agent.agent_id}
               >
-                <.link navigate={~p"/agents/#{agent.agent_id}"} class="link link-primary">
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="text-sr-brand hover:underline">
                   {agent.agent_id}
                 </.link>
               </td>
               <td class="whitespace-nowrap text-xs">
-                <span :if={agent.partition_id} class="badge badge-sm badge-ghost">
+                <.ui_badge :if={agent.partition_id} size="sm" variant="ghost">
                   {agent.partition_id}
-                </span>
-                <span :if={!agent.partition_id} class="text-base-content/40">—</span>
+                </.ui_badge>
+                <span :if={!agent.partition_id} class="text-sr-muted">—</span>
               </td>
               <td
                 class="whitespace-nowrap text-xs font-mono truncate max-w-[10rem]"
@@ -572,53 +589,31 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
 
   defp agents_table(assigns) do
     ~H"""
-    <div class="overflow-x-auto">
-      <table id={@id} class="table table-sm table-zebra w-full min-w-[88rem] table-fixed">
+    <div class="sr-ui-table-shell">
+      <table
+        id={@id}
+        class={ui_table_class(size: "sm", zebra: true, fixed: true, class: "w-full min-w-[88rem]")}
+      >
         <thead>
           <tr>
-            <th
-              :if={@allow_selection}
-              class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-16"
-            >
-              Select
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-48">
-              Agent ID
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-32">
-              Name
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
-              Type
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
-              Gateway
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-36">
-              Version
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-32">
-              Release
-            </th>
-            <th class="w-72 whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
-              Capabilities
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20">
-              Host Health
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-36">
-              Last Update
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-36">
-              Last Seen
-            </th>
+            <th :if={@allow_selection} class="w-16">Select</th>
+            <th class="w-48">Agent ID</th>
+            <th class="w-32">Name</th>
+            <th class="w-24">Type</th>
+            <th class="w-40">Gateway</th>
+            <th class="w-36">Version</th>
+            <th class="w-32">Release</th>
+            <th class="w-72">Capabilities</th>
+            <th class="w-20">Host Health</th>
+            <th class="w-36">Last Update</th>
+            <th class="w-36">Last Seen</th>
           </tr>
         </thead>
         <tbody>
           <tr :if={@agents == []}>
             <td
               colspan={if(@allow_selection, do: 11, else: 10)}
-              class="text-sm text-base-content/60 py-8 text-center"
+              class="text-sm text-sr-muted py-8 text-center"
             >
               No agents found.
             </td>
@@ -627,19 +622,22 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
           <%= for {agent, idx} <- Enum.with_index(@agents) do %>
             <tr
               id={"#{@id}-row-#{idx}"}
-              class="hover:bg-base-200/40 transition-colors"
+              class="hover:bg-sr-subtle/40 transition-colors"
             >
               <td :if={@allow_selection} class="whitespace-nowrap">
-                <button
+                <.ui_icon_button
                   id={"select-agent-#{agent_uid(agent)}"}
                   type="button"
+                  size="xs"
+                  variant={if(agent_uid(agent) in @selected_agent_ids, do: "primary", else: "ghost")}
                   phx-click="toggle_selected_agent"
                   phx-value-id={agent_uid(agent)}
-                  class={[
-                    "btn btn-xs w-8 px-0",
-                    agent_uid(agent) in @selected_agent_ids && "btn-primary",
-                    agent_uid(agent) not in @selected_agent_ids && "btn-ghost"
-                  ]}
+                  aria-label={
+                    if(agent_uid(agent) in @selected_agent_ids,
+                      do: "Deselect agent",
+                      else: "Select agent"
+                    )
+                  }
                 >
                   <.icon
                     name={
@@ -647,13 +645,16 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
                     }
                     class="size-3.5"
                   />
-                </button>
+                </.ui_icon_button>
               </td>
               <td
                 class="whitespace-nowrap text-xs font-mono truncate max-w-[12rem]"
                 title={agent_uid(agent)}
               >
-                <.link navigate={~p"/agents/#{agent_uid(agent)}"} class="link link-primary">
+                <.link
+                  navigate={~p"/agents/#{agent_uid(agent)}"}
+                  class="text-sr-brand hover:underline"
+                >
                   {agent_uid(agent)}
                 </.link>
               </td>
@@ -738,7 +739,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
     <div :if={@has_sysmon} class="flex items-center gap-1" title="Host Health metrics enabled">
       <.icon name="hero-cpu-chip" class="size-4 text-success" />
     </div>
-    <span :if={not @has_sysmon} class="text-base-content/40">—</span>
+    <span :if={not @has_sysmon} class="text-sr-muted">—</span>
     """
   end
 
@@ -777,25 +778,27 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
 
     ~H"""
     <div class="min-w-0 max-w-72">
-      <span :if={@total == 0} class="text-base-content/40">—</span>
+      <span :if={@total == 0} class="text-sr-muted">—</span>
 
       <div :if={@total > 0} class="flex min-w-0 flex-col gap-1.5">
         <div class="flex flex-wrap items-center gap-1.5">
-          <span class="badge badge-ghost badge-xs whitespace-nowrap">
+          <.ui_badge size="xs" variant="ghost" class="whitespace-nowrap">
             {length(@available)} active
-          </span>
-          <span
+          </.ui_badge>
+          <.ui_badge
             :if={@unavailable != []}
-            class="badge badge-warning badge-soft badge-xs whitespace-nowrap"
+            size="xs"
+            variant="warning"
+            class="whitespace-nowrap"
           >
             {length(@unavailable)} unavailable
-          </span>
+          </.ui_badge>
         </div>
 
         <div :if={@available != []} class="space-y-0.5">
           <code
             :for={cap <- Enum.take(@available, 2)}
-            class="block max-w-full truncate text-[11px] text-base-content/70"
+            class="block max-w-full truncate text-[11px] text-sr-muted"
             title={cap}
           >
             {cap}
@@ -803,18 +806,18 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
         </div>
 
         <details class="group min-w-0">
-          <summary class="flex w-fit cursor-pointer list-none items-center gap-1 text-[11px] text-base-content/60 hover:text-base-content focus:outline-none">
+          <summary class="flex w-fit cursor-pointer list-none items-center gap-1 text-[11px] text-sr-muted hover:text-sr-ink focus:outline-none">
             <.icon
               name="hero-chevron-right"
               class="size-3 transition-transform group-open:rotate-90"
             /> Reported details
           </summary>
-          <div class="mt-2 min-w-0 space-y-2 rounded-md bg-base-200/50 p-2">
+          <div class="mt-2 min-w-0 space-y-2 rounded-md bg-sr-subtle/50 p-2">
             <div :if={@available != []}>
-              <div class="mb-1 text-[10px] font-semibold text-base-content/50">Active</div>
+              <div class="mb-1 text-[10px] font-semibold text-sr-muted">Active</div>
               <code
                 :for={cap <- @available}
-                class="block break-all text-[10px] leading-4 text-base-content/70"
+                class="block break-all text-[10px] leading-4 text-sr-muted"
               >
                 {cap}
               </code>
@@ -823,7 +826,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
               <div class="mb-1 text-[10px] font-semibold text-warning">Unavailable</div>
               <code
                 :for={cap <- @unavailable}
-                class="block break-all text-[10px] leading-4 text-base-content/60"
+                class="block break-all text-[10px] leading-4 text-sr-muted"
               >
                 {cap}
               </code>
@@ -965,10 +968,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   end
 
   defp push_agents_patch(socket, query) do
-    params = %{
-      "q" => query,
-      "limit" => socket.assigns.limit
-    }
+    params = %{"q" => query}
 
     push_patch(socket, to: "/agents?" <> URI.encode_query(params))
   end
@@ -1100,11 +1100,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   defp rollout_state_metadata(:none, true), do: {"Error", "error"}
   defp rollout_state_metadata(_state, _has_error), do: {"Unknown", "ghost"}
 
-  defp rollout_filter_badge_class("success"), do: "badge-success"
-  defp rollout_filter_badge_class("info"), do: "badge-info"
-  defp rollout_filter_badge_class("warning"), do: "badge-warning"
-  defp rollout_filter_badge_class("error"), do: "badge-error"
-  defp rollout_filter_badge_class(_variant), do: "badge-ghost"
+  defp rollout_filter_badge_variant("success"), do: "success"
+  defp rollout_filter_badge_variant("info"), do: "info"
+  defp rollout_filter_badge_variant("warning"), do: "warning"
+  defp rollout_filter_badge_variant("error"), do: "danger"
+  defp rollout_filter_badge_variant(_variant), do: "ghost"
 
   defp visible_rollout_handoff_path(agents, release_filters) do
     agent_ids =

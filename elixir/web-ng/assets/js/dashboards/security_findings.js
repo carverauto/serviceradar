@@ -8,6 +8,15 @@ const CLASS_LABELS = {
   6007: "Scan",
 }
 
+const QUERIES = {
+  findings: "in:security_findings sort:time:desc limit:100",
+  scans: "in:scan_activity sort:time:desc limit:80",
+  dns: "in:dns_activity sort:time:desc limit:80",
+  vulnerabilities: "in:security_findings class_uid:2002 sort:time:desc limit:80",
+  failedScans: "in:scan_activity status:Failure sort:time:desc limit:80",
+  dnsBlocks: "in:dns_activity source:powerdns sort:time:desc limit:80",
+}
+
 export function mountSecurityFindings(element, host, api) {
   const state = {host, api}
 
@@ -47,105 +56,176 @@ function dashboardHtml(host) {
   const sourceCounts = countBy(findings.concat(scans, dns, scannerSignalEvents), sourceType)
   const severityCounts = countBy(findings, (row) => normalizedSeverity(row.severity))
   const classCounts = countBy(findings, classLabel)
-  const highRisk = findings.filter((row) => ["Critical", "High"].includes(normalizedSeverity(row.severity))).length
+  const highRisk = findings.filter((row) =>
+    ["Critical", "High"].includes(normalizedSeverity(row.severity))
+  ).length
   const resourceOnlyFindings = findings.length - deviceCorrelated
-  const failedScans = scans.filter((row) => failedStatus(row.status || row.status_detail || row.status_id)).length
+  const failedScans = scans.filter((row) =>
+    failedStatus(row.status || row.status_detail || row.status_id)
+  ).length
   const dnsBlocks = dns.filter(dnsBlock).length
   const topAffected = topAffectedResources(findings, vulnerabilities)
+  const framesLoading = Object.values(frames).some((frame) => frameLoading(frame))
 
   return `
-    <section class="min-w-0 space-y-5 overflow-x-hidden">
-      <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        ${metricCard("Active findings", number(findings.length), `${number(highRisk)} critical or high`, highRisk > 0 ? "critical" : "ok", "in:security_findings sort:time:desc limit:100")}
-        ${metricCard("Device correlation", `${percent(deviceCorrelated, findings.length)}`, `${number(deviceCorrelated)} of ${number(findings.length)} findings have a device link`, deviceCorrelated === findings.length ? "ok" : "warning", "in:security_findings sort:time:desc limit:100")}
-        ${metricCard("Scan activity", number(scans.length), "Falco, Trivy, Bumblebee, inventory runs", scans.length > 0 ? "ok" : "neutral", "in:scan_activity sort:time:desc limit:80")}
-        ${metricCard("DNS security", number(dns.length), "PowerDNS DNS activity events", dns.length > 0 ? "warning" : "neutral", "in:dns_activity sort:time:desc limit:80")}
+    <section class="sr-pkg-dash">
+      ${
+        framesLoading
+          ? `<div class="sr-pkg-loading-banner">Hydrating security frames…</div>`
+          : ""
+      }
+
+      <div class="sr-pkg-kpi-grid">
+        ${metricCard({
+          title: "Active findings",
+          value: number(findings.length),
+          caption: `${number(highRisk)} critical or high`,
+          status: highRisk > 0 ? "critical" : "ok",
+          query: QUERIES.findings,
+          loading: frameLoading(frames.findings_recent),
+        })}
+        ${metricCard({
+          title: "Device correlation",
+          value: percent(deviceCorrelated, findings.length),
+          caption: `${number(deviceCorrelated)} of ${number(findings.length)} findings have a device link`,
+          status: findings.length === 0 ? "neutral" : deviceCorrelated === findings.length ? "ok" : "warning",
+          query: QUERIES.findings,
+          loading: frameLoading(frames.findings_recent),
+        })}
+        ${metricCard({
+          title: "Scan activity",
+          value: number(scans.length),
+          caption: "Falco, Trivy, Bumblebee, inventory runs",
+          status: scans.length > 0 ? "ok" : "neutral",
+          query: QUERIES.scans,
+          loading: frameLoading(frames.scan_activity_recent),
+        })}
+        ${metricCard({
+          title: "DNS security",
+          value: number(dns.length),
+          caption: "PowerDNS DNS activity events",
+          status: dns.length > 0 ? "warning" : "neutral",
+          query: QUERIES.dns,
+          loading: frameLoading(frames.dns_activity_recent),
+        })}
       </div>
 
-      <section class="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
-        <div class="flex flex-wrap items-center justify-between gap-3">
+      <section class="sr-pkg-panel">
+        <header class="sr-pkg-panel-header">
           <div>
-            <h2 class="text-base font-semibold text-base-content">Scanner Signal Coverage</h2>
-            <p class="text-xs text-base-content/60">Latest source-scoped OCSF rows from each scanner and add-on</p>
+            <h2>Scanner Signal Coverage</h2>
+            <p>Latest source-scoped OCSF rows from each scanner and add-on</p>
           </div>
-        </div>
-        <div class="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        </header>
+        <div class="sr-pkg-signal-grid">
           ${scannerSignals.map(scannerSignalCard).join("")}
         </div>
       </section>
 
-      <div class="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
-        <section class="min-w-0 rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
-          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 px-4 py-3">
+      <div class="sr-pkg-main-grid">
+        <section class="sr-pkg-panel">
+          <header class="sr-pkg-panel-header">
             <div>
-              <h2 class="text-base font-semibold text-base-content">Exposure Posture</h2>
-              <p class="text-xs text-base-content/60">Editable posture panels built from normalized security findings and scan activity</p>
+              <h2>Exposure Posture</h2>
+              <p>Priority signals from findings, scans, and DNS enforcement</p>
             </div>
-            <button type="button" data-path="/security" class="btn btn-xs btn-primary">Open work queue</button>
+            <button type="button" data-path="/security" class="sr-pkg-btn is-primary">Open work queue</button>
+          </header>
+          <div class="sr-pkg-posture-grid">
+            ${postureInsightCard("Critical/high", number(highRisk), "Priority findings", highRisk > 0 ? "critical" : "ok", QUERIES.findings)}
+            ${postureInsightCard("Resource-only findings", number(resourceOnlyFindings), "No correlated device link", resourceOnlyFindings > 0 ? "warning" : "ok", QUERIES.findings)}
+            ${postureInsightCard("Failed scans", number(failedScans), "Scanner runs needing attention", failedScans > 0 ? "critical" : "ok", QUERIES.failedScans)}
+            ${postureInsightCard("DNS blocks", number(dnsBlocks), "Policy enforcement signals", dnsBlocks > 0 ? "warning" : "neutral", QUERIES.dnsBlocks)}
           </div>
-          <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            ${postureInsightCard("Critical/high", number(highRisk), "Priority findings", highRisk > 0 ? "critical" : "ok", "in:security_findings sort:time:desc limit:100")}
-            ${postureInsightCard("Resource-only findings", number(resourceOnlyFindings), "No correlated device link", resourceOnlyFindings > 0 ? "warning" : "ok", "in:security_findings sort:time:desc limit:100")}
-            ${postureInsightCard("Failed scans", number(failedScans), "Scanner runs needing attention", failedScans > 0 ? "critical" : "ok", "in:scan_activity status:Failure sort:time:desc limit:80")}
-            ${postureInsightCard("DNS blocks", number(dnsBlocks), "Policy enforcement signals", dnsBlocks > 0 ? "warning" : "neutral", "in:dns_activity source:powerdns sort:time:desc limit:80")}
-          </div>
-          <div class="mt-4 grid gap-3 lg:grid-cols-2">
+          <div class="sr-pkg-split-inner">
             ${scannerFreshnessPanel(scannerSignals)}
             ${topAffectedPanel(topAffected)}
           </div>
         </section>
 
-        <section class="min-w-0 space-y-5">
+        <aside class="sr-pkg-side">
           ${breakdownPanel("Severity", SEVERITY_ORDER.map((label) => [label, severityCounts.get(label) || 0]), findings.length)}
           ${breakdownPanel("OCSF Classes", Array.from(classCounts.entries()), findings.length)}
           ${breakdownPanel("Signal Sources", Array.from(sourceCounts.entries()), signalSourceTotal)}
+        </aside>
+      </div>
+
+      <div class="sr-pkg-split-grid">
+        <section class="sr-pkg-panel">
+          <header class="sr-pkg-panel-header">
+            <div>
+              <h2>Scanner Runs</h2>
+              <p>OCSF Scan Activity from add-ons and sidecars</p>
+            </div>
+            <button type="button" data-srql="scans" class="sr-pkg-btn">Open SRQL</button>
+          </header>
+          <div class="sr-pkg-table-head sr-pkg-cols-scan-run">
+            <span>Run</span>
+            <span>Source</span>
+            <span>Entity</span>
+            <span>Status</span>
+            <span>Time</span>
+          </div>
+          <div class="sr-pkg-incident-list">
+            ${
+              frameLoading(frames.scan_activity_recent)
+                ? emptyState("Loading scan activity…")
+                : scans.length
+                  ? scans.slice(0, 12).map(scanRow).join("")
+                  : emptyState("No scan activity returned.")
+            }
+          </div>
+        </section>
+
+        <section class="sr-pkg-panel">
+          <header class="sr-pkg-panel-header">
+            <div>
+              <h2>DNS Security Activity</h2>
+              <p>PowerDNS OCSF DNS Activity events</p>
+            </div>
+            <button type="button" data-srql="dns" class="sr-pkg-btn">Open SRQL</button>
+          </header>
+          <div class="sr-pkg-table-head sr-pkg-cols-dns">
+            <span>Event</span>
+            <span>Entity</span>
+            <span>Status</span>
+            <span>Time</span>
+          </div>
+          <div class="sr-pkg-incident-list">
+            ${
+              frameLoading(frames.dns_activity_recent)
+                ? emptyState("Loading DNS activity…")
+                : dns.length
+                  ? dns.slice(0, 12).map(dnsRow).join("")
+                  : emptyState("No DNS security activity returned.")
+            }
+          </div>
         </section>
       </div>
 
-      <div class="grid gap-5 xl:grid-cols-2">
-        <section class="min-w-0 overflow-hidden rounded-lg border border-base-300 bg-base-100 shadow-sm">
-          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 px-4 py-3">
-            <div>
-              <h2 class="text-base font-semibold text-base-content">Scanner Runs</h2>
-              <p class="text-xs text-base-content/60">OCSF Scan Activity from add-ons and sidecars</p>
-            </div>
-            <button type="button" data-srql="scans" class="btn btn-xs btn-ghost">Open SRQL</button>
-          </div>
-          <div class="max-w-full overflow-x-auto">
-            <table class="table table-sm">
-              <thead><tr><th>Run</th><th>Source</th><th>Entity</th><th>Status</th><th>Time</th></tr></thead>
-              <tbody>${scans.length ? scans.slice(0, 12).map(scanRow).join("") : emptyRow("No scan activity returned", 5)}</tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="min-w-0 overflow-hidden rounded-lg border border-base-300 bg-base-100 shadow-sm">
-          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 px-4 py-3">
-            <div>
-              <h2 class="text-base font-semibold text-base-content">DNS Security Activity</h2>
-              <p class="text-xs text-base-content/60">PowerDNS OCSF DNS Activity events</p>
-            </div>
-            <button type="button" data-srql="dns" class="btn btn-xs btn-ghost">Open SRQL</button>
-          </div>
-          <div class="max-w-full overflow-x-auto">
-            <table class="table table-sm">
-              <thead><tr><th>Event</th><th>Entity</th><th>Status</th><th>Time</th></tr></thead>
-              <tbody>${dns.length ? dns.slice(0, 12).map(dnsRow).join("") : emptyRow("No DNS security activity returned", 4)}</tbody>
-            </table>
-          </div>
-        </section>
-      </div>
-
-      <section class="min-w-0 rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
-        <div class="flex flex-wrap items-center justify-between gap-3">
+      <section class="sr-pkg-panel">
+        <header class="sr-pkg-panel-header">
           <div>
-            <h2 class="text-base font-semibold text-base-content">Vulnerability Focus</h2>
-            <p class="text-xs text-base-content/60">Endpoint inventory and Trivy vulnerability findings</p>
+            <h2>Vulnerability Focus</h2>
+            <p>Endpoint inventory and Trivy vulnerability findings</p>
           </div>
-          <button type="button" data-srql="vulnerabilities" class="btn btn-xs btn-ghost">Open SRQL</button>
-        </div>
-        <div class="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          ${(vulnerabilities.length ? vulnerabilities.slice(0, 8) : findings.filter((row) => Number(row.class_uid) === 2002).slice(0, 8)).map(compactFinding).join("") || emptyCard("No vulnerability findings returned.", "in:security_findings class_uid:2002 sort:time:desc limit:80")}
+          <button type="button" data-srql="vulnerabilities" class="sr-pkg-btn">Open SRQL</button>
+        </header>
+        <div class="sr-pkg-vuln-grid">
+          ${
+            (() => {
+              const list =
+                vulnerabilities.length > 0
+                  ? vulnerabilities.slice(0, 8)
+                  : findings.filter((row) => Number(row.class_uid) === 2002).slice(0, 8)
+              if (frameLoading(frames.vulnerability_findings) && list.length === 0) {
+                return emptyState("Loading vulnerability findings…")
+              }
+              return list.length
+                ? list.map(compactFinding).join("")
+                : emptyCard("No vulnerability findings returned.", QUERIES.vulnerabilities)
+            })()
+          }
         </div>
       </section>
     </section>
@@ -153,16 +233,9 @@ function dashboardHtml(host) {
 }
 
 function bindActions(element, api) {
-  const queries = {
-    findings: "in:security_findings sort:time:desc limit:100",
-    scans: "in:scan_activity sort:time:desc limit:80",
-    dns: "in:dns_activity sort:time:desc limit:80",
-    vulnerabilities: "in:security_findings class_uid:2002 sort:time:desc limit:80",
-  }
-
   for (const button of element.querySelectorAll("[data-srql]")) {
     button.addEventListener("click", () => {
-      const query = button.dataset.query || queries[button.dataset.srql]
+      const query = button.dataset.query || QUERIES[button.dataset.srql]
       if (query) api.setSrqlQuery(query)
     })
   }
@@ -204,7 +277,14 @@ function scannerSignalRows(frames) {
 }
 
 function signal(label, kind, query, frame) {
-  return {label, kind, query, row: rows(frame)[0] || null}
+  return {
+    label,
+    kind,
+    query,
+    frame,
+    loading: frameLoading(frame),
+    row: rows(frame)[0] || null,
+  }
 }
 
 function scannerSignalCard(signal) {
@@ -215,57 +295,76 @@ function scannerSignalCard(signal) {
     : `data-query="${escapeAttr(signal.query)}" data-card-action="query"`
 
   return `
-    <article ${actionAttr} class="min-w-0 cursor-pointer rounded-lg border border-base-300 bg-base-100 p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-info hover:shadow-md">
-      <div class="flex items-start justify-between gap-2">
+    <article ${actionAttr} class="sr-pkg-signal-card is-${escapeAttr(freshness.state)} ${row || signal.loading ? "is-clickable" : ""}">
+      <div class="sr-pkg-signal-top">
         <div class="min-w-0">
-          <h3 class="truncate text-sm font-semibold text-base-content">${escapeHtml(signal.label)}</h3>
-          <p class="text-xs text-base-content/60">${escapeHtml(signal.kind)}</p>
+          <h3>${escapeHtml(signal.label)}</h3>
+          <p>${escapeHtml(signal.kind)}</p>
         </div>
-        <span class="badge badge-sm ${freshness.badgeClass}">${escapeHtml(freshness.label)}</span>
+        <span class="sr-pkg-badge is-${escapeAttr(freshness.tone)}">${escapeHtml(freshness.label)}</span>
       </div>
       ${
-        row
-          ? `<div class="mt-3 space-y-2 text-xs">
-              <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Source</span>${sourceBadge(sourceType(row))}</div>
-              <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Entity</span><span class="max-w-40 truncate">${entityLink(row)}</span></div>
-              <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Class</span><span>${escapeHtml(classLabel(row))}</span></div>
-              <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Time</span><span>${escapeHtml(formatTime(row.time || row.event_timestamp))}</span></div>
-              <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Freshness</span><span>${escapeHtml(freshness.caption)}</span></div>
-              <p class="line-clamp-2 text-base-content">${escapeHtml(row.message || row.short_message || row.id || "Security signal")}</p>
+        signal.loading
+          ? `<div class="sr-pkg-signal-body">
+              <div class="sr-pkg-skeleton"></div>
+              <div class="sr-pkg-skeleton is-short"></div>
+              <div class="sr-pkg-skeleton is-medium"></div>
             </div>`
-          : `<p class="mt-3 text-xs text-base-content/60">${escapeHtml(missingSignalMessage(signal))}</p>`
+          : row
+            ? `<div class="sr-pkg-signal-body">
+                <div class="sr-pkg-kv"><span>Source</span>${sourceBadge(sourceType(row))}</div>
+                <div class="sr-pkg-kv"><span>Entity</span><span class="sr-pkg-kv-value">${entityLink(row)}</span></div>
+                <div class="sr-pkg-kv"><span>Class</span><span class="sr-pkg-kv-value">${escapeHtml(classLabel(row))}</span></div>
+                <div class="sr-pkg-kv"><span>Time</span><span class="sr-pkg-kv-value">${escapeHtml(formatTime(row.time || row.event_timestamp))}</span></div>
+                <div class="sr-pkg-kv"><span>Freshness</span><span class="sr-pkg-kv-value">${escapeHtml(freshness.caption)}</span></div>
+                <p class="sr-pkg-signal-msg">${escapeHtml(row.message || row.short_message || row.id || "Security signal")}</p>
+              </div>`
+            : `<p class="sr-pkg-signal-empty">${escapeHtml(missingSignalMessage(signal))}</p>`
       }
-      <button type="button" data-srql="source-signal" data-query="${escapeAttr(signal.query)}" class="btn btn-xs btn-ghost mt-3">Open SRQL</button>
-      <span class="sr-only">${escapeHtml(freshness.state)}</span>
+      <button type="button" data-srql="source-signal" data-query="${escapeAttr(signal.query)}" class="sr-pkg-btn">Open SRQL</button>
     </article>
   `
 }
 
 function scanRow(row) {
   return `
-    <tr ${eventActionAttr(row)} class="${row.id ? "cursor-pointer hover" : ""}">
-      <td>
-        <div class="font-medium text-base-content">${escapeHtml(row.activity_name || "Scan")}</div>
-        <div class="max-w-md truncate text-xs text-base-content/60">${escapeHtml(row.message || row.short_message || row.id || "")}</div>
-      </td>
-      <td>${sourceBadge(sourceType(row))}</td>
-      <td>${entityLink(row)}</td>
-      <td>${statusBadge(row.status || row.status_detail)}</td>
-      <td class="whitespace-nowrap text-xs text-base-content/70">${escapeHtml(formatTime(row.time || row.event_timestamp))}</td>
-    </tr>
+    <article ${eventActionAttr(row)} class="sr-pkg-row sr-pkg-cols-scan-run ${row.id ? "is-clickable" : ""}">
+      <div class="sr-pkg-cell-main">
+        <strong>${escapeHtml(row.activity_name || "Scan")}</strong>
+        <small>${escapeHtml(row.message || row.short_message || row.id || "")}</small>
+      </div>
+      <div>${sourceBadge(sourceType(row))}</div>
+      <div>${entityLink(row)}</div>
+      <div>${statusBadge(row.status || row.status_detail)}</div>
+      <div class="sr-pkg-cell-muted sr-pkg-nowrap">${escapeHtml(formatTime(row.time || row.event_timestamp))}</div>
+    </article>
+  `
+}
+
+function dnsRow(row) {
+  return `
+    <article ${eventActionAttr(row)} class="sr-pkg-row sr-pkg-cols-dns ${row.id ? "is-clickable" : ""}">
+      <div class="sr-pkg-cell-main">
+        <strong>${escapeHtml(row.message || row.short_message || row.id || "DNS event")}</strong>
+        <small>${escapeHtml(sourceType(row))}</small>
+      </div>
+      <div>${entityLink(row)}</div>
+      <div>${statusBadge(row.status || row.severity)}</div>
+      <div class="sr-pkg-cell-muted sr-pkg-nowrap">${escapeHtml(formatTime(row.time || row.event_timestamp))}</div>
+    </article>
   `
 }
 
 function postureInsightCard(title, value, caption, tone, query) {
   return `
-    <article data-query="${escapeAttr(query)}" data-card-action="query" class="cursor-pointer rounded-lg border border-base-300 bg-base-200/40 p-3 transition hover:-translate-y-0.5 hover:border-info hover:bg-base-200">
-      <div class="flex items-center justify-between gap-2">
-        <h3 class="text-xs font-medium uppercase tracking-wide text-base-content/60">${escapeHtml(title)}</h3>
-        <span class="h-2.5 w-2.5 rounded-full ${toneClass(tone)}"></span>
+    <button type="button" data-query="${escapeAttr(query)}" data-card-action="query" class="sr-pkg-posture ${toneClassName(tone)}">
+      <div class="sr-pkg-kpi-top">
+        <span class="sr-pkg-kpi-label">${escapeHtml(title)}</span>
+        <span class="sr-pkg-kpi-dot" aria-hidden="true"></span>
       </div>
-      <div class="mt-2 text-2xl font-semibold text-base-content">${escapeHtml(value)}</div>
-      <p class="mt-1 text-xs text-base-content/60">${escapeHtml(caption)}</p>
-    </article>
+      <strong class="sr-pkg-kpi-value is-sm">${escapeHtml(value)}</strong>
+      <span class="sr-pkg-kpi-caption">${escapeHtml(caption)}</span>
+    </button>
   `
 }
 
@@ -274,52 +373,59 @@ function scannerFreshnessPanel(signals) {
   const activeCount = statuses.filter((status) => status.state === "present").length
   const staleCount = statuses.filter((status) => status.state === "stale").length
   const missingCount = statuses.filter((status) => status.state === "missing").length
+  const loadingCount = statuses.filter((status) => status.state === "loading").length
+  const badgeTone =
+    loadingCount > 0 ? "unknown" : staleCount || missingCount ? "warning" : "ok"
 
   return `
-    <article class="rounded-lg border border-base-300 bg-base-200/30 p-4">
-      <div class="flex items-center justify-between gap-3">
-        <h3 class="text-sm font-semibold text-base-content">Scanner coverage</h3>
-        <span class="badge badge-sm ${staleCount || missingCount ? "badge-warning" : "badge-success"}">${number(activeCount)}/${number(signals.length)} fresh</span>
+    <article class="sr-pkg-subpanel">
+      <div class="sr-pkg-subpanel-head">
+        <h3>Scanner coverage</h3>
+        <span class="sr-pkg-badge is-${escapeAttr(badgeTone)}">
+          ${loadingCount > 0 ? "loading" : `${number(activeCount)}/${number(signals.length)} present`}
+        </span>
       </div>
-      <div class="mt-3 space-y-2">
-        ${
-          signals
-            .map((signal) => [signal, signalFreshness(signal)])
-            .map(
-              ([signal, freshness]) => `
-                <div data-query="${escapeAttr(signal.query)}" data-card-action="query" class="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-1 text-xs hover:bg-base-100" title="${escapeAttr(freshness.caption)}">
-                  <span class="truncate text-base-content/70">${escapeHtml(signal.label)}</span>
-                  <span class="badge badge-xs ${freshness.badgeClass}">${escapeHtml(freshness.label)}</span>
-                </div>
-              `,
-            )
-            .join("")
-        }
+      <div class="sr-pkg-stack is-tight">
+        ${signals
+          .map((signal) => {
+            const freshness = signalFreshness(signal)
+            return `
+              <button type="button" data-query="${escapeAttr(signal.query)}" data-card-action="query" class="sr-pkg-coverage-row" title="${escapeAttr(freshness.caption)}">
+                <span>${escapeHtml(signal.label)}</span>
+                <span class="sr-pkg-badge is-${escapeAttr(freshness.tone)}">${escapeHtml(freshness.label)}</span>
+              </button>
+            `
+          })
+          .join("")}
       </div>
     </article>
   `
 }
 
 function signalFreshness(signal) {
+  if (signal.loading) {
+    return {state: "loading", label: "loading", tone: "unknown", caption: "Waiting for frame data"}
+  }
+
   const row = signal.row
   if (!row) {
-    return {state: "missing", label: "missing", badgeClass: "badge-ghost", caption: missingSignalMessage(signal)}
+    return {state: "missing", label: "missing", tone: "unknown", caption: missingSignalMessage(signal)}
   }
 
   const timestamp = row.time || row.event_timestamp
   const ageMs = signalAgeMs(timestamp)
 
   if (ageMs === null) {
-    return {state: "stale", label: "unknown age", badgeClass: "badge-warning", caption: "Signal time is unavailable"}
+    return {state: "stale", label: "unknown age", tone: "warning", caption: "Signal time is unavailable"}
   }
 
   const age = formatAge(ageMs)
 
   if (ageMs > 24 * 60 * 60 * 1000) {
-    return {state: "stale", label: "stale", badgeClass: "badge-warning", caption: `Last seen ${age} ago`}
+    return {state: "stale", label: "stale", tone: "warning", caption: `Last seen ${age} ago`}
   }
 
-  return {state: "present", label: "present", badgeClass: "badge-success", caption: `Last seen ${age} ago`}
+  return {state: "present", label: "present", tone: "ok", caption: `Last seen ${age} ago`}
 }
 
 function signalAgeMs(value) {
@@ -342,67 +448,53 @@ function formatAge(ageMs) {
 
 function topAffectedPanel(resources) {
   return `
-    <article class="rounded-lg border border-base-300 bg-base-200/30 p-4">
-      <div class="flex items-center justify-between gap-3">
-        <h3 class="text-sm font-semibold text-base-content">Top affected resources</h3>
-        <button type="button" data-path="/security" class="btn btn-xs btn-ghost">Investigate</button>
+    <article class="sr-pkg-subpanel">
+      <div class="sr-pkg-subpanel-head">
+        <h3>Top affected resources</h3>
+        <button type="button" data-path="/security" class="sr-pkg-btn">Investigate</button>
       </div>
-      <div class="mt-3 space-y-2">
+      <div class="sr-pkg-stack is-tight">
         ${
           resources.length
             ? resources
                 .map(
                   ([label, count]) => `
-                    <div data-query="${escapeAttr("in:security_findings sort:time:desc limit:100")}" data-card-action="query" class="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-1 text-xs hover:bg-base-100">
-                      <span class="truncate text-base-content/70">${escapeHtml(label)}</span>
-                      <span class="font-medium text-base-content">${number(count)}</span>
-                    </div>
-                  `,
+                    <button type="button" data-query="${escapeAttr(QUERIES.findings)}" data-card-action="query" class="sr-pkg-coverage-row">
+                      <span class="truncate">${escapeHtml(label)}</span>
+                      <strong class="sr-pkg-cell-num">${number(count)}</strong>
+                    </button>
+                  `
                 )
                 .join("")
-            : `<p class="text-sm text-base-content/60">No affected resource signal is available yet.</p>`
+            : emptyState("No affected resource signal is available yet.")
         }
       </div>
     </article>
   `
 }
 
-function dnsRow(row) {
-  return `
-    <tr ${eventActionAttr(row)} class="${row.id ? "cursor-pointer hover" : ""}">
-      <td>
-        <div class="max-w-xl truncate font-medium text-base-content">${escapeHtml(row.message || row.short_message || row.id || "DNS event")}</div>
-        <div class="text-xs text-base-content/60">${escapeHtml(sourceType(row))}</div>
-      </td>
-      <td>${entityLink(row)}</td>
-      <td>${statusBadge(row.status || row.severity)}</td>
-      <td class="whitespace-nowrap text-xs text-base-content/70">${escapeHtml(formatTime(row.time || row.event_timestamp))}</td>
-    </tr>
-  `
-}
-
 function compactFinding(row) {
   const actionAttr = row?.id
     ? eventActionAttr(row)
-    : `data-query="${escapeAttr("in:security_findings class_uid:2002 sort:time:desc limit:80")}" data-card-action="query"`
+    : `data-query="${escapeAttr(QUERIES.vulnerabilities)}" data-card-action="query"`
 
   return `
-    <article ${actionAttr} class="cursor-pointer rounded-lg border border-base-300 p-3 transition hover:-translate-y-0.5 hover:border-info hover:shadow-sm">
-      <div class="flex items-center justify-between gap-2">
+    <article ${actionAttr} class="sr-pkg-vuln-card ${row?.id ? "is-clickable" : ""}">
+      <div class="sr-pkg-signal-top">
         ${severityBadge(row.severity)}
-        <span class="text-xs text-base-content/50">${escapeHtml(sourceType(row))}</span>
+        <span class="sr-pkg-cell-muted">${escapeHtml(sourceType(row))}</span>
       </div>
-      <div class="mt-2 line-clamp-2 text-sm font-medium text-base-content">${escapeHtml(row.message || row.short_message || "Vulnerability finding")}</div>
-      <div class="mt-2 text-xs text-base-content/60">${entityLink(row)}</div>
+      <div class="sr-pkg-vuln-msg">${escapeHtml(row.message || row.short_message || "Vulnerability finding")}</div>
+      <div class="sr-pkg-vuln-entity">${entityLink(row)}</div>
     </article>
   `
 }
 
 function emptyCard(message, query) {
   return `
-    <article data-query="${escapeAttr(query)}" data-card-action="query" class="cursor-pointer rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60 transition hover:border-info hover:bg-base-200/50">
+    <button type="button" data-query="${escapeAttr(query)}" data-card-action="query" class="sr-pkg-empty-card">
       ${escapeHtml(message)}
-    </article>
+    </button>
   `
 }
 
@@ -410,45 +502,60 @@ function breakdownPanel(title, entries, total) {
   const filtered = entries.filter(([, count]) => Number(count || 0) > 0)
 
   return `
-    <section class="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
-      <h2 class="text-base font-semibold text-base-content">${escapeHtml(title)}</h2>
-      <div class="mt-4 space-y-3">
+    <section class="sr-pkg-panel">
+      <header class="sr-pkg-panel-header">
+        <div>
+          <h2>${escapeHtml(title)}</h2>
+        </div>
+      </header>
+      <div class="sr-pkg-status-mix">
         ${
           filtered.length
-            ? filtered.slice(0, 8).map(([label, count]) => statusBar(title, label, count, total)).join("")
-            : `<p class="text-sm text-base-content/60">No rows returned.</p>`
+            ? filtered
+                .slice(0, 8)
+                .map(([label, count]) => statusBar(title, label, count, total))
+                .join("")
+            : emptyState("No rows returned.")
         }
       </div>
     </section>
   `
 }
 
-function metricCard(title, value, caption, tone, query) {
+function metricCard({title, value, caption, status, query, loading}) {
+  const tone = toneClassName(status)
   return `
-    <article data-query="${escapeAttr(query)}" data-card-action="query" class="cursor-pointer rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-info hover:shadow-md">
-      <div class="flex items-center justify-between gap-3">
-        <h2 class="text-sm font-medium text-base-content/70">${escapeHtml(title)}</h2>
-        <span class="h-2.5 w-2.5 rounded-full ${toneClass(tone)}"></span>
+    <button
+      type="button"
+      class="sr-pkg-kpi ${tone} ${loading ? "is-loading" : ""}"
+      data-query="${escapeAttr(query || "")}"
+      data-card-action="query"
+      ${query ? "" : "disabled"}
+    >
+      <div class="sr-pkg-kpi-top">
+        <span class="sr-pkg-kpi-label">${escapeHtml(title)}</span>
+        <span class="sr-pkg-kpi-dot" aria-hidden="true"></span>
       </div>
-      <div class="mt-3 text-3xl font-semibold tracking-normal text-base-content">${escapeHtml(value)}</div>
-      <p class="mt-1 text-xs text-base-content/60">${escapeHtml(caption)}</p>
-    </article>
+      <strong class="sr-pkg-kpi-value">${loading ? "…" : escapeHtml(value)}</strong>
+      <span class="sr-pkg-kpi-caption">${escapeHtml(loading ? "Loading frame…" : caption)}</span>
+    </button>
   `
 }
 
 function statusBar(title, label, count, total) {
   const pct = total > 0 ? Math.round((Number(count || 0) / Number(total)) * 100) : 0
   const query = breakdownQuery(title, label)
+  const fillTone = barTone(label)
   return `
-    <div data-query="${escapeAttr(query)}" data-card-action="query" class="cursor-pointer rounded-md p-1 transition hover:bg-base-200/70">
-      <div class="mb-1 flex items-center justify-between gap-3 text-xs">
-        <span class="truncate text-base-content/70">${escapeHtml(label)}</span>
-        <span class="font-medium text-base-content">${number(count)} (${pct}%)</span>
+    <button type="button" data-query="${escapeAttr(query)}" data-card-action="query" class="sr-pkg-mix-row is-button">
+      <div class="sr-pkg-mix-labels">
+        <span class="sr-pkg-mix-name">${escapeHtml(label)}</span>
+        <span class="sr-pkg-mix-count">${number(count)} <em>(${pct}%)</em></span>
       </div>
-      <div class="h-2 overflow-hidden rounded-full bg-base-200">
-        <div class="h-full ${toneClass(label)}" style="width: ${pct}%"></div>
+      <div class="sr-pkg-mix-track">
+        <div class="sr-pkg-mix-fill is-${escapeAttr(fillTone)}" style="width: ${pct}%"></div>
       </div>
-    </div>
+    </button>
   `
 }
 
@@ -466,7 +573,7 @@ function breakdownQuery(title, label) {
     return `in:events source:${label} sort:time:desc limit:100`
   }
 
-  return "in:security_findings sort:time:desc limit:100"
+  return QUERIES.findings
 }
 
 function eventActionAttr(row) {
@@ -480,6 +587,12 @@ function interactiveClick(event) {
 function frameMap(host) {
   const frames = Array.isArray(host?.package?.frames) ? host.package.frames : []
   return Object.fromEntries(frames.map((frame) => [String(frame?.id || ""), frame]))
+}
+
+function frameLoading(frame) {
+  if (!frame) return false
+  const status = String(frame.status || frame.state || "").toLowerCase()
+  return status === "loading" || status === "pending" || status === "running"
 }
 
 function rows(frame) {
@@ -544,23 +657,36 @@ function deviceName(row) {
 function entityLink(row) {
   const uid = canonicalDeviceUid(row)
   const name = deviceName(row) || affectedEntityLabel(row)
-  if (!uid) return `<span class="text-xs text-base-content/60">${escapeHtml(name)}</span>`
-  return `<a class="link link-primary text-xs" href="/devices/${encodeURIComponent(uid)}">${escapeHtml(name)}</a>`
+  if (!uid) return `<span class="sr-pkg-device-name">${escapeHtml(name)}</span>`
+  return `<a class="sr-pkg-device-link" href="/devices/${encodeURIComponent(uid)}">${escapeHtml(name)}</a>`
 }
 
 function sourceBadge(source) {
-  return `<span class="badge badge-sm badge-outline">${escapeHtml(source || "unknown")}</span>`
+  return `<span class="sr-pkg-badge is-unknown">${escapeHtml(source || "unknown")}</span>`
 }
 
 function severityBadge(value) {
   const severity = normalizedSeverity(value)
-  return `<span class="badge badge-sm ${severityClass(severity)}">${escapeHtml(severity)}</span>`
+  const tone =
+    severity === "Critical" || severity === "High"
+      ? "critical"
+      : severity === "Medium"
+        ? "warning"
+        : severity === "Low"
+          ? "ok"
+          : "unknown"
+  return `<span class="sr-pkg-badge is-${escapeAttr(tone)}">${escapeHtml(severity)}</span>`
 }
 
 function statusBadge(value) {
   const normalized = String(value || "Unknown").toLowerCase()
-  const klass = normalized.includes("success") || normalized === "ok" ? "badge-success" : normalized.includes("fail") || normalized.includes("error") ? "badge-error" : "badge-neutral"
-  return `<span class="badge badge-sm ${klass}">${escapeHtml(value || "Unknown")}</span>`
+  const tone =
+    normalized.includes("success") || normalized === "ok"
+      ? "ok"
+      : normalized.includes("fail") || normalized.includes("error")
+        ? "critical"
+        : "unknown"
+  return `<span class="sr-pkg-badge is-${escapeAttr(tone)}">${escapeHtml(value || "Unknown")}</span>`
 }
 
 function failedStatus(value) {
@@ -574,11 +700,15 @@ function dnsBlock(row) {
       stringAt(row, ["raw_data", "rcode"]) ||
       row.status ||
       row.message ||
-      "",
+      ""
   ).toLowerCase()
 
-  return ["nxdomain", "blocked", "block", "sinkhole", "refused"].some((token) => action.includes(token)) ||
-    String(row.message || row.short_message || "").toLowerCase().includes("rpz")
+  return (
+    ["nxdomain", "blocked", "block", "sinkhole", "refused"].some((token) => action.includes(token)) ||
+    String(row.message || row.short_message || "")
+      .toLowerCase()
+      .includes("rpz")
+  )
 }
 
 function topAffectedResources(findings, vulnerabilities) {
@@ -634,7 +764,9 @@ function missingSignalMessage(signal) {
   if (signal.label === "Trivy findings") return "No Trivy vulnerability finding rows are available yet."
   if (signal.label === "Trivy scan") return "No Trivy scan activity is available yet."
   if (signal.label === "Falco detection") return "No Falco runtime detections are available yet."
-  if (signal.label === "Endpoint inventory") return "No endpoint inventory vulnerability findings are available yet."
+  if (signal.label === "Endpoint inventory") {
+    return "No endpoint inventory vulnerability findings are available yet."
+  }
   if (signal.label === "PowerDNS DNS") return "No PowerDNS DNS activity is available yet."
   if (signal.label === "Bumblebee finding") return "No Bumblebee findings are available yet."
   if (signal.label === "Bumblebee scan") return "No Bumblebee scan activity is available yet."
@@ -651,20 +783,24 @@ function normalizedSeverity(value) {
   return "Unknown"
 }
 
-function severityClass(severity) {
-  if (severity === "Critical" || severity === "High") return "badge-error"
-  if (severity === "Medium") return "badge-warning"
-  if (severity === "Low") return "badge-info"
-  return "badge-neutral"
+function toneClassName(tone) {
+  const normalized = String(tone || "").toLowerCase()
+  if (normalized === "critical" || normalized === "high") return "is-critical"
+  if (normalized === "medium" || normalized === "warning") return "is-warning"
+  if (normalized === "ok" || normalized === "success") return "is-ok"
+  return "is-neutral"
 }
 
-function toneClass(tone) {
-  const normalized = String(tone || "").toLowerCase()
-  if (normalized === "critical" || normalized === "high") return "bg-error"
-  if (normalized === "medium" || normalized === "warning") return "bg-warning"
-  if (normalized === "ok" || normalized === "success") return "bg-success"
-  if (normalized === "low" || normalized === "info") return "bg-info"
-  return "bg-neutral"
+function barTone(label) {
+  const normalized = String(label || "").toLowerCase()
+  if (normalized === "critical" || normalized === "high") return "critical"
+  if (normalized === "medium" || normalized === "warning") return "warning"
+  if (normalized === "low" || normalized === "ok" || normalized === "informational") return "ok"
+  return "unknown"
+}
+
+function emptyState(message) {
+  return `<div class="sr-pkg-empty">${escapeHtml(message)}</div>`
 }
 
 function stringAt(value, path) {
@@ -687,10 +823,6 @@ function formatTime(value) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)
   return date.toLocaleString()
-}
-
-function emptyRow(message, colspan) {
-  return `<tr><td colspan="${colspan}" class="py-8 text-center text-sm text-base-content/60">${escapeHtml(message)}</td></tr>`
 }
 
 function escapeHtml(value) {

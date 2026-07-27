@@ -102,6 +102,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:flow_availability, :checking)
     |> assign(:flows_loading, false)
     |> assign(:flows_request_ref, nil)
+    |> assign(:pagination_page, 1)
     |> assign(:device_logs, [])
     |> assign(:logs_error, nil)
     |> assign(:logs_pagination, %{})

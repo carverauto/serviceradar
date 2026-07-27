@@ -51,27 +51,31 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
       >
         <!-- Basic Info Section -->
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Basic Information
           </h3>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="label"><span class="label-text">Profile Name</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Profile Name</span>
+              </label>
               <.input
                 type="text"
                 field={@form[:name]}
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="e.g., Network Infrastructure"
                 required
               />
             </div>
             <div>
-              <label class="label"><span class="label-text">Poll Interval (seconds)</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Poll Interval (seconds)</span>
+              </label>
               <.input
                 type="number"
                 field={@form[:poll_interval]}
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="60"
                 min="10"
               />
@@ -80,21 +84,25 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="label"><span class="label-text">Timeout (seconds)</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Timeout (seconds)</span>
+              </label>
               <.input
                 type="number"
                 field={@form[:timeout]}
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="5"
                 min="1"
               />
             </div>
             <div>
-              <label class="label"><span class="label-text">Retries</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Retries</span>
+              </label>
               <.input
                 type="number"
                 field={@form[:retries]}
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="3"
                 min="0"
               />
@@ -102,11 +110,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
           </div>
 
           <div>
-            <label class="label"><span class="label-text">Description</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Description</span>
+            </label>
             <.input
               type="textarea"
               field={@form[:description]}
-              class="textarea textarea-bordered w-full"
+              class={ui_field_class(class: "w-full min-h-24 py-2.5")}
               placeholder="Optional description of this profile's purpose"
               rows="2"
             />
@@ -115,17 +125,19 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
         
     <!-- SNMP Credentials Section -->
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             SNMP Credentials
           </h3>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="label"><span class="label-text">SNMP Version</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">SNMP Version</span>
+              </label>
               <.input
                 type="select"
                 field={@form[:version]}
-                class="select select-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 options={[
                   {"SNMPv1", "v1"},
                   {"SNMPv2c", "v2c"},
@@ -137,12 +149,14 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
 
           <%= if @version in ["v1", "v2c"] do %>
             <div>
-              <label class="label"><span class="label-text">Community String</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Community String</span>
+              </label>
               <.input
                 type="password"
                 name="form[community]"
                 value=""
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder={
                   if @show_form == :edit_profile,
                     do: "Leave blank to keep existing",
@@ -150,8 +164,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 }
                 autocomplete="off"
               />
-              <label class="label">
-                <span class="label-text-alt text-base-content/50">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
                   Credentials are encrypted at rest.
                 </span>
               </label>
@@ -159,20 +173,24 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
           <% else %>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="label"><span class="label-text">Username</span></label>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Username</span>
+                </label>
                 <.input
                   type="text"
                   field={@form[:username]}
-                  class="input input-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   placeholder="e.g., snmpuser"
                 />
               </div>
               <div>
-                <label class="label"><span class="label-text">Security Level</span></label>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Security Level</span>
+                </label>
                 <.input
                   type="select"
                   field={@form[:security_level]}
-                  class="select select-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   options={[
                     {"No Auth, No Privacy", "no_auth_no_priv"},
                     {"Auth, No Privacy", "auth_no_priv"},
@@ -184,11 +202,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="label"><span class="label-text">Auth Protocol</span></label>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Auth Protocol</span>
+                </label>
                 <.input
                   type="select"
                   field={@form[:auth_protocol]}
-                  class="select select-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   options={[
                     {"MD5", "md5"},
                     {"SHA", "sha"},
@@ -200,12 +220,14 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 />
               </div>
               <div>
-                <label class="label"><span class="label-text">Auth Password</span></label>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Auth Password</span>
+                </label>
                 <.input
                   type="password"
                   name="form[auth_password]"
                   value=""
-                  class="input input-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   placeholder={
                     if @show_form == :edit_profile,
                       do: "Leave blank to keep existing",
@@ -218,11 +240,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="label"><span class="label-text">Privacy Protocol</span></label>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Privacy Protocol</span>
+                </label>
                 <.input
                   type="select"
                   field={@form[:priv_protocol]}
-                  class="select select-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   options={[
                     {"DES", "des"},
                     {"AES", "aes"},
@@ -232,12 +256,14 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 />
               </div>
               <div>
-                <label class="label"><span class="label-text">Privacy Password</span></label>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Privacy Password</span>
+                </label>
                 <.input
                   type="password"
                   name="form[priv_password]"
                   value=""
-                  class="input input-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   placeholder={
                     if @show_form == :edit_profile,
                       do: "Leave blank to keep existing",
@@ -248,7 +274,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
               </div>
             </div>
 
-            <p class="text-xs text-base-content/50">
+            <p class="text-xs text-sr-muted">
               Leave password fields blank to keep existing values. Credentials are encrypted at rest.
             </p>
           <% end %>
@@ -256,17 +282,19 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
         
     <!-- Agent Targeting Section -->
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Agent Targeting
           </h3>
 
           <div>
-            <label class="label"><span class="label-text">Agents</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Agents</span>
+            </label>
             <% selected_agents = Enum.map(@form[:agent_ids].value || [], &to_string/1) %>
             <!-- Hidden empty entry so unchecking every box submits [] (legacy all-agents). -->
             <input type="hidden" name="form[agent_ids][]" value="" />
             <%= if @agents == [] do %>
-              <p class="text-sm text-base-content/60">
+              <p class="text-sm text-sr-muted">
                 No active agents available. Leave unset to run this profile on all SNMP-capable agents.
               </p>
             <% else %>
@@ -277,7 +305,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                       type="checkbox"
                       name="form[agent_ids][]"
                       value={agent.uid}
-                      class="checkbox"
+                      class={ui_checkbox_class()}
                       checked={Enum.member?(selected_agents, to_string(agent.uid))}
                     />
                     <span>{agent_display_name(agent)}</span>
@@ -285,8 +313,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 <% end %>
               </div>
             <% end %>
-            <label class="label">
-              <span class="label-text-alt text-base-content/50">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 Pin this profile to specific agents. Leave all unchecked to run on every SNMP-capable agent (legacy behavior).
               </span>
             </label>
@@ -295,7 +323,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
         
     <!-- Interface Targeting Section -->
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Interface Targeting
           </h3>
 
@@ -305,7 +333,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 <.icon name="hero-information-circle" class="size-5 text-info shrink-0 mt-0.5" />
                 <div>
                   <p class="text-sm font-medium">Default Profile</p>
-                  <p class="text-xs text-base-content/70 mt-1">
+                  <p class="text-xs text-sr-muted mt-1">
                     This profile acts as the fallback for any interfaces that don't match other profiles.
                     You can still set a targeting query here to scope the default and preview counts.
                   </p>
@@ -315,13 +343,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
             
     <!-- Query Input with Builder Toggle -->
             <div>
-              <label class="label"><span class="label-text">Target Query (SRQL)</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Target Query (SRQL)</span>
+              </label>
               <div class="flex items-center gap-2">
                 <div class="flex-1">
                   <.input
                     type="text"
                     field={@form[:target_query]}
-                    class="input input-bordered w-full font-mono text-sm"
+                    class={ui_field_class(mono: true, class: "w-full text-sm")}
                     placeholder="e.g., in:interfaces type:ethernet device.hostname:%router%"
                   />
                 </div>
@@ -334,16 +364,16 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                   <.icon name="hero-adjustments-horizontal" class="size-4" />
                 </.ui_icon_button>
               </div>
-              <label class="label">
-                <span class="label-text-alt text-base-content/50">
-                  SRQL filters to match interfaces. Examples: <code class="bg-base-200 px-1 rounded">type:ethernet</code>,
-                  <code class="bg-base-200 px-1 rounded">device.hostname:%router%</code>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
+                  SRQL filters to match interfaces. Examples: <code class="bg-sr-subtle px-1 rounded">type:ethernet</code>,
+                  <code class="bg-sr-subtle px-1 rounded">device.hostname:%router%</code>
                 </span>
               </label>
             </div>
             
     <!-- Visual Query Builder -->
-            <div :if={@builder_open} class="border border-base-200 rounded-lg p-4 bg-base-100/50">
+            <div :if={@builder_open} class="border border-sr-line rounded-lg p-4 bg-sr-surface/50">
               <div class="flex items-center justify-between mb-4">
                 <div class="text-sm font-semibold">Query Builder</div>
                 <div class="flex items-center gap-2">
@@ -364,7 +394,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 <div class="flex flex-col gap-4">
                   <!-- Filters Section -->
                   <div class="flex flex-col gap-3">
-                    <div class="text-xs text-base-content/60 font-medium">
+                    <div class="text-xs text-sr-muted font-medium">
                       Match interfaces where:
                     </div>
 
@@ -377,7 +407,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                               name={"builder[filters][#{idx}][field]"}
                               value={filter["field"] || ""}
                               placeholder="field"
-                              class="w-40 placeholder:text-base-content/40"
+                              class="w-40 placeholder:text-sr-muted"
                             />
                           <% else %>
                             <.ui_inline_select name={"builder[filters][#{idx}][field]"}>
@@ -391,7 +421,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
 
                           <.ui_inline_select
                             name={"builder[filters][#{idx}][op]"}
-                            class="text-xs text-base-content/70"
+                            class="text-xs text-sr-muted"
                           >
                             <option
                               value="contains"
@@ -415,7 +445,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                             name={"builder[filters][#{idx}][value]"}
                             value={filter["value"] || ""}
                             placeholder="value"
-                            class="placeholder:text-base-content/40 w-48"
+                            class="placeholder:text-sr-muted w-48"
                           />
                         </.query_builder_pill>
 
@@ -434,7 +464,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
 
                     <button
                       type="button"
-                      class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit"
+                      class="inline-flex items-center gap-2 rounded-md border border-dashed border-sr-brand/40 px-3 py-2 text-sm text-sr-brand/80 hover:bg-sr-brand/5 w-fit"
                       phx-click="builder_add_filter"
                     >
                       <.icon name="hero-plus" class="size-4" /> Add filter
@@ -446,19 +476,19 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
             
     <!-- Target Count Preview -->
             <div :if={@target_device_count != nil} class="flex items-center gap-2">
-              <.icon name="hero-signal" class="size-4 text-base-content/60" />
+              <.icon name="hero-signal" class="size-4 text-sr-muted" />
               <span class="text-sm">
                 <%= case @target_device_count do %>
                   <% {:ok, count} -> %>
                     <span class="font-semibold">{count}</span>
-                    <span class="text-base-content/60">
+                    <span class="text-sr-muted">
                       device(s) match this {if @target_entity == "interfaces",
                         do: "interface",
                         else: "device"} query
                     </span>
                   <% _ -> %>
                     <span class="font-semibold">Unknown</span>
-                    <span class="text-base-content/60">targets for this query</span>
+                    <span class="text-sr-muted">targets for this query</span>
                 <% end %>
               </span>
               <.ui_badge variant="ghost" size="xs">
@@ -469,16 +499,18 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
     <!-- Priority -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="label"><span class="label-text">Priority</span></label>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Priority</span>
+                </label>
                 <.input
                   type="number"
                   field={@form[:priority]}
-                  class="input input-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   min="0"
                   max="100"
                 />
-                <label class="label">
-                  <span class="label-text-alt text-base-content/50">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs text-sr-muted">
                     Higher priority profiles are evaluated first (0-100)
                   </span>
                 </label>
@@ -489,10 +521,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
         
     <!-- OID Templates Section -->
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             OID Templates
           </h3>
-          <p class="text-sm text-base-content/60">
+          <p class="text-sm text-sr-muted">
             Select OID templates to define what metrics are polled from devices matched by this profile.
           </p>
           
@@ -502,12 +534,12 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
               <% template = Enum.find(@available_templates, &(&1.id == template_id)) %>
               <div
                 :if={template}
-                class="inline-flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-full text-sm"
+                class="inline-flex items-center gap-2 px-3 py-1.5 bg-sr-brand/10 text-sr-brand rounded-full text-sm"
               >
                 <span>{template.name}</span>
                 <button
                   type="button"
-                  class="hover:bg-primary/20 rounded-full p-0.5"
+                  class="hover:bg-sr-brand/20 rounded-full p-0.5"
                   phx-click="remove_template"
                   phx-value-id={template_id}
                   title="Remove template"
@@ -519,50 +551,52 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
           </div>
           
     <!-- Template Dropdown -->
-          <div class="dropdown dropdown-bottom w-full max-w-md">
-            <div tabindex="0" role="button" class="btn btn-outline w-full justify-between">
-              <span>
-                <.icon name="hero-plus" class="size-4 mr-2" /> Add OID Template
-              </span>
-              <.icon name="hero-chevron-down" class="size-4" />
-            </div>
-            <ul
-              tabindex="0"
-              class="dropdown-content menu bg-base-100 rounded-box z-[1] w-full max-h-60 overflow-y-auto p-2 shadow border border-base-200"
-            >
-              <li :if={@available_templates == []}>
-                <span class="text-base-content/50">No templates available</span>
-              </li>
-              <%= for template <- @available_templates do %>
-                <% selected = template.id in @selected_template_ids %>
-                <li>
-                  <button
-                    type="button"
-                    class={"flex items-center justify-between #{if selected, do: "bg-primary/10"}"}
-                    phx-click="toggle_template"
-                    phx-value-id={template.id}
-                  >
-                    <div class="flex flex-col items-start">
-                      <span class="font-medium">{template.name}</span>
-                      <span class="text-xs text-base-content/60">
-                        {template.vendor} · {template.oid_count} OID(s)
-                      </span>
-                    </div>
-                    <.icon :if={selected} name="hero-check" class="size-4 text-primary" />
-                  </button>
-                </li>
-              <% end %>
-            </ul>
-          </div>
+          <.ui_dropdown
+            align="start"
+            class="w-full max-w-md"
+            menu_class="w-full max-w-md min-w-full max-h-60 overflow-y-auto"
+          >
+            <:trigger>
+              <.ui_button type="button" size="sm" variant="outline" class="w-full justify-between">
+                <span class="inline-flex items-center">
+                  <.icon name="hero-plus" class="mr-2 size-4" /> Add OID Template
+                </span>
+                <.icon name="hero-chevron-down" class="size-4" />
+              </.ui_button>
+            </:trigger>
+            <:item :if={@available_templates == []}>
+              <span>No templates available</span>
+            </:item>
+            <:item :for={template <- @available_templates}>
+              <% selected = template.id in @selected_template_ids %>
+              <button
+                type="button"
+                class={[
+                  "flex w-full items-center justify-between",
+                  selected && "bg-sr-brand/10"
+                ]}
+                phx-click="toggle_template"
+                phx-value-id={template.id}
+              >
+                <div class="flex flex-col items-start">
+                  <span class="font-medium">{template.name}</span>
+                  <span class="text-xs text-sr-muted">
+                    {template.vendor} · {template.oid_count} OID(s)
+                  </span>
+                </div>
+                <.icon :if={selected} name="hero-check" class="size-4 text-sr-brand" />
+              </button>
+            </:item>
+          </.ui_dropdown>
 
-          <p class="text-xs text-base-content/50">
+          <p class="text-xs text-sr-muted">
             OID templates define which SNMP metrics (OIDs) to poll. Select one or more templates to monitor
             interface traffic, CPU/memory, environment sensors, or other vendor-specific metrics.
           </p>
         </div>
         
     <!-- Actions -->
-        <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+        <div class="flex justify-end gap-2 pt-4 border-t border-sr-line">
           <.link navigate={~p"/settings/snmp"}>
             <.ui_button variant="ghost">Cancel</.ui_button>
           </.link>
@@ -575,14 +609,14 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
     <!-- Legacy SNMP Targets Section (deprecated, only shown when existing targets present) -->
       <div
         :if={@show_form == :edit_profile && @targets != []}
-        class="mt-6 pt-6 border-t border-base-200"
+        class="mt-6 pt-6 border-t border-sr-line"
       >
         <div class="bg-warning/10 border border-warning/30 rounded-lg p-4 mb-4">
           <div class="flex items-start gap-3">
             <.icon name="hero-exclamation-triangle" class="size-5 text-warning shrink-0 mt-0.5" />
             <div>
               <p class="text-sm font-medium">Legacy Configuration</p>
-              <p class="text-xs text-base-content/70 mt-1">
+              <p class="text-xs text-sr-muted mt-1">
                 Manual SNMP targets are deprecated. Targets are now automatically derived from devices
                 matched by the target query. Existing targets will continue to work but cannot be edited.
                 Configure SNMP credentials on individual devices in the Inventory section.
@@ -591,14 +625,14 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
           </div>
         </div>
 
-        <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60 mb-4">
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted mb-4">
           Legacy Manual Targets ({length(@targets)})
         </h3>
 
-        <div class="overflow-x-auto">
-          <table class="table table-sm opacity-75">
+        <div class="sr-ui-table-shell">
+          <table class={ui_table_class(size: "sm", class: "opacity-75")}>
             <thead>
-              <tr class="text-xs uppercase tracking-wide text-base-content/60">
+              <tr class="text-xs uppercase tracking-wide text-sr-muted">
                 <th>Name</th>
                 <th>Host</th>
                 <th>Port</th>
@@ -607,7 +641,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
             </thead>
             <tbody>
               <%= for target <- @targets do %>
-                <tr class="hover:bg-base-200/40">
+                <tr class="hover:bg-sr-subtle/40">
                   <td class="font-medium">{target.name}</td>
                   <td class="font-mono text-xs">{target.host}</td>
                   <td class="font-mono text-xs">{target.port}</td>

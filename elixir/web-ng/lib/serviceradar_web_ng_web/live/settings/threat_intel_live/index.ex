@@ -220,51 +220,51 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
           <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
               <h1 class="text-xl font-semibold">Threat Intel</h1>
-              <p class="text-sm text-base-content/60">
+              <p class="text-sm text-sr-muted">
                 Configure edge collection for AlienVault OTX indicators.
               </p>
             </div>
-            <.link navigate={~p"/settings/agents/plugins"} class="btn btn-sm btn-ghost">
+            <.ui_button navigate={~p"/settings/agents/plugins"} size="sm" variant="ghost">
               Plugin Registry
-            </.link>
+            </.ui_button>
             <div class="flex flex-wrap gap-2">
-              <button type="button" class="btn btn-sm btn-outline" phx-click="match_now">
+              <.ui_button type="button" phx-click="match_now" size="sm" variant="outline">
                 Match NetFlow Now
-              </button>
-              <button type="button" class="btn btn-sm btn-outline" phx-click="retrohunt_now">
+              </.ui_button>
+              <.ui_button type="button" phx-click="retrohunt_now" size="sm" variant="outline">
                 Retrohunt Now
-              </button>
-              <button type="button" class="btn btn-sm btn-primary" phx-click="sync_now">
+              </.ui_button>
+              <.ui_button type="button" phx-click="sync_now" size="sm" variant="primary">
                 Sync Now
-              </button>
+              </.ui_button>
             </div>
           </div>
 
           <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
             <div class="space-y-4">
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div class="text-sm font-semibold">AlienVault OTX Edge Collector</div>
-                    <div class="font-mono text-xs text-base-content/60">{@plugin_id}</div>
+                    <div class="font-mono text-xs text-sr-muted">{@plugin_id}</div>
                   </div>
                   <.package_status package={@latest_package} approved_package={@approved_package} />
                 </div>
               </div>
 
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="mb-3 text-sm font-semibold">Assignments</div>
                 <%= if @assignments == [] do %>
-                  <div class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+                  <div class="rounded-lg border border-dashed border-sr-line p-4 text-sm text-sr-muted">
                     No edge assignments.
                   </div>
                 <% else %>
-                  <div class="divide-y divide-base-200">
+                  <div class="divide-y divide-sr-line">
                     <%= for assignment <- @assignments do %>
                       <div class="flex flex-col gap-3 py-3 first:pt-0 last:pb-0 md:flex-row md:items-center md:justify-between">
                         <div>
                           <div class="font-mono text-sm">{assignment.agent_uid}</div>
-                          <div class="text-xs text-base-content/60">
+                          <div class="text-xs text-sr-muted">
                             every {assignment.interval_seconds}s, timeout {assignment.timeout_seconds}s
                           </div>
                         </div>
@@ -274,15 +274,16 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                           <% else %>
                             <.ui_badge size="xs" variant="ghost">disabled</.ui_badge>
                           <% end %>
-                          <button
+                          <.ui_button
                             type="button"
-                            class="btn btn-ghost btn-xs"
                             phx-click="delete_assignment"
                             phx-value-id={assignment.id}
                             data-confirm="Remove this assignment?"
+                            size="xs"
+                            variant="ghost"
                           >
                             Remove
-                          </button>
+                          </.ui_button>
                         </div>
                       </div>
                     <% end %>
@@ -290,20 +291,20 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                 <% end %>
               </div>
 
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="mb-3 text-sm font-semibold">Sync Health</div>
                 <%= if @sync_statuses == [] do %>
-                  <div class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+                  <div class="rounded-lg border border-dashed border-sr-line p-4 text-sm text-sr-muted">
                     No sync runs recorded.
                   </div>
                 <% else %>
-                  <div class="divide-y divide-base-200">
+                  <div class="divide-y divide-sr-line">
                     <%= for status <- @sync_statuses do %>
                       <div class="py-3 first:pt-0 last:pb-0 space-y-2">
                         <div class="flex flex-wrap items-start justify-between gap-2">
                           <div>
                             <div class="font-mono text-sm">{status_agent_label(status)}</div>
-                            <div class="text-xs text-base-content/60">
+                            <div class="text-xs text-sr-muted">
                               {status.collection_id || "collection"} · {format_datetime(
                                 status.last_attempt_at
                               )}
@@ -321,15 +322,16 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                         </div>
                         <div
                           :if={skipped_by_type(status) != []}
-                          class="flex flex-wrap items-center gap-1 text-xs text-base-content/60"
+                          class="flex flex-wrap items-center gap-1 text-xs text-sr-muted"
                         >
                           <span>Skipped types:</span>
-                          <span
+                          <.ui_badge
                             :for={{type, count} <- skipped_by_type(status)}
-                            class="badge badge-xs badge-outline"
+                            size="xs"
+                            variant="outline"
                           >
                             {type}: {count}
-                          </span>
+                          </.ui_badge>
                         </div>
                         <div :if={status.last_error} class="text-xs text-error">
                           {status.last_error}
@@ -340,7 +342,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                 <% end %>
               </div>
 
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <div class="text-sm font-semibold">Current NetFlow IOC Matches</div>
                   <.ui_badge
@@ -361,20 +363,21 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   <.status_count label="Sources" value={length(@netflow_findings.sources)} />
                 </div>
                 <div :if={@netflow_findings.sources != []} class="mt-3 flex flex-wrap gap-1">
-                  <span
+                  <.ui_badge
                     :for={source <- @netflow_findings.sources}
-                    class="badge badge-xs badge-outline"
+                    size="xs"
+                    variant="outline"
                   >
                     {source}
-                  </span>
+                  </.ui_badge>
                 </div>
                 <%= if @netflow_findings.recent == [] do %>
-                  <div class="mt-3 rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+                  <div class="mt-3 rounded-lg border border-dashed border-sr-line p-4 text-sm text-sr-muted">
                     No current NetFlow IOC matches in the refreshed cache.
                   </div>
                 <% else %>
                   <div class="mt-3 overflow-x-auto">
-                    <table class="table table-sm">
+                    <table class={ui_table_class(size: "sm")}>
                       <thead>
                         <tr>
                           <th>IP</th>
@@ -396,20 +399,20 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                 <% end %>
               </div>
 
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="mb-3 text-sm font-semibold">Retrohunt Runs</div>
                 <%= if @retrohunt_runs == [] do %>
-                  <div class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+                  <div class="rounded-lg border border-dashed border-sr-line p-4 text-sm text-sr-muted">
                     No retrohunt runs recorded.
                   </div>
                 <% else %>
-                  <div class="divide-y divide-base-200">
+                  <div class="divide-y divide-sr-line">
                     <%= for run <- @retrohunt_runs do %>
                       <div class="py-3 first:pt-0 last:pb-0 space-y-2">
                         <div class="flex flex-wrap items-start justify-between gap-2">
                           <div>
                             <div class="font-mono text-sm">{run.source}</div>
-                            <div class="text-xs text-base-content/60">
+                            <div class="text-xs text-sr-muted">
                               {format_datetime(run.window_start)} - {format_datetime(run.window_end)}
                             </div>
                           </div>
@@ -430,7 +433,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                 <% end %>
 
                 <div :if={@retrohunt_findings != []} class="mt-4 overflow-x-auto">
-                  <table class="table table-sm">
+                  <table class={ui_table_class(size: "sm")}>
                     <thead>
                       <tr>
                         <th>Observed IP</th>
@@ -453,18 +456,18 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                 </div>
               </div>
 
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="mb-1 text-sm font-semibold">Imported Indicators</div>
-                <div class="mb-3 text-xs text-base-content/60">
+                <div class="mb-3 text-xs text-sr-muted">
                   OTX inventory stored locally. NetFlow hits only appear after the match cache evaluates imported IOCs against recent flows.
                 </div>
                 <%= if @indicators == [] do %>
-                  <div class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+                  <div class="rounded-lg border border-dashed border-sr-line p-4 text-sm text-sr-muted">
                     No imported indicators.
                   </div>
                 <% else %>
-                  <div class="overflow-x-auto">
-                    <table class="table table-sm">
+                  <div class="sr-ui-table-shell">
+                    <table class={ui_table_class(size: "sm")}>
                       <thead>
                         <tr>
                           <th>Indicator</th>
@@ -490,30 +493,30 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                 <% end %>
               </div>
 
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="mb-3 text-sm font-semibold">Source Objects</div>
                 <%= if @source_objects == [] do %>
-                  <div class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+                  <div class="rounded-lg border border-dashed border-sr-line p-4 text-sm text-sr-muted">
                     No source object metadata.
                   </div>
                 <% else %>
-                  <div class="divide-y divide-base-200">
+                  <div class="divide-y divide-sr-line">
                     <%= for object <- @source_objects do %>
                       <div class="py-3 first:pt-0 last:pb-0">
                         <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                           <div class="min-w-0">
                             <div class="truncate font-mono text-sm">{object.object_id}</div>
-                            <div class="text-xs text-base-content/60">
+                            <div class="text-xs text-sr-muted">
                               {object.object_type} · {object.source} · {object.collection_id || "-"}
                             </div>
                           </div>
-                          <div class="shrink-0 text-xs text-base-content/60">
+                          <div class="shrink-0 text-xs text-sr-muted">
                             {format_datetime(object.modified_at)}
                           </div>
                         </div>
                         <div
                           :if={source_object_label(object)}
-                          class="mt-2 text-xs text-base-content/70"
+                          class="mt-2 text-xs text-sr-muted"
                         >
                           {source_object_label(object)}
                         </div>
@@ -525,7 +528,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
             </div>
 
             <div class="space-y-4">
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="mb-3 flex items-center justify-between gap-3">
                   <div class="text-sm font-semibold">OTX Settings</div>
                   <.ui_badge :if={otx_api_key_present?(@otx_settings)} size="xs" variant="success">
@@ -545,7 +548,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                         type="checkbox"
                         name="settings[otx_enabled]"
                         value="true"
-                        class="toggle toggle-sm"
+                        class={ui_toggle_class(size: "sm")}
                         checked={@otx_settings_form["otx_enabled"] == "true"}
                       /> OTX enabled
                     </label>
@@ -555,7 +558,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                         type="checkbox"
                         name="settings[threat_intel_enabled]"
                         value="true"
-                        class="toggle toggle-sm"
+                        class={ui_toggle_class(size: "sm")}
                         checked={
                           @otx_settings_form["threat_intel_enabled"] == "true" or
                             @otx_settings_form["otx_enabled"] == "true"
@@ -572,19 +575,19 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                         type="checkbox"
                         name="settings[otx_raw_payload_archive_enabled]"
                         value="true"
-                        class="toggle toggle-sm"
+                        class={ui_toggle_class(size: "sm")}
                         checked={@otx_settings_form["otx_raw_payload_archive_enabled"] == "true"}
                       /> Raw archive
                     </label>
                   </div>
 
                   <div>
-                    <label class="label">
-                      <span class="label-text">Execution Mode</span>
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Execution Mode</span>
                     </label>
                     <select
                       name="settings[otx_execution_mode]"
-                      class="select select-bordered w-full"
+                      class={ui_field_class(class: "w-full")}
                     >
                       <option
                         value="edge_plugin"
@@ -602,14 +605,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   </div>
 
                   <div>
-                    <label class="label">
-                      <span class="label-text">Core OTX API Key</span>
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Core OTX API Key</span>
                     </label>
                     <input
                       type="password"
                       name="settings[otx_api_key]"
                       value=""
-                      class="input input-bordered w-full"
+                      class={ui_field_class(class: "w-full")}
                       autocomplete="off"
                       placeholder={
                         if otx_api_key_present?(@otx_settings),
@@ -619,28 +622,28 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                     />
                     <label
                       :if={otx_api_key_present?(@otx_settings)}
-                      class="mt-2 flex items-center gap-2 text-xs text-base-content/70"
+                      class="mt-2 flex items-center gap-2 text-xs text-sr-muted"
                     >
                       <input type="hidden" name="settings[clear_otx_api_key]" value="false" />
                       <input
                         type="checkbox"
                         name="settings[clear_otx_api_key]"
                         value="true"
-                        class="checkbox checkbox-xs"
+                        class={ui_checkbox_class(size: "xs")}
                         checked={@otx_settings_form["clear_otx_api_key"] == "true"}
                       /> Clear stored key
                     </label>
                   </div>
 
                   <div>
-                    <label class="label">
-                      <span class="label-text">Base URL</span>
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Base URL</span>
                     </label>
                     <input
                       type="url"
                       name="settings[otx_base_url]"
                       value={@otx_settings_form["otx_base_url"]}
-                      class="input input-bordered w-full"
+                      class={ui_field_class(class: "w-full")}
                     />
                   </div>
 
@@ -678,24 +681,24 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   </div>
 
                   <div>
-                    <label class="label">
-                      <span class="label-text">Modified Since</span>
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Modified Since</span>
                     </label>
                     <input
                       type="text"
                       name="settings[otx_modified_since]"
                       value={@otx_settings_form["otx_modified_since"]}
-                      class="input input-bordered w-full"
+                      class={ui_field_class(class: "w-full")}
                     />
                   </div>
 
                   <div class="flex justify-end pt-2">
-                    <button class="btn btn-sm btn-primary" type="submit">Save Settings</button>
+                    <.ui_button type="submit" size="sm" variant="primary">Save Settings</.ui_button>
                   </div>
                 </form>
               </div>
 
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="mb-3 text-sm font-semibold">OTX Assignment</div>
                 <form
                   id="otx-assignment-form"
@@ -704,12 +707,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   class="space-y-3"
                 >
                   <div>
-                    <label class="label">
-                      <span class="label-text">Agent</span>
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Agent</span>
                     </label>
                     <select
                       name="assignment[agent_uid]"
-                      class="select select-bordered w-full"
+                      class={ui_field_class(class: "w-full")}
                       disabled={is_nil(@approved_package)}
                     >
                       <option value="">Select an agent</option>
@@ -725,14 +728,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   </div>
 
                   <div>
-                    <label class="label">
-                      <span class="label-text">OTX API Key</span>
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">OTX API Key</span>
                     </label>
                     <input
                       type="password"
                       name="assignment[api_key_secret_ref]"
                       value=""
-                      class="input input-bordered w-full"
+                      class={ui_field_class(class: "w-full")}
                       autocomplete="off"
                       disabled={is_nil(@approved_package)}
                       placeholder={api_key_placeholder(@assignment_form["agent_uid"], @assignments)}
@@ -740,14 +743,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   </div>
 
                   <div>
-                    <label class="label">
-                      <span class="label-text">Base URL</span>
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Base URL</span>
                     </label>
                     <input
                       type="url"
                       name="assignment[base_url]"
                       value={@assignment_form["base_url"]}
-                      class="input input-bordered w-full"
+                      class={ui_field_class(class: "w-full")}
                       disabled={is_nil(@approved_package)}
                     />
                   </div>
@@ -803,20 +806,21 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                       type="checkbox"
                       name="assignment[enabled]"
                       value="true"
-                      class="toggle toggle-sm"
+                      class={ui_toggle_class(size: "sm")}
                       checked={@assignment_form["enabled"] == "true"}
                       disabled={is_nil(@approved_package)}
                     /> Enabled
                   </label>
 
                   <div class="flex justify-end pt-2">
-                    <button
-                      class="btn btn-sm btn-primary"
+                    <.ui_button
                       type="submit"
                       disabled={is_nil(@approved_package)}
+                      size="sm"
+                      variant="primary"
                     >
                       Save Assignment
-                    </button>
+                    </.ui_button>
                   </div>
                 </form>
               </div>
@@ -837,15 +841,15 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   defp number_input(assigns) do
     ~H"""
     <div>
-      <label class="label">
-        <span class="label-text">{@label}</span>
+      <label class="flex items-center justify-between gap-2">
+        <span class="text-sm font-medium text-sr-ink">{@label}</span>
       </label>
       <input
         type="number"
         name={@name}
         value={@value}
         min={@min}
-        class="input input-bordered w-full"
+        class={ui_field_class(class: "w-full")}
         disabled={@disabled}
       />
     </div>
@@ -873,8 +877,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
 
   defp status_count(assigns) do
     ~H"""
-    <div class="rounded-lg border border-base-200/70 bg-base-100/60 p-2">
-      <div class="text-base-content/50">{@label}</div>
+    <div class="rounded-lg border border-sr-line/70 bg-sr-surface/60 p-2">
+      <div class="text-sr-muted">{@label}</div>
       <div class="font-mono text-sm">{@value}</div>
     </div>
     """

@@ -244,12 +244,15 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "events",
       label: "Events",
-      route: "/events",
+      route: "/observability/events",
+      route_params: %{},
       default_time: "last_7d",
       default_sort_field: "time",
       default_sort_dir: "desc",
       default_filter_field: "message",
       filter_fields: [
+        "id",
+        "event_id",
         "activity_name",
         "activity_id",
         "class_uid",
@@ -273,9 +276,30 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "device_id",
         "source_device_uid",
         "service_radar_device_uid",
+        "host",
         "message",
         "short_message"
       ],
+      downsample: false
+    },
+    %{
+      id: "capacity_forecasts",
+      label: "Capacity Forecasts",
+      route: "/observability/health",
+      default_time: "",
+      default_sort_field: "projected_exhaustion_at",
+      default_sort_dir: "asc",
+      default_filter_field: "resource_label",
+      filter_fields: [
+        "resource_id",
+        "resource_key",
+        "resource_label",
+        "metric_name",
+        "status",
+        "skip_reason",
+        "has_exhaustion"
+      ],
+      boolean_fields: ["has_exhaustion"],
       downsample: false
     },
     %{
@@ -747,33 +771,37 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "alerts",
       label: "Alerts",
-      route: "/alerts",
+      route: "/observability/alerts",
+      route_params: %{},
       default_time: "last_7d",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
       default_filter_field: "title",
       filter_fields: [
+        "id",
         "title",
         "status",
         "severity",
         "source_type",
         "source_id",
         "device_uid",
-        "agent_uid"
+        "agent_uid",
+        "event_id"
       ],
       downsample: false
     },
     %{
       id: "logs",
       label: "Logs",
-      route: "/observability",
-      route_params: %{"tab" => "logs"},
+      route: "/observability/logs",
+      route_params: %{},
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
       default_filter_field: "message",
       filter_fields: [
         "uid",
+        "id",
         "device_id",
         "source_device_uid",
         "gateway_id",
@@ -783,8 +811,16 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "severity_number",
         "source",
         "source_ip",
+        "service_name",
+        "service",
+        "host",
+        "hostname",
+        "body",
         "message",
         "event_name",
+        "facility",
+        "scope_name",
+        "scope_version",
         "trace_id",
         "span_id",
         "ingest_identity",
@@ -801,8 +837,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "otel_trace_summaries",
       label: "Traces",
-      route: "/observability",
-      route_params: %{"tab" => "traces"},
+      route: "/observability/traces",
+      route_params: %{},
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -821,8 +857,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "otel_traces",
       label: "Spans",
-      route: "/observability",
-      route_params: %{"tab" => "traces"},
+      route: "/observability/traces",
+      route_params: %{},
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -845,8 +881,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       # SRQL parses `in:traces` as an alias of `in:otel_traces` (span rows).
       id: "traces",
       label: "Spans",
-      route: "/observability",
-      route_params: %{"tab" => "traces"},
+      route: "/observability/traces",
+      route_params: %{},
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -868,8 +904,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "otel_metrics",
       label: "Metrics",
-      route: "/observability",
-      route_params: %{"tab" => "metrics"},
+      route: "/observability/metrics",
+      route_params: %{},
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -894,8 +930,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       # `otel_metrics`. SRQL also accepts the `metric_points` alias.
       id: "otel_metric_points",
       label: "OTLP Metrics",
-      route: "/observability",
-      route_params: %{"tab" => "metrics", "mview" => "points"},
+      route: "/observability/metrics",
+      route_params: %{"mview" => "points"},
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -915,8 +951,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "flows",
       label: "Flows",
-      route: "/observability",
-      route_params: %{"tab" => "netflows"},
+      route: "/observability/netflows",
+      route_params: %{},
       default_time: "last_24h",
       default_sort_field: "time",
       default_sort_dir: "desc",
@@ -1483,15 +1519,19 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   def completion_tokens, do: @completion_tokens
 
   def structured do
-    cache_key = {__MODULE__, :structured, :v1}
+    # Content-hash keyed cache so hot reloads that change filter fields (e.g.
+    # events.id) bust the previous catalog instead of serving a sticky
+    # :persistent_term snapshot until full BEAM restart.
+    cache_key = {__MODULE__, :structured, :v2}
+    catalog = structured_from_entities(@entities)
+    version = Map.fetch!(catalog, "version")
 
     case :persistent_term.get(cache_key, nil) do
-      nil ->
-        catalog = structured_from_entities(@entities)
-        :persistent_term.put(cache_key, catalog)
-        catalog
+      %{"version" => ^version} = cached ->
+        cached
 
-      catalog ->
+      _ ->
+        :persistent_term.put(cache_key, catalog)
         catalog
     end
   end

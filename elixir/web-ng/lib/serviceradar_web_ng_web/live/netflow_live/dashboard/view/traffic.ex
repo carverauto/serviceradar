@@ -14,15 +14,15 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Traffic do
     <%!-- Per-interface ingress/egress chart --%>
     <div
       :if={section_visible?(@section, "traffic") and @top_interfaces != []}
-      class="rounded-xl border border-base-200 bg-base-100 p-4"
+      class="rounded-xl border border-sr-line bg-sr-surface p-4"
     >
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-2">
-          <.icon name="hero-arrows-right-left" class="size-4 text-primary" />
+          <.icon name="hero-arrows-right-left" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Interface Traffic (Ingress vs Egress)</span>
         </div>
         <form phx-change="select_interface">
-          <select name="interface" class="select select-xs select-bordered">
+          <select name="interface" class={ui_field_class(size: "xs")}>
             <option value="">Select interface...</option>
             <option
               :for={iface <- @top_interfaces}
@@ -49,7 +49,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Traffic do
           <svg class="w-full h-full"></svg>
         </div>
       <% else %>
-        <div class="flex items-center justify-center py-8 text-sm text-base-content/50">
+        <div class="flex items-center justify-center py-8 text-sm text-sr-muted">
           <%= if @selected_interface do %>
             No traffic data for this interface.
           <% else %>
@@ -65,11 +65,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Traffic do
     >
       <div
         :if={section_visible?(@section, "traffic")}
-        class="rounded-xl border border-base-200 bg-base-100 p-4"
+        class="rounded-xl border border-sr-line bg-sr-surface p-4"
       >
-        <h3 class="text-sm font-semibold text-base-content mb-2">Protocol Distribution</h3>
+        <h3 class="text-sm font-semibold text-sr-ink mb-2">Protocol Distribution</h3>
         <div :if={@loading} class="flex items-center justify-center py-8">
-          <span class="loading loading-spinner loading-md"></span>
+          <.ui_spinner size="md" />
         </div>
         <.protocol_breakdown
           :if={not @loading}
@@ -81,11 +81,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Traffic do
 
       <div
         :if={section_visible?(@section, "traffic")}
-        class="rounded-xl border border-base-200 bg-base-100 p-4"
+        class="rounded-xl border border-sr-line bg-sr-surface p-4"
       >
-        <h3 class="text-sm font-semibold text-base-content mb-2">TCP Flag Distribution</h3>
+        <h3 class="text-sm font-semibold text-sr-ink mb-2">TCP Flag Distribution</h3>
         <div :if={@loading} class="flex items-center justify-center py-8">
-          <span class="loading loading-spinner loading-md"></span>
+          <.ui_spinner size="md" />
         </div>
         <.protocol_breakdown
           :if={not @loading}
@@ -97,11 +97,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Traffic do
 
       <div
         :if={section_visible?(@section, "traffic")}
-        class="rounded-xl border border-base-200 bg-base-100 p-4"
+        class="rounded-xl border border-sr-line bg-sr-surface p-4"
       >
-        <h3 class="text-sm font-semibold text-base-content mb-2">Flow Rate (flows/sec)</h3>
+        <h3 class="text-sm font-semibold text-sr-ink mb-2">Flow Rate (flows/sec)</h3>
         <div :if={@loading} class="flex items-center justify-center py-8">
-          <span class="loading loading-spinner loading-md"></span>
+          <.ui_spinner size="md" />
         </div>
         <div
           :if={not @loading}
@@ -117,11 +117,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Traffic do
 
       <div
         :if={section_visible?(@section, "traffic")}
-        class="rounded-xl border border-base-200 bg-base-100 p-4"
+        class="rounded-xl border border-sr-line bg-sr-surface p-4"
       >
-        <h3 class="text-sm font-semibold text-base-content mb-2">Flow Duration Distribution</h3>
+        <h3 class="text-sm font-semibold text-sr-ink mb-2">Flow Duration Distribution</h3>
         <div :if={@loading} class="flex items-center justify-center py-8">
-          <span class="loading loading-spinner loading-md"></span>
+          <.ui_spinner size="md" />
         </div>
         <.protocol_breakdown
           :if={not @loading}

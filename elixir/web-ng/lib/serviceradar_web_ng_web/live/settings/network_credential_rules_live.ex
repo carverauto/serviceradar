@@ -7,12 +7,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   alias Phoenix.HTML.Form
   alias ServiceRadar.Credentials.CredentialRuleConsumers
+  alias ServiceRadar.Credentials.CredentialSecretBuilder
   alias ServiceRadar.Credentials.CredentialUsePolicy
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialRulePreview
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Credentials.PluginAssignmentMaterializer
-  alias ServiceRadar.Credentials.SshPrivateKeyCredential
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.ConfigSchema
   alias ServiceRadar.Plugins.IntegrationCatalog
@@ -25,15 +25,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   require Ash.Query
 
   @current_path "/settings/networks/credentials"
-  @built_in_providers ~w(proxmox unifi-protect axis)
-  @auth_methods ~w(proxmox_api_token ssh_private_key username_password api_key certificate opaque)a
-  @purposes ~w(inventory_enrichment console_access discovery generic camera_inventory camera_stream device_inventory)a
-  @scope_types ~w(agent gateway partition)a
   @tls_policies ~w(verify skip_verify)a
-  @ssh_host_key_policies ~w(known_hosts trust_on_first_use skip_verify)a
-  @auth_method_atoms Map.new(@auth_methods, &{Atom.to_string(&1), &1})
-  @purpose_atoms Map.new(@purposes, &{Atom.to_string(&1), &1})
-  @scope_type_atoms Map.new(@scope_types, &{Atom.to_string(&1), &1})
 
   @impl true
   def mount(_params, _session, socket) do
@@ -58,6 +50,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
        |> assign(:expanded_rule_id, nil)
        |> assign(:rule_consumers, nil)
        |> assign(:secret_form, nil)
+       |> assign(:secret_descriptor, nil)
        |> assign(:rule_form, rule_form(default_rule_params()))}
     else
       {:ok,
@@ -106,19 +99,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   def handle_event("enable_rule", %{"id" => id}, socket) do
     update_enabled(socket, id, :enable, "Credential rule enabled")
-  end
-
-  def handle_event("test_rule", %{"id" => id}, socket) do
-    case NetworkCredentialRule.dispatch_proxmox_api_test(id, scope: socket.assigns.current_scope) do
-      {:ok, result} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Credential test dispatched: #{Map.get(result, :command_id)}")
-         |> load_page(%{})}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Credential test failed: #{format_error(reason)}")}
-    end
   end
 
   def handle_event("run_integration_now", %{"id" => id}, socket) do
@@ -204,43 +184,41 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
-  def handle_event("new_proxmox_secret", _params, socket) do
-    {:noreply, assign(socket, :secret_form, secret_form(default_secret_params()))}
-  end
-
-  def handle_event("new_ssh_secret", _params, socket) do
-    {:noreply, assign(socket, :secret_form, secret_form(default_ssh_secret_params()))}
-  end
-
-  def handle_event("new_api_key_secret", _params, socket) do
-    {:noreply, assign(socket, :secret_form, secret_form(default_api_key_secret_params()))}
-  end
-
-  def handle_event("new_awx_secret", _params, socket) do
-    {:noreply, assign(socket, :secret_form, secret_form(default_awx_secret_params()))}
-  end
-
-  def handle_event("new_username_password_secret", _params, socket) do
-    {:noreply, assign(socket, :secret_form, secret_form(default_username_password_secret_params()))}
-  end
-
   def handle_event("new_rule_secret", _params, socket) do
     provider = form_string(socket.assigns.rule_form, :provider)
     auth_method = form_string(socket.assigns.rule_form, :auth_method)
 
-    {:noreply, assign(socket, :secret_form, secret_form(default_secret_params_for_rule(provider, auth_method)))}
+    case credential_method(socket.assigns.integration_profiles, provider, auth_method) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Credential descriptor is no longer available")}
+
+      descriptor ->
+        {:noreply, open_descriptor_secret_form(socket, descriptor)}
+    end
+  end
+
+  def handle_event("new_descriptor_secret", %{"provider" => provider, "method" => method}, socket) do
+    case credential_method(socket.assigns.integration_profiles, provider, method) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Credential descriptor is no longer available")}
+
+      descriptor ->
+        {:noreply, open_descriptor_secret_form(socket, descriptor)}
+    end
   end
 
   def handle_event("close_secret_form", _params, socket) do
-    {:noreply, assign(socket, :secret_form, nil)}
+    {:noreply, socket |> assign(:secret_form, nil) |> assign(:secret_descriptor, nil)}
   end
 
   def handle_event("save_secret", %{"credential_secret" => params}, socket) do
-    case normalize_secret_params(params) do
+    case normalize_secret_params(params, socket.assigns.integration_profiles) do
       {:ok, attrs} ->
         save_secret(socket, attrs)
 
       {:error, message} ->
+        params = sanitize_secret_form_params(params, socket.assigns.secret_descriptor)
+
         {:noreply,
          socket
          |> assign(:secret_form, secret_form(params))
@@ -253,12 +231,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     assigns =
       assigns
       |> assign(:provider_options, provider_options(assigns.integration_profiles))
-      |> assign(:integration_profile_list, integration_profile_list(assigns.integration_profiles))
-      |> assign(:auth_methods, @auth_methods)
-      |> assign(:purposes, @purposes)
-      |> assign(:scope_types, @scope_types)
-      |> assign(:tls_policies, @tls_policies)
-      |> assign(:ssh_host_key_policies, @ssh_host_key_policies)
+      |> assign(:integration_profile_list, rule_profile_list(assigns.integration_profiles))
+      |> assign(:credential_method_list, credential_method_list(assigns.integration_profiles))
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
@@ -276,80 +250,56 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 class="text-xl font-semibold">Credential Rules</h1>
-              <p class="mt-1 text-sm text-base-content/70">
-                Scoped rules bind a provider secret to SRQL-matched targets and materialize plugin
-                inputs — Proxmox VE inventory and console, UniFi Protect and Axis camera inventory
-                and streams — without baking hosts or secrets into plugin configs.
-                <a
-                  class="link link-primary"
-                  href="https://docs.serviceradar.cloud/docs/proxmox#console-access"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Read the Proxmox setup guide
-                </a>
+              <p class="mt-1 text-sm text-sr-muted">
+                Scoped rules bind encrypted credentials to eligible targets and consumers without
+                placing secret material in integration configuration. Available providers and
+                credential fields come from approved integration descriptors.
               </p>
             </div>
             <div class="flex flex-wrap gap-2">
-              <div class="dropdown dropdown-end">
-                <div tabindex="0" role="button" class="btn btn-ghost btn-sm">New Secret</div>
-                <ul
-                  tabindex="0"
-                  class="dropdown-content menu bg-base-100 rounded-box z-[1] w-60 p-2 shadow border border-base-200"
-                >
-                  <li>
-                    <button type="button" phx-click="new_proxmox_secret">Proxmox API Token</button>
-                  </li>
-                  <li>
-                    <button type="button" phx-click="new_api_key_secret">API Key</button>
-                  </li>
-                  <li>
-                    <button type="button" phx-click="new_awx_secret">AWX API Token</button>
-                  </li>
-                  <li>
-                    <button type="button" phx-click="new_username_password_secret">
-                      Username &amp; Password
-                    </button>
-                  </li>
-                  <li>
-                    <button type="button" phx-click="new_ssh_secret">SSH Private Key</button>
-                  </li>
-                </ul>
-              </div>
-              <div class="dropdown dropdown-end">
-                <div tabindex="0" role="button" class="btn btn-primary btn-sm">New Rule</div>
-                <ul
-                  tabindex="0"
-                  class="dropdown-content menu bg-base-100 rounded-box z-[1] w-60 p-2 shadow border border-base-200"
-                >
-                  <li>
-                    <.link navigate={~p"/settings/networks/credentials/new"}>Proxmox VE</.link>
-                  </li>
-                  <li>
-                    <.link navigate={~p"/settings/networks/credentials/new?provider=unifi-protect"}>
-                      UniFi Protect
-                    </.link>
-                  </li>
-                  <li>
-                    <.link navigate={~p"/settings/networks/credentials/new?provider=axis"}>
-                      Axis (VAPIX)
-                    </.link>
-                  </li>
-                  <li :for={profile <- @integration_profile_list}>
-                    <.link navigate={
-                      ~p"/settings/networks/credentials/new?provider=#{profile["provider"]}"
-                    }>
-                      {profile["label"]}
-                    </.link>
-                  </li>
-                </ul>
-              </div>
+              <.ui_dropdown align="end" menu_class="w-60 max-w-60">
+                <:trigger>
+                  <.ui_button type="button" size="sm" variant="ghost">New Credential</.ui_button>
+                </:trigger>
+                <:item :for={descriptor <- @credential_method_list}>
+                  <button
+                    type="button"
+                    phx-click="new_descriptor_secret"
+                    phx-value-provider={descriptor.provider}
+                    phx-value-method={descriptor.method["id"]}
+                  >
+                    {descriptor.profile["label"]} · {descriptor.method["label"]}
+                  </button>
+                </:item>
+                <:item :if={@credential_method_list == []}>
+                  <span class="px-2 py-1 text-sm text-sr-muted">
+                    Import and approve an integration package first
+                  </span>
+                </:item>
+              </.ui_dropdown>
+              <.ui_dropdown align="end" menu_class="w-60 max-w-60">
+                <:trigger>
+                  <.ui_button type="button" size="sm" variant="primary">New Rule</.ui_button>
+                </:trigger>
+                <:item :for={profile <- @integration_profile_list}>
+                  <.link navigate={
+                    ~p"/settings/networks/credentials/new?provider=#{profile["provider"]}"
+                  }>
+                    {profile["label"]}
+                  </.link>
+                </:item>
+                <:item :if={@integration_profile_list == []}>
+                  <span class="px-2 py-1 text-sm text-sr-muted">
+                    No approved integration descriptors
+                  </span>
+                </:item>
+              </.ui_dropdown>
             </div>
           </div>
 
-          <div class="overflow-hidden rounded-lg border border-base-200 bg-base-100">
-            <div class="overflow-x-auto">
-              <table class="table table-sm">
+          <div class="overflow-hidden rounded-lg border border-sr-line bg-sr-surface">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -366,12 +316,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                 </thead>
                 <tbody>
                   <tr :if={@loading?}>
-                    <td colspan="10" class="py-8 text-center text-sm text-base-content/60">
+                    <td colspan="10" class="py-8 text-center text-sm text-sr-muted">
                       Loading credential rules.
                     </td>
                   </tr>
                   <tr :if={!@loading? and @rules == []}>
-                    <td colspan="10" class="py-8 text-center text-sm text-base-content/60">
+                    <td colspan="10" class="py-8 text-center text-sm text-sr-muted">
                       No credential rules found.
                     </td>
                   </tr>
@@ -382,10 +332,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                       <td>{format_purposes(rule)}</td>
                       <td>{format_scope(rule)}</td>
                       <td>
-                        <span class={[
-                          "badge badge-sm",
-                          runtime_badge_class(rule, @integration_profiles, @integration_schedules)
-                        ]}>
+                        <span class={["inline-flex rounded-full px-2 py-0.5 text-xs font-semibold", runtime_badge_class(rule, @integration_profiles, @integration_schedules)]}>
                           {runtime_label(rule, @integration_profiles, @integration_schedules)}
                         </span>
                       </td>
@@ -402,82 +349,71 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                       <td>{runtime_status(rule, @integration_profiles, @integration_schedules)}</td>
                       <td>
                         <div class="flex justify-end gap-2">
-                          <button
-                            :if={plugin_integration_provider?(rule.provider, @integration_profiles)}
+                          <.ui_button
+                            :if={
+                              scheduled_integration_provider?(rule.provider, @integration_profiles)
+                            }
                             type="button"
-                            class="btn btn-ghost btn-xs"
+                            size="xs"
+                            variant="ghost"
                             phx-click="run_integration_now"
                             phx-value-id={rule.id}
                             disabled={!Map.has_key?(@integration_schedules, to_string(rule.id))}
                           >
                             Run Now
-                          </button>
-                          <button
-                            :if={testable_rule?(rule)}
-                            type="button"
-                            class="btn btn-ghost btn-xs"
-                            phx-click="test_rule"
-                            phx-value-id={rule.id}
-                          >
-                            Test
-                          </button>
-                          <span
+                          </.ui_button>
+                          <.ui_button
                             :if={
-                              !testable_rule?(rule) and
-                                !plugin_integration_provider?(rule.provider, @integration_profiles)
+                              !scheduled_integration_provider?(rule.provider, @integration_profiles)
                             }
-                            class="tooltip tooltip-left"
-                            data-tip="Credential test is not yet available for this provider"
-                          >
-                            <button type="button" class="btn btn-ghost btn-xs btn-disabled" disabled>
-                              Test
-                            </button>
-                          </span>
-                          <button
-                            :if={!plugin_integration_provider?(rule.provider, @integration_profiles)}
                             type="button"
-                            class="btn btn-ghost btn-xs"
+                            size="xs"
+                            variant="ghost"
                             phx-click="preview_rule"
                             phx-value-id={rule.id}
                           >
                             Preview
-                          </button>
-                          <button
+                          </.ui_button>
+                          <.ui_button
                             type="button"
-                            class="btn btn-ghost btn-xs"
+                            size="xs"
+                            variant="ghost"
                             phx-click="toggle_consumers"
                             phx-value-id={rule.id}
                           >
                             Consumers
-                          </button>
-                          <.link
+                          </.ui_button>
+                          <.ui_button
                             navigate={~p"/settings/networks/credentials/#{rule.id}/edit"}
-                            class="btn btn-ghost btn-xs"
+                            size="xs"
+                            variant="ghost"
                           >
                             Edit
-                          </.link>
-                          <button
+                          </.ui_button>
+                          <.ui_button
                             :if={rule.enabled}
                             type="button"
-                            class="btn btn-ghost btn-xs"
+                            size="xs"
+                            variant="ghost"
                             phx-click="disable_rule"
                             phx-value-id={rule.id}
                           >
                             Disable
-                          </button>
-                          <button
+                          </.ui_button>
+                          <.ui_button
                             :if={!rule.enabled}
                             type="button"
-                            class="btn btn-ghost btn-xs"
+                            size="xs"
+                            variant="ghost"
                             phx-click="enable_rule"
                             phx-value-id={rule.id}
                           >
                             Enable
-                          </button>
+                          </.ui_button>
                         </div>
                       </td>
                     </tr>
-                    <tr :if={@expanded_rule_id == to_string(rule.id)} class="bg-base-200/40">
+                    <tr :if={@expanded_rule_id == to_string(rule.id)} class="bg-sr-subtle/40">
                       <td colspan="10">
                         <.rule_consumers_panel consumers={@rule_consumers} />
                       </td>
@@ -496,137 +432,87 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           secrets={@secrets}
           provider_options={@provider_options}
           integration_profiles={@integration_profiles}
-          auth_methods={@auth_methods}
-          purposes={@purposes}
-          scope_types={@scope_types}
           agent_options={@agent_options}
-          tls_policies={@tls_policies}
-          ssh_host_key_policies={@ssh_host_key_policies}
         />
 
         <.rule_preview_modal :if={@rule_preview} rule_preview={@rule_preview} />
-        <.secret_form_modal :if={@secret_form} form={@secret_form} tls_policies={@tls_policies} />
+        <.secret_form_modal
+          :if={@secret_form}
+          form={@secret_form}
+          descriptor={@secret_descriptor}
+        />
       </Shell.settings_chrome>
     </Layouts.app>
     """
   end
 
   attr :form, :map, required: true
-  attr :tls_policies, :list, required: true
+  attr :descriptor, :map, default: nil
 
   defp secret_form_modal(assigns) do
     assigns =
       assigns
       |> assign(:secret_kind, form_string(assigns.form, :kind))
-      |> assign(:secret_title, secret_form_title(form_string(assigns.form, :kind)))
+      |> assign(
+        :secret_title,
+        descriptor_secret_title(assigns.descriptor) ||
+          secret_form_title(form_string(assigns.form, :kind))
+      )
 
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box max-w-3xl rounded-lg">
+    <dialog class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
+      <div class="sr-ui-modal-box sr-ui-modal-box-lg rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">{@secret_title}</h2>
-          <button type="button" class="btn btn-ghost btn-sm" phx-click="close_secret_form">
-            Close
-          </button>
+          <.ui_button type="button" phx-click="close_secret_form" size="sm" variant="ghost">Close</.ui_button>
         </div>
 
         <.form for={@form} phx-submit="save_secret" class="space-y-4">
           <input type="hidden" name={@form[:kind].name} value={@secret_kind} />
 
-          <div :if={@secret_kind == "proxmox_api_token"} class="space-y-4">
+          <div :if={@secret_kind == "descriptor" and @descriptor} class="space-y-4">
+            <input
+              type="hidden"
+              name="credential_secret[provider]"
+              value={@descriptor.provider}
+            />
+            <input
+              type="hidden"
+              name="credential_secret[auth_method]"
+              value={@descriptor.method["id"]}
+            />
+
+            <p :if={@descriptor.method["description"]} class="text-sm text-sr-muted">
+              {@descriptor.method["description"]}
+            </p>
+
             <div class="grid gap-4 md:grid-cols-2">
               <.input field={@form[:name]} label="Name" required />
-              <.input field={@form[:user]} label="User" required />
-              <.input field={@form[:realm]} label="Realm" required />
-              <.input field={@form[:token_id]} label="Token ID" required />
               <.input
-                field={@form[:tls_policy]}
-                type="select"
-                label="TLS Policy"
-                options={enum_options([:verify])}
-                required
+                :for={field <- @descriptor.method["fields"]}
+                id={"credential_secret_fields_#{field["id"]}"}
+                name={"credential_secret[fields][#{field["id"]}]"}
+                value={descriptor_field_value(@form, field)}
+                type={descriptor_field_input_type(field)}
+                label={field["label"]}
+                placeholder={field["placeholder"]}
+                minlength={field["min_length"]}
+                maxlength={field["max_length"]}
+                required={field["required"]}
+                autocomplete={if(field["secret"], do: "new-password", else: "off")}
               />
             </div>
 
-            <.input field={@form[:token_secret]} type="password" label="Token Secret" required />
             <.input field={@form[:description]} type="textarea" label="Description" />
           </div>
 
-          <div :if={@secret_kind == "api_key"} class="space-y-4">
-            <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
-              Store a provider API key (for example a UniFi Protect API key). The key is
-              encrypted at rest; credential rules deliver it to matching plugins as a secret
-              reference, never inline.
-            </div>
-            <div class="grid gap-4 md:grid-cols-2">
-              <.input field={@form[:name]} label="Name" required />
-              <.input field={@form[:provider]} label="Provider" required />
-            </div>
-
-            <.input field={@form[:api_key]} type="password" label="API Key" required />
-            <.input field={@form[:description]} type="textarea" label="Description" />
-          </div>
-
-          <div :if={@secret_kind == "awx_api_token"} class="space-y-4">
-            <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
-              Store an AWX/AAP OAuth2 bearer token under the <span class="font-mono">awx</span>
-              provider. The token is encrypted at rest; the credential broker injects it as an
-              <span class="font-mono">Authorization: Bearer</span>
-              header when an Ansible controller dispatches — no token is baked into config.
-              Reference this secret from <span class="font-mono">Settings → Ansible → Controllers</span>.
-            </div>
-            <div class="grid gap-4 md:grid-cols-2">
-              <.input field={@form[:name]} label="Name" required />
-            </div>
-
-            <.input field={@form[:api_token]} type="password" label="AWX API Token" required />
-            <.input field={@form[:description]} type="textarea" label="Description" />
-          </div>
-
-          <div :if={@secret_kind == "username_password"} class="space-y-4">
-            <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
-              Store a provider username and password (for example an Axis VAPIX or UniFi Protect
-              local account). The password is encrypted at rest; only the username is delivered
-              in plain text to matching plugins.
-            </div>
-            <div class="grid gap-4 md:grid-cols-2">
-              <.input field={@form[:name]} label="Name" required />
-              <.input field={@form[:provider]} label="Provider" required />
-              <.input field={@form[:username]} label="Username" required />
-              <.input field={@form[:password]} type="password" label="Password" required />
-            </div>
-
-            <.input field={@form[:description]} type="textarea" label="Description" />
-          </div>
-
-          <div :if={@secret_kind == "ssh_private_key"} class="space-y-4">
-            <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
-              Store the PVE host SSH key used by console access rules. The private key is encrypted
-              with AshCloak and only injected into the scoped agent config for matching console
-              sessions.
-            </div>
-            <div class="grid gap-4 md:grid-cols-2">
-              <.input field={@form[:name]} label="Name" required />
-              <.input field={@form[:username]} label="Username" required />
-              <.input field={@form[:passphrase]} type="password" label="Passphrase" />
-            </div>
-
-            <.input field={@form[:private_key]} type="textarea" label="Private Key" required />
-            <.input field={@form[:description]} type="textarea" label="Description" />
-          </div>
-
-          <div class="modal-action">
-            <button type="button" class="btn btn-ghost" phx-click="close_secret_form">
-              Cancel
-            </button>
-            <button type="submit" class="btn btn-primary">
-              Save
-            </button>
+          <div class="sr-ui-modal-action">
+            <.ui_button type="button" phx-click="close_secret_form" size="sm" variant="ghost">Cancel</.ui_button>
+            <.ui_button type="submit" size="sm" variant="primary">Save</.ui_button>
           </div>
         </.form>
       </div>
-      <button type="button" class="modal-backdrop" phx-click="close_secret_form">Close</button>
-    </div>
+    </dialog>
     """
   end
 
@@ -637,20 +523,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     <div class="space-y-2 p-2 text-xs">
       <%= cond do %>
         <% is_nil(@consumers) -> %>
-          <p class="text-base-content/60">Loading consumers.</p>
+          <p class="text-sr-muted">Loading consumers.</p>
         <% @consumers.total == 0 -> %>
-          <p class="text-base-content/60">
+          <p class="text-sr-muted">
             No materialized plugin assignments yet — the reconciler has not produced assignments
             for this rule. Check that the rule is enabled and that its scope, purposes, and
             target query match connected agents.
           </p>
         <% true -> %>
-          <p class="text-base-content/70">
+          <p class="text-sr-muted">
             Materializes {@consumers.total} assignment(s)
             ({@consumers.enabled_count} enabled) across {length(@consumers.agent_uids)} agent(s).
             Last materialized {format_timestamp(@consumers.last_materialized_at)}.
           </p>
-          <div class="overflow-hidden rounded-lg border border-base-200 bg-base-100">
+          <div class="overflow-hidden rounded-lg border border-sr-line bg-sr-surface">
             <table class="table table-xs">
               <thead>
                 <tr>
@@ -688,31 +574,29 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp rule_preview_modal(assigns) do
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box max-w-5xl rounded-lg">
+    <dialog class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
+      <div class="sr-ui-modal-box sr-ui-modal-box-xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">Target Preview</h2>
-          <button type="button" class="btn btn-ghost btn-sm" phx-click="close_preview">
-            Close
-          </button>
+          <.ui_button type="button" phx-click="close_preview" size="sm" variant="ghost">Close</.ui_button>
         </div>
 
         <div class="space-y-4">
           <div class="grid gap-3 md:grid-cols-4">
-            <div class="rounded-lg border border-base-200 p-3">
-              <div class="text-xs text-base-content/60">Matched</div>
+            <div class="rounded-lg border border-sr-line p-3">
+              <div class="text-xs text-sr-muted">Matched</div>
               <div class="text-xl font-semibold">{@rule_preview.preview.matched_devices}</div>
             </div>
-            <div class="rounded-lg border border-base-200 p-3">
-              <div class="text-xs text-base-content/60">In Scope</div>
+            <div class="rounded-lg border border-sr-line p-3">
+              <div class="text-xs text-sr-muted">In Scope</div>
               <div class="text-xl font-semibold">{@rule_preview.preview.scoped_devices}</div>
             </div>
-            <div class="rounded-lg border border-base-200 p-3">
-              <div class="text-xs text-base-content/60">Agents</div>
+            <div class="rounded-lg border border-sr-line p-3">
+              <div class="text-xs text-sr-muted">Agents</div>
               <div class="text-xl font-semibold">{length(@rule_preview.preview.agents)}</div>
             </div>
-            <div class="rounded-lg border border-base-200 p-3">
-              <div class="text-xs text-base-content/60">Conflicts</div>
+            <div class="rounded-lg border border-sr-line p-3">
+              <div class="text-xs text-sr-muted">Conflicts</div>
               <div class="text-xl font-semibold">{length(@rule_preview.preview.conflicts)}</div>
             </div>
           </div>
@@ -720,8 +604,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           <div class="grid gap-4 lg:grid-cols-2">
             <section class="space-y-2">
               <h3 class="text-sm font-semibold">Agent Distribution</h3>
-              <div class="overflow-hidden rounded-lg border border-base-200">
-                <table class="table table-sm">
+              <div class="overflow-hidden rounded-lg border border-sr-line">
+                <table class={ui_table_class(size: "sm")}>
                   <thead>
                     <tr>
                       <th>Agent</th>
@@ -730,7 +614,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                   </thead>
                   <tbody>
                     <tr :if={@rule_preview.preview.agents == []}>
-                      <td colspan="2" class="py-4 text-center text-sm text-base-content/60">
+                      <td colspan="2" class="py-4 text-center text-sm text-sr-muted">
                         No in-scope agents.
                       </td>
                     </tr>
@@ -745,8 +629,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
             <section class="space-y-2">
               <h3 class="text-sm font-semibold">Sample Devices</h3>
-              <div class="overflow-hidden rounded-lg border border-base-200">
-                <table class="table table-sm">
+              <div class="overflow-hidden rounded-lg border border-sr-line">
+                <table class={ui_table_class(size: "sm")}>
                   <thead>
                     <tr>
                       <th>Device</th>
@@ -756,7 +640,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                   </thead>
                   <tbody>
                     <tr :if={@rule_preview.preview.sample_devices == []}>
-                      <td colspan="3" class="py-4 text-center text-sm text-base-content/60">
+                      <td colspan="3" class="py-4 text-center text-sm text-sr-muted">
                         No in-scope devices.
                       </td>
                     </tr>
@@ -774,7 +658,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           <section :if={@rule_preview.preview.conflicts != []} class="space-y-2">
             <h3 class="text-sm font-semibold text-error">Credential Conflicts</h3>
             <div class="overflow-hidden rounded-lg border border-error/30">
-              <table class="table table-sm">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr>
                     <th>Rule</th>
@@ -797,7 +681,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             <h3 class="text-sm font-semibold">Effective Inputs (dry run)</h3>
             <%= case Map.get(@rule_preview, :effective) do %>
               <% {:ok, effective} -> %>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   {effective.targets.total} target(s) resolved from the rule's SRQL query
                   <span :if={effective.targets.truncated?}>
                     (showing first {length(effective.targets.sample)})
@@ -806,24 +690,24 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                 </p>
                 <div
                   :for={entry <- effective.purposes}
-                  class="rounded-lg border border-base-200 p-3 space-y-2"
+                  class="rounded-lg border border-sr-line p-3 space-y-2"
                 >
                   <div class="flex flex-wrap items-center gap-2 text-xs">
                     <span class="badge badge-ghost badge-sm">{entry.purpose}</span>
                     <span class="font-mono">{entry.plugin_id}</span>
-                    <span class="font-mono text-base-content/60">{entry.policy_id}</span>
+                    <span class="font-mono text-sr-muted">{entry.policy_id}</span>
                     <span :if={!entry.package_found?} class="badge badge-warning badge-sm">
                       no approved package
                     </span>
-                    <span class="text-base-content/60">
+                    <span class="text-sr-muted">
                       every {entry.interval_seconds}s, timeout {entry.timeout_seconds}s
                     </span>
                   </div>
-                  <pre class="max-h-64 overflow-auto rounded bg-base-200/60 p-2 text-[11px] font-mono"><%= encode_json(entry.params_template) %></pre>
+                  <pre class="max-h-64 overflow-auto rounded bg-sr-subtle/60 p-2 text-[11px] font-mono"><%= encode_json(entry.params_template) %></pre>
                 </div>
                 <div
                   :if={effective.targets.sample != []}
-                  class="overflow-hidden rounded-lg border border-base-200"
+                  class="overflow-hidden rounded-lg border border-sr-line"
                 >
                   <table class="table table-xs">
                     <thead>
@@ -845,13 +729,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               <% {:error, reason} -> %>
                 <p class="text-xs text-error">Dry run failed: {format_error(reason)}</p>
               <% _ -> %>
-                <p class="text-xs text-base-content/60">Dry run unavailable.</p>
+                <p class="text-xs text-sr-muted">Dry run unavailable.</p>
             <% end %>
           </section>
         </div>
       </div>
-      <button type="button" class="modal-backdrop" phx-click="close_preview">Close</button>
-    </div>
+    </dialog>
     """
   end
 
@@ -860,12 +743,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   attr :secrets, :list, required: true
   attr :provider_options, :list, required: true
   attr :integration_profiles, :map, required: true
-  attr :auth_methods, :list, required: true
-  attr :purposes, :list, required: true
-  attr :scope_types, :list, required: true
   attr :agent_options, :list, required: true
-  attr :tls_policies, :list, required: true
-  attr :ssh_host_key_policies, :list, required: true
 
   defp rule_form_modal(assigns) do
     assigns =
@@ -875,11 +753,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       |> assign(:auth_method_value, form_string(assigns.form, :auth_method))
 
     integration_profile = Map.get(assigns.integration_profiles, assigns.provider_value)
+    auth_descriptor = credential_method_descriptor(integration_profile, assigns.auth_method_value)
+    rule_controls = profile_rule_controls(integration_profile)
+    tls_policies = descriptor_values(auth_descriptor, "tls_policies")
+    ssh_host_key_policies = descriptor_values(auth_descriptor, "ssh_host_key_policies")
 
     assigns =
       assigns
       |> assign(:integration_profile, integration_profile)
-      |> assign(:plugin_integration?, is_map(integration_profile))
+      |> assign(:plugin_integration?, scheduled_integration_profile?(integration_profile))
       |> assign(:plugin_config_params, form_plugin_config(assigns.form))
       |> assign(
         :provider_auth_methods,
@@ -893,30 +775,35 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
         :provider_scope_types,
         provider_scope_types(assigns.provider_value, assigns.integration_profiles)
       )
-      |> assign(:camera_provider?, camera_provider?(assigns.provider_value))
-      |> assign(:show_ssh_policy?, assigns.auth_method_value == "ssh_private_key")
-      |> assign(:show_auto_discovery?, assigns.provider_value == "proxmox")
-      |> assign(:show_controller_host?, assigns.provider_value == "unifi-protect")
+      |> assign(:show_ssh_policy?, ssh_host_key_policies != [])
+      |> assign(:show_auto_discovery?, Map.get(rule_controls, "auto_discovery_enabled", false))
+      |> assign(:show_controller_host?, Map.get(rule_controls, "controller_host", false))
+      |> assign(:show_allowed_ports?, Map.get(rule_controls, "allowed_ports", false))
+      |> assign(:show_target_query?, Map.get(rule_controls, "target_query", false))
+      |> assign(:show_tls_policy?, Map.get(rule_controls, "transport", false) and tls_policies != [])
+      |> assign(:provider_tls_policies, tls_policies)
+      |> assign(:provider_ssh_host_key_policies, ssh_host_key_policies)
       |> assign(
         :secret_options_for_rule,
         secret_options_for(
           assigns.secrets,
           assigns.provider_value,
           assigns.auth_method_value,
-          form_string(assigns.form, :secret_id)
+          form_string(assigns.form, :secret_id),
+          assigns.integration_profiles
         )
       )
 
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box max-w-4xl rounded-lg">
+    <dialog class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
+      <div class="sr-ui-modal-box sr-ui-modal-box-xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">
             {if @mode == :new, do: "New Credential Rule", else: "Edit Credential Rule"}
           </h2>
-          <.link navigate={~p"/settings/networks/credentials"} class="btn btn-ghost btn-sm">
+          <.ui_button navigate={~p"/settings/networks/credentials"} size="sm" variant="ghost">
             Close
-          </.link>
+          </.ui_button>
         </div>
 
         <.form
@@ -926,45 +813,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           phx-submit="save_rule"
           class="space-y-4"
         >
-          <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
-            <span :if={@provider_value == "proxmox"}>
-              Inventory and console access are separate credential purposes. Select console access
-              explicitly, then restrict which users may invoke the credential below. A Proxmox API
-              token can support native PVE console proxy sessions without a separate SSH key, but an
-              inventory-only token is never console-eligible. Runtime fields such as <span class="font-mono">credential_broker</span>, <span class="font-mono">credential_rule_id</span>, and
-              <span class="font-mono">console</span>
-              are generated by ServiceRadar when a console session starts.
-              <a
-                class="link link-primary"
-                href="https://docs.serviceradar.cloud/docs/proxmox#console-access"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Configuration guide
-              </a>
-            </span>
-            <span :if={@provider_value in ["unifi-protect", "axis"]}>
-              Camera rules materialize plugin inputs per matched device: the controller or camera
-              host comes from the SRQL target query, so no host is stored in the plugin config.
-              UniFi Protect accepts <span class="font-mono">api_key</span>
-              or username/password auth; Axis (VAPIX) uses username/password. Choose <span class="font-mono">camera_inventory</span>, <span class="font-mono">camera_stream</span>,
-              or both. Runtime fields such as <span class="font-mono">credential_broker</span>
-              and <span class="font-mono">credential_rule_id</span>
-              are generated when the rule materializes.
-            </span>
-            <span :if={@plugin_integration?}>
-              {@integration_profile["description"] || @integration_profile["label"]} Configuration is owned by the approved plugin package. Credentials are resolved into
-              short-lived grants for each scheduled or manual run.
-            </span>
-            <span :if={
-              !@plugin_integration? and @provider_value not in ["proxmox", "unifi-protect", "axis"]
-            }>
-              Select every use this scoped credential should allow. Enabled rules materialize
-              plugin inputs for agents in scope; runtime fields such as
-              <span class="font-mono">credential_broker</span>
-              and <span class="font-mono">credential_rule_id</span>
-              are generated by ServiceRadar.
-            </span>
+          <div
+            :if={@integration_profile}
+            class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-sr-ink/90"
+          >
+            {@integration_profile["description"] || @integration_profile["label"]} Credentials are
+            resolved by the trusted host and delivered only through scoped runtime grants.
           </div>
 
           <div class="grid gap-4 md:grid-cols-2">
@@ -989,7 +843,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               <button
                 id="credential-rule-new-secret"
                 type="button"
-                class="btn btn-ghost btn-xs"
+                size="xs" variant="ghost"
                 phx-click="new_rule_secret"
               >
                 New secret for this rule
@@ -1008,7 +862,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               <div class="grid gap-2 sm:grid-cols-2">
                 <label
                   :for={purpose <- @provider_purposes}
-                  class="flex items-center gap-2 rounded-md border border-base-300 bg-base-100 px-3 py-2 text-sm"
+                  class="flex items-center gap-2 rounded-md border border-base-300 bg-sr-surface px-3 py-2 text-sm"
                 >
                   <input
                     type="checkbox"
@@ -1090,13 +944,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               label="Controller Host Override"
             />
             <.input
-              :if={!@plugin_integration?}
+              :if={@show_tls_policy?}
               field={@form[:tls_policy]}
               type="select"
               label="TLS Policy"
-              options={
-                enum_options(if @provider_value == "proxmox", do: [:verify], else: @tls_policies)
-              }
+              options={enum_options(@provider_tls_policies)}
               required
             />
             <.input
@@ -1104,7 +956,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               field={@form[:ssh_host_key_policy]}
               type="select"
               label="SSH Host Key Policy"
-              options={enum_options([:known_hosts, :trust_on_first_use])}
+              options={enum_options(@provider_ssh_host_key_policies)}
               required
             />
           </div>
@@ -1116,13 +968,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             value="in:agents"
           />
           <.input
-            :if={!@plugin_integration?}
+            :if={@show_target_query?}
             field={@form[:target_query]}
             type="textarea"
             label="Target Query"
             required
           />
-          <fieldset :if={@plugin_integration?} class="space-y-4 border-t border-base-200 pt-4">
+          <fieldset :if={@plugin_integration?} class="space-y-4 border-t border-sr-line pt-4">
             <legend class="text-sm font-semibold">{@integration_profile["label"]}</legend>
             <PluginConfigForm.plugin_config_fields
               schema={@integration_profile["config_schema"]}
@@ -1152,21 +1004,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             type="checkbox"
             label="Allow auto-discovery credential trials"
           />
-          <.input :if={!@plugin_integration?} field={@form[:allowed_ports]} label="Allowed Ports" />
+          <.input :if={@show_allowed_ports?} field={@form[:allowed_ports]} label="Allowed Ports" />
           <.input field={@form[:description]} type="textarea" label="Description" />
 
-          <div class="modal-action">
-            <.link navigate={~p"/settings/networks/credentials"} class="btn btn-ghost">
+          <div class="sr-ui-modal-action">
+            <.ui_button navigate={~p"/settings/networks/credentials"} size="sm" variant="ghost">
               Cancel
-            </.link>
-            <button type="submit" class="btn btn-primary">
-              Save
-            </button>
+            </.ui_button>
+            <.ui_button type="submit" size="sm" variant="primary">Save</.ui_button>
           </div>
         </.form>
       </div>
-      <.link navigate={~p"/settings/networks/credentials"} class="modal-backdrop">Close</.link>
-    </div>
+    </dialog>
     """
   end
 
@@ -1269,6 +1118,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
          socket
          |> put_flash(:info, "Credential secret saved")
          |> assign(:secret_form, nil)
+         |> assign(:secret_descriptor, nil)
          |> reload_page_data()
          |> maybe_select_rule_secret(secret)}
 
@@ -1303,7 +1153,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     provider = form_string(form, :provider)
     auth_method = form_string(form, :auth_method)
 
-    if secret_matches_rule?(secret, provider, auth_method) do
+    descriptor = credential_method(socket.assigns.integration_profiles, provider, auth_method)
+
+    if secret_matches_rule?(secret, provider, descriptor) do
       params =
         form
         |> rule_form_params()
@@ -1421,7 +1273,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp active_agent?(_agent), do: false
 
   defp normalize_rule_params(params, integration_profiles) do
-    providers = @built_in_providers ++ Map.keys(integration_profiles)
+    providers = rule_provider_ids(integration_profiles)
 
     with {:ok, provider} <- string_enum_param(params, "provider", providers, "provider"),
          {:ok, auth_method} <-
@@ -1441,8 +1293,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
            ),
          :ok <- validate_provider_scope(provider, scope_type, integration_profiles),
          {:ok, tls_policy} <- enum_param(params, "tls_policy", @tls_policies, "TLS policy"),
-         {:ok, ssh_policy} <- ssh_host_key_policy_param(params, auth_method),
-         :ok <- validate_proxmox_transport(provider, auth_method, tls_policy, ssh_policy),
+         {:ok, ssh_policy} <-
+           ssh_host_key_policy_param(
+             params,
+             credential_method_descriptor(Map.get(integration_profiles, provider), auth_method)
+           ),
+         :ok <-
+           validate_descriptor_transport(
+             Map.get(integration_profiles, provider),
+             auth_method,
+             tls_policy,
+             ssh_policy
+           ),
          {:ok, priority} <- integer_param(params, "priority", "priority"),
          {:ok, allowed_ports} <- allowed_ports(params["allowed_ports"]),
          {:ok, credential_use_policy} <- credential_use_policy_param(params, purposes),
@@ -1476,226 +1338,127 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     ArgumentError -> {:error, "Required fields are missing"}
   end
 
-  defp normalize_secret_params(%{"kind" => "ssh_private_key"} = params) do
-    name = required_string(params, "name")
-    username = required_string(params, "username")
-    private_key = required_string(params, "private_key")
-
-    SshPrivateKeyCredential.build_attrs(%{
-      name: name,
-      description: blank_to_nil(params["description"]),
-      provider: "proxmox",
-      username: username,
-      private_key: private_key,
-      passphrase: blank_to_nil(params["passphrase"]),
-      metadata: %{
-        "auth_method" => "ssh_private_key",
-        "usage" => "console_access"
-      }
-    })
-  rescue
-    ArgumentError -> {:error, "Required SSH key fields are missing"}
-  end
-
-  defp normalize_secret_params(%{"kind" => "api_key"} = params) do
-    name = required_string(params, "name")
+  defp normalize_secret_params(%{"kind" => "descriptor"} = params, integration_profiles) do
     provider = required_string(params, "provider")
-    api_key = required_string(params, "api_key")
+    auth_method = required_string(params, "auth_method")
 
-    {:ok,
-     %{
-       name: name,
-       description: blank_to_nil(params["description"]),
-       provider: provider,
-       credential_kind: :api_token,
-       public_fingerprint: secret_fingerprint(api_key),
-       secret_payload: api_key,
-       metadata: %{
-         "auth_method" => "api_key"
-       }
-     }}
-  rescue
-    ArgumentError -> {:error, "Required API key fields are missing"}
-  end
+    with %{} = descriptor <- credential_method(integration_profiles, provider, auth_method),
+         {:ok, values} <- descriptor_secret_values(params["fields"], descriptor.method["fields"]),
+         {:ok, attrs} <-
+           CredentialSecretBuilder.build(
+             descriptor.profile,
+             auth_method,
+             values,
+             %{
+               name: required_string(params, "name"),
+               description: blank_to_nil(params["description"])
+             }
+           ) do
+      {:ok, attrs}
+    else
+      nil ->
+        {:error, "Credential descriptor is no longer available"}
 
-  defp normalize_secret_params(%{"kind" => "awx_api_token"} = params) do
-    name = required_string(params, "name")
-    token = required_string(params, "api_token")
+      {:error, {:missing_credential_field, field}} ->
+        {:error, "#{format_atom(field)} is required"}
 
-    {:ok,
-     %{
-       name: name,
-       description: blank_to_nil(params["description"]),
-       provider: "awx",
-       credential_kind: :api_token,
-       public_fingerprint: secret_fingerprint(token),
-       secret_payload: token,
-       last_rotated_at: DateTime.utc_now(),
-       metadata: %{
-         "auth_method" => "bearer_token",
-         "source" => "credential_rules_form"
-       }
-     }}
-  rescue
-    ArgumentError -> {:error, "Required AWX token fields are missing"}
-  end
-
-  defp normalize_secret_params(%{"kind" => "username_password"} = params) do
-    name = required_string(params, "name")
-    provider = required_string(params, "provider")
-    username = required_string(params, "username")
-    password = required_string(params, "password")
-
-    {:ok,
-     %{
-       name: name,
-       description: blank_to_nil(params["description"]),
-       provider: provider,
-       credential_kind: :username_password,
-       username: username,
-       secret_payload: password,
-       metadata: %{
-         "auth_method" => "username_password"
-       }
-     }}
-  rescue
-    ArgumentError -> {:error, "Required username/password fields are missing"}
-  end
-
-  defp normalize_secret_params(params) do
-    with {:ok, tls_policy} <- enum_param(params, "tls_policy", @tls_policies, "TLS policy"),
-         :ok <- require_proxmox_tls_verification(tls_policy) do
-      name = required_string(params, "name")
-      user = required_string(params, "user")
-      realm = required_string(params, "realm")
-      token_id = required_string(params, "token_id")
-      token_secret = required_string(params, "token_secret")
-      token_identity = proxmox_token_identity(user, realm, token_id)
-      token_payload = token_identity <> "=" <> token_secret
-
-      {:ok,
-       %{
-         name: name,
-         description: blank_to_nil(params["description"]),
-         provider: "proxmox",
-         credential_kind: :api_token,
-         username: token_identity,
-         public_fingerprint: secret_fingerprint(token_payload),
-         secret_payload: token_payload,
-         metadata: %{
-           "realm" => realm,
-           "token_id" => token_id,
-           "tls_policy" => Atom.to_string(tls_policy),
-           "auth_method" => "proxmox_api_token"
-         }
-       }}
+      {:error, reason} ->
+        {:error, "Credential could not be saved: #{format_error(reason)}"}
     end
   rescue
-    ArgumentError -> {:error, "Required token fields are missing"}
+    ArgumentError -> {:error, "Required credential fields are missing"}
   end
+
+  defp normalize_secret_params(_params, _integration_profiles), do: {:error, "Credential descriptor is required"}
+
+  defp descriptor_secret_values(raw_values, fields) when is_map(raw_values) and is_list(fields) do
+    values = Map.new(raw_values, fn {key, value} -> {to_string(key), to_string(value)} end)
+    declared_ids = Enum.map(fields, & &1["id"])
+
+    if Enum.any?(Map.keys(values), &(&1 not in declared_ids)) do
+      {:error, "Credential form contains an undeclared field"}
+    else
+      Enum.reduce_while(fields, {:ok, %{}}, fn field, {:ok, acc} ->
+        id = field["id"]
+        value = Map.get(values, id, "")
+        size = byte_size(value)
+        min_length = field["min_length"] || 0
+        max_length = field["max_length"] || 16_384
+
+        cond do
+          field["required"] and String.trim(value) == "" ->
+            {:halt, {:error, "#{field["label"]} is required"}}
+
+          size < min_length or size > max_length ->
+            {:halt, {:error, "#{field["label"]} has an invalid length"}}
+
+          value == "" ->
+            {:cont, {:ok, acc}}
+
+          true ->
+            {:cont, {:ok, Map.put(acc, id, value)}}
+        end
+      end)
+    end
+  end
+
+  defp descriptor_secret_values(_raw_values, _fields), do: {:error, "Required credential fields are missing"}
 
   defp default_rule_params(params \\ %{}, integration_profiles \\ %{})
 
-  defp default_rule_params(%{"provider" => provider} = params, integration_profiles) do
-    case Map.get(integration_profiles, provider) do
-      %{} = profile -> plugin_rule_defaults(profile)
-      nil -> built_in_default_rule_params(params)
+  defp default_rule_params(params, integration_profiles) do
+    requested_provider = params |> Map.get("provider", "") |> to_string() |> String.trim()
+
+    profile =
+      Map.get(integration_profiles, requested_provider) || default_integration_profile(integration_profiles)
+
+    cond do
+      scheduled_integration_profile?(profile) -> scheduled_rule_defaults(profile)
+      is_map(profile) -> manifest_rule_defaults(profile)
+      true -> empty_rule_defaults()
     end
   end
 
-  defp default_rule_params(params, _integration_profiles), do: built_in_default_rule_params(params)
-
-  defp built_in_default_rule_params(%{"purpose" => "console_access"}) do
+  defp empty_rule_defaults do
     %{
       "name" => "",
       "description" => "",
-      "provider" => "proxmox",
-      "auth_method" => "ssh_private_key",
-      "purpose" => "console_access",
-      "purposes" => ["console_access"],
-      "target_query" => ~s(in:devices type:"Hypervisor" vendor:"Proxmox"),
+      "provider" => "",
+      "auth_method" => "",
+      "purpose" => "",
+      "purposes" => [],
+      "target_query" => "",
       "scope_type" => "agent",
       "scope_value" => "",
       "secret_id" => "",
       "priority" => "100",
-      "allowed_ports" => "22",
+      "allowed_ports" => "",
       "tls_policy" => "verify",
       "ssh_host_key_policy" => "known_hosts",
       "controller_host" => "",
       "credential_use_roles" => "admin",
       "credential_use_principals" => "",
       "credential_use_groups" => "",
-      "auto_discovery_enabled" => "false"
+      "auto_discovery_enabled" => "false",
+      "plugin_config" => %{},
+      "schedule_enabled" => "false",
+      "cadence_seconds" => "86400"
     }
   end
 
-  defp built_in_default_rule_params(%{"provider" => "unifi-protect"}) do
-    %{
-      "name" => "",
-      "description" => "",
-      "provider" => "unifi-protect",
-      "auth_method" => "api_key",
-      "purpose" => "camera_inventory",
-      "purposes" => ["camera_inventory", "camera_stream"],
-      "target_query" => ~s(in:devices vendor:"Ubiquiti"),
-      "scope_type" => "agent",
-      "scope_value" => "",
-      "secret_id" => "",
-      "priority" => "100",
-      "allowed_ports" => "443, 7447",
-      "tls_policy" => "verify",
-      "ssh_host_key_policy" => "known_hosts",
-      "controller_host" => "",
-      "auto_discovery_enabled" => "false"
-    }
+  defp manifest_rule_defaults(profile) do
+    defaults = profile["rule_defaults"] || %{}
+    purposes = defaults["purposes"] || profile["purposes"] || []
+
+    empty_rule_defaults()
+    |> Map.merge(defaults)
+    |> Map.put("provider", profile["provider"])
+    |> Map.put("auth_method", defaults["auth_method"] || first_auth_method(profile))
+    |> Map.put("purposes", purposes)
+    |> Map.put("purpose", List.first(purposes) || "")
   end
 
-  defp built_in_default_rule_params(%{"provider" => "axis"}) do
-    %{
-      "name" => "",
-      "description" => "",
-      "provider" => "axis",
-      "auth_method" => "username_password",
-      "purpose" => "camera_inventory",
-      "purposes" => ["camera_inventory", "camera_stream"],
-      "target_query" => ~s(in:devices vendor:"Axis"),
-      "scope_type" => "agent",
-      "scope_value" => "",
-      "secret_id" => "",
-      "priority" => "100",
-      "allowed_ports" => "443, 554",
-      "tls_policy" => "verify",
-      "ssh_host_key_policy" => "known_hosts",
-      "controller_host" => "",
-      "auto_discovery_enabled" => "false"
-    }
-  end
-
-  defp built_in_default_rule_params(_params) do
-    %{
-      "name" => "",
-      "description" => "",
-      "provider" => "proxmox",
-      "auth_method" => "proxmox_api_token",
-      "purpose" => "inventory_enrichment",
-      "purposes" => ["inventory_enrichment", "console_access"],
-      "target_query" => "in:devices metadata.proxmox_candidate:true",
-      "scope_type" => "agent",
-      "scope_value" => "",
-      "secret_id" => "",
-      "priority" => "100",
-      "allowed_ports" => "8006",
-      "tls_policy" => "verify",
-      "ssh_host_key_policy" => "known_hosts",
-      "controller_host" => "",
-      "credential_use_roles" => "admin",
-      "credential_use_principals" => "",
-      "credential_use_groups" => "",
-      "auto_discovery_enabled" => "false"
-    }
-  end
-
-  defp plugin_rule_defaults(profile) do
+  defp scheduled_rule_defaults(profile) do
     schedule = profile["producer_schedule"]
     purposes = profile["purposes"]
 
@@ -1719,78 +1482,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "plugin_config" => ConfigSchema.normalize_params(profile["config_schema"] || %{}, %{}),
       "schedule_enabled" => "false",
       "cadence_seconds" => to_string(schedule["default_cadence_seconds"])
-    }
-  end
-
-  defp default_secret_params do
-    %{
-      "kind" => "proxmox_api_token",
-      "name" => "",
-      "description" => "",
-      "user" => "root",
-      "realm" => "pam",
-      "token_id" => "",
-      "tls_policy" => "verify",
-      "token_secret" => ""
-    }
-  end
-
-  defp default_api_key_secret_params do
-    %{
-      "kind" => "api_key",
-      "name" => "",
-      "description" => "",
-      "provider" => "unifi-protect",
-      "api_key" => ""
-    }
-  end
-
-  defp default_awx_secret_params do
-    %{
-      "kind" => "awx_api_token",
-      "name" => "",
-      "description" => "",
-      "provider" => "awx",
-      "api_token" => ""
-    }
-  end
-
-  defp default_username_password_secret_params do
-    %{
-      "kind" => "username_password",
-      "name" => "",
-      "description" => "",
-      "provider" => "axis",
-      "username" => "",
-      "password" => ""
-    }
-  end
-
-  defp default_secret_params_for_rule(_provider, "ssh_private_key"), do: default_ssh_secret_params()
-
-  defp default_secret_params_for_rule(provider, "api_key") do
-    Map.put(default_api_key_secret_params(), "provider", provider_for_secret(provider, "unifi-protect"))
-  end
-
-  defp default_secret_params_for_rule(provider, "username_password") do
-    Map.put(default_username_password_secret_params(), "provider", provider_for_secret(provider, "axis"))
-  end
-
-  defp default_secret_params_for_rule(_provider, _auth_method), do: default_secret_params()
-
-  defp provider_for_secret(provider, fallback) do
-    provider = provider |> to_string() |> String.trim()
-    if provider == "", do: fallback, else: provider
-  end
-
-  defp default_ssh_secret_params do
-    %{
-      "kind" => "ssh_private_key",
-      "name" => "",
-      "description" => "",
-      "username" => "root",
-      "private_key" => "",
-      "passphrase" => ""
     }
   end
 
@@ -1823,6 +1514,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp normalize_rule_form_params(params, integration_profiles) when is_map(params) do
     provider = normalize_provider(Map.get(params, "provider"), integration_profiles)
+    profile = Map.get(integration_profiles, provider)
     defaults = default_rule_params(%{"provider" => provider}, integration_profiles)
     auth_method = normalize_auth_method(provider, Map.get(params, "auth_method"), integration_profiles)
 
@@ -1843,11 +1535,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     |> Map.put_new("credential_use_roles", defaults["credential_use_roles"] || "admin")
     |> Map.put_new("credential_use_principals", "")
     |> Map.put_new("credential_use_groups", "")
-    |> put_default_when_blank("target_query", defaults["target_query"])
-    |> put_default_when_blank("allowed_ports", defaults["allowed_ports"])
+    |> put_descriptor_default("target_query", defaults["target_query"], integration_profiles)
+    |> put_descriptor_default("allowed_ports", defaults["allowed_ports"], integration_profiles)
     |> Map.put_new("controller_host", "")
-    |> put_plugin_defaults(Map.get(integration_profiles, provider), defaults)
-    |> maybe_clear_camera_only_fields(provider)
+    |> put_plugin_defaults(profile, defaults)
+    |> clear_unsupported_profile_fields(profile)
   end
 
   defp normalize_rule_form_params(_, integration_profiles), do: default_rule_params(%{}, integration_profiles)
@@ -1856,59 +1548,58 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp secret_form(params), do: to_form(params, as: :credential_secret)
 
-  defp secret_form_title("ssh_private_key"), do: "New Console SSH Key"
-  defp secret_form_title("api_key"), do: "New API Key Secret"
-  defp secret_form_title("awx_api_token"), do: "New AWX API Token"
-  defp secret_form_title("username_password"), do: "New Username & Password Secret"
-  defp secret_form_title(_kind), do: "New Proxmox Token"
+  defp secret_form_title(_kind), do: "New Credential"
 
   defp provider_auth_methods(provider, integration_profiles) do
     case Map.get(integration_profiles, to_string(provider)) do
       %{} = profile ->
-        Enum.map(profile["auth_methods"], &Map.fetch!(@auth_method_atoms, &1["id"]))
+        Enum.map(profile["auth_methods"], & &1["id"])
 
       nil ->
-        case to_string(provider) do
-          "unifi-protect" -> [:api_key, :username_password]
-          "axis" -> [:username_password]
-          _ -> [:proxmox_api_token, :ssh_private_key]
-        end
+        []
     end
   end
 
   defp provider_purposes(provider, integration_profiles) do
     case Map.get(integration_profiles, to_string(provider)) do
       %{} = profile ->
-        Enum.map(profile["purposes"], &Map.fetch!(@purpose_atoms, &1))
+        profile["purposes"]
 
       nil ->
-        if camera_provider?(provider) do
-          [:camera_inventory, :camera_stream]
-        else
-          [:inventory_enrichment, :console_access]
-        end
+        []
     end
   end
 
   defp provider_scope_types(provider, integration_profiles) do
     case Map.get(integration_profiles, to_string(provider)) do
-      %{} = profile -> Enum.map(profile["scope_types"], &Map.fetch!(@scope_type_atoms, &1))
-      nil -> @scope_types
+      %{} = profile ->
+        profile["scope_types"]
+        |> Enum.map(&resource_enum_value(:scope_type, &1))
+        |> Enum.reject(&is_nil/1)
+
+      nil ->
+        []
     end
   end
 
-  defp camera_provider?(provider), do: to_string(provider) in ["unifi-protect", "axis"]
-
   defp normalize_provider(value, integration_profiles) do
     value = value |> to_string() |> String.trim()
-    allowed = @built_in_providers ++ Map.keys(integration_profiles)
-    if value in allowed, do: value, else: "proxmox"
+    allowed = rule_provider_ids(integration_profiles)
+
+    if value in allowed do
+      value
+    else
+      case default_integration_profile(integration_profiles) do
+        %{} = profile -> profile["provider"]
+        nil -> ""
+      end
+    end
   end
 
   defp normalize_auth_method(provider, value, integration_profiles) do
     value = value |> to_string() |> String.trim()
     allowed = provider_auth_methods(provider, integration_profiles)
-    Enum.find(allowed, &(to_string(&1) == value)) || hd(allowed)
+    Enum.find(allowed, &(to_string(&1) == value)) || List.first(allowed)
   end
 
   defp normalize_form_purposes(provider, values, integration_profiles) do
@@ -1963,13 +1654,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     |> Enum.reject(&(&1 == ""))
   end
 
-  defp primary_purpose(purposes) do
-    cond do
-      :inventory_enrichment in purposes -> :inventory_enrichment
-      :console_access in purposes -> :console_access
-      true -> hd(purposes)
-    end
-  end
+  defp primary_purpose(purposes), do: hd(purposes)
 
   defp integer_param(params, key, label) do
     case Integer.parse(to_string(Map.get(params, key, ""))) do
@@ -1999,29 +1684,37 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
-  defp ssh_host_key_policy_param(params, :ssh_private_key),
-    do: enum_param(params, "ssh_host_key_policy", @ssh_host_key_policies, "SSH host key policy")
+  defp ssh_host_key_policy_param(params, %{"ssh_host_key_policies" => policies})
+       when is_list(policies) and policies != [] do
+    allowed =
+      policies
+      |> Enum.map(&resource_enum_value(:ssh_host_key_policy, &1))
+      |> Enum.reject(&is_nil/1)
 
-  defp ssh_host_key_policy_param(_params, _auth_method), do: {:ok, :known_hosts}
+    enum_param(params, "ssh_host_key_policy", allowed, "SSH host key policy")
+  end
 
-  defp validate_proxmox_transport(:proxmox, :proxmox_api_token, tls_policy, _ssh_policy),
-    do: require_proxmox_tls_verification(tls_policy)
+  defp ssh_host_key_policy_param(_params, _descriptor), do: {:ok, :known_hosts}
 
-  defp validate_proxmox_transport(:proxmox, :ssh_private_key, _tls_policy, ssh_policy)
-       when ssh_policy in [:known_hosts, :trust_on_first_use], do: :ok
+  defp validate_descriptor_transport(profile, auth_method, tls_policy, ssh_policy) do
+    method = credential_method_descriptor(profile, auth_method)
+    tls_policies = descriptor_values(method, "tls_policies", Enum.map(@tls_policies, &to_string/1))
+    ssh_policies = descriptor_values(method, "ssh_host_key_policies")
 
-  defp validate_proxmox_transport(:proxmox, :ssh_private_key, _tls_policy, _ssh_policy),
-    do: {:error, "Proxmox SSH access requires host key verification"}
+    cond do
+      tls_policies != [] and to_string(tls_policy) not in tls_policies ->
+        {:error, "Selected authentication method does not allow this TLS policy"}
 
-  defp validate_proxmox_transport(_provider, _auth_method, _tls_policy, _ssh_policy), do: :ok
+      ssh_policies != [] and to_string(ssh_policy) not in ssh_policies ->
+        {:error, "Selected authentication method does not allow this SSH host key policy"}
 
-  defp require_proxmox_tls_verification(:verify), do: :ok
-
-  defp require_proxmox_tls_verification(_tls_policy),
-    do: {:error, "Proxmox API access requires TLS certificate verification"}
+      true ->
+        :ok
+    end
+  end
 
   defp credential_use_policy_param(params, purposes) do
-    if :console_access in purposes do
+    if "console_access" in purposes do
       roles = credential_selector_values(params["credential_use_roles"])
       principals = credential_selector_values(params["credential_use_principals"])
       groups = credential_selector_values(params["credential_use_groups"])
@@ -2064,24 +1757,37 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp maybe_put_policy_selectors(policy, _key, []), do: policy
   defp maybe_put_policy_selectors(policy, key, selectors), do: Map.put(policy, key, selectors)
 
-  defp rule_metadata(params, provider, purposes, nil, credential_use_policy) do
+  defp rule_metadata(params, _provider, purposes, profile, credential_use_policy) when is_map(profile) do
+    if scheduled_integration_profile?(profile) do
+      scheduled_rule_metadata(params, purposes, profile, credential_use_policy)
+    else
+      target_policy_rule_metadata(params, purposes, profile, credential_use_policy)
+    end
+  end
+
+  defp rule_metadata(_params, _provider, _purposes, _profile, _credential_use_policy),
+    do: {:error, "Credential descriptor is no longer available"}
+
+  defp target_policy_rule_metadata(params, purposes, profile, credential_use_policy) do
+    controls = profile_rule_controls(profile)
+
     metadata =
       maybe_put_metadata_string(
         %{
-          "purposes" => Enum.map(purposes, &Atom.to_string/1),
+          "purposes" => Enum.map(purposes, &to_string/1),
           "auto_discovery_enabled" =>
-            to_string(provider) == "proxmox" and
+            Map.get(controls, "auto_discovery_enabled", false) and
               boolean_param(params, "auto_discovery_enabled")
         },
         "host",
         params["controller_host"],
-        to_string(provider) == "unifi-protect"
+        Map.get(controls, "controller_host", false)
       )
 
     {:ok, maybe_put_credential_use_policy(metadata, credential_use_policy)}
   end
 
-  defp rule_metadata(params, _provider, purposes, profile, credential_use_policy) do
+  defp scheduled_rule_metadata(params, purposes, profile, credential_use_policy) do
     schedule = profile["producer_schedule"]
     config = ConfigSchema.normalize_params(profile["config_schema"] || %{}, params["plugin_config"] || %{})
 
@@ -2095,7 +1801,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           %{
             "plugin_integration" => true,
             "plugin_config" => config,
-            "purposes" => Enum.map(purposes, &Atom.to_string/1),
+            "purposes" => Enum.map(purposes, &to_string/1),
             "schedule_enabled" => boolean_param(params, "schedule_enabled"),
             "cadence_seconds" => cadence_seconds
           },
@@ -2130,9 +1836,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp validate_provider_scope(provider, scope, integration_profiles) do
     case Map.get(integration_profiles, provider) do
-      %{} when scope == :agent -> :ok
-      %{} -> {:error, "Scheduled plugin integrations require agent scope"}
-      nil -> :ok
+      %{} = profile ->
+        if scheduled_integration_profile?(profile) and scope != :agent,
+          do: {:error, "Scheduled plugin integrations require agent scope"},
+          else: :ok
+
+      nil ->
+        :ok
     end
   end
 
@@ -2179,30 +1889,64 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
-  defp put_plugin_defaults(params, %{} = _profile, defaults) do
-    normalized =
+  defp put_descriptor_default(params, key, default, integration_profiles) do
+    current = blank_to_nil(Map.get(params, key))
+
+    known_defaults =
+      integration_profiles
+      |> Map.values()
+      |> Enum.map(&get_in(&1, ["rule_defaults", key]))
+      |> Enum.reject(&is_nil/1)
+
+    if is_nil(current) or current in known_defaults,
+      do: Map.put(params, key, default),
+      else: params
+  end
+
+  defp put_plugin_defaults(params, profile, defaults) do
+    if scheduled_integration_profile?(profile) do
+      normalized =
+        params
+        |> Map.put("scope_type", defaults["scope_type"])
+        |> Map.put("target_query", "in:agents")
+        |> Map.put("allowed_ports", "")
+        |> Map.put("tls_policy", "verify")
+        |> Map.put_new("plugin_config", defaults["plugin_config"] || %{})
+
+      normalized
+      |> put_default_when_blank("schedule_enabled", defaults["schedule_enabled"])
+      |> put_default_when_blank("cadence_seconds", defaults["cadence_seconds"])
+    else
       params
-      |> Map.put("scope_type", defaults["scope_type"])
-      |> Map.put("target_query", "in:agents")
-      |> Map.put("allowed_ports", "")
-      |> Map.put("tls_policy", "verify")
-      |> Map.put_new("plugin_config", defaults["plugin_config"] || %{})
-
-    normalized
-    |> put_default_when_blank("schedule_enabled", defaults["schedule_enabled"])
-    |> put_default_when_blank("cadence_seconds", defaults["cadence_seconds"])
+    end
   end
 
-  defp put_plugin_defaults(params, _profile, _defaults), do: params
+  defp clear_unsupported_profile_fields(params, profile) do
+    controls = profile_rule_controls(profile)
 
-  defp maybe_clear_camera_only_fields(params, provider)
-       when provider in [:"unifi-protect", :axis, "unifi-protect", "axis"] do
     params
-    |> Map.put("auto_discovery_enabled", "false")
-    |> Map.put("ssh_host_key_policy", "known_hosts")
+    |> maybe_reset_field(
+      "auto_discovery_enabled",
+      "false",
+      not Map.get(controls, "auto_discovery_enabled", false)
+    )
+    |> maybe_reset_field(
+      "controller_host",
+      "",
+      not Map.get(controls, "controller_host", false)
+    )
+    |> maybe_reset_field(
+      "ssh_host_key_policy",
+      "known_hosts",
+      descriptor_values(
+        credential_method_descriptor(profile, Map.get(params, "auth_method")),
+        "ssh_host_key_policies"
+      ) == []
+    )
   end
 
-  defp maybe_clear_camera_only_fields(params, _provider), do: params
+  defp maybe_reset_field(params, key, value, true), do: Map.put(params, key, value)
+  defp maybe_reset_field(params, _key, _value, false), do: params
 
   defp required_string(params, key) do
     case params |> Map.get(key, "") |> to_string() |> String.trim() do
@@ -2216,27 +1960,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "" -> nil
       value -> value
     end
-  end
-
-  defp proxmox_token_identity(user, realm, token_id) do
-    user = user |> to_string() |> String.trim() |> String.replace(~r/@.*/, "")
-    realm = realm |> to_string() |> String.trim()
-    token_id = token_id |> to_string() |> String.trim()
-
-    if String.contains?(token_id, "!") do
-      token_id
-    else
-      "#{user}@#{realm}!#{token_id}"
-    end
-  end
-
-  defp secret_fingerprint(payload) do
-    digest =
-      :sha256
-      |> :crypto.hash(payload)
-      |> Base.encode16(case: :lower)
-
-    "sha256:" <> digest
   end
 
   defp boolean_param(params, key) do
@@ -2297,19 +2020,121 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp enum_options(values), do: Enum.map(values, &{format_atom(&1), to_string(&1)})
 
+  defp resource_enum_value(attribute_name, value) do
+    allowed =
+      NetworkCredentialRule
+      |> Ash.Resource.Info.attribute(attribute_name)
+      |> Map.get(:constraints, [])
+      |> Keyword.get(:one_of, [])
+
+    Enum.find(allowed, &(to_string(&1) == to_string(value)))
+  end
+
+  defp credential_method(integration_profiles, provider, method_id) do
+    with %{} = profile <- Map.get(integration_profiles, to_string(provider)),
+         %{} = method <-
+           Enum.find(profile["auth_methods"] || [], &(&1["id"] == to_string(method_id))) do
+      %{provider: profile["provider"], profile: profile, method: method}
+    else
+      _ -> nil
+    end
+  end
+
+  defp credential_method_descriptor(profile, method_id) when is_map(profile) do
+    Enum.find(profile["auth_methods"] || [], &(&1["id"] == to_string(method_id)))
+  end
+
+  defp credential_method_descriptor(_profile, _method_id), do: nil
+
+  defp descriptor_values(descriptor, key, default \\ [])
+  defp descriptor_values(%{} = descriptor, key, default), do: Map.get(descriptor, key, default)
+  defp descriptor_values(_descriptor, _key, default), do: default
+
+  defp profile_rule_controls(%{} = profile), do: profile["rule_controls"] || %{}
+  defp profile_rule_controls(_profile), do: %{}
+
+  defp scheduled_integration_profile?(profile) when is_map(profile),
+    do: get_in(profile, ["provisioning", "mode"]) == "producer_schedule"
+
+  defp scheduled_integration_profile?(_profile), do: false
+
+  defp default_integration_profile(integration_profiles) do
+    profiles = rule_profile_list(integration_profiles)
+
+    Enum.find(profiles, &Map.get(&1, "default", false)) ||
+      Enum.min_by(profiles, &String.downcase(&1["label"] || &1["provider"]), fn -> nil end)
+  end
+
+  defp first_auth_method(profile), do: get_in(profile, ["auth_methods", Access.at(0), "id"]) || ""
+
+  defp credential_method_list(integration_profiles) do
+    integration_profiles
+    |> integration_profile_list()
+    |> Enum.flat_map(fn profile ->
+      Enum.map(profile["auth_methods"] || [], fn method ->
+        %{provider: profile["provider"], profile: profile, method: method}
+      end)
+    end)
+  end
+
+  defp open_descriptor_secret_form(socket, descriptor) do
+    field_defaults =
+      Map.new(descriptor.method["fields"], fn field ->
+        {field["id"], Map.get(field, "default", "")}
+      end)
+
+    params = %{
+      "kind" => "descriptor",
+      "provider" => descriptor.provider,
+      "auth_method" => descriptor.method["id"],
+      "name" => "",
+      "description" => "",
+      "fields" => field_defaults
+    }
+
+    socket
+    |> assign(:secret_descriptor, descriptor)
+    |> assign(:secret_form, secret_form(params))
+  end
+
+  defp sanitize_secret_form_params(params, nil), do: params
+
+  defp sanitize_secret_form_params(params, descriptor) do
+    values = if is_map(params["fields"]), do: params["fields"], else: %{}
+
+    sanitized =
+      Map.new(descriptor.method["fields"], fn field ->
+        value = if field["secret"], do: "", else: Map.get(values, field["id"], "")
+        {field["id"], value}
+      end)
+
+    Map.put(params, "fields", sanitized)
+  end
+
+  defp descriptor_secret_title(nil), do: nil
+
+  defp descriptor_secret_title(descriptor) do
+    "New #{descriptor.profile["label"]} credential"
+  end
+
+  defp descriptor_field_value(_form, %{"secret" => true}), do: ""
+
+  defp descriptor_field_value(%Form{params: params}, field) when is_map(params) do
+    params
+    |> Map.get("fields", %{})
+    |> Map.get(field["id"], "")
+  end
+
+  defp descriptor_field_value(_form, _field), do: ""
+
+  defp descriptor_field_input_type(%{"control" => "password"}), do: "password"
+  defp descriptor_field_input_type(%{"control" => "textarea"}), do: "textarea"
+  defp descriptor_field_input_type(_field), do: "text"
+
   defp provider_options(integration_profiles) do
-    built_in = [
-      {"Proxmox VE", "proxmox"},
-      {"UniFi Protect", "unifi-protect"},
-      {"Axis (VAPIX)", "axis"}
-    ]
-
-    dynamic =
-      integration_profiles
-      |> integration_profile_list()
-      |> Enum.map(&{&1["label"], &1["provider"]})
-
-    built_in ++ dynamic
+    integration_profiles
+    |> rule_profile_list()
+    |> Enum.map(&{&1["label"], &1["provider"]})
   end
 
   defp integration_profile_list(integration_profiles) do
@@ -2318,8 +2143,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     |> Enum.sort_by(&String.downcase(&1["label"] || &1["provider"]))
   end
 
-  defp plugin_integration_provider?(provider, integration_profiles),
-    do: Map.has_key?(integration_profiles, to_string(provider))
+  defp rule_profile_list(integration_profiles) do
+    integration_profiles
+    |> integration_profile_list()
+    |> Enum.filter(&Map.get(&1, "supports_rules", true))
+  end
+
+  defp rule_provider_ids(integration_profiles) do
+    integration_profiles
+    |> rule_profile_list()
+    |> Enum.map(& &1["provider"])
+  end
+
+  defp scheduled_integration_provider?(provider, integration_profiles),
+    do: integration_profiles |> Map.get(to_string(provider)) |> scheduled_integration_profile?()
 
   defp form_plugin_config(%Form{params: params}) when is_map(params) do
     case Map.get(params, "plugin_config") do
@@ -2330,30 +2167,37 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp form_plugin_config(_form), do: %{}
 
-  defp secret_options_for(secrets, provider, auth_method, selected_secret_id) do
+  defp secret_options_for(secrets, provider, auth_method, selected_secret_id, integration_profiles) do
+    descriptor = credential_method(integration_profiles, provider, auth_method)
+
     secrets
     |> Enum.filter(fn secret ->
-      secret_matches_rule?(secret, provider, auth_method) or
+      secret_matches_rule?(secret, provider, descriptor) or
         to_string(secret.id) == to_string(selected_secret_id)
     end)
     |> Enum.map(&{secret_label(&1), &1.id})
   end
 
-  defp secret_matches_rule?(secret, provider, auth_method) do
+  defp secret_matches_rule?(secret, provider, %{profile: profile, method: method}) do
     to_string(secret.provider) == to_string(provider) and
-      secret_kind_matches_auth?(secret.credential_kind, auth_method)
+      to_string(secret.credential_kind) == method["credential_kind"] and
+      secret_auth_method_matches?(secret, profile, method)
   end
 
-  defp secret_kind_matches_auth?(:api_token, auth_method)
-       when auth_method in [:proxmox_api_token, "proxmox_api_token", :api_key, "api_key"], do: true
+  defp secret_matches_rule?(_secret, _provider, _descriptor), do: false
 
-  defp secret_kind_matches_auth?(:username_password, auth_method)
-       when auth_method in [:username_password, "username_password"], do: true
+  defp secret_auth_method_matches?(secret, profile, method) do
+    case secret |> Map.get(:metadata, %{}) |> normalize_metadata() |> Map.get("auth_method") do
+      auth_method when is_binary(auth_method) and auth_method != "" ->
+        auth_method == method["id"]
 
-  defp secret_kind_matches_auth?(:ssh_private_key, auth_method) when auth_method in [:ssh_private_key, "ssh_private_key"],
-    do: true
-
-  defp secret_kind_matches_auth?(_kind, _auth_method), do: false
+      _missing ->
+        profile
+        |> Map.get("auth_methods", [])
+        |> Enum.count(&(&1["credential_kind"] == method["credential_kind"]))
+        |> Kernel.==(1)
+    end
+  end
 
   defp secret_label(secret) do
     [secret.provider, secret.name, format_atom(secret.credential_kind)]
@@ -2362,13 +2206,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   defp can_manage?(scope), do: RBAC.can?(scope, "settings.credentials.manage")
-
-  # The credential test dispatcher currently only supports Proxmox API-token
-  # rules (`NetworkCredentialRuleTestPlan.ensure_proxmox_api_rule/1`); other
-  # providers need an agent-side test command before the action can be wired.
-  defp testable_rule?(rule) do
-    rule.provider == "proxmox" and rule.auth_method == :proxmox_api_token
-  end
 
   defp format_scope(rule), do: "#{format_atom(rule.scope_type)}: #{rule.scope_value}"
 
@@ -2387,19 +2224,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     metadata
     |> Map.get("purposes", [to_string(rule.purpose)])
     |> normalize_purpose_values()
-    |> case do
-      [] -> implicit_rule_purposes(rule)
-      [purpose] -> implicit_rule_purposes(rule, purpose)
-      purposes -> purposes
-    end
   end
-
-  defp implicit_rule_purposes(%{auth_method: :proxmox_api_token}, "inventory_enrichment"),
-    do: ["inventory_enrichment", "console_access"]
-
-  defp implicit_rule_purposes(_rule, purpose), do: [purpose]
-
-  defp implicit_rule_purposes(rule), do: implicit_rule_purposes(rule, to_string(rule.purpose))
 
   defp agent_options(agents) when is_list(agents) do
     Enum.map(agents, fn agent ->
@@ -2500,7 +2325,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   defp runtime_label(rule, profiles, schedules) do
-    if plugin_integration_provider?(rule.provider, profiles) do
+    if scheduled_integration_provider?(rule.provider, profiles) do
       case Map.get(schedules, to_string(rule.id)) do
         %{enabled: true} -> "Scheduled"
         %{} -> "On demand"
@@ -2512,7 +2337,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   defp runtime_badge_class(rule, profiles, schedules) do
-    if plugin_integration_provider?(rule.provider, profiles) do
+    if scheduled_integration_provider?(rule.provider, profiles) do
       case Map.get(schedules, to_string(rule.id)) do
         %{enabled: true} -> "badge-success"
         %{} -> "badge-info"
@@ -2524,7 +2349,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   defp runtime_status(rule, profiles, schedules) do
-    if plugin_integration_provider?(rule.provider, profiles) do
+    if scheduled_integration_provider?(rule.provider, profiles) do
       case Map.get(schedules, to_string(rule.id)) do
         %{last_status: status, last_run_at: last_run_at} ->
           "#{status} / #{format_timestamp(last_run_at)}"

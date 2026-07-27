@@ -12,10 +12,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
 
   def device_edit_section(assigns) do
     ~H"""
-    <div class="rounded-xl border border-primary/30 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 bg-primary/5 flex items-center justify-between">
+    <div class="rounded-xl border border-sr-brand/30 bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line bg-sr-brand/5 flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <.icon name="hero-pencil-square" class="size-4 text-primary" />
+          <.icon name="hero-pencil-square" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Edit Device Details</span>
         </div>
         <div class="flex items-center gap-2">
@@ -36,37 +36,37 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
         class="p-4"
       >
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div class="form-control">
-            <label class="label py-1">
-              <span class="label-text text-xs font-medium">Hostname</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2 py-1">
+              <span class="text-xs font-medium text-sr-ink font-medium">Hostname</span>
             </label>
             <input
               type="text"
               name="device[hostname]"
               value={@device_form[:hostname].value}
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
               phx-debounce="300"
             />
           </div>
 
-          <div class="form-control">
-            <label class="label py-1">
-              <span class="label-text text-xs font-medium">IP Address</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2 py-1">
+              <span class="text-xs font-medium text-sr-ink font-medium">IP Address</span>
             </label>
             <input
               type="text"
               name="device[ip]"
               value={@device_form[:ip].value}
-              class="input input-bordered input-sm font-mono"
+              class={ui_field_class(size: "sm", mono: true)}
               phx-debounce="300"
             />
           </div>
 
-          <div class="form-control">
-            <label class="label py-1">
-              <span class="label-text text-xs font-medium">Type</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2 py-1">
+              <span class="text-xs font-medium text-sr-ink font-medium">Type</span>
             </label>
-            <select name="device[type]" class="select select-bordered select-sm">
+            <select name="device[type]" class={ui_field_class(size: "sm")}>
               <option value="">Select type...</option>
               <option value="server" selected={@device_form[:type].value == "server"}>
                 Server
@@ -92,50 +92,50 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
             </select>
           </div>
 
-          <div class="form-control">
-            <label class="label py-1">
-              <span class="label-text text-xs font-medium">Vendor</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2 py-1">
+              <span class="text-xs font-medium text-sr-ink font-medium">Vendor</span>
             </label>
             <input
               type="text"
               name="device[vendor_name]"
               value={@device_form[:vendor_name].value}
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
               phx-debounce="300"
             />
           </div>
 
-          <div class="form-control">
-            <label class="label py-1">
-              <span class="label-text text-xs font-medium">Model</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2 py-1">
+              <span class="text-xs font-medium text-sr-ink font-medium">Model</span>
             </label>
             <input
               type="text"
               name="device[model]"
               value={@device_form[:model].value}
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
               phx-debounce="300"
             />
           </div>
 
-          <div class="form-control">
-            <label class="label py-1">
-              <span class="label-text text-xs font-medium">Gateway</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2 py-1">
+              <span class="text-xs font-medium text-sr-ink font-medium">Gateway</span>
             </label>
             <input
               type="text"
               value={Map.get(@device_row, "gateway_id", "")}
-              class="input input-bordered input-sm font-mono bg-base-200"
+              class={ui_field_class(size: "sm", mono: true, class: "bg-sr-subtle")}
               disabled
             />
-            <label class="label py-0">
-              <span class="label-text-alt text-xs text-base-content/50">Read-only</span>
+            <label class="flex items-center justify-between gap-2 py-0">
+              <span class="text-xs text-sr-muted">Read-only</span>
             </label>
           </div>
 
-          <div class="form-control">
-            <label class="label py-1">
-              <span class="label-text text-xs font-medium">Managed</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2 py-1">
+              <span class="text-xs font-medium text-sr-ink font-medium">Managed</span>
             </label>
             <input
               type="hidden"
@@ -149,20 +149,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                 value="true"
                 checked={truthy?(@device_form[:is_managed].value)}
                 disabled={agent_device?(@device_row)}
-                class="checkbox checkbox-xs checkbox-primary"
+                class={ui_checkbox_class(size: "xs")}
               />
               <span>Mark as managed</span>
             </label>
-            <label :if={agent_device?(@device_row)} class="label py-0">
-              <span class="label-text-alt text-xs text-base-content/50">
+            <label
+              :if={agent_device?(@device_row)}
+              class="flex items-center justify-between gap-2 py-0"
+            >
+              <span class="text-xs text-sr-muted">
                 Agent devices are always managed.
               </span>
             </label>
           </div>
 
-          <div class="form-control">
-            <label class="label py-1">
-              <span class="label-text text-xs font-medium">Trusted</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2 py-1">
+              <span class="text-xs font-medium text-sr-ink font-medium">Trusted</span>
             </label>
             <input type="hidden" name="device[is_trusted]" value="false" />
             <label class="inline-flex items-center gap-2 text-xs">
@@ -171,32 +174,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                 name="device[is_trusted]"
                 value="true"
                 checked={truthy?(@device_form[:is_trusted].value)}
-                class="checkbox checkbox-xs checkbox-primary"
+                class={ui_checkbox_class(size: "xs")}
               />
               <span>Mark as trusted</span>
             </label>
           </div>
         </div>
 
-        <div class="form-control mt-4">
-          <label class="label py-1">
-            <span class="label-text text-xs font-medium">Tags</span>
-            <span class="label-text-alt text-xs text-base-content/50">
+        <div class="flex flex-col gap-1.5 mt-4">
+          <label class="flex items-center justify-between gap-2 py-1">
+            <span class="text-xs font-medium text-sr-ink font-medium">Tags</span>
+            <span class="text-xs text-sr-muted">
               One per line (key or key=value)
             </span>
           </label>
           <textarea
             name="device[tags]"
-            class="textarea textarea-bordered textarea-sm h-20"
+            class={ui_field_class(size: "sm", class: "h-20 py-2")}
             phx-debounce="300"
           >{@device_form[:tags].value}</textarea>
         </div>
       </.form>
 
-      <div class="border-t border-base-200 px-4 py-4">
+      <div class="border-t border-sr-line px-4 py-4">
         <div class="flex items-center justify-between mb-4">
           <div class="flex items-center gap-2">
-            <.icon name="hero-lock-closed" class="size-4 text-base-content/60" />
+            <.icon name="hero-lock-closed" class="size-4 text-sr-muted" />
             <span class="text-sm font-semibold">SNMP Credentials Override</span>
             <span
               :if={@device_snmp_credential}
@@ -228,13 +231,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="label">
-                <span class="label-text text-xs font-medium">SNMP Version</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs font-medium text-sr-ink font-medium">SNMP Version</span>
               </label>
               <.input
                 type="select"
                 field={@snmp_credential_form[:version]}
-                class="select select-bordered select-sm w-full"
+                class={ui_field_class(size: "sm", class: "w-full")}
                 options={[
                   {"SNMPv1", "v1"},
                   {"SNMPv2c", "v2c"},
@@ -246,14 +249,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
 
           <%= if snmp_version in ["v1", "v2c"] do %>
             <div>
-              <label class="label">
-                <span class="label-text text-xs font-medium">Community</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs font-medium text-sr-ink font-medium">Community</span>
               </label>
               <.input
                 type="password"
                 name="snmp[community]"
                 value=""
-                class="input input-bordered input-sm w-full"
+                class={ui_field_class(size: "sm", class: "w-full")}
                 placeholder={
                   if @device_snmp_credential,
                     do: "Leave blank to keep existing",
@@ -261,8 +264,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                 }
                 autocomplete="off"
               />
-              <label class="label py-0">
-                <span class="label-text-alt text-xs text-base-content/50">
+              <label class="flex items-center justify-between gap-2 py-0">
+                <span class="text-xs text-sr-muted">
                   Credentials are encrypted at rest.
                 </span>
               </label>
@@ -270,23 +273,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
           <% else %>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="label">
-                  <span class="label-text text-xs font-medium">Username</span>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink font-medium">Username</span>
                 </label>
                 <.input
                   type="text"
                   field={@snmp_credential_form[:username]}
-                  class="input input-bordered input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                 />
               </div>
               <div>
-                <label class="label">
-                  <span class="label-text text-xs font-medium">Security Level</span>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink font-medium">Security Level</span>
                 </label>
                 <.input
                   type="select"
                   field={@snmp_credential_form[:security_level]}
-                  class="select select-bordered select-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                   options={[
                     {"No Auth, No Privacy", "no_auth_no_priv"},
                     {"Auth, No Privacy", "auth_no_priv"},
@@ -298,13 +301,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="label">
-                  <span class="label-text text-xs font-medium">Auth Protocol</span>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink font-medium">Auth Protocol</span>
                 </label>
                 <.input
                   type="select"
                   field={@snmp_credential_form[:auth_protocol]}
-                  class="select select-bordered select-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                   options={[
                     {"MD5", "md5"},
                     {"SHA", "sha"},
@@ -316,14 +319,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                 />
               </div>
               <div>
-                <label class="label">
-                  <span class="label-text text-xs font-medium">Auth Password</span>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink font-medium">Auth Password</span>
                 </label>
                 <.input
                   type="password"
                   name="snmp[auth_password]"
                   value=""
-                  class="input input-bordered input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                   placeholder={
                     if @device_snmp_credential,
                       do: "Leave blank to keep existing",
@@ -336,13 +339,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="label">
-                  <span class="label-text text-xs font-medium">Privacy Protocol</span>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink font-medium">Privacy Protocol</span>
                 </label>
                 <.input
                   type="select"
                   field={@snmp_credential_form[:priv_protocol]}
-                  class="select select-bordered select-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                   options={[
                     {"DES", "des"},
                     {"AES", "aes"},
@@ -352,14 +355,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                 />
               </div>
               <div>
-                <label class="label">
-                  <span class="label-text text-xs font-medium">Privacy Password</span>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink font-medium">Privacy Password</span>
                 </label>
                 <.input
                   type="password"
                   name="snmp[priv_password]"
                   value=""
-                  class="input input-bordered input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                   placeholder={
                     if @device_snmp_credential,
                       do: "Leave blank to keep existing",
@@ -375,7 +378,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
             <.ui_button type="submit" variant="outline" size="xs">
               Save SNMP Credentials
             </.ui_button>
-            <span class="text-xs text-base-content/50">
+            <span class="text-xs text-sr-muted">
               Overrides take precedence over profile credentials.
             </span>
           </div>

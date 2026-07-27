@@ -119,9 +119,9 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
   def html_input_type("number"), do: "number"
   def html_input_type(_type), do: "text"
 
-  def safety_badge_class("destructive"), do: "badge badge-error badge-sm"
-  def safety_badge_class("read_only"), do: "badge badge-info badge-sm"
-  def safety_badge_class(_classification), do: "badge badge-primary badge-sm"
+  def safety_badge_variant("destructive"), do: "error"
+  def safety_badge_variant("read_only"), do: "info"
+  def safety_badge_variant(_classification), do: "primary"
 
   def present_text?(value) when is_binary(value), do: String.trim(value) != ""
   def present_text?(_value), do: false

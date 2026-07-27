@@ -28,29 +28,29 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
       {:ok,
        Enum.map(input_defs, fn input_def ->
-         query = input_def.query
-
          %{
            name: input_def.name,
            entity: input_def.entity,
-           query: query,
-           rows: Map.get(rows_by_query, query, [])
+           query: input_def.query,
+           rows: Map.get(rows_by_query, input_def.query, [])
          }
        end)}
     end
   end
 
   setup :register_and_log_in_admin_user
+  setup :seed_target_policy_package
 
-  test "renders the credential rules settings route", %{conn: conn} do
+  test "renders only credential providers declared by approved packages", %{conn: conn} do
     {:ok, _lv, html} = live(conn, ~p"/settings/networks/credentials")
 
     assert html =~ "Credential Rules"
-    assert html =~ "Read the Proxmox setup guide"
-    assert html =~ "UniFi Protect"
-    refute html =~ "New Console SSH Key"
-    refute html =~ "New Console Rule"
+    assert html =~ "Example Network"
+    assert html =~ "Example Cameras"
+    assert html =~ "New Credential"
     assert html =~ "No credential rules found"
+    refute html =~ "Read the Proxmox setup guide"
+    refute html =~ "Axis (VAPIX)"
   end
 
   test "viewer is blocked from credential rules settings", %{conn: conn} do
@@ -61,196 +61,152 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert to == ~p"/settings/profile"
   end
 
-  test "creates a credential rule from the settings form", %{conn: conn, scope: scope} do
-    secret = credential_secret_fixture(scope)
+  test "creates a rule from package-declared defaults and controls", %{conn: conn, scope: scope} do
+    secret = api_token_secret_fixture(scope)
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
 
+    lv
+    |> form("#credential-rule-form", credential_rule: default_rule_form_params(secret.id))
+    |> render_submit()
+
+    assert_patch(lv, ~p"/settings/networks/credentials")
+    assert render(lv) =~ "Example inventory rule"
+
+    rule = get_rule_by_name!(scope, "Example inventory rule")
+    assert rule.provider == "example-network"
+    assert rule.auth_method == "api_token"
+    assert rule.purpose == "device_inventory"
+    assert rule.target_query == "in:devices vendor:Example"
+    assert rule.scope_type == :agent
+    assert rule.metadata["purposes"] == ["device_inventory"]
+    assert rule.metadata["auto_discovery_enabled"] == true
+  end
+
+  test "creates an explicit actor-use policy for package-declared console access", %{
+    conn: conn,
+    scope: scope
+  } do
+    secret = username_password_secret_fixture(scope, "example-network")
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
 
     lv
     |> form("#credential-rule-form",
       credential_rule: %{
-        "name" => "PVE inventory",
-        "description" => "",
-        "provider" => "proxmox",
-        "auth_method" => "proxmox_api_token",
-        "purposes" => ["inventory_enrichment"],
-        "target_query" => "in:devices",
-        "scope_type" => "agent",
-        "scope_value" => "agent-a",
-        "secret_id" => secret.id,
-        "priority" => "25",
-        "allowed_ports" => "8006",
-        "tls_policy" => "verify",
-        "auto_discovery_enabled" => "true"
+        "auth_method" => "username_password",
+        "purposes" => ["console_access"]
       }
     )
-    |> render_submit()
+    |> render_change()
 
-    assert_patch(lv, ~p"/settings/networks/credentials")
-    html = render(lv)
-    assert html =~ "PVE inventory"
-    assert html =~ "Auto"
-
-    rule = get_rule_by_name!(scope, "PVE inventory")
-    assert rule.target_query == "in:devices"
-    assert rule.metadata["auto_discovery_enabled"] == true
-  end
-
-  test "creates an explicit console actor-use policy from the settings form", %{
-    conn: conn,
-    scope: scope
-  } do
-    secret = credential_secret_fixture(scope)
-
-    {:ok, lv, html} = live(conn, ~p"/settings/networks/credentials/new")
-
-    assert html =~ "Console credential users"
-    assert html =~ ~s(name="credential_rule[credential_use_roles]")
-    assert html =~ ~s(value="admin")
+    params =
+      secret.id
+      |> default_rule_form_params()
+      |> Map.merge(%{
+        "name" => "Example console rule",
+        "auth_method" => "username_password",
+        "purposes" => ["console_access"],
+        "credential_use_roles" => "admin, operator",
+        "credential_use_principals" => "oidc|example-user",
+        "credential_use_groups" => "example-console-operators"
+      })
 
     lv
-    |> form("#credential-rule-form",
-      credential_rule: %{
-        "name" => "PVE console",
-        "description" => "",
-        "provider" => "proxmox",
-        "auth_method" => "proxmox_api_token",
-        "purposes" => ["inventory_enrichment", "console_access"],
-        "target_query" => "in:devices",
-        "scope_type" => "agent",
-        "scope_value" => "agent-a",
-        "secret_id" => secret.id,
-        "priority" => "25",
-        "allowed_ports" => "8006",
-        "tls_policy" => "verify",
-        "credential_use_roles" => "admin, operator",
-        "credential_use_principals" => "oidc|pve-user",
-        "credential_use_groups" => "pve-console-operators",
-        "auto_discovery_enabled" => "false"
-      }
-    )
+    |> form("#credential-rule-form", credential_rule: params)
     |> render_submit()
 
     assert_patch(lv, ~p"/settings/networks/credentials")
-
-    rule = get_rule_by_name!(scope, "PVE console")
+    rule = get_rule_by_name!(scope, "Example console rule")
 
     assert rule.metadata["credential_use_policy"] == %{
              "schema" => CredentialUsePolicy.schema(),
              "roles" => ["admin", "operator"],
-             "principals" => ["oidc|pve-user"],
-             "groups" => ["pve-console-operators"]
+             "principals" => ["oidc|example-user"],
+             "groups" => ["example-console-operators"]
            }
   end
 
   test "rejects console rules without an actor-use selector", %{conn: conn, scope: scope} do
-    secret = credential_secret_fixture(scope)
+    secret = username_password_secret_fixture(scope, "example-network")
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
+
+    lv
+    |> form("#credential-rule-form",
+      credential_rule: %{
+        "auth_method" => "username_password",
+        "purposes" => ["console_access"]
+      }
+    )
+    |> render_change()
+
+    params =
+      secret.id
+      |> default_rule_form_params()
+      |> Map.merge(%{
+        "name" => "Unrestricted console",
+        "auth_method" => "username_password",
+        "purposes" => ["console_access"],
+        "credential_use_roles" => "",
+        "credential_use_principals" => "",
+        "credential_use_groups" => ""
+      })
 
     html =
       lv
-      |> form("#credential-rule-form",
-        credential_rule: %{
-          "name" => "Unrestricted console",
-          "description" => "",
-          "provider" => "proxmox",
-          "auth_method" => "proxmox_api_token",
-          "purposes" => ["console_access"],
-          "target_query" => "in:devices",
-          "scope_type" => "agent",
-          "scope_value" => "agent-a",
-          "secret_id" => secret.id,
-          "priority" => "25",
-          "allowed_ports" => "8006",
-          "tls_policy" => "verify",
-          "credential_use_roles" => "",
-          "credential_use_principals" => "",
-          "credential_use_groups" => "",
-          "auto_discovery_enabled" => "false"
-        }
-      )
+      |> form("#credential-rule-form", credential_rule: params)
       |> render_submit()
 
     assert html =~ "Console access requires at least one allowed role, user, or IdP group"
     refute get_rule_by_name!(scope, "Unrestricted console")
   end
 
-  test "rejects Proxmox API rules that disable TLS certificate verification", %{
+  test "enforces transport policy declared by the selected authentication method", %{
     conn: conn,
     scope: scope
   } do
-    secret = credential_secret_fixture(scope)
+    secret = api_token_secret_fixture(scope)
     {:ok, lv, html} = live(conn, ~p"/settings/networks/credentials/new")
 
     refute html =~ ~s(<option value="skip_verify">)
 
-    html =
-      lv
-      |> form("#credential-rule-form",
-        credential_rule: %{
-          "name" => "Insecure PVE",
-          "provider" => "proxmox",
-          "auth_method" => "proxmox_api_token",
-          "purposes" => ["inventory_enrichment"],
-          "target_query" => "in:devices",
-          "scope_type" => "agent",
-          "scope_value" => "agent-a",
-          "secret_id" => secret.id,
-          "priority" => "25",
-          "allowed_ports" => "8006",
-          "tls_policy" => "skip_verify"
-        }
-      )
-      |> render_submit()
+    params =
+      secret.id
+      |> default_rule_form_params()
+      |> Map.merge(%{"name" => "Insecure rule", "tls_policy" => "skip_verify"})
 
-    assert html =~ "Proxmox API access requires TLS certificate verification"
-    refute get_rule_by_name!(scope, "Insecure PVE")
+    html = render_hook(lv, "save_rule", %{"credential_rule" => params})
+
+    assert html =~ "Selected authentication method does not allow this TLS policy"
+    refute get_rule_by_name!(scope, "Insecure rule")
   end
 
-  test "validates required credential rule fields", %{conn: conn, scope: scope} do
-    secret = credential_secret_fixture(scope)
-
+  test "uses credential kind rather than method id for SSH policy controls", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
 
     html =
       lv
       |> form("#credential-rule-form",
         credential_rule: %{
-          "name" => "",
-          "description" => "",
-          "provider" => "proxmox",
-          "auth_method" => "proxmox_api_token",
-          "purposes" => ["inventory_enrichment"],
-          "target_query" => "in:devices metadata.proxmox_candidate:true",
-          "scope_type" => "agent",
-          "scope_value" => "agent-a",
-          "secret_id" => secret.id,
-          "priority" => "25",
-          "allowed_ports" => "8006",
-          "tls_policy" => "verify",
-          "auto_discovery_enabled" => "false"
+          "provider" => "example-network",
+          "auth_method" => "key_pair",
+          "purposes" => ["console_access"]
         }
       )
-      |> render_submit()
+      |> render_change()
 
-    assert html =~ "Required fields are missing"
-    refute get_rule_by_name!(scope, "")
+    assert html =~ "SSH Host Key Policy"
+    assert html =~ ~s(value="known_hosts")
+    assert html =~ ~s(value="trust_on_first_use")
+    refute html =~ "TLS Policy"
   end
 
-  test "agent scope value uses active agent dropdown and gateway scope uses freeform input", %{
-    conn: conn
-  } do
+  test "agent scope uses active agents while gateway scope remains freeform", %{conn: conn} do
     gateway = gateway_fixture(%{id: "credential-gw", component_id: "credential-component"})
     agent_fixture(gateway, %{uid: "agent-a", name: "Agent A"})
 
     stale_agent = agent_fixture(gateway, %{uid: "agent-stale", name: "Agent Stale"})
 
     stale_agent
-    |> Ash.Changeset.for_update(
-      :update,
-      %{},
-      actor: system_actor()
-    )
+    |> Ash.Changeset.for_update(:update, %{}, actor: system_actor())
     |> Ash.Changeset.force_change_attribute(:status, :unavailable)
     |> Ash.Changeset.force_change_attribute(
       :last_seen_time,
@@ -259,373 +215,195 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     |> Ash.update!()
 
     {:ok, lv, html} = live(conn, ~p"/settings/networks/credentials/new")
-
     assert scope_value_control(html) == :select
     assert html =~ "agent-a"
     refute html =~ "agent-stale"
 
-    html =
-      lv
-      |> form("#credential-rule-form",
-        credential_rule:
-          Map.merge(default_rule_form_params(), %{
-            "scope_type" => "gateway",
-            "scope_value" => ""
-          })
-      )
-      |> render_change()
-
-    assert scope_value_control(html) == :input
+    lv
+    |> form("#credential-rule-form", credential_rule: %{"scope_type" => "gateway"})
+    |> render_change()
 
     html =
       lv
       |> form("#credential-rule-form",
-        credential_rule:
-          Map.merge(default_rule_form_params(), %{
-            "scope_type" => "gateway",
-            "scope_value" => "credential-gw"
-          })
+        credential_rule: %{"scope_type" => "gateway", "scope_value" => "credential-gw"}
       )
       |> render_change()
 
     assert scope_value_control(html) == :input
     assert html =~ ~s(value="credential-gw")
-
-    html =
-      lv
-      |> form("#credential-rule-form",
-        credential_rule:
-          Map.merge(default_rule_form_params(), %{
-            "scope_type" => "agent",
-            "scope_value" => "agent-a"
-          })
-      )
-      |> render_change()
-
-    assert scope_value_control(html) == :select
-    assert html =~ "agent-a"
   end
 
-  test "creates a Proxmox token secret from the provider preset", %{conn: conn, scope: scope} do
-    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
-
-    assert lv
-           |> element("button[phx-click='new_proxmox_secret']")
-           |> render_click() =~ "New Proxmox Token"
-
-    html =
-      lv
-      |> form("form[phx-submit='save_secret']",
-        credential_secret: %{
-          "name" => "Lab PVE token",
-          "description" => "Lab cluster",
-          "user" => "root",
-          "realm" => "pam",
-          "token_id" => "serviceradar",
-          "tls_policy" => "verify",
-          "token_secret" => "super-secret-token"
-        }
-      )
-      |> render_submit()
-
-    assert html =~ "Credential secret saved"
-    refute html =~ "super-secret-token"
-
-    secret = get_secret_by_name!(scope, "Lab PVE token")
-    assert secret.provider == "proxmox"
-    assert secret.credential_kind == :api_token
-    assert secret.username == "root@pam!serviceradar"
-    assert secret.public_fingerprint =~ "sha256:"
-    assert secret.metadata["realm"] == "pam"
-    assert secret.metadata["token_id"] == "serviceradar"
-    assert secret.metadata["tls_policy"] == "verify"
-  end
-
-  test "creates an SSH console credential secret when the advanced preset event is invoked", %{
+  test "creates a scalar API token using package-declared credential fields", %{
     conn: conn,
     scope: scope
   } do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
 
-    html = render_hook(lv, "new_ssh_secret")
-    assert html =~ "New Console SSH Key"
+    assert lv
+           |> element(
+             "button[phx-click='new_descriptor_secret'][phx-value-provider='example-network'][phx-value-method='api_token']"
+           )
+           |> render_click() =~ "New Example Network credential"
 
     html =
       lv
       |> form("form[phx-submit='save_secret']",
         credential_secret: %{
-          "kind" => "ssh_private_key",
-          "name" => "PVE console key",
-          "description" => "Shell access for pve hosts",
-          "username" => "root",
-          "private_key" => private_key_fixture(),
-          "passphrase" => "key-passphrase"
+          "kind" => "descriptor",
+          "provider" => "example-network",
+          "auth_method" => "api_token",
+          "name" => "Example API token",
+          "description" => "",
+          "fields" => %{"token" => "sensitive-token"}
         }
       )
       |> render_submit()
 
     assert html =~ "Credential secret saved"
-    refute html =~ "OPENSSH PRIVATE KEY"
-    refute html =~ "key-passphrase"
+    refute html =~ "sensitive-token"
 
-    secret = get_secret_by_name!(scope, "PVE console key")
-    assert secret.provider == "proxmox"
-    assert secret.credential_kind == :ssh_private_key
-    assert secret.username == "root"
-    assert secret.public_fingerprint =~ "SHA256:"
-    assert secret.metadata["auth_method"] == "ssh_private_key"
-    assert secret.metadata["usage"] == "console_access"
-
+    secret = get_secret_by_name!(scope, "Example API token")
+    assert secret.provider == "example-network"
+    assert secret.credential_kind == :api_token
+    assert secret.metadata["auth_method"] == "api_token"
+    assert secret.metadata["credential_descriptor"] == "package_manifest.v1"
     assert %Ash.NotLoaded{} = secret.secret_payload
   end
 
-  test "validates Proxmox token preset fields without storing partial secrets", %{
+  test "creates a username/password credential without exposing the password", %{
     conn: conn,
     scope: scope
   } do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
 
     lv
-    |> element("button[phx-click='new_proxmox_secret']")
+    |> element(
+      "button[phx-click='new_descriptor_secret'][phx-value-provider='example-network'][phx-value-method='username_password']"
+    )
     |> render_click()
 
     html =
       lv
       |> form("form[phx-submit='save_secret']",
         credential_secret: %{
-          "name" => "Incomplete PVE token",
+          "kind" => "descriptor",
+          "provider" => "example-network",
+          "auth_method" => "username_password",
+          "name" => "Example account",
           "description" => "",
-          "user" => "root",
-          "realm" => "pam",
-          "token_id" => "serviceradar",
-          "tls_policy" => "verify",
-          "token_secret" => ""
-        }
-      )
-      |> render_submit()
-
-    assert html =~ "Required token fields are missing"
-    refute html =~ "root@pam!serviceradar="
-    refute get_secret_by_name!(scope, "Incomplete PVE token")
-  end
-
-  test "unifi-protect preset seeds an api_key camera rule form", %{conn: conn} do
-    {:ok, _lv, html} = live(conn, ~p"/settings/networks/credentials/new?provider=unifi-protect")
-
-    assert html =~ ~s(value="unifi-protect")
-    assert html =~ ~r/<option selected[^>]*value="api_key"/
-    assert html =~ ~s(in:devices vendor:&quot;Ubiquiti&quot;)
-    assert checked_purpose?(html, "camera_inventory")
-    assert checked_purpose?(html, "camera_stream")
-    refute html =~ ~s(value="inventory_enrichment")
-    refute html =~ ~s(value="console_access")
-    refute html =~ "SSH Host Key Policy"
-    refute html =~ "Allow auto-discovery credential trials"
-    assert html =~ "Controller Host Override"
-    assert html =~ "New secret for this rule"
-  end
-
-  test "axis preset seeds a username_password camera rule form", %{conn: conn} do
-    {:ok, _lv, html} = live(conn, ~p"/settings/networks/credentials/new?provider=axis")
-
-    assert html =~ ~s(value="axis")
-    assert html =~ ~r/<option selected[^>]*value="username_password"/
-    assert html =~ ~s(in:devices vendor:&quot;Axis&quot;)
-    assert checked_purpose?(html, "camera_inventory")
-    assert checked_purpose?(html, "camera_stream")
-    refute html =~ ~s(value="api_key")
-    refute html =~ "SSH Host Key Policy"
-    refute html =~ "Allow auto-discovery credential trials"
-  end
-
-  test "package descriptor seeds selected-agent schedule settings", %{conn: conn} do
-    seed_example_inventory_package!()
-    {:ok, _lv, html} = live(conn, ~p"/settings/networks/credentials/new?provider=example-inventory")
-
-    assert html =~ ~s(value="example-inventory")
-    assert html =~ ~r/<option selected[^>]*value="username_password"/
-    assert checked_purpose?(html, "device_inventory")
-    assert html =~ "Example Inventory"
-    assert html =~ "Instance ID"
-    assert html =~ "OAuth Token URL"
-    assert html =~ "Inventory API URL"
-    assert html =~ "Query Sets"
-    assert html =~ "Switch"
-    assert html =~ "Enable recurring inventory refresh"
-    refute html =~ "Target Query"
-    refute html =~ "Allowed Ports"
-  end
-
-  test "creates a bounded package-declared inventory credential rule", %{conn: conn, scope: scope} do
-    seed_example_inventory_package!()
-    secret = username_password_secret_fixture(scope, "example-inventory")
-
-    {:ok, lv, _html} =
-      live(conn, ~p"/settings/networks/credentials/new?provider=example-inventory")
-
-    lv
-    |> form("#credential-rule-form",
-      credential_rule: example_inventory_rule_form_params(secret.id)
-    )
-    |> render_submit()
-
-    assert_patch(lv, ~p"/settings/networks/credentials")
-    html = render(lv)
-    assert html =~ "Example production inventory"
-    assert html =~ "Pending"
-
-    rule = get_rule_by_name!(scope, "Example production inventory")
-    assert rule.provider == "example-inventory"
-    assert rule.auth_method == :username_password
-    assert rule.purpose == :device_inventory
-    assert rule.scope_type == :agent
-    assert rule.scope_value == "agent-k8s"
-    assert rule.target_query == "in:agents"
-    assert rule.metadata["plugin_integration"]
-    assert rule.metadata["plugin_config"]["instance_id"] == "example-prod"
-
-    assert rule.metadata["plugin_config"]["queries"] == [
-             %{"name" => "switches", "parameters" => %{"type" => "Switch"}}
-           ]
-
-    assert rule.metadata["schedule_enabled"] == false
-    assert rule.metadata["cadence_seconds"] == 86_400
-  end
-
-  test "rejects config outside the package JSON Schema", %{conn: conn, scope: scope} do
-    seed_example_inventory_package!()
-    secret = username_password_secret_fixture(scope, "example-inventory")
-
-    {:ok, lv, _html} =
-      live(conn, ~p"/settings/networks/credentials/new?provider=example-inventory")
-
-    params =
-      secret.id
-      |> example_inventory_rule_form_params()
-      |> put_in(
-        ["plugin_config", "queries"],
-        [
-          %{"name" => "unsafe", "parameters" => %{"command" => "show device"}}
-        ]
-      )
-
-    html =
-      lv
-      |> form("#credential-rule-form", credential_rule: params)
-      |> render_submit()
-
-    assert html =~ "Invalid plugin configuration"
-    refute get_rule_by_name!(scope, "Example production inventory")
-  end
-
-  test "provider changes clamp auth methods and purposes to provider preset", %{conn: conn} do
-    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
-
-    html =
-      lv
-      |> form("#credential-rule-form",
-        credential_rule:
-          Map.merge(default_rule_form_params(), %{
-            "provider" => "axis",
-            "auth_method" => "proxmox_api_token",
-            "purposes" => ["inventory_enrichment", "console_access"]
-          })
-      )
-      |> render_change()
-
-    assert html =~ ~s(value="axis")
-    assert html =~ ~r/<option selected[^>]*value="username_password"/
-    assert checked_purpose?(html, "camera_inventory")
-    assert checked_purpose?(html, "camera_stream")
-    refute html =~ ~s(value="inventory_enrichment")
-    refute html =~ ~s(value="console_access")
-  end
-
-  test "creates a camera credential rule with api_key auth and camera purposes", %{
-    conn: conn,
-    scope: scope
-  } do
-    secret = api_key_secret_fixture(scope)
-
-    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new?provider=unifi-protect")
-
-    lv
-    |> form("#credential-rule-form",
-      credential_rule: %{
-        "name" => "Protect cameras",
-        "description" => "",
-        "provider" => "unifi-protect",
-        "auth_method" => "api_key",
-        "purposes" => ["camera_inventory", "camera_stream"],
-        "target_query" => ~s(in:devices vendor:"Ubiquiti"),
-        "scope_type" => "agent",
-        "scope_value" => "agent-cam",
-        "secret_id" => secret.id,
-        "priority" => "100",
-        "allowed_ports" => "443, 7447",
-        "tls_policy" => "skip_verify",
-        "controller_host" => "protect-controller.local"
-      }
-    )
-    |> render_submit()
-
-    assert_patch(lv, ~p"/settings/networks/credentials")
-    html = render(lv)
-    assert html =~ "Protect cameras"
-    assert html =~ "camera inventory, camera stream"
-
-    rule = get_rule_by_name!(scope, "Protect cameras")
-    assert rule.provider == "unifi-protect"
-    assert rule.auth_method == :api_key
-    assert rule.purpose == :camera_inventory
-    assert rule.target_query == ~s(in:devices vendor:"Ubiquiti")
-    assert rule.tls_policy == :skip_verify
-    assert rule.metadata["purposes"] == ["camera_inventory", "camera_stream"]
-    assert rule.metadata["host"] == "protect-controller.local"
-    assert rule.metadata["auto_discovery_enabled"] == false
-  end
-
-  test "camera rule secret picker filters by provider and auth method", %{conn: conn, scope: scope} do
-    pve_secret = credential_secret_fixture(scope)
-    protect_secret = api_key_secret_fixture(scope)
-
-    {:ok, _lv, html} = live(conn, ~p"/settings/networks/credentials/new?provider=unifi-protect")
-
-    assert html =~ "unifi-protect / #{protect_secret.name} / api token"
-    refute html =~ "proxmox / #{pve_secret.name} / api token"
-  end
-
-  test "inline rule secret creation preserves and selects the current rule provider", %{
-    conn: conn,
-    scope: scope
-  } do
-    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new?provider=unifi-protect")
-
-    assert lv
-           |> element("#credential-rule-new-secret")
-           |> render_click() =~ "New API Key Secret"
-
-    html =
-      lv
-      |> form("form[phx-submit='save_secret']",
-        credential_secret: %{
-          "kind" => "api_key",
-          "name" => "Inline Protect key",
-          "description" => "",
-          "provider" => "unifi-protect",
-          "api_key" => "inline-protect-key"
+          "fields" => %{
+            "username" => "operator",
+            "password" => "sensitive-password"
+          }
         }
       )
       |> render_submit()
 
     assert html =~ "Credential secret saved"
-    assert html =~ "Inline Protect key"
-    assert html =~ ~s(value="unifi-protect")
-    assert html =~ ~r/<option selected[^>]*value="api_key"/
-    assert checked_purpose?(html, "camera_inventory")
+    refute html =~ "sensitive-password"
 
-    secret = get_secret_by_name!(scope, "Inline Protect key")
-    assert secret.provider == "unifi-protect"
+    secret = get_secret_by_name!(scope, "Example account")
+    assert secret.provider == "example-network"
+    assert secret.credential_kind == :username_password
+    assert secret.username == "operator"
+    assert secret.metadata["auth_method"] == "username_password"
+  end
+
+  test "rejects missing descriptor fields without storing a partial credential", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
+
+    lv
+    |> element(
+      "button[phx-click='new_descriptor_secret'][phx-value-provider='example-network'][phx-value-method='api_token']"
+    )
+    |> render_click()
+
+    html =
+      lv
+      |> form("form[phx-submit='save_secret']",
+        credential_secret: %{
+          "kind" => "descriptor",
+          "provider" => "example-network",
+          "auth_method" => "api_token",
+          "name" => "Incomplete token",
+          "fields" => %{"token" => ""}
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "API token is required"
+    refute get_secret_by_name!(scope, "Incomplete token")
+  end
+
+  test "provider changes clamp methods, purposes, and defaults to the selected descriptor", %{
+    conn: conn
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
+
+    html =
+      lv
+      |> form("#credential-rule-form",
+        credential_rule: %{
+          "provider" => "example-camera",
+          "auth_method" => "api_token",
+          "purposes" => ["device_inventory", "console_access"]
+        }
+      )
+      |> render_change()
+
+    assert html =~ ~s(value="example-camera")
+    assert html =~ ~r/<option selected[^>]*value="username_password"/
+    assert checked_purpose?(html, "camera_inventory")
+    refute html =~ ~s(value="device_inventory")
+    refute html =~ ~s(value="console_access")
+    assert html =~ ~s(in:devices type:&quot;Camera&quot;)
+  end
+
+  test "secret picker filters by provider and credential method", %{conn: conn, scope: scope} do
+    network_secret = api_token_secret_fixture(scope)
+    camera_secret = username_password_secret_fixture(scope, "example-camera")
+
+    {:ok, _lv, html} =
+      live(conn, ~p"/settings/networks/credentials/new?provider=example-camera")
+
+    assert html =~ "example-camera / #{camera_secret.name} / username password"
+    refute html =~ "example-network / #{network_secret.name} / api token"
+  end
+
+  test "inline credential creation preserves and selects the current rule provider", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, lv, _html} =
+      live(conn, ~p"/settings/networks/credentials/new?provider=example-camera")
+
+    assert lv
+           |> element("#credential-rule-new-secret")
+           |> render_click() =~ "New Example Cameras credential"
+
+    html =
+      lv
+      |> form("form[phx-submit='save_secret']",
+        credential_secret: %{
+          "kind" => "descriptor",
+          "provider" => "example-camera",
+          "auth_method" => "username_password",
+          "name" => "Inline camera account",
+          "description" => "",
+          "fields" => %{"username" => "viewer", "password" => "sensitive-password"}
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Credential secret saved"
+    assert html =~ "Inline camera account"
+    assert html =~ ~s(value="example-camera")
+
+    secret = get_secret_by_name!(scope, "Inline camera account")
 
     assert has_element?(
              lv,
@@ -633,201 +411,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
            )
   end
 
-  test "creates an API key secret for the rule's provider", %{conn: conn, scope: scope} do
-    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
-
-    assert lv
-           |> element("button[phx-click='new_api_key_secret']")
-           |> render_click() =~ "New API Key Secret"
-
-    html =
-      lv
-      |> form("form[phx-submit='save_secret']",
-        credential_secret: %{
-          "kind" => "api_key",
-          "name" => "Protect controller key",
-          "description" => "UDM Pro",
-          "provider" => "unifi-protect",
-          "api_key" => "protect-api-key-value"
-        }
-      )
-      |> render_submit()
-
-    assert html =~ "Credential secret saved"
-    refute html =~ "protect-api-key-value"
-
-    secret = get_secret_by_name!(scope, "Protect controller key")
-    assert secret.provider == "unifi-protect"
-    assert secret.credential_kind == :api_token
-    assert secret.public_fingerprint =~ "sha256:"
-    assert secret.metadata["auth_method"] == "api_key"
-  end
-
-  test "validates API key secret fields without storing partial secrets", %{
-    conn: conn,
-    scope: scope
-  } do
-    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
-
-    lv
-    |> element("button[phx-click='new_api_key_secret']")
-    |> render_click()
-
-    html =
-      lv
-      |> form("form[phx-submit='save_secret']",
-        credential_secret: %{
-          "kind" => "api_key",
-          "name" => "Incomplete key",
-          "description" => "",
-          "provider" => "unifi-protect",
-          "api_key" => ""
-        }
-      )
-      |> render_submit()
-
-    assert html =~ "Required API key fields are missing"
-    refute get_secret_by_name!(scope, "Incomplete key")
-  end
-
-  test "creates an AWX bearer-token secret from the credential-rules page", %{
-    conn: conn,
-    scope: scope
-  } do
-    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
-
-    assert lv
-           |> element("button[phx-click='new_awx_secret']")
-           |> render_click() =~ "New AWX API Token"
-
-    html =
-      lv
-      |> form("form[phx-submit='save_secret']",
-        credential_secret: %{
-          "kind" => "awx_api_token",
-          "name" => "Prod AWX token",
-          "description" => "AAP controller",
-          "api_token" => "awx-oauth2-bearer-token"
-        }
-      )
-      |> render_submit()
-
-    assert html =~ "Credential secret saved"
-    refute html =~ "awx-oauth2-bearer-token"
-
-    secret = get_secret_by_name!(scope, "Prod AWX token")
-    assert secret.provider == "awx"
-    assert secret.credential_kind == :api_token
-    assert secret.public_fingerprint =~ "sha256:"
-    assert secret.metadata["auth_method"] == "bearer_token"
-    assert secret.metadata["source"] == "credential_rules_form"
-    assert %Ash.NotLoaded{} = secret.secret_payload
-  end
-
-  test "validates AWX token secret fields without storing partial secrets", %{
-    conn: conn,
-    scope: scope
-  } do
-    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
-
-    lv
-    |> element("button[phx-click='new_awx_secret']")
-    |> render_click()
-
-    html =
-      lv
-      |> form("form[phx-submit='save_secret']",
-        credential_secret: %{
-          "kind" => "awx_api_token",
-          "name" => "Incomplete AWX token",
-          "description" => "",
-          "api_token" => ""
-        }
-      )
-      |> render_submit()
-
-    assert html =~ "Required AWX token fields are missing"
-    refute get_secret_by_name!(scope, "Incomplete AWX token")
-  end
-
-  test "creates a username/password secret for camera providers", %{conn: conn, scope: scope} do
-    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
-
-    assert lv
-           |> element("button[phx-click='new_username_password_secret']")
-           |> render_click() =~ "New Username &amp; Password Secret"
-
-    html =
-      lv
-      |> form("form[phx-submit='save_secret']",
-        credential_secret: %{
-          "kind" => "username_password",
-          "name" => "Axis viewer",
-          "description" => "",
-          "provider" => "axis",
-          "username" => "viewer",
-          "password" => "vapix-password-value"
-        }
-      )
-      |> render_submit()
-
-    assert html =~ "Credential secret saved"
-    refute html =~ "vapix-password-value"
-
-    secret = get_secret_by_name!(scope, "Axis viewer")
-    assert secret.provider == "axis"
-    assert secret.credential_kind == :username_password
-    assert secret.username == "viewer"
-    assert secret.metadata["auth_method"] == "username_password"
-  end
-
-  test "camera rules do not offer the proxmox-only credential test", %{conn: conn, scope: scope} do
-    proxmox_secret = credential_secret_fixture(scope)
-    proxmox_rule = credential_rule_fixture(scope, proxmox_secret, %{name: "PVE testable"})
-
-    camera_secret = api_key_secret_fixture(scope)
-
-    camera_rule =
-      credential_rule_fixture(scope, camera_secret, %{
-        name: "Protect cameras",
-        provider: "unifi-protect",
-        auth_method: :api_key,
-        purpose: :camera_inventory,
-        allowed_ports: [443],
-        metadata: %{"purposes" => ["camera_inventory"]}
-      })
-
-    {:ok, lv, html} = live(conn, ~p"/settings/networks/credentials")
-
-    assert has_element?(lv, "button[phx-click='test_rule'][phx-value-id='#{proxmox_rule.id}']")
-    refute has_element?(lv, "button[phx-click='test_rule'][phx-value-id='#{camera_rule.id}']")
-    assert html =~ "Credential test is not yet available for this provider"
-  end
-
-  test "edits and disables a credential rule", %{conn: conn, scope: scope} do
-    secret = credential_secret_fixture(scope)
+  test "edits and disables a package-declared credential rule", %{conn: conn, scope: scope} do
+    secret = api_token_secret_fixture(scope)
     rule = credential_rule_fixture(scope, secret, %{name: "Original rule"})
 
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/#{rule.id}/edit")
 
+    params =
+      secret.id
+      |> default_rule_form_params()
+      |> Map.merge(%{"name" => "Updated rule", "priority" => "30"})
+
     lv
-    |> form("#credential-rule-form",
-      credential_rule: %{
-        "name" => "Updated rule",
-        "description" => "",
-        "provider" => "proxmox",
-        "auth_method" => "proxmox_api_token",
-        "purposes" => ["inventory_enrichment"],
-        "target_query" => "in:devices",
-        "scope_type" => "agent",
-        "scope_value" => "agent-a",
-        "secret_id" => secret.id,
-        "priority" => "30",
-        "allowed_ports" => "8006",
-        "tls_policy" => "verify",
-        "auto_discovery_enabled" => "false"
-      }
-    )
+    |> form("#credential-rule-form", credential_rule: params)
     |> render_submit()
 
     assert_patch(lv, ~p"/settings/networks/credentials")
@@ -841,25 +437,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert html =~ "Disabled"
   end
 
-  test "credential test action reports scoped target failures without exposing secrets", %{
-    conn: conn,
-    scope: scope
-  } do
-    secret = credential_secret_fixture(scope)
-    rule = credential_rule_fixture(scope, secret, %{name: "Testable rule"})
-
-    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
-
-    html =
-      lv
-      |> element("button[phx-click='test_rule'][phx-value-id='#{rule.id}']")
-      |> render_click()
-
-    assert html =~ "Credential test failed"
-    refute html =~ "root@pam!token=secret"
-  end
-
-  test "previews SRQL target scope and agent distribution", %{conn: conn, scope: scope} do
+  test "previews SRQL scope without resolving credential material", %{conn: conn, scope: scope} do
     previous_resolver =
       Application.get_env(:serviceradar_web_ng, :network_credential_rule_preview_resolver)
 
@@ -873,24 +451,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     )
 
     Application.put_env(:serviceradar_web_ng, :network_credential_rule_preview_rows, %{
-      "in:devices metadata.proxmox_candidate:true" => [
+      "in:devices vendor:Example" => [
         %{
           "uid" => "device-1",
-          "hostname" => "pve-a",
+          "hostname" => "example-a",
           "ip" => "192.0.2.10",
           "agent_id" => "agent-a"
         },
         %{
           "uid" => "device-2",
-          "hostname" => "pve-b",
+          "hostname" => "example-b",
           "ip" => "192.0.2.11",
           "agent_id" => "agent-a"
-        },
-        %{
-          "uid" => "device-3",
-          "hostname" => "pve-c",
-          "ip" => "192.0.2.12",
-          "agent_id" => "agent-b"
         }
       ]
     })
@@ -900,13 +472,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
       restore_env(:network_credential_rule_preview_rows, previous_rows)
     end)
 
-    secret = credential_secret_fixture(scope)
-
-    rule =
-      credential_rule_fixture(scope, secret, %{
-        target_query: "in:devices metadata.proxmox_candidate:true"
-      })
-
+    secret = api_token_secret_fixture(scope)
+    rule = credential_rule_fixture(scope, secret, %{})
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
 
     html =
@@ -915,12 +482,41 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
       |> render_click()
 
     assert html =~ "Target Preview"
-    assert html =~ "3"
-    assert html =~ "2"
-    assert html =~ "agent-a"
-    assert html =~ "pve-a"
+    assert html =~ "example-a"
     assert html =~ "192.0.2.10"
-    refute html =~ "pve-c"
+    assert html =~ "credentialref:network-credential-secret:"
+    refute html =~ "sensitive-token"
+  end
+
+  test "renders and saves a producer-schedule integration from its package schema", %{
+    conn: conn,
+    scope: scope
+  } do
+    seed_scheduled_package!()
+    secret = username_password_secret_fixture(scope, "example-scheduled")
+
+    {:ok, lv, html} =
+      live(conn, ~p"/settings/networks/credentials/new?provider=example-scheduled")
+
+    assert html =~ "Example Scheduled Inventory"
+    assert html =~ "Instance ID"
+    assert html =~ "Enable recurring inventory refresh"
+    refute html =~ "Target Query"
+
+    lv
+    |> form("#credential-rule-form",
+      credential_rule: scheduled_rule_form_params(secret.id)
+    )
+    |> render_submit()
+
+    assert_patch(lv, ~p"/settings/networks/credentials")
+    rule = get_rule_by_name!(scope, "Scheduled inventory")
+    assert rule.provider == "example-scheduled"
+    assert rule.auth_method == "username_password"
+    assert rule.purpose == "device_inventory"
+    assert rule.target_query == "in:agents"
+    assert rule.metadata["plugin_config"]["instance_id"] == "example-prod"
+    assert rule.metadata["cadence_seconds"] == 86_400
   end
 
   defp register_and_log_in_admin_user(%{conn: conn}) do
@@ -930,111 +526,283 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     %{conn: log_in_user(conn, user), user: user, scope: scope}
   end
 
-  defp credential_secret_fixture(scope) do
-    {:ok, secret} =
-      NetworkCredentialSecret
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          name: "PVE token #{System.unique_integer([:positive])}",
-          provider: "proxmox",
-          credential_kind: :api_token,
-          username: "root@pam!token",
-          public_fingerprint: "sha256:test",
-          secret_payload: "root@pam!token=secret",
-          metadata: %{}
-        },
-        scope: scope
-      )
-      |> Ash.create(scope: scope)
+  defp seed_target_policy_package(_context) do
+    plugin_id = "example-credential-plugin"
 
-    secret
+    create_approved_package!(
+      plugin_id,
+      "Example Credential Plugin",
+      target_policy_manifest(plugin_id),
+      %{"type" => "object", "additionalProperties" => false, "properties" => %{}}
+    )
+
+    :ok
   end
 
-  defp api_key_secret_fixture(scope) do
-    {:ok, secret} =
-      NetworkCredentialSecret
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          name: "Protect key #{System.unique_integer([:positive])}",
-          provider: "unifi-protect",
-          credential_kind: :api_token,
-          public_fingerprint: "sha256:test",
-          secret_payload: "protect-api-key",
-          metadata: %{"auth_method" => "api_key"}
-        },
-        scope: scope
-      )
-      |> Ash.create(scope: scope)
-
-    secret
+  defp target_policy_manifest(plugin_id) do
+    plugin_id
+    |> base_manifest("Example Credential Plugin")
+    |> Map.put("integrations", %{
+      "documentation" => %{"path" => "docs/configuration.md"},
+      "credential_profiles" => [
+        target_profile(plugin_id),
+        camera_profile(plugin_id)
+      ],
+      "inventory_sources" => []
+    })
   end
 
-  defp username_password_secret_fixture(scope, provider) do
-    {:ok, secret} =
-      NetworkCredentialSecret
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          name: "#{provider} service account #{System.unique_integer([:positive])}",
-          provider: provider,
-          credential_kind: :username_password,
-          username: "service-account",
-          secret_payload: "service-account-password",
-          metadata: %{"auth_method" => "username_password"}
-        },
-        scope: scope
-      )
-      |> Ash.create(scope: scope)
-
-    secret
-  end
-
-  defp example_inventory_rule_form_params(secret_id) do
+  defp target_profile(plugin_id) do
     %{
-      "name" => "Example production inventory",
-      "description" => "Daily switch inventory",
-      "provider" => "example-inventory",
-      "auth_method" => "username_password",
-      "purposes" => ["device_inventory"],
-      "target_query" => "in:agents",
-      "scope_type" => "agent",
-      "scope_value" => "agent-k8s",
-      "secret_id" => secret_id,
-      "priority" => "100",
-      "allowed_ports" => "",
-      "tls_policy" => "verify",
-      "plugin_config" => %{
-        "instance_id" => "example-prod",
-        "token_url" => "https://identity.example.test/oauth/token",
-        "api_url" => "https://inventory.example.test/api",
-        "queries" => [
-          %{"name" => "switches", "parameters" => %{"type" => "Switch"}}
-        ]
+      "provider" => "example-network",
+      "label" => "Example Network",
+      "description" => "Package-defined network credentials.",
+      "default" => true,
+      "auth_methods" => [
+        api_token_method(),
+        username_password_method(),
+        key_pair_method()
+      ],
+      "purposes" => ["device_inventory", "console_access"],
+      "scope_types" => ["agent", "gateway", "partition"],
+      "rule_defaults" => %{
+        "auth_method" => "api_token",
+        "purposes" => ["device_inventory"],
+        "target_query" => "in:devices vendor:Example",
+        "scope_type" => "agent",
+        "allowed_ports" => "443",
+        "tls_policy" => "verify",
+        "ssh_host_key_policy" => "known_hosts",
+        "auto_discovery_enabled" => false
       },
-      "schedule_enabled" => "false",
-      "cadence_seconds" => "86400"
+      "rule_controls" => %{
+        "allowed_ports" => true,
+        "auto_discovery_enabled" => true,
+        "target_query" => true,
+        "transport" => true
+      },
+      "provisioning" => %{
+        "mode" => "target_policy",
+        "consumers" => [
+          consumer(plugin_id, "device_inventory", ["api_token", "username_password"]),
+          consumer(plugin_id, "console_access", ["username_password", "key_pair"])
+        ]
+      }
     }
   end
 
-  defp seed_example_inventory_package! do
+  defp camera_profile(plugin_id) do
+    %{
+      "provider" => "example-camera",
+      "label" => "Example Cameras",
+      "auth_methods" => [username_password_method()],
+      "purposes" => ["camera_inventory"],
+      "scope_types" => ["agent"],
+      "rule_defaults" => %{
+        "auth_method" => "username_password",
+        "purposes" => ["camera_inventory"],
+        "target_query" => ~s(in:devices type:"Camera"),
+        "scope_type" => "agent",
+        "tls_policy" => "verify"
+      },
+      "rule_controls" => %{"target_query" => true, "transport" => true},
+      "provisioning" => %{
+        "mode" => "target_policy",
+        "consumers" => [consumer(plugin_id, "camera_inventory", ["username_password"])]
+      }
+    }
+  end
+
+  defp api_token_method do
+    %{
+      "id" => "api_token",
+      "label" => "API token",
+      "credential_kind" => "api_token",
+      "tls_policies" => ["verify"],
+      "fields" => [
+        %{
+          "id" => "token",
+          "label" => "API token",
+          "control" => "password",
+          "required" => true,
+          "secret" => true,
+          "public" => false
+        }
+      ],
+      "payload" => %{"format" => "scalar", "field" => "token"}
+    }
+  end
+
+  defp username_password_method do
+    %{
+      "id" => "username_password",
+      "label" => "Username and password",
+      "credential_kind" => "username_password",
+      "tls_policies" => ["verify", "skip_verify"],
+      "fields" => [
+        %{
+          "id" => "username",
+          "label" => "Username",
+          "control" => "text",
+          "required" => true,
+          "secret" => false,
+          "public" => true
+        },
+        %{
+          "id" => "password",
+          "label" => "Password",
+          "control" => "password",
+          "required" => true,
+          "secret" => true,
+          "public" => false
+        }
+      ],
+      "payload" => %{
+        "format" => "scalar",
+        "field" => "password",
+        "username_field" => "username"
+      }
+    }
+  end
+
+  defp key_pair_method do
+    %{
+      "id" => "key_pair",
+      "label" => "Key pair",
+      "credential_kind" => "ssh_private_key",
+      "ssh_host_key_policies" => ["known_hosts", "trust_on_first_use"],
+      "fields" => [
+        %{
+          "id" => "username",
+          "label" => "Username",
+          "control" => "text",
+          "required" => true,
+          "secret" => false,
+          "public" => true
+        },
+        %{
+          "id" => "private_key",
+          "label" => "Private key",
+          "control" => "textarea",
+          "required" => true,
+          "secret" => true,
+          "public" => false
+        }
+      ],
+      "payload" => %{"format" => "json", "username_field" => "username"}
+    }
+  end
+
+  defp consumer(plugin_id, purpose, auth_methods) do
+    %{
+      "purpose" => purpose,
+      "plugin_id" => plugin_id,
+      "auth_methods" => auth_methods,
+      "constraints" => %{},
+      "failure_mode" => "skip",
+      "grant" => %{
+        "grant_type" => "example_credential",
+        "resolution_location" => "agent",
+        "ttl_seconds" => 300
+      },
+      "params" => %{
+        "credential_broker" => %{"$source" => "grant"},
+        "credential_secret_ref" => %{"$source" => "secret_ref"},
+        "credential_rule_id" => %{"$source" => "rule", "field" => "id"}
+      }
+    }
+  end
+
+  defp seed_scheduled_package! do
+    plugin_id = "example-scheduled-plugin"
+    schedule_id = "example-scheduled.refresh"
+
+    manifest =
+      plugin_id
+      |> base_manifest("Example Scheduled Inventory")
+      |> Map.update!("capabilities", &(&1 ++ ["producer-schedule:v1"]))
+      |> Map.put("producer_schedules", [
+        %{
+          "schedule_id" => schedule_id,
+          "label" => "Refresh scheduled inventory",
+          "action_id" => schedule_id,
+          "command_type" => "plugin.run_action",
+          "default_cadence_seconds" => 86_400,
+          "min_cadence_seconds" => 3_600,
+          "max_cadence_seconds" => 2_592_000,
+          "dispatch_scope" => "assignment",
+          "credential_requirements" => %{
+            "inventory_account" => %{
+              "required" => true,
+              "resolution_location" => "agent",
+              "grants" => []
+            }
+          }
+        }
+      ])
+      |> Map.put("integrations", %{
+        "documentation" => %{"path" => "docs/configuration.md"},
+        "credential_profiles" => [
+          %{
+            "provider" => "example-scheduled",
+            "label" => "Example Scheduled Inventory",
+            "auth_methods" => [username_password_method()],
+            "purposes" => ["device_inventory"],
+            "scope_types" => ["agent"],
+            "provisioning" => %{
+              "mode" => "producer_schedule",
+              "schedule_id" => schedule_id,
+              "credential_requirement" => "inventory_account"
+            }
+          }
+        ],
+        "inventory_sources" => []
+      })
+
+    schema = %{
+      "type" => "object",
+      "additionalProperties" => false,
+      "required" => ["instance_id"],
+      "properties" => %{
+        "instance_id" => %{
+          "type" => "string",
+          "title" => "Instance ID",
+          "pattern" => "^[A-Za-z0-9._-]+$"
+        }
+      }
+    }
+
+    create_approved_package!(plugin_id, "Example Scheduled Inventory", manifest, schema)
+  end
+
+  defp base_manifest(plugin_id, name) do
+    %{
+      "id" => plugin_id,
+      "name" => name,
+      "version" => "1.0.0",
+      "entrypoint" => "run_check",
+      "runtime" => "wasi-preview1",
+      "outputs" => "serviceradar.plugin_result.v1",
+      "capabilities" => ["get_config", "log", "submit_result"],
+      "permissions" => %{"allowed_domains" => ["*"]},
+      "resources" => %{
+        "requested_cpu_ms" => 5_000,
+        "requested_memory_mb" => 64,
+        "max_open_connections" => 2
+      }
+    }
+  end
+
+  defp create_approved_package!(plugin_id, name, manifest, config_schema) do
     actor = system_actor()
-    plugin_id = "example-inventory-plugin-#{System.unique_integer([:positive])}"
 
     Plugin
     |> Ash.Changeset.for_create(
       :create,
-      %{
-        plugin_id: plugin_id,
-        name: "Example Inventory",
-        description: "Package-declared inventory provider"
-      },
+      %{plugin_id: plugin_id, name: name, description: "Test package descriptor"},
       actor: actor
     )
     |> Ash.create!()
-
-    manifest = example_inventory_manifest(plugin_id)
 
     package =
       PluginPackage
@@ -1042,13 +810,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
         :create,
         %{
           plugin_id: plugin_id,
-          name: "Example Inventory",
+          name: name,
           version: "1.0.0",
           entrypoint: "run_check",
           runtime: "wasi-preview1",
           outputs: "serviceradar.plugin_result.v1",
           manifest: manifest,
-          config_schema: example_inventory_config_schema(),
+          config_schema: config_schema,
           signature: %{},
           source_type: :github,
           source_commit: "test-#{plugin_id}"
@@ -1060,140 +828,53 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert {:ok, _approved} = Packages.approve(package.id, %{}, actor: actor)
   end
 
-  defp example_inventory_manifest(plugin_id) do
-    %{
-      "id" => plugin_id,
-      "name" => "Example Inventory",
-      "version" => "1.0.0",
-      "entrypoint" => "run_check",
-      "runtime" => "wasi-preview1",
-      "outputs" => "serviceradar.plugin_result.v1",
-      "capabilities" => ["get_config", "producer-schedule:v1"],
-      "permissions" => %{"allowed_domains" => ["*"]},
-      "resources" => %{
-        "requested_cpu_ms" => 5_000,
-        "requested_memory_mb" => 64,
-        "max_open_connections" => 2
-      },
-      "producer_schedules" => [
-        %{
-          "schedule_id" => "example-inventory.refresh",
-          "label" => "Refresh example inventory",
-          "action_id" => "example-inventory.refresh",
-          "command_type" => "plugin.run_action",
-          "default_cadence_seconds" => 86_400,
-          "min_cadence_seconds" => 3_600,
-          "max_cadence_seconds" => 2_592_000,
-          "dispatch_scope" => "assignment",
-          "timeout_seconds" => 900,
-          "credential_requirements" => %{
-            "inventory_account" => %{
-              "required" => true,
-              "resolution_location" => "agent",
-              "grants" => []
-            }
-          }
-        }
-      ],
-      "integrations" => %{
-        "documentation" => %{
-          "title" => "Example inventory configuration",
-          "path" => "docs/configuration.md"
-        },
-        "credential_profiles" => [
-          %{
-            "provider" => "example-inventory",
-            "label" => "Example Inventory",
-            "auth_methods" => [
-              %{"id" => "username_password", "credential_kind" => "username_password"}
-            ],
-            "purposes" => ["device_inventory"],
-            "scope_types" => ["agent"],
-            "provisioning" => %{
-              "mode" => "producer_schedule",
-              "schedule_id" => "example-inventory.refresh",
-              "credential_requirement" => "inventory_account"
-            }
-          }
-        ],
-        "inventory_sources" => [
-          %{
-            "source" => "example-inventory",
-            "label" => "Example Inventory",
-            "metadata_fields" => []
-          }
-        ]
-      }
-    }
+  defp api_token_secret_fixture(scope) do
+    credential_secret_fixture(scope, %{
+      name: "Example token #{System.unique_integer([:positive])}",
+      provider: "example-network",
+      credential_kind: :api_token,
+      public_fingerprint: "sha256:test",
+      secret_payload: "sensitive-token",
+      metadata: %{"auth_method" => "api_token"}
+    })
   end
 
-  defp example_inventory_config_schema do
-    %{
-      "type" => "object",
-      "additionalProperties" => false,
-      "required" => ["instance_id", "token_url", "api_url", "queries"],
-      "properties" => %{
-        "instance_id" => %{
-          "type" => "string",
-          "title" => "Instance ID",
-          "pattern" => "^[A-Za-z0-9._-]+$"
-        },
-        "token_url" => %{
-          "type" => "string",
-          "title" => "OAuth Token URL",
-          "format" => "uri",
-          "pattern" => "^https://"
-        },
-        "api_url" => %{
-          "type" => "string",
-          "title" => "Inventory API URL",
-          "format" => "uri",
-          "pattern" => "^https://"
-        },
-        "queries" => %{
-          "type" => "array",
-          "title" => "Query Sets",
-          "minItems" => 1,
-          "default" => [
-            %{"name" => "switches", "parameters" => %{"type" => "Switch"}}
-          ],
-          "items" => %{
-            "type" => "object",
-            "additionalProperties" => false,
-            "required" => ["name", "parameters"],
-            "properties" => %{
-              "name" => %{"type" => "string"},
-              "parameters" => %{
-                "type" => "object",
-                "additionalProperties" => false,
-                "properties" => %{"type" => %{"type" => "string"}}
-              }
-            }
-          }
-        }
-      }
-    }
+  defp username_password_secret_fixture(scope, provider) do
+    credential_secret_fixture(scope, %{
+      name: "#{provider} account #{System.unique_integer([:positive])}",
+      provider: provider,
+      credential_kind: :username_password,
+      username: "operator",
+      public_fingerprint: "sha256:test",
+      secret_payload: "sensitive-password",
+      metadata: %{"auth_method" => "username_password"}
+    })
   end
 
-  defp checked_purpose?(html, purpose) do
-    html =~ ~r/checked[^>]*value="#{purpose}"|value="#{purpose}"[^>]*checked/
+  defp credential_secret_fixture(scope, attrs) do
+    {:ok, secret} =
+      NetworkCredentialSecret
+      |> Ash.Changeset.for_create(:create, attrs, scope: scope)
+      |> Ash.create(scope: scope)
+
+    secret
   end
 
   defp credential_rule_fixture(scope, secret, attrs) do
     defaults = %{
-      name: "PVE rule #{System.unique_integer([:positive])}",
-      provider: "proxmox",
-      auth_method: :proxmox_api_token,
-      purpose: :inventory_enrichment,
-      target_query: "in:devices",
+      name: "Example rule #{System.unique_integer([:positive])}",
+      provider: "example-network",
+      auth_method: "api_token",
+      purpose: "device_inventory",
+      target_query: "in:devices vendor:Example",
       scope_type: :agent,
       scope_value: "agent-a",
       secret_id: secret.id,
       priority: 50,
-      allowed_ports: [8006],
+      allowed_ports: [443],
       tls_policy: :verify,
       ssh_host_key_policy: :known_hosts,
-      metadata: %{}
+      metadata: %{"purposes" => ["device_inventory"]}
     }
 
     {:ok, rule} =
@@ -1204,16 +885,46 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     rule
   end
 
-  defp private_key_fixture do
-    private_key_fixture_header() <>
-      """
-      b3BlbnNzaC10ZXN0LWtleS1tYXRlcmlhbA==
-      #{private_key_fixture_footer()}
-      """
+  defp default_rule_form_params(secret_id) do
+    %{
+      "name" => "Example inventory rule",
+      "description" => "",
+      "provider" => "example-network",
+      "auth_method" => "api_token",
+      "purposes" => ["device_inventory"],
+      "target_query" => "in:devices vendor:Example",
+      "scope_type" => "agent",
+      "scope_value" => "agent-a",
+      "secret_id" => secret_id,
+      "priority" => "25",
+      "allowed_ports" => "443",
+      "tls_policy" => "verify",
+      "auto_discovery_enabled" => "true"
+    }
   end
 
-  defp private_key_fixture_header, do: "-----BEGIN OPENSSH " <> "PRIVATE KEY-----\n"
-  defp private_key_fixture_footer, do: "-----END OPENSSH " <> "PRIVATE KEY-----"
+  defp scheduled_rule_form_params(secret_id) do
+    %{
+      "name" => "Scheduled inventory",
+      "description" => "",
+      "provider" => "example-scheduled",
+      "auth_method" => "username_password",
+      "purposes" => ["device_inventory"],
+      "target_query" => "in:agents",
+      "scope_type" => "agent",
+      "scope_value" => "agent-k8s",
+      "secret_id" => secret_id,
+      "priority" => "100",
+      "tls_policy" => "verify",
+      "plugin_config" => %{"instance_id" => "example-prod"},
+      "schedule_enabled" => "false",
+      "cadence_seconds" => "86400"
+    }
+  end
+
+  defp checked_purpose?(html, purpose) do
+    html =~ ~r/checked[^>]*value="#{purpose}"|value="#{purpose}"[^>]*checked/
+  end
 
   defp get_rule_by_name!(scope, name) do
     NetworkCredentialRule
@@ -1233,24 +944,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
-
-  defp default_rule_form_params do
-    %{
-      "name" => "",
-      "description" => "",
-      "provider" => "proxmox",
-      "auth_method" => "proxmox_api_token",
-      "purposes" => ["inventory_enrichment"],
-      "target_query" => "in:devices metadata.proxmox_candidate:true",
-      "scope_type" => "agent",
-      "scope_value" => "",
-      "secret_id" => "",
-      "priority" => "100",
-      "allowed_ports" => "8006",
-      "tls_policy" => "verify",
-      "auto_discovery_enabled" => "false"
-    }
-  end
 
   defp scope_value_control(html) do
     cond do

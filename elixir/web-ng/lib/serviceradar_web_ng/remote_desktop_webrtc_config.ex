@@ -165,9 +165,15 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTCConfig do
 
   defp validate_authority!(authority) do
     case String.split(authority, ":", parts: 3) do
-      [host] -> validate_host!(host)
-      [host, port] -> validate_host!(host) && validate_port!(port)
-      _other -> invalid_ice_url!()
+      [host] ->
+        validate_host!(host)
+
+      [host, port] ->
+        validate_host!(host)
+        validate_port!(port)
+
+      _other ->
+        invalid_ice_url!()
     end
   end
 

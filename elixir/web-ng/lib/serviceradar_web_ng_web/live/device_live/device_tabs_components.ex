@@ -22,13 +22,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents do
     ~H"""
     <div
       :if={is_map(@device_row)}
-      class="tabs tabs-box"
+      class="sr-ui-tabs sr-ui-tabs-boxed"
     >
       <button
         type="button"
         phx-click="switch_tab"
         phx-value-tab="details"
-        class={["tab", @active_tab == "details" && "tab-active"]}
+        class={["sr-ui-tab", @active_tab == "details" && "sr-ui-tab-active"]}
       >
         <.icon name="hero-document-text" class="size-4 mr-1.5" /> Details
       </button>
@@ -37,7 +37,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents do
         type="button"
         phx-click="switch_tab"
         phx-value-tab="software"
-        class={["tab", @active_tab == "software" && "tab-active"]}
+        class={["sr-ui-tab", @active_tab == "software" && "sr-ui-tab-active"]}
       >
         <.icon name="hero-cube" class="size-4 mr-1.5" /> Software
       </button>
@@ -46,7 +46,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents do
         type="button"
         phx-click="switch_tab"
         phx-value-tab="guests"
-        class={["tab", @active_tab == "guests" && "tab-active"]}
+        class={["sr-ui-tab", @active_tab == "guests" && "sr-ui-tab-active"]}
       >
         <.icon name="hero-squares-2x2" class="size-4 mr-1.5" /> Guests
       </button>
@@ -59,11 +59,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents do
         title={availability_title("Interfaces", @interface_availability, @details_loading)}
         class={[
           "tab",
-          @active_tab == "interfaces" && "tab-active",
+          @active_tab == "interfaces" && "sr-ui-tab-active",
           !@has_ifaces && "opacity-60"
         ]}
       >
-        <span :if={!@has_ifaces} class="loading loading-spinner loading-xs mr-1.5"></span>
+        <.ui_spinner :if={!@has_ifaces} size="xs" class="mr-1.5" />
         <.icon :if={@has_ifaces} name="hero-server-stack" class="size-4 mr-1.5" /> Interfaces
       </button>
       <button
@@ -75,11 +75,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents do
         title={availability_title("Flows", @flow_availability, @details_loading)}
         class={[
           "tab",
-          @active_tab == "flows" && "tab-active",
+          @active_tab == "flows" && "sr-ui-tab-active",
           !@has_flows && "opacity-60"
         ]}
       >
-        <span :if={!@has_flows} class="loading loading-spinner loading-xs mr-1.5"></span>
+        <.ui_spinner :if={!@has_flows} size="xs" class="mr-1.5" />
         <.icon :if={@has_flows} name="hero-arrows-right-left" class="size-4 mr-1.5" /> Flows
       </button>
       <button
@@ -87,7 +87,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents do
         type="button"
         phx-click="switch_tab"
         phx-value-tab="logs"
-        class={["tab", @active_tab == "logs" && "tab-active"]}
+        class={["sr-ui-tab", @active_tab == "logs" && "sr-ui-tab-active"]}
       >
         <.icon name="hero-clipboard-document-list" class="size-4 mr-1.5" /> Logs
       </button>
@@ -96,7 +96,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents do
         type="button"
         phx-click="switch_tab"
         phx-value-tab="profiles"
-        class={["tab", @active_tab == "profiles" && "tab-active"]}
+        class={["sr-ui-tab", @active_tab == "profiles" && "sr-ui-tab-active"]}
       >
         <.icon name="hero-cog-6-tooth" class="size-4 mr-1.5" /> Profiles
       </button>
@@ -105,7 +105,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents do
         type="button"
         phx-click="switch_tab"
         phx-value-tab="active-fingerprint"
-        class={["tab", @active_tab == "active-fingerprint" && "tab-active"]}
+        class={["sr-ui-tab", @active_tab == "active-fingerprint" && "sr-ui-tab-active"]}
       >
         <.icon name="hero-finger-print" class="size-4 mr-1.5" /> Active Fingerprint
       </button>
@@ -114,7 +114,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents do
         type="button"
         phx-click="switch_tab"
         phx-value-tab="process-listeners"
-        class={["tab", @active_tab == "process-listeners" && "tab-active"]}
+        class={["sr-ui-tab", @active_tab == "process-listeners" && "sr-ui-tab-active"]}
       >
         <.icon name="hero-command-line" class="size-4 mr-1.5" /> Process Listeners
       </button>
@@ -123,7 +123,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents do
         type="button"
         phx-click="switch_tab"
         phx-value-tab="mtr"
-        class={["tab", @active_tab == "mtr" && "tab-active"]}
+        class={["sr-ui-tab", @active_tab == "mtr" && "sr-ui-tab-active"]}
       >
         <.icon name="hero-signal" class="size-4 mr-1.5" /> MTR
       </button>

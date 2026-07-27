@@ -35,34 +35,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Stats do
     ~H"""
     <div class="mb-6">
       <div :if={@loading} class="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div class="rounded-xl border border-base-200 bg-base-100 p-4 h-24 animate-pulse">
-          <div class="h-4 bg-base-200 rounded w-1/2 mb-2" />
-          <div class="h-6 bg-base-200 rounded w-3/4" />
+        <div class="rounded-xl border border-sr-line bg-sr-surface p-4 h-24 animate-pulse">
+          <div class="h-4 bg-sr-subtle rounded w-1/2 mb-2" />
+          <div class="h-6 bg-sr-subtle rounded w-3/4" />
         </div>
-        <div class="rounded-xl border border-base-200 bg-base-100 p-4 h-24 animate-pulse">
-          <div class="h-4 bg-base-200 rounded w-1/2 mb-2" />
-          <div class="h-6 bg-base-200 rounded w-3/4" />
+        <div class="rounded-xl border border-sr-line bg-sr-surface p-4 h-24 animate-pulse">
+          <div class="h-4 bg-sr-subtle rounded w-1/2 mb-2" />
+          <div class="h-6 bg-sr-subtle rounded w-3/4" />
         </div>
-        <div class="rounded-xl border border-base-200 bg-base-100 p-4 h-24 animate-pulse">
-          <div class="h-4 bg-base-200 rounded w-1/2 mb-2" />
-          <div class="h-6 bg-base-200 rounded w-3/4" />
+        <div class="rounded-xl border border-sr-line bg-sr-surface p-4 h-24 animate-pulse">
+          <div class="h-4 bg-sr-subtle rounded w-1/2 mb-2" />
+          <div class="h-6 bg-sr-subtle rounded w-3/4" />
         </div>
-        <div class="rounded-xl border border-base-200 bg-base-100 p-4 h-24 animate-pulse">
-          <div class="h-4 bg-base-200 rounded w-1/2 mb-2" />
-          <div class="h-6 bg-base-200 rounded w-3/4" />
+        <div class="rounded-xl border border-sr-line bg-sr-surface p-4 h-24 animate-pulse">
+          <div class="h-4 bg-sr-subtle rounded w-1/2 mb-2" />
+          <div class="h-6 bg-sr-subtle rounded w-3/4" />
         </div>
       </div>
 
       <div :if={not @loading} class="grid grid-cols-2 md:grid-cols-4 gap-3">
         <!-- Total Devices -->
         <.link navigate={~p"/devices"} class="block group">
-          <div class="rounded-xl border border-base-200 bg-base-100 p-4 hover:shadow-md transition-shadow cursor-pointer flex items-center gap-3">
-            <div class="p-2.5 rounded-lg bg-primary/10">
-              <.icon name="hero-server" class="size-5 text-primary" />
+          <div class="rounded-xl border border-sr-line bg-sr-surface p-4 hover:shadow-md transition-shadow cursor-pointer flex items-center gap-3">
+            <div class="p-2.5 rounded-lg bg-sr-brand/10">
+              <.icon name="hero-server" class="size-5 text-sr-brand" />
             </div>
             <div class="flex-1 min-w-0">
-              <div class="text-xl font-bold text-base-content">{format_stat_number(@total)}</div>
-              <div class="text-xs text-base-content/60">Total Devices</div>
+              <div class="text-xl font-bold text-sr-ink">{format_stat_number(@total)}</div>
+              <div class="text-xs text-sr-muted">Total Devices</div>
             </div>
           </div>
         </.link>
@@ -100,7 +100,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Stats do
                   / {format_stat_number(@unavailable)} offline
                 </span>
               </div>
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 {if @unavailable == 0, do: "All Online", else: "Available"}
               </div>
             </div>

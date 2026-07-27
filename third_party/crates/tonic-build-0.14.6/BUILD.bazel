@@ -35,6 +35,7 @@ rust_library(
         ],
     ),
     crate_features = [
+        "default",
         "transport",
     ],
     crate_root = "src/lib.rs",

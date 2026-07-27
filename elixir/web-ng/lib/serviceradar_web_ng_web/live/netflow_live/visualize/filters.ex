@@ -56,13 +56,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.Filters do
     end
   end
 
-  def flows_filter_patch(base_path, query, limit, nf, field, value) do
+  def flows_filter_patch(base_path, query, _limit, nf, field, value) do
     value = (value || "") |> to_string() |> String.trim()
 
     q = upsert_query_filter(query || "", field, value)
 
     params =
-      %{"q" => q, "limit" => limit, "nf" => nf}
+      %{"q" => q, "nf" => nf}
       |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
       |> Map.new()
 

@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
   attr(:flows, :list, required: true)
   attr(:error, :string, default: nil)
   attr(:pagination, :map, default: %{})
+  attr(:pagination_page, :integer, default: 1)
   attr(:rdns_map, :map, default: %{})
   attr(:geo_iso2_map, :map, default: %{})
   attr(:device_uid, :string, required: true)
@@ -19,16 +20,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
 
   def flow_table(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
-          <.icon name="hero-arrows-right-left" class="size-4 text-primary" />
+          <.icon name="hero-arrows-right-left" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Recent Flows</span>
-          <span class="text-xs text-base-content/50">({length(@flows)} rows)</span>
+          <span class="text-xs text-sr-muted">({length(@flows)} rows)</span>
         </div>
         <.link
-          navigate={~p"/observability?#{%{"tab" => "netflows", "view" => "explorer", "q" => @query}}"}
-          class="text-xs text-primary hover:underline"
+          navigate={~p"/observability/netflows?#{%{"view" => "explorer", "q" => @query}}"}
+          class="text-xs text-sr-brand hover:underline"
         >
           Open full flows view
         </.link>
@@ -37,21 +38,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
       <div class="p-4">
         <div :if={is_binary(@error)} class="mb-3 flex items-center gap-2 text-xs text-error">
           <span>{@error}</span>
-          <button
+          <.ui_button
             type="button"
             phx-click="switch_tab"
             phx-value-tab="flows"
-            class="btn btn-error btn-outline btn-xs"
+            size="xs"
+            variant="outline"
           >
             Retry
-          </button>
+          </.ui_button>
         </div>
 
         <%= if @flows == [] and is_nil(@error) do %>
-          <div class="text-sm text-base-content/60">No flows found for this device.</div>
+          <div class="text-sm text-sr-muted">No flows found for this device.</div>
         <% else %>
-          <div class="overflow-x-auto">
-            <table class="table table-xs w-full">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "xs", class: "w-full")}>
               <thead>
                 <tr>
                   <th>Time</th>
@@ -80,14 +82,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
                       </div>
                       <div
                         :if={src_host}
-                        class="text-[10px] text-base-content/50 truncate max-w-[180px]"
+                        class="text-[10px] text-sr-muted truncate max-w-[180px]"
                         title={src_host}
                       >
                         {src_host}
                       </div>
                       <div
                         :if={!src_host && flow_exporter_name(flow)}
-                        class="text-[10px] text-base-content/50 truncate max-w-[140px]"
+                        class="text-[10px] text-sr-muted truncate max-w-[140px]"
                       >
                         {flow_exporter_name(flow)}
                       </div>
@@ -104,14 +106,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
                       </div>
                       <div
                         :if={dst_host}
-                        class="text-[10px] text-base-content/50 truncate max-w-[180px]"
+                        class="text-[10px] text-sr-muted truncate max-w-[180px]"
                         title={dst_host}
                       >
                         {dst_host}
                       </div>
                       <div
                         :if={!dst_host && flow_service_label(flow)}
-                        class="text-[10px] text-base-content/50 truncate max-w-[140px]"
+                        class="text-[10px] text-sr-muted truncate max-w-[140px]"
                       >
                         {flow_service_label(flow)}
                       </div>
@@ -137,14 +139,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
                       />
                     </td>
                     <td class="text-right">
-                      <.link
+                      <.ui_button
                         navigate={
                           ~p"/observability/flows?#{%{"open" => "first", "q" => flow_drilldown_query(flow)}}"
                         }
-                        class="btn btn-ghost btn-xs"
+                        size="xs"
+                        variant="ghost"
                       >
                         Details
-                      </.link>
+                      </.ui_button>
                     </td>
                   </tr>
                 <% end %>
@@ -152,15 +155,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
             </table>
           </div>
 
-          <div class="pt-3 border-t border-base-200 mt-3">
+          <div class="pt-3 border-t border-sr-line mt-3">
             <.ui_pagination
               prev_cursor={Map.get(@pagination, "prev_cursor")}
               next_cursor={Map.get(@pagination, "next_cursor")}
-              base_path={"/devices/#{@device_uid}"}
-              query={@query}
               limit={@limit}
+              current_page={@pagination_page}
               result_count={length(@flows)}
-              extra_params={%{"tab" => "flows"}}
             />
           </div>
         <% end %>

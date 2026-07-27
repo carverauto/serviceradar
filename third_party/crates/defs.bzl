@@ -291,7 +291,21 @@ def aliases(
 ###############################################################################
 
 _NORMAL_DEPENDENCIES = {
+    "": {
+        _COMMON_CONDITION: {
+            "prost-types": Label("//third_party/crates/prost-types-0.14.4:prost_types"),
+            "protoc-gen-prost": Label("//third_party/crates/protoc-gen-prost-0.5.0:protoc_gen_prost"),
+            "protoc-gen-tonic": Label("//third_party/crates/protoc-gen-tonic-0.5.0:protoc_gen_tonic"),
+        },
+    },
     "integration_tests/srql": {
+    },
+    "proto/dgraph": {
+        _COMMON_CONDITION: {
+            "prost": Label("//third_party/crates/prost-0.14.4:prost"),
+            "tonic": Label("//third_party/crates/tonic-0.14.6:tonic"),
+            "tonic-prost": Label("//third_party/crates/tonic-prost-0.14.6:tonic_prost"),
+        },
     },
     "rust/addon-sdk": {
         _COMMON_CONDITION: {
@@ -345,7 +359,7 @@ _NORMAL_DEPENDENCIES = {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
             "arancini-lib": Label("//third_party/crates/arancini-lib-0.7.3:arancini_lib"),
-            "async-nats": Label("//third_party/crates/async-nats-0.49.1:async_nats"),
+            "async-nats": Label("//third_party/crates/async-nats-0.50.0:async_nats"),
             "bgpkit-parser": Label("//third_party/crates/bgpkit-parser-0.15.0:bgpkit_parser"),
             "bytes": Label("//third_party/crates/bytes-1.11.1:bytes"),
             "chrono": Label("//third_party/crates/chrono-0.4.44:chrono"),
@@ -405,7 +419,7 @@ _NORMAL_DEPENDENCIES = {
     "rust/correlation-engine": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
-            "async-nats": Label("//third_party/crates/async-nats-0.49.1:async_nats"),
+            "async-nats": Label("//third_party/crates/async-nats-0.50.0:async_nats"),
             "chrono": Label("//third_party/crates/chrono-0.4.44:chrono"),
             "deep_causality": Label("//third_party/crates/deep_causality-0.15.0:deep_causality"),
             "envy": Label("//third_party/crates/envy-0.4.2:envy"),
@@ -454,7 +468,7 @@ _NORMAL_DEPENDENCIES = {
     "rust/flow-collector": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
-            "async-nats": Label("//third_party/crates/async-nats-0.49.1:async_nats"),
+            "async-nats": Label("//third_party/crates/async-nats-0.50.0:async_nats"),
             "clap": Label("//third_party/crates/clap-4.6.1:clap"),
             "env_logger": Label("//third_party/crates/env_logger-0.11.10:env_logger"),
             "flowparser-sflow": Label("//third_party/crates/flowparser-sflow-0.3.0:flowparser_sflow"),
@@ -470,7 +484,7 @@ _NORMAL_DEPENDENCIES = {
     "rust/flowgger": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
-            "async-nats": Label("//third_party/crates/async-nats-0.49.1:async_nats"),
+            "async-nats": Label("//third_party/crates/async-nats-0.50.0:async_nats"),
             "clap": Label("//third_party/crates/clap-4.6.1:clap"),
             "flate2": Label("//third_party/crates/flate2-1.1.9:flate2"),
             "log": Label("//third_party/crates/log-0.4.30:log"),
@@ -529,7 +543,7 @@ _NORMAL_DEPENDENCIES = {
     "rust/metrics-delta-writer": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
-            "async-nats": Label("//third_party/crates/async-nats-0.49.1:async_nats"),
+            "async-nats": Label("//third_party/crates/async-nats-0.50.0:async_nats"),
             "envy": Label("//third_party/crates/envy-0.4.2:envy"),
             "futures": Label("//third_party/crates/futures-0.3.32:futures"),
             "prost": Label("//third_party/crates/prost-0.14.4:prost"),
@@ -574,7 +588,7 @@ _NORMAL_DEPENDENCIES = {
     "rust/otel": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
-            "async-nats": Label("//third_party/crates/async-nats-0.49.1:async_nats"),
+            "async-nats": Label("//third_party/crates/async-nats-0.50.0:async_nats"),
             "chrono": Label("//third_party/crates/chrono-0.4.44:chrono"),
             "clap": Label("//third_party/crates/clap-4.6.1:clap"),
             "env_logger": Label("//third_party/crates/env_logger-0.11.10:env_logger"),
@@ -690,7 +704,7 @@ _NORMAL_DEPENDENCIES = {
     "rust/trapd": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
-            "async-nats": Label("//third_party/crates/async-nats-0.49.1:async_nats"),
+            "async-nats": Label("//third_party/crates/async-nats-0.50.0:async_nats"),
             "clap": Label("//third_party/crates/clap-4.6.1:clap"),
             "env_logger": Label("//third_party/crates/env_logger-0.11.10:env_logger"),
             "futures": Label("//third_party/crates/futures-0.3.32:futures"),
@@ -783,7 +797,15 @@ _NORMAL_DEPENDENCIES = {
 }
 
 _NORMAL_ALIASES = {
+    "": {
+        _COMMON_CONDITION: {
+        },
+    },
     "integration_tests/srql": {
+    },
+    "proto/dgraph": {
+        _COMMON_CONDITION: {
+        },
     },
     "rust/addon-sdk": {
         _COMMON_CONDITION: {
@@ -932,6 +954,8 @@ _NORMAL_ALIASES = {
 }
 
 _NORMAL_DEV_DEPENDENCIES = {
+    "": {
+    },
     "integration_tests/srql": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.102:anyhow"),
@@ -948,6 +972,8 @@ _NORMAL_DEV_DEPENDENCIES = {
             "tower": Label("//third_party/crates/tower-0.5.3:tower"),
             "tracing-subscriber": Label("//third_party/crates/tracing-subscriber-0.3.23:tracing_subscriber"),
         },
+    },
+    "proto/dgraph": {
     },
     "rust/addon-sdk": {
         _COMMON_CONDITION: {
@@ -1069,9 +1095,13 @@ _NORMAL_DEV_DEPENDENCIES = {
 }
 
 _NORMAL_DEV_ALIASES = {
+    "": {
+    },
     "integration_tests/srql": {
         _COMMON_CONDITION: {
         },
+    },
+    "proto/dgraph": {
     },
     "rust/addon-sdk": {
         _COMMON_CONDITION: {
@@ -1176,7 +1206,11 @@ _NORMAL_DEV_ALIASES = {
 }
 
 _PROC_MACRO_DEPENDENCIES = {
+    "": {
+    },
     "integration_tests/srql": {
+    },
+    "proto/dgraph": {
     },
     "rust/addon-sdk": {
         _COMMON_CONDITION: {
@@ -1279,7 +1313,11 @@ _PROC_MACRO_DEPENDENCIES = {
 }
 
 _PROC_MACRO_ALIASES = {
+    "": {
+    },
     "integration_tests/srql": {
+    },
+    "proto/dgraph": {
     },
     "rust/addon-sdk": {
     },
@@ -1358,7 +1396,11 @@ _PROC_MACRO_ALIASES = {
 }
 
 _PROC_MACRO_DEV_DEPENDENCIES = {
+    "": {
+    },
     "integration_tests/srql": {
+    },
+    "proto/dgraph": {
     },
     "rust/addon-sdk": {
     },
@@ -1437,9 +1479,13 @@ _PROC_MACRO_DEV_DEPENDENCIES = {
 }
 
 _PROC_MACRO_DEV_ALIASES = {
+    "": {
+    },
     "integration_tests/srql": {
         _COMMON_CONDITION: {
         },
+    },
+    "proto/dgraph": {
     },
     "rust/addon-sdk": {
         _COMMON_CONDITION: {
@@ -1544,7 +1590,14 @@ _PROC_MACRO_DEV_ALIASES = {
 }
 
 _BUILD_DEPENDENCIES = {
+    "": {
+    },
     "integration_tests/srql": {
+    },
+    "proto/dgraph": {
+        _COMMON_CONDITION: {
+            "tonic-prost-build": Label("//third_party/crates/tonic-prost-build-0.14.6:tonic_prost_build"),
+        },
     },
     "rust/addon-sdk": {
         _COMMON_CONDITION: {
@@ -1660,7 +1713,13 @@ _BUILD_DEPENDENCIES = {
 }
 
 _BUILD_ALIASES = {
+    "": {
+    },
     "integration_tests/srql": {
+    },
+    "proto/dgraph": {
+        _COMMON_CONDITION: {
+        },
     },
     "rust/addon-sdk": {
         _COMMON_CONDITION: {
@@ -1761,7 +1820,11 @@ _BUILD_ALIASES = {
 }
 
 _BUILD_PROC_MACRO_DEPENDENCIES = {
+    "": {
+    },
     "integration_tests/srql": {
+    },
+    "proto/dgraph": {
     },
     "rust/addon-sdk": {
     },
@@ -1840,7 +1903,11 @@ _BUILD_PROC_MACRO_DEPENDENCIES = {
 }
 
 _BUILD_PROC_MACRO_ALIASES = {
+    "": {
+    },
     "integration_tests/srql": {
+    },
+    "proto/dgraph": {
     },
     "rust/addon-sdk": {
     },

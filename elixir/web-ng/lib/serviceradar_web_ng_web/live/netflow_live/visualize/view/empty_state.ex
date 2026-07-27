@@ -23,15 +23,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.EmptyState do
         <.icon name={state_icon(@state.kind)} class="mx-auto size-7" />
         <div class="space-y-1">
           <div class="text-sm font-semibold">{@state.title}</div>
-          <p class="text-xs leading-5 text-base-content/65">{@state.detail}</p>
+          <p class="text-xs leading-5 text-sr-ink/65">{@state.detail}</p>
         </div>
-        <.link
+        <.ui_button
           :if={is_binary(@state.link_href) and is_binary(@state.link_label)}
           navigate={@state.link_href}
-          class="btn btn-xs btn-outline"
+          size="xs"
+          variant="outline"
         >
           {@state.link_label}
-        </.link>
+        </.ui_button>
       </div>
     </div>
     """
@@ -39,7 +40,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.EmptyState do
 
   def state_class(:query_error), do: "border-error/30 bg-error/5 text-error"
   def state_class(:disabled), do: "border-warning/30 bg-warning/5 text-warning"
-  def state_class(_kind), do: "border-base-200 bg-base-200/20 text-base-content"
+  def state_class(_kind), do: "border-sr-line bg-sr-subtle/20 text-sr-ink"
 
   def state_icon(:query_error), do: "hero-exclamation-triangle"
   def state_icon(:disabled), do: "hero-pause-circle"

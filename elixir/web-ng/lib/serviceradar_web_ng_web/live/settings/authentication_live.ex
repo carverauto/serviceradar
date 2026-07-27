@@ -75,15 +75,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         stats={@settings_stats}
       >
         <div>
-          <h1 class="text-2xl font-semibold text-base-content">Authentication Settings</h1>
-          <p class="text-sm text-base-content/60">
+          <h1 class="text-2xl font-semibold text-sr-ink">Authentication Settings</h1>
+          <p class="text-sm text-sr-muted">
             Configure how users authenticate to ServiceRadar.
           </p>
         </div>
 
         <%= if @loading do %>
           <div class="flex justify-center py-12">
-            <span class="loading loading-spinner loading-lg"></span>
+            <.ui_spinner size="lg" />
           </div>
         <% else %>
           <% sso_enabled = sso_enabled?(@form[:is_enabled].value, @form[:mode].value) %>
@@ -99,18 +99,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                 <div class="flex items-center justify-between w-full">
                   <div>
                     <div class="text-sm font-semibold">Status</div>
-                    <p class="text-xs text-base-content/60">
+                    <p class="text-xs text-sr-muted">
                       Enable or disable SSO authentication.
                     </p>
                   </div>
-                  <label class="label cursor-pointer gap-2">
-                    <span class="label-text">Enabled</span>
+                  <label class="flex cursor-pointer items-center gap-2 gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Enabled</span>
                     <input
                       type="checkbox"
                       name="settings[is_enabled]"
                       checked={sso_enabled}
                       disabled={password_only_mode?(@form[:mode].value)}
-                      class="toggle toggle-primary"
+                      class={ui_toggle_class()}
                     />
                   </label>
                 </div>
@@ -119,7 +119,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               <%= if sso_enabled do %>
                 <div
                   id="authentication-status"
-                  class="alert alert-success"
+                  class={ui_alert_class("success")}
                   data-auth-mode={@form[:mode].value}
                   data-sso-enabled="true"
                 >
@@ -141,7 +141,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               <% else %>
                 <div
                   id="authentication-status"
-                  class="alert"
+                  class={ui_alert_class("info")}
                   data-auth-mode={@form[:mode].value}
                   data-sso-enabled="false"
                 >
@@ -174,7 +174,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               <:header>
                 <div>
                   <div class="text-sm font-semibold">Authentication Mode</div>
-                  <p class="text-xs text-base-content/60">
+                  <p class="text-xs text-sr-muted">
                     Select how users should authenticate.
                   </p>
                 </div>
@@ -182,7 +182,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
               <div class="space-y-3">
                 <%= for {label, value, description} <- @modes do %>
-                  <label class={"flex items-start gap-3 p-4 border rounded-lg cursor-pointer transition-colors #{if to_string(@form[:mode].value) == to_string(value), do: "border-primary bg-primary/5", else: "border-base-300 hover:border-primary/50"}"}>
+                  <label class={"flex items-start gap-3 p-4 border rounded-lg cursor-pointer transition-colors #{if to_string(@form[:mode].value) == to_string(value), do: "border-sr-brand bg-sr-brand/5", else: "border-sr-line hover:border-sr-brand/50"}"}>
                     <input
                       type="radio"
                       name="settings[mode]"
@@ -192,7 +192,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                     />
                     <div>
                       <div class="font-medium">{label}</div>
-                      <div class="text-sm text-base-content/60">{description}</div>
+                      <div class="text-sm text-sr-muted">{description}</div>
                     </div>
                   </label>
                 <% end %>
@@ -204,7 +204,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                 <:header>
                   <div>
                     <div class="text-sm font-semibold">Identity Provider Type</div>
-                    <p class="text-xs text-base-content/60">
+                    <p class="text-xs text-sr-muted">
                       Select your SSO provider protocol.
                     </p>
                   </div>
@@ -212,7 +212,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
                 <div class="flex gap-4">
                   <%= for {label, value} <- @provider_types do %>
-                    <label class={"flex items-center gap-2 p-3 border rounded-lg cursor-pointer transition-colors flex-1 #{if to_string(@form[:provider_type].value) == to_string(value), do: "border-primary bg-primary/5", else: "border-base-300 hover:border-primary/50"}"}>
+                    <label class={"flex items-center gap-2 p-3 border rounded-lg cursor-pointer transition-colors flex-1 #{if to_string(@form[:provider_type].value) == to_string(value), do: "border-sr-brand bg-sr-brand/5", else: "border-sr-line hover:border-sr-brand/50"}"}>
                       <input
                         type="radio"
                         name="settings[provider_type]"
@@ -238,13 +238,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                 <:header>
                   <div>
                     <div class="text-sm font-semibold">Local Password Login</div>
-                    <p class="text-xs text-base-content/60">
+                    <p class="text-xs text-sr-muted">
                       Who may sign in with a password while SSO is enforced.
                     </p>
                   </div>
                 </:header>
 
-                <div class="alert">
+                <div class={ui_alert_class("info")}>
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     fill="none"
@@ -264,9 +264,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                     enforced on the server. Regular accounts are SSO-only; enable
                     <span class="font-medium">Local password login</span>
                     on an account in
-                    <.link navigate={~p"/settings/auth/users"} class="link link-primary">Users</.link>
+                    <.link navigate={~p"/settings/auth/users"} class="text-sr-brand hover:underline">
+                      Users
+                    </.link>
                     to let it keep password access. The
-                    <code class="bg-base-300 px-1 rounded">SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN</code>
+                    <code class="bg-sr-control px-1 rounded">
+                      SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN
+                    </code>
                     environment switch is the break-glass recovery path.
                   </div>
                 </div>
@@ -277,24 +281,24 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                   <div class="flex items-center justify-between w-full">
                     <div>
                       <div class="text-sm font-semibold">Auto-provision Accounts (JIT)</div>
-                      <p class="text-xs text-base-content/60">
+                      <p class="text-xs text-sr-muted">
                         Auto-create a local account on first SSO login when none exists.
                       </p>
                     </div>
-                    <label class="label cursor-pointer gap-2">
-                      <span class="label-text">Enabled</span>
+                    <label class="flex cursor-pointer items-center gap-2 gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Enabled</span>
                       <input
                         type="checkbox"
                         name="settings[sso_auto_provision]"
                         checked={@form[:sso_auto_provision].value}
-                        class="toggle toggle-warning"
+                        class={ui_toggle_class(class: "toggle-warning")}
                       />
                     </label>
                   </div>
                 </:header>
 
                 <%= if @form[:sso_auto_provision].value do %>
-                  <div class="alert alert-warning">
+                  <div class={ui_alert_class("warning")}>
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       fill="none"
@@ -315,7 +319,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                     </span>
                   </div>
                 <% else %>
-                  <div class="alert">
+                  <div class={ui_alert_class("info")}>
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       fill="none"
@@ -334,7 +338,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                       SSO identities without a pre-existing local account are denied login.
                       Provision accounts ahead of time in <.link
                         navigate={~p"/settings/auth/users"}
-                        class="link link-primary"
+                        class="text-sr-brand hover:underline"
                       >Users</.link>.
                     </span>
                   </div>
@@ -349,12 +353,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             <.claim_mappings_panel form={@form} />
 
             <div class="flex justify-end gap-3">
-              <button type="button" phx-click="reset" class="btn btn-ghost">
+              <.ui_button type="button" phx-click="reset" size="sm" variant="ghost">
                 Reset
-              </button>
-              <button type="submit" class="btn btn-primary" phx-disable-with="Saving...">
+              </.ui_button>
+              <.ui_button type="submit" phx-disable-with="Saving..." size="sm" variant="primary">
                 Save Configuration
-              </button>
+              </.ui_button>
             </div>
           </.form>
         <% end %>
@@ -369,66 +373,72 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       <:header>
         <div>
           <div class="text-sm font-semibold">OIDC Configuration</div>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs text-sr-muted">
             Configure your OpenID Connect identity provider.
           </p>
         </div>
       </:header>
 
       <div class="space-y-4">
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">Identity Provider Preset</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Identity Provider Preset</span>
           </label>
-          <div class="join">
-            <button
+          <div class="flex flex-wrap gap-1">
+            <.ui_button
               type="button"
               phx-click="apply_idp_preset"
               phx-value-preset="generic"
-              class={"btn btn-sm join-item #{if @idp_preset == "generic", do: "btn-primary", else: "btn-outline"}"}
+              size="sm"
+              variant={if(@idp_preset == "generic", do: "primary", else: "outline")}
+              active={@idp_preset == "generic"}
             >
               Generic OIDC
-            </button>
-            <button
+            </.ui_button>
+            <.ui_button
               type="button"
               phx-click="apply_idp_preset"
               phx-value-preset="entra"
-              class={"btn btn-sm join-item #{if @idp_preset == "entra", do: "btn-primary", else: "btn-outline"}"}
+              size="sm"
+              variant={if(@idp_preset == "entra", do: "primary", else: "outline")}
+              active={@idp_preset == "entra"}
             >
               Microsoft Entra ID
-            </button>
-            <button
+            </.ui_button>
+            <.ui_button
               type="button"
               phx-click="apply_idp_preset"
               phx-value-preset="authentik"
-              class={"btn btn-sm join-item #{if @idp_preset == "authentik", do: "btn-primary", else: "btn-outline"}"}
+              size="sm"
+              variant={if(@idp_preset == "authentik", do: "primary", else: "outline")}
+              active={@idp_preset == "authentik"}
             >
               Authentik
-            </button>
+            </.ui_button>
           </div>
-          <label class="label">
-            <span class="label-text-alt">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
               Prefills scopes and claim mappings for a known IdP. Does not submit the form — review and save.
             </span>
           </label>
         </div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">Discovery URL</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Discovery URL</span>
           </label>
           <input
             type="url"
             name="settings[oidc_discovery_url]"
             value={@form[:oidc_discovery_url].value}
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
             placeholder="https://login.example.com/.well-known/openid-configuration"
           />
-          <label class="label">
-            <span class="label-text-alt">The OpenID Connect discovery endpoint URL</span>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">The OpenID Connect discovery endpoint URL</span>
           </label>
           <%= if @idp_preset == "entra" do %>
-            <div class="alert alert-warning">
+            <div class={ui_alert_class("warning")}>
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
@@ -448,12 +458,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                 </div>
                 <div class="mt-1">
                   Use
-                  <code class="bg-base-300 px-1 rounded">
+                  <code class="bg-sr-control px-1 rounded">
                     https://login.microsoftonline.com/{"{tenant-id}"}/v2.0/.well-known/openid-configuration
                   </code>
-                  (replace <code class="bg-base-300 px-1 rounded">{"{tenant-id}"}</code>
+                  (replace <code class="bg-sr-control px-1 rounded">{"{tenant-id}"}</code>
                   with your directory/tenant ID). The
-                  <code class="bg-base-300 px-1 rounded">/common</code>
+                  <code class="bg-sr-control px-1 rounded">/common</code>
                   endpoint accepts any tenant and should not be used.
                 </div>
               </div>
@@ -462,53 +472,53 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         </div>
 
         <div class="grid grid-cols-2 gap-4">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Client ID</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Client ID</span>
             </label>
             <input
               type="text"
               name="settings[oidc_client_id]"
               value={@form[:oidc_client_id].value}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="your-client-id"
             />
           </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Client Secret</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Client Secret</span>
             </label>
             <input
               type="password"
               name="settings[oidc_client_secret]"
               value={@form[:oidc_client_secret].value}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="••••••••"
             />
-            <label class="label">
-              <span class="label-text-alt">Leave blank to keep existing secret</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">Leave blank to keep existing secret</span>
             </label>
           </div>
         </div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">Scopes</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Scopes</span>
           </label>
           <input
             type="text"
             name="settings[oidc_scopes]"
             value={@form[:oidc_scopes].value}
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
             placeholder="openid profile email"
           />
-          <label class="label">
-            <span class="label-text-alt">Space-separated list of OAuth scopes</span>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">Space-separated list of OAuth scopes</span>
           </label>
         </div>
 
-        <div class="alert alert-info">
+        <div class={ui_alert_class("info")}>
           <svg
             xmlns="http://www.w3.org/2000/svg"
             fill="none"
@@ -531,11 +541,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         </div>
 
         <div class="flex items-center gap-3">
-          <button
+          <.ui_button
             type="button"
             phx-click="test_oidc"
-            class="btn btn-outline btn-sm"
             disabled={!@form[:oidc_discovery_url].value || @form[:oidc_discovery_url].value == ""}
+            size="sm"
+            variant="outline"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -552,8 +563,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               />
             </svg>
             Test Configuration
-          </button>
-          <span class="text-xs text-base-content/60">Verify the discovery URL is accessible</span>
+          </.ui_button>
+          <span class="text-xs text-sr-muted">Verify the discovery URL is accessible</span>
         </div>
       </div>
     </.ui_panel>
@@ -566,7 +577,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       <:header>
         <div>
           <div class="text-sm font-semibold">SAML Configuration</div>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs text-sr-muted">
             Configure your SAML 2.0 identity provider.
           </p>
         </div>
@@ -574,7 +585,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
       <div class="space-y-4">
         <%!-- SP Information for IdP Configuration --%>
-        <div class="alert alert-info">
+        <div class={ui_alert_class("info")}>
           <svg
             xmlns="http://www.w3.org/2000/svg"
             fill="none"
@@ -594,13 +605,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             <div class="grid grid-cols-1 gap-2">
               <div>
                 <span class="font-medium">Entity ID (SP): </span>
-                <code class="bg-base-300 px-1 rounded text-xs">
+                <code class="bg-sr-control px-1 rounded text-xs">
                   {ServiceRadarWebNGWeb.Endpoint.url()}
                 </code>
               </div>
               <div>
                 <span class="font-medium">ACS URL: </span>
-                <code class="bg-base-300 px-1 rounded text-xs">
+                <code class="bg-sr-control px-1 rounded text-xs">
                   {ServiceRadarWebNGWeb.Endpoint.url()}/auth/saml/consume
                 </code>
               </div>
@@ -609,7 +620,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                 <a
                   href={ServiceRadarWebNGWeb.Endpoint.url() <> "/auth/saml/metadata"}
                   target="_blank"
-                  class="link link-primary text-xs"
+                  class="text-sr-brand hover:underline text-xs"
                 >
                   {ServiceRadarWebNGWeb.Endpoint.url()}/auth/saml/metadata
                 </a>
@@ -618,55 +629,59 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
           </div>
         </div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">SP Entity ID</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">SP Entity ID</span>
           </label>
           <input
             type="text"
             name="settings[saml_sp_entity_id]"
             value={@form[:saml_sp_entity_id].value || ServiceRadarWebNGWeb.Endpoint.url()}
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
             placeholder={ServiceRadarWebNGWeb.Endpoint.url()}
           />
-          <label class="label">
-            <span class="label-text-alt">Service Provider entity ID (defaults to base URL)</span>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
+              Service Provider entity ID (defaults to base URL)
+            </span>
           </label>
         </div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">IdP Metadata URL</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">IdP Metadata URL</span>
           </label>
           <input
             type="url"
             name="settings[saml_idp_metadata_url]"
             value={@form[:saml_idp_metadata_url].value}
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
             placeholder="https://idp.example.com/federationmetadata/2007-06/federationmetadata.xml"
           />
-          <label class="label">
-            <span class="label-text-alt">URL to fetch IdP metadata XML (preferred)</span>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">URL to fetch IdP metadata XML (preferred)</span>
           </label>
         </div>
 
-        <div class="divider text-xs text-base-content/60">OR</div>
+        <div class="sr-ui-divider text-xs text-sr-muted">OR</div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">IdP Metadata XML</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">IdP Metadata XML</span>
           </label>
           <textarea
             name="settings[saml_idp_metadata_xml]"
-            class="textarea textarea-bordered w-full h-32 font-mono text-xs"
+            class={ui_field_class(mono: true, class: "w-full h-32 py-2.5 text-xs")}
             placeholder="Paste IdP metadata XML here..."
           ><%= @form[:saml_idp_metadata_xml].value %></textarea>
-          <label class="label">
-            <span class="label-text-alt">Alternative: paste the IdP metadata XML directly</span>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
+              Alternative: paste the IdP metadata XML directly
+            </span>
           </label>
         </div>
 
-        <div class="alert">
+        <div class={ui_alert_class("info")}>
           <svg
             xmlns="http://www.w3.org/2000/svg"
             fill="none"
@@ -684,22 +699,23 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
           <div class="text-sm">
             <div class="font-medium">Expected SAML Response Format:</div>
             <ul class="list-disc list-inside text-xs mt-1 space-y-1">
-              <li>NameID format: <code class="bg-base-300 px-1 rounded">emailAddress</code></li>
-              <li>Binding: <code class="bg-base-300 px-1 rounded">HTTP-POST</code></li>
+              <li>NameID format: <code class="bg-sr-control px-1 rounded">emailAddress</code></li>
+              <li>Binding: <code class="bg-sr-control px-1 rounded">HTTP-POST</code></li>
               <li>Signed assertions required</li>
             </ul>
           </div>
         </div>
 
         <div class="flex items-center gap-3">
-          <button
+          <.ui_button
             type="button"
             phx-click="test_saml"
-            class="btn btn-outline btn-sm"
             disabled={
               (!@form[:saml_idp_metadata_url].value || @form[:saml_idp_metadata_url].value == "") &&
                 (!@form[:saml_idp_metadata_xml].value || @form[:saml_idp_metadata_xml].value == "")
             }
+            size="sm"
+            variant="outline"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -716,8 +732,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               />
             </svg>
             Test Configuration
-          </button>
-          <span class="text-xs text-base-content/60">Verify the IdP metadata is valid</span>
+          </.ui_button>
+          <span class="text-xs text-sr-muted">Verify the IdP metadata is valid</span>
         </div>
       </div>
     </.ui_panel>
@@ -730,88 +746,90 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       <:header>
         <div>
           <div class="text-sm font-semibold">Gateway/Proxy JWT Configuration</div>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs text-sr-muted">
             Configure JWT validation for API gateway authentication.
           </p>
         </div>
       </:header>
 
       <div class="space-y-4">
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">JWT Header Name</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">JWT Header Name</span>
           </label>
           <input
             type="text"
             name="settings[jwt_header_name]"
             value={@form[:jwt_header_name].value || "Authorization"}
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
             placeholder="Authorization"
           />
-          <label class="label">
-            <span class="label-text-alt">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
               The HTTP header containing the JWT (default: Authorization)
             </span>
           </label>
         </div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">JWKS URL</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">JWKS URL</span>
           </label>
           <input
             type="url"
             name="settings[jwt_jwks_url]"
             value={@form[:jwt_jwks_url].value}
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
             placeholder="https://gateway.example.com/.well-known/jwks.json"
           />
-          <label class="label">
-            <span class="label-text-alt">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
               URL to fetch JSON Web Key Set for signature verification
             </span>
           </label>
         </div>
 
-        <div class="divider text-xs text-base-content/60">OR</div>
+        <div class="sr-ui-divider text-xs text-sr-muted">OR</div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">Public Key (PEM)</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Public Key (PEM)</span>
           </label>
           <textarea
             name="settings[jwt_public_key_pem]"
-            class="textarea textarea-bordered w-full h-32 font-mono text-xs"
+            class={ui_field_class(mono: true, class: "w-full h-32 py-2.5 text-xs")}
             placeholder="-----BEGIN PUBLIC KEY-----&#10;...&#10;-----END PUBLIC KEY-----"
           ><%= @form[:jwt_public_key_pem].value %></textarea>
-          <label class="label">
-            <span class="label-text-alt">Alternative to JWKS: paste the public key directly</span>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
+              Alternative to JWKS: paste the public key directly
+            </span>
           </label>
         </div>
 
         <div class="grid grid-cols-2 gap-4">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Expected Issuer</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Expected Issuer</span>
             </label>
             <input
               type="text"
               name="settings[jwt_issuer]"
               value={@form[:jwt_issuer].value}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="https://gateway.example.com"
             />
           </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Expected Audience</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Expected Audience</span>
             </label>
             <input
               type="text"
               name="settings[jwt_audience]"
               value={@form[:jwt_audience].value}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="serviceradar-api"
             />
           </div>
@@ -827,7 +845,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       <:header>
         <div>
           <div class="text-sm font-semibold">Claim Mappings</div>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs text-sr-muted">
             Map JWT/SAML claims to user attributes.
           </p>
         </div>
@@ -835,48 +853,50 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
       <div class="space-y-4">
         <div class="grid grid-cols-3 gap-4">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Email Claim</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Email Claim</span>
             </label>
             <input
               type="text"
               name="settings[claim_email]"
               value={get_claim_mapping(@form, "email", "email")}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="email"
             />
           </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Name Claim</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Name Claim</span>
             </label>
             <input
               type="text"
               name="settings[claim_name]"
               value={get_claim_mapping(@form, "name", "name")}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="name"
             />
           </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Subject Claim</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Subject Claim</span>
             </label>
             <input
               type="text"
               name="settings[claim_sub]"
               value={get_claim_mapping(@form, "sub", "sub")}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="sub"
             />
           </div>
         </div>
 
-        <label class="label">
-          <span class="label-text-alt">Use dot notation for nested claims (e.g., "user.email")</span>
+        <label class="flex items-center justify-between gap-2">
+          <span class="text-xs text-sr-muted">
+            Use dot notation for nested claims (e.g., "user.email")
+          </span>
         </label>
       </div>
     </.ui_panel>

@@ -58,17 +58,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DevicePropertiesComponents do
       |> assign(:has_properties, ordered_keys != [])
 
     ~H"""
-    <div :if={@has_properties} class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+    <div :if={@has_properties} class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between">
         <span class="text-sm font-semibold">Device Properties</span>
-        <span class="text-xs text-base-content/50">{length(@ordered_keys)} fields</span>
+        <span class="text-xs text-sr-muted">{length(@ordered_keys)} fields</span>
       </div>
 
       <div class="p-4">
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1.5 text-sm">
           <%= for key <- @ordered_keys do %>
             <div class="flex items-baseline gap-2 min-w-0 py-0.5">
-              <span class="text-base-content/50 shrink-0 text-xs">{format_label(key)}:</span>
+              <span class="text-sr-muted shrink-0 text-xs">{format_label(key)}:</span>
               <span
                 class="font-mono text-xs truncate"
                 title={format_prop_value(Map.get(@row, key))}

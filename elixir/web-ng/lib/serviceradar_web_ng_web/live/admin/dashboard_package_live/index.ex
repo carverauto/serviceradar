@@ -333,8 +333,8 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
       >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">Dashboard Packages</h1>
-            <p class="text-sm text-base-content/60">
+            <h1 class="text-2xl font-semibold text-sr-ink">Dashboard Packages</h1>
+            <p class="text-sm text-sr-muted">
               Import browser dashboard packages and expose them as ServiceRadar dashboard routes.
             </p>
           </div>
@@ -357,20 +357,20 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Imported Packages</div>
-              <p class="text-xs text-base-content/60">{length(@packages)} package(s)</p>
+              <p class="text-xs text-sr-muted">{length(@packages)} package(s)</p>
             </div>
           </:header>
 
           <%= if @packages == [] do %>
-            <div class="rounded-box border border-dashed border-base-300 bg-base-100 p-8 text-center">
+            <div class="rounded-sr-surface border border-dashed border-sr-line bg-sr-surface p-8 text-center">
               <div class="text-sm font-semibold">No dashboard packages imported</div>
-              <p class="mt-1 text-xs text-base-content/60">
+              <p class="mt-1 text-xs text-sr-muted">
                 Import a manifest JSON file and matching renderer artifact to create the first package.
               </p>
             </div>
           <% else %>
-            <div class="overflow-x-auto">
-              <table class="table table-sm">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr>
                     <th>Package</th>
@@ -382,28 +382,31 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                   </tr>
                 </thead>
                 <tbody>
-                  <tr :for={package <- @packages} class="hover:bg-base-200/40">
+                  <tr :for={package <- @packages} class="hover:bg-sr-subtle/40">
                     <td>
                       <div class="font-medium">{package.name}</div>
-                      <div class="font-mono text-xs text-base-content/60">
+                      <div class="font-mono text-xs text-sr-muted">
                         {package.dashboard_id} · {package.version}
                       </div>
                     </td>
                     <td>
                       <div class="text-xs">{package.renderer["interface_version"] || "unknown"}</div>
-                      <div class="font-mono text-xs text-base-content/60">
+                      <div class="font-mono text-xs text-sr-muted">
                         {short_hash(package.content_hash)}
                       </div>
                     </td>
                     <td class="text-xs">{length(package.data_frames || [])}</td>
                     <td>
                       <div class="flex flex-wrap gap-1">
-                        <span class={status_badge(package.status)}>
+                        <.ui_badge size="sm" variant={status_badge_variant(package.status)}>
                           {status_label(package.status)}
-                        </span>
-                        <span class={verification_badge(package.verification_status)}>
+                        </.ui_badge>
+                        <.ui_badge
+                          size="sm"
+                          variant={verification_badge_variant(package.verification_status)}
+                        >
                           {package.verification_status || "unverified"}
-                        </span>
+                        </.ui_badge>
                       </div>
                     </td>
                     <td>
@@ -413,7 +416,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                       >
                         <.link
                           navigate={~p"/dashboards/#{instance.route_slug}"}
-                          class="link link-primary"
+                          class="text-sr-brand hover:underline"
                         >
                           /dashboards/{instance.route_slug}
                         </.link>
@@ -421,28 +424,31 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                     </td>
                     <td class="text-right">
                       <div class="flex justify-end gap-2">
-                        <.link
+                        <.ui_button
                           patch={~p"/settings/dashboards/packages/#{package.id}"}
-                          class="btn btn-ghost btn-xs"
+                          size="xs"
+                          variant="ghost"
                         >
                           Details
-                        </.link>
-                        <button
+                        </.ui_button>
+                        <.ui_button
                           :if={@can_manage_packages and package.status != :enabled}
-                          class="btn btn-primary btn-xs"
                           phx-click="enable_package"
                           phx-value-id={package.id}
+                          size="xs"
+                          variant="primary"
                         >
                           Enable
-                        </button>
-                        <button
+                        </.ui_button>
+                        <.ui_button
                           :if={@can_manage_packages and package.status == :enabled}
-                          class="btn btn-outline btn-xs"
                           phx-click="disable_package"
                           phx-value-id={package.id}
+                          size="xs"
+                          variant="outline"
                         >
                           Disable
-                        </button>
+                        </.ui_button>
                       </div>
                     </td>
                   </tr>
@@ -478,18 +484,23 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
   defp import_modal(assigns) do
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box max-w-2xl">
+    <dialog
+      id="dashboard-package-import-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="close_modal"
+    >
+      <div class="sr-ui-modal-box sr-ui-modal-box-md">
         <div class="flex items-start justify-between gap-4">
           <div>
             <h2 class="text-lg font-semibold">Import Dashboard Package</h2>
-            <p class="text-sm text-base-content/60">
+            <p class="text-sm text-sr-muted">
               Import a browser dashboard package from an upload or trusted GitHub source.
             </p>
           </div>
-          <button class="btn btn-ghost btn-sm btn-square" phx-click="close_modal">
+          <.ui_icon_button phx-click="close_modal" size="sm" variant="ghost">
             <.icon name="hero-x-mark" class="size-5" />
-          </button>
+          </.ui_icon_button>
         </div>
 
         <.error_list errors={@errors} />
@@ -501,9 +512,9 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
           phx-submit="import_package"
           class="mt-5 space-y-4"
         >
-          <label class="form-control">
-            <span class="label-text">Source</span>
-            <select name="import[source_type]" class="select select-bordered select-sm">
+          <label class="flex flex-col gap-1.5">
+            <span class="text-sm font-medium text-sr-ink">Source</span>
+            <select name="import[source_type]" class={ui_field_class(size: "sm")}>
               <option value="upload" selected={@form["source_type"] in [nil, "", "upload"]}>
                 Upload
               </option>
@@ -513,37 +524,37 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
           <%= if @form["source_type"] == "github" do %>
             <div class="grid gap-4 sm:grid-cols-2">
-              <label class="form-control sm:col-span-2">
-                <span class="label-text">GitHub repo URL</span>
+              <label class="flex flex-col gap-1.5 sm:col-span-2">
+                <span class="text-sm font-medium text-sr-ink">GitHub repo URL</span>
                 <input
-                  class="input input-bordered input-sm"
+                  class={ui_field_class(size: "sm")}
                   name="import[source_repo_url]"
                   placeholder="https://github.com/org/repo"
                   value={@form["source_repo_url"]}
                 />
               </label>
-              <label class="form-control">
-                <span class="label-text">Ref</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Ref</span>
                 <input
-                  class="input input-bordered input-sm"
+                  class={ui_field_class(size: "sm")}
                   name="import[source_ref]"
                   placeholder="main"
                   value={@form["source_ref"]}
                 />
               </label>
-              <label class="form-control">
-                <span class="label-text">Manifest path</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Manifest path</span>
                 <input
-                  class="input input-bordered input-sm"
+                  class={ui_field_class(size: "sm")}
                   name="import[source_manifest_path]"
                   placeholder="dashboard.json"
                   value={@form["source_manifest_path"]}
                 />
               </label>
-              <label class="form-control sm:col-span-2">
-                <span class="label-text">Renderer path override</span>
+              <label class="flex flex-col gap-1.5 sm:col-span-2">
+                <span class="text-sm font-medium text-sr-ink">Renderer path override</span>
                 <input
-                  class="input input-bordered input-sm"
+                  class={ui_field_class(size: "sm")}
                   name="import[renderer_path]"
                   placeholder="Use manifest renderer.artifact"
                   value={@form["renderer_path"]}
@@ -552,35 +563,47 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
             </div>
           <% else %>
             <div class="grid gap-4 sm:grid-cols-2">
-              <label class="form-control">
-                <span class="label-text">Manifest JSON</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Manifest JSON</span>
                 <.live_file_input
                   upload={@uploads.manifest}
-                  class="file-input file-input-bordered file-input-sm w-full"
+                  class={
+                    ui_field_class(
+                      size: "sm",
+                      class:
+                        "w-full file:mr-3 file:rounded-sr-control file:border-0 file:bg-sr-subtle file:px-2 file:py-1 file:text-xs file:font-semibold file:text-sr-ink"
+                    )
+                  }
                 />
               </label>
-              <label class="form-control">
-                <span class="label-text">Renderer artifact</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Renderer artifact</span>
                 <.live_file_input
                   upload={@uploads.wasm}
-                  class="file-input file-input-bordered file-input-sm w-full"
+                  class={
+                    ui_field_class(
+                      size: "sm",
+                      class:
+                        "w-full file:mr-3 file:rounded-sr-control file:border-0 file:bg-sr-subtle file:px-2 file:py-1 file:text-xs file:font-semibold file:text-sr-ink"
+                    )
+                  }
                 />
               </label>
             </div>
 
             <div class="grid gap-4 sm:grid-cols-2">
-              <label class="form-control">
-                <span class="label-text">Source ref</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Source ref</span>
                 <input
-                  class="input input-bordered input-sm"
+                  class={ui_field_class(size: "sm")}
                   name="import[source_ref]"
                   value={@form["source_ref"]}
                 />
               </label>
-              <label class="form-control">
-                <span class="label-text">Manifest path</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Manifest path</span>
                 <input
-                  class="input input-bordered input-sm"
+                  class={ui_field_class(size: "sm")}
                   name="import[source_manifest_path]"
                   value={@form["source_manifest_path"]}
                 />
@@ -588,39 +611,40 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
             </div>
           <% end %>
 
-          <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
-            <label class="label cursor-pointer justify-start gap-3 p-0">
+          <div class="rounded-sr-surface border border-sr-line bg-sr-subtle/40 p-3">
+            <label class="flex cursor-pointer items-center justify-start gap-3 p-0">
               <input
                 type="checkbox"
-                class="checkbox checkbox-sm"
+                class={ui_checkbox_class()}
                 name="import[enable]"
                 checked={@form["enable"] == "true"}
                 value="true"
               />
-              <span class="label-text">Enable package after import</span>
+              <span class="text-sm font-medium text-sr-ink">Enable package after import</span>
             </label>
-            <label class="label mt-3 cursor-pointer justify-start gap-3 p-0">
+            <label class="flex cursor-pointer items-center justify-start gap-3 mt-3  p-0">
               <input
                 type="checkbox"
-                class="checkbox checkbox-sm"
+                class={ui_checkbox_class()}
                 name="import[create_instance]"
                 checked={@form["create_instance"] == "true"}
                 value="true"
               />
-              <span class="label-text">Create default dashboard route</span>
+              <span class="text-sm font-medium text-sr-ink">Create default dashboard route</span>
             </label>
           </div>
 
-          <div class="modal-action">
-            <button type="button" class="btn btn-ghost" phx-click="close_modal">Cancel</button>
-            <button type="submit" class="btn btn-primary">
+          <div class="sr-ui-modal-action">
+            <.ui_button type="button" phx-click="close_modal" size="sm" variant="ghost">
+              Cancel
+            </.ui_button>
+            <.ui_button type="submit" size="sm" variant="primary">
               <.icon name="hero-arrow-up-tray" class="size-4" /> Import
-            </button>
+            </.ui_button>
           </div>
         </.form>
       </div>
-      <div class="modal-backdrop" phx-click="close_modal"></div>
-    </div>
+    </dialog>
     """
   end
 
@@ -632,37 +656,42 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
   defp details_modal(assigns) do
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box max-w-4xl">
+    <dialog
+      id="dashboard-package-details-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="close_modal"
+    >
+      <div class="sr-ui-modal-box sr-ui-modal-box-lg">
         <div class="flex items-start justify-between gap-4">
           <div>
             <h2 class="text-lg font-semibold">{@package.name}</h2>
-            <p class="font-mono text-xs text-base-content/60">
+            <p class="font-mono text-xs text-sr-muted">
               {@package.dashboard_id} · {@package.version}
             </p>
           </div>
-          <button class="btn btn-ghost btn-sm btn-square" phx-click="close_modal">
+          <.ui_icon_button phx-click="close_modal" size="sm" variant="ghost">
             <.icon name="hero-x-mark" class="size-5" />
-          </button>
+          </.ui_icon_button>
         </div>
 
         <.error_list errors={@errors} />
 
         <div class="mt-5 grid gap-4 lg:grid-cols-[1fr_18rem]">
           <div class="space-y-4">
-            <div class="rounded-box border border-base-300 p-4">
+            <div class="rounded-sr-surface border border-sr-line p-4">
               <div class="text-sm font-semibold">Renderer</div>
               <dl class="mt-3 grid gap-2 text-xs sm:grid-cols-2">
                 <div>
-                  <dt class="text-base-content/60">Interface</dt>
+                  <dt class="text-sr-muted">Interface</dt>
                   <dd class="font-mono">{@package.renderer["interface_version"] || "unknown"}</dd>
                 </div>
                 <div>
-                  <dt class="text-base-content/60">Artifact</dt>
+                  <dt class="text-sr-muted">Artifact</dt>
                   <dd class="font-mono">{@package.renderer["artifact"]}</dd>
                 </div>
                 <div class="sm:col-span-2">
-                  <dt class="text-base-content/60">SHA256</dt>
+                  <dt class="text-sr-muted">SHA256</dt>
                   <dd class="break-all font-mono">
                     {@package.content_hash || @package.renderer["sha256"]}
                   </dd>
@@ -670,92 +699,105 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               </dl>
             </div>
 
-            <div class="rounded-box border border-base-300 p-4">
+            <div class="rounded-sr-surface border border-sr-line p-4">
               <div class="text-sm font-semibold">Data Frames</div>
               <div class="mt-3 space-y-3">
-                <div :for={frame <- @package.data_frames || []} class="rounded-lg bg-base-200/60 p-3">
+                <div :for={frame <- @package.data_frames || []} class="rounded-lg bg-sr-subtle/60 p-3">
                   <div class="flex flex-wrap items-center gap-2">
-                    <span class="badge badge-outline">{frame["id"]}</span>
-                    <span class="badge badge-ghost">{frame["encoding"]}</span>
-                    <span :if={frame["limit"]} class="badge badge-ghost">limit {frame["limit"]}</span>
+                    <.ui_badge size="sm" variant="outline">{frame["id"]}</.ui_badge>
+                    <.ui_badge size="sm" variant="ghost">{frame["encoding"]}</.ui_badge>
+                    <.ui_badge :if={frame["limit"]} size="sm" variant="ghost">
+                      limit {frame["limit"]}
+                    </.ui_badge>
                   </div>
-                  <div class="mt-2 font-mono text-xs text-base-content/70">{frame["query"]}</div>
+                  <div class="mt-2 font-mono text-xs text-sr-muted">{frame["query"]}</div>
                 </div>
               </div>
             </div>
           </div>
 
           <aside class="space-y-4">
-            <div class="rounded-box border border-base-300 p-4">
+            <div class="rounded-sr-surface border border-sr-line p-4">
               <div class="text-sm font-semibold">Status</div>
               <div class="mt-3 flex flex-wrap gap-2">
-                <span class={status_badge(@package.status)}>{status_label(@package.status)}</span>
-                <span class={verification_badge(@package.verification_status)}>
+                <.ui_badge size="sm" variant={status_badge_variant(@package.status)}>
+                  {status_label(@package.status)}
+                </.ui_badge>
+                <.ui_badge
+                  size="sm"
+                  variant={verification_badge_variant(@package.verification_status)}
+                >
                   {@package.verification_status || "unverified"}
-                </span>
+                </.ui_badge>
               </div>
               <div class="mt-4 flex gap-2">
-                <button
+                <.ui_button
                   :if={@can_manage_packages and @package.status != :enabled}
-                  class="btn btn-primary btn-sm"
                   phx-click="enable_package"
                   phx-value-id={@package.id}
+                  size="sm"
+                  variant="primary"
                 >
                   Enable
-                </button>
-                <button
+                </.ui_button>
+                <.ui_button
                   :if={@can_manage_packages and @package.status == :enabled}
-                  class="btn btn-outline btn-sm"
                   phx-click="disable_package"
                   phx-value-id={@package.id}
+                  size="sm"
+                  variant="outline"
                 >
                   Disable
-                </button>
+                </.ui_button>
               </div>
             </div>
 
-            <div class="rounded-box border border-base-300 p-4">
+            <div class="rounded-sr-surface border border-sr-line p-4">
               <div class="text-sm font-semibold">Routes</div>
-              <div :if={@instances == []} class="mt-2 text-xs text-base-content/60">
+              <div :if={@instances == []} class="mt-2 text-xs text-sr-muted">
                 No enabled routes.
               </div>
-              <div :for={instance <- @instances} class="mt-3 rounded-lg bg-base-200/50 p-3 text-xs">
+              <div :for={instance <- @instances} class="mt-3 rounded-lg bg-sr-subtle/50 p-3 text-xs">
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-2">
                       <.link
                         navigate={~p"/dashboards/#{instance.route_slug}"}
-                        class="link link-primary"
+                        class="text-sr-brand hover:underline"
                       >
                         /dashboards/{instance.route_slug}
                       </.link>
-                      <span :if={instance.is_default} class="badge badge-info badge-xs">Default</span>
-                      <span class="badge badge-ghost badge-xs">
+                      <.ui_badge :if={instance.is_default} size="xs" variant="info">
+                        Default
+                      </.ui_badge>
+                      <.ui_badge size="xs" variant="ghost">
                         {placement_label(instance.placement)}
-                      </span>
+                      </.ui_badge>
                     </div>
-                    <div class="mt-1 truncate text-base-content/60">{instance.name}</div>
+                    <div class="mt-1 truncate text-sr-muted">{instance.name}</div>
                   </div>
                   <div :if={@can_manage_packages} class="flex shrink-0 items-center gap-1">
-                    <button
+                    <.ui_icon_button
                       :if={!instance.is_default}
                       type="button"
-                      class="btn btn-ghost btn-xs btn-square"
                       phx-click="set_default_instance"
                       phx-value-id={instance.id}
                       title="Set as default"
+                      size="xs"
+                      variant="ghost"
                     >
                       <.icon name="hero-star" class="size-3.5" />
-                    </button>
-                    <button
+                    </.ui_icon_button>
+                    <.ui_icon_button
                       type="button"
-                      class="btn btn-ghost btn-xs btn-square"
                       phx-click="edit_instance"
                       phx-value-id={instance.id}
                       title="Edit route settings"
+                      size="xs"
+                      variant="ghost"
                     >
                       <.icon name="hero-pencil" class="size-3.5" />
-                    </button>
+                    </.ui_icon_button>
                   </div>
                 </div>
               </div>
@@ -769,7 +811,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               phx-submit={
                 if editing_instance?(@instance_form), do: "update_instance", else: "create_instance"
               }
-              class="rounded-box border border-base-300 p-4 space-y-3"
+              class="rounded-sr-surface border border-sr-line p-4 space-y-3"
             >
               <input
                 :if={editing_instance?(@instance_form)}
@@ -785,34 +827,35 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                     Create Dashboard Route
                   <% end %>
                 </div>
-                <button
+                <.ui_button
                   :if={editing_instance?(@instance_form)}
                   type="button"
-                  class="btn btn-ghost btn-xs"
                   phx-click="cancel_instance_edit"
+                  size="xs"
+                  variant="ghost"
                 >
                   Cancel
-                </button>
+                </.ui_button>
               </div>
-              <label class="form-control">
-                <span class="label-text">Name</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Name</span>
                 <input
-                  class="input input-bordered input-sm"
+                  class={ui_field_class(size: "sm")}
                   name="instance[name]"
                   value={@instance_form["name"]}
                 />
               </label>
-              <label class="form-control">
-                <span class="label-text">Route slug</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Route slug</span>
                 <input
-                  class="input input-bordered input-sm"
+                  class={ui_field_class(size: "sm")}
                   name="instance[route_slug]"
                   value={@instance_form["route_slug"]}
                 />
               </label>
-              <label class="form-control">
-                <span class="label-text">Placement</span>
-                <select class="select select-bordered select-sm" name="instance[placement]">
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Placement</span>
+                <select class={ui_field_class(size: "sm")} name="instance[placement]">
                   <option value="dashboard" selected={@instance_form["placement"] == "dashboard"}>
                     Dashboard
                   </option>
@@ -824,50 +867,49 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               </label>
               <label
                 :if={editing_instance?(@instance_form)}
-                class="label cursor-pointer justify-start gap-3 p-0"
+                class="flex cursor-pointer items-center justify-start gap-3 p-0"
               >
                 <input
                   type="checkbox"
-                  class="checkbox checkbox-sm"
+                  class={ui_checkbox_class()}
                   name="instance[enabled]"
                   checked={@instance_form["enabled"] == "true"}
                   value="true"
                 />
-                <span class="label-text">Route enabled</span>
+                <span class="text-sm font-medium text-sr-ink">Route enabled</span>
               </label>
               <label
                 :if={!editing_instance?(@instance_form)}
-                class="label cursor-pointer justify-start gap-3 p-0"
+                class="flex cursor-pointer items-center justify-start gap-3 p-0"
               >
                 <input
                   type="checkbox"
-                  class="checkbox checkbox-sm"
+                  class={ui_checkbox_class()}
                   name="instance[is_default]"
                   checked={@instance_form["is_default"] == "true"}
                   value="true"
                 />
-                <span class="label-text">Use as default for this placement</span>
+                <span class="text-sm font-medium text-sr-ink">Use as default for this placement</span>
               </label>
-              <label class="form-control">
-                <span class="label-text">Settings JSON</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Settings JSON</span>
                 <textarea
-                  class="textarea textarea-bordered min-h-28 font-mono text-xs"
+                  class={ui_field_class(mono: true, class: "min-h-28 py-2.5 text-xs")}
                   name="instance[settings_json]"
                 >{@instance_form["settings_json"]}</textarea>
               </label>
-              <button type="submit" class="btn btn-primary btn-sm w-full">
+              <.ui_button type="submit" size="sm" variant="primary" class="w-full">
                 <%= if editing_instance?(@instance_form) do %>
                   <.icon name="hero-check" class="size-4" /> Save Route
                 <% else %>
                   <.icon name="hero-plus" class="size-4" /> Create Route
                 <% end %>
-              </button>
+              </.ui_button>
             </.form>
           </aside>
         </div>
       </div>
-      <div class="modal-backdrop" phx-click="close_modal"></div>
-    </div>
+    </dialog>
     """
   end
 
@@ -875,7 +917,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
   defp error_list(assigns) do
     ~H"""
-    <div :if={@errors != []} class="alert alert-error mt-4">
+    <div :if={@errors != []} class={ui_alert_class(variant: "error", class: "mt-4")}>
       <div>
         <div class="font-semibold">Fix the following issue(s)</div>
         <ul class="mt-1 list-inside list-disc text-sm">
@@ -1117,18 +1159,18 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
   defp short_hash(value) when is_binary(value), do: value
   defp short_hash(_value), do: "not stored"
 
-  defp status_badge(:enabled), do: "badge badge-success badge-outline"
-  defp status_badge(:staged), do: "badge badge-warning badge-outline"
-  defp status_badge(:disabled), do: "badge badge-ghost"
-  defp status_badge(:revoked), do: "badge badge-error badge-outline"
-  defp status_badge(_), do: "badge badge-ghost"
+  defp status_badge_variant(:enabled), do: "success"
+  defp status_badge_variant(:staged), do: "warning"
+  defp status_badge_variant(:disabled), do: "ghost"
+  defp status_badge_variant(:revoked), do: "error"
+  defp status_badge_variant(_), do: "ghost"
 
   defp status_label(value) when is_atom(value), do: Atom.to_string(value)
   defp status_label(value), do: to_string(value || "unknown")
 
-  defp verification_badge("verified"), do: "badge badge-success"
-  defp verification_badge("failed"), do: "badge badge-error"
-  defp verification_badge(_), do: "badge badge-ghost"
+  defp verification_badge_variant("verified"), do: "success"
+  defp verification_badge_variant("failed"), do: "error"
+  defp verification_badge_variant(_), do: "ghost"
 
   defp format_error({:invalid_settings, errors}) when is_list(errors), do: Enum.join(errors, "; ")
   defp format_error(errors) when is_list(errors), do: Enum.join(errors, "; ")

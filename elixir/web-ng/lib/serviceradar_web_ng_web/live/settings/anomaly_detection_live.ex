@@ -228,10 +228,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
           </div>
 
           <div class="grid gap-5 xl:grid-cols-2">
-            <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+            <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
               <div class="mb-4">
                 <h2 class="text-base font-semibold">Streaming Detector</h2>
-                <p class="mt-1 text-sm text-base-content/70">
+                <p class="mt-1 text-sm text-sr-muted">
                   These defaults are projected into anomaly add-on profiles under managed
                   params. Explicit profile or assignment params still take precedence.
                 </p>
@@ -283,7 +283,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                   />
                 </div>
 
-                <div class="mt-5 border-t border-base-200 pt-4">
+                <div class="mt-5 border-t border-sr-line pt-4">
                   <h3 class="text-sm font-semibold">Emission Governance</h3>
                   <div class="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <.input
@@ -323,14 +323,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                     type="textarea"
                     rows="3"
                     label="Metric denylist"
-                    class="textarea textarea-bordered min-h-24 w-full font-mono text-xs"
+                    class={ui_field_class(mono: true, class: "min-h-24 w-full py-2.5 text-xs")}
                     placeholder="cpu.frequency_hz"
                   />
                 </div>
 
-                <div class="mt-5 border-t border-base-200 pt-4">
+                <div class="mt-5 border-t border-sr-line pt-4">
                   <h3 class="text-sm font-semibold">Metric Classes</h3>
-                  <div class="mt-3 divide-y divide-base-200">
+                  <div class="mt-3 divide-y divide-sr-line">
                     <div
                       :for={{class_key, class_label} <- @edge_metric_classes}
                       class="py-4 first:pt-0 last:pb-0"
@@ -339,10 +339,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <div class="text-sm font-semibold">{class_label}</div>
-                          <div class="text-xs text-base-content/60">{class_key}</div>
+                          <div class="text-xs text-sr-muted">{class_key}</div>
                         </div>
-                        <label class="label cursor-pointer justify-start gap-3 sm:justify-end">
-                          <span class="label-text text-xs">Enabled</span>
+                        <label class="flex cursor-pointer items-center justify-start gap-3 sm:justify-end">
+                          <span class="text-xs font-medium text-sr-ink">Enabled</span>
                           <input
                             type="hidden"
                             name={"anomaly[classes][#{class_key}][enabled]"}
@@ -353,17 +353,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                             name={"anomaly[classes][#{class_key}][enabled]"}
                             value="true"
                             checked={class_enabled?(class_values)}
-                            class="toggle toggle-sm toggle-primary"
+                            class={ui_toggle_class(size: "sm")}
                           />
                         </label>
                       </div>
 
                       <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Drift mode</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">Drift mode</span>
                           <select
                             name={"anomaly[classes][#{class_key}][drift_mode]"}
-                            class="select select-sm select-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           >
                             {Phoenix.HTML.Form.options_for_select(
                               @drift_mode_options,
@@ -372,10 +372,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           </select>
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Severity cap</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">
+                            Severity cap
+                          </span>
                           <select
                             name={"anomaly[classes][#{class_key}][severity_cap]"}
-                            class="select select-sm select-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           >
                             {Phoenix.HTML.Form.options_for_select(
                               @severity_cap_options,
@@ -384,116 +386,138 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           </select>
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Drift min effect</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">
+                            Drift min effect
+                          </span>
                           <input
                             type="number"
                             step="0.1"
                             min="0"
                             name={"anomaly[classes][#{class_key}][drift_min_effect]"}
                             value={class_field(class_values, "drift_min_effect")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">CUSUM k</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">CUSUM k</span>
                           <input
                             type="number"
                             step="0.1"
                             min="0"
                             name={"anomaly[classes][#{class_key}][cusum_k]"}
                             value={class_field(class_values, "cusum_k")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">CUSUM h</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">CUSUM h</span>
                           <input
                             type="number"
                             step="0.1"
                             min="0"
                             name={"anomaly[classes][#{class_key}][cusum_h]"}
                             value={class_field(class_values, "cusum_h")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Confirm multiplier</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">
+                            Confirm multiplier
+                          </span>
                           <input
                             type="number"
                             step="0.1"
                             min="1"
                             name={"anomaly[classes][#{class_key}][h_confirm_mult]"}
                             value={class_field(class_values, "h_confirm_mult")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Confirm window</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">
+                            Confirm window
+                          </span>
                           <input
                             type="number"
                             min="1"
                             name={"anomaly[classes][#{class_key}][drift_confirm_window]"}
                             value={class_field(class_values, "drift_confirm_window")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Clear slots</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">
+                            Clear slots
+                          </span>
                           <input
                             type="number"
                             min="1"
                             name={"anomaly[classes][#{class_key}][drift_clear_slots]"}
                             value={class_field(class_values, "drift_clear_slots")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Adopt after samples</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">
+                            Adopt after samples
+                          </span>
                           <input
                             type="number"
                             min="1"
                             name={"anomaly[classes][#{class_key}][drift_adopt_after_samples]"}
                             value={class_field(class_values, "drift_adopt_after_samples")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Escalate after seconds</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">
+                            Escalate after seconds
+                          </span>
                           <input
                             type="number"
                             min="1"
                             name={"anomaly[classes][#{class_key}][drift_escalate_after_secs]"}
                             value={class_field(class_values, "drift_escalate_after_secs")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Minimum std floor</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">
+                            Minimum std floor
+                          </span>
                           <input
                             type="number"
                             step="0.01"
                             min="0"
                             name={"anomaly[classes][#{class_key}][min_std_floor]"}
                             value={class_field(class_values, "min_std_floor")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Minimum CV</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">Minimum CV</span>
                           <input
                             type="number"
                             step="0.001"
                             min="0"
                             name={"anomaly[classes][#{class_key}][min_cv]"}
                             value={class_field(class_values, "min_cv")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0 md:col-span-2">
-                          <span class="label mb-1">Severity bands (JSON)</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">
+                            Severity bands (JSON)
+                          </span>
                           <textarea
                             name={"anomaly[classes][#{class_key}][severity_bands]"}
-                            class="textarea textarea-sm textarea-bordered min-h-20 w-full font-mono text-xs"
+                            class={
+                              ui_field_class(
+                                size: "sm",
+                                mono: true,
+                                class: "min-h-20 w-full py-2 text-xs"
+                              )
+                            }
                           >{class_field(class_values, "severity_bands")}</textarea>
                         </label>
                       </div>
@@ -502,14 +526,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                 </div>
 
                 <div class="mt-4 flex justify-end">
-                  <button class="btn btn-sm btn-primary" type="submit">
+                  <.ui_button type="submit" size="sm" variant="primary">
                     <.icon name="hero-check" class="size-4" /> Save Detector
-                  </button>
+                  </.ui_button>
                 </div>
               </.form>
             </div>
 
-            <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+            <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
               <div class="mb-4">
                 <h2 class="text-base font-semibold">Capacity Forecast</h2>
               </div>
@@ -563,9 +587,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                   />
                 </div>
 
-                <fieldset class="mt-4 rounded-lg border border-base-300 p-3">
+                <fieldset class="mt-4 rounded-lg border border-sr-line p-3">
                   <legend class="px-1 text-sm font-medium">Additional forecast sources</legend>
-                  <p class="mb-2 text-xs text-base-content/60">
+                  <p class="mb-2 text-xs text-sr-muted">
                     These daily-aggregate targets are statistically weaker than the default
                     memory and disk exhaustion sources and are off by design.
                   </p>
@@ -573,14 +597,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                   <div class="grid gap-2 sm:grid-cols-2">
                     <label
                       :for={{source_key, source_label} <- @forecast_source_opt_ins}
-                      class="flex items-center gap-2 rounded-md border border-base-300 bg-base-100 px-3 py-2 text-sm"
+                      class="flex items-center gap-2 rounded-md border border-sr-line bg-sr-surface px-3 py-2 text-sm"
                     >
                       <input
                         type="checkbox"
                         name="forecast[default_source_opt_ins][]"
                         value={source_key}
                         checked={source_key in selected_source_opt_ins(@forecast_params)}
-                        class="checkbox checkbox-sm"
+                        class={ui_checkbox_class()}
                       />
                       <span>{source_label}</span>
                     </label>
@@ -588,19 +612,19 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                 </fieldset>
 
                 <div class="mt-4">
-                  <label class="label">
-                    <span class="label-text">Metric class overrides (JSON)</span>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Metric class overrides (JSON)</span>
                   </label>
                   <textarea
                     name="forecast[metric_class_overrides]"
-                    class="textarea textarea-bordered min-h-44 w-full font-mono text-xs"
+                    class={ui_field_class(mono: true, class: "min-h-44 w-full py-2.5 text-xs")}
                   ><%= @forecast_form[:metric_class_overrides].value %></textarea>
                 </div>
 
                 <div class="mt-4 flex justify-end">
-                  <button class="btn btn-sm btn-primary" type="submit">
+                  <.ui_button type="submit" size="sm" variant="primary">
                     <.icon name="hero-check" class="size-4" /> Save Forecast
-                  </button>
+                  </.ui_button>
                 </div>
               </.form>
             </div>

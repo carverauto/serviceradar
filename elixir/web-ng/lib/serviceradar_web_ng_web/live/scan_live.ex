@@ -355,38 +355,44 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
         </p>
       </div>
 
-      <div :if={@error} class="alert alert-error text-sm">{@error}</div>
+      <div :if={@error} class={ui_alert_class(variant: "error", class: "text-sm")}>{@error}</div>
 
-      <div :if={@missing_ips != []} class="alert alert-warning flex-col items-start gap-2 text-sm">
+      <div
+        :if={@missing_ips != []}
+        class={ui_alert_class(variant: "warning", class: "flex-col items-start gap-2 text-sm")}
+      >
         <div>
           These targets are not in inventory (scanning is restricted to known devices):
           <span class="font-mono">{Enum.join(Enum.take(@missing_ips, 20), ", ")}</span>
           <span :if={length(@missing_ips) > 20}>… (+{length(@missing_ips) - 20} more)</span>
         </div>
-        <button
+        <.ui_button
           :if={@can_add_devices}
           type="button"
           phx-click="add_missing"
-          class="btn btn-sm btn-primary"
+          size="sm"
+          variant="primary"
         >
           Add {length(@missing_ips)} missing device(s) to inventory
-        </button>
+        </.ui_button>
       </div>
 
       <.form for={%{}} as={:scan} phx-change="validate" phx-submit="run_scan" class="space-y-4">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Targets (IP per line or comma-separated)</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">
+                Targets (IP per line or comma-separated)
+              </span>
             </label>
             <textarea
               name="scan[targets]"
               rows="6"
-              class="textarea textarea-bordered font-mono text-sm"
+              class={ui_field_class(mono: true, class: "min-h-24 py-2.5 text-sm")}
               placeholder="10.0.0.1&#10;10.0.0.2&#10;192.168.1.0/24"
             >{@form["targets"]}</textarea>
-            <label class="label">
-              <span class="label-text-alt">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 {length(@valid_targets)} valid
                 <span :if={@invalid_targets != []} class="text-error">
                   · {length(@invalid_targets)} invalid
@@ -396,9 +402,11 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
           </div>
 
           <div class="space-y-3">
-            <div class="form-control">
-              <label class="label"><span class="label-text">Egress agent</span></label>
-              <select name="scan[agent_id]" class="select select-bordered">
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Egress agent</span>
+              </label>
+              <select name="scan[agent_id]" class={ui_field_class()}>
                 <option value="">Select an agent…</option>
                 <option
                   :for={agent <- @agents}
@@ -411,69 +419,73 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
             </div>
 
             <div class="flex gap-4">
-              <label class="label cursor-pointer gap-2">
+              <label class="flex cursor-pointer items-center gap-2 gap-2">
                 <input type="hidden" name="scan[mode_icmp]" value="false" />
                 <input
                   type="checkbox"
                   name="scan[mode_icmp]"
                   value="true"
                   checked={@form["mode_icmp"] == "true"}
-                  class="checkbox checkbox-sm"
+                  class={ui_checkbox_class()}
                 />
-                <span class="label-text">ICMP</span>
+                <span class="text-sm font-medium text-sr-ink">ICMP</span>
               </label>
-              <label class="label cursor-pointer gap-2">
+              <label class="flex cursor-pointer items-center gap-2 gap-2">
                 <input type="hidden" name="scan[mode_tcp]" value="false" />
                 <input
                   type="checkbox"
                   name="scan[mode_tcp]"
                   value="true"
                   checked={@form["mode_tcp"] == "true"}
-                  class="checkbox checkbox-sm"
+                  class={ui_checkbox_class()}
                 />
-                <span class="label-text">TCP</span>
+                <span class="text-sm font-medium text-sr-ink">TCP</span>
               </label>
-              <label class="label cursor-pointer gap-2">
+              <label class="flex cursor-pointer items-center gap-2 gap-2">
                 <input type="hidden" name="scan[mode_mtr]" value="false" />
                 <input
                   type="checkbox"
                   name="scan[mode_mtr]"
                   value="true"
                   checked={@form["mode_mtr"] == "true"}
-                  class="checkbox checkbox-sm"
+                  class={ui_checkbox_class()}
                 />
-                <span class="label-text">MTR</span>
+                <span class="text-sm font-medium text-sr-ink">MTR</span>
               </label>
             </div>
 
-            <div class="form-control">
-              <label class="label"><span class="label-text">TCP ports (comma-separated)</span></label>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">TCP ports (comma-separated)</span>
+              </label>
               <input
                 name="scan[ports]"
                 value={@form["ports"]}
                 placeholder="22, 80, 443"
-                class="input input-bordered input-sm"
+                class={ui_field_class(size: "sm")}
               />
             </div>
           </div>
         </div>
 
-        <button type="submit" disabled={not @can_execute or @running} class="btn btn-primary">
+        <.ui_button type="submit" disabled={not @can_execute or @running} size="sm" variant="primary">
           {if @running, do: "Scanning…", else: "Run scan"}
-        </button>
+        </.ui_button>
       </.form>
 
-      <div :if={@scan_run} class="card bg-base-200">
-        <div class="card-body p-4">
-          <h2 class="card-title text-base">
+      <div :if={@scan_run} class="sr-ui-card bg-sr-subtle">
+        <div class="sr-ui-card-body p-4">
+          <h2 class="sr-ui-card-title text-base">
             Run {String.slice(to_string(@scan_run.id), 0, 8)}
-            <span class="badge badge-sm">{@scan_run.status}</span>
+            <.ui_badge size="sm" variant={badge_variant_for(@scan_run.status)}>
+              {@scan_run.status}
+            </.ui_badge>
           </h2>
           <div class="text-sm opacity-70">
             {@scan_run.target_count} targets · {@scan_run.hosts_up} up · {@scan_run.ports_open} ports open
           </div>
-          <div class="overflow-x-auto">
-            <table class="table table-sm">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "sm")}>
               <thead>
                 <tr>
                   <th>Target</th>
@@ -489,9 +501,12 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
                   <td>{row.mode}</td>
                   <td>{row.port}</td>
                   <td>
-                    <span class={"badge badge-sm " <> if(row.available, do: "badge-success", else: "badge-ghost")}>
+                    <.ui_badge
+                      size="sm"
+                      variant={if(row.available, do: "success", else: "ghost")}
+                    >
                       {if row.available, do: "yes", else: "no"}
-                    </span>
+                    </.ui_badge>
                   </td>
                   <td>{format_ms(row.response_ms)}</td>
                 </tr>
@@ -506,8 +521,8 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
 
       <div>
         <h2 class="text-lg font-semibold mb-2">Recent runs</h2>
-        <div class="overflow-x-auto">
-          <table class="table table-sm">
+        <div class="sr-ui-table-shell">
+          <table class={ui_table_class(size: "sm")}>
             <thead>
               <tr>
                 <th>Started</th>
@@ -524,16 +539,21 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
                 <td class="font-mono">{run.agent_id}</td>
                 <td>{Enum.join(run.modes, ", ")}</td>
                 <td>{run.target_count}</td>
-                <td><span class="badge badge-sm">{run.status}</span></td>
                 <td>
-                  <button
+                  <.ui_badge size="sm" variant={badge_variant_for(run.status)}>
+                    {run.status}
+                  </.ui_badge>
+                </td>
+                <td>
+                  <.ui_button
                     type="button"
                     phx-click="select_run"
                     phx-value-id={run.id}
-                    class="btn btn-xs btn-ghost"
+                    size="xs"
+                    variant="ghost"
                   >
                     View
-                  </button>
+                  </.ui_button>
                 </td>
               </tr>
               <tr :if={@runs == []}>

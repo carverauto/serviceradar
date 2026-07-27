@@ -15,8 +15,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
       <:header>
         <div class="flex w-full flex-wrap items-center justify-between gap-3">
           <div class="min-w-0">
-            <div class="text-sm font-semibold text-base-content">Matching Devices</div>
-            <div class="text-xs text-base-content/60">
+            <div class="text-sm font-semibold text-sr-ink">Matching Devices</div>
+            <div class="text-xs text-sr-muted">
               <%= if is_integer(@total_device_count) do %>
                 {format_stat_number(@total_device_count)} total {if @total_device_count == 1,
                   do: "result",
@@ -26,60 +26,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
               <% end %>
             </div>
           </div>
-          <div :if={is_binary(@icmp_error)} class="badge badge-warning badge-sm">
+          <.ui_badge :if={is_binary(@icmp_error)} size="sm" variant="warning">
             ICMP: {@icmp_error}
-          </div>
+          </.ui_badge>
         </div>
       </:header>
 
-      <div class="overflow-x-auto">
-        <table class="table table-sm table-zebra w-full">
+      <div class="sr-ui-table-shell">
+        <table class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
           <thead>
             <tr>
-              <th class="w-10 text-center bg-base-200/60">
+              <th class="w-10 text-center">
                 <input
                   type="checkbox"
-                  class="checkbox checkbox-sm checkbox-primary"
+                  class={ui_checkbox_class()}
                   checked={@all_selected}
                   phx-click="toggle_select_all"
                 />
               </th>
-              <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Device</th>
-              <th
-                class="text-xs font-semibold text-base-content/70 bg-base-200/60"
-                title="OCSF Device Type"
-              >
-                Type
-              </th>
-              <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Vendor</th>
-              <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Model</th>
-              <th
-                class="text-xs font-semibold text-base-content/70 bg-base-200/60"
-                title="GRPC Health Check Status"
-              >
-                Status
-              </th>
-              <th
-                class="text-xs font-semibold text-base-content/70 bg-base-200/60"
-                title="ICMP Network Tests"
-              >
-                Network
-              </th>
-              <th
-                class="text-xs font-semibold text-base-content/70 bg-base-200/60"
-                title="Telemetry availability for this device"
-              >
-                Metrics
-              </th>
-              <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Risk</th>
-              <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Last Seen</th>
+              <th>Device</th>
+              <th title="OCSF Device Type">Type</th>
+              <th>Vendor</th>
+              <th>Model</th>
+              <th title="GRPC Health Check Status">Status</th>
+              <th title="ICMP Network Tests">Network</th>
+              <th title="Telemetry availability for this device">Metrics</th>
+              <th>Risk</th>
+              <th>Last Seen</th>
             </tr>
           </thead>
           <tbody>
             <tr :if={@devices == []}>
               <td
                 colspan={10}
-                class="py-8 text-center text-sm text-base-content/60"
+                class="py-8 text-center text-sm text-sr-muted"
               >
                 No devices found.
               </td>
@@ -97,12 +77,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                 is_binary(device_uid) and Map.get(@snmp_presence, device_uid, false) == true %>
               <% has_sysmon =
                 is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
-              <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""} #{if deleted or not active, do: "opacity-60", else: ""}"}>
+              <tr class={"hover:bg-sr-subtle/40 #{if is_selected, do: "bg-sr-brand/5", else: ""} #{if deleted or not active, do: "opacity-60", else: ""}"}>
                 <td class="text-center">
                   <input
                     :if={is_binary(device_uid)}
                     type="checkbox"
-                    class="checkbox checkbox-sm checkbox-primary"
+                    class={ui_checkbox_class()}
                     checked={is_selected}
                     phx-click="toggle_device_select"
                     phx-value-uid={device_uid}
@@ -114,7 +94,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                       <.link
                         :if={is_binary(device_uid)}
                         navigate={~p"/devices/#{device_uid}"}
-                        class="link link-hover truncate text-sm"
+                        class="text-sr-brand hover:underline truncate text-sm"
                         title={"UID: #{device_uid}"}
                       >
                         {Map.get(row, "hostname") || device_uid}
@@ -122,19 +102,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                       <.icon
                         :if={agent_device_row?(row, @agent_device_uids)}
                         name="hero-bolt"
-                        class="w-4 h-4 text-warning shrink-0"
+                        class="size-4 shrink-0 text-amber-400"
                         title="Agent device"
                       />
                       <span :if={not is_binary(device_uid)} class="truncate text-sm">
                         {Map.get(row, "hostname") || "—"}
                       </span>
                     </div>
-                    <span :if={deleted} class="badge badge-ghost badge-xs shrink-0">Deleted</span>
-                    <span :if={not active} class="badge badge-warning badge-xs shrink-0">
+                    <.ui_badge :if={deleted} size="xs" variant="ghost" class="shrink-0">
+                      Deleted
+                    </.ui_badge>
+                    <.ui_badge :if={not active} size="xs" variant="warning" class="shrink-0">
                       Out of service
-                    </span>
+                    </.ui_badge>
                   </div>
-                  <div class="font-mono text-[0.7rem] text-base-content/60 truncate mt-0.5">
+                  <div class="font-mono text-[0.7rem] text-sr-muted truncate mt-0.5">
                     {Map.get(row, "ip") || "—"}
                   </div>
                 </td>
@@ -146,12 +128,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                 </td>
                 <td class="text-xs max-w-[8rem] truncate">
                   {Map.get(row, "vendor_name") || "—"}
-                  <span
+                  <.ui_badge
                     :if={snmp_fallback_derived?(row) and present_text?(Map.get(row, "vendor_name"))}
-                    class="badge badge-ghost badge-xs ml-1"
+                    size="xs"
+                    variant="ghost"
+                    class="ml-1"
                   >
                     SNMP
-                  </span>
+                  </.ui_badge>
                 </td>
                 <td class="text-xs max-w-[12rem] truncate">
                   {display_model(Map.get(row, "model"))}
@@ -163,7 +147,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                 </td>
                 <td class="text-xs">
                   <.icmp_sparkline :if={is_map(icmp)} spark={icmp} />
-                  <span :if={not is_map(icmp)} class="text-base-content/40">—</span>
+                  <span :if={not is_map(icmp)} class="text-sr-muted">—</span>
                 </td>
                 <td class="text-xs">
                   <div class="flex flex-col gap-1">
@@ -190,7 +174,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
         </table>
       </div>
 
-      <div class="mt-4 pt-4 border-t border-base-200">
+      <div class="mt-4 pt-4 border-t border-sr-line">
         <.ui_pagination
           prev_cursor={Map.get(@pagination, "prev_cursor")}
           next_cursor={Map.get(@pagination, "next_cursor")}

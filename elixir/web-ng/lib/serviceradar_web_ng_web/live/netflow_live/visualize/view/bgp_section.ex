@@ -17,12 +17,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpSection do
       |> assign(:as_path_collapsed, length(as_path) > 10)
 
     ~H"""
-    <div class="text-xs uppercase tracking-wider text-base-content/50 mb-2">BGP Routing</div>
+    <div class="text-xs uppercase tracking-wider text-sr-muted mb-2">BGP Routing</div>
 
     <%= if @has_bgp_data do %>
       <!-- AS Path Display -->
       <div :if={length(@as_path) > 0} class="mb-3">
-        <div class="text-xs font-semibold text-base-content/70 mb-1">AS Path</div>
+        <div class="text-xs font-semibold text-sr-muted mb-1">AS Path</div>
         <div class="flex items-center gap-1 flex-wrap font-mono text-sm">
           <.as_path_display as_path={@as_path} />
         </div>
@@ -30,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpSection do
       
     <!-- BGP Communities Display -->
       <div :if={length(@bgp_communities) > 0}>
-        <div class="text-xs font-semibold text-base-content/70 mb-1">BGP Communities</div>
+        <div class="text-xs font-semibold text-sr-muted mb-1">BGP Communities</div>
         <div class="flex items-center gap-1 flex-wrap">
           <%= for community <- @bgp_communities do %>
             <.bgp_community_badge community={community} />
@@ -38,7 +38,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpSection do
         </div>
       </div>
     <% else %>
-      <div class="text-sm text-base-content/60">
+      <div class="text-sm text-sr-muted">
         No BGP routing information available for this flow
       </div>
     <% end %>
@@ -69,14 +69,14 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpSection do
     ~H"""
     <%= for {item, index} <- Enum.with_index(@display_path) do %>
       <%= if item == :ellipsis do %>
-        <span class="text-base-content/40 text-xs">
+        <span class="text-sr-muted text-xs">
           ... ({@path_length - 10} more ASNs) ...
         </span>
       <% else %>
         <%= if index > 0 and Enum.at(@display_path, index - 1) != :ellipsis do %>
-          <span class="text-base-content/40">→</span>
+          <span class="text-sr-muted">→</span>
         <% end %>
-        <span class="px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
+        <span class="px-2 py-0.5 rounded bg-sr-brand/10 text-sr-brand border border-sr-brand/20">
           AS{item}
         </span>
       <% end %>
@@ -91,37 +91,37 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpSection do
     # Format: (high 16 bits = AS number) : (low 16 bits = value)
     community_value = assigns.community
 
-    {display_text, badge_class} =
+    {display_text, variant} =
       case community_value do
         # Well-known communities (RFC 1997)
         0xFFFFFF01 ->
-          {"NO_EXPORT", "badge-warning"}
+          {"NO_EXPORT", "warning"}
 
         0xFFFFFF02 ->
-          {"NO_ADVERTISE", "badge-error"}
+          {"NO_ADVERTISE", "error"}
 
         0xFFFFFF03 ->
-          {"NO_EXPORT_SUBCONFED", "badge-warning"}
+          {"NO_EXPORT_SUBCONFED", "warning"}
 
         0xFFFFFF04 ->
-          {"NOPEER", "badge-error"}
+          {"NOPEER", "error"}
 
         # Regular community - decode to AS:value
         _ ->
           as_number = Bitwise.bsr(community_value, 16)
           value = Bitwise.band(community_value, 0xFFFF)
-          {"#{as_number}:#{value}", "badge-info"}
+          {"#{as_number}:#{value}", "info"}
       end
 
     assigns =
       assigns
       |> assign(:display_text, display_text)
-      |> assign(:badge_class, badge_class)
+      |> assign(:variant, variant)
 
     ~H"""
-    <span class={"badge badge-sm #{@badge_class} font-mono"} title={"Raw value: #{@community}"}>
+    <.ui_badge size="sm" variant={@variant} class="font-mono" title={"Raw value: #{@community}"}>
       {@display_text}
-    </span>
+    </.ui_badge>
     """
   end
 end

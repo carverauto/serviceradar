@@ -66,6 +66,24 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/interfaces")}
   end
 
+  def handle_event("srql_paginate", params, socket) do
+    socket =
+      SRQLPage.handle_event(socket, "srql_paginate", params,
+        list_assign_key: :interfaces,
+        default_limit: @default_limit,
+        max_limit: @max_limit
+      )
+
+    query = Map.get(socket.assigns.srql || %{}, :query, "")
+    total_count = get_total_count(socket.assigns.current_scope, query)
+
+    {:noreply,
+     assign(socket,
+       total_count: total_count,
+       current_page: Map.get(socket.assigns, :pagination_page, 1)
+     )}
+  end
+
   @impl true
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
@@ -76,70 +94,75 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
       <div class="mx-auto max-w-7xl p-6">
         <!-- Header -->
         <div class="mb-6">
-          <h1 class="text-2xl font-semibold text-base-content">Interfaces</h1>
-          <p class="text-sm text-base-content/60">
+          <h1 class="text-2xl font-semibold text-sr-ink">Interfaces</h1>
+          <p class="text-sm text-sr-muted">
             Search and browse network interfaces across all devices
           </p>
         </div>
         
     <!-- Quick Filters -->
         <div class="mb-4 flex flex-wrap items-center gap-2">
-          <span class="text-xs font-medium text-base-content/60 mr-1">Quick filters:</span>
-          <.link
+          <span class="text-xs font-medium text-sr-muted mr-1">Quick filters:</span>
+          <.ui_button
             navigate={~p"/interfaces?q=in:interfaces oper_status:1 latest:true"}
-            class={"btn btn-xs #{if has_filter?(@srql, "oper_status", "1"), do: "btn-success", else: "btn-ghost"}"}
+            size="xs"
+            variant={if(has_filter?(@srql, "oper_status", "1"), do: "success", else: "ghost")}
           >
             <.icon name="hero-arrow-up-circle" class="size-3" /> Up
-          </.link>
-          <.link
+          </.ui_button>
+          <.ui_button
             navigate={~p"/interfaces?q=in:interfaces oper_status:2 latest:true"}
-            class={"btn btn-xs #{if has_filter?(@srql, "oper_status", "2"), do: "btn-error", else: "btn-ghost"}"}
+            size="xs"
+            variant={if(has_filter?(@srql, "oper_status", "2"), do: "danger", else: "ghost")}
           >
             <.icon name="hero-arrow-down-circle" class="size-3" /> Down
-          </.link>
-          <.link
+          </.ui_button>
+          <.ui_button
             navigate={~p"/interfaces?q=in:interfaces favorited:true latest:true"}
-            class={"btn btn-xs #{if has_filter?(@srql, "favorited", "true"), do: "btn-warning", else: "btn-ghost"}"}
+            size="xs"
+            variant={if(has_filter?(@srql, "favorited", "true"), do: "warning", else: "ghost")}
           >
             <.icon name="hero-star" class="size-3" /> Favorited
-          </.link>
-          <.link
+          </.ui_button>
+          <.ui_button
             navigate={~p"/interfaces?q=in:interfaces metrics_enabled:true latest:true"}
-            class={"btn btn-xs #{if has_filter?(@srql, "metrics_enabled", "true"), do: "btn-info", else: "btn-ghost"}"}
+            size="xs"
+            variant={if(has_filter?(@srql, "metrics_enabled", "true"), do: "info", else: "ghost")}
           >
             <.icon name="hero-chart-bar" class="size-3" /> Metrics Enabled
-          </.link>
-          <.link
+          </.ui_button>
+          <.ui_button
             :if={has_any_filter?(@srql)}
             navigate={~p"/interfaces"}
-            class="btn btn-xs btn-ghost"
+            size="xs"
+            variant="ghost"
           >
             <.icon name="hero-x-mark" class="size-3" /> Clear
-          </.link>
+          </.ui_button>
         </div>
 
         <.ui_panel>
-          <div class="overflow-x-auto">
-            <table class="table table-sm table-zebra w-full">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
               <thead>
                 <tr>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Device</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Interface</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60">Device</th>
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60">Interface</th>
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60">
                     MAC Address
                   </th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60">
                     IP Addresses
                   </th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Type</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Speed</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Status</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Last Seen</th>
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60">Type</th>
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60">Speed</th>
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60">Status</th>
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60">Last Seen</th>
                 </tr>
               </thead>
               <tbody>
                 <tr :if={@interfaces == []}>
-                  <td colspan="8" class="py-8 text-center text-sm text-base-content/60">
+                  <td colspan="8" class="py-8 text-center text-sm text-sr-muted">
                     No interfaces found. Try adjusting your search criteria.
                   </td>
                 </tr>
@@ -147,17 +170,17 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
                 <%= for row <- Enum.filter(@interfaces, &is_map/1) do %>
                   <% device_id = Map.get(row, "device_id") %>
                   <% interface_uid = Map.get(row, "interface_uid") %>
-                  <tr class="hover:bg-base-200/40">
+                  <tr class="hover:bg-sr-subtle/40">
                     <td class="text-sm max-w-[12rem] truncate">
                       <.link
                         :if={is_binary(device_id)}
                         navigate={~p"/devices/#{device_id}"}
-                        class="link link-hover truncate"
+                        class="text-sr-brand hover:underline truncate"
                         title={device_id}
                       >
                         {Map.get(row, "device_ip") || device_id}
                       </.link>
-                      <span :if={not is_binary(device_id)} class="text-base-content/40">
+                      <span :if={not is_binary(device_id)} class="text-sr-muted">
                         —
                       </span>
                     </td>
@@ -171,7 +194,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
                         <.link
                           :if={is_binary(device_id) and is_binary(interface_uid)}
                           navigate={~p"/devices/#{device_id}/interfaces/#{interface_uid}"}
-                          class="link link-hover truncate"
+                          class="text-sr-brand hover:underline truncate"
                           title={interface_uid}
                         >
                           {interface_name(row)}
@@ -208,12 +231,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
             </table>
           </div>
 
-          <div class="mt-4 pt-4 border-t border-base-200">
+          <div class="mt-4 pt-4 border-t border-sr-line">
             <.ui_pagination
               prev_cursor={Map.get(@pagination, "prev_cursor")}
               next_cursor={Map.get(@pagination, "next_cursor")}
-              base_path="/interfaces"
-              query={Map.get(@srql, :query, "")}
               limit={@limit}
               result_count={length(@interfaces)}
               total_count={@total_count}
@@ -236,23 +257,18 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
   defp interface_status_badge(assigns) do
     ~H"""
     <div class="flex gap-1">
-      <span class={[
-        "badge badge-xs gap-1",
-        oper_status_class(@oper_status)
-      ]}>
+      <.ui_badge size="xs" variant={oper_status_variant(@oper_status)}>
         <.icon name={oper_status_icon(@oper_status)} class="size-3" />
         {oper_status_text(@oper_status)}
-      </span>
-      <span
+      </.ui_badge>
+      <.ui_badge
         :if={@admin_status && @admin_status != 1}
-        class={[
-          "badge badge-xs badge-outline gap-1",
-          admin_status_class(@admin_status)
-        ]}
+        size="xs"
+        variant={admin_status_variant(@admin_status)}
         title={"Admin: #{admin_status_text(@admin_status)}"}
       >
         {admin_status_text(@admin_status)}
-      </span>
+      </.ui_badge>
     </div>
     """
   end
@@ -339,10 +355,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
   end
 
   # Status styling functions
-  defp oper_status_class(1), do: "badge-success"
-  defp oper_status_class(2), do: "badge-error"
-  defp oper_status_class(3), do: "badge-warning"
-  defp oper_status_class(_), do: "badge-ghost"
+  defp oper_status_variant(1), do: "success"
+  defp oper_status_variant(2), do: "error"
+  defp oper_status_variant(3), do: "warning"
+  defp oper_status_variant(_), do: "ghost"
 
   defp oper_status_icon(1), do: "hero-arrow-up-circle"
   defp oper_status_icon(2), do: "hero-arrow-down-circle"
@@ -354,10 +370,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
   defp oper_status_text(3), do: "Testing"
   defp oper_status_text(_), do: "Unknown"
 
-  defp admin_status_class(1), do: "border-success text-success"
-  defp admin_status_class(2), do: "border-warning text-warning"
-  defp admin_status_class(3), do: "border-info text-info"
-  defp admin_status_class(_), do: "border-base-content/30 text-base-content/50"
+  defp admin_status_variant(1), do: "success"
+  defp admin_status_variant(2), do: "warning"
+  defp admin_status_variant(3), do: "info"
+  defp admin_status_variant(_), do: "ghost"
 
   defp admin_status_text(1), do: "Enabled"
   defp admin_status_text(2), do: "Disabled"

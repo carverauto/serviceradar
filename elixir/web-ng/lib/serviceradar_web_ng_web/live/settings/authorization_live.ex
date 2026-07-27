@@ -99,7 +99,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
           <section class="space-y-4">
             <div>
               <h1 class="text-xl font-semibold">Authorization</h1>
-              <p class="text-sm text-base-content/60">
+              <p class="text-sm text-sr-muted">
                 Control default roles and IdP role mapping behavior.
               </p>
             </div>
@@ -119,17 +119,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
                 />
 
                 <div>
-                  <label class="label">
-                    <span class="label-text">Role Mappings (JSON)</span>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Role Mappings (JSON)</span>
                   </label>
                   <textarea
                     name="settings[role_mappings]"
-                    class="textarea textarea-bordered w-full min-h-[200px]"
+                    class={ui_field_class(class: "w-full min-h-[200px] py-2.5")}
                   ><%= @form[:role_mappings].value %></textarea>
                   <%= if @json_error do %>
                     <div class="text-xs text-error mt-2">{@json_error}</div>
                   <% else %>
-                    <div class="text-xs text-base-content/60 mt-2">
+                    <div class="text-xs text-sr-muted mt-2">
                       Provide a JSON array of mapping objects (e.g. group to role).
                     </div>
                   <% end %>
@@ -137,24 +137,24 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
               </div>
 
               <div class="mt-6">
-                <button class="btn btn-primary" type="submit">Save Settings</button>
+                <.ui_button type="submit" size="sm" variant="primary">Save Settings</.ui_button>
               </div>
             </.form>
           </section>
 
           <section class="space-y-4">
-            <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+            <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
               <h2 class="text-sm font-semibold">Example Mapping</h2>
-              <p class="text-xs text-base-content/60 mt-1">
+              <p class="text-xs text-sr-muted mt-1">
                 Use IdP claims to assign roles automatically.
               </p>
-              <pre class="mt-3 rounded-lg bg-base-200/60 p-3 text-xs" phx-no-curly-interpolation>
+              <pre class="mt-3 rounded-lg bg-sr-subtle/60 p-3 text-xs" phx-no-curly-interpolation>
                 [
                   {"source": "groups", "value": "Network Ops", "role": "operator"},
                   {"source": "email_domain", "value": "example.com", "role": "admin"}
                 ]
               </pre>
-              <p class="text-xs text-base-content/60 mt-3">
+              <p class="text-xs text-sr-muted mt-3">
                 Precedence is <span class="font-medium">first match</span>: the first mapping whose
                 claim matches a user wins, so list the most privileged roles first (admin-first) to
                 avoid a broader rule shadowing a narrower one.

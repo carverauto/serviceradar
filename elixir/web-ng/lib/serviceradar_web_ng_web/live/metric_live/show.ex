@@ -4,10 +4,13 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadarWebNGWeb.SRQL.Builder
+  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNGWeb.TraceLive.Show
 
   @recent_window "last_1h"
   @recent_limit 60
+  @srql_default_limit 20
 
   @impl true
   def mount(_params, _session, socket) do
@@ -19,18 +22,22 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
      |> assign(:recent, [])
      |> assign(:histogram, nil)
      |> assign(:error, nil)
-     |> assign(:recent_window, @recent_window)}
+     |> assign(:recent_window, @recent_window)
+     |> assign(:limit, @srql_default_limit)
+     |> SRQLPage.init("otel_metrics", default_limit: @srql_default_limit)}
   end
 
   @impl true
-  def handle_params(%{"span_id" => span_id}, _uri, socket) do
+  def handle_params(%{"span_id" => span_id}, uri, socket) do
     srql = srql_module()
     span_id = span_id |> to_string() |> String.trim()
+    detail_query = detail_query_for_span(span_id)
 
     socket =
       socket
       |> assign(:span_id, span_id)
       |> load_metric(srql, span_id)
+      |> prefill_srql_bar(detail_query, uri, span_id)
 
     {:noreply, socket}
   end
@@ -40,9 +47,50 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
   end
 
   @impl true
+  def handle_event("srql_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
+  end
+
+  def handle_event("srql_submit", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_submit", params,
+       fallback_path: "/observability",
+       extra_params: %{}
+     )}
+  end
+
+  def handle_event("srql_builder_toggle", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "otel_metrics")}
+  end
+
+  def handle_event("srql_builder_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", params)}
+  end
+
+  def handle_event("srql_builder_apply", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
+  end
+
+  def handle_event("srql_builder_run", _params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_run", %{},
+       fallback_path: "/observability",
+       extra_params: %{}
+     )}
+  end
+
+  def handle_event("srql_builder_add_filter", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "otel_metrics")}
+  end
+
+  def handle_event("srql_builder_remove_filter", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "otel_metrics")}
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <.header>
           Metric
@@ -50,13 +98,13 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
             <span class="font-mono text-xs">{@span_id || "—"}</span>
           </:subtitle>
           <:actions>
-            <.ui_button href={~p"/observability?#{%{tab: "metrics"}}"} variant="ghost" size="sm">
+            <.ui_button href={~p"/observability/metrics"} variant="ghost" size="sm">
               Back to Observability
             </.ui_button>
           </:actions>
         </.header>
 
-        <div :if={is_binary(@error)} class="alert alert-error mb-4">
+        <div :if={is_binary(@error)} class={ui_alert_class(variant: "error", class: "mb-4")}>
           <.icon name="hero-exclamation-triangle" class="size-5" />
           <span class="text-sm">{@error}</span>
         </div>
@@ -66,25 +114,27 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
             <:header>
               <div class="min-w-0">
                 <div class="text-sm font-semibold">Details</div>
-                <div class="text-xs text-base-content/60 truncate">
+                <div class="text-xs text-sr-muted truncate">
                   {Map.get(@metric, "service_name") || "—"} · {metric_operation(@metric)}
                 </div>
               </div>
               <div class="flex items-center gap-2">
-                <.link
+                <.ui_button
                   :if={is_binary(Map.get(@metric, "trace_id")) and Map.get(@metric, "trace_id") != ""}
                   href={correlated_logs_href(@metric)}
-                  class="btn btn-xs btn-outline"
+                  size="xs"
+                  variant="outline"
                 >
                   Logs
-                </.link>
-                <.link
+                </.ui_button>
+                <.ui_button
                   :if={is_binary(trace_detail_path(@metric))}
                   navigate={trace_detail_path(@metric)}
-                  class="btn btn-xs btn-outline"
+                  size="xs"
+                  variant="outline"
                 >
                   Trace
-                </.link>
+                </.ui_button>
               </div>
             </:header>
 
@@ -122,22 +172,22 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
             <:header>
               <div class="min-w-0">
                 <div class="text-sm font-semibold">Visualization</div>
-                <div class="text-xs text-base-content/60">
+                <div class="text-xs text-sr-muted">
                   Sample from {@recent_window} ({length(@recent)} points)
                 </div>
               </div>
             </:header>
 
-            <div :if={@recent == []} class="text-sm text-base-content/60">
+            <div :if={@recent == []} class="text-sm text-sr-muted">
               No recent samples found for this metric.
             </div>
 
             <div :if={is_map(@histogram)} class="space-y-3">
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 Histogram of recent values (sample-based)
               </div>
               <.histogram bins={Map.get(@histogram, :bins, [])} />
-              <div class="text-xs text-base-content/50 font-mono">
+              <div class="text-xs text-sr-muted font-mono">
                 min={format_ms_number(Map.get(@histogram, :min, 0.0))}ms · p50={format_ms_number(
                   Map.get(@histogram, :p50, 0.0)
                 )}ms · p95={format_ms_number(Map.get(@histogram, :p95, 0.0))}ms · max={format_ms_number(
@@ -147,7 +197,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
             </div>
 
             <div :if={is_list(@recent) and @recent != [] and is_nil(@histogram)} class="space-y-3">
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 Recent values (sample-based)
               </div>
               <.sparkline values={Enum.map(@recent, &metric_value_ms/1)} />
@@ -166,10 +216,10 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
 
   defp kv(assigns) do
     ~H"""
-    <div class="rounded-lg border border-base-200 bg-base-100 p-3">
-      <div class="text-[11px] uppercase tracking-wider text-base-content/50 mb-1">{@label}</div>
+    <div class="rounded-lg border border-sr-line bg-sr-surface p-3">
+      <div class="text-[11px] uppercase tracking-wider text-sr-muted mb-1">{@label}</div>
       <div class={["text-sm break-all", @mono && "font-mono text-xs"]}>
-        <.link :if={is_binary(@href)} navigate={@href} class="link">
+        <.link :if={is_binary(@href)} navigate={@href} class="text-sr-brand hover:underline">
           {format_value(@value)}
         </.link>
         <span :if={is_nil(@href)}>{format_value(@value)}</span>
@@ -266,7 +316,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
           end %>
         <div class="flex-1 flex flex-col items-center">
           <div
-            class="w-full rounded bg-primary/40"
+            class="w-full rounded bg-sr-brand/40"
             style={"height: #{height}%"}
             title={"#{bin.count} samples"}
           />
@@ -276,8 +326,51 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
     """
   end
 
+  # Query that pinpoints the open metric span (SRQL chrome / re-run from detail).
+  defp detail_query_for_span(span_id) when is_binary(span_id) and span_id != "" do
+    ~s|in:otel_metrics span_id:"#{escape_srql(span_id)}" time:last_24h sort:timestamp:desc|
+  end
+
+  defp detail_query_for_span(_), do: "in:otel_metrics time:last_24h sort:timestamp:desc"
+
+  defp prefill_srql_bar(socket, query, uri, span_id) when is_binary(query) do
+    page_path =
+      case uri do
+        path when is_binary(path) and path != "" ->
+          URI.parse(uri).path || "/observability/metrics/#{span_id}"
+
+        _ ->
+          "/observability/metrics/#{span_id}"
+      end
+
+    srql =
+      socket.assigns.srql
+      |> Map.merge(%{
+        enabled: true,
+        entity: "otel_metrics",
+        query: query,
+        draft: query,
+        page_path: page_path || "/observability/metrics/#{span_id}",
+        error: nil,
+        loading: false
+      })
+      |> sync_builder_state(query)
+
+    assign(socket, :srql, srql)
+  end
+
+  defp sync_builder_state(srql, query) do
+    case Builder.parse(query) do
+      {:ok, builder} ->
+        Map.merge(srql, %{builder: builder, builder_supported: true, builder_sync: true})
+
+      {:error, _reason} ->
+        Map.merge(srql, %{builder_supported: false, builder_sync: false})
+    end
+  end
+
   defp load_metric(socket, srql, span_id) do
-    query = "in:otel_metrics span_id:\"#{escape_srql(span_id)}\" sort:timestamp:desc limit:1"
+    query = detail_query_for_span(span_id) <> " limit:1"
 
     case srql.query(query) do
       {:ok, %{"results" => [%{} = metric | _]}} ->
@@ -519,7 +612,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
     q =
       "in:logs trace_id:\"#{escape_srql(trace_id)}\" #{correlated_logs_time_window(metric)} sort:timestamp:desc limit:50"
 
-    "/observability?" <> URI.encode_query(%{tab: "logs", q: q, limit: 50})
+    "/observability/logs?" <> URI.encode_query(%{q: q})
   end
 
   # Bound the correlated-logs query around the metric's own timestamp (±1h)

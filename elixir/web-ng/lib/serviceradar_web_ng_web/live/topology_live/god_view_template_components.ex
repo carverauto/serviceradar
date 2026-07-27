@@ -15,7 +15,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
           phx-update="ignore"
           data-url={@snapshot_url}
           data-interval-ms="5000"
-          class="h-[70vh] min-h-[480px] w-full rounded-lg border border-base-200 bg-base-200/20"
+          class="h-[70vh] min-h-[480px] w-full rounded-lg border border-sr-line bg-sr-subtle/20"
         >
           loading topology surface...
         </div>
@@ -32,9 +32,9 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
           }
           class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
         >
-          <div class="max-w-xl rounded-lg border border-warning/30 bg-base-100/90 px-5 py-4 text-center shadow-lg backdrop-blur-sm">
+          <div class="max-w-xl rounded-lg border border-warning/30 bg-sr-surface/90 px-5 py-4 text-center shadow-lg backdrop-blur-sm">
             <div class="text-sm font-semibold text-warning">{empty_topology_state.title}</div>
-            <div class="mt-1 text-xs text-base-content/70">{empty_topology_state.message}</div>
+            <div class="mt-1 text-xs text-sr-muted">{empty_topology_state.message}</div>
           </div>
         </div>
 
@@ -46,24 +46,26 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
         >
           <div
             role="alert"
-            class="pointer-events-auto flex max-w-2xl flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-warning/40 bg-base-100/90 px-4 py-2 shadow-lg backdrop-blur-sm"
+            class="pointer-events-auto flex max-w-2xl flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-warning/40 bg-sr-surface/90 px-4 py-2 shadow-lg backdrop-blur-sm"
           >
-            <span class="badge badge-warning badge-sm">Backbone unavailable</span>
-            <span class="text-xs text-base-content/70">
+            <.ui_badge size="sm" variant="warning">Backbone unavailable</.ui_badge>
+            <span class="text-xs text-sr-muted">
               This snapshot has no backbone topology edges; {backbone_warning.other_edges} attachment/inferred
               edges are available on the Inferred and Endpoints layers.
             </span>
-            <span class="font-mono text-[10px] text-base-content/60">
+            <span class="font-mono text-[10px] text-sr-muted">
               bb:{backbone_warning.counts.backbone} att:{backbone_warning.counts.attachment} inf:{backbone_warning.counts.inferred} host:{backbone_warning.counts.hosted} obs:{backbone_warning.counts.observed}
             </span>
-            <button
+            <.ui_button
               :if={!(@topology_layers.inferred and @topology_layers.endpoints)}
               type="button"
-              class="btn btn-warning btn-xs h-7 min-h-7"
               phx-click="enable_attachment_layers"
+              size="xs"
+              variant="warning"
+              class="h-7 min-h-7"
             >
               Show attachment layers
-            </button>
+            </.ui_button>
           </div>
         </div>
 
@@ -73,19 +75,21 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
           data-collapsed={to_string(@controls_collapsed)}
           class="absolute right-3 top-3 z-20 pointer-events-auto"
         >
-          <div class="w-[220px] rounded-lg border border-base-300/70 bg-base-100/85 p-2 shadow-lg backdrop-blur-md">
+          <div class="w-[220px] rounded-lg border border-sr-line/70 bg-sr-surface/85 p-2 shadow-lg backdrop-blur-md">
             <div class="flex items-center justify-between gap-2">
-              <div class="text-[10px] uppercase tracking-wide text-base-content/60">
+              <div class="text-[10px] uppercase tracking-wide text-sr-muted">
                 Controls
               </div>
-              <button
+              <.ui_button
                 type="button"
-                class="btn btn-xs btn-ghost h-6 min-h-6 px-2"
                 phx-click="toggle_controls_panel"
                 title={if @controls_collapsed, do: "Expand controls", else: "Collapse controls"}
+                size="xs"
+                variant="ghost"
+                class="h-6 min-h-6 px-2"
               >
                 {if @controls_collapsed, do: "Expand", else: "Collapse"}
-              </button>
+              </.ui_button>
             </div>
 
             <div :if={@controls_collapsed} class="mt-2 grid grid-cols-3 gap-1">
@@ -107,25 +111,27 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
               >
                 Auto
               </button>
-              <button
+              <.ui_button
                 type="button"
-                class="btn btn-xs btn-ghost h-7 min-h-7"
                 phx-click="reset_view"
                 title="Reset view to fit all nodes"
+                size="xs"
+                variant="ghost"
+                class="h-7 min-h-7"
               >
                 Reset
-              </button>
+              </.ui_button>
             </div>
 
             <div :if={!@controls_collapsed} class="space-y-2 mt-2">
               <div>
-                <div class="text-[10px] uppercase tracking-wide text-base-content/60 mb-1">
+                <div class="text-[10px] uppercase tracking-wide text-sr-muted mb-1">
                   View
                 </div>
-                <div class="join w-full">
+                <div class={ui_join_class(class: "w-full")}>
                   <button
                     type="button"
-                    class={"join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "auto")}"}
+                    class={"sr-ui-join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "auto")}"}
                     phx-click="set_zoom_mode"
                     phx-value-mode="auto"
                     title="Auto Focus"
@@ -134,7 +140,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
                   </button>
                   <button
                     type="button"
-                    class={"join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "global")}"}
+                    class={"sr-ui-join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "global")}"}
                     phx-click="set_zoom_mode"
                     phx-value-mode="global"
                     title="World Aggregate"
@@ -143,7 +149,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
                   </button>
                   <button
                     type="button"
-                    class={"join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "regional")}"}
+                    class={"sr-ui-join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "regional")}"}
                     phx-click="set_zoom_mode"
                     phx-value-mode="regional"
                     title="Region Cells"
@@ -152,7 +158,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
                   </button>
                   <button
                     type="button"
-                    class={"join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "local")}"}
+                    class={"sr-ui-join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "local")}"}
                     phx-click="set_zoom_mode"
                     phx-value-mode="local"
                     title="Device Detail"
@@ -160,18 +166,20 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
                     Detail
                   </button>
                 </div>
-                <button
+                <.ui_button
                   type="button"
-                  class="btn btn-xs btn-ghost h-7 min-h-7 w-full mt-1"
                   phx-click="reset_view"
-                  title="Reset view and collapse expanded endpoint clusters"
+                  title="Reset view and sr-ui-collapse expanded endpoint clusters"
+                  size="xs"
+                  variant="ghost"
+                  class="h-7 min-h-7 w-full mt-1"
                 >
                   Reset / Collapse
-                </button>
+                </.ui_button>
               </div>
 
               <div>
-                <div class="text-[10px] uppercase tracking-wide text-base-content/60 mb-1">
+                <div class="text-[10px] uppercase tracking-wide text-sr-muted mb-1">
                   Health
                 </div>
                 <div class="grid grid-cols-2 gap-1">
@@ -215,7 +223,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
               </div>
 
               <div>
-                <div class="text-[10px] uppercase tracking-wide text-base-content/60 mb-1">
+                <div class="text-[10px] uppercase tracking-wide text-sr-muted mb-1">
                   Layers
                 </div>
                 <div class="grid grid-cols-2 gap-1">
@@ -259,7 +267,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
               </div>
 
               <div>
-                <div class="text-[10px] uppercase tracking-wide text-base-content/60 mb-1">
+                <div class="text-[10px] uppercase tracking-wide text-sr-muted mb-1">
                   Topology
                 </div>
                 <div class="grid grid-cols-2 gap-1">
@@ -317,60 +325,60 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
       </:header>
 
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Schema Version</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Schema Version</div>
           <div class="text-sm font-mono mt-1">{@schema_version}</div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Stream State</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Stream State</div>
           <div class="text-sm font-mono mt-1">{@stream_state}</div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Last Revision</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Last Revision</div>
           <div class="text-sm font-mono mt-1">{@last_revision || "—"}</div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Generated At</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Generated At</div>
           <div class="text-sm font-mono mt-1">{@last_generated_at || "—"}</div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Payload Bytes</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Payload Bytes</div>
           <div class="text-sm font-mono mt-1">{@last_bytes || "—"}</div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Node Count</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Node Count</div>
           <div class="text-sm font-mono mt-1">{@last_node_count || "—"}</div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Edge Count</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Edge Count</div>
           <div class="text-sm font-mono mt-1">{@last_edge_count || "—"}</div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Network (ms)</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Network (ms)</div>
           <div class="text-sm font-mono mt-1">{@last_network_ms || "—"}</div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Renderer</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Renderer</div>
           <div class="text-sm font-mono mt-1">{@last_renderer_mode || "—"}</div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Zoom Tier</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Zoom Tier</div>
           <div class="text-sm font-mono mt-1">{@last_zoom_tier || "—"}</div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Zoom Mode</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Zoom Mode</div>
           <div class="text-sm font-mono mt-1">{@last_zoom_mode || "—"}</div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Decode (ms)</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Decode (ms)</div>
           <div class="text-sm font-mono mt-1">{@last_decode_ms || "—"}</div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Render (ms)</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Render (ms)</div>
           <div class="text-sm font-mono mt-1">{@last_render_ms || "—"}</div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">
             Bitmap Meta (r/a/h/u)
           </div>
           <div class="text-sm font-mono mt-1">{format_bitmap_meta(@last_bitmap_metadata)}</div>
@@ -387,38 +395,38 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
         <div class="text-sm font-semibold">Pipeline Telemetry</div>
       </:header>
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Raw Observations</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Raw Observations</div>
           <div class="text-sm font-mono mt-1">{Map.get(@pipeline_stats, :raw_links, "—")}</div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Unique Pairs</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Unique Pairs</div>
           <div class="text-sm font-mono mt-1">{Map.get(@pipeline_stats, :unique_pairs, "—")}</div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Final Edges</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Final Edges</div>
           <div class="text-sm font-mono mt-1">{Map.get(@pipeline_stats, :final_edges, "—")}</div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">
             Unresolved Endpoints
           </div>
           <div class="text-sm font-mono mt-1">
             {Map.get(@pipeline_stats, :unresolved_endpoints, "—")}
           </div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Direct</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Direct</div>
           <div class="text-sm font-mono mt-1">{Map.get(@pipeline_stats, :final_direct, "—")}</div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Inferred</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Inferred</div>
           <div class="text-sm font-mono mt-1">
             {Map.get(@pipeline_stats, :final_inferred, "—")}
           </div>
         </div>
-        <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Attachments</div>
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Attachments</div>
           <div class="text-sm font-mono mt-1">
             {Map.get(@pipeline_stats, :final_attachment, "—")}
           </div>
@@ -428,10 +436,19 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
     """
   end
 
-  def overlay_filter_button_class(true), do: "btn btn-xs btn-primary h-7 min-h-7"
-  def overlay_filter_button_class(false), do: "btn btn-xs btn-ghost h-7 min-h-7"
-  def overlay_zoom_button_class(true), do: "btn btn-xs btn-secondary h-7 min-h-7"
-  def overlay_zoom_button_class(false), do: "btn btn-xs btn-ghost h-7 min-h-7"
+  def overlay_filter_button_class(true),
+    do:
+      "inline-flex h-7 min-h-7 items-center justify-center gap-1 rounded-sr-control border border-transparent bg-sr-brand px-2 text-xs font-semibold text-sr-on-brand"
+
+  def overlay_filter_button_class(false),
+    do:
+      "inline-flex h-7 min-h-7 items-center justify-center gap-1 rounded-sr-control border border-transparent bg-transparent px-2 text-xs font-semibold text-sr-muted hover:bg-sr-subtle hover:text-sr-ink"
+
+  def overlay_zoom_button_class(true),
+    do:
+      "inline-flex h-7 min-h-7 items-center justify-center gap-1 rounded-sr-control border border-sr-line bg-sr-subtle px-2 text-xs font-semibold text-sr-brand"
+
+  def overlay_zoom_button_class(false), do: overlay_filter_button_class(false)
 
   def format_bitmap_meta(nil), do: "—"
 

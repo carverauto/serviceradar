@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.Events do
   alias ServiceRadarWebNGWeb.Netflow.PrefixTagQuery
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.Config
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.Events.Bgp
+  alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowList
   alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
   alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -21,6 +22,29 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.Events do
 
   def handle_event("srql_change", params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
+  end
+
+  def handle_event("srql_paginate", params, socket) do
+    # Session-position keyset page: keep intent URL (q + nf), cursor stays out of the bar.
+    page =
+      case Integer.parse(to_string(Map.get(params, "page") || "1")) do
+        {n, ""} when n > 0 -> n
+        _ -> 1
+      end
+
+    state = Map.get(socket.assigns, :netflow_viz_state) || NFState.default()
+
+    load_params =
+      %{}
+      |> Map.put("cursor", Map.get(params, "cursor"))
+      |> Map.put("page", Integer.to_string(page))
+
+    socket =
+      socket
+      |> assign(:pagination_page, page)
+      |> FlowList.load_flows_list(load_params, state)
+
+    {:noreply, socket}
   end
 
   def handle_event("srql_submit", params, socket) do
