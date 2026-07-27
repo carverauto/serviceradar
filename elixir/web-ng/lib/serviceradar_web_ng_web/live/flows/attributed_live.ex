@@ -791,18 +791,25 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp flow_details_modal(assigns) do
     ~H"""
     <div class="sr-ui-modal sr-ui-modal-open" role="dialog" aria-modal="true">
-      <div class="sr-ui-modal-box max-w-4xl">
-        <div class="flex items-start justify-between gap-4">
+      <div class="sr-ui-modal-box sr-ui-modal-box-lg">
+        <div class="flex items-start justify-between gap-4 border-b border-sr-line pb-4">
           <div class="min-w-0">
-            <h2 class="truncate text-lg font-semibold">Flow Details</h2>
-            <div class="mt-1 text-xs text-sr-muted">{@flow.timestamp}</div>
+            <h2 class="text-lg font-semibold tracking-tight text-sr-ink">Flow Details</h2>
+            <div class="mt-1 break-all font-mono text-xs text-sr-muted">{@flow.timestamp}</div>
           </div>
-          <.ui_icon_button type="button" phx-click="close_flow" aria-label="Close details" title="Close details" size="sm" variant="ghost">
+          <.ui_icon_button
+            type="button"
+            phx-click="close_flow"
+            aria-label="Close details"
+            title="Close details"
+            size="sm"
+            variant="ghost"
+          >
             <.icon name="hero-x-mark" class="size-5" />
           </.ui_icon_button>
         </div>
 
-        <div class="mt-4 grid gap-3 md:grid-cols-2">
+        <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <.detail_item
             label="Source"
             value={endpoint(@flow.source, @flow.source_port)}
@@ -821,10 +828,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           />
           <.detail_item label="Packets" value={format_number(@flow.packets)} />
           <.detail_item label="Agent" value={display(@flow.agent_id)} subvalue={@flow.partition} />
-          <.detail_item
-            label="Context"
-            value={display(workload_context_label(@flow))}
-          />
+          <.detail_item label="Context" value={display(workload_context_label(@flow))} />
           <.detail_item label="PID" value={display(@flow.pid)} subvalue={uid_label(@flow.uid)} />
           <.detail_item label="Process" value={process_label(@flow)} subvalue={@flow.cmdline} />
           <.detail_item
@@ -850,7 +854,9 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           </.ui_button>
         </div>
       </div>
-      <button type="button" class="sr-ui-modal-backdrop" phx-click="close_flow">close</button>
+      <button type="button" class="sr-ui-modal-backdrop" phx-click="close_flow" aria-label="Close">
+        close
+      </button>
     </div>
     """
   end
@@ -861,10 +867,10 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
   defp detail_item(assigns) do
     ~H"""
-    <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
-      <div class="text-xs uppercase tracking-wide text-sr-muted">{@label}</div>
-      <div class="mt-1 break-words font-mono text-sm">{display(@value)}</div>
-      <div :if={present?(@subvalue)} class="mt-1 break-words text-xs text-sr-muted">
+    <div class="min-w-0 rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+      <div class="text-[10px] font-medium uppercase tracking-wider text-sr-muted">{@label}</div>
+      <div class="mt-1 break-all font-mono text-sm leading-snug text-sr-ink">{display(@value)}</div>
+      <div :if={present?(@subvalue)} class="mt-1 break-all text-xs leading-snug text-sr-muted">
         {display(@subvalue)}
       </div>
     </div>

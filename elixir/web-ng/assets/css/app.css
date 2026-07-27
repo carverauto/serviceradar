@@ -984,6 +984,14 @@ samp,
   padding: 1.5rem;
 }
 
+/* Medium dialogs (attributed flow details, multi-column forms) */
+.sr-ui-modal-box-lg {
+  width: min(92vw, 56rem);
+  max-width: min(92vw, 56rem);
+  max-height: min(90dvh, 90vh);
+  overflow-y: auto;
+}
+
 /* Full-bleed / explorer modals (netflow flow details, etc.) */
 .sr-ui-modal-box-wide {
   width: min(96vw, 96rem);
