@@ -265,44 +265,63 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
 
     ~H"""
     <%= if @show and @trace do %>
+      <%!--
+        Use sr-ui-modal-box-lg (56rem). Plain max-w-* does not override
+        .sr-ui-modal-box width: min(..., 32rem), which squished this dialog.
+      --%>
       <div class="sr-ui-modal sr-ui-modal-open">
-        <div class="sr-ui-modal-box max-w-6xl">
-          <div class="flex items-center justify-between mb-3">
-            <h3 class="font-bold text-lg">MTR Trace Details</h3>
+        <div class="sr-ui-modal-box sr-ui-modal-box-lg">
+          <div class="mb-4 flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <h3 class="text-lg font-semibold tracking-tight text-sr-ink">MTR Trace Details</h3>
+              <p class="mt-0.5 text-xs text-sr-muted">
+                Path health for this probe — hop latency width, loss tint.
+              </p>
+            </div>
             <.ui_button type="button" phx-click="close_mtr_trace_modal" size="sm" variant="ghost">
               Close
             </.ui_button>
           </div>
 
-          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4 text-sm">
-            <div>
-              <span class="sr-mtr-muted">Target:</span>
-              <span class="font-mono">{@trace["target"]}</span>
+          <div class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div class="min-w-0 rounded-lg border border-sr-line bg-sr-subtle/40 px-3 py-2.5">
+              <div class="sr-mtr-label">Target</div>
+              <div class="mt-1 truncate font-mono text-sm text-sr-ink" title={@trace["target"]}>
+                {@trace["target"]}
+              </div>
             </div>
-            <div>
-              <span class="sr-mtr-muted">Agent:</span>
-              <span class="font-mono">{@trace["agent_id"]}</span>
+            <div class="min-w-0 rounded-lg border border-sr-line bg-sr-subtle/40 px-3 py-2.5">
+              <div class="sr-mtr-label">Agent</div>
+              <div class="mt-1 truncate font-mono text-sm text-sr-ink" title={@trace["agent_id"]}>
+                {@trace["agent_id"]}
+              </div>
             </div>
-            <div>
-              <span class="sr-mtr-muted">Protocol:</span> {String.upcase(@trace["protocol"] || "icmp")}
+            <div class="min-w-0 rounded-lg border border-sr-line bg-sr-subtle/40 px-3 py-2.5">
+              <div class="sr-mtr-label">Protocol</div>
+              <div class="mt-1 text-sm font-medium text-sr-ink">
+                {String.upcase(@trace["protocol"] || "icmp")}
+              </div>
             </div>
-            <div>
-              <span class="sr-mtr-muted">Time:</span> {format_mtr_time(@trace["time"])}
+            <div class="min-w-0 rounded-lg border border-sr-line bg-sr-subtle/40 px-3 py-2.5">
+              <div class="sr-mtr-label">Time</div>
+              <div class="mt-1 font-mono text-sm text-sr-ink">
+                {format_mtr_time(@trace["time"])}
+              </div>
             </div>
           </div>
 
           <div
             :if={@hops != []}
-            class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-4"
+            class="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4"
           >
             <div class="sr-mtr-card p-4">
               <div class="sr-mtr-label">Hop Count</div>
-              <div class="sr-mtr-value mt-2 text-2xl">{@hop_dashboard.hop_count}</div>
+              <div class="sr-mtr-value mt-2 text-2xl tabular-nums">{@hop_dashboard.hop_count}</div>
             </div>
             <div class="sr-mtr-card p-4">
               <div class="sr-mtr-label">Avg Loss</div>
               <div class={[
-                "mt-2 text-2xl font-semibold",
+                "mt-2 text-2xl font-semibold tabular-nums",
                 loss_class_for_modal(@hop_dashboard.avg_loss_pct)
               ]}>
                 {format_pct_mtr(@hop_dashboard.avg_loss_pct)}
@@ -310,13 +329,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
             </div>
             <div class="sr-mtr-card p-4">
               <div class="sr-mtr-label">Peak Avg RTT</div>
-              <div class="sr-mtr-value mt-2 text-2xl">
+              <div class="sr-mtr-value mt-2 text-2xl tabular-nums">
                 {format_us_mtr(@hop_dashboard.max_avg_us)}
               </div>
             </div>
             <div class="sr-mtr-card p-4">
               <div class="sr-mtr-label">Most Lossy Hop</div>
-              <div class="sr-mtr-value mt-2 text-2xl">
+              <div class="sr-mtr-value mt-2 text-2xl tabular-nums">
                 {format_pct_mtr(@hop_dashboard.max_loss_pct)}
               </div>
             </div>
@@ -324,17 +343,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
 
           <div
             :if={@hops != []}
-            class="sr-mtr-panel p-4 mb-4"
+            class="sr-mtr-panel mb-4 p-4"
           >
-            <div class="flex items-center justify-between">
+            <div class="flex flex-wrap items-center justify-between gap-2">
               <h4 class="sr-mtr-title font-semibold">Hop Health</h4>
-              <div class="sr-mtr-muted text-xs">latency width, loss tint</div>
+              <div class="sr-mtr-muted text-xs">latency width · loss tint</div>
             </div>
             <div class="mt-4 space-y-3">
-              <div :for={hop <- @hops} class="space-y-1">
-                <div class="flex items-center justify-between text-xs">
-                  <span class="font-mono">hop {hop["hop_number"]} · {hop["addr"] || "???"}</span>
-                  <span>{format_us_mtr(hop["avg_us"])} · {format_pct_mtr(hop["loss_pct"])}</span>
+              <div :for={hop <- @hops} class="space-y-1.5">
+                <div class="flex items-baseline justify-between gap-3 text-xs">
+                  <span class="min-w-0 truncate font-mono text-sr-ink">
+                    <span class="text-sr-muted">hop {hop["hop_number"]}</span>
+                    <span class="text-sr-muted"> · </span>
+                    <span title={hop["addr"] || "???"}>{hop["addr"] || "???"}</span>
+                  </span>
+                  <span class="shrink-0 tabular-nums text-sr-muted">
+                    {format_us_mtr(hop["avg_us"])}
+                    <span class="mx-1 text-sr-line">·</span>
+                    <span class={loss_class_for_modal(hop["loss_pct"])}>
+                      {format_pct_mtr(hop["loss_pct"])}
+                    </span>
+                  </span>
                 </div>
                 <div class="sr-mtr-track h-2">
                   <div
@@ -350,11 +379,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
             </div>
           </div>
 
-          <div class="sr-ui-table-shell">
-            <table class={ui_table_class(size: "sm", class: "sr-mtr-table")}>
+          <div class="sr-ui-table-shell overflow-x-auto">
+            <table class={ui_table_class(size: "sm", class: "sr-mtr-table w-full min-w-[40rem]")}>
               <thead>
                 <tr>
-                  <th>Hop</th>
+                  <th class="w-14">Hop</th>
                   <th>Address</th>
                   <th>Hostname</th>
                   <th class="text-right">Loss %</th>
@@ -366,21 +395,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
               </thead>
               <tbody>
                 <tr :for={hop <- @hops}>
-                  <td class="font-mono text-center">{hop["hop_number"]}</td>
+                  <td class="text-center font-mono tabular-nums">{hop["hop_number"]}</td>
                   <td class="font-mono text-sm">{hop["addr"] || "???"}</td>
-                  <td class="text-sm max-w-[220px] truncate" title={hop["hostname"]}>
+                  <td class="max-w-[14rem] truncate text-sm" title={hop["hostname"]}>
                     {hop["hostname"] || "-"}
                   </td>
-                  <td class={["text-right font-mono text-sm", loss_class_for_modal(hop["loss_pct"])]}>
+                  <td class={[
+                    "text-right font-mono text-sm tabular-nums",
+                    loss_class_for_modal(hop["loss_pct"])
+                  ]}>
                     {format_pct_mtr(hop["loss_pct"])}
                   </td>
-                  <td class="text-right font-mono text-sm">{format_us_mtr(hop["last_us"])}</td>
-                  <td class="text-right font-mono text-sm">{format_us_mtr(hop["avg_us"])}</td>
-                  <td class="text-right font-mono text-sm">{format_us_mtr(hop["min_us"])}</td>
-                  <td class="text-right font-mono text-sm">{format_us_mtr(hop["max_us"])}</td>
+                  <td class="text-right font-mono text-sm tabular-nums">
+                    {format_us_mtr(hop["last_us"])}
+                  </td>
+                  <td class="text-right font-mono text-sm tabular-nums">
+                    {format_us_mtr(hop["avg_us"])}
+                  </td>
+                  <td class="text-right font-mono text-sm tabular-nums">
+                    {format_us_mtr(hop["min_us"])}
+                  </td>
+                  <td class="text-right font-mono text-sm tabular-nums">
+                    {format_us_mtr(hop["max_us"])}
+                  </td>
                 </tr>
                 <tr :if={@hops == []}>
-                  <td colspan="8" class="sr-mtr-muted text-center py-4">
+                  <td colspan="8" class="sr-mtr-muted py-4 text-center">
                     No hop data available
                   </td>
                 </tr>
