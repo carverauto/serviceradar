@@ -84,21 +84,34 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
   end
 
   def signal_display_widget(%{widget: %{type: :json_section}} = assigns) do
+    # Prefer flattened key/value facts over raw JSON walls.
+    facts =
+      assigns.widget
+      |> Map.get(:sections, [])
+      |> Enum.flat_map(fn section ->
+        case Map.get(section, :value) do
+          %{} = map -> flatten_json_facts(map)
+          list when is_list(list) -> [%{label: "Items", value: "#{length(list)} entries"}]
+          _ -> []
+        end
+      end)
+      |> Enum.take(24)
+
+    assigns =
+      assigns
+      |> assign(:facts, facts)
+      |> assign(:title, assigns.widget.title || "Details")
+
     ~H"""
-    <div>
+    <div :if={@facts != []}>
       <span class="mb-3 block text-[10px] font-medium uppercase tracking-[0.14em] text-sr-muted">
-        {@widget.title || "JSON"}
+        {@title}
       </span>
-      <div class="space-y-3">
-        <details
-          :for={section <- @widget.sections}
-          class="rounded-sr-control border border-sr-line bg-sr-subtle/40 p-3"
-        >
-          <summary class="cursor-pointer font-mono text-xs text-sr-muted hover:text-sr-ink">
-            {section.path}
-          </summary>
-          <pre class="mt-3 max-h-48 overflow-x-auto rounded-sr-control border border-sr-line bg-sr-canvas/60 p-2 font-mono text-xs text-sr-ink">{section.json}</pre>
-        </details>
+      <div class="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+        <div :for={fact <- @facts} class="flex min-w-0 flex-col gap-0.5">
+          <span class="text-[11px] text-sr-muted">{fact.label}</span>
+          <span class="break-all text-sm text-sr-ink">{fact.value}</span>
+        </div>
       </div>
     </div>
     """
@@ -131,6 +144,42 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
   end
 
   def signal_display_widget(assigns), do: ~H""
+
+  defp flatten_json_facts(map, prefix \\ nil) when is_map(map) do
+    map
+    |> Enum.sort_by(fn {k, _} -> to_string(k) end)
+    |> Enum.flat_map(fn {key, value} ->
+      label =
+        key
+        |> to_string()
+        |> String.replace("_", " ")
+        |> String.split()
+        |> Enum.map_join(" ", &String.capitalize/1)
+
+      label = if prefix, do: "#{prefix} · #{label}", else: label
+
+      cond do
+        value in [nil, "", []] ->
+          []
+
+        is_map(value) and map_size(value) == 0 ->
+          []
+
+        is_map(value) and map_size(value) <= 6 and flat_map?(value) ->
+          flatten_json_facts(value, label)
+
+        is_map(value) or is_list(value) ->
+          []
+
+        true ->
+          [%{label: label, value: to_string(value)}]
+      end
+    end)
+  end
+
+  defp flat_map?(%{} = map) do
+    Enum.all?(map, fn {_k, v} -> is_binary(v) or is_number(v) or is_boolean(v) or is_nil(v) end)
+  end
 
   attr(:value, :any, default: nil)
 

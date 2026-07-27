@@ -39,6 +39,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
      |> assign(:stream_prev_cursor, nil)
      |> assign(:stream_page, 1)
      |> assign(:stream_page_size, @stream_page_size)
+     |> assign(:show_raw_json, false)
      |> assign(:limit, @srql_default_limit)
      |> SRQLPage.init("events", default_limit: @srql_default_limit)}
   end
@@ -75,6 +76,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
      |> assign(:stream_prev_cursor, prev_cursor)
      |> assign(:stream_page, 1)
      |> assign(:stream_severity, "all")
+     |> assign(:show_raw_json, false)
      |> assign(:page_title, page_title_for(event, event_id))
      |> prefill_srql_bar(detail_query, uri, event_id)}
   end
@@ -133,6 +135,10 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       end
 
     {:noreply, push_event(socket, "clipboard", %{text: text})}
+  end
+
+  def handle_event("toggle_raw_json", _params, socket) do
+    {:noreply, assign(socket, :show_raw_json, not socket.assigns.show_raw_json)}
   end
 
   def handle_event("srql_change", params, socket) do
@@ -228,6 +234,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
               <.falco_runtime_summary :if={falco_event?(@event)} event={@event} />
               <.related_links related={@related} />
               <.event_details event={@event} />
+              <.event_raw_toggle event={@event} open?={@show_raw_json} />
             </div>
           </section>
         </div>
@@ -850,8 +857,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     actor = map_value(event, "actor") || %{}
     metadata = map_value(event, "metadata") || %{}
     unmapped = map_value(event, "unmapped") || %{}
+    raw = map_value(event, "raw_data") || %{}
 
-    [
+    base = [
       %{
         label: "Application",
         value: nested_string(event, ["actor", "app_name"]) || map_value(actor, "app_name"),
@@ -863,44 +871,64 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
         mono?: true
       },
       %{
-        label: "Log name",
-        value: Map.get(event, "log_name"),
-        mono?: true
-      },
-      %{
-        label: "Log level",
-        value: Map.get(event, "log_level") || Map.get(event, "level"),
-        mono?: false
-      },
-      %{
-        label: "Created",
-        value: Map.get(event, "created_at") || Map.get(event, "time"),
-        mono?: true
-      },
-      %{
-        label: "Class",
-        value: Map.get(event, "class_name") || Map.get(event, "class_uid"),
-        mono?: true
-      },
-      %{
-        label: "Category",
-        value: Map.get(event, "category_name") || Map.get(event, "category_uid"),
-        mono?: true
-      },
-      %{
-        label: "Type",
-        value: Map.get(event, "type_name") || Map.get(event, "type_uid"),
-        mono?: true
-      },
-      %{
         label: "Status",
         value: Map.get(event, "status") || Map.get(event, "status_detail"),
         mono?: false
       },
       %{
-        label: "Trace",
-        value: Map.get(event, "trace_id") || nested_string(metadata, ["trace_id"]),
+        label: "Action",
+        value: scalar_from_maps([raw, unmapped], ["action"]),
+        mono?: false
+      },
+      %{
+        label: "Purpose",
+        value: scalar_from_maps([raw, unmapped], ["purpose"]),
+        mono?: false
+      },
+      %{
+        label: "Grant type",
+        value: scalar_from_maps([raw, unmapped], ["grant_type"]),
         mono?: true
+      },
+      %{
+        label: "Consumer",
+        value: scalar_from_maps([raw, unmapped], ["consumer_id"]),
+        mono?: true
+      },
+      %{
+        label: "Consumer kind",
+        value: scalar_from_maps([raw, unmapped], ["consumer_kind"]),
+        mono?: false
+      },
+      %{
+        label: "Agent",
+        value: scalar_from_maps([raw, unmapped], ["agent_id"]),
+        mono?: true
+      },
+      %{
+        label: "Grant ID",
+        value: scalar_from_maps([raw, unmapped], ["credential_broker_grant_id"]),
+        mono?: true
+      },
+      %{
+        label: "Rule ID",
+        value: scalar_from_maps([raw, unmapped], ["credential_rule_id"]),
+        mono?: true
+      },
+      %{
+        label: "Secret ID",
+        value: scalar_from_maps([raw, unmapped], ["network_credential_secret_id"]),
+        mono?: true
+      },
+      %{
+        label: "Event family",
+        value: scalar_from_maps([raw, unmapped], ["event_family"]),
+        mono?: true
+      },
+      %{
+        label: "Resolution",
+        value: scalar_from_maps([raw, unmapped], ["resolution_location"]),
+        mono?: false
       },
       %{
         label: "Job",
@@ -909,13 +937,69 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
             nested_string(unmapped, ["oban_job"]) ||
             nested_string(metadata, ["job"]),
         mono?: true
+      },
+      %{
+        label: "Trace",
+        value: Map.get(event, "trace_id") || nested_string(metadata, ["trace_id"]),
+        mono?: true
       }
     ]
+
+    # Any remaining flat raw_data keys not already covered.
+    used_labels = MapSet.new(Enum.map(base, & &1.label))
+
+    extra =
+      raw
+      |> flatten_scalar_facts()
+      |> Enum.reject(fn fact -> MapSet.member?(used_labels, fact.label) end)
+
+    (base ++ extra)
     |> Enum.reject(fn fact -> blank_value?(fact.value) end)
     |> Enum.uniq_by(fn fact -> {fact.label, to_string(fact.value)} end)
   end
 
   defp event_context_facts(_), do: []
+
+  defp scalar_from_maps(maps, keys) when is_list(maps) and is_list(keys) do
+    Enum.find_value(maps, fn
+      %{} = map ->
+        Enum.find_value(keys, fn key ->
+          case map_value(map, key) do
+            v when is_binary(v) and v != "" -> v
+            v when is_number(v) or is_boolean(v) -> to_string(v)
+            _ -> nil
+          end
+        end)
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp flatten_scalar_facts(%{} = map) do
+    map
+    |> Enum.sort_by(fn {k, _} -> to_string(k) end)
+    |> Enum.flat_map(fn {key, value} ->
+      cond do
+        value in [nil, "", []] ->
+          []
+
+        is_map(value) or is_list(value) ->
+          []
+
+        true ->
+          [
+            %{
+              label: humanize_field(to_string(key)),
+              value: to_string(value),
+              mono?: is_binary(value) and String.length(value) > 20
+            }
+          ]
+      end
+    end)
+  end
+
+  defp flatten_scalar_facts(_), do: []
 
   # -- domain panels (preserved) ----------------------------------------------
 
@@ -1240,28 +1324,61 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   attr(:event, :map, required: true)
 
   defp event_details(assigns) do
-    # Already surfaced in header / meta / context / message.
-    summary_fields =
+    # Scalars only — no raw JSON blobs. Nested payloads live in context or raw toggle.
+    skip =
       MapSet.new(~w(
         id event_id severity severity_id time event_timestamp timestamp host source
         short_message message activity_name activity_id class_uid category_uid type_uid
         class_name category_name type_name log_provider log_name log_level level
-        status status_detail created_at actor
+        status status_detail status_id status_code created_at actor raw_data unmapped
+        metadata observables device src_endpoint dst_endpoint enrichment
       ))
 
-    other_fields =
+    facts =
       assigns.event
-      |> Enum.filter(fn {key, value} ->
-        is_binary(key) and not MapSet.member?(summary_fields, key) and
-          meaningful_detail_value?(value)
-      end)
-      |> Enum.sort_by(fn {key, _} -> key end)
+      |> Enum.flat_map(fn
+        {key, value} when is_binary(key) ->
+          if MapSet.member?(skip, key) do
+            []
+          else
+            case value do
+              v when v in [nil, "", []] ->
+                []
 
-    assigns = assign(assigns, :other_fields, other_fields)
+              %{} = map ->
+                if empty_structure?(map), do: [], else: []
+
+              list when is_list(list) ->
+                []
+
+              v when is_boolean(v) ->
+                [%{label: field_label(key), value: to_string(v), mono?: false}]
+
+              v when is_number(v) ->
+                [%{label: field_label(key), value: to_string(v), mono?: true}]
+
+              v when is_binary(v) ->
+                if looks_like_json?(v) do
+                  []
+                else
+                  [%{label: field_label(key), value: v, mono?: String.length(v) > 24}]
+                end
+
+              _ ->
+                []
+            end
+          end
+
+        _ ->
+          []
+      end)
+      |> Enum.sort_by(& &1.label)
+
+    assigns = assign(assigns, :facts, facts)
 
     ~H"""
     <div
-      :if={@other_fields != []}
+      :if={@facts != []}
       class="overflow-hidden rounded-sr-surface border border-sr-line bg-sr-surface shadow-sr-surface"
     >
       <div class="border-b border-sr-line bg-sr-subtle/30 px-4 py-2.5">
@@ -1269,26 +1386,77 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           Additional fields
         </span>
       </div>
-      <div class="grid grid-cols-1 gap-x-6 gap-y-4 p-4 sm:grid-cols-2 sm:p-5">
-        <%= for {field, value} <- @other_fields do %>
-          <div class="flex min-w-0 flex-col gap-1">
-            <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
-              {field_label(field)}
-            </span>
-            <.format_value value={value} />
-          </div>
-        <% end %>
+      <div class="grid grid-cols-1 divide-y divide-sr-line sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-3">
+        <div
+          :for={fact <- @facts}
+          class="flex min-w-0 flex-col gap-1 px-4 py-3 even:bg-sr-subtle/15 sm:even:bg-transparent sm:[&:nth-child(2n)]:bg-sr-subtle/10 lg:[&:nth-child(2n)]:bg-transparent lg:[&:nth-child(3n+2)]:bg-sr-subtle/10"
+        >
+          <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+            {fact.label}
+          </span>
+          <span class={[
+            "break-all text-sm text-sr-ink",
+            fact.mono? && "font-mono text-[13px] tracking-tight"
+          ]}>
+            {fact.value}
+          </span>
+        </div>
       </div>
     </div>
     """
   end
 
-  defp meaningful_detail_value?(nil), do: false
-  defp meaningful_detail_value?(""), do: false
-  defp meaningful_detail_value?([]), do: false
-  defp meaningful_detail_value?(%{} = map), do: not empty_structure?(map)
-  defp meaningful_detail_value?(list) when is_list(list), do: not empty_structure?(list)
-  defp meaningful_detail_value?(_), do: true
+  attr :event, :map, required: true
+  attr :open?, :boolean, default: false
+
+  defp event_raw_toggle(assigns) do
+    json =
+      case assigns.event do
+        %{} = event ->
+          event
+          |> Map.drop(["source_device_uid"])
+          |> Jason.encode!(pretty: true)
+
+        _ ->
+          ""
+      end
+
+    assigns = assign(assigns, :json, json)
+
+    ~H"""
+    <div class="overflow-hidden rounded-sr-surface border border-dashed border-sr-line/80 bg-sr-surface/60">
+      <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+        <span class="font-sans text-xs font-medium text-sr-muted">
+          Technical payload
+        </span>
+        <div class="flex items-center gap-1.5">
+          <.ui_button
+            :if={@open?}
+            type="button"
+            size="xs"
+            variant="ghost"
+            phx-click="copy_json"
+          >
+            Copy JSON
+          </.ui_button>
+          <.ui_button type="button" size="xs" variant="outline" phx-click="toggle_raw_json">
+            {if @open?, do: "Hide raw event", else: "Show raw event"}
+          </.ui_button>
+        </div>
+      </div>
+      <div :if={@open?} class="border-t border-sr-line px-4 py-3">
+        <pre class="max-h-80 overflow-auto rounded-sr-control border border-sr-line bg-sr-subtle/30 p-3 font-mono text-[11px] leading-relaxed text-sr-ink/90 selection:bg-sr-brand/25">{@json}</pre>
+      </div>
+    </div>
+    """
+  end
+
+  defp looks_like_json?(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    String.starts_with?(trimmed, "{") or String.starts_with?(trimmed, "[")
+  end
+
+  defp looks_like_json?(_), do: false
 
   defp empty_structure?(%{} = map) do
     map
@@ -1309,87 +1477,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp empty_structure?(nil), do: true
   defp empty_structure?(""), do: true
   defp empty_structure?(_), do: false
-
-  attr(:value, :any, default: nil)
-
-  defp format_value(assigns) do
-    value = assigns.value
-
-    cond do
-      value in [nil, ""] ->
-        ~H|<span class="text-sr-muted">—</span>|
-
-      is_map(value) and empty_structure?(value) ->
-        ~H|<span class="text-sr-muted">—</span>|
-
-      is_list(value) and (value == [] or empty_structure?(value)) ->
-        ~H|<span class="text-sr-muted">—</span>|
-
-      is_boolean(value) ->
-        ~H"""
-        <.ui_badge variant={if @value, do: "success", else: "error"} size="xs">
-          {to_string(@value)}
-        </.ui_badge>
-        """
-
-      is_map(value) ->
-        pairs =
-          value
-          |> Enum.map(fn {k, v} -> {to_string(k), v} end)
-          |> Enum.reject(fn {_k, v} -> empty_structure?(v) or v in [nil, ""] end)
-          |> Enum.sort_by(fn {k, _} -> k end)
-
-        if length(pairs) <= 8 and Enum.all?(pairs, fn {_k, v} -> flat_value?(v) end) do
-          assigns = assign(assigns, :pairs, pairs)
-
-          ~H"""
-          <dl class="space-y-1.5">
-            <div :for={{key, val} <- @pairs} class="min-w-0">
-              <dt class="font-mono text-[10px] uppercase tracking-wide text-sr-muted">{key}</dt>
-              <dd class="break-all font-mono text-xs text-sr-ink">{display_value(val)}</dd>
-            </div>
-          </dl>
-          """
-        else
-          assigns = assign(assigns, :formatted, Jason.encode!(value, pretty: true))
-
-          ~H"""
-          <pre class="max-h-48 overflow-x-auto rounded-sr-control border border-sr-line/60 bg-sr-subtle/30 p-2.5 font-mono text-xs leading-relaxed text-sr-ink/90">{@formatted}</pre>
-          """
-        end
-
-      is_list(value) ->
-        assigns = assign(assigns, :formatted, Jason.encode!(value, pretty: true))
-
-        ~H"""
-        <pre class="max-h-48 overflow-x-auto rounded-sr-control border border-sr-line/60 bg-sr-subtle/30 p-2.5 font-mono text-xs leading-relaxed text-sr-ink/90">{@formatted}</pre>
-        """
-
-      is_binary(value) and (String.starts_with?(value, "{") or String.starts_with?(value, "[")) ->
-        case Jason.decode(value) do
-          {:ok, decoded} when is_map(decoded) or is_list(decoded) ->
-            format_value(assign(assigns, :value, decoded))
-
-          _ ->
-            ~H"""
-            <span class="break-all font-mono text-xs text-sr-ink">{@value}</span>
-            """
-        end
-
-      is_binary(value) ->
-        ~H"""
-        <span class="break-all text-sm text-sr-ink">{@value}</span>
-        """
-
-      true ->
-        ~H"""
-        <span class="break-all text-sm text-sr-ink">{to_string(@value)}</span>
-        """
-    end
-  end
-
-  defp flat_value?(v) when is_binary(v) or is_number(v) or is_boolean(v) or is_nil(v), do: true
-  defp flat_value?(_), do: false
 
   attr(:value, :any, default: nil)
 
@@ -1582,8 +1669,21 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   defp build_signal_display(event, scope) when is_map(event) do
     case SignalDisplay.render_record(event) do
-      {:ok, widgets} -> Enum.map(widgets, &add_device_ip_links(&1, scope))
-      :error -> nil
+      {:ok, widgets} ->
+        widgets =
+          widgets
+          |> Enum.map(&add_device_ip_links(&1, scope))
+          # Drop empty json sections; non-empty ones render as fact grids in the UI.
+          |> Enum.reject(fn
+            %{type: :json_section, sections: sections} -> sections == []
+            %{type: :summary} = w -> blank?(Map.get(w, :message)) and blank?(Map.get(w, :title))
+            _ -> false
+          end)
+
+        if widgets == [], do: nil, else: widgets
+
+      :error ->
+        nil
     end
   end
 
