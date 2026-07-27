@@ -44,10 +44,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   def handle_params(%{"log_id" => log_id}, uri, socket) do
     log_id = normalize_uuid(log_id)
     {log, error} = load_log(log_id, socket.assigns.current_scope)
-    context_query = stream_query_for_log(log)
+    # Side stream: related entries (service/time context). SRQL chrome: this log.
+    stream_query = stream_query_for_log(log)
+    detail_query = detail_query_for_log(log_id)
 
     {stream, next_cursor, prev_cursor} =
-      load_stream_page(context_query, log, log_id, nil)
+      load_stream_page(stream_query, log, log_id, nil)
 
     body =
       if is_map(log) do
@@ -70,7 +72,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
      |> assign(:signal_display, build_signal_display(log))
      |> assign(:error, error)
      |> assign(:stream_entries, stream)
-     |> assign(:stream_query, context_query)
+     |> assign(:stream_query, stream_query)
      |> assign(:stream_cursor, nil)
      |> assign(:stream_next_cursor, next_cursor)
      |> assign(:stream_prev_cursor, prev_cursor)
@@ -78,7 +80,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
      |> assign(:stream_severity, "all")
      |> assign(:body_mode, body_mode)
      |> assign(:page_title, page_title_for(log, log_id))
-     |> prefill_srql_bar(context_query, uri, log_id)}
+     |> prefill_srql_bar(detail_query, uri, log_id)}
   end
 
   @impl true
@@ -273,7 +275,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   # -- data loading -----------------------------------------------------------
 
   defp load_log(log_id, scope) do
-    query = ~s|in:logs id:"#{escape_value(log_id)}" time:last_24h limit:1|
+    query = detail_query_for_log(log_id) <> " limit:1"
 
     case srql_module().query(query) do
       {:ok, %{"results" => [log | _]}} when is_map(log) ->
@@ -296,6 +298,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     end
   end
 
+  # Query that pinpoints the open log entry (SRQL chrome / re-run from detail).
+  defp detail_query_for_log(log_id) when is_binary(log_id) do
+    ~s|in:logs id:"#{escape_value(log_id)}" time:last_24h|
+  end
+
+  defp detail_query_for_log(_), do: "in:logs time:last_24h"
+
+  # Related stream for the left rail — same service, not the single-id lookup.
   defp stream_query_for_log(%{} = log) do
     service = Map.get(log, "service_name")
 
