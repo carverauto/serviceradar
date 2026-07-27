@@ -25,6 +25,11 @@ rust_binary(
     name = "serviceradar-anomaly-addon",
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
+    # Firecracker RBE: rustc final link (aws-lc, ring, zstd) OOMs ~2.5–4Gi VMs.
+    exec_properties = {
+        "EstimatedCPU": "4",
+        "EstimatedMemory": "8GB",
+    },
     deps = [":serviceradar_anomaly_addon"] + all_crate_deps(normal = True) + [
         "//rust/addon-sdk:addon_sdk",
     ],
