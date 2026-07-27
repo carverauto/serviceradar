@@ -2,6 +2,13 @@
 
 ## ADDED Requirements
 
+> **BOUNDARY:** the wire-ABI requirements moved to the `freeze-edge-record-v1-abi`
+> change, which owns the record/frame shapes, the identity and digest grammars, the
+> classification-span freeze, the completion-disposition enum, the exact-received-byte
+> rule, and the assignment-mapping KEY. The requirements below describe RUNTIME
+> behaviour over that frozen contract. This change DEPENDS ON that one and MUST NOT
+> restate or re-freeze anything it owns.
+
 ### Requirement: Durable edge producers use one agent-owned record sink
 All durable edge producers SHALL use one agent-owned record sink. Built-in
 collectors, Wasm plugins, native add-ons, and embedded agent-side integrations
@@ -49,112 +56,6 @@ change the semantic bytes, event identity, or digest.
 - **AND** the exact `EdgeRecordV1` bytes later stored in JetStream SHALL remain
   identical to the bytes the sink originally encoded from the accepted producer
   submission
-
-### Requirement: Output contracts are approved as complete immutable bundles
-The deployment SHALL maintain a versioned output-contract registry shared by
-assignment compilation, the agent sink, gateway readiness/routing, and
-EventWriter. An immutable contract bundle SHALL bind contract ID/version,
-encoding and schema canonicalization, unknown-field policy, bounded validator,
-authoritative-field rules, deterministic domain identity and revision/merge
-semantics, platform partition rule, cost model, projector engine/configuration,
-retention/data classification, and error policy. Its exact digest and registry
-epoch SHALL be bound into every accepted record and retained through the maximum
-producer-retry, agent-offline, spool, JetStream replay, DLQ, and redrive horizon.
-
-Package metadata MAY request approved outputs and declarative processor
-contributions, but SHALL NOT choose subjects, streams, consumers, traffic class,
-database tables/DDL, executable Core processors, or arbitrary subject filters.
-A producer grant SHALL become ready only when agent, gateway, route map, and
-required projector have compatible registry state.
-
-Each bundle SHALL transition through signed `candidate`, `ready`, `active`,
-`draining`, and `retired` states or the terminal `security-revoked` state. A
-candidate SHALL become ready only after the target agent cohort, every
-authoritative gateway route/map generation, and every required EventWriter
-validator, cost engine, and projector attest the exact bundle digest. Assignment
-compilation SHALL issue grants only for one atomically selected active epoch; a
-partially deployed or stale epoch SHALL NOT receive new production. Planned
-retirement SHALL stop new grants and permit only exact historical backlog to
-drain to declared spool, JetStream, DLQ, redrive, and producer-receipt
-watermarks. Security revocation SHALL stop both new production and backlog
-delivery fail-closed until an approved safe replacement, redrive, or explicit
-waiver exists. Registry history SHALL be garbage-collected only after all of its
-declared horizons and correctness holds close.
-
-#### Scenario: Package requests an unapproved output
-- **WHEN** a package requests or submits a contract absent from its effective
-  assignment grant
-- **THEN** the agent SHALL reject it before local spool acceptance
-- **AND** no fallback generic JSON, subject, or dynamic database projection
-  SHALL be created
-
-#### Scenario: Deployment components disagree on registry epoch
-- **GIVEN** the agent can encode a contract but the gateway route or EventWriter
-  projector is not ready for its exact bundle
-- **WHEN** the scheduler evaluates a new producer assignment
-- **THEN** the assignment SHALL remain not ready or paused
-- **AND** the mismatch SHALL NOT be converted into a fleet-wide poison stream
-
-#### Scenario: Candidate activation is only partially ready
-- **GIVEN** an agent and gateway route report a candidate bundle ready
-- **AND** one required EventWriter projector or route-map generation is not ready
-- **WHEN** the control plane evaluates activation
-- **THEN** the active registry epoch SHALL remain unchanged
-- **AND** no assignment SHALL receive a grant for the candidate bundle
-
-#### Scenario: A contract is retired normally
-- **WHEN** a newer contract version replaces an old version without a security
-  incident
-- **THEN** new grants SHALL use the new bundle while immutable old backlog MAY
-  drain through the pinned historical bundle
-- **AND** the historical bundle SHALL remain resolvable until all supported
-  retry/replay/redrive horizons close
-
-#### Scenario: A contract is revoked for compromise
-- **WHEN** a contract, package, validator, or projector is security-revoked
-- **THEN** new production and delivery of matching records SHALL stop fail-closed
-- **AND** matching backlog SHALL be held or quarantined until an operator
-  authorizes a fixed safe bundle, redrive, or explicit waiver
-
-#### Scenario: A stale component resumes after activation
-- **WHEN** a gateway, agent, or EventWriter instance resumes with an epoch older
-  than the active or explicitly draining set
-- **THEN** it SHALL be fenced from new production and authoritative projection
-- **AND** it SHALL NOT roll the deployment backward or reinterpret records under
-  its local latest-known bundle
-
-### Requirement: Producer provenance and authority are host-attested
-Trusted producer provenance and authority SHALL be host-attested. Producer
-instance, package digest, assignment, run, source/coverage scope,
-network scope, agent identity, route profile, traffic class, and cost metadata
-SHALL be derived or verified by the trusted agent sink from host-issued handles,
-the effective grant, and control-plane-signed capabilities. Caller-selected
-identifiers SHALL NOT create identity, capability, routing, or quota namespaces.
-Output permission SHALL NOT grant network scanning, raw-socket, filesystem, HTTP,
-credential, command, or target access; those capabilities SHALL be authorized
-separately by the command/assignment plane.
-
-Carrier provenance SHALL NOT make opaque payload claims authoritative.
-EventWriter SHALL compare or replace body-level agent, package, source, network
-scope, assignment/run, target/range, and traffic-class claims using the trusted
-envelope/grant before side effects.
-
-#### Scenario: A plugin claims another network scope and lower cost
-- **WHEN** a plugin body or submission metadata claims another scope, route,
-  traffic class, partition, or artificially low projected cost
-- **THEN** the agent SHALL ignore/replace non-authoritative metadata or reject
-  the record before spool acceptance
-- **AND** EventWriter SHALL independently recompute the approved cost and
-  validate decoded authoritative fields before projection
-
-#### Scenario: A scanner output lacks scan authority
-- **GIVEN** a package has permission to emit a scan-result contract but no valid
-  target/range collection capability
-- **WHEN** it attempts to report or initiate a scan
-- **THEN** output permission SHALL NOT authorize the probe or make the target
-  claims authoritative
-- **AND** the record SHALL be rejected or retained as non-authoritative audit
-  according to the approved contract
 
 ### Requirement: Record cost is calculated by trusted platform code
 Producer-supplied cost, count, or expansion hints SHALL be non-authoritative.
@@ -236,258 +137,6 @@ result and SHALL NOT create a new semantic event under that key.
 - **THEN** the sink SHALL reject it as `retry_horizon_expired`
 - **AND** it SHALL NOT allocate a new event ID or reopen the run
 
-### Requirement: Edge record identity is physical, semantic, and domain
-An edge record SHALL carry four deliberately-separate identities, and byte-for-byte
-equality of two records SHALL NOT be a protocol invariant. These four identities
-SHALL be PIPELINE-stage identities, NOT four fields of one `EdgeRecordV1`:
-`submission_sha256` is journal-local (producer -> sink, never placed on the wire);
-`record_sha256` belongs to the delivery frame/slot (`EdgeDeliveryFrameV1`); and
-`semantic_envelope_sha256` together with `event_id` are carried on `EdgeRecordV1`.
-
-- `submission_sha256` is the PRODUCER-RECEIPT identity: the SHA-256 of the
-  producer's bounded UNCOMPRESSED contract-payload submission bytes, computed at
-  submission BEFORE the sink compresses or constructs `EdgeRecordV1`. It is the
-  producer idempotency / retry-lookup COMPARISON value (the journal keys on the 5-tuple, never on this digest) and SHALL NOT be a transport-slot key,
-  the semantic digest (which carries sink-assigned fields), or `payload_sha256`
-  (post-compression).
-- `record_sha256` is the PHYSICAL artifact identity: the SHA-256 of the exact
-  record bytes the trusted sink emitted in its single encode. It proves those exact
-  bytes survived spool -> gRPC -> gateway -> JetStream -> DLQ unchanged, and binds
-  the durable delivery slot and signed delivery grant via
-  `edge_slot (network_scope_id, authenticated_agent_id, spool_id, sequence) -> record_sha256` (the authenticated agent owns the slot key; the producer is stored provenance, not a key). It SHALL
-  NOT determine semantic idempotency or projection conflict. Two compliant encoders
-  (e.g. Go and Elixir) or two protobuf-runtime versions MAY emit different bytes for
-  the same semantics; no component SHALL require, assert, or enforce a unique byte
-  encoding of a record.
-- `semantic_envelope_sha256` is the runtime-neutral SEMANTIC identity: a SHA-256
-  over an explicit, versioned, domain-separated, field-by-field signing-byte
-  transcript covering every semantic/trust field and committing `payload_sha256`,
-  excluding the digest field itself and all delivery state. Protobuf serialization
-  output SHALL NOT appear in this preimage at any nesting depth. The transcript
-  preimage SHALL begin with the `u64` grammar-version constant
-  (`semanticDigestVersion = 3`, a committed constant fixed one-to-one by the
-  immutable record-schema/proto ABI -- NOT a wire field, and the semantic-envelope
-  digest carries NO string domain tag), then emit each semantic/trust field in a
-  FIXED order (no per-field numeric tags): unsigned integers and enums as 8-byte
-  big-endian; every bytes or string field length-prefixed by an 8-byte big-endian
-  length; a 1-byte presence marker before each optional field; a `u64` (8-byte
-  big-endian) discriminant equal to the set member field number before each oneof
-  value; repeated fields in their defined order preceded by an 8-byte big-endian
-  (`u64`) element count; and nested messages recursively framed field-by-field by
-  these same rules.
-- `event_id` (a UUIDv7 allocated once before durable spooling) participates in two
-  distinct identities: with `network_scope_id` it forms the logical EVENT identity
-  `(network_scope_id, event_id)` that keys the ingest ledger for idempotency and
-  conflict, while the contract-defined DOMAIN keys are the SEPARATE merge/projection
-  keys and SHALL NOT be folded into the event-ledger identity.
-
-`payload_sha256` SHALL be the SHA-256 of the exact encoded/compressed payload
-bytes. Because `semantic_envelope_sha256` commits the exact `payload_sha256`,
-payload re-encoding necessarily changes the semantic digest; v1 therefore tolerates
-re-encoding of the outer `EdgeRecordV1` but NOT of the payload. Payload-level
-re-encode tolerance is OUT OF SCOPE for v1 and SHALL require a future record/digest
-version; v1 SHALL NOT provide a contract-specific semantic payload digest escape
-hatch.
-
-The semantic-digest transcript version is a committed grammar CONSTANT
-(`semanticDigestVersion = 3`), fixed one-to-one by the immutable record-schema/proto
-ABI version -- it is NOT a wire field -- and is committed as the leading `u64` of the
-hashed preimage (the semantic-envelope digest carries NO string domain tag). It SHALL
-be validated fail-closed; an unknown ABI/grammar version SHALL be rejected WITHOUT
-trial-hashing alternative grammars. Capability-signing and plan/recovery/completion
-hash grammars SHALL each declare their OWN explicit version (not necessarily equal
-numerics) and SHALL each commit that version as the leading bytes of their
-preimage, preceded by a per-grammar string domain-separation tag WHERE ONE IS
-DEFINED. A domain tag is not universal: the MTR leaf and root and the
-recovery-operation scope grammars deliberately have none, using a `u64` body-kind
-discriminant instead.
-
-Fail-closed version handling has TWO forms, matching how the version reaches the
-receiver:
-
-- EXPLICIT-VERSION REJECTION, where the object DECODES a version from its input --
-  reject an unsupported value.
-- ALTERED-CONSTANT DIGEST MISMATCH, where the version is a compile-time constant in
-  the preimage and the received value is a digest or opaque identifier -- there is
-  no version input to reject, so the fail-closed property is that recomputing under
-  a different constant yields a digest that does not match.
-
-The semantic-envelope version is the SECOND form: it is not a wire input, so no
-record can "declare" it. Neither form SHALL trial-hash alternative grammars. Every grammar SHALL be
-byte-frozen with a FIXED field order (no per-field numeric tags), 8-byte big-endian
-integers and enums, 8-byte big-endian length prefixes on bytes/string fields, 1-byte
-presence markers, `u64` (8-byte big-endian) oneof discriminants, `u64` element counts
-for repeated fields, and recursive field-by-field nested framing; no protobuf
-serialization output SHALL appear in any preimage.
-
-A receiver SHALL NOT establish semantic identity, equivalence, authorization,
-idempotency, conflict status, or wire validity by decoding protobuf and comparing
-it against a re-encoding. Exact encoded record and payload bytes MAY be hashed as
-explicitly-designated physical artifacts. The trusted sink SHALL serialize each
-record exactly once; the spool, sender, gateway, JetStream, and record DLQ SHALL
-preserve those exact bytes; the gateway and EventWriter SHALL decode and hash them
-but SHALL NOT normalize, reorder, or re-encode them, and SHALL NOT perform a
-decode -> re-encode -> byte-compare admission. `Deterministic` protobuf marshalling
-MAY be a local reproducibility optimization at the sink but SHALL NOT be a protocol
-invariant.
-
-#### Scenario: The same record arrives with a different byte layout
-- **WHEN** a record is re-encoded (e.g. by a different-language sink/encoder or a
-  runtime upgrade) so its `record_sha256` differs but its
-  `semantic_envelope_sha256` and `payload_sha256` are unchanged, and it arrives via
-  a DIFFERENT valid physical delivery slot (a distinct spool) rather than by
-  reusing the original slot
-- **THEN** consumers SHALL treat it as the same record (a replay), never as poison
-- **AND** no component SHALL reject it for failing a byte-uniqueness or
-  decode-re-encode-compare check
-- **AND** the same re-encoded bytes presented on the SAME slot with a different
-  `record_sha256` SHALL instead be a transport-integrity violation, not a replay
-
-#### Scenario: A delivery slot is reused with different bytes
-- **WHEN** the same `edge_slot` (`network_scope_id`, `authenticated_agent_id`, `spool_id`, `sequence`) slot
-  presents a different `record_sha256` than the one bound to it
-- **THEN** it SHALL be rejected as a transport-integrity violation, independently of
-  any domain-ledger replay/conflict decision
-- **AND** because `Nats-Msg-Id` binds `record_sha256`, such a frame SHALL receive a
-  distinct publication ID and SHALL NOT be removed by broker deduplication before
-  this rejection can occur
-
-#### Scenario: An input-carried grammar version is unknown
-- **WHEN** an object that DECODES a version from its input carries an unsupported one
-- **THEN** the receiver SHALL reject it fail-closed
-- **AND** it SHALL NOT trial-hash the object under other grammar versions
-
-#### Scenario: A constant-version grammar fails closed by mismatch
-- **WHEN** an object's version is a compile-time preimage constant and the receiver
-  computes under a different constant
-- **THEN** the resulting digest SHALL NOT match and the object SHALL be rejected
-- **AND** the receiver SHALL NOT trial-hash to find a matching version
-
-### Requirement: Record authorization is four separate decisions
-Record authorization SHALL be evaluated as four distinct decisions and SHALL NOT be
-collapsed into a single boolean result. A signature-verification helper MAY exist,
-but its boolean SHALL NOT be the only authorization result; publication and
-projection SHALL return typed dispositions.
-
-1. HISTORICAL COLLECTION/PROVENANCE PROOF -- whether the production/source
-   capability was valid over the signed collection interval. This proof is
-   evaluated in two stages by two components, and the GATEWAY stage SHALL NOT
-   require decoded body fields. The gateway stage is ENVELOPE-level only: the
-   signed capability SHALL be valid (not-before and expiry plus attested-clock
-   tolerance) over the record's UUIDv7 identity-time interval, which is present on
-   the envelope before any payload decode. The EVENTWRITER stage validates the
-   authoritative BODY: the record body's observation/event time(s) SHALL lie within
-   the signed collection interval, and the UUIDv7 identity time SHALL be validated
-   to lie within that same interval as an integrity and ordering check and SHALL NOT
-   substitute for the body observation window. Result
-   SHALL be one of `valid`, `invalid`, `historically_revoked`, or `unavailable`. Normal key expiry/rotation SHALL be
-   distinguished from compromise revocation: historical verification SHALL use
-   retained key history so a normally-rotated key still validates records signed in
-   its window, whereas compromise revocation MAY deliberately invalidate historical
-   trust for the affected key. ONLY the signature/key/trust-chain validation (the
-   capability validly signed by a trusted, non-revoked key at the trust-policy
-   epoch) is a reusable grant and MAY be cached by capability digest plus
-   trust-policy epoch. The record-specific checks -- the body observation/event
-   time lying within the signed collection interval, UUIDv7 identity-time
-   consistency, and the body-to-claim joins -- SHALL ALWAYS be evaluated per record
-   and SHALL NOT be served from that cache (equivalently, any cache key covering
-   them MUST include the normalized record interval plus semantic identity). A
-   delivery-only renewal SHALL NOT change or relax it.
-2. GATEWAY PUBLICATION / LATE-DELIVERY AUTHORITY -- whether these exact bytes are
-   admitted onto the durable stream now (raw size, wire hygiene, envelope-to-grant
-   match, present fence; late drain consumes the delivery capability). Result SHALL
-   be one of `primary_publication`, `audit_publication` (valid historical, stale
-   fence), `quarantine_publication` (admitted poison), `security_quarantine_publication`
-   (a COMPROMISE-revoked signing key -- a distinct SECURITY variant of quarantine: the
-   `ACCEPTED_QUARANTINE` disposition routed to the security-quarantine DLQ, reachable and
-   grant-free, projected ledger_only), `retryable_rejection`, or
-   `permanent_rejection`. An OVERSIZE frame or record (raw length exceeding its hard
-   byte bound, rejected before decode) and an envelope-to-grant MISMATCH SHALL each
-   be `permanent_rejection`, NOT `quarantine_publication`; `quarantine_publication`
-   is reserved for admitted WIRE-HYGIENE poison at a trustworthy slot (a group /
-   unknown-field / malformed-wire the gateway detects after bounded decode), whereas
-   DECODED semantic or protocol invalidity (an invalid signature/structure, an
-   envelope-to-grant mismatch, or a decoded-but-invalid value such as a negative or
-   unknown enum), an unauthorized capability, or oversize input is permanently
-   rejected. The delivery-ACK wire
-   enum SHALL represent each of these DISPOSITION classes distinctly.
-   `security_quarantine_publication` (a compromise-revoked key) is NOT a distinct wire
-   enum value: it is a gateway-INTERNAL publication subtype that maps to the
-   `ACCEPTED_QUARANTINE` wire disposition, distinguished only by its internal destination
-   (the security-quarantine DLQ + ledger_only projection), so the wire enum stays the set
-   of disposition classes. A retryable rejection SHALL leave the delivery sequence
-   unresolved with no advancing disposition, and an `audit_publication` or
-   `quarantine_publication` SHALL be neither an authoritative accept nor a
-   permanent reject on the wire.
-3. DELIVERY MODE/REASON -- `fresh`, `renewal`, `rollover`, or
-   `late_fenced_delivery`. A producer epoch below the active fence, delivered under
-   a valid delivery grant, is a `late_fenced_delivery` (a "stale-fence historical
-   delivery"); it is only a replay if the event ledger independently finds an
-   existing event.
-4. EVENTWRITER PROJECTION FENCE -- `authoritative_apply`, `ledger_only`, or
-   `conflict_quarantine`. A producer epoch below the active fence SHALL yield an
-   explicit `ledger_only` disposition, not a rejection, and SHALL NOT
-   authoritatively project. A post-PubAck compromise revocation of the signing key
-   SHALL yield a `ledger_only` audit row plus a PubAck of the affected record to the
-   security-quarantine DLQ, and only THEN a source ACK of the original delivery, so
-   the record is durably captured, never authoritatively projected, and never left
-   unresolved.
-
-The authorization matrix (see design.md) SHALL specify, per outcome, the PubAck
-behaviour, the destination stream/DLQ, whether the agent may resolve its spool
-entry, whether domain projection is permitted, and which component owns each
-current-fence lookup. EventWriter SHALL evaluate these decisions in the fixed order
-defined by the ingestion Replay requirement: it SHALL RECOMPUTE and verify
-`semantic_envelope_sha256` before that digest is ever used as a ledger replay key; it
-SHALL immutably bind the `edge_slot`/`service_slot` to `record_sha256` before any
-terminal projection-fence decision; and it SHALL resolve the historical collection
-proof to exactly one of `valid`, `invalid`, `historically_revoked`, or `unavailable`
-for EVERY record -- so a compromise-revoked signing key resolves to
-`historically_revoked` and is REACHABLE, never silently downgraded to
-`authoritative_apply`.
-
-#### Scenario: Stale-fence historical delivery under a valid delivery grant
-- **GIVEN** a correctly signed record whose producer authority epoch is below the
-  gateway's active fence
-- **WHEN** it is delivered under an exact, currently-valid delivery capability
-- **THEN** the gateway SHALL return `audit_publication` with delivery
-  mode `late_fenced_delivery`, and EventWriter SHALL project it
-  `ledger_only`
-- **AND** it SHALL NOT be `permanent_rejection` merely for the stale epoch, nor
-  `authoritative_apply`
-
-#### Scenario: A normally rotated signing key validates historical records
-- **GIVEN** a production capability signed by a key rotated out of active issuance
-  but not revoked for compromise
-- **WHEN** its historical collection proof is evaluated for a record signed within
-  that key's validity window
-- **THEN** the proof SHALL be `valid` using retained key history
-- **AND** a key retired specifically for compromise SHALL instead yield
-  `historically_revoked`
-
-#### Scenario: One boolean cannot stand in for the four decisions
-- **WHEN** a component needs an authorization outcome
-- **THEN** it SHALL consume the typed historical-proof, publication, delivery-mode,
-  and projection dispositions
-- **AND** a single `ValidateRecordSigned`-style boolean SHALL NOT be the sole basis
-  for publication or projection
-
-#### Scenario: A retryable rejection does not advance the resolved watermark
-- **GIVEN** the gateway returns `retryable_rejection` for a delivery-frame lane
-  sequence
-- **WHEN** the agent records the disposition
-- **THEN** the delivery-ACK wire enum SHALL carry a retryable outcome distinct from
-  an accept or a permanent reject
-- **AND** the resolved delivery sequence SHALL NOT advance and the agent SHALL
-  retain the frame for retry
-
-#### Scenario: An audit or quarantine publication is not an authoritative accept
-- **WHEN** the gateway returns `audit_publication` or `quarantine_publication`
-- **THEN** the delivery-ACK wire enum SHALL distinguish it from both a
-  `primary_publication` accept and a `permanent_rejection`
-- **AND** the agent SHALL NOT treat it as an authoritative accept nor as a permanent
-  reject when resolving its spool sequence
-
 ### Requirement: Producer pressure and fairness are bounded
 Every grant SHALL bound record/frame/run bytes and counts, rate, concurrent
 runs, pages, checkpoints, terminal attempts, outstanding spool bytes, retained
@@ -514,27 +163,6 @@ or loss-audited and SHALL NOT be advertised as durable.
 - **THEN** the runtime SHALL pause, fuel-limit, or terminate that producer
 - **AND** already accepted records and other producers' reserved capacity SHALL
   remain intact
-
-### Requirement: Delivery topology is finite and platform-owned
-The platform SHALL own a finite set of route profiles and immutable traffic
-classes. A delivery lane SHALL be one route-profile/traffic-class pair plus a
-separately reserved recovery lane. Lane, subject, physical stream, connection,
-consumer, process, and RAFT-group cardinality SHALL NOT grow with payload kind,
-package, plugin, integration, or output-contract count. V1 SHALL begin with one
-`durable-records-v1` route profile and disjoint bulk/interactive physical
-streams; another profile requires an explicit benchmarked platform change.
-
-#### Scenario: A package defines many output contracts
-- **WHEN** thousands of approved contracts share the durable record plane
-- **THEN** the trusted binary contract envelope SHALL dispatch them over the
-  finite route map
-- **AND** the deployment SHALL NOT create thousands of lanes, subjects, streams,
-  consumers, connections, processes, or RAFT groups
-
-#### Scenario: Bulk transport is blocked
-- **WHEN** a bulk lane exhausts its HTTP/2, publisher, stream, or database credits
-- **THEN** separately pooled interactive and recovery lanes SHALL continue
-- **AND** no unresolved bulk sequence SHALL be skipped or promoted
 
 ### Requirement: Run and snapshot lifecycles are bounded and explicit
 A finite producer run SHALL use host-issued start, independently useful data,
@@ -687,127 +315,6 @@ quarantined and SHALL NOT be silently diverted to Object Store.
 - **THEN** the agent SHALL still relay it through the authenticated gateway
 - **AND** the gateway SHALL resolve the spool sequence only after the deployment's
   configured authoritative PubAck boundary
-
-### Requirement: Cluster-local producers use governed service ingress
-Cluster-local producers SHALL use governed service ingress. A cluster-local
-producer MAY use the same canonical contract/projector registry
-without hairpinning through an agent/gateway, but it SHALL publish through an
-attested service identity and contract-scoped governed JetStream publisher that
-observes the same envelope, routing, cost, idempotency, and PubAck rules. Because
-such a governed direct/cluster-local publisher has no agent spool coordinates,
-it SHALL bind to a source-neutral durable service-ingress publication slot rather
-than requiring agent spool coordinates. That slot SHALL be the frozen
-domain-separated tuple `service_slot = (network_scope_id, authenticated_service_id,
-publication_lane_id, publication_sequence)`, carrying its own domain-separation tag
-and its own `record_sha256` binding as a compared value, and SHALL play the same
-role in the delivery id, transport-provenance header, partition bucket, and SQL
-uniqueness that the agent `edge_slot` tuple plays for agent-originated records.
-Service-ingress v1 is FRESH-only, so a `service_slot` participates in NO delivery
-grant (renewal/rollover); delivery grants apply to agent `edge_slot`s only. It SHALL
-NOT claim agent provenance.
-
-The `publication_lane_id` SHALL be a 16-byte UUIDv7 allocated ONCE, durably, before
-the lane's first publication, and SHALL remain stable for the life of that lane. The
-`publication_sequence` SHALL start at 1 and increase monotonically; a retry, timeout,
-or process restart of a not-yet-acknowledged publication SHALL REUSE the same
-`(publication_lane_id, publication_sequence)` (never a fresh one), so a lost-ACK
-redelivery presents the exact same `service_slot` and `record_sha256` and is deduplicated
-rather than double-projected. A `publication_sequence` of 0, or a `publication_lane_id`
-that is not a 16-byte UUIDv7, SHALL be rejected fail-closed.
-
-The governed service publisher (or its transactional journal/outbox) -- NOT the gateway or
-EventWriter -- SHALL OWN publication-slot durability. For EACH record it SHALL, BEFORE publishing,
-ATOMICALLY ALLOCATE the NEXT `publication_sequence` and JOURNAL LOCALLY the `service_slot`, the
-exact pending record bytes, and the immutable route/header state. Sequence allocation is NOT gated
-on acknowledgement: the publisher MAY have multiple outstanding un-acknowledged sequences
-(pipelined), and a validated JetStream PubAck only RESOLVES/RECLAIMS its journaled slot -- it is
-never a precondition for allocating the next sequence. A retry/timeout/restart of an
-un-acknowledged publication SHALL republish the SAME journaled bytes on the SAME
-`(publication_lane_id, publication_sequence)`, so a lost-ACK redelivery deduplicates.
-`publication_sequence` SHALL NEVER wrap: on approaching its maximum the publisher SHALL SEAL the
-current lane and DRAIN its outstanding journaled work while allocating NEW work on a fresh UUIDv7
-`publication_lane_id` starting `publication_sequence` at 1.
-
-Provenance trust for both the agent path and the service-ingress path SHALL be
-per-class publisher-subject isolation, NOT a global "only the gateway" rule: ONLY
-the authenticated gateway MAY publish to the durable edge-record subject, and ONLY
-an authorized governed service MAY publish to its own service-ingress subject, each
-over its own isolated publisher credential. A governed service publishes its own
-service-stamped provenance to its service-ingress subject; the agent path publishes
-gateway-stamped provenance to the edge-record subject.
-
-The control plane SHALL maintain an immutable governed mapping from each
-`authenticated_service_id` to exactly one service-ingress subject and publisher
-credential. A governed service MAY publish ONLY to its mapped subject over its mapped
-credential, and EventWriter SHALL derive the `authenticated_service_id` from the
-publish subject and authenticated publisher credential, NEVER from caller-supplied
-body or header text. A publish outside a service's mapped subject/credential SHALL be
-rejected before projection.
-
-The service-ingress path SHALL define service variants of the three transport
-transcripts over the `service_slot` tuple in place of agent spool coordinates: a
-`Nats-Msg-Id` variant under domain tag `serviceradar.edge.msgid.service` framing the
-attested service principal, `network_scope_id`, `publication_lane_id`,
-`publication_sequence`, `semantic_envelope_sha256`, and `record_sha256`; a
-`Sr-Edge-Delivery-Id` variant under domain tag `serviceradar.edge.delivery-id.service`
-framing the `service_slot` tuple; and a `Sr-Edge-Transport-Provenance` envelope whose
-slot-kind discriminant is `service-ingress` and which carries the `service_slot`
-tuple. The `delivery_proof_digest` SHALL be OPTIONAL and absent for FRESH and
-service-ingress records (present only for late-delivery, renewal, or rollover records
-that carry a delivery capability), and the provenance presence byte SHALL mark its
-absence. A missing delivery proof on a fresh or service-ingress record SHALL NOT be
-poison.
-
-Service-ingress DELIVERY grants -- renewal, rollover, or late-drain of a service
-record -- are OUT OF SCOPE for v1. Governed service publishers SHALL emit FRESH
-records only, and their transport provenance SHALL carry no `delivery_proof_digest`.
-Late-delivery or recovery of a service-ingress record SHALL require a future version.
-
-A transactional outbox MAY be used only when
-the record's system of record is the same operational transaction; metrics and
-telemetry SHALL remain JetStream-first.
-
-#### Scenario: Cluster-local telemetry producer publishes a metric
-- **WHEN** a cluster service emits persistent telemetry
-- **THEN** its service-attested publisher SHALL place the authoritative record in
-  JetStream before EventWriter projection
-- **AND** it SHALL NOT use an operational database outbox as a database-first
-  telemetry path or impersonate an edge agent
-
-#### Scenario: Service-ingress fresh record omits delivery proof
-- **GIVEN** a governed cluster-local service publishes a fresh record to its own
-  service-ingress subject over its isolated publisher credential
-- **WHEN** its `Sr-Edge-Transport-Provenance` envelope carries slot-kind
-  `service-ingress`, the `service_slot` tuple, and an absent `delivery_proof_digest`
-  marked by the presence byte
-- **THEN** EventWriter SHALL accept it as valid provenance and SHALL NOT treat the
-  missing delivery proof as poison
-- **AND** trust SHALL derive from the per-class service-ingress subject/credential
-  isolation, not from a global "only the gateway" rule
-
-#### Scenario: A governed service claims another service identity
-- **GIVEN** the control plane maps an `authenticated_service_id` to exactly one
-  service-ingress subject and publisher credential
-- **WHEN** a caller presents body or header text claiming a different
-  `authenticated_service_id` than its authenticated publisher subject/credential
-  resolves to
-- **THEN** EventWriter SHALL compare, BYTE-FOR-BYTE, the authenticated publisher
-  subject/credential identity, the `Sr-Edge-Transport-Provenance` principal, the
-  publication-ID principal committed in `Nats-Msg-Id` / `Sr-Edge-Delivery-Id`, and the
-  record principal (`producer_context.origin_principal_id`), and SHALL fail closed on ANY
-  disagreement -- it MUST NOT silently derive from, override, or ignore a mismatched claim
-- **AND** a publish outside the service's mapped subject/credential SHALL be rejected
-  before projection
-
-#### Scenario: A service-ingress producer attempts a late delivery
-- **GIVEN** service-ingress delivery grants are out of scope for v1 and governed
-  services emit fresh records only
-- **WHEN** a governed service publisher attempts a renewal, rollover, or late-drain of
-  a service record carrying a `delivery_proof_digest`
-- **THEN** the deployment SHALL reject it because service-ingress late-delivery
-  requires a future version
-- **AND** a fresh service record whose provenance carries no `delivery_proof_digest`
-  SHALL remain valid
 
 ### Requirement: Spool generations are per lane and freeze one authenticated identity
 A spool generation SHALL be scoped to exactly ONE lane, where a lane is one
@@ -983,617 +490,6 @@ there is no loss to attribute.
 - **THEN** every join above SHALL have been verified against that record
 - **BEFORE** the physical binding is written
 
-### Requirement: The local attribution-binding grammar is versioned and domain-separated
-The on-disk attribution-binding grammar SHALL be versioned and domain-separated,
-and SHALL be defined independently of any wire grammar.
-
-It SHALL carry its own version constant and its own frozen domain tag, so a local
-binding digest can never collide with a manifest-page, manifest-root, plan, or
-semantic-envelope digest by field-structure coincidence. It SHALL be written
-field-by-field over declared fields, never by re-marshalling a decoded message.
-
-The transcript SHALL include LANE AND SPOOL/GENERATION IDENTITY alongside the
-sequence, `event_id`, record hash, the active/passive discriminant, and the
-COMPLETE attribution tuple. Without spool identity the same record at sequence 1
-in two different spools digests identically, so a destination binding would be
-indistinguishable from its source and REBINDING could not be represented at all —
-which the rollover coverage proof depends on.
-
-The grammar SHALL be frozen with CONCRETE values before the spool attribution work
-begins, not described abstractly. It is:
-
-- digest algorithm SHA-256, output width 32 bytes, consistent with every other
-  identity in this design -- a transcript alone does not determine an artifact, so
-  two implementations could follow the field order exactly and still emit different
-  digests;
-- domain literal `serviceradar.edge.recovery.local_binding.v1`;
-- `binding_version` = 1 (u64), immediately after the domain; an UNSUPPORTED
-  `binding_version` SHALL fail closed WITHOUT trial hashing -- a reader SHALL NOT
-  attempt other versions to find one that matches -- and the affected slot SHALL be
-  classified UNATTRIBUTABLE with the corresponding reason rather than discarded or
-  silently retained;
-- 8-byte big-endian integers, 8-byte big-endian length prefixes on every
-  variable-length field, and 1-byte discriminants (`0x00`/`0x01`);
-- field-by-field over declared fields only — never `proto.Marshal`, at any depth;
-- ordered transcript, exactly:
-  1. `str` domain literal
-  2. `binding_version` (u64)
-  3. `network_scope_id` (bytes)
-  4. `authenticated_agent_id` (bytes)
-  5. `lane_route_profile` (u64), `lane_traffic_class` (u64)
-  6. `spool_generation_id` (bytes)
-  7. `sequence` (u64)
-  8. `event_id` (bytes)
-  9. `record_sha256` (bytes)
-  10. `attribution_kind` (1-byte discriminant: `0x00` PASSIVE, `0x01` ACTIVE)
-  11. `contract_bundle_sha256` (bytes)
-  12. `producer_assignment_id` (bytes)
-  13. `run_id` (bytes)
-  14. `run_shard` (u64)
-  15. `authority_epoch` (u64)
-  16. `production_scope_id` (bytes)
-  17. `scope_sha256` (bytes) — the PRODUCTION scope digest
-  18. `source_identity_present` (1-byte discriminant: `0x00` ABSENT, `0x01`
-      PRESENT)
-  19. `source_authorization_kind` (u64) — present ONLY when
-      `source_identity_present` is `0x01`
-  20. `source_context_id` (bytes) — present ONLY when `source_identity_present` is
-      `0x01`
-  21. `source_scope_id` (bytes) — present ONLY when `source_identity_present` is
-      `0x01`
-  22. `source_scope_sha256` (bytes) — present ONLY when `source_identity_present`
-      is `0x01`; the SOURCE scope digest, distinct from step 17
-  23. `range_sha256` (bytes) — present ONLY when `attribution_kind` is ACTIVE, and
-      absent entirely for PASSIVE rather than encoded as empty, so a passive
-      binding can never collide with an active one whose range digest is zero.
-
-Steps 3-4 are the generation's TRUST NAMESPACE. A generation freezes its
-`network_scope_id` and authenticated agent identity, and without them an intact
-sidecar can be transplanted or mis-replayed under another agent or scope carrying
-the same `spool_generation_id` without changing the digest -- the same
-substitution class this binding exists to detect.
-
-Both SCOPE IDS travel with their digests. The wire signs `scope_id` and
-`scope_sha256` independently -- on production claims, on source claims, and on the
-outer source authorization -- and validation compares them independently; nothing
-derives a unique ID from a digest. Carrying only the digests would let two accepted
-records differing in a signed logical scope ID share one recovery key, collide in
-the assignment mapping, and leave the binding unable to prove which scope ID was
-originally attached after record-byte loss.
-
-Steps 18-22 are the SOURCE IDENTITY, and they are inside the corruption-independent
-digest for the same reason the rest of the tuple is. If the source identity lived
-only in the sidecar, then after record-byte corruption a sidecar context could be
-changed without invalidating the digest that is supposed to prove the attribution
-came from THAT record -- which is precisely the substitution this binding exists to
-prevent.
-
-Steps 16-17 are the PRODUCTION scope and steps 21-22 are the SOURCE scope; they
-are different values in the canonical accepted record, so one pair cannot serve
-both.
-
-The KIND is carried with the context and is not optional decoration: the same UUID
-can name a scheduled check, an ad-hoc scan, a command, or a sweep execution, and
-after the record bytes are lost a consumer cannot choose the correlation variant
-from the context alone. Kind and context SHALL be present together or absent
-together; a partial combination SHALL be rejected.
-
-Cross-language GOLDEN vectors SHALL cover an active binding, a passive binding, a
-REBINDING vector proving the same `event_id`/`record_sha256` at the same sequence
-in two different `spool_generation_id`s produces two different digests, a
-source-identity-present and a source-identity-absent binding proving they digest
-differently, a partial-combination REJECT vector (any one of kind, context, source scope id, or
-source scope digest without the others), a SAME-CONTEXT/DIFFERENT-KIND vector
-proving the two digests differ, an UNSUPPORTED-`binding_version` REJECT vector, a
-SAME-BINDING/DIFFERENT-NAMESPACE vectors that mutate `network_scope_id` and the
-authenticated agent SEPARATELY -- not one vector changing "either" -- so omitting
-EITHER transcript field fails its own vector, and SAME-DIGEST/DIFFERENT-ID vectors
-for BOTH the production and source scopes.
-
-The APPEND-TIME SEMANTIC JOIN SHALL have its own substitution vectors, not only the
-binding/span/mapping layers: one PRODUCTION-scope-ID mismatch and one
-SOURCE-scope-ID mismatch, each holding the corresponding DIGEST FIXED, both
-rejected. A digest-only comparison passes those cases, which is exactly the
-substitution the ID was added to stop.
-
-The four combinations of {ACTIVE, PASSIVE} x {source present, source absent} SHALL
-EACH have a cross-language binding vector AND an append-join vector. Two diagonal
-fixtures -- ACTIVE+present and PASSIVE+absent -- would satisfy the letter of the
-list while leaving the independent-axis rule untested, which is the case that
-motivated it. The same-context/different-kind and same-digest/different-ID
-regressions SHALL also exist at the SPAN and ASSIGNMENT-MAPPING layers, not only in
-the binding digest: a collision there is a mapping collision, not merely a digest
-coincidence.
-
-The binding record SHALL be stored corruption-independently of `record_bytes`:
-independently checksummed, separately addressable, and readable when the record
-segment is unreadable. Dictionary or RLE encoding per segment is permitted
-provided the checksum covers the encoded form and decoding does not depend on any
-record payload.
-
-#### Scenario: Local binding digest cannot collide with a wire digest
-- **WHEN** a local attribution binding is digested
-- **THEN** its preimage SHALL lead with its own domain tag and version
-- **AND** SHALL NOT equal any wire-grammar digest over the same values
-
-#### Scenario: Same record in two spools binds differently
-- **WHEN** the same record occupies sequence 1 in two different spool generations
-- **THEN** their local binding digests SHALL differ
-- **AND** a destination rebinding SHALL be distinguishable from its source
-
-#### Scenario: Binding store is readable without records
-- **WHEN** a record segment is unreadable
-- **THEN** the attribution bindings for its sequences SHALL still be readable and
-  checksum-verifiable
-
-### Requirement: Loss is described by one ordered classification-span list
-The recovery page SHALL describe loss with ONE ordered `classification_spans`
-list, which REPLACES both `lost_ranges` and `affected`. There SHALL NOT be a
-separate lost-range array for the spans to agree with: a second array would make
-two schemas describe the same fact and admit manifests where they disagree.
-
-Each span SHALL carry a PHYSICAL sequence interval and exactly one classification
-body:
-
-- `ATTRIBUTED_ACTIVE` — attributed, asserting a produced target range;
-- `ATTRIBUTED_PASSIVE` — attributed, asserting NO produced target range;
-- `UNATTRIBUTABLE(reason)` — not attributable, carrying its reason.
-
-Every variant SHALL carry a physical interval, including passive: a passive record
-still occupies a lost DELIVERY sequence, and omitting its interval would leave a
-hole no consumer could distinguish from undetected loss. Passive differs only in
-asserting no produced target range.
-
-A page's EXTENT SHALL be DERIVED from its spans -- the first span's lower bound
-through the last span's upper bound -- and SHALL NOT be declared in a separate
-range. A declared extent would be a second schema for a fact the spans already
-carry, admitting pages whose declaration and spans disagree; that is the same
-dual-schema ambiguity this requirement removes by deleting `lost_ranges`, and
-re-introducing it one field over would defeat the change.
-
-It SHALL be called an EXTENT, never "coverage". Elsewhere in this design coverage
-is PER-SEQUENCE evidence that can authorize reclamation; a page's extent is a
-bounding interval that legally contains not-lost gaps. Naming it coverage would
-invite a consumer to treat the bound as evidence and release sequences no span
-ever described.
-
-Every page SHALL carry AT LEAST ONE span. An empty page has no derivable extent,
-so it can be neither validated nor chained.
-
-Each span's interval SHALL be primitively valid on its own: `from_sequence >= 1`
-and `through_sequence >= from_sequence`, with `MaxUint64` a legal bound. A single
-span with a zero or inverted interval violates no ordering rule, so ordering alone
-does not exclude it.
-
-Ordering SHALL be total across the WHOLE page chain, not merely within a page:
-spans SHALL be strictly ascending by sequence, non-overlapping, and non-duplicate,
-and page N's last span SHALL end strictly below page N+1's first span's start. A
-within-page-only rule lets two individually valid pages describe overlapping loss,
-which would double-count the union.
-
-GAPS ARE PERMITTED and carry meaning: a sequence covered by no span was NOT lost.
-This holds identically within a page and at a page boundary -- adjacency is not
-special. A gap DOES make the loss intervals mathematically disjoint; what it does
-NOT do is require a separate page or a separate manifest. The union stays one
-manifest's loss regardless of how many disjoint intervals compose it. The earlier "no gaps within coverage" rule existed only because
-coverage was DECLARED, where a gap contradicted the declaration; with coverage
-derived there is nothing to contradict, and forbidding gaps would force a
-manifest to invent spans for sequences that were never lost.
-
-Total loss for the manifest is exactly the union of its pages' spans; it SHALL
-NOT be declared anywhere else.
-
-That includes the TOMBSTONE. `SpoolLossTombstoneV1` SHALL NOT carry a loss
-interval: `lost_from_sequence` and `lost_through_sequence` SHALL be removed, along
-with their scope-digest entries, their Appendix A transcript entries, and the
-validator equality that forces them to the manifest's global min/max. With gaps
-legal, that min/max is not the loss -- for spans `[1,1]` and `[100,100]` the pages
-say `2..99` were NOT lost while the tombstone would declare `[1,100]` lost, and
-because the tombstone scope is SIGNED that second source of truth would be
-authenticated. It is strictly worse than the page-level duplication this
-requirement removes.
-
-Removing the fields is part of the SAME atomic change, for the same reason the
-page arrays are: retaining them as a "non-loss allocation envelope" would keep a
-signed interval that every existing consumer already reads as loss.
-
-Because task 1.7 has NOT yet frozen the transport ABI and no agent emits the
-candidate recovery-v1 grammar, this replacement SHALL be made ATOMICALLY rather
-than carried alongside the old arrays. Retaining compatibility machinery for an
-unshipped format would preserve exactly the dual-schema ambiguity this removes.
-The following SHALL be updated together, in one change: the page and manifest
-messages, Appendix A's digest transcript, EVERY `recovery_grammar_version = 1`
-reference, both runtimes' validators, and all fixtures.
-
-The classification enum numbers, span fields, per-page and per-manifest bounds,
-unknown-field and unknown-enum handling, and the recovery digest version SHALL be
-FROZEN before any implementation depends on them.
-
-#### Scenario: Spans are the only loss declaration
-- **WHEN** a manifest page declares loss
-- **THEN** it SHALL do so ONLY through `classification_spans`
-- **AND** a page carrying a separate lost-range or affected array SHALL be
-  rejected
-
-#### Scenario: Span list is well-formed
-- **WHEN** a page's classification spans are validated
-- **THEN** an overlap, a duplicate, or an out-of-order span SHALL be rejected
-- **AND** a page carrying no spans SHALL be rejected
-
-#### Scenario: Ordering is total across the chain
-- **WHEN** page N's last span ends at or above page N+1's first span's start
-- **THEN** the manifest SHALL be rejected
-
-#### Scenario: A gap means not lost
-- **WHEN** a sequence falls between two spans, within a page or across a boundary
-- **THEN** it SHALL be read as NOT lost
-- **AND** the manifest SHALL NOT be rejected for the gap
-
-#### Scenario: Extent is derived, never declared
-- **WHEN** a page declares its extent in a field separate from its spans
-- **THEN** the page SHALL be rejected
-- **AND** a page's extent SHALL be read as its first span's lower bound through
-  its last span's upper bound
-
-#### Scenario: A span interval is primitively valid
-- **WHEN** a span carries `from_sequence == 0` or `through_sequence < from_sequence`
-- **THEN** it SHALL be rejected regardless of its position in the ordering
-
-#### Scenario: Passive carries its delivery interval
-- **WHEN** a lost sequence held a passive record
-- **THEN** its span SHALL carry that physical interval
-- **AND** SHALL assert no produced target range
-
-#### Scenario: Grammar is frozen before use
-- **WHEN** an implementation consumes the classification spans
-- **THEN** enum numbers, fields, bounds, unknown handling, digest version, and
-  the Appendix A transcript SHALL already be frozen
-
-### Requirement: MTR completion disposition is one generated enum
-The MTR completion leaf's terminal disposition SHALL be declared ONCE, as a
-generated protobuf enum `MtrCompletionDisposition`, with these exact
-Buf-compatible symbols and frozen numbers:
-
-- `MTR_COMPLETION_DISPOSITION_UNSPECIFIED = 0`
-- `MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED = 1`
-- `MTR_COMPLETION_DISPOSITION_NOT_ADMITTED = 2`
-- `MTR_COMPLETION_DISPOSITION_PROBE_FAILED = 3`
-- `MTR_COMPLETION_DISPOSITION_QUARANTINED = 4`
-- `MTR_COMPLETION_DISPOSITION_SCHEDULER_LOST = 5`
-
-The proto enum SHALL be the SOLE declaration. Go and Elixir are CONSUMERS: the Go
-`MtrTerminalDisposition` constants and the Elixir integer guards SHALL be replaced
-by references to the generated enum, and no document SHALL describe the values as
-pinned in `domain.go`.
-
-This is not tidiness. The disposition number is hashed INTO the frozen completion
-leaf preimage, so the numbering is part of the digest grammar. It is currently
-written twice and generated from nothing -- as a Go `iota` block
-(`MtrTerminalDisposition`) and as literal integers in Elixir guards -- which is
-exactly the hand-maintained numeric parity that can silently diverge. Two
-implementations that disagree by one produce two different completion roots for
-the same completion, and the disagreement surfaces as an unexplained proof
-mismatch rather than as a compile error.
-
-`MtrCompletionDisposition` SHALL be distinct from the per-hop `MtrOutcome` and
-SHALL NOT reuse its numbering. They describe different things -- what happened to
-a planned MTR ordinal versus what a probe observed at a hop -- and collapsing them
-would make the leaf grammar depend on an enum that evolves for unrelated reasons.
-
-No new leaf message SHALL be introduced: the disposition is a field of the
-existing completion leaf grammar. `MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED`
-SHALL be the ONLY value carrying a `trace_id`.
-
-The disposition SHALL be a CLOSED SET at the leaf. Zero, negative, and
-unknown-positive values SHALL be rejected BEFORE the value is widened to `u64` and
-hashed -- otherwise an unrecognised number silently enters the frozen preimage and
-produces a root no other implementation can reproduce. A value declared in a LATER
-proto revision SHALL remain rejected by this grammar until the completion grammar
-version itself changes; the leaf grammar is frozen, so widening the accepted set
-is a version bump, not a regeneration. Shared vectors SHALL cover `0`, `-1`, `6`,
-and `999` as rejects alongside each valid member.
-
-#### Scenario: One declaration, two runtimes
-- **WHEN** either runtime evaluates a completion leaf disposition
-- **THEN** it SHALL use the generated enum
-- **AND** a runtime restating the numbering locally SHALL be rejected in review
-
-#### Scenario: Disposition numbering is independent of MtrOutcome
-- **WHEN** `MtrOutcome` gains or renumbers a value
-- **THEN** `MtrCompletionDisposition` SHALL be unaffected
-
-#### Scenario: Only allocated carries a trace id
-- **WHEN** a completion leaf carries a disposition other than
-  `MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED`
-- **THEN** it SHALL carry no `trace_id`
-
-#### Scenario: The leaf disposition is a closed set
-- **WHEN** a leaf carries `0`, a negative value, or an unknown positive value
-- **THEN** it SHALL be rejected BEFORE the value is hashed
-
-#### Scenario: A later declared value does not widen a frozen grammar
-- **WHEN** a value declared in a later proto revision reaches this leaf grammar
-- **THEN** it SHALL be rejected until the completion grammar version changes
-
-### Requirement: Physical byte ceilings are measured on exact received bytes
-Every physical byte ceiling on a paged contract SHALL be measured against the
-EXACT bytes received, never against a re-encode of the decoded message.
-
-A ceiling checked after `proto.Marshal` of a decoded page measures what the
-receiver would have written, not what the sender sent. Duplicate singular fields
-collapse to the last one, and non-minimal varints for known fields re-encode
-minimally, so a sender can present a page far larger than the ceiling and have it
-pass. (Unknown fields are NOT an example: protobuf-Go retains and re-emits them,
-so they survive the round trip.) The ceiling exists to bound what the receiver
-must hold and forward, which is the received size.
-
-This applies to every paged contract that declares a ceiling, including the
-recovery manifest page and the scheduler plan page.
-
-#### Scenario: Bloated page is refused
-- **WHEN** a page's received bytes exceed its ceiling but its re-encode does not
-- **THEN** the page SHALL be rejected
-
-### Requirement: The durable assignment mapping is an authoritative record
-The mapping from a producer-side assignment identity to its scheduler execution SHALL be a durable authoritative record, not an implementation convenience. The
-span omits execution and plan identity BECAUSE this mapping recovers them; if it
-is not contractual, the span has simply lost that information.
-
-Its KEY SHALL be the complete frozen span identity -- network scope, authenticated
-agent, `producer_assignment_id`, `run_id`, `run_shard`, `authority_epoch`,
-`contract_bundle_sha256`, `production_scope_id`, `scope_sha256`, the SOURCE
-IDENTITY (kind, `context_id`, `source_scope_id`, `source_scope_sha256`, or their
-joint absence), and, for ACTIVE, `range_sha256` --
-or a digest over exactly that tuple whose grammar is frozen with it.
-`producer_assignment_id` SHALL NOT be assumed globally unique.
-
-Its VALUE SHALL be a TAGGED body with exactly two forms:
-
-- POSITIVE -- carries the execution, plan, and range identities and digests, shard,
-  epoch, and the contract-specific correlation operand.
-- EXPLICIT NEGATIVE -- carries its durable negative evidence and reason, and SHALL
-  NOT carry any positive-only field.
-
-A single untagged value schema cannot express both: NOT_SCHEDULED is a durable
-negative meaning there is no execution, so under a positive-only schema an
-implementation would have to fabricate execution/plan/range fields or violate the
-value rule. A POSITIVE and an EXPLICIT NEGATIVE under one key SHALL be a CONFLICT.
-
-Idempotent replay SHALL be defined for BOTH forms: re-writing the same positive
-value, and re-writing the same explicit negative, are each a no-op preserving the
-first record.
-
-CANDIDATE EVIDENCE and the SELECTED PROJECTION SHALL be distinct. The candidate
-log is APPEND-ONLY and MAY hold more than one candidate under a key; the SELECTED
-PROJECTION SHALL resolve to at most ONE value. Writing a differing second candidate
-SHALL be an integrity CONFLICT that leaves the projection UNRESOLVED, never an
-overwrite. "Exactly one value" always refers to the projection, never to the
-evidence -- an earlier revision of this requirement used the phrase for both, which
-cannot hold once conflicting candidates are retained.
-
-The mapping SHALL be durably committed BEFORE the assignment or grant can produce
-an accepted record. That ordering is what makes a definite absence meaningful.
-
-It SHALL outlive spool recovery, redrive, and lifecycle GC for at least as long as
-any manifest that can reference it. Collection SHALL be safety-based, never
-time-based.
-
-A write of the SAME value under an existing key SHALL be an idempotent NO-OP that
-preserves the FIRST record; assignment and grant creation can be replayed, and a
-replay is not a conflict.
-
-A CONFLICT SHALL be resolved by an APPEND-ONLY conflict-resolution record that
-SELECTS one candidate as the projection. The rejected candidate SHALL be retained
-as evidence. Freezing the resolution record's OWN replay semantics and authority --
-same-selection replay, a later record selecting the other candidate, a stale or
-future resolver fence, and conflicting resolution records -- belongs to task 1.3,
-which implements the mapping; without it two append-only resolution records could
-select A then B with no deterministic lookup. MISSING repair SHALL likewise require
-evidence that a backfilled record is the ORIGINAL authoritative pre-accept mapping,
-not merely a value that appeared later.
-
-Lookup SHALL return one of SIX DISTINCT results, each with a defined consumer
-transition:
-
-- FOUND -- resolve and proceed.
-- NOT_SCHEDULED -- an explicit, durably committed NEGATIVE mapping. Because the
-  mapping is committed before any accepted record can exist, a lookup MISS is NOT
-  this result: a definite missing entry is an INTEGRITY condition. Only a recorded
-  negative means "there is no execution", and it is a terminal, resolvable answer.
-- TEMPORARILY_UNAVAILABLE -- the recovery stays PENDING with NO terminal
-  disposition and NO ACK, and it SHALL be retried. It SHALL NOT be downgraded to
-  NOT_SCHEDULED.
-- MISSING -- the durable action is to record an integrity audit entry, FENCE the
-  affected generation against further reclamation, and leave the delivery PENDING
-  with no terminal disposition. Retry SHALL be permitted only once a durably
-  committed mapping (positive or negative) appears.
-- CORRUPT or CONFLICTING -- the durable action is to record an integrity audit
-  entry and QUARANTINE the affected slot; the delivery receives NO terminal ACK.
-  Retry SHALL be permitted only once repair evidence resolves the PROJECTION to a
-  single value: for CORRUPT, a re-read that verifies; for CONFLICTING, an
-  authoritative resolution record selecting one candidate.
-
-MISSING, CORRUPT, and CONFLICTING SHALL each BLOCK `RecoveryResolvedV1`. A recovery
-SHALL NOT resolve over evidence it could not read or could not reconcile.
-
-#### Scenario: A lookup miss is not a negative answer
-- **WHEN** a lookup finds no entry for an accepted record's identity
-- **THEN** the result SHALL be MISSING, an integrity condition
-- **AND** SHALL NOT be reported as NOT_SCHEDULED
-
-#### Scenario: Unavailability does not resolve a recovery
-- **WHEN** a lookup is temporarily unavailable
-- **THEN** the recovery SHALL remain pending with no terminal disposition or ACK
-
-#### Scenario: Unreadable evidence blocks resolution
-- **WHEN** a lookup is MISSING, CORRUPT, or CONFLICTING
-- **THEN** `RecoveryResolvedV1` SHALL be blocked
-- **AND** retry SHALL require the defined repair evidence
-
-#### Scenario: A second differing value is a conflict
-- **WHEN** a DIFFERING second value is written under an existing key
-- **THEN** it SHALL be an integrity conflict, not an overwrite
-
-#### Scenario: An identical replay is a no-op, positive or negative
-- **WHEN** the SAME positive value, or the SAME explicit negative, is written again
-  under an existing key
-- **THEN** it SHALL be an idempotent no-op preserving the first record
-- **AND** SHALL NOT be reported as a conflict
-
-#### Scenario: Positive and negative under one key conflict
-- **WHEN** a POSITIVE value and an EXPLICIT NEGATIVE exist under one key
-- **THEN** it SHALL be an integrity conflict
-- **AND** the projection SHALL remain unresolved until a resolution record selects
-  one
-
-#### Scenario: Conflict resolution preserves the rejected evidence
-- **WHEN** a conflict is resolved
-- **THEN** an append-only resolution record SHALL select one authoritative value
-- **AND** the rejected value SHALL be retained as audit evidence
-
-### Requirement: An attributed span carries one frozen assignment identity
-An `ATTRIBUTED_ACTIVE` or `ATTRIBUTED_PASSIVE` span SHALL carry exactly ONE
-assignment identity, frozen as `producer_assignment_id`, `run_id`, `run_shard`,
-`authority_epoch`, `production_scope_id`, `scope_sha256`, and
-`contract_bundle_sha256`, plus `range_sha256` on ACTIVE only. IDs and digests
-travel together: the wire signs and validates each independently, and no invariant
-derives one from the other.
-
-These are the PRODUCER's names for the identity, because the manifest is authored
-by the producer from what it actually wrote -- not from what a scheduler intended,
-and not every producer has a scheduler.
-
-`run_id` is INDEPENDENT of any execution identity and SHALL NOT be required to
-equal one; resolving a span to an execution is a lookup against the durable
-assignment mapping. The only producer/scheduler correspondences that hold are
-`run_shard == execution_shard` and `authority_epoch == assignment_epoch`, and even
-those are QUALIFIED BY CONTRACT AND CORRELATION VARIANT rather than universal:
-`SweepObservationBatchV1` carries both fields, and among the MTR variants only
-`MtrSweepContextV1` does -- `MtrScheduledCheckContextV1`, `MtrAdHocContextV1`, and
-`MtrCommandContextV1` carry neither, and the existing join checks them only for the
-sweep variant. A span SHALL NOT be rejected for the absence of a correspondence its
-originating contract cannot express.
-
-A span SHALL NOT embed `execution_plan_id`, because plan identity is NOT
-UNIVERSAL: ad-hoc, integration, and recovery producers have no compiled plan, so a
-span field for it would be absent for whole producer classes and could not be part
-of one frozen identity. A scheduled producer CAN know its plan identity -- the
-sweep batch carries it -- so the reason is universality, not ignorance.
-Binding an assignment to the plan it was compiled from is the authoritative
-assignment record's job (task 1.3), which SHALL guarantee a durable unique
-assignment-to-plan binding; omitting the field here is only defensible because
-that binding exists.
-
-The correspondences that hold between the producer and scheduler namings are
-`run_shard == execution_shard` and `authority_epoch == assignment_epoch`, enforced
-at the append-time join for the contracts that carry them -- unconditionally for
-`SweepObservationBatchV1`, and for MTR only on the sweep variant. `run_id` is NOT one of them: it is the
-host-issued producer-run identity, and a signed source claim legitimately carries
-a different `context_id`. A span therefore freezes the PRODUCER-side identity and
-nothing more; resolving it to a scheduler execution is a lookup against the durable
-assignment record (task 1.3), not a field equality.
-
-Task 1.6a freezes the span shape and validates it STRUCTURALLY only.
-
-`authority_epoch` SHALL be a plain `u64`, REQUIRED on every attributed span, with
-no presence marker. It is ONE authority fence value -- control-plane/scheduler
-issued and host-attested into `EdgeProducerContext` -- required for every accepted
-producer: a record whose epoch is absent is rejected before any manifest can
-attribute it. Where the work is scheduled, `assignment_epoch` IS that same fence
-value, not a second epoch.
-
-A presence-sensitive epoch SHALL NOT be introduced for spans alone. Absence IS
-representable on the wire and in the semantic preimage -- `EdgeProducerContext`
-declares the field optional and the preimage frames it with a presence bit -- but
-it is REJECTED there, and it is representable in neither the SIGNED CLAIMS nor the
-LOCAL BINDING: both claims-signing grammars and the local-binding transcript frame
-a plain `u64`, and proto3 `uint64 authority_epoch` on the signed claims cannot
-distinguish absent from zero. So an optional span field would carry a distinction
-that cannot be authenticated and cannot survive corruption-independent local
-binding. Making
-it optional is a change to producer context, both signed claims, both framing
-grammars, local binding, the semantic joins, fence policy, both validators, and
-absent-versus-zero vectors TOGETHER, or not at all.
-
-`ATTRIBUTED_PASSIVE` SHALL carry the identity but SHALL NOT carry `range_sha256`:
-it asserts no produced target range, and a range digest would be a claim about
-output it declares does not exist.
-
-An attributed span SHALL ALSO carry the record's SIGNED SOURCE IDENTITY -- the
-source authorization KIND, its `context_id`, its `source_scope_id`, and its
-`source_scope_sha256` -- when the record carried a source authorization, and its
-ABSENCE SHALL be part of the identity. All four are present together or absent
-together; a partial combination
-SHALL be rejected. The kind is required because the same UUID can name a scheduled check,
-an ad-hoc scan, a command, or a sweep execution, and after record loss the
-consumer cannot otherwise choose the correlation variant. Without it the tuple is not one-to-one with an
-execution: two accepted records can share every other member -- including ACTIVE
-`range_sha256` -- while carrying DIFFERENT signed source contexts, and a PASSIVE
-record has no range discriminator at all. Merging those into one span would erase
-which execution was lost, and no later lookup can recreate information the span
-already merged away. The assignment mapping resolves an identity; it cannot
-un-merge one.
-
-`UNATTRIBUTABLE` SHALL carry NO assignment identity and SHALL carry its reason. A
-partial identity is worse than none, because a consumer cannot distinguish a
-recovered fact from a guess.
-
-Where records are known to differ in a discriminator the frozen tuple does not
-carry, the manifest SHALL NOT emit them as ATTRIBUTED evidence. Either the
-discriminator belongs in the frozen identity -- if the difference affects authority
-or partialization, add it -- or the evidence SHALL be classified UNATTRIBUTABLE
-with the corresponding reason.
-
-`coarsened` SHALL NOT be used as permission to emit attributed evidence after
-dropping a required identity member. Neither separate spans nor a page-level
-boolean preserves the missing fact: two spans with an identical key resolve to the
-same single mapping value, and a boolean cannot recreate a discriminator. Only
-TRUTH-PRESERVING same-key coarsening is permitted, consistent with the coarsening
-rule elsewhere in this specification.
-
-Spans SHALL NOT be merged across differing assignment identities, even when their
-sequence intervals are adjacent and their classification matches.
-
-#### Scenario: Shard and epoch agree where the contract carries them
-- **WHEN** an attributed span originates from a contract that carries
-  `execution_shard` and `assignment_epoch`
-- **THEN** its `run_shard` and `authority_epoch` SHALL equal them
-- **AND** a span from a contract carrying neither SHALL NOT be rejected for their
-  absence
-- **AND** its `run_id` SHALL NOT be required to equal any execution identity
-
-#### Scenario: A span freezes producer identity only
-- **WHEN** an attributed span is resolved to a scheduler execution
-- **THEN** the resolution SHALL use the durable assignment record
-- **AND** SHALL NOT be derived from equality between `run_id` and any execution
-  identity
-
-#### Scenario: Passive asserts no produced range
-- **WHEN** a span is `ATTRIBUTED_PASSIVE`
-- **THEN** it SHALL carry the assignment identity
-- **AND** SHALL NOT carry `range_sha256`
-
-#### Scenario: Unattributable carries no identity
-- **WHEN** a span is `UNATTRIBUTABLE`
-- **THEN** it SHALL carry a reason and NO assignment identity
-- **AND** a span carrying a partial identity SHALL be rejected
-
-#### Scenario: Different source contexts do not merge
-- **WHEN** two records share every other identity member but differ in signed
-  source `context_id`, or in whether one is present
-- **THEN** they SHALL NOT share a span
-
-#### Scenario: Adjacent spans of different assignments stay separate
-- **WHEN** two adjacent spans share a classification but differ in assignment
-  identity
-- **THEN** they SHALL remain separate spans
-
-#### Scenario: Every attributed span carries a fence
-- **WHEN** an attributed span is validated
-- **THEN** it SHALL carry an `authority_epoch`
-- **AND** the value SHALL be the control-plane/scheduler-issued, host-attested
-  fence the attributed records carried
-
 ### Requirement: Unattributable loss forces conservative repair before resolution
 An unattributable span SHALL trigger conservative repair, and SHALL NOT be merely
 accepted and excluded from attribution. Acknowledging unknown data loss without
@@ -1666,8 +562,14 @@ For every slot present after restart, exactly one outcome SHALL apply:
 
 - commit evidence intact, attribution/wrapper/receipt binding valid, record bytes
   present and intact -> COMMITTED; the receipt stands and the sender MAY expose it.
-- commit evidence intact, bindings valid, record bytes MISSING OR CORRUPT ->
-  ATTRIBUTED LOSS; manifested as an attributed lost span.
+- commit evidence intact, bindings verifying for the slot, the span REPRESENTABLE in
+  the frozen identity, record bytes MISSING OR CORRUPT -> ATTRIBUTED LOSS;
+  manifested as an attributed lost span.
+- commit evidence intact and bindings VERIFYING for the slot, but the verified
+  evidence NOT REPRESENTABLE in the frozen identity -> UNATTRIBUTABLE with reason
+  `DISCRIMINATOR_UNREPRESENTABLE`. Attribution was proven and cannot be carried; the
+  span SHALL NOT be emitted as attributed with a substituted or dropped
+  discriminator.
 - commit evidence intact but ATTRIBUTION, WRAPPER, or RECEIPT BINDING missing or
   unverifiable -> AMBIGUOUS ALLOCATED SLOT (below).
 - commit evidence MISSING OR CORRUPT for a slot whose append may have been
@@ -1678,8 +580,14 @@ For every slot present after restart, exactly one outcome SHALL apply:
 
 An AMBIGUOUS ALLOCATED SLOT SHALL enter rollover coverage rather than being
 discarded or silently retained. It SHALL be classified ATTRIBUTED when its
-attribution binding verifies against the record, and UNATTRIBUTABLE with the
-corresponding reason when it does not. A slot whose sequence was allocated cannot
+attribution binding satisfies BOTH frozen predicates: `binding_verifies_for_slot`
+under the relation frozen by the edge record v1 wire ABI change -- evaluated against
+the surviving trusted slot/generation/namespace and commit/wrapper/receipt evidence,
+NOT against the record bytes, so it still holds on the BYTE-UNAVAILABLE path this
+requirement's positive restart case depends on -- AND `span_is_representable`. When
+the binding verifies but the span is NOT representable, the slot SHALL be
+UNATTRIBUTABLE with reason `DISCRIMINATOR_UNREPRESENTABLE`; when the binding does not
+verify, UNATTRIBUTABLE with the reason its frozen precedence selects. A slot whose sequence was allocated cannot
 simply vanish: the sequence is already reflected in the high-water, so an
 unresolved slot permanently pins the cumulative prefix.
 
@@ -1688,9 +596,18 @@ by the generation's segment count, and a quarantined or ambiguous sequence SHALL
 NOT be reused.
 
 #### Scenario: Committed slot with lost bytes is attributed loss
-- **WHEN** restart finds intact commit evidence and valid bindings but missing or
-  corrupt record bytes
+- **WHEN** restart finds intact commit evidence, a binding that VERIFIES FOR THIS
+  SLOT, and a REPRESENTABLE span, but missing or corrupt record bytes
 - **THEN** the slot SHALL be manifested as an ATTRIBUTED lost span
+
+#### Scenario: Verified attribution that the frozen identity cannot carry
+- **GIVEN** a slot whose binding VERIFIES FOR THIS SLOT
+- **WHEN** the verified evidence differs in a discriminator the frozen span identity
+  cannot express
+- **THEN** the slot SHALL be UNATTRIBUTABLE with reason
+  `DISCRIMINATOR_UNREPRESENTABLE`
+- **AND** it SHALL NOT be emitted as an attributed span with the discriminator
+  substituted or dropped, which would record attribution the wire cannot justify
 
 #### Scenario: A single corrupt marker copy decides nothing
 - **WHEN** one copy of a slot's commit evidence is unreadable
@@ -1710,7 +627,10 @@ NOT be reused.
 - **WHEN** restart finds a sequence allocated in the high-water with no readable
   commit evidence
 - **THEN** the slot SHALL enter rollover coverage as an AMBIGUOUS ALLOCATED SLOT
-- **AND** SHALL be attributed if its binding verifies, otherwise unattributable
+- **AND** SHALL be ATTRIBUTED only if its binding VERIFIES FOR THIS SLOT **and** the
+  span is REPRESENTABLE; if it verifies but is not representable, UNATTRIBUTABLE with
+  `DISCRIMINATOR_UNREPRESENTABLE`; otherwise UNATTRIBUTABLE with the reason its
+  frozen precedence selects
 
 #### Scenario: Complete prepared record without a marker is ambiguous
 - **WHEN** restart finds a complete record whose commit evidence is absent
@@ -1720,7 +640,10 @@ NOT be reused.
 - **WHEN** commit evidence is intact but attribution, wrapper, or receipt binding
   is missing or unverifiable
 - **THEN** the slot SHALL enter rollover coverage
-- **AND** SHALL be unattributable unless its attribution binding verifies
+- **AND** SHALL be ATTRIBUTED only if its attribution binding VERIFIES FOR THIS SLOT
+  **and** the span is REPRESENTABLE
+- **AND** a binding that verifies while the span is NOT representable SHALL be
+  UNATTRIBUTABLE with `DISCRIMINATOR_UNREPRESENTABLE`, never attributed
 
 #### Scenario: True preparation is discarded
 - **WHEN** restart finds no commit evidence, no high-water allocation, and no
@@ -1741,7 +664,19 @@ every UNRECLAIMED ALLOCATED sequence it held — that is, every sequence in
   coordinates, the REBOUND attribution, the durable old->new mapping, the
   destination sequence high-water, and the directory metadata that makes the slot
   discoverable after restart; or
-- a FROZEN loss span whose required recovery pages have been PubAcked.
+- a FROZEN loss span whose required recovery pages have been PubAcked AND whose every
+  covered sequence is independently backed by the coordinator's DURABLE PER-SEQUENCE
+  loss/classification evidence, WITH that journaled classification MATCHING the span's
+  COMPLETE ONEOF BODY. All conjuncts are required.
+
+A PubAcked span is NOT self-authorizing coverage, for TWO distinct reasons. A widened
+`[1,3]` is byte-identical whether sequence 2 was lost or preserved, so the PubAck
+alone would let an incorrectly-constructed merge authorize deleting a sequence that
+survived. And a span can cover a sequence that genuinely WAS lost while carrying a
+complete oneof body DIFFERENT from what the coordinator journaled -- say a PubAcked
+ATTRIBUTED span over a sequence journaled `UNATTRIBUTABLE(BINDING_CORRUPT)`. Boolean
+loss membership would authorize deleting the record and binding evidence needed to
+prove that mismatch, so congruence must be checked BEFORE deletion, not after.
 
 An fsynced destination record alone is insufficient: a copy that is durable but
 not yet committed and sender-visible is indistinguishable, after a crash, from an
@@ -1771,9 +706,21 @@ proof that the loss was reportable.
 
 #### Scenario: Deletion blocked without full coverage
 - **WHEN** any sequence in `(durable_local_reclaim_watermark, sequence_high_water]`
-  is neither committed and sender-visible at the destination nor covered by a
-  PubAcked frozen classification span
+  is neither committed and sender-visible at the destination, nor covered by a
+  PubAcked frozen classification span that is ALSO backed by durable per-sequence
+  loss evidence for that exact sequence WHOSE JOURNALED CLASSIFICATION MATCHES THE
+  SPAN'S COMPLETE ONEOF BODY
 - **THEN** the source segment SHALL NOT be deleted
+- **AND** a PubAcked span alone SHALL NOT satisfy the proof, since a widened span
+  cannot show whether an omitted sequence was lost or preserved
+
+#### Scenario: A span whose body contradicts the journal blocks deletion
+- **GIVEN** a sequence journaled `UNATTRIBUTABLE(BINDING_CORRUPT)`
+- **WHEN** a PubAcked frozen span covers it carrying an ATTRIBUTED body, or an
+  `UNATTRIBUTABLE` body with a different `reason`
+- **THEN** the coverage relation SHALL NOT hold and the segment SHALL NOT be deleted
+- **AND** loss MEMBERSHIP alone SHALL NOT authorize deletion, because deleting the
+  record and binding evidence would destroy the proof that the bodies disagree
 
 #### Scenario: Markerless allocated sequence blocks deletion
 - **WHEN** a segment holds a committed sequence and a later allocated, markerless
@@ -1847,22 +794,72 @@ other artifact recovery must durably write.
 - **FOR** the bounded number of concurrent recoveries
 
 ### Requirement: Coarsening preserves attribution truth
-Coarsening MAY combine intervals belonging to the SAME attribution key, and SHALL
-NOT collapse unrelated assignments or runs into a single fabricated affected
-scope, nor widen a scope to cover sequences that key never produced.
+Coarsening MAY combine only CONTIGUOUS LOST intervals whose COMPLETE classification bodies are EQUAL, and SHALL NOT collapse unrelated assignments or runs into a single fabricated span, nor widen a span over any sequence that is not itself lost.
 
-Where a span cannot be coarsened without merging distinct keys, the manifest SHALL
-retain the separate intervals or split the recovery, never invent coverage and
-never relabel proven attribution as unattributable.
+SAME KEY IS NOT SUFFICIENT; CONTIGUITY IN THE LOSS SET IS ALSO REQUIRED. A sequence
+outside the span union is frozen upstream as NOT LOST, so merging across a gap
+declares a preserved sequence lost. Same-key lost spans `[1,1]` and `[3,3]` with
+sequence 2 successfully preserved SHALL NOT merge into `[1,3]`: the key did produce
+sequence 2, so a "never produced" test permits the merge, but sequence 2 was not
+LOST, and the widened span would falsely declare it so. That is not a cosmetic
+over-report -- the widened span is PubAcked and can then participate in reclaim
+coverage, so a merge across a gap can authorize reclaiming a sequence that was
+preserved.
 
-#### Scenario: Same-key intervals merge
-- **WHEN** adjacent lost intervals share one attribution key
-- **THEN** coarsening MAY emit a single interval for that key
+A merge is therefore permitted only when every sequence it swallows is independently
+in the loss set -- in practice, immediately adjacent spans with no omitted sequence
+between them.
 
-#### Scenario: Distinct keys never merge
-- **WHEN** adjacent lost intervals belong to different attribution keys
-- **THEN** coarsening SHALL NOT emit one affected scope spanning both
-- **AND** the manifest SHALL remain rejectable if it does
+EQUALITY IS OVER THE COMPLETE ONEOF BODY, not a loosely-named "attribution key". Two
+spans MAY merge only if they set the SAME oneof member and every member field is
+equal -- for ATTRIBUTED bodies the whole identity including the source identity or
+its joint absence, and `range_sha256` on ACTIVE. `UNATTRIBUTABLE` bodies have NO
+attribution key at all, so a key-based rule leaves their merge undefined and a
+nil-key implementation would merge spans carrying DIFFERENT reasons, discarding
+evidence about why each range could not be attributed. Two `UNATTRIBUTABLE` spans MAY
+merge only when their `reason` is identical.
+
+THE NO-GAP RULE IS A CONSTRUCTION-TIME REFUSAL, NOT A RECEIVER CHECK. A received page
+`[1,3]` is byte-identical whether it was formed legally from lost `[1,1] + [2,3]` or
+illegally from lost `[1,1] + [3,3]` with sequence 2 preserved; the wire carries no
+commitment to the pre-coarsening loss set, so no receiver can infer the gap. The
+coordinator SHALL refuse an illegal merge against its DURABLE PER-SEQUENCE loss and
+classification evidence, and reclaim SHALL be authorized by that per-sequence
+evidence rather than by the mere existence of a PubAcked widened span.
+
+Where a span cannot be coarsened without merging spans whose COMPLETE
+CLASSIFICATION BODIES differ in any member, OR without crossing a not-lost gap, the
+manifest SHALL retain the separate intervals or split the recovery, never invent
+coverage and never relabel proven attribution as unattributable.
+
+#### Scenario: Adjacent intervals with equal complete bodies merge
+- **GIVEN** lost spans `[1,1]` and `[2,2]` whose complete classification bodies are
+  equal in EVERY member -- the same oneof member, the same identity including the
+  source identity or its joint absence, the same `range_sha256` on ACTIVE, or the
+  same `reason` on `UNATTRIBUTABLE` -- and no omitted sequence between them
+- **WHEN** coarsening runs
+- **THEN** it MAY emit the single interval `[1,2]` carrying that same body
+
+#### Scenario: Equal-bodied intervals do not merge across a not-lost gap
+- **GIVEN** lost spans `[1,1]` and `[3,3]` with EQUAL complete bodies, and sequence 2 absent from the
+  loss union because it was preserved
+- **WHEN** coarsening runs
+- **THEN** the coordinator SHALL REFUSE the merge at construction, against its
+  durable per-sequence evidence, and the two spans SHALL remain separate
+- **AND** reclaim SHALL NOT treat a widened span as coverage on its own, because a
+  received `[1,3]` cannot show whether sequence 2 was lost or preserved -- the
+  per-sequence evidence, not the span, is what authorizes deletion
+
+#### Scenario: Distinct complete bodies never merge
+- **WHEN** adjacent lost intervals carry classification bodies that are not equal in
+  every member -- a differing identity or `range_sha256` member, or two
+  `UNATTRIBUTABLE` spans with different `reason` values
+- **THEN** the coordinator SHALL REFUSE the merge at construction, against its
+  journaled per-sequence classification evidence, and SHALL emit them as separate
+  spans
+- **AND** this SHALL NOT be stated as a receiver check: a merged `[1,2]` does not
+  reveal whether its precursors carried one body or two, so the refusal is only
+  enforceable where the precursor evidence still exists
 
 ### Requirement: Recovery ownership is separated by authority
 Recovery responsibilities SHALL be owned as follows, and SHALL NOT be relocated
@@ -1912,3 +909,466 @@ coverage proof yet accounts for.
 - **WHEN** the spool is at capacity and a corrupt segment requires a manifest
 - **THEN** recovery SHALL proceed against the reserve
 - **AND** producer appends SHALL be refused rather than recovery blocked
+
+### Requirement: The assignment mapping's durable behaviour is replay-safe
+The durable assignment mapping SHALL be replay-safe, repairable, and bounded, over the KEY frozen by the edge record v1 wire ABI change.
+
+That change owns the mapping's KEY and its tagged positive/explicit-negative VALUE,
+because the attributed span omits execution and plan identity on the strength of
+them. This requirement owns everything the runtime must then do with it: storage,
+replay, conflict repair, retention, collection, and the lookup-outcome transitions
+a consumer acts on. Splitting it this way is deliberate -- freezing a state machine
+alongside a wire contract is what made the predecessor change unreviewable.
+
+CANDIDATE EVIDENCE and the SELECTED PROJECTION SHALL be distinct. The candidate
+log is APPEND-ONLY and MAY hold more than one candidate under a key; the SELECTED
+PROJECTION SHALL resolve to at most ONE value. Writing a differing second candidate
+SHALL be an integrity CONFLICT that leaves the projection UNRESOLVED, never an
+overwrite. "Exactly one value" always refers to the projection, never to the
+evidence -- an earlier revision of this requirement used the phrase for both, which
+cannot hold once conflicting candidates are retained.
+
+The mapping SHALL be durably committed BEFORE the assignment or grant can produce
+an accepted record. That ordering is what makes a definite absence meaningful.
+
+It SHALL outlive spool recovery, redrive, and lifecycle GC for at least as long as
+any manifest that can reference it. Collection SHALL be safety-based, never
+time-based.
+
+A write of the SAME value under an existing key SHALL be an idempotent NO-OP that
+preserves the FIRST record; assignment and grant creation can be replayed, and a
+replay is not a conflict.
+
+A CONFLICT SHALL be resolved by an APPEND-ONLY conflict-resolution record that
+SELECTS one candidate as the projection. The rejected candidate SHALL be retained
+as evidence. Freezing the resolution record's OWN replay semantics and authority --
+same-selection replay, a later record selecting the other candidate, a stale or
+future resolver fence, and conflicting resolution records -- belongs to runtime task 2.20,
+which implements the mapping; without it two append-only resolution records could
+select A then B with no deterministic lookup. MISSING repair SHALL likewise require
+evidence that a backfilled record is the ORIGINAL authoritative pre-accept mapping,
+not merely a value that appeared later.
+
+Lookup SHALL return one of SIX DISTINCT results, each with a defined consumer
+transition:
+
+- FOUND -- resolve and proceed.
+- NOT_SCHEDULED -- an explicit, durably committed NEGATIVE mapping. Because the
+  mapping is committed before any accepted record can exist, a lookup MISS is NOT
+  this result: a definite missing entry is an INTEGRITY condition. Only a recorded
+  negative means "there is no execution", and it is a terminal, resolvable answer.
+- TEMPORARILY_UNAVAILABLE -- the recovery stays PENDING with NO terminal
+  disposition and NO ACK, and it SHALL be retried. It SHALL NOT be downgraded to
+  NOT_SCHEDULED.
+- MISSING -- the durable action is to record an integrity audit entry, FENCE the
+  affected generation against further reclamation, and leave the delivery PENDING
+  with no terminal disposition. Retry SHALL be permitted only once a durably
+  committed mapping (positive or negative) appears.
+- CORRUPT or CONFLICTING -- the durable action is to record an integrity audit
+  entry and QUARANTINE the affected slot; the delivery receives NO terminal ACK.
+  Retry SHALL be permitted only once repair evidence resolves the PROJECTION to a
+  single value: for CORRUPT, a re-read that verifies; for CONFLICTING, an
+  authoritative resolution record selecting one candidate.
+
+MISSING, CORRUPT, and CONFLICTING SHALL each BLOCK `RecoveryResolvedV1`. A recovery
+SHALL NOT resolve over evidence it could not read or could not reconcile.
+
+#### Scenario: A lookup miss is not a negative answer
+- **WHEN** a lookup finds no entry for an accepted record's identity
+- **THEN** the result SHALL be MISSING, an integrity condition
+- **AND** SHALL NOT be reported as NOT_SCHEDULED
+
+#### Scenario: Unavailability does not resolve a recovery
+- **WHEN** a lookup is temporarily unavailable
+- **THEN** the recovery SHALL remain pending with no terminal disposition or ACK
+
+#### Scenario: Unreadable evidence blocks resolution
+- **WHEN** a lookup is MISSING, CORRUPT, or CONFLICTING
+- **THEN** `RecoveryResolvedV1` SHALL be blocked
+- **AND** retry SHALL require the defined repair evidence
+
+#### Scenario: A second differing value is a conflict
+- **WHEN** a DIFFERING second value is written under an existing key
+- **THEN** it SHALL be an integrity conflict, not an overwrite
+
+#### Scenario: An identical replay is a no-op, positive or negative
+- **WHEN** the SAME positive value, or the SAME explicit negative, is written again
+  under an existing key
+- **THEN** it SHALL be an idempotent no-op preserving the first record
+- **AND** SHALL NOT be reported as a conflict
+
+#### Scenario: Positive and negative under one key conflict
+- **WHEN** a POSITIVE value and an EXPLICIT NEGATIVE exist under one key
+- **THEN** it SHALL be an integrity conflict
+- **AND** the projection SHALL remain unresolved until a resolution record selects
+  one
+
+#### Scenario: Conflict resolution preserves the rejected evidence
+- **WHEN** a conflict is resolved
+- **THEN** an append-only resolution record SHALL select one authoritative value
+- **AND** the rejected value SHALL be retained as audit evidence
+
+### Requirement: Output contract bundles have a governed deployment lifecycle
+The deployment SHALL govern output-contract bundles through a signed lifecycle, and SHALL NOT let a partially deployed or stale epoch receive production.
+
+The RECORD-SIDE reference -- contract ID/version, bundle digest, registry epoch,
+registry-snapshot digest, effective-grant digest -- is frozen by the
+edge record v1 wire ABI change. This requirement owns the registry and its
+operation.
+
+The deployment SHALL maintain a versioned output-contract registry shared by
+assignment compilation, the agent sink, gateway readiness/routing, and
+EventWriter. An immutable contract bundle SHALL bind contract ID/version,
+encoding and schema canonicalization, unknown-field policy, bounded validator,
+authoritative-field rules, deterministic domain identity and revision/merge
+semantics, platform partition rule, cost model, projector engine/configuration,
+retention/data classification, and error policy. Its exact digest and registry
+epoch SHALL be bound into every accepted record and retained through the maximum
+producer-retry, agent-offline, spool, JetStream replay, DLQ, and redrive horizon.
+
+Package metadata MAY request approved outputs and declarative processor
+contributions, but SHALL NOT choose subjects, streams, consumers, traffic class,
+database tables/DDL, executable Core processors, or arbitrary subject filters.
+A producer grant SHALL become ready only when agent, gateway, route map, and
+required projector have compatible registry state.
+
+Each bundle SHALL transition through signed `candidate`, `ready`, `active`,
+`draining`, and `retired` states or the terminal `security-revoked` state. A
+candidate SHALL become ready only after the target agent cohort, every
+authoritative gateway route/map generation, and every required EventWriter
+validator, cost engine, and projector attest the exact bundle digest. Assignment
+compilation SHALL issue grants only for one atomically selected active epoch; a
+partially deployed or stale epoch SHALL NOT receive new production. Planned
+retirement SHALL stop new grants and permit only exact historical backlog to
+drain to declared spool, JetStream, DLQ, redrive, and producer-receipt
+watermarks. Security revocation SHALL stop both new production and backlog
+delivery fail-closed until an approved safe replacement, redrive, or explicit
+waiver exists. Registry history SHALL be garbage-collected only after all of its
+declared horizons and correctness holds close.
+
+#### Scenario: Package requests an unapproved output
+- **WHEN** a package requests or submits a contract absent from its effective
+  assignment grant
+- **THEN** the agent SHALL reject it before local spool acceptance
+- **AND** no fallback generic JSON, subject, or dynamic database projection
+  SHALL be created
+
+#### Scenario: Deployment components disagree on registry epoch
+- **GIVEN** the agent can encode a contract but the gateway route or EventWriter
+  projector is not ready for its exact bundle
+- **WHEN** the scheduler evaluates a new producer assignment
+- **THEN** the assignment SHALL remain not ready or paused
+- **AND** the mismatch SHALL NOT be converted into a fleet-wide poison stream
+
+#### Scenario: Candidate activation is only partially ready
+- **GIVEN** an agent and gateway route report a candidate bundle ready
+- **AND** one required EventWriter projector or route-map generation is not ready
+- **WHEN** the control plane evaluates activation
+- **THEN** the active registry epoch SHALL remain unchanged
+- **AND** no assignment SHALL receive a grant for the candidate bundle
+
+#### Scenario: A contract is retired normally
+- **WHEN** a newer contract version replaces an old version without a security
+  incident
+- **THEN** new grants SHALL use the new bundle while immutable old backlog MAY
+  drain through the pinned historical bundle
+- **AND** the historical bundle SHALL remain resolvable until all supported
+  retry/replay/redrive horizons close
+
+#### Scenario: A contract is revoked for compromise
+- **WHEN** a contract, package, validator, or projector is security-revoked
+- **THEN** new production and delivery of matching records SHALL stop fail-closed
+- **AND** matching backlog SHALL be held or quarantined until an operator
+  authorizes a fixed safe bundle, redrive, or explicit waiver
+
+#### Scenario: A stale component resumes after activation
+- **WHEN** a gateway, agent, or EventWriter instance resumes with an epoch older
+  than the active or explicitly draining set
+- **THEN** it SHALL be fenced from new production and authoritative projection
+- **AND** it SHALL NOT roll the deployment backward or reinterpret records under
+  its local latest-known bundle
+
+### Requirement: Producer provenance is host-attested and enforced at runtime
+The trusted agent sink and EventWriter SHALL enforce the authoritative provenance fields the wire contract defines.
+
+The field set, its authority, and the rule that caller-selected identifiers create
+no namespace are frozen by the edge record v1 wire ABI change. This requirement
+owns the ENFORCEMENT: the trusted agent sink SHALL derive or verify those fields
+from host-issued handles, the effective grant, and control-plane-signed
+capabilities, and EventWriter SHALL compare or replace body-level agent, package,
+source, network scope, assignment/run, target/range, and traffic-class claims
+using the trusted envelope/grant BEFORE side effects.
+
+#### Scenario: A plugin claims another network scope and lower cost
+- **WHEN** a plugin body or submission metadata claims another scope, route,
+  traffic class, partition, or artificially low projected cost
+- **THEN** the agent SHALL ignore/replace non-authoritative metadata or reject
+  the record before spool acceptance
+- **AND** EventWriter SHALL independently recompute the approved cost and
+  validate decoded authoritative fields before projection
+
+#### Scenario: A scanner output lacks scan authority
+- **GIVEN** a package has permission to emit a scan-result contract but no valid
+  target/range collection capability
+- **WHEN** it attempts to report or initiate a scan
+- **THEN** output permission SHALL NOT authorize the probe or make the target
+  claims authoritative
+- **AND** the record SHALL be rejected or retained as non-authoritative audit
+  according to the approved contract
+
+### Requirement: Governed service ingress is operated by the service publisher
+The governed service publisher, not the gateway or EventWriter, SHALL own publication-slot durability, and the control plane SHALL isolate publisher credentials per service.
+
+The `service_slot` tuple, its validity rules, the fresh-only scope, and the three
+service transport transcripts are frozen by the edge record v1 wire ABI change.
+This requirement owns their operation.
+
+The publisher SHALL ALLOCATE `publication_lane_id` ONCE, durably, before the lane's
+first publication, and SHALL keep it stable for that lane's life. A retry, timeout,
+or restart of a not-yet-acknowledged publication SHALL REUSE the same
+`(publication_lane_id, publication_sequence)`, so a lost-ACK redelivery presents the
+exact same `service_slot` and `record_sha256`. The shape and validity of those two
+fields are frozen upstream; this requirement owns WHEN they are allocated, reused,
+and journaled.
+
+The governed service publisher (or its transactional journal/outbox) -- NOT the gateway or
+EventWriter -- SHALL OWN publication-slot durability. For EACH record it SHALL, BEFORE publishing,
+ATOMICALLY ALLOCATE the NEXT `publication_sequence` and JOURNAL LOCALLY the `service_slot`, the
+exact pending record bytes, and the immutable route/header state. Sequence allocation is NOT gated
+on acknowledgement: the publisher MAY have multiple outstanding un-acknowledged sequences
+(pipelined), and a validated JetStream PubAck only RESOLVES/RECLAIMS its journaled slot -- it is
+never a precondition for allocating the next sequence. A retry/timeout/restart of an
+un-acknowledged publication SHALL republish the SAME journaled bytes on the SAME
+`(publication_lane_id, publication_sequence)`, so a lost-ACK redelivery deduplicates.
+`publication_sequence` SHALL NEVER wrap: on approaching its maximum the publisher SHALL SEAL the
+current lane and DRAIN its outstanding journaled work while allocating NEW work on a fresh UUIDv7
+`publication_lane_id` starting `publication_sequence` at 1.
+
+Provenance trust for both the agent path and the service-ingress path SHALL be
+per-class publisher-subject isolation, NOT a global "only the gateway" rule: ONLY
+the authenticated gateway MAY publish to the durable edge-record subject, and ONLY
+an authorized governed service MAY publish to its own service-ingress subject, each
+over its own isolated publisher credential. A governed service publishes its own
+service-stamped provenance to its service-ingress subject; the agent path publishes
+gateway-stamped provenance to the edge-record subject.
+
+The control plane SHALL maintain an immutable governed mapping from each
+`authenticated_service_id` to exactly one service-ingress subject and publisher
+credential. A governed service MAY publish ONLY to its mapped subject over its mapped
+credential, and EventWriter SHALL derive the `authenticated_service_id` from the
+publish subject and authenticated publisher credential, NEVER from caller-supplied
+body or header text. A publish outside a service's mapped subject/credential SHALL be
+rejected before projection.
+
+The service-ingress path SHALL STAMP the service variants of the three transport
+transcripts -- the `Nats-Msg-Id`, `Sr-Edge-Delivery-Id`, and
+`Sr-Edge-Transport-Provenance` service grammars frozen in Appendix A of the edge
+record v1 wire ABI change -- computing them over this publication's `service_slot`
+rather than agent spool coordinates. Their domain tags, field order, slot-kind
+discriminant, and delivery-proof presence rule are NOT restated here. Because
+governed publishers emit FRESH records only, the publisher SHALL stamp no
+`delivery_proof_digest`, and a receiver SHALL NOT treat its absence as poison.
+
+Service-ingress DELIVERY grants -- renewal, rollover, or late-drain of a service
+record -- are OUT OF SCOPE for v1. Governed service publishers SHALL emit FRESH
+records only, and their transport provenance SHALL carry no `delivery_proof_digest`.
+Late-delivery or recovery of a service-ingress record SHALL require a future version.
+
+A transactional outbox MAY be used only when
+the record's system of record is the same operational transaction; metrics and
+telemetry SHALL remain JetStream-first.
+
+#### Scenario: Cluster-local telemetry producer publishes a metric
+- **WHEN** a cluster service emits persistent telemetry
+- **THEN** its service-attested publisher SHALL place the authoritative record in
+  JetStream before EventWriter projection
+- **AND** it SHALL NOT use an operational database outbox as a database-first
+  telemetry path or impersonate an edge agent
+
+#### Scenario: A governed service claims another service identity
+- **GIVEN** the control plane maps an `authenticated_service_id` to exactly one
+  service-ingress subject and publisher credential
+- **WHEN** a caller presents body or header text claiming a different
+  `authenticated_service_id` than its authenticated publisher subject/credential
+  resolves to
+- **THEN** EventWriter SHALL compare, BYTE-FOR-BYTE, the authenticated publisher
+  subject/credential identity, the `Sr-Edge-Transport-Provenance` principal, the
+  publication-ID principal committed in `Nats-Msg-Id` / `Sr-Edge-Delivery-Id`, and the
+  record principal (`producer_context.origin_principal_id`), and SHALL fail closed on ANY
+  disagreement -- it MUST NOT silently derive from, override, or ignore a mismatched claim
+- **AND** a publish outside the service's mapped subject/credential SHALL be rejected
+  before projection
+
+#### Scenario: A service-ingress producer attempts a late delivery
+- **GIVEN** service-ingress delivery grants are out of scope for v1 and governed
+  services emit fresh records only
+- **WHEN** a governed service publisher attempts a renewal, rollover, or late-drain of
+  a service record carrying a `delivery_proof_digest`
+- **THEN** the deployment SHALL reject it because service-ingress late-delivery
+  requires a future version
+- **AND** a fresh service record whose provenance carries no `delivery_proof_digest`
+  SHALL remain valid
+
+### Requirement: The record's exact bytes are preserved end to end
+Every component on the delivery path SHALL preserve a record's EXACT bytes, so that `record_sha256` remains verifiable at every hop.
+
+The four identities and their digests are frozen by the
+edge record v1 wire ABI change. This requirement owns the obligation that makes
+`record_sha256` useful in operation: the spool, sender, gateway, JetStream, and
+record DLQ SHALL preserve those exact bytes, and the gateway and EventWriter SHALL
+decode and hash them rather than re-encoding.
+
+The binding record SHALL be stored corruption-independently of `record_bytes`:
+independently checksummed, separately addressable, and readable when the record
+segment is unreadable. Dictionary or RLE encoding per segment is permitted
+provided the checksum covers the encoded form and decoding does not depend on any
+record payload.
+
+#### Scenario: A hop re-encodes a record
+- **WHEN** any component re-encodes a record rather than forwarding its exact bytes
+- **THEN** `record_sha256` SHALL no longer verify and the record SHALL be rejected
+- **AND** the re-encoding component SHALL NOT substitute its own digest
+
+#### Scenario: Attribution survives a corrupt record segment
+- **WHEN** a record segment is corrupt or unreadable
+- **THEN** its attribution binding SHALL remain readable and checksum-verifiable
+- **AND** decoding that binding SHALL NOT depend on any record payload
+
+### Requirement: Finite routing survives contract and credit pressure
+The deployment SHALL keep the route map finite and the lanes independently pooled under pressure, so that neither contract count nor a blocked lane degrades the others.
+
+The finite route-profile and traffic-class enums are frozen by the edge record v1
+wire ABI. This requirement owns their operational consequences: lane, subject,
+physical stream, connection, consumer, process, and RAFT-group cardinality SHALL
+NOT grow with payload kind, package, plugin, integration, or output-contract count.
+V1 SHALL begin with disjoint bulk/interactive physical streams; another profile
+requires an explicit benchmarked platform change.
+
+#### Scenario: A package defines many output contracts
+- **WHEN** thousands of approved contracts share the durable record plane
+- **THEN** the trusted binary contract envelope SHALL dispatch them over the
+  finite route map
+- **AND** the deployment SHALL NOT create thousands of lanes, subjects, streams,
+  consumers, connections, processes, or RAFT groups
+
+#### Scenario: Bulk transport is blocked
+- **WHEN** a bulk lane exhausts its HTTP/2, publisher, stream, or database credits
+- **THEN** separately pooled interactive and recovery lanes SHALL continue
+- **AND** no unresolved bulk sequence SHALL be skipped or promoted
+
+### Requirement: Authorization decisions are evaluated, cached, and routed at runtime
+The runtime SHALL evaluate the four authorization decisions in a fixed order, cache capability grants under a fence, and route each typed outcome to its destination.
+
+The four DIMENSIONS are frozen by the edge record v1 wire ABI, and so are the
+values actually carried on the wire: the generated `EdgeSourceAuthorizationKind`
+members, the generated `EdgeRecordDispositionKind` members, and the `DeliveryMode`
+constants. It also freezes the invariant that projection is a decision separate
+from publication and that a publication accept does not imply an authoritative
+projection.
+
+Everything else in the four dimensions is owned HERE, with its meaning:
+
+- the PROJECTION outcome set -- `authoritative_apply`, `ledger_only`,
+  `conflict_quarantine`;
+- the HISTORICAL-PROOF outcomes -- `valid`, `invalid`, `historically_revoked`,
+  `unavailable` -- which are key/trust RESOLVER verdicts computed at evaluation
+  time, not wire members;
+- the INTERNAL publication subtypes and which generated disposition member each
+  maps onto.
+
+This requirement is complete on its own and owns everything about applying all
+four.
+
+ORDER IS FIXED, AND SO IS OWNERSHIP. The four decisions SHALL be evaluated
+COLLECTIVELY in the order the authorization matrix defines, and SHALL NOT be
+reordered -- but each stage is evaluated by the component that owns it, and neither
+component SHALL be required to evaluate a decision it cannot own. The GATEWAY stage
+runs first and ends at PubAck: envelope-level checks only, with no decoded body.
+EVENTWRITER owns everything after PubAck: the authoritative body checks and the
+projection decision. The two per-component matrices in this change's design fix the
+behaviour of each. EventWriter
+SHALL RECOMPUTE and verify `semantic_envelope_sha256` before that digest is ever
+used as a ledger replay key; it SHALL immutably bind the `edge_slot`/`service_slot`
+to `record_sha256` before any terminal projection-fence decision; and it SHALL
+resolve the historical collection proof to exactly one of `valid`, `invalid`,
+`historically_revoked`, or `unavailable` for EVERY record -- so a
+compromise-revoked signing key resolves to `historically_revoked` and is REACHABLE,
+never silently downgraded to `authoritative_apply`.
+
+EVALUATION IS TWO-STAGE for the historical proof. The GATEWAY stage is
+ENVELOPE-level only and SHALL NOT require decoded body fields: the signed
+capability SHALL be valid -- not-before and expiry plus attested-clock tolerance --
+over the record's UUIDv7 identity-time interval, which is present on the envelope
+before any payload decode. The EVENTWRITER stage validates the authoritative BODY:
+the record body's observation/event time(s) SHALL lie within the signed collection
+interval, and the UUIDv7 identity time SHALL be validated to lie within that same
+interval as an integrity and ordering check, and SHALL NOT substitute for the body
+observation window.
+
+GRANT CACHING IS LIMITED TO THE RECORD-INDEPENDENT PART. Only the
+signature/key/trust-chain validation -- the capability validly signed by a trusted,
+non-revoked key at the trust-policy epoch -- is a reusable grant, and it MAY be
+cached by capability digest plus trust-policy epoch. A cached grant SHALL NOT be
+served once its fence has advanced; any cache key SHALL cover the fence.
+
+Every RECORD-DEPENDENT check SHALL be re-evaluated per record and SHALL NOT be
+satisfied by a cached grant: the not-before/expiry window against THAT record's
+identity time, the body observation window against the signed collection interval,
+and the scope/context binding. A cache hit means "this capability was validly
+signed", never "this record is authorized". Caching the composite decision would
+authorize a record whose identity time falls outside the very capability that was
+cached for an earlier one -- an expired capability that keeps admitting records for
+as long as the entry lives.
+
+ROUTING, PUBACK, AND SPOOL RESOLUTION per outcome are specified by the
+authorization matrix in this change's design, which SHALL specify, per outcome, the
+PubAck behaviour, the destination stream/DLQ, whether the agent may resolve its
+spool entry, whether domain projection is permitted, and which component owns each
+current-fence lookup.
+
+#### Scenario: The gateway stage does not decode the body
+- **WHEN** the gateway evaluates the historical proof
+- **THEN** it SHALL use only envelope-level fields
+- **AND** SHALL NOT require a decoded body
+
+#### Scenario: A cached grant is not served past its fence
+- **WHEN** a cached capability grant's fence has advanced
+- **THEN** it SHALL NOT be served from cache
+- **AND** any cache key SHALL cover the fence
+
+#### Scenario: A cached grant does not authorize a record outside the capability window
+- **GIVEN** a capability whose signature validated for an earlier record, leaving a
+  cached grant
+- **WHEN** a later record's identity time falls outside that capability's
+  not-before/expiry window
+- **THEN** the cache hit SHALL satisfy only the signature/key/trust-chain check
+- **AND** the window check SHALL be re-evaluated against this record and reject it,
+  rather than the cached grant standing in for the whole decision
+
+#### Scenario: Stale-fence historical delivery under a valid delivery grant
+- **GIVEN** a correctly signed record whose producer authority epoch is below the
+  gateway's active fence
+- **WHEN** it is delivered under an exact, currently-valid delivery capability
+- **THEN** the gateway SHALL return `audit_publication` with delivery
+  mode `late_fenced_delivery`, and EventWriter SHALL project it
+  `ledger_only`
+- **AND** it SHALL NOT be `permanent_rejection` merely for the stale epoch, nor
+  `authoritative_apply`
+
+#### Scenario: A normally rotated signing key validates historical records
+- **GIVEN** a production capability signed by a key rotated out of active issuance
+  but not revoked for compromise
+- **WHEN** its historical collection proof is evaluated for a record signed within
+  that key's validity window
+- **THEN** the proof SHALL be `valid` using retained key history
+- **AND** a key retired specifically for compromise SHALL instead yield
+  `historically_revoked`
+
+#### Scenario: A retryable rejection does not advance the resolved watermark
+- **GIVEN** the gateway returns `retryable_rejection` for a delivery-frame lane
+  sequence
+- **WHEN** the agent records the disposition
+- **THEN** the delivery-ACK wire enum SHALL carry a retryable outcome distinct from
+  an accept or a permanent reject
+- **AND** the resolved delivery sequence SHALL NOT advance and the agent SHALL
+  retain the frame for retry
