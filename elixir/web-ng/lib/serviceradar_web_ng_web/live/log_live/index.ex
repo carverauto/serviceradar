@@ -3845,8 +3845,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <td class="text-xs truncate max-w-[28rem]" title={trace_operation_name(trace)}>
                 {trace_operation_name(trace) || "—"}
               </td>
-              <td class="whitespace-nowrap text-xs font-mono text-right">
-                {format_duration_ms(trace_duration_ms(trace))}
+              <td class="whitespace-nowrap text-right">
+                <% dur_ms = trace_duration_ms(trace) %>
+                <span
+                  class={[
+                    "inline-flex min-w-[3.25rem] items-center justify-end rounded-md px-1.5 py-0.5 font-mono text-xs tabular-nums",
+                    duration_ms_class(dur_ms)
+                  ]}
+                  title={duration_ms_title(dur_ms)}
+                >
+                  {format_duration_ms(dur_ms)}
+                </span>
               </td>
               <td
                 id={"#{@id}-row-#{idx}-spans"}
@@ -9098,8 +9107,37 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp format_compact_int(n) when is_integer(n), do: Integer.to_string(n)
   defp format_compact_int(_), do: "0"
 
-  defp error_count_class(count) when is_integer(count) and count > 0, do: "text-error font-bold"
+  defp error_count_class(count) when is_integer(count) and count > 0, do: "text-rose-400 font-bold"
   defp error_count_class(_), do: "text-sr-muted"
+
+  # Heat scale for trace duration cells (absolute thresholds; easy to scan).
+  defp duration_ms_class(ms) when is_number(ms) do
+    cond do
+      ms < 50 -> "text-sr-muted"
+      ms < 100 -> "text-emerald-400/90"
+      ms < 250 -> "text-emerald-300"
+      ms < 500 -> "bg-amber-400/10 text-amber-300"
+      ms < 1000 -> "bg-amber-400/15 text-amber-400 font-medium"
+      ms < 3000 -> "bg-orange-500/15 text-orange-400 font-semibold"
+      true -> "bg-rose-500/15 text-rose-400 font-semibold"
+    end
+  end
+
+  defp duration_ms_class(_), do: "text-sr-muted"
+
+  defp duration_ms_title(ms) when is_number(ms) do
+    cond do
+      ms < 50 -> "Fast (<50ms)"
+      ms < 100 -> "Fast"
+      ms < 250 -> "OK"
+      ms < 500 -> "Elevated"
+      ms < 1000 -> "Slow"
+      ms < 3000 -> "Very slow"
+      true -> "Critical latency"
+    end
+  end
+
+  defp duration_ms_title(_), do: nil
 
   defp trace_service_name(trace) do
     normalize_string(Map.get(trace, "root_service_name")) ||
