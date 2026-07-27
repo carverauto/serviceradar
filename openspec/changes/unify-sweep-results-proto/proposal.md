@@ -1,5 +1,16 @@
 # Change: Refactor the durable edge producer data plane
 
+> **DEPENDS ON `freeze-edge-record-v1-abi`.** The wire ABI — record and frame
+> shapes, identity and digest grammars, enums, compatibility rules, the
+> classification-span freeze, and the freeze gate (tasks 1.1–1.7, 1.13–1.15) —
+> moved to that change. The ORIGINAL task 2.20 -- the loss-classification span freeze -- folded into that
+> change's 1.6a; the number 2.20 is REUSED here for a distinct runtime task and is
+> not a leftover; task 1.3 split, with its
+> ABI/schema/correlation half there and its storage/repair/GC half here. This
+> change is now the RUNTIME change: producer sinks, spool, gateway relay,
+> JetStream, projectors, migration, and rollout over a frozen contract. It MUST
+> NOT re-freeze anything the ABI change owns.
+
 ## Why
 
 ServiceRadar must ingest durable output from built-in collectors, scanners,
@@ -76,20 +87,11 @@ class.
 
 ### Canonical typed durable records
 
-- **ADD** a versioned authoritative `EdgeRecordV1` with a stable event ID, platform
-  payload family,
-  compression, encoded/uncompressed sizes, `payload_sha256`, projected database-row and
-  write-byte costs with a versioned cost model, authoritative network scope,
-  immutable traffic class, a typed signed production capability
-  (`EdgeSignedCapabilityV1`) and an optional typed source authorization
-  (`EdgeSourceAuthorizationV1`) whose authorization context/scope live inside the
-  typed claims rather than in flat record fields, exact output-contract bundle,
-  signed registry snapshot and effective-grant digests, ingress-attested
-  origin/producer/package/assignment/run context, platform route profile, and
-  opaque canonical body. The sink encodes these semantic bytes once. `EdgeRecordV1`
-  carries no `semantic_digest_version` field: the semantic-envelope digest grammar
-  version is a committed grammar constant (`= 3`) fixed one-to-one by the immutable
-  record-schema version, never a wire field.
+- **ADD** the versioned authoritative `EdgeRecordV1`, `EdgeDeliveryFrameV1`, sweep,
+  and MTR contracts. Their exact fields, numbers, enums, and grammar versions are
+  owned and frozen by the edge record v1 wire ABI change and are NOT enumerated
+  here -- this change consumes them.
+
 - **ADD** a small `EdgeDeliveryFrameV1` for edge transport only: persistent
   spool ID/sequence, the sink-computed exact-record checksum `record_sha256`,
   renewable delivery capability,
@@ -224,7 +226,7 @@ class.
   new spool. Recovery-stream PubAck stops retransmission but does not delete the
   local recovery proof; the agent retains it until a signed consumer-committed
   `RecoveryResolvedV1` (or idempotent resolution query) is durable locally.
-- Target encoded `EdgeRecordV1` messages are 256 KiB with a hard 512 KiB limit,
+- Target encoded `EdgeRecordV1` messages are 256 KiB with the frozen hard `MaxRecordBytes` limit,
   below the current 1 MiB NATS default. The delivery wrapper and minimal broker
   headers have separate small bounds. Count limits are secondary guards; actual
   protobuf size is authoritative.
@@ -237,13 +239,15 @@ class.
 ### Durable gateway handoff
 
 - **ADD** an independent bidirectional gRPC record-ingest RPC per durable
-  traffic/delivery lane, whose nonce-bound `EdgeDeliveryAckV1` (fields
-  `spool_id` = 1, `resolved_through_sequence` = 2, `dispositions` = 3,
-  `session_nonce` = 4) carries the typed disposition -- one of the five authoritative
-  kinds (`primary_publication` / `audit_publication` / `quarantine_publication` /
-  `retryable_rejection` / `permanent_rejection`); this `EdgeRecordDispositionKind`
-  is the frozen six-value enum (UNSPECIFIED plus those five authoritative kinds)
-  landed in #4713, a
+  traffic/delivery lane, whose nonce-bound `EdgeDeliveryAckV1` carries the typed
+  disposition as an `EdgeRecordDispositionKind` -- the six-value enum frozen by the
+  edge record v1 wire ABI change and landed in #4713, whose generated members are
+  the only values on the wire. The runtime outcome names this change uses
+  (`primary_publication`, `audit_publication`, `quarantine_publication`,
+  `security_quarantine_publication`, `retryable_rejection`, `permanent_rejection`)
+  are INTERNAL to this change and are not wire values; each maps onto exactly one
+  generated member, and the mapping is the gateway publication matrix in
+  `design.md`. The ACK also carries a
   `session_nonce`, and a `resolved_through_sequence` REMOTE
   terminal-disposition-through watermark over shared producer spool sequences
   (the separate agent-local reclaim watermark governs spool reclamation and is
@@ -261,35 +265,8 @@ class.
   publishes the exact received `EdgeRecordV1` bytes unchanged. It does not
   move semantic authority into NATS headers or decode/re-encode the domain body.
 - The gateway MUST use a JetStream publish request and set `Nats-Msg-Id` from the
-  frozen 6-field transcript (`serviceradar.edge.msgid`, `msgid_version = 1`):
-  `authenticated_agent_id` (== `producer_context.origin_principal_id`),
-  `network_scope_id`, the delivery-wrapper spool ID (the persistent UUIDv7 for one
-  delivery lane -- there is no separate lane ID), sequence, the verified `EdgeRecordV1`
-  `semantic_envelope_sha256`, and the delivery frame's exact-record checksum `record_sha256`. The
-  `semantic_envelope_sha256` commits body, output-contract bundle,
-  registry/effective grant, sizes/cost, producer run/scope/epoch, and
-  production/source authorization proof, and excludes delivery coordinates so
-  recovered copies deduplicate in the database even though their broker
-  publication ID changes.
-  Apart from `Nats-Msg-Id`, `Nats-Expected-Stream`, and one bounded
-  route-map/registry diagnostic hint, headers carry no semantic fields;
-  EventWriter treats the binary record as authoritative and independently
-  verifies it.
-  The gateway waits for a real PubAck before accepting the edge sequence. A
-  different SEMANTIC ENVELOPE under the same event ID reaches the semantic ledger
-  as an `EVENT_ID_CONFLICT`; a different outer record encoding (a different
-  `record_sha256`) reused in the same delivery slot reaches EventWriter's
-  delivery-slot binding as a transport-integrity violation. Because `Nats-Msg-Id`
-  binds `record_sha256` as well as the semantic digest, neither conflict is
-  hidden by broker deduplication, while a byte-identical same-lane retry is still
-  correctly deduplicated.
-  If JetStream is unavailable or full, the gateway does not ACK; gRPC flow
-  control and the agent disk spool apply backpressure.
-- The memory-only gateway results buffer is not used by this data plane.
-- The PubAck must represent the configured durability authority. A Core NATS
-  handoff, ERTS send, or non-authoritative leaf/mirror acceptance is not a
-  durability acknowledgement; edge-local authority requires an explicit
-  replication and site-loss RPO decision.
+  transcript frozen by the edge record v1 wire ABI; its ordered inputs are not
+  restated here.
 
 ### Partitioned, replay-safe processing
 
