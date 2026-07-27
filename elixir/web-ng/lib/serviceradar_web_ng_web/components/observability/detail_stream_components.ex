@@ -232,8 +232,7 @@ defmodule ServiceRadarWebNGWeb.Observability.DetailStreamComponents do
   def filter_stream_entries(entries, _severity, _mode) when is_list(entries), do: entries
   def filter_stream_entries(_, _, _), do: []
 
-  @doc "Tailwind class for the severity status dot."
-  def severity_dot_class(value) do
+  defp severity_dot_class(value) do
     case normalize_severity(value) do
       s when s in ["critical", "fatal", "error"] -> "bg-rose-500"
       s when s in ["high", "warn", "warning"] -> "bg-amber-400"
