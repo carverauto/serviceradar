@@ -238,10 +238,10 @@
   gap: 1rem;
   width: 100%;
   border-radius: var(--radius-sr-control, 0.375rem);
-  padding: 0.375rem 0.5rem;
+  padding: 0.4rem 0.55rem;
   color: var(--color-sr-ink, var(--color-base-content));
   font-family: var(--sr-font-mono);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   text-align: left;
 }
 
@@ -253,7 +253,7 @@
 .srql-dropdown__item span:last-child {
   color: var(--color-sr-muted, color-mix(in srgb, var(--color-base-content) 55%, transparent));
   font-family: inherit;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
 }
 
 .srql-hint {
@@ -267,8 +267,8 @@
   background: var(--color-sr-surface, var(--color-base-100));
   box-shadow: var(--shadow-sr-raised, 0 12px 32px rgba(21, 33, 38, 0.14));
   color: var(--color-sr-ink, var(--color-base-content));
-  padding: 0.375rem 0.5rem;
-  font-size: 0.75rem;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.8125rem;
   font-family: var(--sr-font-sans);
 }
 

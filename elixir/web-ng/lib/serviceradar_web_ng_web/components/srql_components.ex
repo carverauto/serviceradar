@@ -56,10 +56,10 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         data-srql-input-frame
         style={[
           "--srql-font-family: var(--sr-font-mono);",
-          "--srql-font-size: 0.75rem;",
-          "--srql-line-height: 1rem;",
-          "--srql-padding-inline: 0.75rem;",
-          "--srql-padding-block: 0.375rem;"
+          "--srql-font-size: 0.875rem;",
+          "--srql-line-height: 1.35rem;",
+          "--srql-padding-inline: 0.85rem;",
+          "--srql-padding-block: 0.5rem;"
         ]}
       >
         <input
@@ -75,7 +75,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           autocapitalize="off"
           spellcheck="false"
           class={[
-            ui_field_class(size: "sm", mono: true, class: "w-full text-xs"),
+            ui_field_class(size: "sm", mono: true, class: "w-full text-sm"),
             "rounded-lg border-sr-line bg-sr-surface",
             "focus:border-sr-brand focus:outline-none focus:ring-1 focus:ring-sr-brand/30",
             "srql-input",
@@ -103,7 +103,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         name={@name}
         phx-debounce="300"
         class={[
-          ui_field_class(mono: true, class: "min-h-28 w-full text-xs leading-relaxed py-2.5"),
+          ui_field_class(mono: true, class: "min-h-28 w-full text-sm leading-relaxed py-2.5"),
           "rounded-lg border-sr-line bg-sr-surface",
           "focus:border-sr-brand focus:outline-none focus:ring-1 focus:ring-sr-brand/30",
           @editor_class
