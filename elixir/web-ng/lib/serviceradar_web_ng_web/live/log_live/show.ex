@@ -515,7 +515,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
           {@stream_query}
         </div>
 
-        <div class="flex flex-wrap gap-0.5">
+        <div class="flex flex-nowrap items-center gap-0.5">
           <.stream_sev_chip
             :for={sev <- ~w(all info warn error debug)}
             severity={sev}
@@ -570,8 +570,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   attr :active, :boolean, default: false
 
   defp stream_sev_chip(assigns) do
-    assigns =
-      assign(assigns, :label, if(assigns.severity == "all", do: "All", else: String.upcase(assigns.severity)))
+    label =
+      case assigns.severity do
+        "all" -> "All"
+        "info" -> "Info"
+        "warn" -> "Warn"
+        "error" -> "Err"
+        "debug" -> "Dbg"
+        other -> String.upcase(other)
+      end
+
+    assigns = assign(assigns, :label, label)
 
     ~H"""
     <.ui_button
@@ -581,7 +590,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       active={@active}
       phx-click="set_stream_severity"
       phx-value-severity={@severity}
-      class="min-h-7 px-2 text-[11px] font-medium tracking-wide"
+      class="!min-h-6 h-6 shrink-0 px-1.5 text-[10px] font-medium leading-none tracking-wide"
     >
       {@label}
     </.ui_button>
