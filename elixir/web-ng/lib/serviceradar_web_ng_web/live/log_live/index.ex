@@ -1231,6 +1231,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 base_path={Map.get(@srql, :page_path) || "/observability"}
                 query={Map.get(@srql, :query, "")}
                 limit={@limit}
+                current_page={pagination_page(@current_params)}
                 result_count={
                   panel_result_count(
                     @active_tab,
@@ -3326,6 +3327,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp has_cursor_param?(_), do: false
 
+  defp pagination_page(params) when is_map(params) do
+    case Integer.parse(to_string(Map.get(params, "page") || "1")) do
+      {page, ""} when page > 0 -> page
+      _ -> 1
+    end
+  end
+
+  defp pagination_page(_), do: 1
+
   defp manual_log_navigation?(socket, tab, params) do
     socket.assigns[:_initial_load_done] &&
       socket.assigns.active_tab == "logs" &&
@@ -3385,10 +3395,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp log_source_patch(query, source, limit) do
+  defp log_source_patch(query, source, _limit) do
     new_query = log_source_query(query, source)
 
-    params = maybe_put_param(%{tab: "logs", limit: limit}, :q, new_query)
+    params = maybe_put_param(%{tab: "logs"}, :q, new_query)
 
     "/observability?" <> URI.encode_query(params)
   end
@@ -3913,7 +3923,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp traces_sort_href(query, field, limit) do
+  defp traces_sort_href(query, field, _limit) do
     {current_field, current_dir} = trace_sort_state(query)
     dir = if current_field == field and current_dir == "desc", do: "asc", else: "desc"
 
@@ -3923,7 +3933,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         cleaned -> cleaned
       end
 
-    params = maybe_put_param(%{tab: "traces", limit: limit}, :q, base <> " sort:#{field}:#{dir}")
+    params = maybe_put_param(%{tab: "traces"}, :q, base <> " sort:#{field}:#{dir}")
 
     "/observability?" <> URI.encode_query(params)
   end
@@ -3932,7 +3942,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     query |> to_string() |> String.split() |> Enum.member?(@multi_span_filter)
   end
 
-  defp traces_multi_span_href(query, limit) do
+  defp traces_multi_span_href(query, _limit) do
     query = to_string(query)
 
     new_query =
@@ -3948,7 +3958,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         end
       end
 
-    params = maybe_put_param(%{tab: "traces", limit: limit}, :q, new_query)
+    params = maybe_put_param(%{tab: "traces"}, :q, new_query)
 
     "/observability?" <> URI.encode_query(params)
   end
@@ -6125,7 +6135,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     base_path <> "?" <> URI.encode_query(netflow_params(query, limit, opts))
   end
 
-  defp netflow_params(query, limit, %{} = opts) do
+  defp netflow_params(query, _limit, %{} = opts) do
     compact? = Map.get(opts, :compact?, false)
     talker_cidr = Map.get(opts, :talker_cidr)
     compare_mode = Map.get(opts, :compare_mode, "off")
@@ -6135,7 +6145,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     graph_mode = Map.get(opts, :graph_mode, "stacked")
     view = Map.get(opts, :view, "overview")
 
-    %{tab: "netflows", limit: limit}
+    # Intent URL: tab + q (+ view chrome). Limit lives in SRQL, not the query string.
+    %{tab: "netflows"}
     |> maybe_put_param(:q, query)
     |> maybe_put_param(:compact, if(compact?, do: "1"))
     |> maybe_put_param(
@@ -7536,13 +7547,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     {default_limit, max_limit} = tab_limits(tab)
     srql = Map.get(socket.assigns, :srql, %{})
     query = Map.get(srql, :query, "")
-    limit = Map.get(socket.assigns, :limit, default_limit)
 
+    # Refresh reuses the active query; do not re-inject limit into URL params.
+    # Drop cursor so live refresh returns to the head of the result set.
     params =
       socket.assigns
       |> Map.get(:current_params, %{})
       |> Map.put("q", query)
-      |> Map.put("limit", limit)
+      |> Map.drop(["limit", "cursor", "page"])
 
     uri = Map.get(srql, :page_path, "/observability")
 
@@ -7686,14 +7698,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp presence(""), do: nil
   defp presence(value), do: value
 
-  defp metrics_view_href(srql, limit, view) do
-    params = %{tab: "metrics", q: Map.get(srql, :query, ""), limit: limit}
+  defp metrics_view_href(srql, _limit, view) do
+    params = %{tab: "metrics", q: Map.get(srql, :query, "")}
     params = if view == "points", do: Map.put(params, :mview, "points"), else: params
     ~p"/observability?#{params}"
   end
 
-  defp otlp_metric_href(srql, limit, name) do
-    ~p"/observability?#{%{tab: "metrics", q: Map.get(srql, :query, ""), limit: limit, mview: "points", metric: name}}"
+  defp otlp_metric_href(srql, _limit, name) do
+    ~p"/observability?#{%{tab: "metrics", q: Map.get(srql, :query, ""), mview: "points", metric: name}}"
   end
 
   defp otlp_type_badge_variant(type) do
@@ -9259,7 +9271,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       q =
         "in:logs trace_id:\"#{escape_srql_value(trace_id)}\" #{correlated_logs_time_window(metric)} sort:timestamp:desc"
 
-      "/observability?" <> URI.encode_query(%{tab: "logs", q: q, limit: 50})
+      "/observability?" <> URI.encode_query(%{tab: "logs", q: q})
     else
       "/observability?" <> URI.encode_query(%{tab: "logs"})
     end

@@ -815,7 +815,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   defp derive_log_window(_min_start, _max_end, _summary), do: :error
 
   defp logs_tab_href(query) do
-    "/observability?" <> URI.encode_query(%{tab: "logs", q: query, limit: @log_limit})
+    "/observability?" <> URI.encode_query(%{tab: "logs", q: query})
   end
 
   defp log_detail_path(log) do

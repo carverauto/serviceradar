@@ -320,7 +320,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceActionRuntime do
       end
 
     params =
-      %{"limit" => socket.assigns.limit}
+      %{}
       |> maybe_put_param("q", Map.get(socket.assigns.srql || %{}, :query))
       |> maybe_put_param("tab", tab)
 

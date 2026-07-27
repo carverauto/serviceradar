@@ -946,10 +946,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   end
 
   defp push_agents_patch(socket, query) do
-    params = %{
-      "q" => query,
-      "limit" => socket.assigns.limit
-    }
+    params = %{"q" => query}
 
     push_patch(socket, to: "/agents?" <> URI.encode_query(params))
   end

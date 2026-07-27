@@ -660,7 +660,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   defp detail_chart_focus(_detail), do: nil
 
   defp observability_href(query) do
-    "/observability?" <> URI.encode_query(%{tab: "events", q: query, limit: 50})
+    "/observability?" <> URI.encode_query(%{tab: "events", q: query})
   end
 
   defp filter_label(nil), do: "No device identity filter selected"

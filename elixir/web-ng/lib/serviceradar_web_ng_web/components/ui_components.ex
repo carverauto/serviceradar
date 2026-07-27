@@ -21,10 +21,10 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   attr :rest, :global, include: ~w(
       href navigate patch method download name value type disabled form
-      target rel
+      target rel replace
       phx-click phx-target phx-value-idx phx-value-id phx-value-entity phx-value-group_id phx-value-metric
       phx-value-q phx-value-type phx-value-favorite phx-value-field phx-value-value
-      phx-value-state phx-value-severity phx-value-mode
+      phx-value-state phx-value-severity phx-value-mode phx-value-cursor phx-value-page
       phx-confirm data-confirm
       aria-label aria-controls aria-expanded title
     )
@@ -694,6 +694,10 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   Cursor-based pagination component for SRQL-driven pages.
 
   Uses token-styled `ui_button` chrome. Supports page indicators when total_count is provided.
+
+  Page changes use `push_patch` with `replace: true` so the browser history does not
+  accumulate keyset cursors. Limit is not encoded in the URL — it lives in the SRQL
+  query (`limit:N`) or the LiveView default.
   """
   attr :prev_cursor, :string, default: nil
   attr :next_cursor, :string, default: nil
@@ -736,7 +740,8 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
           :if={@has_prev and @current_page > 2}
           variant="outline"
           size="sm"
-          patch={pagination_href(@base_path, @query, @limit, nil, 1, @extra_params)}
+          replace
+          patch={pagination_href(@base_path, @query, nil, 1, @extra_params)}
           title="First page"
           aria-label="First page"
         >
@@ -747,11 +752,11 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
           :if={@has_prev}
           variant="outline"
           size="sm"
+          replace
           patch={
             pagination_href(
               @base_path,
               @query,
-              @limit,
               @prev_cursor,
               @current_page - 1,
               @extra_params
@@ -775,11 +780,11 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
           :if={@has_next}
           variant="outline"
           size="sm"
+          replace
           patch={
             pagination_href(
               @base_path,
               @query,
-              @limit,
               @next_cursor,
               @current_page + 1,
               @extra_params
@@ -804,14 +809,29 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   defp calculate_total_pages(_, _), do: nil
 
-  defp pagination_href(base_path, query, limit, cursor, page, extra_params) do
+  # Position (cursor/page) may be present for keyset paging, but limit is never
+  # written here — prefer SRQL limit:N / LiveView defaults for page size.
+  defp pagination_href(base_path, query, cursor, page, extra_params) do
     base =
       extra_params
       |> normalize_query_params()
-      |> Map.merge(%{"q" => query, "limit" => limit, "cursor" => cursor, "page" => page})
+      |> Map.put("q", query)
+      |> maybe_put_pagination_cursor(cursor)
+      |> maybe_put_pagination_page(page)
 
     base_path <> "?" <> URI.encode_query(base)
   end
+
+  defp maybe_put_pagination_cursor(params, cursor) when is_binary(cursor) and cursor != "",
+    do: Map.put(params, "cursor", cursor)
+
+  defp maybe_put_pagination_cursor(params, _cursor), do: params
+
+  defp maybe_put_pagination_page(params, page) when is_integer(page) and page > 1 do
+    Map.put(params, "page", page)
+  end
+
+  defp maybe_put_pagination_page(params, _page), do: params
 
   defp normalize_query_params(%{} = params) do
     params

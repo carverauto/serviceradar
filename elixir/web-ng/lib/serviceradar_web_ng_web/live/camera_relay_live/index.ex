@@ -1004,7 +1004,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
       ["in:logs" | clauses] ++
         ["time:last_24h", "sort:timestamp:desc", "limit:50"]
 
-    "/observability?" <> URI.encode_query(%{tab: "logs", q: Enum.join(q, " "), limit: 50})
+    "/observability?" <> URI.encode_query(%{tab: "logs", q: Enum.join(q, " ")})
   end
 
   defp escaped_query_value(value) when is_binary(value) do

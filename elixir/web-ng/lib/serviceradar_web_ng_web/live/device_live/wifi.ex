@@ -188,7 +188,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Wifi do
         <nav class="flex flex-wrap gap-2" aria-label="WiFi inventory views">
           <.ui_button
             :for={tab <- @entity_tabs}
-            patch={~p"/devices/wifi?#{%{q: tab.query, limit: @limit}}"}
+            patch={~p"/devices/wifi?#{%{q: tab.query}}"}
             size="sm"
             variant={if(tab.id == @active_entity, do: "primary", else: "ghost")}
             active={tab.id == @active_entity}

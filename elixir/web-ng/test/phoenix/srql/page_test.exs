@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
   alias ServiceRadarWebNGWeb.SRQL.Catalog
   alias ServiceRadarWebNGWeb.SRQL.Page
 
+  @moduletag :db_free
+
   test "shortcut_query translates a bare IPv4 address to a device IP query" do
     assert Page.shortcut_query("192.168.2.10") == ~s(in:devices ip:"192.168.2.10")
   end
@@ -38,7 +40,41 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
 
     assert socket.assigns.srql.query == socket.assigns.srql.draft
     assert socket.assigns.srql.loading
+    # Legacy URL limit= still accepted when SRQL has no limit:N
     assert socket.assigns.limit == 50
+  end
+
+  test "sync_from_params prefers SRQL limit:N over URL limit=" do
+    socket = Page.init(%Socket{}, "logs", default_limit: 20)
+
+    socket =
+      Page.sync_from_params(
+        socket,
+        %{
+          "q" => "in:logs time:last_24h sort:timestamp:desc limit:40",
+          "limit" => "50"
+        },
+        "https://example.test/observability?tab=logs",
+        default_limit: 20,
+        max_limit: 100
+      )
+
+    assert socket.assigns.limit == 40
+  end
+
+  test "sync_from_params uses default when neither SRQL nor URL provides limit" do
+    socket = Page.init(%Socket{}, "logs", default_limit: 20)
+
+    socket =
+      Page.sync_from_params(
+        socket,
+        %{"q" => "in:logs time:last_24h sort:timestamp:desc"},
+        "https://example.test/observability?tab=logs",
+        default_limit: 20,
+        max_limit: 100
+      )
+
+    assert socket.assigns.limit == 20
   end
 
   test "sync_from_params bounds explicit logs queries without a time filter" do

@@ -25,7 +25,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.LogComponents do
           <span class="text-xs text-sr-muted">({length(@logs)} rows)</span>
         </div>
         <.link
-          navigate={~p"/observability?#{%{"tab" => "logs", "q" => @query, "limit" => @limit}}"}
+          navigate={~p"/observability?#{%{"tab" => "logs", "q" => @query}}"}
           class="text-xs text-sr-brand hover:underline"
         >
           Open full logs view

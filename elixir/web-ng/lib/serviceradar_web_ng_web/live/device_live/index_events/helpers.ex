@@ -36,8 +36,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers do
 
   def toggle_include_deleted_query(_), do: "in:devices include_deleted:true"
 
-  def device_list_path(query, limit) do
-    params = maybe_put_param(%{"limit" => limit}, "q", query)
+  def device_list_path(query, _limit) do
+    params = maybe_put_param(%{}, "q", query)
 
     ~p"/devices?#{params}"
   end

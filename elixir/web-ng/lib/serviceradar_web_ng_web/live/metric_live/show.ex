@@ -612,7 +612,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
     q =
       "in:logs trace_id:\"#{escape_srql(trace_id)}\" #{correlated_logs_time_window(metric)} sort:timestamp:desc limit:50"
 
-    "/observability?" <> URI.encode_query(%{tab: "logs", q: q, limit: 50})
+    "/observability?" <> URI.encode_query(%{tab: "logs", q: q})
   end
 
   # Bound the correlated-logs query around the metric's own timestamp (±1h)

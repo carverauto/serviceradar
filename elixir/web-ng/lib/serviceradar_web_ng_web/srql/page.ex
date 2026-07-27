@@ -43,17 +43,21 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     max_limit = Keyword.get(opts, :max_limit, 100)
     limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
 
-    limit = parse_limit(Map.get(params, "limit"), default_limit, max_limit)
     cursor = normalize_optional_string(Map.get(params, "cursor"))
 
-    builder = build_builder_state(params, srql, entity, limit, builder_available)
-    default_query = default_query_for(builder_available, builder, entity, limit)
+    # Limit resolution: SRQL limit:N (preferred) → URL limit= (legacy) → default.
+    # Avoid double-encoding the same value in both places when writing URLs.
+    provisional_limit = resolve_limit(nil, Map.get(params, "limit"), default_limit, max_limit)
+    builder = build_builder_state(params, srql, entity, provisional_limit, builder_available)
+    default_query = default_query_for(builder_available, builder, entity, provisional_limit)
 
     query =
       params
       |> Map.get("q")
       |> normalize_query_param(default_query)
       |> ensure_default_time_window(entity)
+
+    limit = resolve_limit(query, Map.get(params, "limit"), default_limit, max_limit)
 
     {builder_supported, builder_sync, builder_state} =
       parse_builder_state(builder_available, query, builder)
@@ -66,7 +70,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
     page_path = uri |> normalize_uri() |> URI.parse() |> Map.get(:path)
 
-    display_limit = extract_limit_from_srql(query, limit, default_limit, max_limit)
+    display_limit = limit
 
     srql =
       Map.merge(srql, %{
@@ -100,9 +104,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     max_limit = Keyword.get(opts, :max_limit, 100)
     limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
 
-    limit = parse_limit(Map.get(params, "limit"), default_limit, max_limit)
-    builder = build_builder_state(params, srql, entity, limit, builder_available)
-    default_query = default_query_for(builder_available, builder, entity, limit)
+    provisional_limit = resolve_limit(nil, Map.get(params, "limit"), default_limit, max_limit)
+    builder = build_builder_state(params, srql, entity, provisional_limit, builder_available)
+    default_query = default_query_for(builder_available, builder, entity, provisional_limit)
 
     query =
       params
@@ -110,11 +114,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       |> normalize_query_param(default_query)
       |> ensure_default_time_window(entity)
 
+    display_limit = resolve_limit(query, Map.get(params, "limit"), default_limit, max_limit)
+
     {builder_supported, builder_sync, builder_state} =
       parse_builder_state(builder_available, query, builder)
 
     page_path = uri |> normalize_uri() |> URI.parse() |> Map.get(:path)
-    display_limit = extract_limit_from_srql(query, limit, default_limit, max_limit)
 
     srql =
       Map.merge(srql, %{
@@ -168,14 +173,13 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       |> shortcut_query()
       |> sanitize_query()
 
-    limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
-    limit = Map.get(socket.assigns, limit_assign_key)
-
     # Extract entity from query and determine the target route
     {target_path, route_params} = route_target_for_query(query, fallback_path)
     current_path = srql[:page_path] || fallback_path
 
-    nav_params = navigation_params(extra_params, route_params, target_path, current_path, query, limit)
+    # Shareable URL = intent only (tab + q). Limit lives in SRQL (limit:N);
+    # cursor/page stay out of navigation patches.
+    nav_params = navigation_params(extra_params, route_params, target_path, current_path, query)
 
     socket
     |> Phoenix.Component.assign(:srql, Map.put(srql, :builder_open, false))
@@ -331,15 +335,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       builder = Map.get(srql, :builder, %{})
       query = builder |> Builder.build() |> sanitize_query()
 
-      limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
-      limit = Map.get(socket.assigns, limit_assign_key)
-
       # Extract entity from builder and determine the target route
       queried_entity = Map.get(builder, "entity", "devices")
       {target_path, route_params} = route_target_for_entity(queried_entity, fallback_path)
       current_path = srql[:page_path] || fallback_path
 
-      nav_params = navigation_params(extra_params, route_params, target_path, current_path, query, limit)
+      nav_params = navigation_params(extra_params, route_params, target_path, current_path, query)
 
       # Close builder and navigate with the new query
       socket
@@ -443,11 +444,13 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     end
   end
 
-  defp navigation_params(extra_params, route_params, target_path, current_path, query, limit) do
+  # Intent-only shareable params: q + scoped extras (e.g. tab). No limit/cursor/page.
+  defp navigation_params(extra_params, route_params, target_path, current_path, query) do
     extra_params
     |> scoped_extra_params(route_params, target_path, current_path)
     |> Map.merge(route_params)
-    |> Map.merge(%{"q" => query, "limit" => limit})
+    |> Map.put("q", query)
+    |> Map.reject(fn {_k, v} -> is_nil(v) or v == "" end)
   end
 
   defp scoped_extra_params(extra_params, route_params, target_path, current_path) do
@@ -771,12 +774,32 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
   defp parse_limit(_limit, default, _max), do: default
 
-  defp extract_limit_from_srql(query, fallback, default, max) when is_binary(query) do
-    case Regex.run(~r/(?:^|\s)limit:(\d+)(?:\s|$)/, query) do
-      [_, raw] -> parse_limit(raw, default, max)
-      _ -> fallback
+  # Prefer limit:N inside the SRQL string; fall back to legacy URL limit=; then default.
+  defp resolve_limit(query, url_limit, default, max) when is_binary(query) do
+    case extract_limit_from_srql(query, max) do
+      nil -> parse_limit(url_limit, default, max)
+      limit -> limit
     end
   end
+
+  defp resolve_limit(_query, url_limit, default, max) do
+    parse_limit(url_limit, default, max)
+  end
+
+  defp extract_limit_from_srql(query, max) when is_binary(query) do
+    case Regex.run(~r/(?:^|\s)limit:(\d+)(?:\s|$)/, query) do
+      [_, raw] ->
+        case Integer.parse(raw) do
+          {value, ""} when value > 0 -> min(value, max)
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp extract_limit_from_srql(_query, _max), do: nil
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
