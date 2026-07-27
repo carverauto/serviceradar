@@ -45,15 +45,17 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.Params do
   def parse_limit_param(_), do: @default_limit
 
   def build_patch_url(socket, extra_params) do
+    # Intent-only shareable URL: q + nf view chrome. Limit lives in assigns / SRQL;
+    # keyset cursor is session position (srql_paginate), not the address bar.
     base = %{
       "q" => Map.get(socket.assigns.srql, :query),
-      "limit" => Map.get(socket.assigns, :limit),
       "nf" => nf_param(Map.get(socket.assigns, :netflow_viz_state))
     }
 
     params =
       base
       |> Map.merge(extra_params)
+      |> Map.drop(["cursor", "page", "limit"])
       |> Map.reject(fn {_k, v} -> is_nil(v) or v == "" end)
 
     "/observability/flows?" <> URI.encode_query(params)

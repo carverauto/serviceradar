@@ -66,6 +66,24 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/interfaces")}
   end
 
+  def handle_event("srql_paginate", params, socket) do
+    socket =
+      SRQLPage.handle_event(socket, "srql_paginate", params,
+        list_assign_key: :interfaces,
+        default_limit: @default_limit,
+        max_limit: @max_limit
+      )
+
+    query = Map.get(socket.assigns.srql || %{}, :query, "")
+    total_count = get_total_count(socket.assigns.current_scope, query)
+
+    {:noreply,
+     assign(socket,
+       total_count: total_count,
+       current_page: Map.get(socket.assigns, :pagination_page, 1)
+     )}
+  end
+
   @impl true
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
@@ -217,8 +235,6 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
             <.ui_pagination
               prev_cursor={Map.get(@pagination, "prev_cursor")}
               next_cursor={Map.get(@pagination, "next_cursor")}
-              base_path="/interfaces"
-              query={Map.get(@srql, :query, "")}
               limit={@limit}
               result_count={length(@interfaces)}
               total_count={@total_count}

@@ -45,15 +45,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsPanel do
           <.ui_pagination
             prev_cursor={Map.get(@flows_pagination, "prev_cursor")}
             next_cursor={Map.get(@flows_pagination, "next_cursor")}
-            base_path="/observability/flows"
-            query={Map.get(@srql, :query) || ""}
             limit={@limit}
+            current_page={Map.get(assigns, :pagination_page, 1)}
             result_count={length(@flows || [])}
-            extra_params={
-              %{"nf" => nf_param(@netflow_viz_state)}
-              |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
-              |> Map.new()
-            }
           />
         </div>
       </div>

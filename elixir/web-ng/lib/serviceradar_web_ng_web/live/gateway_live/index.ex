@@ -58,6 +58,15 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "gateways")}
   end
 
+  def handle_event("srql_paginate", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_paginate", params,
+       list_assign_key: :gateways,
+       default_limit: @default_limit,
+       max_limit: @max_limit
+     )}
+  end
+
   @impl true
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
@@ -73,9 +82,8 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
             <.ui_pagination
               prev_cursor={Map.get(@pagination, "prev_cursor")}
               next_cursor={Map.get(@pagination, "next_cursor")}
-              base_path="/gateways"
-              query={Map.get(@srql, :query, "")}
               limit={@limit}
+              current_page={Map.get(assigns, :pagination_page, 1)}
               result_count={length(@gateways)}
             />
           </div>

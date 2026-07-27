@@ -286,9 +286,32 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     {:noreply, socket}
   end
 
+  def handle_event("srql_paginate", params, socket) do
+    tab = socket.assigns.active_tab
+    {_entity, list_key} = tab_entity(tab)
+    {default_limit, max_limit} = tab_limits(tab)
+
+    socket =
+      socket
+      # Paging is session position — leave the shareable URL alone and drop live tailing.
+      |> assign(:logs_live?, false)
+      |> assign(:netflows_live?, false)
+      |> then(fn sock ->
+        SRQLPage.handle_event(sock, "srql_paginate", params,
+          list_assign_key: list_key,
+          default_limit: default_limit,
+          max_limit: max_limit
+        )
+      end)
+      |> apply_tab_assigns(tab, srql_module())
+      |> stream_active_tab(tab)
+
+    {:noreply, socket}
+  end
+
   def handle_event("toggle_netflows_live", _params, socket) do
     live? =
-      not has_cursor_param?(Map.get(socket.assigns, :current_params, %{})) and
+      not paged_away_from_head?(socket) and
         not Map.get(socket.assigns, :netflows_live?, false)
 
     socket = assign(socket, :netflows_live?, live?)
@@ -1228,10 +1251,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <.ui_pagination
                 prev_cursor={Map.get(@pagination, "prev_cursor")}
                 next_cursor={Map.get(@pagination, "next_cursor")}
-                base_path={Map.get(@srql, :page_path) || "/observability"}
-                query={Map.get(@srql, :query, "")}
                 limit={@limit}
-                current_page={pagination_page(@current_params)}
+                current_page={Map.get(assigns, :pagination_page, 1)}
                 result_count={
                   panel_result_count(
                     @active_tab,
@@ -1242,58 +1263,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     @alerts,
                     @netflows
                   )
-                }
-                extra_params={
-                  if @active_tab == "netflows" do
-                    %{
-                      tab: @active_tab,
-                      compact: if(@netflow_compact?, do: "1", else: nil),
-                      talker_cidr:
-                        if(is_integer(@netflow_talker_cidr),
-                          do: to_string(@netflow_talker_cidr),
-                          else: nil
-                        ),
-                      compare:
-                        if(@netflow_compare_mode in ["previous", "yesterday"],
-                          do: @netflow_compare_mode,
-                          else: nil
-                        ),
-                      geo: if(@netflow_geo_side in ["src", "dst"], do: @netflow_geo_side, else: nil),
-                      sankey_prefix:
-                        if(@netflow_sankey_prefix in [16, 24],
-                          do: to_string(@netflow_sankey_prefix),
-                          else: nil
-                        ),
-                      stack:
-                        if(@netflow_stack_mode in ["ports", "talkers"],
-                          do: @netflow_stack_mode,
-                          else: nil
-                        ),
-                      graph:
-                        if(
-                          @netflow_graph_mode in ["stacked", "stacked100", "lines", "grid", "sankey"],
-                          do: @netflow_graph_mode,
-                          else: nil
-                        ),
-                      view:
-                        if(
-                          @netflow_view in [
-                            "overview",
-                            "traffic",
-                            "topology",
-                            "talkers",
-                            "explorer",
-                            "all"
-                          ],
-                          do: @netflow_view,
-                          else: nil
-                        )
-                    }
-                    |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
-                    |> Map.new()
-                  else
-                    %{tab: @active_tab}
-                  end
                 }
               />
             </div>
@@ -3309,7 +3278,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       tab != "netflows" ->
         false
 
-      has_cursor_param?(params) ->
+      # Legacy bookmarked page URLs or session-paged result sets disable live tailing.
+      has_cursor_param?(params) or paged_away_from_head?(socket) ->
         false
 
       socket.assigns[:_initial_load_done] && socket.assigns.active_tab == "netflows" ->
@@ -3327,14 +3297,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp has_cursor_param?(_), do: false
 
-  defp pagination_page(params) when is_map(params) do
-    case Integer.parse(to_string(Map.get(params, "page") || "1")) do
-      {page, ""} when page > 0 -> page
-      _ -> 1
-    end
+  defp paged_away_from_head?(socket) do
+    Map.get(socket.assigns, :pagination_page, 1) > 1
   end
-
-  defp pagination_page(_), do: 1
 
   defp manual_log_navigation?(socket, tab, params) do
     socket.assigns[:_initial_load_done] &&

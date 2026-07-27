@@ -373,6 +373,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               flows={@device_flows}
               error={@flows_error}
               pagination={@flows_pagination}
+              pagination_page={Map.get(assigns, :pagination_page, 1)}
               rdns_map={@rdns_map}
               geo_iso2_map={@geo_iso2_map}
               device_uid={@device_uid}
@@ -403,6 +404,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               error={@logs_error}
               loading={@logs_loading}
               pagination={@logs_pagination}
+              pagination_page={Map.get(assigns, :pagination_page, 1)}
               device_uid={@device_uid}
               query={QueryData.default_logs_query(@device_uid)}
               limit={@logs_limit}

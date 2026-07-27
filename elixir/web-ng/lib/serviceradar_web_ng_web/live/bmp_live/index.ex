@@ -66,6 +66,22 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "bmp_events")}
   end
 
+  def handle_event("srql_paginate", params, socket) do
+    socket =
+      SRQLPage.handle_event(socket, "srql_paginate", params,
+        list_assign_key: :bmp_events,
+        default_limit: @default_limit,
+        max_limit: @max_limit
+      )
+
+    summary = compute_summary(socket.assigns.bmp_events)
+
+    {:noreply,
+     socket
+     |> stream(:bmp_events, socket.assigns.bmp_events, reset: true, dom_id: &bmp_event_dom_id/1)
+     |> assign(:summary, summary)}
+  end
+
   @impl true
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
@@ -144,9 +160,8 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
             <.ui_pagination
               prev_cursor={Map.get(@pagination, "prev_cursor")}
               next_cursor={Map.get(@pagination, "next_cursor")}
-              base_path="/observability/bmp"
-              query={Map.get(@srql, :query, "")}
               limit={@limit}
+              current_page={Map.get(assigns, :pagination_page, 1)}
               result_count={length(@bmp_events)}
             />
           </div>

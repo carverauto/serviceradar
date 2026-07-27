@@ -695,19 +695,27 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   Uses token-styled `ui_button` chrome. Supports page indicators when total_count is provided.
 
-  Page changes use `push_patch` with `replace: true` so the browser history does not
-  accumulate keyset cursors. Limit is not encoded in the URL — it lives in the SRQL
-  query (`limit:N`) or the LiveView default.
+  ## Session position (modern)
+
+  Page changes fire `phx-click={@event}` (default `"srql_paginate"`) with
+  `phx-value-cursor` / `phx-value-page`. LiveViews handle the event via
+  `SRQL.Page.paginate/3` so keyset cursors stay in assigns — not the shareable URL.
+
+  Limit is never encoded in the URL; it lives in SRQL (`limit:N`) or the LiveView default.
+
+  `base_path`, `query`, and `extra_params` remain for call-site compatibility but
+  are no longer written into navigation hrefs.
   """
   attr :prev_cursor, :string, default: nil
   attr :next_cursor, :string, default: nil
-  attr :base_path, :string, required: true
+  attr :base_path, :string, default: "/"
   attr :query, :string, default: ""
   attr :limit, :integer, default: 20
   attr :result_count, :integer, default: 0
   attr :total_count, :integer, default: nil
   attr :current_page, :integer, default: 1
   attr :extra_params, :map, default: %{}
+  attr :event, :string, default: "srql_paginate"
   attr :class, :any, default: nil
 
   def ui_pagination(assigns) do
@@ -738,10 +746,11 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
       <div class="flex items-center gap-1">
         <.ui_button
           :if={@has_prev and @current_page > 2}
+          type="button"
           variant="outline"
           size="sm"
-          replace
-          patch={pagination_href(@base_path, @query, nil, 1, @extra_params)}
+          phx-click={@event}
+          phx-value-page="1"
           title="First page"
           aria-label="First page"
         >
@@ -750,18 +759,12 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
         <.ui_button
           :if={@has_prev}
+          type="button"
           variant="outline"
           size="sm"
-          replace
-          patch={
-            pagination_href(
-              @base_path,
-              @query,
-              @prev_cursor,
-              @current_page - 1,
-              @extra_params
-            )
-          }
+          phx-click={@event}
+          phx-value-cursor={@prev_cursor}
+          phx-value-page={to_string(max(@current_page - 1, 1))}
         >
           <.icon name="hero-chevron-left" class="size-4" /> Prev
         </.ui_button>
@@ -778,18 +781,12 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
         <.ui_button
           :if={@has_next}
+          type="button"
           variant="outline"
           size="sm"
-          replace
-          patch={
-            pagination_href(
-              @base_path,
-              @query,
-              @next_cursor,
-              @current_page + 1,
-              @extra_params
-            )
-          }
+          phx-click={@event}
+          phx-value-cursor={@next_cursor}
+          phx-value-page={to_string(@current_page + 1)}
         >
           Next <.icon name="hero-chevron-right" class="size-4" />
         </.ui_button>
@@ -808,42 +805,6 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   end
 
   defp calculate_total_pages(_, _), do: nil
-
-  # Position (cursor/page) may be present for keyset paging, but limit is never
-  # written here — prefer SRQL limit:N / LiveView defaults for page size.
-  defp pagination_href(base_path, query, cursor, page, extra_params) do
-    base =
-      extra_params
-      |> normalize_query_params()
-      |> Map.put("q", query)
-      |> maybe_put_pagination_cursor(cursor)
-      |> maybe_put_pagination_page(page)
-
-    base_path <> "?" <> URI.encode_query(base)
-  end
-
-  defp maybe_put_pagination_cursor(params, cursor) when is_binary(cursor) and cursor != "",
-    do: Map.put(params, "cursor", cursor)
-
-  defp maybe_put_pagination_cursor(params, _cursor), do: params
-
-  defp maybe_put_pagination_page(params, page) when is_integer(page) and page > 1 do
-    Map.put(params, "page", page)
-  end
-
-  defp maybe_put_pagination_page(params, _page), do: params
-
-  defp normalize_query_params(%{} = params) do
-    params
-    |> Enum.reduce(%{}, fn
-      {k, v}, acc when is_atom(k) -> Map.put(acc, Atom.to_string(k), v)
-      {k, v}, acc when is_binary(k) -> Map.put(acc, k, v)
-      _, acc -> acc
-    end)
-    |> Map.reject(fn {_k, v} -> is_nil(v) or v == "" end)
-  end
-
-  defp normalize_query_params(_), do: %{}
 
   defp pagination_text(count, _limit, total) when is_integer(count) and count > 0 and is_integer(total) and total > 0 do
     "Showing #{count} of #{format_number(total)} result#{if total == 1, do: "", else: "s"}"

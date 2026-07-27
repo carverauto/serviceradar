@@ -1,5 +1,19 @@
+defmodule ServiceRadarWebNGWeb.SRQL.PageTest.CursorSRQL do
+  @moduledoc false
+
+  def query(_query, opts) do
+    send(opts[:scope], {:page_test_srql, opts[:cursor], opts[:limit]})
+
+    {:ok,
+     %{
+       "results" => [%{"id" => "row-2"}],
+       "pagination" => %{"next_cursor" => "c2", "prev_cursor" => "c1"}
+     }}
+  end
+end
+
 defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Phoenix.LiveView.Socket
   alias ServiceRadarWebNGWeb.SRQL.Catalog
@@ -75,6 +89,51 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
       )
 
     assert socket.assigns.limit == 20
+  end
+
+  test "paginate advances session position without requiring URL cursor params" do
+    parent = self()
+    prev = Application.get_env(:serviceradar_web_ng, :srql_module)
+
+    try do
+      Application.put_env(
+        :serviceradar_web_ng,
+        :srql_module,
+        ServiceRadarWebNGWeb.SRQL.PageTest.CursorSRQL
+      )
+
+      socket =
+        %Socket{}
+        |> Phoenix.Component.assign(:current_scope, parent)
+        |> Page.init("logs", default_limit: 20)
+        |> Page.load_list(
+          %{"q" => "in:logs time:last_24h sort:timestamp:desc limit:20"},
+          "https://example.test/observability?tab=logs",
+          :logs,
+          default_limit: 20,
+          max_limit: 100
+        )
+
+      assert socket.assigns.pagination_page == 1
+
+      socket =
+        Page.paginate(socket, %{"cursor" => "c1", "page" => "2"},
+          list_assign_key: :logs,
+          default_limit: 20,
+          max_limit: 100
+        )
+
+      assert socket.assigns.pagination_page == 2
+      assert [%{"id" => "row-2"}] = socket.assigns.logs
+      assert get_in(socket.assigns.srql, [:pagination, "next_cursor"]) == "c2"
+      assert_received {:page_test_srql, "c1", 20}
+    after
+      if prev do
+        Application.put_env(:serviceradar_web_ng, :srql_module, prev)
+      else
+        Application.delete_env(:serviceradar_web_ng, :srql_module)
+      end
+    end
   end
 
   test "sync_from_params bounds explicit logs queries without a time filter" do

@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
   attr(:flows, :list, required: true)
   attr(:error, :string, default: nil)
   attr(:pagination, :map, default: %{})
+  attr(:pagination_page, :integer, default: 1)
   attr(:rdns_map, :map, default: %{})
   attr(:geo_iso2_map, :map, default: %{})
   attr(:device_uid, :string, required: true)
@@ -158,11 +159,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
             <.ui_pagination
               prev_cursor={Map.get(@pagination, "prev_cursor")}
               next_cursor={Map.get(@pagination, "next_cursor")}
-              base_path={"/devices/#{@device_uid}"}
-              query={@query}
               limit={@limit}
+              current_page={@pagination_page}
               result_count={length(@flows)}
-              extra_params={%{"tab" => "flows"}}
             />
           </div>
         <% end %>

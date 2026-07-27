@@ -1161,6 +1161,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, assign(socket, :srql, Map.put(socket.assigns.srql, :draft, to_string(q)))}
   end
 
+  def handle_event("srql_paginate", params, socket) do
+    cursor = QueryData.normalize_cursor(Map.get(params, "cursor"))
+
+    page =
+      case Integer.parse(to_string(Map.get(params, "page") || "1")) do
+        {n, ""} when n > 0 -> n
+        _ -> 1
+      end
+
+    uid = socket.assigns.device_uid
+    tab = socket.assigns.active_tab
+
+    socket =
+      socket
+      |> assign(:pagination_page, page)
+      |> DeviceTabRuntime.reload_for_active_tab(
+        tab,
+        uid,
+        cursor,
+        srql_module(),
+        tab_runtime_opts()
+      )
+
+    {:noreply, socket}
+  end
+
   def handle_event("srql_submit", %{"q" => q}, socket) do
     page_path = socket.assigns.srql[:page_path] || "/devices/#{socket.assigns.device_uid}"
 

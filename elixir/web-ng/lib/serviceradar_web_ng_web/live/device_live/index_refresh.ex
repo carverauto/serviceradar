@@ -33,7 +33,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexRefresh do
 
     scope = Map.get(socket.assigns, :current_scope)
     query = Map.get(socket.assigns.srql || %{}, :query, "")
-    current_page = IndexData.parse_page_param(params)
+    current_page = Map.get(socket.assigns, :pagination_page) || IndexData.parse_page_param(params)
     token = System.unique_integer([:positive])
 
     socket =

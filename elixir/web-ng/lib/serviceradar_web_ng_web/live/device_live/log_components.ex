@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.LogComponents do
   attr(:error, :string, default: nil)
   attr(:loading, :boolean, default: false)
   attr(:pagination, :map, default: %{})
+  attr(:pagination_page, :integer, default: 1)
   attr(:device_uid, :string, required: true)
   attr(:query, :string, required: true)
   attr(:limit, :integer, required: true)
@@ -92,11 +93,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.LogComponents do
               <.ui_pagination
                 prev_cursor={Map.get(@pagination, "prev_cursor")}
                 next_cursor={Map.get(@pagination, "next_cursor")}
-                base_path={"/devices/#{@device_uid}"}
-                query={@query}
                 limit={@limit}
+                current_page={@pagination_page}
                 result_count={length(@logs)}
-                extra_params={%{"tab" => "logs"}}
               />
             </div>
           <% end %>

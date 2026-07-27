@@ -99,6 +99,29 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
     {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
   end
 
+  def handle_event("srql_paginate", params, socket) do
+    socket =
+      SRQLPage.handle_event(socket, "srql_paginate", params,
+        list_assign_key: :agents,
+        default_limit: @default_limit,
+        max_limit: @max_limit
+      )
+
+    query = get_in(socket.assigns, [:srql, :query]) || base_agents_query(socket.assigns.limit)
+
+    summary_agents =
+      load_summary_agents(socket.assigns.current_scope, query, socket.assigns.agents)
+
+    selected_agent_ids =
+      selected_agent_ids_for_visible(socket.assigns.selected_agent_ids, socket.assigns.agents)
+
+    {:noreply,
+     socket
+     |> assign(:selected_agent_ids, selected_agent_ids)
+     |> assign(:version_distribution, summarize_versions(summary_agents))
+     |> assign(:rollout_distribution, summarize_rollout_states(summary_agents))}
+  end
+
   def handle_event("srql_submit", params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/agents")}
   end
@@ -438,9 +461,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
             <.ui_pagination
               prev_cursor={Map.get(@pagination, "prev_cursor")}
               next_cursor={Map.get(@pagination, "next_cursor")}
-              base_path="/agents"
-              query={Map.get(@srql, :query, "")}
               limit={@limit}
+              current_page={Map.get(assigns, :pagination_page, 1)}
               result_count={length(@agents)}
             />
           </div>

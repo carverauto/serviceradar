@@ -43,7 +43,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     max_limit = Keyword.get(opts, :max_limit, 100)
     limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
 
+    # Cursor may arrive from legacy URLs or from session-position paginate/3.
+    # New navigation never writes cursor into the shareable address bar.
     cursor = normalize_optional_string(Map.get(params, "cursor"))
+    pagination_page = resolve_pagination_page(params, socket, cursor)
 
     # Limit resolution: SRQL limit:N (preferred) → URL limit= (legacy) → default.
     # Avoid double-encoding the same value in both places when writing URLs.
@@ -86,13 +89,58 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         builder_supported: builder_supported,
         builder_sync: builder_sync,
         builder: builder_state,
-        pagination: pagination
+        pagination: pagination,
+        # Session-position pagination context for srql_paginate events.
+        list_assign_key: list_assign_key,
+        load_opts: %{default_limit: default_limit, max_limit: max_limit, limit_assign_key: limit_assign_key}
       })
 
     socket
     |> Phoenix.Component.assign(:srql, srql)
     |> Phoenix.Component.assign(limit_assign_key, display_limit)
     |> Phoenix.Component.assign(list_assign_key, results)
+    |> Phoenix.Component.assign(:pagination_page, pagination_page)
+  end
+
+  @doc """
+  Advance keyset pagination without encoding cursor/page into the URL.
+
+  Position lives in LiveView assigns (`pagination_page`, SRQL pagination tokens).
+  Shareable intent stays as tab + q only.
+  """
+  def paginate(socket, event_params, opts \\ []) when is_map(event_params) do
+    srql = Map.get(socket.assigns, :srql, %{})
+    load_opts = Map.get(srql, :load_opts, %{})
+
+    list_assign_key =
+      Keyword.get(opts, :list_assign_key) ||
+        Map.get(srql, :list_assign_key) ||
+        raise ArgumentError, "paginate/3 requires list_assign_key (pass opts or load_list first)"
+
+    default_limit =
+      Keyword.get(opts, :default_limit) || Map.get(load_opts, :default_limit, 20)
+
+    max_limit = Keyword.get(opts, :max_limit) || Map.get(load_opts, :max_limit, 100)
+
+    limit_assign_key =
+      Keyword.get(opts, :limit_assign_key) || Map.get(load_opts, :limit_assign_key, :limit)
+
+    cursor = normalize_optional_string(Map.get(event_params, "cursor"))
+    page = parse_pagination_page(Map.get(event_params, "page"), 1)
+
+    query = Map.get(srql, :query, "")
+    page_path = Map.get(srql, :page_path) || Keyword.get(opts, :fallback_path, "/")
+
+    params =
+      then(%{"q" => query, "page" => Integer.to_string(page)}, fn p ->
+        if cursor, do: Map.put(p, "cursor", cursor), else: p
+      end)
+
+    load_list(socket, params, page_path, list_assign_key,
+      default_limit: default_limit,
+      max_limit: max_limit,
+      limit_assign_key: limit_assign_key
+    )
   end
 
   def sync_from_params(socket, params, uri, opts \\ []) do
@@ -147,6 +195,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   defp normalize_optional_string(_), do: nil
 
   def handle_event(socket, event, params, opts \\ [])
+
+  def handle_event(socket, "srql_paginate", params, opts) when is_map(params) do
+    paginate(socket, params, opts)
+  end
 
   def handle_event(socket, "srql_change", params, _opts) do
     case normalize_param_to_string(extract_param(params, "q")) do
@@ -800,6 +852,33 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   end
 
   defp extract_limit_from_srql(_query, _max), do: nil
+
+  # Intent reloads (no cursor) reset to page 1. Session paginate and legacy
+  # ?page= URLs keep an explicit page number.
+  defp resolve_pagination_page(params, socket, cursor) do
+    case Map.get(params, "page") do
+      nil when is_nil(cursor) ->
+        1
+
+      nil ->
+        Map.get(socket.assigns, :pagination_page, 1)
+
+      raw ->
+        parse_pagination_page(raw, 1)
+    end
+  end
+
+  defp parse_pagination_page(nil, default), do: default
+
+  defp parse_pagination_page(value, default) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {page, ""} when page > 0 -> page
+      _ -> default
+    end
+  end
+
+  defp parse_pagination_page(value, _default) when is_integer(value) and value > 0, do: value
+  defp parse_pagination_page(_value, default), do: default
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)

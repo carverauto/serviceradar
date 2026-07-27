@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
   attr(:flows, :list, required: true)
   attr(:error, :string, default: nil)
   attr(:pagination, :map, default: %{})
+  attr(:pagination_page, :integer, default: 1)
   attr(:rdns_map, :map, default: %{})
   attr(:geo_iso2_map, :map, default: %{})
   attr(:device_uid, :string, required: true)
@@ -252,6 +253,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
         flows={@flows}
         error={@error}
         pagination={@pagination}
+        pagination_page={@pagination_page}
         rdns_map={@rdns_map}
         geo_iso2_map={@geo_iso2_map}
         device_uid={@device_uid}

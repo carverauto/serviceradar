@@ -158,6 +158,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Wifi do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: socket.assigns.active_entity)}
   end
 
+  def handle_event("srql_paginate", params, socket) do
+    socket =
+      SRQLPage.handle_event(socket, "srql_paginate", params,
+        list_assign_key: :wifi_rows,
+        default_limit: @default_limit,
+        max_limit: @max_limit
+      )
+
+    {:noreply, stream(socket, :wifi_rows, socket.assigns.wifi_rows, reset: true, dom_id: &row_dom_id/1)}
+  end
+
   @impl true
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
@@ -233,9 +244,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Wifi do
             <.ui_pagination
               prev_cursor={Map.get(@pagination, "prev_cursor")}
               next_cursor={Map.get(@pagination, "next_cursor")}
-              base_path={@page_path}
-              query={Map.get(@srql, :query, "")}
               limit={@limit}
+              current_page={Map.get(assigns, :pagination_page, 1)}
               result_count={length(@wifi_rows)}
             />
           </div>
