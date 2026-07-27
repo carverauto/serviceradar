@@ -250,58 +250,56 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 class="text-xl font-semibold">Credential Rules</h1>
-              <p class="mt-1 text-sm text-base-content/70">
+              <p class="mt-1 text-sm text-sr-muted">
                 Scoped rules bind encrypted credentials to eligible targets and consumers without
                 placing secret material in integration configuration. Available providers and
                 credential fields come from approved integration descriptors.
               </p>
             </div>
             <div class="flex flex-wrap gap-2">
-              <div class="dropdown dropdown-end">
-                <div tabindex="0" role="button" class="btn btn-ghost btn-sm">New Credential</div>
-                <ul
-                  tabindex="0"
-                  class="dropdown-content menu bg-base-100 rounded-box z-[1] w-60 p-2 shadow border border-base-200"
-                >
-                  <li :for={descriptor <- @credential_method_list}>
-                    <button
-                      type="button"
-                      phx-click="new_descriptor_secret"
-                      phx-value-provider={descriptor.provider}
-                      phx-value-method={descriptor.method["id"]}
-                    >
-                      {descriptor.profile["label"]} · {descriptor.method["label"]}
-                    </button>
-                  </li>
-                  <li :if={@credential_method_list == []} class="menu-disabled">
-                    <span>Import and approve an integration package first</span>
-                  </li>
-                </ul>
-              </div>
-              <div class="dropdown dropdown-end">
-                <div tabindex="0" role="button" class="btn btn-primary btn-sm">New Rule</div>
-                <ul
-                  tabindex="0"
-                  class="dropdown-content menu bg-base-100 rounded-box z-[1] w-60 p-2 shadow border border-base-200"
-                >
-                  <li :for={profile <- @integration_profile_list}>
-                    <.link navigate={
-                      ~p"/settings/networks/credentials/new?provider=#{profile["provider"]}"
-                    }>
-                      {profile["label"]}
-                    </.link>
-                  </li>
-                  <li :if={@integration_profile_list == []} class="menu-disabled">
-                    <span>No approved integration descriptors</span>
-                  </li>
-                </ul>
-              </div>
+              <.ui_dropdown align="end" menu_class="w-60 max-w-60">
+                <:trigger>
+                  <.ui_button type="button" size="sm" variant="ghost">New Credential</.ui_button>
+                </:trigger>
+                <:item :for={descriptor <- @credential_method_list}>
+                  <button
+                    type="button"
+                    phx-click="new_descriptor_secret"
+                    phx-value-provider={descriptor.provider}
+                    phx-value-method={descriptor.method["id"]}
+                  >
+                    {descriptor.profile["label"]} · {descriptor.method["label"]}
+                  </button>
+                </:item>
+                <:item :if={@credential_method_list == []}>
+                  <span class="px-2 py-1 text-sm text-sr-muted">
+                    Import and approve an integration package first
+                  </span>
+                </:item>
+              </.ui_dropdown>
+              <.ui_dropdown align="end" menu_class="w-60 max-w-60">
+                <:trigger>
+                  <.ui_button type="button" size="sm" variant="primary">New Rule</.ui_button>
+                </:trigger>
+                <:item :for={profile <- @integration_profile_list}>
+                  <.link navigate={
+                    ~p"/settings/networks/credentials/new?provider=#{profile["provider"]}"
+                  }>
+                    {profile["label"]}
+                  </.link>
+                </:item>
+                <:item :if={@integration_profile_list == []}>
+                  <span class="px-2 py-1 text-sm text-sr-muted">
+                    No approved integration descriptors
+                  </span>
+                </:item>
+              </.ui_dropdown>
             </div>
           </div>
 
-          <div class="overflow-hidden rounded-lg border border-base-200 bg-base-100">
-            <div class="overflow-x-auto">
-              <table class="table table-sm">
+          <div class="overflow-hidden rounded-lg border border-sr-line bg-sr-surface">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -318,12 +316,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                 </thead>
                 <tbody>
                   <tr :if={@loading?}>
-                    <td colspan="10" class="py-8 text-center text-sm text-base-content/60">
+                    <td colspan="10" class="py-8 text-center text-sm text-sr-muted">
                       Loading credential rules.
                     </td>
                   </tr>
                   <tr :if={!@loading? and @rules == []}>
-                    <td colspan="10" class="py-8 text-center text-sm text-base-content/60">
+                    <td colspan="10" class="py-8 text-center text-sm text-sr-muted">
                       No credential rules found.
                     </td>
                   </tr>
@@ -334,10 +332,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                       <td>{format_purposes(rule)}</td>
                       <td>{format_scope(rule)}</td>
                       <td>
-                        <span class={[
-                          "badge badge-sm",
-                          runtime_badge_class(rule, @integration_profiles, @integration_schedules)
-                        ]}>
+                        <span class={["inline-flex rounded-full px-2 py-0.5 text-xs font-semibold", runtime_badge_class(rule, @integration_profiles, @integration_schedules)]}>
                           {runtime_label(rule, @integration_profiles, @integration_schedules)}
                         </span>
                       </td>
@@ -354,65 +349,71 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                       <td>{runtime_status(rule, @integration_profiles, @integration_schedules)}</td>
                       <td>
                         <div class="flex justify-end gap-2">
-                          <button
+                          <.ui_button
                             :if={
                               scheduled_integration_provider?(rule.provider, @integration_profiles)
                             }
                             type="button"
-                            class="btn btn-ghost btn-xs"
+                            size="xs"
+                            variant="ghost"
                             phx-click="run_integration_now"
                             phx-value-id={rule.id}
                             disabled={!Map.has_key?(@integration_schedules, to_string(rule.id))}
                           >
                             Run Now
-                          </button>
-                          <button
+                          </.ui_button>
+                          <.ui_button
                             :if={
                               !scheduled_integration_provider?(rule.provider, @integration_profiles)
                             }
                             type="button"
-                            class="btn btn-ghost btn-xs"
+                            size="xs"
+                            variant="ghost"
                             phx-click="preview_rule"
                             phx-value-id={rule.id}
                           >
                             Preview
-                          </button>
-                          <button
+                          </.ui_button>
+                          <.ui_button
                             type="button"
-                            class="btn btn-ghost btn-xs"
+                            size="xs"
+                            variant="ghost"
                             phx-click="toggle_consumers"
                             phx-value-id={rule.id}
                           >
                             Consumers
-                          </button>
-                          <.link
+                          </.ui_button>
+                          <.ui_button
                             navigate={~p"/settings/networks/credentials/#{rule.id}/edit"}
-                            class="btn btn-ghost btn-xs"
+                            size="xs"
+                            variant="ghost"
                           >
                             Edit
-                          </.link>
-                          <button
+                          </.ui_button>
+                          <.ui_button
                             :if={rule.enabled}
                             type="button"
-                            class="btn btn-ghost btn-xs"
+                            size="xs"
+                            variant="ghost"
                             phx-click="disable_rule"
                             phx-value-id={rule.id}
                           >
                             Disable
-                          </button>
-                          <button
+                          </.ui_button>
+                          <.ui_button
                             :if={!rule.enabled}
                             type="button"
-                            class="btn btn-ghost btn-xs"
+                            size="xs"
+                            variant="ghost"
                             phx-click="enable_rule"
                             phx-value-id={rule.id}
                           >
                             Enable
-                          </button>
+                          </.ui_button>
                         </div>
                       </td>
                     </tr>
-                    <tr :if={@expanded_rule_id == to_string(rule.id)} class="bg-base-200/40">
+                    <tr :if={@expanded_rule_id == to_string(rule.id)} class="bg-sr-subtle/40">
                       <td colspan="10">
                         <.rule_consumers_panel consumers={@rule_consumers} />
                       </td>
@@ -459,13 +460,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       )
 
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box max-w-3xl rounded-lg">
+    <dialog class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
+      <div class="sr-ui-modal-box sr-ui-modal-box-lg rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">{@secret_title}</h2>
-          <button type="button" class="btn btn-ghost btn-sm" phx-click="close_secret_form">
-            Close
-          </button>
+          <.ui_button type="button" phx-click="close_secret_form" size="sm" variant="ghost">Close</.ui_button>
         </div>
 
         <.form for={@form} phx-submit="save_secret" class="space-y-4">
@@ -483,7 +482,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               value={@descriptor.method["id"]}
             />
 
-            <p :if={@descriptor.method["description"]} class="text-sm text-base-content/70">
+            <p :if={@descriptor.method["description"]} class="text-sm text-sr-muted">
               {@descriptor.method["description"]}
             </p>
 
@@ -507,18 +506,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             <.input field={@form[:description]} type="textarea" label="Description" />
           </div>
 
-          <div class="modal-action">
-            <button type="button" class="btn btn-ghost" phx-click="close_secret_form">
-              Cancel
-            </button>
-            <button type="submit" class="btn btn-primary">
-              Save
-            </button>
+          <div class="sr-ui-modal-action">
+            <.ui_button type="button" phx-click="close_secret_form" size="sm" variant="ghost">Cancel</.ui_button>
+            <.ui_button type="submit" size="sm" variant="primary">Save</.ui_button>
           </div>
         </.form>
       </div>
-      <button type="button" class="modal-backdrop" phx-click="close_secret_form">Close</button>
-    </div>
+    </dialog>
     """
   end
 
@@ -529,20 +523,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     <div class="space-y-2 p-2 text-xs">
       <%= cond do %>
         <% is_nil(@consumers) -> %>
-          <p class="text-base-content/60">Loading consumers.</p>
+          <p class="text-sr-muted">Loading consumers.</p>
         <% @consumers.total == 0 -> %>
-          <p class="text-base-content/60">
+          <p class="text-sr-muted">
             No materialized plugin assignments yet — the reconciler has not produced assignments
             for this rule. Check that the rule is enabled and that its scope, purposes, and
             target query match connected agents.
           </p>
         <% true -> %>
-          <p class="text-base-content/70">
+          <p class="text-sr-muted">
             Materializes {@consumers.total} assignment(s)
             ({@consumers.enabled_count} enabled) across {length(@consumers.agent_uids)} agent(s).
             Last materialized {format_timestamp(@consumers.last_materialized_at)}.
           </p>
-          <div class="overflow-hidden rounded-lg border border-base-200 bg-base-100">
+          <div class="overflow-hidden rounded-lg border border-sr-line bg-sr-surface">
             <table class="table table-xs">
               <thead>
                 <tr>
@@ -580,31 +574,29 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp rule_preview_modal(assigns) do
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box max-w-5xl rounded-lg">
+    <dialog class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
+      <div class="sr-ui-modal-box sr-ui-modal-box-xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">Target Preview</h2>
-          <button type="button" class="btn btn-ghost btn-sm" phx-click="close_preview">
-            Close
-          </button>
+          <.ui_button type="button" phx-click="close_preview" size="sm" variant="ghost">Close</.ui_button>
         </div>
 
         <div class="space-y-4">
           <div class="grid gap-3 md:grid-cols-4">
-            <div class="rounded-lg border border-base-200 p-3">
-              <div class="text-xs text-base-content/60">Matched</div>
+            <div class="rounded-lg border border-sr-line p-3">
+              <div class="text-xs text-sr-muted">Matched</div>
               <div class="text-xl font-semibold">{@rule_preview.preview.matched_devices}</div>
             </div>
-            <div class="rounded-lg border border-base-200 p-3">
-              <div class="text-xs text-base-content/60">In Scope</div>
+            <div class="rounded-lg border border-sr-line p-3">
+              <div class="text-xs text-sr-muted">In Scope</div>
               <div class="text-xl font-semibold">{@rule_preview.preview.scoped_devices}</div>
             </div>
-            <div class="rounded-lg border border-base-200 p-3">
-              <div class="text-xs text-base-content/60">Agents</div>
+            <div class="rounded-lg border border-sr-line p-3">
+              <div class="text-xs text-sr-muted">Agents</div>
               <div class="text-xl font-semibold">{length(@rule_preview.preview.agents)}</div>
             </div>
-            <div class="rounded-lg border border-base-200 p-3">
-              <div class="text-xs text-base-content/60">Conflicts</div>
+            <div class="rounded-lg border border-sr-line p-3">
+              <div class="text-xs text-sr-muted">Conflicts</div>
               <div class="text-xl font-semibold">{length(@rule_preview.preview.conflicts)}</div>
             </div>
           </div>
@@ -612,8 +604,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           <div class="grid gap-4 lg:grid-cols-2">
             <section class="space-y-2">
               <h3 class="text-sm font-semibold">Agent Distribution</h3>
-              <div class="overflow-hidden rounded-lg border border-base-200">
-                <table class="table table-sm">
+              <div class="overflow-hidden rounded-lg border border-sr-line">
+                <table class={ui_table_class(size: "sm")}>
                   <thead>
                     <tr>
                       <th>Agent</th>
@@ -622,7 +614,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                   </thead>
                   <tbody>
                     <tr :if={@rule_preview.preview.agents == []}>
-                      <td colspan="2" class="py-4 text-center text-sm text-base-content/60">
+                      <td colspan="2" class="py-4 text-center text-sm text-sr-muted">
                         No in-scope agents.
                       </td>
                     </tr>
@@ -637,8 +629,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
             <section class="space-y-2">
               <h3 class="text-sm font-semibold">Sample Devices</h3>
-              <div class="overflow-hidden rounded-lg border border-base-200">
-                <table class="table table-sm">
+              <div class="overflow-hidden rounded-lg border border-sr-line">
+                <table class={ui_table_class(size: "sm")}>
                   <thead>
                     <tr>
                       <th>Device</th>
@@ -648,7 +640,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                   </thead>
                   <tbody>
                     <tr :if={@rule_preview.preview.sample_devices == []}>
-                      <td colspan="3" class="py-4 text-center text-sm text-base-content/60">
+                      <td colspan="3" class="py-4 text-center text-sm text-sr-muted">
                         No in-scope devices.
                       </td>
                     </tr>
@@ -666,7 +658,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           <section :if={@rule_preview.preview.conflicts != []} class="space-y-2">
             <h3 class="text-sm font-semibold text-error">Credential Conflicts</h3>
             <div class="overflow-hidden rounded-lg border border-error/30">
-              <table class="table table-sm">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr>
                     <th>Rule</th>
@@ -689,7 +681,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             <h3 class="text-sm font-semibold">Effective Inputs (dry run)</h3>
             <%= case Map.get(@rule_preview, :effective) do %>
               <% {:ok, effective} -> %>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   {effective.targets.total} target(s) resolved from the rule's SRQL query
                   <span :if={effective.targets.truncated?}>
                     (showing first {length(effective.targets.sample)})
@@ -698,24 +690,24 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                 </p>
                 <div
                   :for={entry <- effective.purposes}
-                  class="rounded-lg border border-base-200 p-3 space-y-2"
+                  class="rounded-lg border border-sr-line p-3 space-y-2"
                 >
                   <div class="flex flex-wrap items-center gap-2 text-xs">
                     <span class="badge badge-ghost badge-sm">{entry.purpose}</span>
                     <span class="font-mono">{entry.plugin_id}</span>
-                    <span class="font-mono text-base-content/60">{entry.policy_id}</span>
+                    <span class="font-mono text-sr-muted">{entry.policy_id}</span>
                     <span :if={!entry.package_found?} class="badge badge-warning badge-sm">
                       no approved package
                     </span>
-                    <span class="text-base-content/60">
+                    <span class="text-sr-muted">
                       every {entry.interval_seconds}s, timeout {entry.timeout_seconds}s
                     </span>
                   </div>
-                  <pre class="max-h-64 overflow-auto rounded bg-base-200/60 p-2 text-[11px] font-mono"><%= encode_json(entry.params_template) %></pre>
+                  <pre class="max-h-64 overflow-auto rounded bg-sr-subtle/60 p-2 text-[11px] font-mono"><%= encode_json(entry.params_template) %></pre>
                 </div>
                 <div
                   :if={effective.targets.sample != []}
-                  class="overflow-hidden rounded-lg border border-base-200"
+                  class="overflow-hidden rounded-lg border border-sr-line"
                 >
                   <table class="table table-xs">
                     <thead>
@@ -737,13 +729,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               <% {:error, reason} -> %>
                 <p class="text-xs text-error">Dry run failed: {format_error(reason)}</p>
               <% _ -> %>
-                <p class="text-xs text-base-content/60">Dry run unavailable.</p>
+                <p class="text-xs text-sr-muted">Dry run unavailable.</p>
             <% end %>
           </section>
         </div>
       </div>
-      <button type="button" class="modal-backdrop" phx-click="close_preview">Close</button>
-    </div>
+    </dialog>
     """
   end
 
@@ -804,15 +795,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       )
 
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box max-w-4xl rounded-lg">
+    <dialog class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
+      <div class="sr-ui-modal-box sr-ui-modal-box-xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">
             {if @mode == :new, do: "New Credential Rule", else: "Edit Credential Rule"}
           </h2>
-          <.link navigate={~p"/settings/networks/credentials"} class="btn btn-ghost btn-sm">
+          <.ui_button navigate={~p"/settings/networks/credentials"} size="sm" variant="ghost">
             Close
-          </.link>
+          </.ui_button>
         </div>
 
         <.form
@@ -824,7 +815,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
         >
           <div
             :if={@integration_profile}
-            class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80"
+            class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-sr-ink/90"
           >
             {@integration_profile["description"] || @integration_profile["label"]} Credentials are
             resolved by the trusted host and delivered only through scoped runtime grants.
@@ -852,7 +843,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               <button
                 id="credential-rule-new-secret"
                 type="button"
-                class="btn btn-ghost btn-xs"
+                size="xs" variant="ghost"
                 phx-click="new_rule_secret"
               >
                 New secret for this rule
@@ -871,7 +862,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               <div class="grid gap-2 sm:grid-cols-2">
                 <label
                   :for={purpose <- @provider_purposes}
-                  class="flex items-center gap-2 rounded-md border border-base-300 bg-base-100 px-3 py-2 text-sm"
+                  class="flex items-center gap-2 rounded-md border border-base-300 bg-sr-surface px-3 py-2 text-sm"
                 >
                   <input
                     type="checkbox"
@@ -983,7 +974,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             label="Target Query"
             required
           />
-          <fieldset :if={@plugin_integration?} class="space-y-4 border-t border-base-200 pt-4">
+          <fieldset :if={@plugin_integration?} class="space-y-4 border-t border-sr-line pt-4">
             <legend class="text-sm font-semibold">{@integration_profile["label"]}</legend>
             <PluginConfigForm.plugin_config_fields
               schema={@integration_profile["config_schema"]}
@@ -1016,18 +1007,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           <.input :if={@show_allowed_ports?} field={@form[:allowed_ports]} label="Allowed Ports" />
           <.input field={@form[:description]} type="textarea" label="Description" />
 
-          <div class="modal-action">
-            <.link navigate={~p"/settings/networks/credentials"} class="btn btn-ghost">
+          <div class="sr-ui-modal-action">
+            <.ui_button navigate={~p"/settings/networks/credentials"} size="sm" variant="ghost">
               Cancel
-            </.link>
-            <button type="submit" class="btn btn-primary">
-              Save
-            </button>
+            </.ui_button>
+            <.ui_button type="submit" size="sm" variant="primary">Save</.ui_button>
           </div>
         </.form>
       </div>
-      <.link navigate={~p"/settings/networks/credentials"} class="modal-backdrop">Close</.link>
-    </div>
+    </dialog>
     """
   end
 
