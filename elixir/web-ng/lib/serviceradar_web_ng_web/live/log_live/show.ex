@@ -908,8 +908,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp message_preview(_, _), do: "—"
 
-  # Hero title next to the severity badge — must never surface syslog PIDs
-  # like mcad[1977] as "1977". Prefer the real event/subject of the line.
+  # Hero title next to the severity badge.
+  # Prefer real event names / message subject — never PIDs, MAC tails, or
+  # kernel bracket timestamps (e.g. not "1977", not "b9 idle(60) timeout(180)").
   defp log_headline(body) when is_binary(body) do
     body = body |> String.replace(~r/\s+/, " ") |> String.trim()
 
@@ -920,7 +921,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
         extract_function_event(body),
         extract_subject_after_syslog(body),
         extract_bracket_title(body),
-        message_preview(strip_syslog_noise(body), 240)
+        message_preview(peel_log_prefix(body), 240)
       ]
       |> Enum.find(&usable_headline?/1)
     end
@@ -930,33 +931,37 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp usable_headline?(title) when is_binary(title) do
     title = String.trim(title)
-    # Must contain a letter and must not be a bare number (syslog PID / counter).
-    title != "" and has_latin_letter?(title) and not pure_numeric_token?(title)
+
+    title != "" and has_latin_letter?(title) and not pure_numeric_token?(title) and
+      not mac_tail_headline?(title) and not metrics_only_headline?(title) and
+      not kernel_timestamp_headline?(title)
   end
 
   defp usable_headline?(_), do: false
 
   # "… mcad[1977]: wireless_agg_stats.log_sta_anomalies(): BSSID=…"
+  # Only accept empty-paren events with a dotted name (module.func()) so
+  # metric crumbs like idle(60) never win — those aren't empty ().
   defp extract_function_event(body) when is_binary(body) do
-    # Prefer the last foo.bar.baz() token on the subject side of the line.
-    case Regex.scan(~r"\b([A-Za-z_][\w.]{2,120}\(\))", body) do
+    case Regex.scan(~r"\b([A-Za-z_][\w.]*[A-Za-z0-9_]\(\))", body) do
       [] ->
         nil
 
       matches ->
         matches
-        |> List.last()
-        |> case do
+        |> Enum.map(fn
           [_, name] -> String.trim(name)
           _ -> nil
-        end
+        end)
+        |> Enum.filter(&(is_binary(&1) and String.contains?(&1, ".")))
+        |> List.last()
     end
   end
 
   defp extract_function_event(_), do: nil
 
-  # Subject = text before first KEY= , with host/daemon[pid] noise stripped,
-  # then the most useful trailing segment (after the last ": ").
+  # Peel host/kernel/iface prefixes; keep the human subject intact.
+  # Do NOT split on ":" — that shatters MAC addresses into "b9 idle(60)…".
   defp extract_subject_after_syslog(body) when is_binary(body) do
     subject =
       case message_prefix(body) do
@@ -964,19 +969,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
         _ -> body
       end
 
-    subject
-    |> strip_syslog_noise()
-    |> String.trim()
-    |> String.trim_trailing(":")
-    |> String.trim()
-    |> then(fn cleaned ->
-      cleaned
-      |> String.split(~r"\s*:\s*")
-      |> Enum.map(&String.trim/1)
-      |> Enum.reject(&(&1 == ""))
-      |> Enum.reverse()
-      |> Enum.find(&usable_headline?/1)
-    end)
+    cleaned =
+      subject
+      |> peel_log_prefix()
+      |> String.trim()
+      |> String.trim_trailing(":")
+      |> String.trim()
+
+    if usable_headline?(cleaned), do: cleaned
   end
 
   defp extract_subject_after_syslog(_), do: nil
@@ -988,7 +988,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       [_, title] -> String.trim(title)
       _ -> nil
     end)
-    # Keep "[POSTROUTING-SNAT-1]"; drop "[1977]" via usable_headline?/1.
+    # Keep "[POSTROUTING-SNAT-1]"; drop "[1977]" / "[2652784.576992]".
     |> Enum.find(&usable_headline?/1)
   end
 
@@ -996,7 +996,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp pure_numeric_token?(s) when is_binary(s) do
     s = String.trim(s)
-    s != "" and Regex.match?(~r/^\d+$/, s)
+    s != "" and Regex.match?(~r/^\d+(?:\.\d+)?$/, s)
   end
 
   defp pure_numeric_token?(_), do: true
@@ -1004,21 +1004,52 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp has_latin_letter?(s) when is_binary(s), do: Regex.match?(~r/[A-Za-z]/, s)
   defp has_latin_letter?(_), do: false
 
-  # Drop leading "mac,hostname: daemon: daemon[pid]:" style noise for previews.
-  defp strip_syslog_noise(body) when is_binary(body) do
+  # "b9 idle(60) timeout(180)" — leftover from colon-splitting a MAC.
+  defp mac_tail_headline?(title) when is_binary(title) do
+    t = String.trim(title)
+
+    Regex.match?(~r/^[0-9a-fA-F]{1,2}(?:\s|:)/, t) or
+      Regex.match?(~r/^[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){1,5}\b/, t)
+  end
+
+  defp mac_tail_headline?(_), do: false
+
+  # Titles that are only metric tokens: idle(60) timeout(180)
+  defp metrics_only_headline?(title) when is_binary(title) do
+    tokens = String.split(title)
+
+    tokens != [] and
+      Enum.all?(tokens, &Regex.match?(~r/^[A-Za-z_][\w-]*\(\d+\)$/, &1))
+  end
+
+  defp metrics_only_headline?(_), do: false
+
+  defp kernel_timestamp_headline?(title) when is_binary(title) do
+    Regex.match?(~r/^\d+\.\d+$/, String.trim(title))
+  end
+
+  defp kernel_timestamp_headline?(_), do: false
+
+  # Strip leading host/daemon/kernel noise; leave the message subject alone.
+  defp peel_log_prefix(body) when is_binary(body) do
     cleaned =
       body
+      # d021f9b43279,UAP-nanoHD-6.7.54+15663:
       |> String.replace(~r/^[0-9a-fA-F]{6,},[^:]+:\s*/, "")
-      # mcad[1977]:  /  process[12345]:
+      # mcad[1977]: / process[12345]:
       |> String.replace(~r/\b[A-Za-z_][\w.-]*\[\d+\]:\s*/, "")
-      # lone "mcad: " daemon tags before the real subject
-      |> String.replace(~r/^(?:[A-Za-z_][\w.-]*:\s*)+/, "")
+      # one or more short facility tags at the front: kernel: syslog: …
+      |> String.replace(~r/^(?:[A-Za-z_][\w.-]{0,24}:\s*)+/, "")
+      # [2652784.576992] kernel uptime stamp
+      |> String.replace(~r/^\[\d+(?:\.\d+)?\]\s*/, "")
+      # iface / subsystem tag: ra0: eth0: wlan0:
+      |> String.replace(~r/^[A-Za-z][\w.-]{0,15}:\s*/, "")
       |> String.trim()
 
     if cleaned == "", do: body, else: cleaned
   end
 
-  defp strip_syslog_noise(body), do: body
+  defp peel_log_prefix(body), do: body
 
   # Text before the first KEY= token (e.g. "tonka01 [POSTROUTING-SNAT-1]").
   defp message_prefix(body) when is_binary(body) do
