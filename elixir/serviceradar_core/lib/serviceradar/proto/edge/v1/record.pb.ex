@@ -203,6 +203,33 @@ defmodule Serviceradar.Edge.V1.EdgeRecordDispositionKind do
   field :EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE, 5
 end
 
+defmodule Serviceradar.Edge.V1.EdgeUnattributableReason do
+  @moduledoc false
+
+  use Protobuf,
+    enum: true,
+    full_name: "serviceradar.edge.v1.EdgeUnattributableReason",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
+
+  field :EDGE_UNATTRIBUTABLE_REASON_UNSPECIFIED, 0
+  field :EDGE_UNATTRIBUTABLE_REASON_BINDING_MISSING, 2
+  field :EDGE_UNATTRIBUTABLE_REASON_BINDING_CORRUPT, 3
+  field :EDGE_UNATTRIBUTABLE_REASON_TORN_TAIL, 4
+  field :EDGE_UNATTRIBUTABLE_REASON_BINDING_VERSION_UNSUPPORTED, 6
+  field :EDGE_UNATTRIBUTABLE_REASON_DISCRIMINATOR_UNREPRESENTABLE, 7
+end
+
 defmodule Serviceradar.Edge.V1.EdgeProductionClaimsV1 do
   @moduledoc false
 
@@ -569,36 +596,96 @@ defmodule Serviceradar.Edge.V1.EdgeRecordLaneOpenAck do
     enum: true
 end
 
-defmodule Serviceradar.Edge.V1.EdgeLostRangeV1 do
+defmodule Serviceradar.Edge.V1.EdgeSourceSpanIdentityV1 do
   @moduledoc false
 
   use Protobuf,
-    full_name: "serviceradar.edge.v1.EdgeLostRangeV1",
+    full_name: "serviceradar.edge.v1.EdgeSourceSpanIdentityV1",
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
-  field :from_sequence, 1, type: :uint64, json_name: "fromSequence"
-  field :through_sequence, 2, type: :uint64, json_name: "throughSequence"
+  field :kind, 1, type: Serviceradar.Edge.V1.EdgeSourceAuthorizationKind, enum: true
+  field :context_id, 2, type: :bytes, json_name: "contextId"
+  field :source_scope_id, 3, type: :bytes, json_name: "sourceScopeId"
+  field :source_scope_sha256, 4, type: :bytes, json_name: "sourceScopeSha256"
 end
 
-defmodule Serviceradar.Edge.V1.EdgeAffectedScopeV1 do
+defmodule Serviceradar.Edge.V1.EdgeAttributedSpanIdentityV1 do
   @moduledoc false
 
   use Protobuf,
-    full_name: "serviceradar.edge.v1.EdgeAffectedScopeV1",
+    full_name: "serviceradar.edge.v1.EdgeAttributedSpanIdentityV1",
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
+  field :producer_assignment_id, 1, type: :bytes, json_name: "producerAssignmentId"
+  field :run_id, 2, type: :bytes, json_name: "runId"
+  field :run_shard, 3, type: :uint32, json_name: "runShard"
+  field :authority_epoch, 4, type: :uint64, json_name: "authorityEpoch"
+  field :production_scope_id, 5, type: :bytes, json_name: "productionScopeId"
+  field :scope_sha256, 6, type: :bytes, json_name: "scopeSha256"
+  field :contract_bundle_sha256, 7, type: :bytes, json_name: "contractBundleSha256"
+  field :source, 8, type: Serviceradar.Edge.V1.EdgeSourceSpanIdentityV1
+end
+
+defmodule Serviceradar.Edge.V1.EdgeAttributedActiveV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.EdgeAttributedActiveV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :identity, 1, type: Serviceradar.Edge.V1.EdgeAttributedSpanIdentityV1
+  field :range_sha256, 2, type: :bytes, json_name: "rangeSha256"
+end
+
+defmodule Serviceradar.Edge.V1.EdgeAttributedPassiveV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.EdgeAttributedPassiveV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :identity, 1, type: Serviceradar.Edge.V1.EdgeAttributedSpanIdentityV1
+end
+
+defmodule Serviceradar.Edge.V1.EdgeUnattributableV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.EdgeUnattributableV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :reason, 1, type: Serviceradar.Edge.V1.EdgeUnattributableReason, enum: true
+end
+
+defmodule Serviceradar.Edge.V1.EdgeClassificationSpanV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.EdgeClassificationSpanV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  oneof(:classification, 0)
+
   field :from_sequence, 1, type: :uint64, json_name: "fromSequence"
   field :through_sequence, 2, type: :uint64, json_name: "throughSequence"
-  field :contract_bundle_sha256, 3, type: :bytes, json_name: "contractBundleSha256"
-  field :producer_assignment_id, 4, type: :bytes, json_name: "producerAssignmentId"
-  field :run_id, 5, type: :bytes, json_name: "runId"
-  field :run_shard, 6, type: :uint32, json_name: "runShard"
-  field :authority_epoch, 7, type: :uint64, json_name: "authorityEpoch"
-  field :scope_sha256, 8, type: :bytes, json_name: "scopeSha256"
-  field :range_sha256, 9, type: :bytes, json_name: "rangeSha256"
-  field :coarsened, 10, type: :bool
+
+  field :attributed_active, 3,
+    type: Serviceradar.Edge.V1.EdgeAttributedActiveV1,
+    json_name: "attributedActive",
+    oneof: 0
+
+  field :attributed_passive, 4,
+    type: Serviceradar.Edge.V1.EdgeAttributedPassiveV1,
+    json_name: "attributedPassive",
+    oneof: 0
+
+  field :unattributable, 5, type: Serviceradar.Edge.V1.EdgeUnattributableV1, oneof: 0
 end
 
 defmodule Serviceradar.Edge.V1.EdgeLossManifestPageV1 do
@@ -615,15 +702,12 @@ defmodule Serviceradar.Edge.V1.EdgeLossManifestPageV1 do
   field :prev_page_sha256, 4, type: :bytes, json_name: "prevPageSha256"
   field :page_sha256, 5, type: :bytes, json_name: "pageSha256"
   field :terminal, 6, type: :bool
-  field :coarsened, 7, type: :bool
   field :digest_version, 8, type: :uint32, json_name: "digestVersion"
 
-  field :lost_ranges, 9,
+  field :classification_spans, 11,
     repeated: true,
-    type: Serviceradar.Edge.V1.EdgeLostRangeV1,
-    json_name: "lostRanges"
-
-  field :affected, 10, repeated: true, type: Serviceradar.Edge.V1.EdgeAffectedScopeV1
+    type: Serviceradar.Edge.V1.EdgeClassificationSpanV1,
+    json_name: "classificationSpans"
 end
 
 defmodule Serviceradar.Edge.V1.SpoolLossTombstoneV1 do
@@ -636,12 +720,9 @@ defmodule Serviceradar.Edge.V1.SpoolLossTombstoneV1 do
 
   field :recovery_id, 1, type: :bytes, json_name: "recoveryId"
   field :prior_spool_id, 2, type: :bytes, json_name: "priorSpoolId"
-  field :lost_from_sequence, 3, type: :uint64, json_name: "lostFromSequence"
-  field :lost_through_sequence, 4, type: :uint64, json_name: "lostThroughSequence"
   field :new_spool_id, 5, type: :bytes, json_name: "newSpoolId"
   field :manifest_root_sha256, 6, type: :bytes, json_name: "manifestRootSha256"
   field :manifest_page_count, 7, type: :uint32, json_name: "manifestPageCount"
-  field :coarsened, 8, type: :bool
   field :detected_at_unix_nano, 9, type: :int64, json_name: "detectedAtUnixNano"
   field :reason, 10, type: :string
   field :digest_version, 11, type: :uint32, json_name: "digestVersion"

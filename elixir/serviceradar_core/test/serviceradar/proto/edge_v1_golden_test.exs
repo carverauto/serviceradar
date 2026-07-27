@@ -1155,8 +1155,41 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
     tomb = SpoolLossTombstoneV1.decode(load("tombstone.bin"))
     assert HashGrammar.manifest_root([page]) == tomb.manifest_root_sha256
-    assert [scope] = page.affected
-    assert scope.run_shard == 3
+
+    # The three classification bodies, and BOTH source framings. Source presence is
+    # part of the span identity, so a source-present and a source-absent span must not
+    # collide -- and the 1-byte presence MARKER is only pinnable cross-language, since
+    # within one runtime the members alone already differ. This vector is that pin: if
+    # Go emits the marker and Elixir does not (or vice versa), the digest assertion
+    # above fails.
+    assert [active, passive, unattributable] = page.classification_spans
+
+    # NOTE: this vector pairs ACTIVE with source-present and PASSIVE with
+    # source-absent purely so ONE page exercises BOTH source framings. That pairing is
+    # a property of THIS FIXTURE, not of the contract: attribution classification and
+    # source presence are INDEPENDENT axes, and all four combinations are legal.
+    assert {:attributed_active, a} = active.classification
+    assert a.identity.run_shard == 3
+    assert a.identity.source != nil, "this fixture's ACTIVE span carries a source identity"
+    assert a.identity.source.kind == :EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP
+    # range_sha256 IS required on ACTIVE -- that one is contractual.
+    assert byte_size(a.range_sha256) == 32
+
+    assert {:attributed_passive, pv} = passive.classification
+    assert pv.identity.source == nil, "this fixture's PASSIVE span carries no source identity"
+
+    assert {:unattributable, u} = unattributable.classification
+    assert u.reason == :EDGE_UNATTRIBUTABLE_REASON_BINDING_CORRUPT
+
+    # Gaps are LEGAL and mean NOT LOST: 21 sits between the active and passive spans,
+    # and 23-29 before the unattributable one.
+    assert active.through_sequence == 20 and passive.from_sequence == 22
+    assert passive.through_sequence == 22 and unattributable.from_sequence == 30
+
+    # The tombstone carries NO loss interval after 1.6a; the manifest root is the loss
+    # commitment. A regenerated binding that still had the field would fail here.
+    refute Map.has_key?(tomb, :lost_from_sequence)
+    refute Map.has_key?(tomb, :coarsened)
 
     # Recovery-operation SCOPE digests: Elixir recomputes the Go-authored vectors,
     # proving the tombstone/manifest-page/resolved scope grammars are byte-identical.
