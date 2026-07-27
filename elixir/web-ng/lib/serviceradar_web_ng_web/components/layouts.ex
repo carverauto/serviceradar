@@ -407,7 +407,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
           <div class="sr-ops-topbar-actions">
             <%!-- Theme toggle hidden; app defaults to dark. Re-enable with <.theme_toggle /> --%>
             <.link
-              navigate={~p"/alerts"}
+              navigate={~p"/observability?#{%{tab: "alerts"}}"}
               class="sr-ops-topbar-icon"
               aria-label="Alerts"
               title="Alerts"

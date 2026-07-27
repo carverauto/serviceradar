@@ -97,7 +97,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.StatesCards do
             icon: "hero-bell-alert",
             tone: if(active_alert_count(alerts) > 0, do: "error", else: "success"),
             sparkline: Map.get(sparklines, :threats, []),
-            href: "/alerts",
+            href: "/observability?tab=alerts",
             aria_label: "Open active alerts"
           },
           %{

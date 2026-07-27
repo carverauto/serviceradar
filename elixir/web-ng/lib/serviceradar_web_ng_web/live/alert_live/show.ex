@@ -346,7 +346,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
       end
 
     srql =
-      socket.assigns.srql
+      (socket.assigns[:srql] || %{})
       |> Map.merge(%{
         enabled: true,
         entity: "alerts",
@@ -354,7 +354,9 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
         draft: query,
         page_path: page_path || "/alerts/#{alert_id}",
         error: nil,
-        loading: false
+        loading: false,
+        builder_available: true,
+        builder_open: false
       })
       |> sync_builder_state(query)
 
@@ -364,10 +366,19 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   defp sync_builder_state(srql, query) do
     case Builder.parse(query) do
       {:ok, builder} ->
-        Map.merge(srql, %{builder: builder, builder_supported: true, builder_sync: true})
+        Map.merge(srql, %{
+          builder: builder,
+          builder_available: true,
+          builder_supported: true,
+          builder_sync: true
+        })
 
       {:error, _reason} ->
-        Map.merge(srql, %{builder_supported: false, builder_sync: false})
+        Map.merge(srql, %{
+          builder_available: true,
+          builder_supported: false,
+          builder_sync: false
+        })
     end
   end
 
@@ -435,7 +446,11 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
         </div>
 
         <div class="flex shrink-0 flex-wrap items-center gap-1.5">
-          <.ui_button href={~p"/observability?#{%{tab: "alerts"}}"} variant="outline" size="xs">
+          <.ui_button
+            navigate={~p"/observability?#{%{tab: "alerts"}}"}
+            variant="outline"
+            size="xs"
+          >
             Back to alerts
           </.ui_button>
           <.ui_button type="button" variant="outline" size="xs" phx-click="copy_json">

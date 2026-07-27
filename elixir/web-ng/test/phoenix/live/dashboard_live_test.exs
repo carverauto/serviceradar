@@ -26,7 +26,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert has_element?(view, "select[name='map_view']", "NetFlow Map")
     assert has_element?(view, "a[href='/netflow-map']", "Full Screen")
     assert has_element?(view, "#ops-traffic-map[data-topology-links]")
-    assert has_element?(view, "a.sr-ops-topbar-icon[href='/alerts'][aria-label='Alerts']")
+    assert has_element?(view, "a.sr-ops-topbar-icon[href='/observability?tab=alerts'][aria-label='Alerts']")
     assert has_element?(view, "#ops-topbar")
     assert has_element?(view, "#ops-brand-logo")
     assert has_element?(view, ".sr-ops-brand-mark")
@@ -41,14 +41,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert has_element?(view, "a.sr-ops-kpi-card[href='/devices']", "Total Assets")
     assert has_element?(view, "a.sr-ops-kpi-card[href='/observability?tab=events']", "Threat Level")
     assert has_element?(view, "a.sr-ops-kpi-card[href='/services']", "Network Health")
-    assert has_element?(view, "a.sr-ops-kpi-card[href='/alerts']", "Active Alerts")
+    assert has_element?(view, "a.sr-ops-kpi-card[href='/observability?tab=alerts']", "Active Alerts")
     assert has_element?(view, "a.sr-ops-small-stat[href*='tab=netflows']", "Window")
     assert has_element?(view, "a.sr-ops-small-stat[href*='tab=netflows']", "Conversations")
     assert has_element?(view, "a.sr-ops-metric-card[href='/diagnostics/mtr']", "Latency (Avg)")
     assert has_element?(view, "a.sr-ops-metric-card[href='/diagnostics/mtr']", "Packet Loss")
     assert has_element?(view, "a.sr-ops-metric-card[href='/services']", "Service Health")
     assert has_element?(view, "a[data-testid='threat-intel-summary'][href='/settings/networks/threat-intel']")
-    assert has_element?(view, "a[data-testid='alerts-feed-empty'][href='/alerts']")
+    assert has_element?(view, "a[data-testid='alerts-feed-empty'][href='/observability?tab=alerts']")
   end
 
   test "dashboard data hydrates while camera previews are still opening", %{conn: conn} do
@@ -312,7 +312,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
 
     refute has_element?(view, "[data-testid='alerts-feed'] a[href='/alerts/#{alert.id}']")
     assert has_element?(view, "[data-testid='alerts-feed-empty']", "No alerts in the last 24 hours")
-    assert has_element?(view, "a[data-testid='alerts-feed-empty'][href='/alerts']")
+    assert has_element?(view, "a[data-testid='alerts-feed-empty'][href='/observability?tab=alerts']")
   end
 
   defp create_dashboard_instance!(route_slug) do
