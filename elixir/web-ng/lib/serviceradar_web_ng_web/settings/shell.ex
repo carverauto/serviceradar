@@ -99,8 +99,8 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
           <.icon name="hero-magnifying-glass" class="size-4 opacity-60" />
           <span class="hidden sm:inline">Press Ctrl+K to jump anywhere</span>
           <span class="ml-1 flex items-center gap-0.5">
-            <kbd class="kbd kbd-xs">Ctrl</kbd>
-            <kbd class="kbd kbd-xs">K</kbd>
+            <kbd class="sr-ui-kbd sr-ui-kbd-xs">Ctrl</kbd>
+            <kbd class="sr-ui-kbd sr-ui-kbd-xs">K</kbd>
           </span>
         </.ui_button>
       </div>
@@ -478,7 +478,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
                 class="ml-auto hidden items-center gap-1 self-center text-xs text-accent"
                 data-command-palette-jump
               >
-                Jump <kbd class="kbd kbd-xs">↵</kbd>
+                Jump <kbd class="sr-ui-kbd sr-ui-kbd-xs">↵</kbd>
               </span>
             </.link>
           </li>
@@ -492,9 +492,9 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
 
         <div class="flex items-center gap-3 border-t border-sr-line px-3 py-2 text-xs text-sr-muted">
           <span>Navigation:</span>
-          <span><kbd class="kbd kbd-xs">↑</kbd> <kbd class="kbd kbd-xs">↓</kbd> Arrow Keys</span>
-          <span><kbd class="kbd kbd-xs">↵</kbd> Select</span>
-          <span><kbd class="kbd kbd-xs">ESC</kbd> Close</span>
+          <span><kbd class="sr-ui-kbd sr-ui-kbd-xs">↑</kbd> <kbd class="sr-ui-kbd sr-ui-kbd-xs">↓</kbd> Arrow Keys</span>
+          <span><kbd class="sr-ui-kbd sr-ui-kbd-xs">↵</kbd> Select</span>
+          <span><kbd class="sr-ui-kbd sr-ui-kbd-xs">ESC</kbd> Close</span>
         </div>
       </div>
       <form method="dialog" class="sr-ui-modal-backdrop">

@@ -102,7 +102,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
             <div class="stat">
               <div class="sr-ui-stat-title">Target</div>
               <div class="sr-ui-stat-value text-lg font-mono">{@trace["target"]}</div>
-              <div :if={@trace["target_ip"] != @trace["target"]} class="stat-desc">
+              <div :if={@trace["target_ip"] != @trace["target"]} class="sr-ui-stat-desc">
                 {@trace["target_ip"]}
               </div>
             </div>
@@ -126,7 +126,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
             <div class="stat">
               <div class="sr-ui-stat-title">Time</div>
               <div class="sr-ui-stat-value text-sm">{format_time(@trace["time"])}</div>
-              <div class="stat-desc">Agent: {@trace["agent_id"]}</div>
+              <div class="sr-ui-stat-desc">Agent: {@trace["agent_id"]}</div>
             </div>
           </div>
 
