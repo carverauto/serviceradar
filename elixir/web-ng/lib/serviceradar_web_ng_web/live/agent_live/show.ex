@@ -694,15 +694,15 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
         <details
           :if={@unavailable_caps != []}
-          class="collapse collapse-arrow rounded-lg bg-sr-subtle/40"
+          class="sr-ui-collapse sr-ui-collapse-arrow rounded-lg bg-sr-subtle/40"
         >
-          <summary class="collapse-title min-h-0 py-3 text-sm font-medium">
+          <summary class="sr-ui-collapse-title min-h-0 py-3 text-sm font-medium">
             Unavailable capability markers
             <.ui_badge size="sm" variant="warning" class="ml-2">
               {length(@unavailable_caps)}
             </.ui_badge>
           </summary>
-          <div class="collapse-content pb-3">
+          <div class="sr-ui-collapse-content pb-3">
             <ul class="divide-y divide-sr-line/60 rounded-md bg-sr-surface px-3">
               <li :for={cap <- @unavailable_caps} class="flex min-w-0 items-start gap-2 py-2">
                 <span class="status status-warning status-xs mt-1.5 shrink-0" title="Unavailable">
@@ -830,26 +830,26 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       <div class="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
         <!-- Uptime -->
         <div class="stat bg-sr-subtle/30 rounded-lg p-3">
-          <div class="stat-title text-xs">Uptime</div>
-          <div class="stat-value text-lg">{format_uptime(@node_info.uptime_ms)}</div>
+          <div class="sr-ui-stat-title text-xs">Uptime</div>
+          <div class="sr-ui-stat-value text-lg">{format_uptime(@node_info.uptime_ms)}</div>
         </div>
         
     <!-- Processes -->
         <div class="stat bg-sr-subtle/30 rounded-lg p-3">
-          <div class="stat-title text-xs">Processes</div>
-          <div class="stat-value text-lg">{@node_info.process_count}</div>
+          <div class="sr-ui-stat-title text-xs">Processes</div>
+          <div class="sr-ui-stat-value text-lg">{@node_info.process_count}</div>
         </div>
         
     <!-- Schedulers -->
         <div class="stat bg-sr-subtle/30 rounded-lg p-3">
-          <div class="stat-title text-xs">Schedulers</div>
-          <div class="stat-value text-lg">{@node_info.schedulers_online}/{@node_info.schedulers}</div>
+          <div class="sr-ui-stat-title text-xs">Schedulers</div>
+          <div class="sr-ui-stat-value text-lg">{@node_info.schedulers_online}/{@node_info.schedulers}</div>
         </div>
         
     <!-- OTP Release -->
         <div class="stat bg-sr-subtle/30 rounded-lg p-3">
-          <div class="stat-title text-xs">OTP Release</div>
-          <div class="stat-value text-lg">OTP {@node_info.otp_release}</div>
+          <div class="sr-ui-stat-title text-xs">OTP Release</div>
+          <div class="sr-ui-stat-value text-lg">OTP {@node_info.otp_release}</div>
         </div>
       </div>
       

@@ -138,7 +138,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
       >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <div class="text-sm breadcrumbs">
+            <div class="text-sm ">
               <ul>
                 <li><.link navigate={~p"/admin/edge-sites"}>Edge Sites</.link></li>
                 <li>{@site.name}</li>

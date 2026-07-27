@@ -13,8 +13,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.ChartPanel do
     assigns = Map.merge(assigns, visualize)
 
     ~H"""
-    <div class="card bg-sr-surface border border-sr-line">
-      <div class="card-body gap-3">
+    <div class="sr-ui-card bg-sr-surface border border-sr-line">
+      <div class="sr-ui-card-body gap-3">
         <% chart_empty_state = EmptyState.effective(@srql, @netflow_chart_empty_state) %>
 
         <div class="flex items-center justify-between gap-3">

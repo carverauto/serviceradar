@@ -42,7 +42,7 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.Targets do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <div class="mx-auto max-w-7xl p-6">
-        <nav class="mb-4 text-sm breadcrumbs">
+        <nav class="mb-4 text-sm ">
           <ul>
             <li><.link navigate={~p"/devices"}>Devices</.link></li>
             <li class="text-sr-muted">Remote access targets</li>

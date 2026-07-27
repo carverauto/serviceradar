@@ -477,7 +477,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql} hide_breadcrumb={true}>
       <div class="container mx-auto px-4 py-6 max-w-6xl">
         <%!-- Breadcrumb --%>
-        <nav class="text-sm breadcrumbs mb-4">
+        <nav class="text-sm  mb-4">
           <ul>
             <li><.link navigate={~p"/devices"}>Devices</.link></li>
             <li>
@@ -506,8 +506,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         <%!-- Interface Details --%>
         <div :if={@interface && !@loading} class="space-y-6">
           <%!-- Header Card --%>
-          <div class="card bg-sr-surface border border-sr-line">
-            <div class="card-body">
+          <div class="sr-ui-card bg-sr-surface border border-sr-line">
+            <div class="sr-ui-card-body">
               <div class="flex items-start justify-between">
                 <div>
                   <h1 class="text-2xl font-bold">{interface_name(@interface)}</h1>
@@ -543,10 +543,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           <%!-- Metrics Graphs Section (positioned at top, below header) --%>
           <div
             :if={@metrics.panels != [] || @metrics.error || @metrics.message}
-            class="card bg-sr-surface border border-sr-line"
+            class="sr-ui-card bg-sr-surface border border-sr-line"
           >
-            <div class="card-body">
-              <h2 class="card-title text-lg">
+            <div class="sr-ui-card-body">
+              <h2 class="sr-ui-card-title text-lg">
                 <.icon name="hero-chart-bar" class="size-5 text-sr-brand" /> Metrics History
               </h2>
 
@@ -592,9 +592,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           <%!-- Properties Grid --%>
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <%!-- Basic Information --%>
-            <div class="card bg-sr-surface border border-sr-line">
-              <div class="card-body">
-                <h2 class="card-title text-lg">
+            <div class="sr-ui-card bg-sr-surface border border-sr-line">
+              <div class="sr-ui-card-body">
+                <h2 class="sr-ui-card-title text-lg">
                   <.icon name="hero-information-circle" class="size-5 text-sr-brand" />
                   Basic Information
                 </h2>
@@ -615,9 +615,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
 
             <%!-- Network Information --%>
-            <div class="card bg-sr-surface border border-sr-line">
-              <div class="card-body">
-                <h2 class="card-title text-lg">
+            <div class="sr-ui-card bg-sr-surface border border-sr-line">
+              <div class="sr-ui-card-body">
+                <h2 class="sr-ui-card-title text-lg">
                   <.icon name="hero-globe-alt" class="size-5 text-sr-brand" /> Network Information
                 </h2>
                 <div class="divide-y divide-sr-line">
@@ -635,9 +635,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
 
             <%!-- Metrics Collection --%>
-            <div class="card bg-sr-surface border border-sr-line lg:col-span-2">
-              <div class="card-body">
-                <h2 class="card-title text-lg">
+            <div class="sr-ui-card bg-sr-surface border border-sr-line lg:col-span-2">
+              <div class="sr-ui-card-body">
+                <h2 class="sr-ui-card-title text-lg">
                   <.icon name="hero-chart-bar" class="size-5 text-sr-brand" /> Metrics Collection
                 </h2>
                 <div class="divide-y divide-sr-line">

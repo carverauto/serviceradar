@@ -23,9 +23,9 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
 
   def bgp_traffic_by_as_view(assigns) do
     ~H"""
-    <div class="card bg-sr-surface border border-sr-line shadow-sm">
-      <div class="card-body">
-        <h3 class="card-title text-base">Traffic by AS Number</h3>
+    <div class="sr-ui-card bg-sr-surface border border-sr-line shadow-sm">
+      <div class="sr-ui-card-body">
+        <h3 class="sr-ui-card-title text-base">Traffic by AS Number</h3>
 
         <%= if Enum.empty?(@traffic_data) do %>
           <p class="text-sm text-sr-muted">No AS traffic data available</p>
@@ -90,9 +90,9 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
 
   def bgp_top_communities_view(assigns) do
     ~H"""
-    <div class="card bg-sr-surface border border-sr-line shadow-sm">
-      <div class="card-body">
-        <h3 class="card-title text-base">Top BGP Communities</h3>
+    <div class="sr-ui-card bg-sr-surface border border-sr-line shadow-sm">
+      <div class="sr-ui-card-body">
+        <h3 class="sr-ui-card-title text-base">Top BGP Communities</h3>
 
         <%= if Enum.empty?(@communities) do %>
           <p class="text-sm text-sr-muted">No BGP community data available</p>
@@ -151,23 +151,23 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
 
   def bgp_path_diversity_panel(assigns) do
     ~H"""
-    <div class="card bg-sr-surface border border-sr-line shadow-sm">
-      <div class="card-body">
-        <h3 class="card-title text-base">AS Path Diversity</h3>
+    <div class="sr-ui-card bg-sr-surface border border-sr-line shadow-sm">
+      <div class="sr-ui-card-body">
+        <h3 class="sr-ui-card-title text-base">AS Path Diversity</h3>
 
         <div class="grid grid-cols-2 gap-4">
           <!-- Unique Paths -->
           <div class="stat bg-sr-subtle rounded-lg">
-            <div class="stat-value text-sr-brand">{@path_diversity.unique_paths}</div>
-            <div class="stat-title">Unique Paths</div>
+            <div class="sr-ui-stat-value text-sr-brand">{@path_diversity.unique_paths}</div>
+            <div class="sr-ui-stat-title">Unique Paths</div>
           </div>
           
     <!-- Average Path Length -->
           <div class="stat bg-sr-subtle rounded-lg">
-            <div class="stat-value text-secondary">
+            <div class="sr-ui-stat-value text-secondary">
               {Float.round(@path_diversity.avg_path_length, 1)}
             </div>
-            <div class="stat-title">Avg Hops</div>
+            <div class="sr-ui-stat-title">Avg Hops</div>
           </div>
         </div>
         
@@ -212,9 +212,9 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
     assigns = assign(assigns, :max_edge_bytes, calculate_max_edge_bytes(assigns.topology))
 
     ~H"""
-    <div class="card bg-sr-surface border border-sr-line shadow-sm lg:col-span-2">
-      <div class="card-body">
-        <h3 class="card-title text-base">AS Topology Graph</h3>
+    <div class="sr-ui-card bg-sr-surface border border-sr-line shadow-sm lg:col-span-2">
+      <div class="sr-ui-card-body">
+        <h3 class="sr-ui-card-title text-base">AS Topology Graph</h3>
 
         <%= if Enum.empty?(@topology) do %>
           <p class="text-sm text-sr-muted">No topology data available</p>
@@ -396,9 +396,9 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
   def data_sources_panel(assigns) do
     ~H"""
     <%= if !Enum.empty?(@sources) do %>
-      <div class="card bg-sr-surface border border-sr-line shadow-sm mb-6">
-        <div class="card-body">
-          <h3 class="card-title text-base">Data Sources</h3>
+      <div class="sr-ui-card bg-sr-surface border border-sr-line shadow-sm mb-6">
+        <div class="sr-ui-card-body">
+          <h3 class="sr-ui-card-title text-base">Data Sources</h3>
           <div class="sr-ui-table-shell">
             <table class={ui_table_class(size: "sm")}>
               <thead>
@@ -435,9 +435,9 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
   def traffic_timeseries_chart(assigns) do
     ~H"""
     <%= if !Enum.empty?(@timeseries.data) do %>
-      <div class="card bg-sr-surface border border-sr-line shadow-sm mb-6">
-        <div class="card-body">
-          <h3 class="card-title text-base">Traffic Over Time (Top ASes)</h3>
+      <div class="sr-ui-card bg-sr-surface border border-sr-line shadow-sm mb-6">
+        <div class="sr-ui-card-body">
+          <h3 class="sr-ui-card-title text-base">Traffic Over Time (Top ASes)</h3>
           <div
             class="h-64"
             id="timeseries-chart"
@@ -463,9 +463,9 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
 
   def as_path_details_table(assigns) do
     ~H"""
-    <div class="card bg-sr-surface border border-sr-line shadow-sm mt-6">
-      <div class="card-body">
-        <h3 class="card-title text-base">AS Path Details</h3>
+    <div class="sr-ui-card bg-sr-surface border border-sr-line shadow-sm mt-6">
+      <div class="sr-ui-card-body">
+        <h3 class="sr-ui-card-title text-base">AS Path Details</h3>
 
         <%= if Enum.empty?(@paths) do %>
           <p class="text-sm text-sr-muted">No AS path data available</p>
@@ -517,9 +517,9 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
 
   def prefix_analysis_table(assigns) do
     ~H"""
-    <div class="card bg-sr-surface border border-sr-line shadow-sm mt-6">
-      <div class="card-body">
-        <h3 class="card-title text-base">Destination Prefix Analysis</h3>
+    <div class="sr-ui-card bg-sr-surface border border-sr-line shadow-sm mt-6">
+      <div class="sr-ui-card-body">
+        <h3 class="sr-ui-card-title text-base">Destination Prefix Analysis</h3>
 
         <%= if Enum.empty?(@prefixes) do %>
           <p class="text-sm text-sr-muted">No prefix data available</p>

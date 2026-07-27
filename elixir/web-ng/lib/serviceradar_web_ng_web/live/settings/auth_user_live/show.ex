@@ -311,9 +311,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
           </div>
 
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div class="card bg-sr-surface border border-sr-line">
-              <div class="card-body space-y-4">
-                <h2 class="card-title text-base">Profile</h2>
+            <div class="sr-ui-card bg-sr-surface border border-sr-line">
+              <div class="sr-ui-card-body space-y-4">
+                <h2 class="sr-ui-card-title text-base">Profile</h2>
 
                 <.form
                   for={@form}
@@ -390,10 +390,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
               </div>
             </div>
 
-            <div class="card bg-sr-surface border border-sr-line">
-              <div class="card-body space-y-4">
+            <div class="sr-ui-card bg-sr-surface border border-sr-line">
+              <div class="sr-ui-card-body space-y-4">
                 <div class="flex items-center justify-between gap-3">
-                  <h2 class="card-title text-base">Login history</h2>
+                  <h2 class="sr-ui-card-title text-base">Login history</h2>
                   <div class={ui_join_class()}>
                     <.ui_button type="button" phx-click="events_prev" disabled={is_nil(@events_page) or is_nil(@events_page.before)} title="Newer" size="xs" variant="neutral">
                       <.icon name="hero-chevron-left" class="size-4" />

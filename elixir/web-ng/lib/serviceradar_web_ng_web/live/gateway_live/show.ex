@@ -276,26 +276,26 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
       <div class="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
         <!-- Uptime -->
         <div class="stat bg-sr-subtle/30 rounded-lg p-3">
-          <div class="stat-title text-xs">Uptime</div>
-          <div class="stat-value text-lg">{format_uptime(@node_info.uptime_ms)}</div>
+          <div class="sr-ui-stat-title text-xs">Uptime</div>
+          <div class="sr-ui-stat-value text-lg">{format_uptime(@node_info.uptime_ms)}</div>
         </div>
         
     <!-- Processes -->
         <div class="stat bg-sr-subtle/30 rounded-lg p-3">
-          <div class="stat-title text-xs">Processes</div>
-          <div class="stat-value text-lg">{@node_info.process_count}</div>
+          <div class="sr-ui-stat-title text-xs">Processes</div>
+          <div class="sr-ui-stat-value text-lg">{@node_info.process_count}</div>
         </div>
         
     <!-- Schedulers -->
         <div class="stat bg-sr-subtle/30 rounded-lg p-3">
-          <div class="stat-title text-xs">Schedulers</div>
-          <div class="stat-value text-lg">{@node_info.schedulers_online}/{@node_info.schedulers}</div>
+          <div class="sr-ui-stat-title text-xs">Schedulers</div>
+          <div class="sr-ui-stat-value text-lg">{@node_info.schedulers_online}/{@node_info.schedulers}</div>
         </div>
         
     <!-- OTP Release -->
         <div class="stat bg-sr-subtle/30 rounded-lg p-3">
-          <div class="stat-title text-xs">OTP Release</div>
-          <div class="stat-value text-lg">OTP {@node_info.otp_release}</div>
+          <div class="sr-ui-stat-title text-xs">OTP Release</div>
+          <div class="sr-ui-stat-value text-lg">OTP {@node_info.otp_release}</div>
         </div>
       </div>
       

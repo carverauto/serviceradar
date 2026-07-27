@@ -576,10 +576,10 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div class="card bg-sr-surface border border-sr-line">
-            <div class="card-body">
+          <div class="sr-ui-card bg-sr-surface border border-sr-line">
+            <div class="sr-ui-card-body">
               <div class="flex items-center justify-between">
-                <h2 class="card-title text-base">Rule Files</h2>
+                <h2 class="sr-ui-card-title text-base">Rule Files</h2>
                 <div class="flex flex-wrap items-center justify-end gap-1.5">
                   <.ui_button phx-click="open_import_yaml" id="open-import-yaml" disabled={is_nil(@selected_file)} size="xs" variant="outline" class="text-[11px] leading-none whitespace-nowrap">
                     Import YAML
@@ -638,10 +638,10 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
             </div>
           </div>
 
-          <div class="card bg-sr-surface border border-sr-line lg:col-span-2">
-            <div class="card-body gap-4">
+          <div class="sr-ui-card bg-sr-surface border border-sr-line lg:col-span-2">
+            <div class="sr-ui-card-body gap-4">
               <div class="flex flex-wrap items-center justify-between gap-2">
-                <h2 class="card-title text-base">
+                <h2 class="sr-ui-card-title text-base">
                   <%= if @selected_file do %>
                     Rules in {@selected_file}
                   <% else %>
@@ -733,9 +733,9 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
           </div>
         </div>
 
-        <div class="card bg-sr-surface border border-sr-line">
-          <div class="card-body">
-            <h2 class="card-title text-base">Simulation</h2>
+        <div class="sr-ui-card bg-sr-surface border border-sr-line">
+          <div class="sr-ui-card-body">
+            <h2 class="sr-ui-card-title text-base">Simulation</h2>
             <p class="text-sm opacity-70">
               Paste a mapper/sync-style payload JSON to preview classification output.
             </p>

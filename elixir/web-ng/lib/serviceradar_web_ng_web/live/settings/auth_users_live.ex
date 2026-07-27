@@ -194,7 +194,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
           </div>
 
           <section class="min-w-0">
-            <div class="card bg-sr-surface border border-sr-line">
+            <div class="sr-ui-card bg-sr-surface border border-sr-line">
               <div class="overflow-x-auto">
                 <table :if={@user_count > 0} class={ui_table_class(zebra: true, class: "w-full")}>
                   <thead>

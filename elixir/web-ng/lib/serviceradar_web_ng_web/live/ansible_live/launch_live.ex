@@ -149,10 +149,10 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
         </p>
       </header>
 
-      <section class="card card-border bg-sr-surface" aria-labelledby="ansible-launch-targets-title">
-        <div class="card-body gap-3">
+      <section class="sr-ui-card card-border bg-sr-surface" aria-labelledby="ansible-launch-targets-title">
+        <div class="sr-ui-card-body gap-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 id="ansible-launch-targets-title" class="card-title text-base">Canonical targets</h2>
+            <h2 id="ansible-launch-targets-title" class="sr-ui-card-title text-base">Canonical targets</h2>
             <.ui_badge size="sm" variant="ghost">
               {length(@requested_uids)} selected · {length(@devices)} visible
             </.ui_badge>
@@ -189,10 +189,10 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
         </div>
       </section>
 
-      <section class="card card-border bg-sr-surface" aria-labelledby="ansible-launch-binding-title">
-        <div class="card-body gap-4">
+      <section class="sr-ui-card card-border bg-sr-surface" aria-labelledby="ansible-launch-binding-title">
+        <div class="sr-ui-card-body gap-4">
           <div>
-            <h2 id="ansible-launch-binding-title" class="card-title text-base">
+            <h2 id="ansible-launch-binding-title" class="sr-ui-card-title text-base">
               Reviewed launch contract
             </h2>
             <p class="text-sm text-sr-muted">

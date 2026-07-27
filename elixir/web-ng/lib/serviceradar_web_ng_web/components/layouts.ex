@@ -181,7 +181,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               <span class="sr-public-brand-name">ServiceRadar</span>
             </.link>
 
-            <ul class="menu menu-sm">
+            <ul class="sr-ui-menu sr-ui-menu-sm">
               <li>
                 <.sidebar_link
                   href={~p"/dashboard"}

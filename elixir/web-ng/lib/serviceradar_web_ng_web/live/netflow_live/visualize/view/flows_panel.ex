@@ -12,8 +12,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsPanel do
     assigns = Map.merge(assigns, visualize)
 
     ~H"""
-    <div class="card bg-sr-surface border border-sr-line">
-      <div class="card-body gap-3">
+    <div class="sr-ui-card bg-sr-surface border border-sr-line">
+      <div class="sr-ui-card-body gap-3">
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-baseline gap-2 min-w-0">
             <div class="text-sm font-semibold">Flows</div>

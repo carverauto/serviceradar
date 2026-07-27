@@ -70,7 +70,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
                 onboarding package to enroll the agent and write its bootstrap config.
               </p>
 
-              <div class="card bg-sr-subtle/50 p-4 space-y-3">
+              <div class="sr-ui-card bg-sr-subtle/50 p-4 space-y-3">
                 <div class="flex items-center gap-2">
                   <.icon name="hero-server" class="size-5 text-sr-brand" />
                   <h3 class="font-semibold">Agent Package</h3>

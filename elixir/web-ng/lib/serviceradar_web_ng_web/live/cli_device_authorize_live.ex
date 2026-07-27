@@ -157,8 +157,8 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
               </.ui_button>
             </form>
           <% :pending -> %>
-            <div class="card bg-sr-subtle shadow">
-              <div class="card-body space-y-3">
+            <div class="sr-ui-card bg-sr-subtle shadow">
+              <div class="sr-ui-card-body space-y-3">
                 <div>
                   <div class="text-sm font-medium text-sr-ink">Client</div>
                   <div class="font-medium">{@row.client_id}</div>

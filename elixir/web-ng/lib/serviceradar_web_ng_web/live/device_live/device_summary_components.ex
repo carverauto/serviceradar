@@ -16,8 +16,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
       class="rounded-xl border border-sr-line bg-sr-surface p-4"
     >
       <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">
-        <div class="card bg-sr-surface border border-sr-line">
-          <div class="card-body p-4 gap-2">
+        <div class="sr-ui-card bg-sr-surface border border-sr-line">
+          <div class="sr-ui-card-body p-4 gap-2">
             <div class="flex items-center gap-2">
               <.icon name="hero-identification" class="size-4 text-sr-brand" />
               <h3 class="text-sm font-semibold">Identity</h3>
@@ -46,8 +46,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
           </div>
         </div>
 
-        <div class="card bg-sr-surface border border-sr-line">
-          <div class="card-body p-4 gap-2">
+        <div class="sr-ui-card bg-sr-surface border border-sr-line">
+          <div class="sr-ui-card-body p-4 gap-2">
             <div class="flex items-center gap-2">
               <.icon name="hero-signal" class="size-4 text-info" />
               <h3 class="text-sm font-semibold">SNMP</h3>
@@ -73,8 +73,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
           </div>
         </div>
 
-        <div class="card bg-sr-surface border border-sr-line">
-          <div class="card-body p-4 gap-2">
+        <div class="sr-ui-card bg-sr-surface border border-sr-line">
+          <div class="sr-ui-card-body p-4 gap-2">
             <div class="flex items-center gap-2">
               <.icon name="hero-clock" class="size-4 text-success" />
               <h3 class="text-sm font-semibold">Status</h3>

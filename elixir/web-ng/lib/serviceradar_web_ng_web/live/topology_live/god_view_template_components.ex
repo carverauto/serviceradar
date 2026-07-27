@@ -145,7 +145,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
                     Detail
                   </button>
                 </div>
-                <.ui_button type="button" phx-click="reset_view" title="Reset view and collapse expanded endpoint clusters" size="xs" variant="ghost" class="h-7 min-h-7 w-full mt-1">
+                <.ui_button type="button" phx-click="reset_view" title="Reset view and sr-ui-collapse expanded endpoint clusters" size="xs" variant="ghost" class="h-7 min-h-7 w-full mt-1">
                   Reset / Collapse
                 </.ui_button>
               </div>

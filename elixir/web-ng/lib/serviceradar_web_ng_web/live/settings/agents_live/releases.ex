@@ -1338,18 +1338,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
         <div class="space-y-5 px-6 py-5">
           <div class="stats stats-vertical w-full border border-sr-line bg-sr-surface shadow-sm md:stats-horizontal">
             <div class="stat">
-              <div class="stat-title text-xs">Healthy</div>
-              <div class="stat-value text-2xl">{@summary.healthy}</div>
+              <div class="sr-ui-stat-title text-xs">Healthy</div>
+              <div class="sr-ui-stat-value text-2xl">{@summary.healthy}</div>
               <div class="stat-desc">of {@summary.total} targets</div>
             </div>
             <div class="stat">
-              <div class="stat-title text-xs">In Flight</div>
-              <div class="stat-value text-2xl">{@summary.inflight}</div>
+              <div class="sr-ui-stat-title text-xs">In Flight</div>
+              <div class="sr-ui-stat-value text-2xl">{@summary.inflight}</div>
               <div class="stat-desc">{rollout_progress_text(@summary)}</div>
             </div>
             <div class="stat">
-              <div class="stat-title text-xs">Failed</div>
-              <div class="stat-value text-2xl text-error">
+              <div class="sr-ui-stat-title text-xs">Failed</div>
+              <div class="sr-ui-stat-value text-2xl text-error">
                 {@summary.failed + @summary.rolled_back}
               </div>
               <div class="stat-desc">failed or rolled back</div>

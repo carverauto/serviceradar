@@ -1052,12 +1052,14 @@ samp,
   font-size: 0.875rem;
 }
 
+.sr-ui-menu-sm,
 .sr-ui-menu.menu-sm,
 .menu.menu-sm {
   font-size: 0.8125rem;
   padding: 0.35rem;
 }
 
+.sr-ui-menu-vertical,
 .sr-ui-menu.menu-vertical,
 .menu.menu-vertical {
   flex-direction: column;
@@ -1356,21 +1358,211 @@ details.dropdown[open] > .dropdown-content {
   border-width: 3px;
 }
 
-/* Collapse / details disclosure */
+/* Breadcrumbs — brand (sr-ui-*) with daisy class alias */
+.sr-ui-breadcrumbs,
+.breadcrumbs {
+  max-width: 100%;
+  overflow-x: auto;
+  padding-block: 0.25rem;
+  font-family: var(--sr-font-sans);
+  color: var(--color-sr-muted);
+}
+
+.sr-ui-breadcrumbs > ul,
+.sr-ui-breadcrumbs > ol,
+.breadcrumbs > ul,
+.breadcrumbs > ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0;
+  min-height: min-content;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sr-ui-breadcrumbs > ul > li,
+.sr-ui-breadcrumbs > ol > li,
+.breadcrumbs > ul > li,
+.breadcrumbs > ol > li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.sr-ui-breadcrumbs > ul > li + li::before,
+.sr-ui-breadcrumbs > ol > li + li::before,
+.breadcrumbs > ul > li + li::before,
+.breadcrumbs > ol > li + li::before {
+  content: "/";
+  color: var(--color-sr-line-strong);
+  margin-inline: 0.15rem 0.1rem;
+  pointer-events: none;
+}
+
+.sr-ui-breadcrumbs a,
+.breadcrumbs a {
+  color: inherit;
+  border-radius: var(--radius-sr-small);
+  outline: none;
+  transition: color 140ms var(--ease-sr-out, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+.sr-ui-breadcrumbs a:hover,
+.breadcrumbs a:hover {
+  color: var(--color-sr-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.sr-ui-breadcrumbs a:focus-visible,
+.breadcrumbs a:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-sr-focus);
+}
+
+/* Card — brand surface helpers (daisy class aliases) */
+.sr-ui-card,
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-sr-surface);
+  background: var(--color-sr-surface);
+  color: var(--color-sr-ink);
+}
+
+.sr-ui-card-body,
+.card-body {
+  display: flex;
+  flex: auto;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1.25rem;
+  font-size: 0.875rem;
+}
+
+.sr-ui-card-title,
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--color-sr-ink);
+}
+
+.card-compact .card-body,
+.card-compact .sr-ui-card-body {
+  padding: 0.75rem;
+  font-size: 0.8125rem;
+}
+
+/* Collapse / details disclosure — brand (works with native <details>) */
+.sr-ui-collapse,
 .collapse {
+  position: relative;
+  display: grid;
+  width: 100%;
+  overflow: hidden;
   border: 1px solid var(--color-sr-line);
   border-radius: var(--radius-sr-surface);
   background: color-mix(in srgb, var(--color-sr-subtle) 55%, transparent);
-  overflow: hidden;
 }
 
+/* details-based collapses (preferred) */
+details.sr-ui-collapse,
+details.collapse {
+  display: block;
+}
+
+.sr-ui-collapse-title,
 .collapse-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.75rem 1rem;
   color: var(--color-sr-ink);
   font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+  outline: none;
 }
 
+.sr-ui-collapse-title::-webkit-details-marker,
+.collapse-title::-webkit-details-marker,
+details.sr-ui-collapse > summary::-webkit-details-marker,
+details.collapse > summary::-webkit-details-marker {
+  display: none;
+}
+
+.sr-ui-collapse-content,
 .collapse-content {
+  padding: 0 1rem 0.85rem;
   color: var(--color-sr-muted);
+  font-size: 0.875rem;
+}
+
+/* arrow affordance for collapse-arrow */
+.collapse-arrow > .collapse-title,
+.sr-ui-collapse-arrow > .sr-ui-collapse-title,
+.collapse-arrow > summary.collapse-title,
+details.collapse-arrow > summary {
+  position: relative;
+  padding-inline-end: 2.25rem;
+}
+
+.collapse-arrow > .collapse-title::after,
+.sr-ui-collapse-arrow > .sr-ui-collapse-title::after,
+.collapse-arrow > summary.collapse-title::after,
+details.collapse-arrow > summary::after {
+  content: "";
+  position: absolute;
+  right: 1rem;
+  top: 50%;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-inline-end: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-65%) rotate(45deg);
+  transition: transform 160ms var(--ease-sr-out, cubic-bezier(0.16, 1, 0.3, 1));
+  opacity: 0.7;
+}
+
+details.collapse-arrow[open] > summary::after,
+details.sr-ui-collapse-arrow[open] > summary::after,
+.collapse-arrow[open] > .collapse-title::after {
+  transform: translateY(-35%) rotate(225deg);
+}
+
+/* Stat value/title leftovers (settings cards) */
+.sr-ui-stat-title,
+.stat-title {
+  color: var(--color-sr-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.sr-ui-stat-value,
+.stat-value {
+  color: var(--color-sr-ink);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+/* Avatar placeholder */
+.avatar.placeholder > div,
+.avatar-placeholder > div {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-sr-subtle);
+  color: var(--color-sr-ink);
 }
 
 /* Tabs — brand (sr-ui-*) with daisy class aliases for residual markup */

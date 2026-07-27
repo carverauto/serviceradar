@@ -1602,16 +1602,16 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
           <div class="grid grid-cols-3 gap-4">
             <div class="stat bg-sr-subtle rounded-lg p-3">
-              <div class="stat-title text-xs">Total Syncs</div>
-              <div class="stat-value text-lg">{@source.total_syncs || 0}</div>
+              <div class="sr-ui-stat-title text-xs">Total Syncs</div>
+              <div class="sr-ui-stat-value text-lg">{@source.total_syncs || 0}</div>
             </div>
             <div class="stat bg-sr-subtle rounded-lg p-3">
-              <div class="stat-title text-xs">Last Device Count</div>
-              <div class="stat-value text-lg">{@source.last_device_count || 0}</div>
+              <div class="sr-ui-stat-title text-xs">Last Device Count</div>
+              <div class="sr-ui-stat-value text-lg">{@source.last_device_count || 0}</div>
             </div>
             <div class="stat bg-sr-subtle rounded-lg p-3">
-              <div class="stat-title text-xs">Consecutive Failures</div>
-              <div class="stat-value text-lg">{@source.consecutive_failures || 0}</div>
+              <div class="sr-ui-stat-title text-xs">Consecutive Failures</div>
+              <div class="sr-ui-stat-value text-lg">{@source.consecutive_failures || 0}</div>
             </div>
           </div>
 
@@ -1729,16 +1729,16 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
             <div class="grid grid-cols-3 gap-4">
               <div class="stat bg-sr-subtle rounded-lg p-3">
-                <div class="stat-title text-xs">Last Device Count</div>
-                <div class="stat-value text-lg">{@source.northbound_last_device_count || 0}</div>
+                <div class="sr-ui-stat-title text-xs">Last Device Count</div>
+                <div class="sr-ui-stat-value text-lg">{@source.northbound_last_device_count || 0}</div>
               </div>
               <div class="stat bg-sr-subtle rounded-lg p-3">
-                <div class="stat-title text-xs">Last Updated</div>
-                <div class="stat-value text-lg">{@source.northbound_last_updated_count || 0}</div>
+                <div class="sr-ui-stat-title text-xs">Last Updated</div>
+                <div class="sr-ui-stat-value text-lg">{@source.northbound_last_updated_count || 0}</div>
               </div>
               <div class="stat bg-sr-subtle rounded-lg p-3">
-                <div class="stat-title text-xs">Last Skipped</div>
-                <div class="stat-value text-lg">{@source.northbound_last_skipped_count || 0}</div>
+                <div class="sr-ui-stat-title text-xs">Last Skipped</div>
+                <div class="sr-ui-stat-value text-lg">{@source.northbound_last_skipped_count || 0}</div>
               </div>
             </div>
 

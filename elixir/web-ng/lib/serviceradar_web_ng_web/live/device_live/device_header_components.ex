@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents do
   def device_show_header(assigns) do
     ~H"""
     <%!-- Breadcrumb --%>
-    <nav class="text-sm breadcrumbs mb-4">
+    <nav class="text-sm  mb-4">
       <ul>
         <li><.link navigate={~p"/devices"}>Devices</.link></li>
         <li :if={@active_tab == "details"}>

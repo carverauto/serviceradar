@@ -278,7 +278,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
             >
               {section.subgroup}
             </div>
-            <ul class="menu w-full gap-0.5 p-0">
+            <ul class="sr-ui-menu w-full gap-0.5 p-0">
               <li :for={view <- section.views} data-view-search={view_search(view)}>
                 <.link
                   navigate={view.route}
@@ -319,7 +319,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
     assigns = assign(assigns, :last_index, length(assigns.breadcrumbs) - 1)
 
     ~H"""
-    <nav class="breadcrumbs text-sm min-w-0" aria-label="Breadcrumb">
+    <nav class=" text-sm min-w-0" aria-label="Breadcrumb">
       <ul>
         <li :for={{crumb, index} <- Enum.with_index(@breadcrumbs)}>
           <%= cond do %>
@@ -387,18 +387,18 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
             navigate={card_nav(card)}
             class="stat py-2 group cursor-pointer transition-colors hover:bg-sr-subtle"
           >
-            <div class="stat-title text-xs flex items-center gap-1">
+            <div class="sr-ui-stat-title text-xs flex items-center gap-1">
               {card.title}
               <.icon
                 name="hero-arrow-up-right"
                 class="size-3 opacity-0 transition-opacity group-hover:opacity-60"
               />
             </div>
-            <div class="stat-value text-lg">{stat_display(card.value)}</div>
+            <div class="sr-ui-stat-value text-lg">{stat_display(card.value)}</div>
           </.link>
           <div :if={!card_nav(card)} class="stat py-2">
-            <div class="stat-title text-xs">{card.title}</div>
-            <div class="stat-value text-lg">{stat_display(card.value)}</div>
+            <div class="sr-ui-stat-title text-xs">{card.title}</div>
+            <div class="sr-ui-stat-value text-lg">{stat_display(card.value)}</div>
           </div>
         <% end %>
       </div>
@@ -445,7 +445,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
         </div>
 
         <ul
-          class="menu menu-vertical flex-nowrap w-full max-h-[min(24rem,60vh)] overflow-y-auto p-2"
+          class="sr-ui-menu sr-ui-menu-vertical flex-nowrap w-full max-h-[min(24rem,60vh)] overflow-y-auto p-2"
           data-command-palette-list
         >
           <li

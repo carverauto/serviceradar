@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
   def operation_detail(assigns) do
     ~H"""
     <div id="secure-ansible-operation-detail" class="mx-auto w-full max-w-[96rem] space-y-6 p-6">
-      <nav class="breadcrumbs text-sm" aria-label="Breadcrumb">
+      <nav class=" text-sm" aria-label="Breadcrumb">
         <ul>
           <li><.link navigate={~p"/ansible/operations"}>Secure Ansible operations</.link></li>
           <li>Operation {short_id(@bundle.operation.id)}</li>
@@ -44,10 +44,10 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
 
       <.state_alert state={@bundle.operation.state} subject="Operation" />
 
-      <section class="card card-border bg-sr-surface" aria-labelledby="operation-evidence-heading">
-        <div class="card-body gap-4">
+      <section class="sr-ui-card card-border bg-sr-surface" aria-labelledby="operation-evidence-heading">
+        <div class="sr-ui-card-body gap-4">
           <div>
-            <h2 id="operation-evidence-heading" class="card-title text-base">
+            <h2 id="operation-evidence-heading" class="sr-ui-card-title text-base">
               Immutable operation evidence
             </h2>
             <p class="text-sm text-sr-muted">
@@ -112,14 +112,14 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
     ~H"""
     <article
       id={"secure-execution-#{@execution.id}"}
-      class="card card-border bg-sr-surface"
+      class="sr-ui-card card-border bg-sr-surface"
       data-testid="secure-ansible-execution"
     >
-      <div class="card-body gap-5">
+      <div class="sr-ui-card-body gap-5">
         <header class="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div class="flex flex-wrap items-center gap-2">
-              <h3 class="card-title text-base">Execution {short_id(@execution.id)}</h3>
+              <h3 class="sr-ui-card-title text-base">Execution {short_id(@execution.id)}</h3>
               <span class={state_badge_classes(@execution.state)}>{@execution.state}</span>
             </div>
             <p class="mt-1 font-mono text-xs text-sr-muted break-all">{@execution.id}</p>
@@ -342,8 +342,8 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
   defp evidence_stat(assigns) do
     ~H"""
     <div class="stat min-w-0">
-      <div class="stat-title">{@label}</div>
-      <div class={["stat-value text-sm break-all", @mono && "font-mono"]}>{display(@value)}</div>
+      <div class="sr-ui-stat-title">{@label}</div>
+      <div class={["sr-ui-stat-value text-sm break-all", @mono && "font-mono"]}>{display(@value)}</div>
     </div>
     """
   end

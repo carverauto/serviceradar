@@ -100,32 +100,32 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
         <div :if={@trace} class="space-y-6">
           <div class="stats shadow bg-sr-subtle">
             <div class="stat">
-              <div class="stat-title">Target</div>
-              <div class="stat-value text-lg font-mono">{@trace["target"]}</div>
+              <div class="sr-ui-stat-title">Target</div>
+              <div class="sr-ui-stat-value text-lg font-mono">{@trace["target"]}</div>
               <div :if={@trace["target_ip"] != @trace["target"]} class="stat-desc">
                 {@trace["target_ip"]}
               </div>
             </div>
             <div class="stat">
-              <div class="stat-title">Status</div>
-              <div class="stat-value text-lg">
+              <div class="sr-ui-stat-title">Status</div>
+              <div class="sr-ui-stat-value text-lg">
                 <span class={status_class(@trace)}>{status_label(@trace)}</span>
               </div>
             </div>
             <div class="stat">
-              <div class="stat-title">Hops</div>
-              <div class="stat-value text-lg">{@trace["total_hops"]}</div>
+              <div class="sr-ui-stat-title">Hops</div>
+              <div class="sr-ui-stat-value text-lg">{@trace["total_hops"]}</div>
             </div>
             <div class="stat">
-              <div class="stat-title">Protocol</div>
-              <div class="stat-value text-lg">
+              <div class="sr-ui-stat-title">Protocol</div>
+              <div class="sr-ui-stat-value text-lg">
                 {String.upcase(@trace["protocol"] || "icmp")}
                 <span :if={@trace["ip_version"] == 6} class="text-sm text-info ml-1">IPv6</span>
               </div>
             </div>
             <div class="stat">
-              <div class="stat-title">Time</div>
-              <div class="stat-value text-sm">{format_time(@trace["time"])}</div>
+              <div class="sr-ui-stat-title">Time</div>
+              <div class="sr-ui-stat-value text-sm">{format_time(@trace["time"])}</div>
               <div class="stat-desc">Agent: {@trace["agent_id"]}</div>
             </div>
           </div>

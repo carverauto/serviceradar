@@ -12,8 +12,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
 
     ~H"""
     <aside class="w-full lg:w-80 shrink-0">
-      <div class="card bg-sr-surface border border-sr-line">
-        <div class="card-body gap-3">
+      <div class="sr-ui-card bg-sr-surface border border-sr-line">
+        <div class="sr-ui-card-body gap-3">
           <div class="min-w-0">
             <div class="text-base font-semibold">Network Flows</div>
             <div class="text-xs text-sr-muted">

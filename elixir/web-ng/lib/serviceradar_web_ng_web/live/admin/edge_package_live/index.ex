@@ -606,12 +606,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 <% end %>
               <% end %>
 
-              <div class="collapse collapse-arrow bg-sr-subtle rounded-lg">
+              <div class="sr-ui-collapse sr-ui-collapse-arrow bg-sr-subtle rounded-lg">
                 <input type="checkbox" />
-                <div class="collapse-title text-sm font-medium py-2">
+                <div class="sr-ui-collapse-title text-sm font-medium py-2">
                   Advanced options
                 </div>
-                <div class="collapse-content space-y-4">
+                <div class="sr-ui-collapse-content space-y-4">
                   <%= if @selected_component_type == "agent" do %>
                     <.input
                       name="partition"
@@ -837,12 +837,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       </div>
 
       <%= if is_binary(@onboarding_token) do %>
-        <div class="collapse collapse-arrow bg-sr-subtle">
+        <div class="sr-ui-collapse sr-ui-collapse-arrow bg-sr-subtle">
           <input type="checkbox" />
-          <div class="collapse-title text-sm font-medium">
+          <div class="sr-ui-collapse-title text-sm font-medium">
             Show onboarding token (edgepkg-v3)
           </div>
-          <div class="collapse-content">
+          <div class="sr-ui-collapse-content">
             <div class="flex items-center gap-2">
               <code class="flex-1 text-xs font-mono break-all bg-sr-surface p-2 rounded">
                 {@onboarding_token}
