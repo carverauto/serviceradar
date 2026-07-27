@@ -331,8 +331,8 @@ func applyCredentialBrokerHTTPInjection(
 		grant.Inject = inject
 		return applyCredentialBrokerHeaderInjection(req, grant, material)
 	case "basic_auth", "http_basic_auth":
-		username := credentialMaterialFieldValue(material, "username", "user")
-		password := credentialMaterialFieldValue(material, "password")
+		username := credentialMaterialFieldValue(material, credentialFormFieldUsername, "user")
+		password := credentialMaterialFieldValue(material, credentialFormFieldPassword)
 		if strings.TrimSpace(username) == "" || password == "" {
 			return errCredentialBrokerMaterialUnavailable
 		}
