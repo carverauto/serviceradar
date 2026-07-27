@@ -6318,9 +6318,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:data, :list, required: true)
 
   defp sparkline(assigns) do
-    data = assigns.data
-    min_val = Enum.min(data)
-    max_val = Enum.max(data)
+    data = Enum.map(assigns.data, &to_number/1)
+    min_val = Enum.min(data, fn -> 0.0 end)
+    max_val = Enum.max(data, fn -> 0.0 end)
     range = max_val - min_val
 
     # Normalize to 0-100 range for SVG, with some padding
@@ -6328,9 +6328,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       data
       |> Enum.with_index()
       |> Enum.map_join(" ", fn {val, idx} ->
-        x = idx / max(length(data) - 1, 1) * 100
-        y = if range > 0, do: 100 - (val - min_val) / range * 80 - 10, else: 50
-        "#{Float.round(x, 1)},#{Float.round(y, 1)}"
+        x = idx / max(length(data) - 1, 1) * 100.0
+        # Always floats — Float.round/2 rejects integers (flat series → y=50).
+        y = if range > 0.0, do: 100.0 - (val - min_val) / range * 80.0 - 10.0, else: 50.0
+        "#{Float.round(x * 1.0, 1)},#{Float.round(y * 1.0, 1)}"
       end)
 
     # Determine trend color based on first vs last value
