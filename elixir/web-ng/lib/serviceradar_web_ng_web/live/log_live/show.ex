@@ -661,16 +661,29 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   attr :log, :map, required: true
 
   defp log_meta_strip(assigns) do
+    service = Map.get(assigns.log, "service_name")
+    source_ip = Map.get(assigns.log, "source_ip")
+
     facts =
       [
-        {"Timestamp", format_timestamp(assigns.log), true},
-        {"Service", Map.get(assigns.log, "service_name"), false},
-        {"Source IP", Map.get(assigns.log, "source_ip"), true},
-        {"Facility", log_facility(assigns.log), false},
-        {"Format", log_format(assigns.log), true},
-        {"Scope", Map.get(assigns.log, "scope_name"), true}
+        %{label: "Timestamp", value: format_timestamp(assigns.log), mono?: true, href: nil},
+        %{
+          label: "Service",
+          value: service,
+          mono?: false,
+          href: logs_filter_href("service_name", service)
+        },
+        %{
+          label: "Source IP",
+          value: source_ip,
+          mono?: true,
+          href: logs_filter_href("source_ip", source_ip)
+        },
+        %{label: "Facility", value: log_facility(assigns.log), mono?: false, href: nil},
+        %{label: "Format", value: log_format(assigns.log), mono?: true, href: nil},
+        %{label: "Scope", value: Map.get(assigns.log, "scope_name"), mono?: true, href: nil}
       ]
-      |> Enum.reject(fn {_l, v, _} -> blank_value?(v) end)
+      |> Enum.reject(fn fact -> blank_value?(fact.value) end)
 
     n = length(facts)
 
@@ -691,19 +704,55 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     ~H"""
     <div class={["grid gap-px border-b border-sr-line bg-sr-line", @col_class]}>
       <div
-        :for={{label, value, mono?} <- @facts}
+        :for={fact <- @facts}
         class="flex min-w-0 flex-col gap-1 bg-sr-surface px-4 py-3"
       >
-        <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">{label}</span>
-        <span class={[
-          "truncate font-sans text-sm text-sr-ink",
-          mono? && "font-mono text-[13px] tracking-tight"
-        ]}>
-          {value}
+        <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+          {fact.label}
+        </span>
+        <.link
+          :if={is_binary(fact.href)}
+          navigate={fact.href}
+          class={[
+            "group inline-flex min-w-0 max-w-full items-center gap-1 truncate text-sm text-sr-brand transition-colors hover:text-sr-brand-strong hover:underline",
+            fact.mono? && "font-mono text-[13px] tracking-tight"
+          ]}
+          title={"Filter logs by #{fact.label}: #{fact.value}"}
+        >
+          <span class="truncate">{fact.value}</span>
+          <.icon
+            name="hero-arrow-top-right-on-square"
+            class="size-3.5 shrink-0 opacity-60 transition-opacity group-hover:opacity-100"
+          />
+        </.link>
+        <span
+          :if={is_nil(fact.href)}
+          class={[
+            "truncate font-sans text-sm text-sr-ink",
+            fact.mono? && "font-mono text-[13px] tracking-tight"
+          ]}
+        >
+          {fact.value}
         </span>
       </div>
     </div>
     """
+  end
+
+  # Main log viewer with a single equality filter (service / source IP).
+  defp logs_filter_href(_field, value) when not is_binary(value) or value == "", do: nil
+
+  defp logs_filter_href(field, value) when is_binary(field) and is_binary(value) do
+    value = String.trim(value)
+
+    if value == "" do
+      nil
+    else
+      query =
+        ~s|in:logs #{field}:"#{escape_value(value)}" time:last_24h sort:timestamp:desc|
+
+      ~p"/observability?#{%{tab: "logs", q: query}}"
+    end
   end
 
   # -- message hero -----------------------------------------------------------
