@@ -161,6 +161,8 @@ platform(
         "Arch": "amd64",
         "dockerNetwork": "host",
         "Pool": "default",
+        "EstimatedCPU": "2",
+        "EstimatedMemory": "4GB",
     },
     visibility = ["//visibility:public"],
 )
@@ -180,6 +182,8 @@ platform(
         "Arch": "amd64",
         "dockerNetwork": "host",
         "Pool": "default",
+        "EstimatedCPU": "2",
+        "EstimatedMemory": "4GB",
     },
     visibility = ["//visibility:public"],
 )

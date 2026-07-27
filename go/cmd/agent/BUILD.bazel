@@ -24,6 +24,13 @@ go_library(
 go_binary(
     name = "agent",
     embed = [":agent_lib"],
+    # GoLink of the agent is large under pure-Go linking. After #4752 switched
+    # BuildBuddy executors to Firecracker isolation, default microVM memory
+    # (~2.5Gi) OOMs the linker (signal: killed). Ask for a larger task size.
+    exec_properties = {
+        "EstimatedCPU": "4",
+        "EstimatedMemory": "8GB",
+    },
     visibility = ["//visibility:public"],
     x_defs = {
         "github.com/carverauto/serviceradar/go/pkg/agent.ReleaseSigningPublicKey": "{STABLE_AGENT_RELEASE_PUBLIC_KEY}",
