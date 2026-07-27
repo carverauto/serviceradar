@@ -528,7 +528,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       |> assign(:secret_title, secret_form_title(form_string(assigns.form, :kind)))
 
     ~H"""
-    <div class="sr-ui-modal sr-ui-modal-open">
+    <dialog id="network-credential-rules-modal-1" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer" data-cancel="close_secret_form">
       <div class="sr-ui-modal-box sr-ui-modal-box-lg rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">{@secret_title}</h2>
@@ -632,8 +632,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           </div>
         </.form>
       </div>
-      <button type="button" class="sr-ui-modal-backdrop" phx-click="close_secret_form">Close</button>
-    </div>
+    </dialog>
     """
   end
 
@@ -695,7 +694,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp rule_preview_modal(assigns) do
     ~H"""
-    <div class="sr-ui-modal sr-ui-modal-open">
+    <dialog id="network-credential-rules-modal-2" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer" data-cancel="close_preview">
       <div class="sr-ui-modal-box sr-ui-modal-box-xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">Target Preview</h2>
@@ -857,8 +856,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           </section>
         </div>
       </div>
-      <button type="button" class="sr-ui-modal-backdrop" phx-click="close_preview">Close</button>
-    </div>
+    </dialog>
     """
   end
 
@@ -915,7 +913,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       )
 
     ~H"""
-    <div class="sr-ui-modal sr-ui-modal-open">
+    <dialog id="network-credential-rules-modal-3" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
       <div class="sr-ui-modal-box sr-ui-modal-box-lg rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">
@@ -1176,7 +1174,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
         </.form>
       </div>
       <.link navigate={~p"/settings/networks/credentials"} class="sr-ui-modal-backdrop">Close</.link>
-    </div>
+    </dialog>
     """
   end
 

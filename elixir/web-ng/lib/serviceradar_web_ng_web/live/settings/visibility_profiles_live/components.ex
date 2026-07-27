@@ -473,7 +473,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
 
   def json_preview_modal(assigns) do
     ~H"""
-    <div class="sr-ui-modal sr-ui-modal-open">
+    <dialog id="components-modal-1" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer" data-cancel="close_preview">
       <div class="sr-ui-modal-box sr-ui-modal-box-md">
         <h3 class="font-bold text-lg mb-4">Compiled Visibility Config</h3>
         <pre class="bg-sr-subtle/50 p-4 rounded-lg text-xs font-mono overflow-x-auto max-h-96">{@json_preview}</pre>
@@ -481,8 +481,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
           <.ui_button phx-click="close_preview" size="sm" variant="neutral">Close</.ui_button>
         </div>
       </div>
-      <div class="sr-ui-modal-backdrop" phx-click="close_preview"></div>
-    </div>
+    </dialog>
     """
   end
 

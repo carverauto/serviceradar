@@ -806,7 +806,12 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
   defp flow_details_modal(assigns) do
     ~H"""
-    <div class="sr-ui-modal sr-ui-modal-open" role="dialog" aria-modal="true">
+    <dialog
+      id="attributed-flow-details-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="close_flow"
+    >
       <div class="sr-ui-modal-box sr-ui-modal-box-lg">
         <div class="flex items-start justify-between gap-4 border-b border-sr-line pb-4">
           <div class="min-w-0">
@@ -870,10 +875,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           </.ui_button>
         </div>
       </div>
-      <button type="button" class="sr-ui-modal-backdrop" phx-click="close_flow" aria-label="Close">
-        close
-      </button>
-    </div>
+    </dialog>
     """
   end
 
