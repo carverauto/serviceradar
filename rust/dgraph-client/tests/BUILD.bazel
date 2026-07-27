@@ -81,15 +81,7 @@ rust_test_suite(
         #
         #   bazel test --config=ci $(bazel query 'attr("tags", "integration_test", tests(//...))')
         "integration_test",
-        # Keeps this out of the default sweep in the meantime. main.yml selects
-        # `tests(//...) except attr("tags", "manual", ...)` and also passes
-        # --test_tag_filters=-manual, so `manual` is the only tag that workflow already
-        # honours. Without it this Docker-dependent target would run inline with every
-        # other test rather than as a separate stage.
         #
-        # Drop `manual` once a dedicated integration step exists that selects on
-        # `integration_test`.
-        "manual",
         # Local selector for running just this suite.
         "dgraph_acceptance_test",
         # CI selector for the acceptance job.
