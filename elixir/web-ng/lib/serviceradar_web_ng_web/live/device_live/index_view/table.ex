@@ -102,7 +102,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                       <.icon
                         :if={agent_device_row?(row, @agent_device_uids)}
                         name="hero-bolt"
-                        class="w-4 h-4 text-warning shrink-0"
+                        class="size-4 shrink-0 text-amber-400"
                         title="Agent device"
                       />
                       <span :if={not is_binary(device_uid)} class="truncate text-sm">

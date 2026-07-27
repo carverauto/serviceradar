@@ -60,9 +60,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents do
           <span
             :if={@agent_device}
             data-testid="device-agent-pill"
-            class="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-semibold text-accent"
+            class="inline-flex items-center gap-1 rounded-full bg-amber-400/15 px-2 py-0.5 text-[11px] font-semibold text-amber-400"
           >
-            <.icon name="hero-bolt" class="size-3" /> Agent
+            <.icon name="hero-bolt" class="size-3 text-amber-400" /> Agent
           </span>
           <span
             :if={@device_deleted}
