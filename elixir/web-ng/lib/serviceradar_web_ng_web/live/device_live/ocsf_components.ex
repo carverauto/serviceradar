@@ -125,8 +125,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.OcsfComponents do
     assigns = assign(assigns, :ram_display, ram_display)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line">
         <div class="flex items-center gap-2">
           <.icon name="hero-server" class="size-4 text-success" />
           <span class="text-sm font-semibold">Hardware Info</span>
@@ -195,8 +195,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.OcsfComponents do
 
   defp compliance_card(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line">
         <div class="flex items-center gap-2">
           <.icon name="hero-shield-check" class="size-4 text-warning" />
           <span class="text-sm font-semibold">Risk & Compliance</span>
@@ -206,23 +206,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.OcsfComponents do
         <div class="flex flex-wrap items-center gap-4">
           <.risk_score_radial :if={not is_nil(@risk_score)} score={@risk_score} />
           <div :if={@risk_level} class="flex items-center gap-2">
-            <span class="text-xs text-base-content/60">Risk Level:</span>
+            <span class="text-xs text-sr-muted">Risk Level:</span>
             <.risk_badge level={@risk_level} />
           </div>
           <div :if={not is_nil(@is_active)} class="flex items-center gap-2">
-            <span class="text-xs text-base-content/60">In Service:</span>
+            <span class="text-xs text-sr-muted">In Service:</span>
             <.bool_badge value={@is_active} />
           </div>
           <div :if={not is_nil(@is_managed)} class="flex items-center gap-2">
-            <span class="text-xs text-base-content/60">Managed:</span>
+            <span class="text-xs text-sr-muted">Managed:</span>
             <.bool_badge value={@is_managed} />
           </div>
           <div :if={not is_nil(@is_compliant)} class="flex items-center gap-2">
-            <span class="text-xs text-base-content/60">Compliant:</span>
+            <span class="text-xs text-sr-muted">Compliant:</span>
             <.bool_badge value={@is_compliant} />
           </div>
           <div :if={not is_nil(@is_trusted)} class="flex items-center gap-2">
-            <span class="text-xs text-base-content/60">Trusted:</span>
+            <span class="text-xs text-sr-muted">Trusted:</span>
             <.bool_badge value={@is_trusted} />
           </div>
         </div>
@@ -253,13 +253,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.OcsfComponents do
         style={"background: conic-gradient(#{@color} #{@percent}%, hsl(var(--b2)) 0)"}
         aria-label={"Risk score #{@score_display} out of #{@max_display}"}
       >
-        <div class="absolute inset-1.5 rounded-full bg-base-100 flex flex-col items-center justify-center">
+        <div class="absolute inset-1.5 rounded-full bg-sr-surface flex flex-col items-center justify-center">
           <span class="text-base font-semibold tabular-nums leading-none">{@score_display}</span>
-          <span class="text-[10px] text-base-content/50 leading-none">/{@max_display}</span>
+          <span class="text-[10px] text-sr-muted leading-none">/{@max_display}</span>
         </div>
       </div>
       <div class="min-w-0">
-        <div class="text-xs text-base-content/60">Risk Score</div>
+        <div class="text-xs text-sr-muted">Risk Score</div>
         <div class="text-sm font-semibold tabular-nums">{@score_display} / {@max_display}</div>
       </div>
     </div>
@@ -395,7 +395,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.OcsfComponents do
   defp kv_block(assigns) do
     ~H"""
     <div class="flex flex-col gap-0.5">
-      <span class="text-xs text-base-content/50">{@label}</span>
+      <span class="text-xs text-sr-muted">{@label}</span>
       <span class="text-sm font-medium break-words">{@value}</span>
     </div>
     """

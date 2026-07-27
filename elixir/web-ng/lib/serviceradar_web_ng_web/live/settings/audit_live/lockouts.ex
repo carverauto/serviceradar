@@ -118,16 +118,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Lockouts do
       >
         <header class="space-y-1">
           <h1 class="text-2xl font-semibold">Audit · Lockouts</h1>
-          <p class="text-sm text-base-content/60">
+          <p class="text-sm text-sr-muted">
             Active and recently cleared account lockouts.
             <span :if={@can_manage?}>Click <em>Unlock</em> to clear a lockout.</span>
           </p>
         </header>
 
         <%= if @can_view? do %>
-          <div class="overflow-x-auto rounded-lg border border-base-200 bg-base-100">
-            <table class="min-w-full text-sm text-base-content">
-              <thead class="bg-base-200/70 text-base-content/70">
+          <div class="overflow-x-auto rounded-lg border border-sr-line bg-sr-surface">
+            <table class="min-w-full text-sm text-sr-ink">
+              <thead class="bg-sr-subtle/70 text-sr-muted">
                 <tr>
                   <th class="px-4 py-2 text-left">Actor</th>
                   <th class="px-4 py-2 text-left">Locked at</th>
@@ -137,9 +137,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Lockouts do
                   <th class="px-4 py-2"></th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-base-200">
+              <tbody class="divide-y divide-sr-line">
                 <%= for lockout <- @lockouts do %>
-                  <tr class="hover:bg-base-200/40">
+                  <tr class="hover:bg-sr-subtle/40">
                     <td class="px-4 py-2 font-mono text-xs">{lockout.actor_id}</td>
                     <td class="px-4 py-2 font-mono text-xs">{format_dt(lockout.locked_at)}</td>
                     <td class="px-4 py-2 font-mono text-xs">{format_dt(lockout.expires_at)}</td>
@@ -162,7 +162,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Lockouts do
                 <% end %>
                 <%= if Enum.empty?(@lockouts) do %>
                   <tr>
-                    <td colspan="6" class="px-4 py-8 text-center text-base-content/60">
+                    <td colspan="6" class="px-4 py-8 text-center text-sr-muted">
                       No lockouts on record.
                     </td>
                   </tr>

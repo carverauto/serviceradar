@@ -27,20 +27,20 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show.HistoryTable do
       <table class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-40">
               Time
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-20">
               Status
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60">
               Message
             </th>
           </tr>
         </thead>
         <tbody>
           <tr :if={@page_services == []}>
-            <td colspan="3" class="text-sm text-base-content/60 py-6 text-center">
+            <td colspan="3" class="text-sm text-sr-muted py-6 text-center">
               No service checks found.
             </td>
           </tr>
@@ -49,7 +49,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show.HistoryTable do
             <% path = Service.details_path(service) %>
             <tr
               id={"service-history-row-#{index}"}
-              class="hover:bg-base-200/40 cursor-pointer"
+              class="hover:bg-sr-subtle/40 cursor-pointer"
               phx-click={JS.navigate(path)}
             >
               <td class="whitespace-nowrap text-xs font-mono">

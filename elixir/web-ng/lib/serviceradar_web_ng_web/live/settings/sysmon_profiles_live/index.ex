@@ -392,7 +392,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         <div class="flex items-center justify-between w-full">
           <div>
             <div class="text-sm font-semibold">Host Health Profiles</div>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               {length(@profiles)} profile(s) configured
             </p>
           </div>
@@ -407,7 +407,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
       <div class="sr-ui-table-shell">
         <table class={ui_table_class(size: "sm")}>
           <thead>
-            <tr class="text-xs uppercase tracking-wide text-base-content/60">
+            <tr class="text-xs uppercase tracking-wide text-sr-muted">
               <th>Status</th>
               <th>Name</th>
               <th>Targeting</th>
@@ -418,19 +418,19 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
           </thead>
           <tbody>
             <tr :if={@profiles == []}>
-              <td colspan="6" class="text-center text-base-content/60 py-8">
+              <td colspan="6" class="text-center text-sr-muted py-8">
                 No sysmon profiles configured. Create one to start monitoring systems.
               </td>
             </tr>
             <%= for profile <- @profiles do %>
-              <tr class="hover:bg-base-200/40">
+              <tr class="hover:bg-sr-subtle/40">
                 <td>
                   <button
                     phx-click="toggle_profile"
                     phx-value-id={profile.id}
                     class="flex items-center gap-1.5 cursor-pointer"
                   >
-                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-base-content/30"}"}>
+                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}>
                     </span>
                     <span class="text-xs">{if profile.enabled, do: "Enabled", else: "Disabled"}</span>
                   </button>
@@ -444,20 +444,20 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                       {profile.name}
                     </.link>
                   </div>
-                  <p :if={profile.description} class="text-xs text-base-content/60 truncate max-w-xs">
+                  <p :if={profile.description} class="text-xs text-sr-muted truncate max-w-xs">
                     {profile.description}
                   </p>
                 </td>
                 <td class="text-xs max-w-xs">
                   <%= if profile.target_query && profile.target_query != "" do %>
                     <code
-                      class="font-mono text-[11px] bg-base-200/50 px-1.5 py-0.5 rounded truncate block max-w-[200px]"
+                      class="font-mono text-[11px] bg-sr-subtle/50 px-1.5 py-0.5 rounded truncate block max-w-[200px]"
                       title={profile.target_query}
                     >
                       {profile.target_query}
                     </code>
                   <% else %>
-                    <span class="text-base-content/40">No targeting (will not match devices)</span>
+                    <span class="text-sr-muted">No targeting (will not match devices)</span>
                   <% end %>
                 </td>
                 <td class="font-mono text-xs">
@@ -555,7 +555,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
       >
         <!-- Basic Info Section -->
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Basic Information
           </h3>
 
@@ -579,7 +579,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 placeholder="e.g., 10s, 1m, 30s"
               />
               <label class="label">
-                <span class="label-text-alt text-base-content/50">
+                <span class="label-text-alt text-sr-muted">
                   How often to collect metrics (e.g., 10s, 1m, 500ms)
                 </span>
               </label>
@@ -600,7 +600,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         
     <!-- Device Targeting Section -->
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Device Targeting
           </h3>
 
@@ -627,15 +627,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 </.ui_icon_button>
               </div>
               <label class="label">
-                <span class="label-text-alt text-base-content/50">
-                  SRQL filters to match devices. Examples: <code class="bg-base-200 px-1 rounded">tags.environment:production</code>, <code class="bg-base-200 px-1 rounded">hostname:%prod%</code>,
-                  <code class="bg-base-200 px-1 rounded">type:Server</code>
+                <span class="label-text-alt text-sr-muted">
+                  SRQL filters to match devices. Examples: <code class="bg-sr-subtle px-1 rounded">tags.environment:production</code>, <code class="bg-sr-subtle px-1 rounded">hostname:%prod%</code>,
+                  <code class="bg-sr-subtle px-1 rounded">type:Server</code>
                 </span>
               </label>
             </div>
             
     <!-- Visual Query Builder -->
-            <div :if={@builder_open} class="border border-base-200 rounded-lg p-4 bg-base-100/50">
+            <div :if={@builder_open} class="border border-sr-line rounded-lg p-4 bg-sr-surface/50">
               <div class="flex items-center justify-between mb-4">
                 <div class="text-sm font-semibold">Query Builder</div>
                 <div class="flex items-center gap-2">
@@ -655,7 +655,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
               <div class="flex flex-col gap-4">
                 <!-- Filters Section -->
                 <div class="flex flex-col gap-3">
-                  <div class="text-xs text-base-content/60 font-medium">
+                  <div class="text-xs text-sr-muted font-medium">
                     Match devices where:
                   </div>
 
@@ -669,7 +669,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                             value={filter["field"] || ""}
                             placeholder="field"
                             form="sysmon-builder-form"
-                            class="w-40 placeholder:text-base-content/40"
+                            class="w-40 placeholder:text-sr-muted"
                           />
                         <% else %>
                           <.ui_inline_select
@@ -686,7 +686,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
                         <.ui_inline_select
                           name={"builder[filters][#{idx}][op]"}
-                          class="text-xs text-base-content/70"
+                          class="text-xs text-sr-muted"
                           form="sysmon-builder-form"
                         >
                           <option
@@ -712,7 +712,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                           value={filter["value"] || ""}
                           placeholder="value"
                           form="sysmon-builder-form"
-                          class="placeholder:text-base-content/40 w-48"
+                          class="placeholder:text-sr-muted w-48"
                         />
                       </.query_builder_pill>
 
@@ -742,10 +742,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             
     <!-- Device Count Preview -->
             <div :if={@target_device_count != nil} class="flex items-center gap-2">
-              <.icon name="hero-device-phone-mobile" class="size-4 text-base-content/60" />
+              <.icon name="hero-device-phone-mobile" class="size-4 text-sr-muted" />
               <span class="text-sm">
                 <span class="font-semibold">{@target_device_count}</span>
-                <span class="text-base-content/60">device(s) match this query</span>
+                <span class="text-sr-muted">device(s) match this query</span>
               </span>
             </div>
             
@@ -761,7 +761,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                   max="100"
                 />
                 <label class="label">
-                  <span class="label-text-alt text-base-content/50">
+                  <span class="label-text-alt text-sr-muted">
                     Higher priority profiles are evaluated first (0-100)
                   </span>
                 </label>
@@ -772,7 +772,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         
     <!-- Collectors Section -->
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Metric Collectors
           </h3>
 
@@ -818,14 +818,14 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
               <span class="label-text">Processes</span>
             </label>
           </div>
-          <p class="text-xs text-base-content/50">
+          <p class="text-xs text-sr-muted">
             Note: Process collection can be resource-intensive on systems with many processes.
           </p>
 
           <div class="max-w-xs">
             <label class="label">
               <span class="label-text">Process sample limit</span>
-              <span class="label-text-alt text-base-content/50">Default 25, 0 = unlimited</span>
+              <span class="label-text-alt text-sr-muted">Default 25, 0 = unlimited</span>
             </label>
             <.input
               type="number"
@@ -839,7 +839,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         
     <!-- Disk Paths Section -->
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Disk Paths
           </h3>
 
@@ -854,7 +854,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
               placeholder="/, /data, /var"
             />
             <label class="label">
-              <span class="label-text-alt text-base-content/50">
+              <span class="label-text-alt text-sr-muted">
                 Leave empty to collect all disks. Use a comma-separated list to restrict collection.
               </span>
             </label>
@@ -863,7 +863,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         
     <!-- Disk Excludes Section -->
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Disk Excludes
           </h3>
 
@@ -876,7 +876,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
               placeholder="/var/lib/docker, /var/lib/kubelet"
             />
             <label class="label">
-              <span class="label-text-alt text-base-content/50">
+              <span class="label-text-alt text-sr-muted">
                 Comma-separated list of mount points to ignore when collecting all disks.
               </span>
             </label>
@@ -884,7 +884,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         </div>
         
     <!-- Actions -->
-        <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+        <div class="flex justify-end gap-2 pt-4 border-t border-sr-line">
           <.link navigate={~p"/settings/sysmon"}>
             <.ui_button variant="ghost">Cancel</.ui_button>
           </.link>
@@ -900,7 +900,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
       <:header>
         <div class="text-sm font-semibold">Compiled Config Preview</div>
       </:header>
-      <pre class="bg-base-200/50 p-4 rounded-lg text-xs font-mono overflow-x-auto max-h-64">{@json_preview}</pre>
+      <pre class="bg-sr-subtle/50 p-4 rounded-lg text-xs font-mono overflow-x-auto max-h-64">{@json_preview}</pre>
     </.ui_panel>
     """
   end

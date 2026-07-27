@@ -56,7 +56,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsShow do
       class="mx-auto w-full max-w-7xl p-6"
     >
       <.ui_spinner size="sm" />
-      <span class="ml-2 text-sm text-base-content/60">Loading secure operation evidence…</span>
+      <span class="ml-2 text-sm text-sr-muted">Loading secure operation evidence…</span>
     </div>
     <AutomationHistoryComponents.operation_detail :if={@bundle} bundle={@bundle} />
     """

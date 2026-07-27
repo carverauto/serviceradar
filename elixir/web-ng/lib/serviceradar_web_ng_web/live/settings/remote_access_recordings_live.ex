@@ -80,7 +80,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 class="text-xl font-semibold">Remote Access Recordings</h1>
-              <p class="mt-1 text-sm text-base-content/70">
+              <p class="mt-1 text-sm text-sr-muted">
                 Review replay manifests and captured session events.
               </p>
             </div>
@@ -97,17 +97,17 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
           </div>
 
           <div class="grid gap-4 lg:grid-cols-[minmax(20rem,24rem)_1fr]">
-            <aside class="overflow-hidden rounded-lg border border-base-200 bg-base-100">
-              <div class="border-b border-base-200 px-4 py-3">
+            <aside class="overflow-hidden rounded-lg border border-sr-line bg-sr-surface">
+              <div class="border-b border-sr-line px-4 py-3">
                 <h2 class="text-sm font-semibold">Recent Recordings</h2>
               </div>
               <div class="max-h-[42rem] overflow-y-auto">
-                <div :if={@loading?} class="px-4 py-8 text-center text-sm text-base-content/60">
+                <div :if={@loading?} class="px-4 py-8 text-center text-sm text-sr-muted">
                   Loading recordings.
                 </div>
                 <div
                   :if={!@loading? and @recordings == []}
-                  class="px-4 py-8 text-center text-sm text-base-content/60"
+                  class="px-4 py-8 text-center text-sm text-sr-muted"
                 >
                   No recordings found.
                 </div>
@@ -115,7 +115,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
                   :for={recording <- @recordings}
                   navigate={~p"/settings/networks/recordings/#{recording.id}"}
                   class={[
-                    "block border-b border-base-200 px-4 py-3 transition hover:bg-base-200/60",
+                    "block border-b border-sr-line px-4 py-3 transition hover:bg-sr-subtle/60",
                     selected?(@selected_recording, recording) && "bg-primary/10"
                   ]}
                 >
@@ -126,7 +126,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
                     </.ui_badge>
                   </div>
                   <div class="mt-1 truncate text-sm font-medium">{target_label(recording)}</div>
-                  <div class="mt-1 text-xs text-base-content/60">
+                  <div class="mt-1 text-xs text-sr-muted">
                     {format_datetime(recording.started_at || recording.inserted_at)}
                   </div>
                 </.link>
@@ -136,7 +136,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
             <div class="space-y-4">
               <div
                 :if={!@selected_recording}
-                class="rounded-lg border border-base-200 bg-base-100 p-8 text-center text-sm text-base-content/60"
+                class="rounded-lg border border-sr-line bg-sr-surface p-8 text-center text-sm text-sr-muted"
               >
                 Select a recording.
               </div>
@@ -155,11 +155,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
 
   defp recording_summary(assigns) do
     ~H"""
-    <section class="rounded-lg border border-base-200 bg-base-100 p-4">
+    <section class="rounded-lg border border-sr-line bg-sr-surface p-4">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 class="text-lg font-semibold">{target_label(@recording)}</h2>
-          <p class="mt-1 font-mono text-xs text-base-content/60">Session {@recording.session_id}</p>
+          <p class="mt-1 font-mono text-xs text-sr-muted">Session {@recording.session_id}</p>
         </div>
         <.ui_badge size="sm" variant={status_badge_variant(@recording.status)}>
           {label(@recording.status)}
@@ -178,13 +178,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
 
       <div class="mt-4">
         <div>
-          <div class="text-xs font-semibold uppercase text-base-content/60">Content</div>
+          <div class="text-xs font-semibold uppercase text-sr-muted">Content</div>
           <div class="mt-1 text-sm">{content_label(@recording.manifest)}</div>
         </div>
       </div>
 
       <div :if={desktop_recording?(@recording)} class="mt-4">
-        <div class="text-xs font-semibold uppercase text-base-content/60">
+        <div class="text-xs font-semibold uppercase text-sr-muted">
           Desktop Policy Snapshot
         </div>
         <dl class="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -204,8 +204,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
 
   defp summary_item(assigns) do
     ~H"""
-    <div class="rounded-md border border-base-200 bg-base-200/40 p-3">
-      <dt class="text-xs font-semibold uppercase text-base-content/60">{@label}</dt>
+    <div class="rounded-md border border-sr-line bg-sr-subtle/40 p-3">
+      <dt class="text-xs font-semibold uppercase text-sr-muted">{@label}</dt>
       <dd class="mt-1 break-words text-sm font-medium">{@value}</dd>
     </div>
     """
@@ -215,37 +215,37 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
 
   defp event_timeline(assigns) do
     ~H"""
-    <section class="overflow-hidden rounded-lg border border-base-200 bg-base-100">
-      <div class="border-b border-base-200 px-4 py-3">
+    <section class="overflow-hidden rounded-lg border border-sr-line bg-sr-surface">
+      <div class="border-b border-sr-line px-4 py-3">
         <h2 class="text-sm font-semibold">Replay Events</h2>
       </div>
-      <div :if={@events == []} class="px-4 py-8 text-center text-sm text-base-content/60">
+      <div :if={@events == []} class="px-4 py-8 text-center text-sm text-sr-muted">
         No replay events stored.
       </div>
-      <div :for={event <- @events} class="border-b border-base-200 p-4 last:border-b-0">
+      <div :for={event <- @events} class="border-b border-sr-line p-4 last:border-b-0">
         <div class="flex flex-wrap items-center gap-2">
           <.ui_badge size="sm" variant="ghost">{event.sequence}</.ui_badge>
           <.ui_badge size="sm" variant={stream_badge_variant(event.stream)}>
             {label(event.stream)}
           </.ui_badge>
           <span class="text-sm font-medium">{event.event_type}</span>
-          <span class="text-xs text-base-content/60">{format_datetime(event.occurred_at)}</span>
+          <span class="text-xs text-sr-muted">{format_datetime(event.occurred_at)}</span>
           <.ui_badge :if={event.payload_redacted} size="sm" variant="warning">
             {redaction_label(event.redaction_reason)}
           </.ui_badge>
         </div>
         <pre
           :if={event.payload_text}
-          class="mt-3 max-h-72 overflow-auto rounded-md bg-base-200 p-3 text-xs whitespace-pre-wrap"
+          class="mt-3 max-h-72 overflow-auto rounded-md bg-sr-subtle p-3 text-xs whitespace-pre-wrap"
         ><%= event.payload_text %></pre>
-        <div :if={!event.payload_text} class="mt-3 text-sm text-base-content/60">
+        <div :if={!event.payload_text} class="mt-3 text-sm text-sr-muted">
           Payload text not stored. {event.byte_count} bytes, SHA-256 {event.payload_sha256 || "-"}.
         </div>
         <details :if={event.metadata != %{}} class="mt-3">
-          <summary class="cursor-pointer text-xs font-semibold uppercase text-base-content/60">
+          <summary class="cursor-pointer text-xs font-semibold uppercase text-sr-muted">
             Metadata
           </summary>
-          <pre class="mt-2 max-h-60 overflow-auto rounded-md bg-base-200 p-3 text-xs"><%= Jason.encode!(event.metadata, pretty: true) %></pre>
+          <pre class="mt-2 max-h-60 overflow-auto rounded-md bg-sr-subtle p-3 text-xs"><%= Jason.encode!(event.metadata, pretty: true) %></pre>
         </details>
       </div>
     </section>

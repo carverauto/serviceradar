@@ -409,7 +409,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
             <div class="space-y-1">
               <.ui_badge size="sm" variant="outline">Policy Editor</.ui_badge>
               <h1 class="text-2xl font-semibold">RBAC</h1>
-              <p class="text-sm text-base-content/60">
+              <p class="text-sm text-sr-muted">
                 Edit role profiles using a compact permissions grid. Built-in profiles are clone-only.
               </p>
             </div>
@@ -441,7 +441,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
           <div class="space-y-4">
             <div :if={@filtered_profiles != []} class="flex flex-wrap items-center gap-2">
-              <span class="text-xs font-semibold uppercase tracking-wider text-base-content/60">
+              <span class="text-xs font-semibold uppercase tracking-wider text-sr-muted">
                 Profiles
               </span>
               <div class="flex flex-wrap gap-2">
@@ -476,7 +476,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
               />
             </div>
 
-            <div :if={@filtered_profiles == []} class="w-full text-center py-16 text-base-content/50">
+            <div :if={@filtered_profiles == []} class="w-full text-center py-16 text-sr-muted">
               <.icon name="hero-shield-exclamation" class="h-12 w-12 mx-auto mb-3 opacity-30" />
               <p class="text-sm">No profiles match your filter.</p>
             </div>
@@ -506,9 +506,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     assigns = assign(assigns, :renaming?, assigns.renaming_profile_id == assigns.profile.id)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
       <%!-- Card header --%>
-      <div class="flex items-center justify-between gap-3 px-5 py-3 border-b border-base-200">
+      <div class="flex items-center justify-between gap-3 px-5 py-3 border-b border-sr-line">
         <div class="flex items-center gap-3">
           <%= if @renaming? do %>
             <.form for={@rename_form} phx-submit="rename_profile" class="flex items-center gap-2">
@@ -544,7 +544,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
               </button>
             <% end %>
           <% end %>
-          <span class="text-sm text-base-content/50">
+          <span class="text-sm text-sr-muted">
             {profile_identifier(@profile)}
           </span>
           <.ui_badge :if={@dirty} size="sm" variant="warning">unsaved</.ui_badge>
@@ -571,7 +571,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
             </div>
             <ul
               tabindex="0"
-              class="dropdown-content z-[1] menu p-2 shadow-lg bg-base-100 rounded-box w-44 border border-base-200"
+              class="dropdown-content z-[1] menu p-2 shadow-lg bg-sr-surface rounded-box w-44 border border-sr-line"
             >
               <li>
                 <button phx-click="open_new_profile" phx-value-clone-source-id={@profile.id}>
@@ -595,7 +595,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       <%!-- Section switcher --%>
       <div class="px-5 pt-4">
         <div class="flex flex-wrap items-center gap-2">
-          <span class="text-xs font-semibold uppercase tracking-wider text-base-content/60">
+          <span class="text-xs font-semibold uppercase tracking-wider text-sr-muted">
             Section
           </span>
           <div class="flex flex-wrap gap-2">
@@ -621,9 +621,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
             <tr>
               <th
                 rowspan={if has_sub_columns?(@grid), do: 2, else: 1}
-                class="min-w-[100px] sticky left-0 z-20 bg-base-100 border-r border-base-200"
+                class="min-w-[100px] sticky left-0 z-20 bg-sr-surface border-r border-sr-line"
               >
-                <span class="text-xs font-semibold uppercase tracking-wider text-base-content/60">
+                <span class="text-xs font-semibold uppercase tracking-wider text-sr-muted">
                   Action
                 </span>
               </th>
@@ -632,8 +632,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
                   <th
                     rowspan={if has_sub_columns?(@grid), do: 2, else: 1}
                     class={[
-                      "text-center text-xs font-semibold normal-case min-w-[80px] border-l border-base-200",
-                      !@locked && "cursor-pointer hover:bg-base-200/50"
+                      "text-center text-xs font-semibold normal-case min-w-[80px] border-l border-sr-line",
+                      !@locked && "cursor-pointer hover:bg-sr-subtle/50"
                     ]}
                     phx-click={if(!@locked, do: "toggle_resource")}
                     phx-value-profile-id={@profile.id}
@@ -645,7 +645,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
                 <% else %>
                   <th
                     colspan={length(group.resources)}
-                    class="text-center text-[11px] font-bold uppercase tracking-wider bg-base-200/40 border-l border-base-200"
+                    class="text-center text-[11px] font-bold uppercase tracking-wider bg-sr-subtle/40 border-l border-sr-line"
                   >
                     {group.label}
                   </th>
@@ -659,8 +659,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
                     <th
                       class={[
                         "text-center text-xs font-medium normal-case min-w-[80px]",
-                        idx == 0 && "border-l border-base-200",
-                        !@locked && "cursor-pointer hover:bg-base-200/50"
+                        idx == 0 && "border-l border-sr-line",
+                        !@locked && "cursor-pointer hover:bg-sr-subtle/50"
                       ]}
                       phx-click={if(!@locked, do: "toggle_resource")}
                       phx-value-profile-id={@profile.id}
@@ -676,11 +676,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
           </thead>
           <tbody>
             <%= for action <- @grid.actions do %>
-              <tr class="hover:bg-base-200/30">
+              <tr class="hover:bg-sr-subtle/30">
                 <td
                   class={[
-                    "font-medium text-sm bg-base-100 sticky left-0 z-10 border-r border-base-200",
-                    !@locked && "cursor-pointer hover:bg-base-200/50"
+                    "font-medium text-sm bg-sr-surface sticky left-0 z-10 border-r border-sr-line",
+                    !@locked && "cursor-pointer hover:bg-sr-subtle/50"
                   ]}
                   phx-click={if(!@locked, do: "toggle_action")}
                   phx-value-profile-id={@profile.id}
@@ -713,11 +713,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
         </table>
       </div>
 
-      <div :if={@unmapped != []} class="px-5 py-4 border-t border-base-200 bg-base-200/30">
-        <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+      <div :if={@unmapped != []} class="px-5 py-4 border-t border-sr-line bg-sr-subtle/30">
+        <div class="text-xs font-semibold uppercase tracking-wide text-sr-muted">
           Unmapped permissions
         </div>
-        <div class="text-xs text-base-content/60">
+        <div class="text-xs text-sr-muted">
           These permissions exist on the profile but are not present in the current RBAC catalog.
         </div>
         <div class="mt-2 flex flex-wrap gap-2">
@@ -739,7 +739,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     <dialog class="modal modal-open">
       <div class="modal-box">
         <h3 class="text-lg font-bold">Create Role Profile</h3>
-        <p class="py-2 text-sm text-base-content/60">
+        <p class="py-2 text-sm text-sr-muted">
           Create a custom profile. Permissions are copied from the selected source (if any).
         </p>
         <.form for={@form} id="new-profile-form" phx-submit="create_profile" class="space-y-4">
@@ -767,7 +767,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     <dialog class="modal modal-open">
       <div class="modal-box">
         <h3 class="text-lg font-bold">Delete Role Profile?</h3>
-        <p class="py-2 text-sm text-base-content/60">
+        <p class="py-2 text-sm text-sr-muted">
           This will permanently delete <span class="font-semibold">{@profile.name}</span>.
           Users assigned to this profile will fall back to their role defaults.
         </p>
@@ -906,7 +906,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   defp group_border_class(grid, resource_index) do
     if MapSet.member?(grid.group_starts, resource_index),
-      do: "border-l border-base-200"
+      do: "border-l border-sr-line"
   end
 
   defp resource_permission_keys(grid, resource) do

@@ -19,12 +19,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AgentComponents do
       |> assign(:has_agents, has_agents)
 
     ~H"""
-    <div :if={@has_agents} class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
+    <div :if={@has_agents} class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line">
         <div class="flex items-center gap-2">
           <.icon name="hero-cpu-chip" class="size-4 text-accent" />
           <span class="text-sm font-semibold">Agents</span>
-          <span class="text-xs text-base-content/50">({length(@agent_list)} agents)</span>
+          <span class="text-xs text-sr-muted">({length(@agent_list)} agents)</span>
         </div>
       </div>
       <div class="p-4">
@@ -41,11 +41,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AgentComponents do
             </thead>
             <tbody>
               <%= for agent <- Enum.take(@agent_list, 10) do %>
-                <tr class="hover:bg-base-200/40">
+                <tr class="hover:bg-sr-subtle/40">
                   <td class="font-mono text-xs">
                     <.link
                       navigate={~p"/agents/#{agent_uid(agent)}"}
-                      class="link link-primary hover:underline"
+                      class="text-sr-brand hover:underline hover:underline"
                     >
                       {truncate_uid(agent_uid(agent))}
                     </.link>
@@ -64,7 +64,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AgentComponents do
             </tbody>
           </table>
         </div>
-        <div :if={length(@agent_list) > 10} class="text-xs text-base-content/50 mt-2">
+        <div :if={length(@agent_list) > 10} class="text-xs text-sr-muted mt-2">
           Showing 10 of {length(@agent_list)} agents
         </div>
       </div>

@@ -50,7 +50,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
 
   def observability_tabs(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-2">
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-2">
       <div class="flex flex-wrap gap-2">
         <.query_tab_button
           id="logs"
@@ -147,7 +147,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
     assigns = assign(assigns, :active_subsection, active_subsection)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-2">
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-2">
       <div class="flex flex-wrap gap-2">
         <.navigate_tab_button
           id="operations"

@@ -296,8 +296,8 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
         <div class="mx-auto w-full max-w-6xl p-6 space-y-6">
           <header class="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h1 class="text-2xl font-semibold text-base-content">Prefix Tags</h1>
-              <p class="text-sm text-base-content/70 mt-1 max-w-2xl">
+              <h1 class="text-2xl font-semibold text-sr-ink">Prefix Tags</h1>
+              <p class="text-sm text-sr-muted mt-1 max-w-2xl">
                 Manage manual IP/CIDR → tag mappings used by flow enrichment.
                 NetBox, provider, threat-intel, and DNS-policy sources are imported
                 automatically and shown read-only.
@@ -324,19 +324,19 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
             </:header>
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm font-mono">
               <div>
-                <div class="text-xs uppercase text-base-content/50">IPv4</div>
+                <div class="text-xs uppercase text-sr-muted">IPv4</div>
                 <div>{Map.get(@store_stats, :ipv4_prefixes, 0)}</div>
               </div>
               <div>
-                <div class="text-xs uppercase text-base-content/50">IPv6</div>
+                <div class="text-xs uppercase text-sr-muted">IPv6</div>
                 <div>{Map.get(@store_stats, :ipv6_prefixes, 0)}</div>
               </div>
               <div>
-                <div class="text-xs uppercase text-base-content/50">Total</div>
+                <div class="text-xs uppercase text-sr-muted">Total</div>
                 <div>{Map.get(@store_stats, :total_prefixes, 0)}</div>
               </div>
               <div>
-                <div class="text-xs uppercase text-base-content/50">Sources</div>
+                <div class="text-xs uppercase text-sr-muted">Sources</div>
                 <div>{@sources_label}</div>
               </div>
             </div>
@@ -348,7 +348,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
             </:header>
             <form phx-submit="preview" class="flex flex-wrap items-end gap-2">
               <div class="grow min-w-48">
-                <label class="text-xs uppercase tracking-wider text-base-content/60">
+                <label class="text-xs uppercase tracking-wider text-sr-muted">
                   IP address
                 </label>
                 <input
@@ -367,13 +367,13 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
             </div>
             <div :if={is_list(@preview_chain)} class="mt-3 space-y-2">
               <%= if @preview_chain == [] do %>
-                <p class="text-sm text-base-content/60">No matching prefixes for this address.</p>
+                <p class="text-sm text-sr-muted">No matching prefixes for this address.</p>
               <% else %>
                 <div
                   :for={match <- @preview_chain}
-                  class="rounded-lg border border-base-200 bg-base-200/30 p-2"
+                  class="rounded-lg border border-sr-line bg-sr-subtle/30 p-2"
                 >
-                  <div class="font-mono text-xs text-base-content/70">
+                  <div class="font-mono text-xs text-sr-muted">
                     {Map.get(match, :prefix) || "—"}
                     <.ui_badge
                       :if={src = Map.get(match, :source)}
@@ -399,7 +399,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
             </div>
           </.ui_panel>
 
-          <div class="tabs tabs-boxed bg-base-200/40 p-1 w-fit flex-wrap">
+          <div class="tabs tabs-boxed bg-sr-subtle/40 p-1 w-fit flex-wrap">
             <button
               :for={tab <- @source_tabs}
               type="button"
@@ -503,13 +503,13 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
               <div class="flex items-center justify-between gap-2">
                 <div class="text-sm font-semibold">
                   {@source_tab}
-                  <span :if={@snapshot_backed?} class="font-normal text-base-content/50">
+                  <span :if={@snapshot_backed?} class="font-normal text-sr-muted">
                     ({@tag_count}{if @list_truncated?, do: "+", else: ""})
                   </span>
                 </div>
                 <div
                   :if={@source_tab != "manual"}
-                  class="text-xs text-base-content/50"
+                  class="text-xs text-sr-muted"
                 >
                   {if @snapshot_backed?,
                     do: "Read-only imported source",
@@ -518,7 +518,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
               </div>
             </:header>
 
-            <div :if={@loading?} class="py-8 text-center text-sm text-base-content/60">
+            <div :if={@loading?} class="py-8 text-center text-sm text-sr-muted">
               Loading…
             </div>
 
@@ -526,22 +526,22 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
               :if={not @loading? and not @snapshot_backed? and is_map(@external_source_stats)}
               class="space-y-2 text-sm"
             >
-              <p class="text-base-content/70">
+              <p class="text-sr-muted">
                 This source is compiled into the local LPM trie from its platform
                 table (not <code class="font-mono text-xs">platform.prefix_tags</code>).
                 Use IP preview above to exercise lookups.
               </p>
               <div class="grid grid-cols-3 gap-3 font-mono text-xs">
                 <div>
-                  <div class="uppercase text-base-content/50">IPv4</div>
+                  <div class="uppercase text-sr-muted">IPv4</div>
                   <div>{Map.get(@external_source_stats, :ipv4_prefixes, 0)}</div>
                 </div>
                 <div>
-                  <div class="uppercase text-base-content/50">IPv6</div>
+                  <div class="uppercase text-sr-muted">IPv6</div>
                   <div>{Map.get(@external_source_stats, :ipv6_prefixes, 0)}</div>
                 </div>
                 <div>
-                  <div class="uppercase text-base-content/50">Total</div>
+                  <div class="uppercase text-sr-muted">Total</div>
                   <div>{Map.get(@external_source_stats, :total_prefixes, 0)}</div>
                 </div>
               </div>
@@ -549,7 +549,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
 
             <div
               :if={not @loading? and @snapshot_backed? and @tags == []}
-              class="py-8 text-center text-sm text-base-content/60"
+              class="py-8 text-center text-sm text-sr-muted"
             >
               No prefixes for this source yet.
               <span :if={@source_tab == "manual"}>Use “Add prefix” to create one.</span>
@@ -557,7 +557,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
 
             <div
               :if={not @loading? and @snapshot_backed? and (@has_prev_page? or @has_next_page?)}
-              class="mb-2 flex items-center justify-between text-xs text-base-content/60"
+              class="mb-2 flex items-center justify-between text-xs text-sr-muted"
             >
               <span>
                 Showing {@list_offset + 1}–{@list_offset + @tag_count}
@@ -612,7 +612,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                         </.ui_badge>
                       </div>
                     </td>
-                    <td class="text-xs text-base-content/70">
+                    <td class="text-xs text-sr-muted">
                       {site_role_label(tag)}
                     </td>
                     <td :if={@source_tab == "manual"} class="text-right whitespace-nowrap">

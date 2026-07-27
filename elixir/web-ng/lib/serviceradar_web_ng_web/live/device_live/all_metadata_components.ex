@@ -67,7 +67,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AllMetadataComponents do
     <details
       id="device-all-metadata"
       phx-hook="DetailsState"
-      class="group/meta rounded-xl border border-base-200 bg-base-100"
+      class="group/meta rounded-xl border border-sr-line bg-sr-surface"
     >
       <summary class="flex cursor-pointer list-none items-center gap-2 px-4 py-3 [&::-webkit-details-marker]:hidden">
         <.icon name="hero-rectangle-stack" class="size-4 shrink-0 text-secondary" />
@@ -77,13 +77,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AllMetadataComponents do
         </span>
         <.icon
           name="hero-chevron-down"
-          class="ml-auto size-4 shrink-0 text-base-content/50 transition-transform group-open/meta:rotate-180"
+          class="ml-auto size-4 shrink-0 text-sr-muted transition-transform group-open/meta:rotate-180"
         />
       </summary>
 
       <div
         :if={@key_count == 0}
-        class="border-t border-base-200 px-4 py-6 text-center text-sm text-base-content/50"
+        class="border-t border-sr-line px-4 py-6 text-center text-sm text-sr-muted"
       >
         No additional metadata.
       </div>
@@ -93,11 +93,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AllMetadataComponents do
         id="device-all-metadata-body"
         phx-hook="AllMetadataCard"
         data-metadata-json={@json}
-        class="border-t border-base-200 p-4 space-y-4"
+        class="border-t border-sr-line p-4 space-y-4"
       >
         <div class="flex flex-wrap items-center gap-2">
           <label class="flex min-h-9 min-w-[12rem] flex-1 items-center gap-2 rounded-sr-control border border-sr-line bg-sr-control px-3 shadow-sr-control">
-            <.icon name="hero-magnifying-glass" class="size-4 text-base-content/40" />
+            <.icon name="hero-magnifying-glass" class="size-4 text-sr-muted" />
             <input
               type="text"
               data-metadata-filter-input
@@ -116,15 +116,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AllMetadataComponents do
           <div
             :for={group <- @groups}
             data-metadata-group
-            class="min-w-0 overflow-hidden rounded-lg border border-base-200 bg-base-200/20"
+            class="min-w-0 overflow-hidden rounded-lg border border-sr-line bg-sr-subtle/20"
           >
-            <div class="flex items-center gap-2 border-b border-base-200 px-3 py-2">
-              <.icon name={group.icon} class="size-4 shrink-0 text-base-content/60" />
-              <span class="text-xs font-semibold text-base-content/70">{group.title}</span>
-              <span class="text-[11px] text-base-content/40">{length(group.entries)}</span>
+            <div class="flex items-center gap-2 border-b border-sr-line px-3 py-2">
+              <.icon name={group.icon} class="size-4 shrink-0 text-sr-muted" />
+              <span class="text-xs font-semibold text-sr-muted">{group.title}</span>
+              <span class="text-[11px] text-sr-muted">{length(group.entries)}</span>
             </div>
 
-            <dl class="divide-y divide-base-200/60">
+            <dl class="divide-y divide-sr-line/60">
               <div
                 :for={entry <- group.entries}
                 data-metadata-row
@@ -132,19 +132,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AllMetadataComponents do
                 class="grid grid-cols-1 gap-1 px-3 py-2 sm:grid-cols-3 sm:gap-3"
               >
                 <dt class="min-w-0 sm:col-span-1">
-                  <div class="break-words text-sm font-medium text-base-content">{entry.label}</div>
-                  <div class="break-all font-mono text-[11px] text-base-content/40">{entry.key}</div>
+                  <div class="break-words text-sm font-medium text-sr-ink">{entry.label}</div>
+                  <div class="break-all font-mono text-[11px] text-sr-muted">{entry.key}</div>
                 </dt>
                 <dd class="min-w-0 sm:col-span-2">
                   <pre
                     :if={entry.nested}
-                    class="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-base-300/40 p-2 font-mono text-[11px] leading-relaxed text-base-content/80"
+                    class="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-sr-control/40 p-2 font-mono text-[11px] leading-relaxed text-sr-ink/90"
                   >{entry.value}</pre>
                   <div :if={not entry.nested} class="flex min-w-0 items-start gap-2">
-                    <span class="block min-w-0 flex-1 whitespace-pre-wrap break-words text-sm text-base-content/90">
+                    <span class="block min-w-0 flex-1 whitespace-pre-wrap break-words text-sm text-sr-ink">
                       {entry.value}
                     </span>
-                    <.ui_button :if={entry.search_path} navigate={entry.search_path} data-metadata-find title={"Find other devices where #{entry.label} = #{entry.value}"} aria-label={"Find other devices where #{entry.key} equals #{entry.value}"} size="xs" variant="ghost" class="shrink-0 gap-1 text-base-content/40 hover:text-primary">
+                    <.ui_button :if={entry.search_path} navigate={entry.search_path} data-metadata-find title={"Find other devices where #{entry.label} = #{entry.value}"} aria-label={"Find other devices where #{entry.key} equals #{entry.value}"} size="xs" variant="ghost" class="shrink-0 gap-1 text-sr-muted hover:text-primary">
                       <.icon name="hero-magnifying-glass-circle" class="size-4" />
                       <span class="hidden text-[11px] font-medium sm:inline">Find similar</span>
                     </.ui_button>
@@ -157,7 +157,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AllMetadataComponents do
 
         <div
           data-metadata-filter-empty
-          class="hidden py-4 text-center text-sm text-base-content/50"
+          class="hidden py-4 text-center text-sm text-sr-muted"
         >
           No keys match your filter.
         </div>

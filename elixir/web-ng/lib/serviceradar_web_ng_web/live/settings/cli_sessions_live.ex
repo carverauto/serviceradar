@@ -105,8 +105,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
       >
         <div class="mx-auto w-full max-w-5xl p-6 space-y-6">
           <header>
-            <h1 class="text-2xl font-semibold text-base-content">CLI Sessions</h1>
-            <p class="text-sm text-base-content/70">
+            <h1 class="text-2xl font-semibold text-sr-ink">CLI Sessions</h1>
+            <p class="text-sm text-sr-muted">
               Each row is a long-lived bearer token issued to
               <code class="font-mono">serviceradar-cli</code>
               after you approved a device-code authorization. Revoking a row stops

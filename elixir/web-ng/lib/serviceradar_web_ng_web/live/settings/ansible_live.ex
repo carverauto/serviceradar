@@ -329,7 +329,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       >
         <header class="space-y-1">
           <h1 class="text-2xl font-semibold">Ansible</h1>
-          <p class="text-sm text-base-content/70">
+          <p class="text-sm text-sr-muted">
             AWX/AAP controllers, git playbook repositories, schedules, and retention.
           </p>
         </header>
@@ -397,7 +397,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp controllers_panel(assigns) do
     ~H"""
     <div class="flex items-center justify-between">
-      <p class="text-sm text-base-content/70">
+      <p class="text-sm text-sr-muted">
         <span class="font-medium">{@controller_count}</span>
         registered controller{if @controller_count == 1, do: "", else: "s"}.
       </p>
@@ -408,7 +408,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
     <div
       :if={@controller_count == 0 and !@show_form}
-      class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70"
+      class="rounded-lg border border-dashed border-sr-line p-8 text-center text-sm text-sr-muted"
     >
       <p>No AWX/AAP controllers registered yet.</p>
       <p class="mt-2">Click <strong>Add controller</strong> to register your first.</p>
@@ -423,7 +423,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
     <div
       :if={@controller_count > 0}
-      class="overflow-x-auto rounded-lg border border-base-300 bg-base-100"
+      class="overflow-x-auto rounded-lg border border-sr-line bg-sr-surface"
     >
       <table class={ui_table_class(zebra: true)}>
         <thead>
@@ -439,7 +439,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           <tr :for={{id, ctrl} <- @controllers} id={id}>
             <td>
               <div class="font-medium">{ctrl.name}</div>
-              <div :if={ctrl.description} class="text-xs text-base-content/60">
+              <div :if={ctrl.description} class="text-xs text-sr-muted">
                 {ctrl.description}
               </div>
             </td>
@@ -449,7 +449,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               <.ui_badge size="sm" variant={health_badge_variant(ctrl.status)}>
                 {ctrl.status}
               </.ui_badge>
-              <div :if={ctrl.last_health_at} class="text-xs text-base-content/60 mt-1">
+              <div :if={ctrl.last_health_at} class="text-xs text-sr-muted mt-1">
                 {Calendar.strftime(ctrl.last_health_at, "%Y-%m-%d %H:%M:%S UTC")}
               </div>
             </td>
@@ -491,7 +491,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       )
 
     ~H"""
-    <div class="rounded-lg border border-base-300 bg-base-200/60 p-4">
+    <div class="rounded-lg border border-sr-line bg-sr-subtle/60 p-4">
       <h2 class="text-lg font-medium mb-3">
         {if @editing_id, do: "Edit controller", else: "Add controller"}
       </h2>
@@ -556,13 +556,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             falls back automatically.
           </div>
 
-          <fieldset class="fieldset rounded-box border border-base-300 p-3 md:col-span-2">
+          <fieldset class="fieldset rounded-box border border-sr-line p-3 md:col-span-2">
             <legend class="fieldset-legend">Sync credential</legend>
             <label class="label">
               <span class="label-text">
                 {if @editing_id, do: "New sync API token", else: "Sync API token"}
               </span>
-              <span class="label-text-alt text-xs text-base-content/60">
+              <span class="label-text-alt text-xs text-sr-muted">
                 {if @editing_id,
                   do: "Leave blank to keep the selected encrypted sync token.",
                   else: "Used only for health, catalog, and inventory reads."}
@@ -580,7 +580,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
             <label class="label">
               <span class="label-text">Existing sync credential secret</span>
-              <span class="label-text-alt text-xs text-base-content/60">
+              <span class="label-text-alt text-xs text-sr-muted">
                 Provision AWX tokens in Settings → Credentials → New Secret → AWX API Token.
               </span>
             </label>
@@ -614,7 +614,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </fieldset>
 
-          <fieldset class="fieldset rounded-box border border-base-300 p-3 md:col-span-2">
+          <fieldset class="fieldset rounded-box border border-sr-line p-3 md:col-span-2">
             <legend class="fieldset-legend">Execution credential</legend>
             <select
               id="controller-execution-credential-secret-id"
@@ -648,7 +648,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             </p>
           </fieldset>
 
-          <fieldset class="fieldset rounded-box border border-base-300 p-3 md:col-span-2">
+          <fieldset class="fieldset rounded-box border border-sr-line p-3 md:col-span-2">
             <legend class="fieldset-legend">Callback credential lifecycle</legend>
             <select
               id="controller-callback-credential-secret-id"
@@ -744,7 +744,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp repositories_panel(assigns) do
     ~H"""
     <div class="flex items-center justify-between">
-      <p class="text-sm text-base-content/70">
+      <p class="text-sm text-sr-muted">
         <span class="font-medium">{@repository_count}</span>
         registered git repositor{if @repository_count == 1, do: "y", else: "ies"}.
       </p>
@@ -755,7 +755,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
     <div
       :if={@repository_count == 0 and !@show_form}
-      class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70"
+      class="rounded-lg border border-dashed border-sr-line p-8 text-center text-sm text-sr-muted"
     >
       <p>No playbook repositories registered yet.</p>
       <p class="mt-2">Click <strong>Add repository</strong> to register your first.</p>
@@ -765,7 +765,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
     <div
       :if={@repository_count > 0}
-      class="overflow-x-auto rounded-lg border border-base-300 bg-base-100"
+      class="overflow-x-auto rounded-lg border border-sr-line bg-sr-surface"
     >
       <table class={ui_table_class(zebra: true)}>
         <thead>
@@ -781,7 +781,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           <tr :for={{id, repo} <- @repositories} id={id}>
             <td>
               <div class="font-medium">{repo.name}</div>
-              <div :if={repo.description} class="text-xs text-base-content/60">
+              <div :if={repo.description} class="text-xs text-sr-muted">
                 {repo.description}
               </div>
             </td>
@@ -791,10 +791,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               <.ui_badge size="sm" variant={sync_badge_variant(repo.last_sync_status)}>
                 {repo.last_sync_status}
               </.ui_badge>
-              <div :if={repo.last_sync_at} class="text-xs text-base-content/60 mt-1">
+              <div :if={repo.last_sync_at} class="text-xs text-sr-muted mt-1">
                 {Calendar.strftime(repo.last_sync_at, "%Y-%m-%d %H:%M:%S UTC")}
               </div>
-              <div :if={repo.last_sync_summary} class="text-xs text-base-content/60 mt-1">
+              <div :if={repo.last_sync_summary} class="text-xs text-sr-muted mt-1">
                 {repo.last_sync_summary}
               </div>
             </td>
@@ -820,7 +820,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   defp repository_form(assigns) do
     ~H"""
-    <div class="rounded-lg border border-base-300 bg-base-200/60 p-4">
+    <div class="rounded-lg border border-sr-line bg-sr-subtle/60 p-4">
       <h2 class="text-lg font-medium mb-3">
         {if @editing_id, do: "Edit repository", else: "Add repository"}
       </h2>
@@ -881,7 +881,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           <div class="form-control md:col-span-2">
             <label class="label">
               <span class="label-text">Deploy token secret ID</span>
-              <span class="label-text-alt text-xs text-base-content/60">
+              <span class="label-text-alt text-xs text-sr-muted">
                 Optional. Required for private repos. UUID from Settings → Credentials.
               </span>
             </label>
@@ -931,7 +931,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp schedules_panel(assigns) do
     ~H"""
     <div class="flex items-center justify-between">
-      <p class="text-sm text-base-content/70">
+      <p class="text-sm text-sr-muted">
         <span class="font-medium">{@schedule_count}</span>
         scheduled run{if @schedule_count == 1, do: "", else: "s"} registered.
       </p>
@@ -942,7 +942,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
     <div
       :if={@schedule_count == 0 and !@show_form}
-      class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70"
+      class="rounded-lg border border-dashed border-sr-line p-8 text-center text-sm text-sr-muted"
     >
       <p>No schedules registered.</p>
       <p class="mt-2">Click <strong>Add schedule</strong> to create a cron-driven run.</p>
@@ -952,7 +952,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
     <div
       :if={@schedule_count > 0}
-      class="overflow-x-auto rounded-lg border border-base-300 bg-base-100"
+      class="overflow-x-auto rounded-lg border border-sr-line bg-sr-surface"
     >
       <table class={ui_table_class(zebra: true)}>
         <thead>
@@ -969,13 +969,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           <tr :for={{id, sched} <- @schedules} id={id}>
             <td>
               <div class="font-medium">{sched.name}</div>
-              <div :if={sched.description} class="text-xs text-base-content/60">
+              <div :if={sched.description} class="text-xs text-sr-muted">
                 {sched.description}
               </div>
             </td>
             <td>
               <code class="text-xs">{sched.cron}</code>
-              <div class="text-xs text-base-content/60">{sched.timezone}</div>
+              <div class="text-xs text-sr-muted">{sched.timezone}</div>
             </td>
             <td>
               <div :if={sched.last_evaluated_at} class="text-xs">
@@ -989,7 +989,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               >
                 {sched.last_evaluation_outcome}
               </.ui_badge>
-              <div :if={!sched.last_evaluated_at} class="text-xs text-base-content/60">
+              <div :if={!sched.last_evaluated_at} class="text-xs text-sr-muted">
                 never fired
               </div>
             </td>
@@ -997,7 +997,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               <div :if={sched.next_run_at} class="text-xs">
                 {Calendar.strftime(sched.next_run_at, "%Y-%m-%d %H:%M:%S UTC")}
               </div>
-              <div :if={!sched.next_run_at} class="text-xs text-base-content/60">—</div>
+              <div :if={!sched.next_run_at} class="text-xs text-sr-muted">—</div>
             </td>
             <td>
               <.ui_badge :if={sched.enabled} size="sm" variant="success">enabled</.ui_badge>
@@ -1032,7 +1032,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   defp schedule_form(assigns) do
     ~H"""
-    <div class="rounded-lg border border-base-300 bg-base-200/60 p-4">
+    <div class="rounded-lg border border-sr-line bg-sr-subtle/60 p-4">
       <h2 class="text-lg font-medium mb-3">
         {if @editing_id, do: "Edit schedule", else: "Add schedule"}
       </h2>
@@ -1087,7 +1087,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           <div class="form-control md:col-span-2">
             <label class="label">
               <span class="label-text">Playbook</span>
-              <span class="label-text-alt text-xs text-base-content/60">
+              <span class="label-text-alt text-xs text-sr-muted">
                 {length(@playbooks)} launchable
               </span>
             </label>
@@ -1112,7 +1112,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           <div class="form-control md:col-span-2">
             <label class="label">
               <span class="label-text">Target device UIDs</span>
-              <span class="label-text-alt text-xs text-base-content/60">comma-separated</span>
+              <span class="label-text-alt text-xs text-sr-muted">comma-separated</span>
             </label>
             <input
               type="text"
@@ -1127,7 +1127,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           <div class="form-control">
             <label class="label">
               <span class="label-text">Cron</span>
-              <span class="label-text-alt text-xs text-base-content/60">5-field, UTC for v1</span>
+              <span class="label-text-alt text-xs text-sr-muted">5-field, UTC for v1</span>
             </label>
             <input
               type="text"
@@ -1149,7 +1149,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               class={ui_field_class(size: "sm")}
               placeholder="UTC"
             />
-            <p class="text-xs text-base-content/60 mt-1">
+            <p class="text-xs text-sr-muted mt-1">
               Non-UTC needs the tzdata dep — v1 supports UTC / Etc/UTC.
             </p>
           </div>
@@ -1157,7 +1157,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           <div class="form-control md:col-span-2">
             <label class="label">
               <span class="label-text">extra_vars (JSON)</span>
-              <span class="label-text-alt text-xs text-base-content/60">
+              <span class="label-text-alt text-xs text-sr-muted">
                 passed to AWX on each fire
               </span>
             </label>
@@ -1188,10 +1188,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp retention_panel(assigns) do
     ~H"""
     <div class="space-y-4">
-      <div class="rounded-lg border border-base-300 bg-base-100 p-6 text-sm space-y-3">
+      <div class="rounded-lg border border-sr-line bg-sr-surface p-6 text-sm space-y-3">
         <header>
           <h2 class="text-lg font-medium">Retention</h2>
-          <p class="text-base-content/70">
+          <p class="text-sr-muted">
             Run-detail + run-summary retention windows are operator-tunable via
             environment variables. Worker cadences (health check, watchdog,
             schedule evaluator) follow the same pattern. Values shown here reflect
@@ -1212,7 +1212,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               <tr>
                 <td>
                   <div class="font-medium">Run detail retention</div>
-                  <div class="text-xs text-base-content/60">
+                  <div class="text-xs text-sr-muted">
                     Past this age, prune `PlaybookPlay` / `PlaybookTask` /
                     `PlaybookTaskResult` rows. Run + targets stay so the run
                     header / per-target outcomes remain queryable.
@@ -1224,7 +1224,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               <tr>
                 <td>
                   <div class="font-medium">Run summary retention</div>
-                  <div class="text-xs text-base-content/60">
+                  <div class="text-xs text-sr-muted">
                     When set, deletes the entire `PlaybookRun` (cascading to
                     targets / plays / tasks / results) past this age. Default
                     `nil` keeps run summaries forever.
@@ -1236,7 +1236,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               <tr>
                 <td>
                   <div class="font-medium">Retention sweep interval</div>
-                  <div class="text-xs text-base-content/60">
+                  <div class="text-xs text-sr-muted">
                     How often the RetentionWorker scans. Defaults to daily.
                   </div>
                 </td>
@@ -1253,7 +1253,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               <tr>
                 <td>
                   <div class="font-medium">Run watchdog interval</div>
-                  <div class="text-xs text-base-content/60">
+                  <div class="text-xs text-sr-muted">
                     Threshold: 2× the AWX job_template timeout, or 1 h fallback
                     if no template timeout is known.
                   </div>
@@ -1279,7 +1279,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           </table>
         </div>
 
-        <p class="text-xs text-base-content/60">
+        <p class="text-xs text-sr-muted">
           Per-controller / per-repository / per-schedule overrides take precedence
           over the global defaults above. Each `AnsibleController` carries its own
           `run_pulse_interval_ms` (drives RunPulseWorker), `inventory_sync_interval_seconds`,

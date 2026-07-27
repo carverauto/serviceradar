@@ -12,11 +12,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.VariableComponents do
     assigns = assign(assigns, :variables, DashboardVariables.list(assigns.dashboard))
 
     ~H"""
-    <section class="rounded-lg border border-base-300 bg-base-100 px-4 py-3">
+    <section class="rounded-lg border border-sr-line bg-sr-surface px-4 py-3">
       <form phx-change="change_variable" class="flex flex-col gap-3 lg:flex-row lg:items-center">
         <div class="shrink-0">
           <h2 class="text-sm font-semibold">Dashboard Variables</h2>
-          <p class="text-xs text-base-content/70">
+          <p class="text-xs text-sr-muted">
             Values substitute into panel SRQL before execution.
           </p>
         </div>

@@ -271,8 +271,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
       >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">Cluster Status</h1>
-            <p class="text-sm text-base-content/60">
+            <h1 class="text-2xl font-semibold text-sr-ink">Cluster Status</h1>
+            <p class="text-sm text-sr-muted">
               Monitor the distributed ERTS cluster, gateways, agents, and job queues.
             </p>
           </div>
@@ -322,7 +322,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Cluster Nodes</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 ERTS nodes connected via mTLS
               </p>
             </div>
@@ -331,14 +331,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
           <div class="sr-ui-table-shell">
             <table class={ui_table_class(size: "sm")}>
               <thead>
-                <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                <tr class="text-xs uppercase tracking-wide text-sr-muted">
                   <th>Node</th>
                   <th>Type</th>
                   <th>Status</th>
                 </tr>
               </thead>
               <tbody>
-                <tr class="bg-base-200/30">
+                <tr class="bg-sr-subtle/30">
                   <td class="font-mono text-sm">
                     <.link navigate={~p"/settings/cluster/nodes/#{node_param(@cluster_status.self)}"}>
                       {to_string(@cluster_status.self)}
@@ -367,7 +367,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
                   </tr>
                 <% end %>
                 <tr :if={@cluster_status.connected_nodes == []}>
-                  <td colspan="3" class="text-center text-base-content/60 py-4">
+                  <td colspan="3" class="text-center text-sr-muted py-4">
                     No remote nodes connected
                   </td>
                 </tr>
@@ -381,7 +381,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             <:header>
               <div>
                 <div class="text-sm font-semibold">Agent Gateways</div>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   {length(@gateways)} instance(s) across {logical_gateway_count(@gateways)} logical gateway(s)
                 </p>
               </div>
@@ -394,7 +394,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             <:header>
               <div>
                 <div class="text-sm font-semibold">Connected Agents</div>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   {length(@agents)} agent(s) reporting
                 </p>
               </div>
@@ -409,7 +409,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Job Queues</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Oban job queue status across the cluster
               </p>
             </div>
@@ -418,7 +418,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
           <div class="sr-ui-table-shell">
             <table class={ui_table_class(size: "sm")}>
               <thead>
-                <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                <tr class="text-xs uppercase tracking-wide text-sr-muted">
                   <th>Queue</th>
                   <th>Available</th>
                   <th>Executing</th>
@@ -432,18 +432,18 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
                     <td class="font-medium">{queue}</td>
                     <td class="text-success">{Map.get(stats, :available, 0)}</td>
                     <td class="text-info">{Map.get(stats, :executing, 0)}</td>
-                    <td class="text-base-content/70">{Map.get(stats, :scheduled, 0)}</td>
+                    <td class="text-sr-muted">{Map.get(stats, :scheduled, 0)}</td>
                     <td class={
                       if Map.get(stats, :retryable, 0) > 0,
                         do: "text-warning",
-                        else: "text-base-content/70"
+                        else: "text-sr-muted"
                     }>
                       {Map.get(stats, :retryable, 0)}
                     </td>
                   </tr>
                 <% end %>
                 <tr :if={@oban_stats.queues == %{}}>
-                  <td colspan="5" class="text-center text-base-content/60 py-4">
+                  <td colspan="5" class="text-center text-sr-muted py-4">
                     No job queues configured
                   </td>
                 </tr>
@@ -457,7 +457,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Recent Events</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Last {length(@events)} cluster events
               </p>
             </div>
@@ -466,7 +466,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
           <div class="sr-ui-table-shell">
             <table class={ui_table_class(size: "xs")}>
               <thead>
-                <tr class="text-[11px] uppercase tracking-wide text-base-content/50">
+                <tr class="text-[11px] uppercase tracking-wide text-sr-muted">
                   <th>Event</th>
                   <th>Details</th>
                   <th>Time</th>
@@ -523,12 +523,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     ~H"""
     <div class={"rounded-xl border p-4 #{@bg_class}"}>
       <div class="flex items-center gap-3">
-        <div class={"rounded-lg bg-base-100 p-2 #{@icon_class}"}>
+        <div class={"rounded-lg bg-sr-surface p-2 #{@icon_class}"}>
           <.icon name={@icon} class="size-5" />
         </div>
         <div>
-          <div class="text-xs text-base-content/60">{@title}</div>
-          <div class="text-xl font-bold text-base-content">{@value}</div>
+          <div class="text-xs text-sr-muted">{@title}</div>
+          <div class="text-xl font-bold text-sr-ink">{@value}</div>
         </div>
       </div>
     </div>
@@ -543,7 +543,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     <div class="sr-ui-table-shell">
       <table class={ui_table_class(size: "sm")}>
         <thead>
-          <tr class="text-xs uppercase tracking-wide text-base-content/60">
+          <tr class="text-xs uppercase tracking-wide text-sr-muted">
             <th>Status</th>
             <th>Gateway ID</th>
             <th :if={@expanded}>Partition</th>
@@ -552,12 +552,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         </thead>
         <tbody>
           <tr :if={@gateways == []}>
-            <td colspan={if @expanded, do: 4, else: 2} class="text-center text-base-content/60 py-6">
+            <td colspan={if @expanded, do: 4, else: 2} class="text-center text-sr-muted py-6">
               No agent gateways registered
             </td>
           </tr>
           <%= for gateway <- @gateways do %>
-            <tr class="hover:bg-base-200/40 cursor-pointer">
+            <tr class="hover:bg-sr-subtle/40 cursor-pointer">
               <td>
                 <.link
                   navigate={~p"/settings/cluster/nodes/#{node_param(gateway.node)}"}
@@ -587,7 +587,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
               <td :if={@expanded}>
                 <.link
                   navigate={~p"/settings/cluster/nodes/#{node_param(gateway.node)}"}
-                  class="font-mono text-xs text-base-content/60 block"
+                  class="font-mono text-xs text-sr-muted block"
                 >
                   {gateway.full_name}
                 </.link>
@@ -608,7 +608,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     <div class="sr-ui-table-shell">
       <table class={ui_table_class(size: "sm")}>
         <thead>
-          <tr class="text-xs uppercase tracking-wide text-base-content/60">
+          <tr class="text-xs uppercase tracking-wide text-sr-muted">
             <th>Status</th>
             <th>Agent</th>
             <th :if={@expanded}>Runtime</th>
@@ -619,12 +619,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         </thead>
         <tbody>
           <tr :if={@agents == []}>
-            <td colspan={if @expanded, do: 6, else: 2} class="text-center text-base-content/60 py-6">
+            <td colspan={if @expanded, do: 6, else: 2} class="text-center text-sr-muted py-6">
               No agents have pushed status yet
             </td>
           </tr>
           <%= for agent <- @agents do %>
-            <tr class="hover:bg-base-200/40 cursor-pointer align-top">
+            <tr class="hover:bg-sr-subtle/40 cursor-pointer align-top">
               <td>
                 <.link navigate={~p"/agents/#{agent.agent_id}"} class="flex items-center gap-1.5">
                   <span class={"size-2 rounded-full #{if agent.active, do: "bg-success", else: "bg-warning"}"}>
@@ -637,7 +637,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
                   <div class="font-mono text-xs">{agent.agent_id}</div>
                   <div
                     :if={agent_identity_details(agent) != nil}
-                    class="text-[11px] text-base-content/60 mt-1"
+                    class="text-[11px] text-sr-muted mt-1"
                   >
                     {agent_identity_details(agent)}
                   </div>
@@ -646,7 +646,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
               <td :if={@expanded}>
                 <.link navigate={~p"/agents/#{agent.agent_id}"} class="block">
                   <div class="font-mono text-xs">{agent_version_label(agent)}</div>
-                  <div class="text-[11px] text-base-content/60 mt-1">
+                  <div class="text-[11px] text-sr-muted mt-1">
                     {agent_platform_label(agent)}
                   </div>
                 </.link>
@@ -654,7 +654,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
               <td :if={@expanded}>
                 <.link navigate={~p"/agents/#{agent.agent_id}"} class="block">
                   <div class="font-mono text-xs">{agent_gateway_label(agent)}</div>
-                  <div class="text-[11px] text-base-content/60 mt-1">
+                  <div class="text-[11px] text-sr-muted mt-1">
                     {agent_partition_label(agent)}
                   </div>
                 </.link>

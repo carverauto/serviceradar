@@ -475,7 +475,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
           </div>
         </:header>
 
-        <div :if={@truncated} class="mb-3 text-xs text-base-content/60">
+        <div :if={@truncated} class="mb-3 text-xs text-sr-muted">
           Showing first {@max_rows} of {@total_count} rows.
         </div>
 

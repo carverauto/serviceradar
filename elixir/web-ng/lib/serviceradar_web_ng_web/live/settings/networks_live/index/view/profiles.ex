@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Profiles do
         <div class="flex items-center justify-between w-full">
           <div>
             <div class="text-sm font-semibold">Scanner Profiles</div>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               {length(@profiles)} profile(s) available
             </p>
           </div>
@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Profiles do
       <div class="sr-ui-table-shell">
         <table class={ui_table_class(size: "sm")}>
           <thead>
-            <tr class="text-xs uppercase tracking-wide text-base-content/60">
+            <tr class="text-xs uppercase tracking-wide text-sr-muted">
               <th>Name</th>
               <th>Ports</th>
               <th>Modes</th>
@@ -38,15 +38,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Profiles do
           </thead>
           <tbody>
             <tr :if={@profiles == []}>
-              <td colspan="5" class="text-center text-base-content/60 py-8">
+              <td colspan="5" class="text-center text-sr-muted py-8">
                 No scanner profiles configured. Create one to define reusable scan settings.
               </td>
             </tr>
             <%= for profile <- @profiles do %>
-              <tr class="hover:bg-base-200/40">
+              <tr class="hover:bg-sr-subtle/40">
                 <td>
                   <div class="font-medium">{profile.name}</div>
-                  <p :if={profile.description} class="text-xs text-base-content/60 truncate max-w-xs">
+                  <p :if={profile.description} class="text-xs text-sr-muted truncate max-w-xs">
                     {profile.description}
                   </p>
                 </td>

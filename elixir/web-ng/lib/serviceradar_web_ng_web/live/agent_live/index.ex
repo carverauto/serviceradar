@@ -274,21 +274,21 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
       <div class="mx-auto max-w-[100rem] space-y-6 px-4 py-5 sm:px-6">
         <%!-- Live Connected Agents Section --%>
         <.ui_panel>
-          <div class="flex flex-wrap items-start justify-between gap-2 border-b border-base-200 px-4 py-3">
+          <div class="flex flex-wrap items-start justify-between gap-2 border-b border-sr-line px-4 py-3">
             <div class="flex flex-wrap items-center gap-2">
               <span class="text-sm font-semibold">Live Agents</span>
               <.ui_badge size="sm" variant="success">
                 {length(@live_agents)} connected
               </.ui_badge>
             </div>
-            <span class="text-xs leading-5 text-base-content/50">Real-time gateway registry</span>
+            <span class="text-xs leading-5 text-sr-muted">Real-time gateway registry</span>
           </div>
           <.live_agents_table id="live-agents" agents={@live_agents} />
         </.ui_panel>
 
         <%!-- Database Agents Section --%>
         <.ui_panel>
-          <div class="px-4 py-3 border-b border-base-200 flex flex-wrap items-center justify-between gap-3">
+          <div class="px-4 py-3 border-b border-sr-line flex flex-wrap items-center justify-between gap-3">
             <div class="flex items-center gap-2">
               <span class="text-sm font-semibold">Registered Agents</span>
               <.ui_badge size="sm" variant="ghost">{length(@agents)} visible</.ui_badge>
@@ -337,33 +337,33 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
             </div>
           </div>
 
-          <div class="px-4 py-4 border-b border-base-200 space-y-4">
+          <div class="px-4 py-4 border-b border-sr-line space-y-4">
             <div class="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-              <.ui_panel class="border border-base-200/70 bg-base-100 shadow-none">
+              <.ui_panel class="border border-sr-line/70 bg-sr-surface shadow-none">
                 <:header>
                   <div class="text-sm font-semibold">Version Distribution</div>
                 </:header>
                 <div class="p-4">
-                  <div :if={@version_distribution == []} class="text-sm text-base-content/60">
+                  <div :if={@version_distribution == []} class="text-sm text-sr-muted">
                     No version data in the current result set.
                   </div>
                   <div :if={@version_distribution != []} class="flex flex-wrap gap-2">
                     <%= for %{version: version, count: count} <- @version_distribution do %>
                       <.ui_badge size="sm" variant="outline" class="gap-2 px-3 py-3">
                         <span class="font-mono text-[11px]">{version}</span>
-                        <span class="text-base-content/60">{count}</span>
+                        <span class="text-sr-muted">{count}</span>
                       </.ui_badge>
                     <% end %>
                   </div>
                 </div>
               </.ui_panel>
 
-              <.ui_panel class="border border-base-200/70 bg-base-100 shadow-none">
+              <.ui_panel class="border border-sr-line/70 bg-sr-surface shadow-none">
                 <:header>
                   <div class="text-sm font-semibold">Rollout States</div>
                 </:header>
                 <div class="p-4">
-                  <div :if={@rollout_distribution == []} class="text-sm text-base-content/60">
+                  <div :if={@rollout_distribution == []} class="text-sm text-sr-muted">
                     No rollout activity in the current result set.
                   </div>
                   <div :if={@rollout_distribution != []} class="flex flex-wrap gap-2">
@@ -434,7 +434,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
             allow_selection={RBAC.can?(@current_scope, "settings.edge.manage")}
           />
 
-          <div class="mt-4 pt-4 border-t border-base-200">
+          <div class="mt-4 pt-4 border-t border-sr-line">
             <.ui_pagination
               prev_cursor={Map.get(@pagination, "prev_cursor")}
               next_cursor={Map.get(@pagination, "next_cursor")}
@@ -474,7 +474,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
         </thead>
         <tbody>
           <tr :if={@agents == []}>
-            <td colspan="8" class="text-sm text-base-content/60 py-8 text-center">
+            <td colspan="8" class="text-sm text-sr-muted py-8 text-center">
               No live agents connected. Agents will appear here when they register with the Horde cluster.
             </td>
           </tr>
@@ -482,7 +482,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
           <%= for {agent, idx} <- Enum.with_index(@agents) do %>
             <tr
               id={"#{@id}-row-#{idx}"}
-              class="hover:bg-base-200/40 transition-colors"
+              class="hover:bg-sr-subtle/40 transition-colors"
             >
               <td class="whitespace-nowrap">
                 <.status_indicator status={agent.status} />
@@ -491,7 +491,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
                 class="whitespace-nowrap text-xs font-mono truncate max-w-[12rem]"
                 title={agent.agent_id}
               >
-                <.link navigate={~p"/agents/#{agent.agent_id}"} class="link link-primary">
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="text-sr-brand hover:underline">
                   {agent.agent_id}
                 </.link>
               </td>
@@ -499,7 +499,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
                 <.ui_badge :if={agent.partition_id} size="sm" variant="ghost">
                   {agent.partition_id}
                 </.ui_badge>
-                <span :if={!agent.partition_id} class="text-base-content/40">—</span>
+                <span :if={!agent.partition_id} class="text-sr-muted">—</span>
               </td>
               <td
                 class="whitespace-nowrap text-xs font-mono truncate max-w-[10rem]"
@@ -591,7 +591,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
           <tr :if={@agents == []}>
             <td
               colspan={if(@allow_selection, do: 11, else: 10)}
-              class="text-sm text-base-content/60 py-8 text-center"
+              class="text-sm text-sr-muted py-8 text-center"
             >
               No agents found.
             </td>
@@ -600,7 +600,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
           <%= for {agent, idx} <- Enum.with_index(@agents) do %>
             <tr
               id={"#{@id}-row-#{idx}"}
-              class="hover:bg-base-200/40 transition-colors"
+              class="hover:bg-sr-subtle/40 transition-colors"
             >
               <td :if={@allow_selection} class="whitespace-nowrap">
                 <.ui_icon_button
@@ -629,7 +629,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
                 class="whitespace-nowrap text-xs font-mono truncate max-w-[12rem]"
                 title={agent_uid(agent)}
               >
-                <.link navigate={~p"/agents/#{agent_uid(agent)}"} class="link link-primary">
+                <.link navigate={~p"/agents/#{agent_uid(agent)}"} class="text-sr-brand hover:underline">
                   {agent_uid(agent)}
                 </.link>
               </td>
@@ -714,7 +714,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
     <div :if={@has_sysmon} class="flex items-center gap-1" title="Host Health metrics enabled">
       <.icon name="hero-cpu-chip" class="size-4 text-success" />
     </div>
-    <span :if={not @has_sysmon} class="text-base-content/40">—</span>
+    <span :if={not @has_sysmon} class="text-sr-muted">—</span>
     """
   end
 
@@ -753,7 +753,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
 
     ~H"""
     <div class="min-w-0 max-w-72">
-      <span :if={@total == 0} class="text-base-content/40">—</span>
+      <span :if={@total == 0} class="text-sr-muted">—</span>
 
       <div :if={@total > 0} class="flex min-w-0 flex-col gap-1.5">
         <div class="flex flex-wrap items-center gap-1.5">
@@ -773,7 +773,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
         <div :if={@available != []} class="space-y-0.5">
           <code
             :for={cap <- Enum.take(@available, 2)}
-            class="block max-w-full truncate text-[11px] text-base-content/70"
+            class="block max-w-full truncate text-[11px] text-sr-muted"
             title={cap}
           >
             {cap}
@@ -781,18 +781,18 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
         </div>
 
         <details class="group min-w-0">
-          <summary class="flex w-fit cursor-pointer list-none items-center gap-1 text-[11px] text-base-content/60 hover:text-base-content focus:outline-none">
+          <summary class="flex w-fit cursor-pointer list-none items-center gap-1 text-[11px] text-sr-muted hover:text-sr-ink focus:outline-none">
             <.icon
               name="hero-chevron-right"
               class="size-3 transition-transform group-open:rotate-90"
             /> Reported details
           </summary>
-          <div class="mt-2 min-w-0 space-y-2 rounded-md bg-base-200/50 p-2">
+          <div class="mt-2 min-w-0 space-y-2 rounded-md bg-sr-subtle/50 p-2">
             <div :if={@available != []}>
-              <div class="mb-1 text-[10px] font-semibold text-base-content/50">Active</div>
+              <div class="mb-1 text-[10px] font-semibold text-sr-muted">Active</div>
               <code
                 :for={cap <- @available}
-                class="block break-all text-[10px] leading-4 text-base-content/70"
+                class="block break-all text-[10px] leading-4 text-sr-muted"
               >
                 {cap}
               </code>
@@ -801,7 +801,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
               <div class="mb-1 text-[10px] font-semibold text-warning">Unavailable</div>
               <code
                 :for={cap <- @unavailable}
-                class="block break-all text-[10px] leading-4 text-base-content/60"
+                class="block break-all text-[10px] leading-4 text-sr-muted"
               >
                 {cap}
               </code>

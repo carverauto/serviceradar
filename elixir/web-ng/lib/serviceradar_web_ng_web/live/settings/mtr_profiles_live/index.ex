@@ -591,7 +591,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
               </td>
             </tr>
             <tr :if={@profiles == []}>
-              <td colspan="8" class="text-center py-8 text-base-content/50">
+              <td colspan="8" class="text-center py-8 text-sr-muted">
                 No MTR automation profiles configured yet.
               </td>
             </tr>
@@ -749,7 +749,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
           >
             <div>
               <span class="font-semibold">{@target_scope_summary.effective_target_count}</span>
-              <span class="text-base-content/70">
+              <span class="text-sr-muted">
                 managed target(s) are currently eligible per baseline run
               </span>
             </div>
@@ -778,24 +778,24 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
                 @bulk_interval_guidance.execution_profile
               )})
             </div>
-            <div class="text-base-content/70 mt-1">
+            <div class="text-sr-muted mt-1">
               Measured throughput: {@bulk_interval_guidance.targets_per_minute} targets/min
             </div>
-            <div class="text-base-content/70">
+            <div class="text-sr-muted">
               Effective concurrency: {@bulk_interval_guidance.effective_concurrency}
             </div>
-            <div :if={@bulk_interval_guidance.timeout_ratio_percent > 0} class="text-base-content/70">
+            <div :if={@bulk_interval_guidance.timeout_ratio_percent > 0} class="text-sr-muted">
               Avg timeout ratio: {@bulk_interval_guidance.timeout_ratio_percent}%
             </div>
-            <div class="text-base-content/70">
+            <div class="text-sr-muted">
               Estimated runtime for current scope: {@bulk_interval_guidance.estimated_duration_sec}s
             </div>
-            <div class="text-base-content/70">
+            <div class="text-sr-muted">
               Recommended minimum interval: {@bulk_interval_guidance.recommended_interval_sec}s
             </div>
             <div
               :if={@bulk_interval_guidance.throttled_runs > 0}
-              class="text-base-content/70"
+              class="text-sr-muted"
             >
               Adaptive backoff observed in {@bulk_interval_guidance.throttled_runs}/{@bulk_interval_guidance.sample_count} recent runs.
             </div>
@@ -939,7 +939,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
           <span class="label-text">Run recovery capture MTR on return-to-healthy transitions</span>
         </label>
 
-        <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+        <div class="flex justify-end gap-2 pt-4 border-t border-sr-line">
           <.link navigate={~p"/settings/networks/mtr"}>
             <.ui_button variant="ghost">Cancel</.ui_button>
           </.link>

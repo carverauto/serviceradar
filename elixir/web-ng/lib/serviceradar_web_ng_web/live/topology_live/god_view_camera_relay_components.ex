@@ -15,7 +15,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
         <div class="flex items-center justify-between gap-3">
           <div>
             <div class="text-sm font-semibold">Topology Camera Viewer</div>
-            <div class="text-xs text-base-content/60">
+            <div class="text-xs text-sr-muted">
               Opened from a God-View camera-capable node.
             </div>
           </div>
@@ -50,7 +50,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
 
       <div class="space-y-3">
         <div class="flex flex-wrap items-center gap-2 text-sm">
-          <span class="font-medium text-base-content">
+          <span class="font-medium text-sr-ink">
             {camera_context_label(@selected_camera_context)}
           </span>
           <.ui_badge
@@ -63,7 +63,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
           <.link
             :if={present?(camera_context_device_uid(@selected_camera_context))}
             navigate={~p"/devices/#{camera_context_device_uid(@selected_camera_context)}"}
-            class="link link-primary text-xs"
+            class="text-sr-brand hover:underline text-xs"
           >
             View device
           </.link>
@@ -109,7 +109,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
           data-webrtc-ice-servers={relay_webrtc_ice_servers_json(@active_camera_relay_session)}
           class="space-y-1"
         >
-          <div class="overflow-hidden rounded-md border border-base-300/70 bg-base-300/20">
+          <div class="overflow-hidden rounded-md border border-sr-line/70 bg-sr-control/20">
             <canvas
               data-role="video-canvas"
               class="block aspect-video w-full bg-neutral/80 object-contain"
@@ -122,26 +122,26 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
               autoplay
             />
           </div>
-          <div data-role="transport-status" class="text-xs text-base-content/70">
+          <div data-role="transport-status" class="text-xs text-sr-muted">
             Connecting browser stream...
           </div>
-          <div data-role="player-status" class="text-xs text-base-content/70">
+          <div data-role="player-status" class="text-xs text-sr-muted">
             Waiting for browser decoder...
           </div>
-          <div data-role="compatibility-status" class="text-xs text-base-content/70">
+          <div data-role="compatibility-status" class="text-xs text-sr-muted">
             Preferred transport: {relay_preferred_playback_transport(@active_camera_relay_session)}
           </div>
-          <div data-role="relay-status" class="text-xs font-medium text-base-content">
+          <div data-role="relay-status" class="text-xs font-medium text-sr-ink">
             Relay status: {relay_status_label(@active_camera_relay_session.status)}
           </div>
           <div
             data-role="playback-state"
             data-state={relay_playback_state(@active_camera_relay_session)}
-            class="text-xs text-base-content/70"
+            class="text-xs text-sr-muted"
           >
             Playback state: {relay_playback_state(@active_camera_relay_session)}
           </div>
-          <div data-role="viewer-count" class="text-xs text-base-content/70">
+          <div data-role="viewer-count" class="text-xs text-sr-muted">
             Viewer count: {Map.get(@active_camera_relay_session, :viewer_count, 0)}
           </div>
           <div data-role="termination-kind" class="text-xs text-info/80">
@@ -153,19 +153,19 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
           <div data-role="close-reason" class="text-xs text-warning/80">
             {relay_close_reason_text(@active_camera_relay_session)}
           </div>
-          <div data-role="binary-stats" class="text-xs text-base-content/60">
+          <div data-role="binary-stats" class="text-xs text-sr-muted">
             Chunks: 0  Bytes: 0
           </div>
-          <div data-role="relay-detail" class="text-xs text-base-content/60">
+          <div data-role="relay-detail" class="text-xs text-sr-muted">
             Browser viewer channel is attached to the persisted relay session.
           </div>
         </div>
 
         <div
           :if={!@active_camera_relay_session && @last_camera_relay_session}
-          class="rounded-lg border border-base-300/70 bg-base-200/20 p-3 text-xs text-base-content/70"
+          class="rounded-lg border border-sr-line/70 bg-sr-subtle/20 p-3 text-xs text-sr-muted"
         >
-          <div class="font-medium text-base-content">
+          <div class="font-medium text-sr-ink">
             Last relay status: {relay_status_label(@last_camera_relay_session.status)}
           </div>
           <div :if={present?(relay_termination_text(@last_camera_relay_session))} class="mt-1">
@@ -186,7 +186,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
         <div class="flex items-center justify-between gap-3">
           <div>
             <div class="text-sm font-semibold">Topology Camera Tile Set</div>
-            <div class="text-xs text-base-content/60">
+            <div class="text-xs text-sr-muted">
               Bounded multi-camera relay viewing from clustered topology endpoints.
             </div>
           </div>
@@ -213,23 +213,23 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
           <div
             :for={tile <- @camera_relay_tiles}
             id={"camera-relay-tile-#{camera_relay_tile_dom_id(tile)}"}
-            class="rounded-xl border border-base-300/70 bg-base-200/20 p-3 shadow-sm"
+            class="rounded-xl border border-sr-line/70 bg-sr-subtle/20 p-3 shadow-sm"
           >
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
-                <div class="truncate text-sm font-medium text-base-content">
+                <div class="truncate text-sm font-medium text-sr-ink">
                   {camera_relay_tile_label(tile)}
                 </div>
                 <div
                   :if={present?(camera_relay_tile_profile_label(tile))}
-                  class="mt-1 text-xs text-base-content/60"
+                  class="mt-1 text-xs text-sr-muted"
                 >
                   {camera_relay_tile_profile_label(tile)}
                 </div>
                 <.link
                   :if={present?(camera_relay_tile_device_uid(tile))}
                   navigate={~p"/devices/#{camera_relay_tile_device_uid(tile)}"}
-                  class="link link-primary mt-1 inline-block text-xs"
+                  class="text-sr-brand hover:underline mt-1 inline-block text-xs"
                 >
                   View device
                 </.link>
@@ -276,7 +276,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
               data-webrtc-ice-servers={relay_webrtc_ice_servers_json(camera_relay_tile_session(tile))}
               class="mt-3 space-y-1"
             >
-              <div class="overflow-hidden rounded-md border border-base-300/70 bg-base-300/20">
+              <div class="overflow-hidden rounded-md border border-sr-line/70 bg-sr-control/20">
                 <canvas
                   data-role="video-canvas"
                   class="block aspect-video w-full bg-neutral/80 object-contain"
@@ -289,28 +289,28 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
                   autoplay
                 />
               </div>
-              <div data-role="transport-status" class="text-xs text-base-content/70">
+              <div data-role="transport-status" class="text-xs text-sr-muted">
                 Connecting browser stream...
               </div>
-              <div data-role="player-status" class="text-xs text-base-content/70">
+              <div data-role="player-status" class="text-xs text-sr-muted">
                 Waiting for browser decoder...
               </div>
-              <div data-role="compatibility-status" class="text-xs text-base-content/70">
+              <div data-role="compatibility-status" class="text-xs text-sr-muted">
                 Preferred transport: {relay_preferred_playback_transport(
                   camera_relay_tile_session(tile)
                 )}
               </div>
-              <div data-role="relay-status" class="text-xs font-medium text-base-content">
+              <div data-role="relay-status" class="text-xs font-medium text-sr-ink">
                 Relay status: {camera_relay_tile_session_status_label(tile)}
               </div>
               <div
                 data-role="playback-state"
                 data-state={camera_relay_tile_playback_state(tile)}
-                class="text-xs text-base-content/70"
+                class="text-xs text-sr-muted"
               >
                 Playback state: {camera_relay_tile_playback_state(tile)}
               </div>
-              <div data-role="viewer-count" class="text-xs text-base-content/70">
+              <div data-role="viewer-count" class="text-xs text-sr-muted">
                 Viewer count: {camera_relay_tile_viewer_count(tile)}
               </div>
               <div data-role="termination-kind" class="text-xs text-info/80">
@@ -322,10 +322,10 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
               <div data-role="close-reason" class="text-xs text-warning/80">
                 {camera_relay_tile_close_reason_text(tile)}
               </div>
-              <div data-role="binary-stats" class="text-xs text-base-content/60">
+              <div data-role="binary-stats" class="text-xs text-sr-muted">
                 Chunks: 0  Bytes: 0
               </div>
-              <div data-role="relay-detail" class="text-xs text-base-content/60">
+              <div data-role="relay-detail" class="text-xs text-sr-muted">
                 Cluster tile playback is attached to the persisted relay session.
               </div>
             </div>
@@ -505,7 +505,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
     "border-error/40 bg-error/10 text-error-content"
   end
 
-  def viewer_state_container_class(_kind), do: "border-base-300/70 bg-base-200/20 text-base-content"
+  def viewer_state_container_class(_kind), do: "border-sr-line/70 bg-sr-subtle/20 text-sr-ink"
 
   def camera_relay_tile_limit do
     case Application.get_env(:serviceradar_web_ng, :camera_relay_tile_limit, @default_camera_relay_tile_limit) do
@@ -628,7 +628,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
   def camera_relay_tile_viewer_state_container_class(tile) do
     case Map.get(tile, :viewer_state) do
       %{kind: kind} -> viewer_state_container_class(kind)
-      _ -> "border-base-300/70 bg-base-200/20 text-base-content"
+      _ -> "border-sr-line/70 bg-sr-subtle/20 text-sr-ink"
     end
   end
 

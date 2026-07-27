@@ -15,8 +15,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
       <:header>
         <div class="flex w-full flex-wrap items-center justify-between gap-3">
           <div class="min-w-0">
-            <div class="text-sm font-semibold text-base-content">Matching Devices</div>
-            <div class="text-xs text-base-content/60">
+            <div class="text-sm font-semibold text-sr-ink">Matching Devices</div>
+            <div class="text-xs text-sr-muted">
               <%= if is_integer(@total_device_count) do %>
                 {format_stat_number(@total_device_count)} total {if @total_device_count == 1,
                   do: "result",
@@ -59,7 +59,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
             <tr :if={@devices == []}>
               <td
                 colspan={10}
-                class="py-8 text-center text-sm text-base-content/60"
+                class="py-8 text-center text-sm text-sr-muted"
               >
                 No devices found.
               </td>
@@ -77,7 +77,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                 is_binary(device_uid) and Map.get(@snmp_presence, device_uid, false) == true %>
               <% has_sysmon =
                 is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
-              <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""} #{if deleted or not active, do: "opacity-60", else: ""}"}>
+              <tr class={"hover:bg-sr-subtle/40 #{if is_selected, do: "bg-primary/5", else: ""} #{if deleted or not active, do: "opacity-60", else: ""}"}>
                 <td class="text-center">
                   <input
                     :if={is_binary(device_uid)}
@@ -94,7 +94,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                       <.link
                         :if={is_binary(device_uid)}
                         navigate={~p"/devices/#{device_uid}"}
-                        class="link link-hover truncate text-sm"
+                        class="text-sr-brand hover:underline truncate text-sm"
                         title={"UID: #{device_uid}"}
                       >
                         {Map.get(row, "hostname") || device_uid}
@@ -116,7 +116,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                       Out of service
                     </.ui_badge>
                   </div>
-                  <div class="font-mono text-[0.7rem] text-base-content/60 truncate mt-0.5">
+                  <div class="font-mono text-[0.7rem] text-sr-muted truncate mt-0.5">
                     {Map.get(row, "ip") || "—"}
                   </div>
                 </td>
@@ -147,7 +147,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                 </td>
                 <td class="text-xs">
                   <.icmp_sparkline :if={is_map(icmp)} spark={icmp} />
-                  <span :if={not is_map(icmp)} class="text-base-content/40">—</span>
+                  <span :if={not is_map(icmp)} class="text-sr-muted">—</span>
                 </td>
                 <td class="text-xs">
                   <div class="flex flex-col gap-1">
@@ -174,7 +174,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
         </table>
       </div>
 
-      <div class="mt-4 pt-4 border-t border-base-200">
+      <div class="mt-4 pt-4 border-t border-sr-line">
         <.ui_pagination
           prev_cursor={Map.get(@pagination, "prev_cursor")}
           next_cursor={Map.get(@pagination, "next_cursor")}

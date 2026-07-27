@@ -179,7 +179,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       hide_breadcrumb
       srql={@srql}
     >
-      <div class="min-h-[calc(100vh-5rem)] bg-base-100">
+      <div class="min-h-[calc(100vh-5rem)] bg-sr-surface">
         <div :if={@load_state == :loading} class="flex min-h-[28rem] items-center justify-center">
           <.ui_spinner size="lg" />
         </div>
@@ -214,12 +214,12 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
             phx-hook="DashboardWasmHost"
             phx-update="ignore"
             data-host={@host_payload_json}
-            class="relative min-h-[calc(100vh-5rem)] flex-1 bg-base-100"
+            class="relative min-h-[calc(100vh-5rem)] flex-1 bg-sr-surface"
           >
             <div class="absolute inset-0 flex items-center justify-center">
               <div class="text-center">
                 <.ui_spinner size="md" />
-                <div class="mt-3 text-sm text-base-content/70">Loading dashboard renderer</div>
+                <div class="mt-3 text-sm text-sr-muted">Loading dashboard renderer</div>
               </div>
             </div>
           </div>

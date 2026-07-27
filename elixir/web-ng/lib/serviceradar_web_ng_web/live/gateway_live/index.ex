@@ -69,7 +69,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
         <.ui_panel>
           <.gateways_table id="gateways" gateways={@gateways} />
 
-          <div class="mt-4 pt-4 border-t border-base-200">
+          <div class="mt-4 pt-4 border-t border-sr-line">
             <.ui_pagination
               prev_cursor={Map.get(@pagination, "prev_cursor")}
               next_cursor={Map.get(@pagination, "next_cursor")}
@@ -94,23 +94,23 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
       <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-48">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-48">
               Gateway ID
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-24">
               Status
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-40">
               Address
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60">
               Last Seen
             </th>
           </tr>
         </thead>
         <tbody>
           <tr :if={@gateways == []}>
-            <td colspan="4" class="text-sm text-base-content/60 py-8 text-center">
+            <td colspan="4" class="text-sm text-sr-muted py-8 text-center">
               No gateways found.
             </td>
           </tr>
@@ -118,7 +118,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
           <%= for {gateway, idx} <- Enum.with_index(@gateways) do %>
             <tr
               id={"#{@id}-row-#{idx}"}
-              class="hover:bg-base-200/40 cursor-pointer transition-colors"
+              class="hover:bg-sr-subtle/40 cursor-pointer transition-colors"
               phx-click={JS.navigate(~p"/gateways/#{gateway_id(gateway)}")}
             >
               <td

@@ -1175,7 +1175,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             <div :if={@active_tab == "metrics" and @metrics_view == "samples"}>
               <div
                 id="metrics-pane-label-samples"
-                class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content/60"
+                class="mb-2 text-xs font-semibold uppercase tracking-wide text-sr-muted"
               >
                 Span samples (slow-span exemplars)
               </div>
@@ -1184,7 +1184,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             <div :if={@active_tab == "metrics" and @metrics_view == "points"}>
               <div
                 id="metrics-pane-label-points"
-                class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content/60"
+                class="mb-2 text-xs font-semibold uppercase tracking-wide text-sr-muted"
               >
                 OTLP metrics
               </div>
@@ -1223,7 +1223,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
             <div
               :if={@active_tab != "metrics" or @metrics_view == "samples"}
-              class="mt-4 pt-4 border-t border-base-200"
+              class="mt-4 pt-4 border-t border-sr-line"
             >
               <.ui_pagination
                 prev_cursor={Map.get(@pagination, "prev_cursor")}
@@ -1341,7 +1341,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:debug, debug)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-4 font-sans">
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-4 font-sans">
       <div class="mb-3 flex items-center justify-between">
         <div class="flex items-center gap-3">
           <div class="text-[11px] font-semibold uppercase tracking-wider text-sr-muted">
@@ -1426,7 +1426,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     ~H"""
     <.link
       patch={~p"/observability?#{%{tab: "logs", q: @query}}"}
-      class="group cursor-pointer rounded-lg bg-base-200/50 p-3 transition-colors hover:bg-base-200"
+      class="group cursor-pointer rounded-lg bg-sr-subtle/50 p-3 transition-colors hover:bg-sr-subtle"
     >
       <div class="mb-1 flex items-center justify-between">
         <span class={["text-[11px] font-semibold tracking-wide", color_class(@color)]}>{@label}</span>
@@ -1435,7 +1435,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       <div class="text-xl font-semibold tracking-tight tabular-nums group-hover:text-primary">
         {@count}
       </div>
-      <div class="mt-2 h-1 overflow-hidden rounded-full bg-base-300">
+      <div class="mt-2 h-1 overflow-hidden rounded-full bg-sr-control">
         <div class={["h-full rounded-full", color_bg(@color)]} style={"width: #{@pct}%"} />
       </div>
     </.link>
@@ -1460,9 +1460,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:low, low)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
       <div class="flex items-center justify-between mb-3">
-        <div class="text-xs text-base-content/50 uppercase tracking-wider">
+        <div class="text-xs text-sr-muted uppercase tracking-wider">
           Event Severity Breakdown
         </div>
         <div class="flex items-center gap-1">
@@ -1532,7 +1532,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     ~H"""
     <.link
       patch={~p"/observability?#{%{tab: "events", q: @query}}"}
-      class="group cursor-pointer rounded-lg bg-base-200/50 p-3 transition-colors hover:bg-base-200"
+      class="group cursor-pointer rounded-lg bg-sr-subtle/50 p-3 transition-colors hover:bg-sr-subtle"
     >
       <div class="mb-1 flex items-center justify-between">
         <span class={["text-[11px] font-semibold tracking-wide", color_class(@color)]}>{@label}</span>
@@ -1541,7 +1541,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       <div class="text-xl font-semibold tracking-tight tabular-nums group-hover:text-primary">
         {@count}
       </div>
-      <div class="mt-2 h-1 overflow-hidden rounded-full bg-base-300">
+      <div class="mt-2 h-1 overflow-hidden rounded-full bg-sr-control">
         <div class={["h-full rounded-full", color_bg(@color)]} style={"width: #{@pct}%"} />
       </div>
     </.link>
@@ -1561,9 +1561,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:suppressed, Map.get(assigns.summary, :suppressed, 0))
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
       <div class="flex items-center justify-between mb-3">
-        <div class="text-xs text-base-content/50 uppercase tracking-wider">
+        <div class="text-xs text-sr-muted uppercase tracking-wider">
           Alert Status Overview
         </div>
         <div class="flex items-center gap-1">
@@ -1666,13 +1666,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               )
             }
             class={[
-              "rounded-xl border bg-base-100 p-3 transition hover:border-primary/40 hover:bg-base-200/30",
+              "rounded-xl border bg-sr-surface p-3 transition hover:border-primary/40 hover:bg-sr-subtle/30",
               @view == "traffic" && "border-primary/50 bg-primary/5",
-              @view != "traffic" && "border-base-200"
+              @view != "traffic" && "border-sr-line"
             ]}
           >
             <div class="text-sm font-semibold">Traffic Analysis</div>
-            <div class="mt-1 text-xs text-base-content/60">
+            <div class="mt-1 text-xs text-sr-muted">
               Rate trends, protocol/app activity, stacked series
             </div>
           </.link>
@@ -1686,13 +1686,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               )
             }
             class={[
-              "rounded-xl border bg-base-100 p-3 transition hover:border-primary/40 hover:bg-base-200/30",
+              "rounded-xl border bg-sr-surface p-3 transition hover:border-primary/40 hover:bg-sr-subtle/30",
               @view == "talkers" && "border-primary/50 bg-primary/5",
-              @view != "talkers" && "border-base-200"
+              @view != "talkers" && "border-sr-line"
             ]}
           >
             <div class="text-sm font-semibold">Talkers & Ports</div>
-            <div class="mt-1 text-xs text-base-content/60">
+            <div class="mt-1 text-xs text-sr-muted">
               Heavy hitters, frequent talkers, top destinations
             </div>
           </.link>
@@ -1706,13 +1706,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               )
             }
             class={[
-              "rounded-xl border bg-base-100 p-3 transition hover:border-primary/40 hover:bg-base-200/30",
+              "rounded-xl border bg-sr-surface p-3 transition hover:border-primary/40 hover:bg-sr-subtle/30",
               @view == "topology" && "border-primary/50 bg-primary/5",
-              @view != "topology" && "border-base-200"
+              @view != "topology" && "border-sr-line"
             ]}
           >
             <div class="text-sm font-semibold">Topology</div>
-            <div class="mt-1 text-xs text-base-content/60">Sankey flow path and geo distribution</div>
+            <div class="mt-1 text-xs text-sr-muted">Sankey flow path and geo distribution</div>
           </.link>
           <.link
             patch={
@@ -1724,13 +1724,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               )
             }
             class={[
-              "rounded-xl border bg-base-100 p-3 transition hover:border-primary/40 hover:bg-base-200/30",
+              "rounded-xl border bg-sr-surface p-3 transition hover:border-primary/40 hover:bg-sr-subtle/30",
               @view == "explorer" && "border-primary/50 bg-primary/5",
-              @view != "explorer" && "border-base-200"
+              @view != "explorer" && "border-sr-line"
             ]}
           >
             <div class="text-sm font-semibold">Flow Explorer</div>
-            <div class="mt-1 text-xs text-base-content/60">
+            <div class="mt-1 text-xs text-sr-muted">
               Raw records table with SRQL-driven filtering
             </div>
           </.link>
@@ -1738,8 +1738,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       </.ui_panel>
 
       <.ui_panel :if={@view in ["overview", "traffic"]} class="p-0" body_class="p-0">
-        <div class="p-3 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
-          <div class="text-xs uppercase tracking-wider text-base-content/50">Traffic Over Time</div>
+        <div class="p-3 border-b border-sr-line bg-sr-subtle/30 flex items-center justify-between">
+          <div class="text-xs uppercase tracking-wider text-sr-muted">Traffic Over Time</div>
           <div class="flex flex-wrap items-center gap-1">
             <.ui_button
               size="xs"
@@ -1823,7 +1823,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             >
               Sankey
             </.ui_button>
-            <span class="text-xs text-base-content/60 font-mono">
+            <span class="text-xs text-sr-muted font-mono">
               bucket: {format_bucket(@timeseries.bucket_seconds)}
             </span>
           </div>
@@ -1831,7 +1831,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <div class="p-3">
           <%= if @graph_mode in ["stacked", "stacked100"] do %>
             <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-              <div class="text-xs uppercase tracking-wider text-base-content/50">Series</div>
+              <div class="text-xs uppercase tracking-wider text-sr-muted">Series</div>
               <div class="flex flex-wrap items-center gap-1">
                 <.ui_button
                   size="xs"
@@ -1897,11 +1897,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
       <div :if={@view == "traffic"} class="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <.ui_panel class="p-0" body_class="p-0">
-          <div class="p-3 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
-            <div class="text-xs uppercase tracking-wider text-base-content/50">
+          <div class="p-3 border-b border-sr-line bg-sr-subtle/30 flex items-center justify-between">
+            <div class="text-xs uppercase tracking-wider text-sr-muted">
               Activity By Protocol
             </div>
-            <div class="text-xs text-base-content/60 font-mono">
+            <div class="text-xs text-sr-muted font-mono">
               bucket: {format_bucket(
                 Map.get(@protocol_activity, :bucket_seconds, @timeseries.bucket_seconds)
               )}
@@ -1920,11 +1920,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </.ui_panel>
 
         <.ui_panel class="p-0" body_class="p-0">
-          <div class="p-3 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
-            <div class="text-xs uppercase tracking-wider text-base-content/50">
+          <div class="p-3 border-b border-sr-line bg-sr-subtle/30 flex items-center justify-between">
+            <div class="text-xs uppercase tracking-wider text-sr-muted">
               Activity By Application
             </div>
-            <div class="text-xs text-base-content/60 font-mono">
+            <div class="text-xs text-sr-muted font-mono">
               top: {length(Map.get(@app_activity, :keys, []))}
             </div>
           </div>
@@ -1942,11 +1942,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       </div>
 
       <.ui_panel :if={@view == "talkers"} class="p-0" body_class="p-0">
-        <div class="p-3 border-b border-base-200 bg-base-200/30 flex items-center justify-between gap-3">
-          <div class="text-xs uppercase tracking-wider text-base-content/50">
+        <div class="p-3 border-b border-sr-line bg-sr-subtle/30 flex items-center justify-between gap-3">
+          <div class="text-xs uppercase tracking-wider text-sr-muted">
             Frequent Talkers Icicle (src → dst → port)
           </div>
-          <div class="text-[11px] text-base-content/60">
+          <div class="text-[11px] text-sr-muted">
             Click block to filter · click same depth to zoom out
           </div>
         </div>
@@ -1965,7 +1965,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
       <.ui_panel :if={@view == "traffic" and @graph_mode in ["lines", "grid"]} class="p-3">
         <div>
-          <div class="text-xs uppercase tracking-wider text-base-content/50">Compare</div>
+          <div class="text-xs uppercase tracking-wider text-sr-muted">Compare</div>
           <div class="mt-2 flex flex-wrap items-center gap-2">
             <.ui_button
               size="xs"
@@ -2022,7 +2022,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       <.ui_panel :if={@view == "topology"} class="p-3">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <div class="text-xs uppercase tracking-wider text-base-content/50">Geo</div>
+            <div class="text-xs uppercase tracking-wider text-sr-muted">Geo</div>
             <div class="mt-2 flex flex-wrap items-center gap-2">
               <.ui_button
                 size="xs"
@@ -2060,7 +2060,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </div>
 
           <div>
-            <div class="text-xs uppercase tracking-wider text-base-content/50">Sankey</div>
+            <div class="text-xs uppercase tracking-wider text-sr-muted">Sankey</div>
             <div class="mt-2 flex flex-wrap items-center gap-2">
               <.ui_button
                 size="xs"
@@ -2143,10 +2143,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       >
         <.ui_panel class="p-3 lg:col-span-2">
           <div class="flex items-center justify-between">
-            <div class="text-xs uppercase tracking-wider text-base-content/50">
+            <div class="text-xs uppercase tracking-wider text-sr-muted">
               Traffic Sankey (Top 40 Edges)
             </div>
-            <div class="text-[10px] font-mono text-base-content/60">
+            <div class="text-[10px] font-mono text-sr-muted">
               src:/{@sankey_prefix} -> port -> dst:/{@sankey_prefix}
             </div>
           </div>
@@ -2160,7 +2160,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <svg class="w-full h-[34rem]"></svg>
               <div
                 :if={Map.get(@sankey, :edges, []) == []}
-                class="py-8 text-center text-sm text-base-content/60"
+                class="py-8 text-center text-sm text-sr-muted"
               >
                 No Sankey edges in this window.
               </div>
@@ -2170,10 +2170,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
         <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
-            <div class="text-xs uppercase tracking-wider text-base-content/50">
+            <div class="text-xs uppercase tracking-wider text-sr-muted">
               Geo Heatmap (Top Countries)
             </div>
-            <div class="text-[10px] font-mono text-base-content/60">
+            <div class="text-[10px] font-mono text-sr-muted">
               {@geo_side}
             </div>
           </div>
@@ -2187,17 +2187,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-medium text-base-content/60">Total Flows</p>
+              <p class="text-sm font-medium text-sr-muted">Total Flows</p>
               <p class="text-2xl font-bold">{@total}</p>
             </div>
-            <.icon name="hero-arrow-trending-up" class="h-8 w-8 text-base-content/40" />
+            <.icon name="hero-arrow-trending-up" class="h-8 w-8 text-sr-muted" />
           </div>
         </.ui_panel>
 
         <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-medium text-base-content/60">TCP Flows</p>
+              <p class="text-sm font-medium text-sr-muted">TCP Flows</p>
               <p class="text-2xl font-bold">{@tcp}</p>
             </div>
             <.ui_badge variant="success">TCP</.ui_badge>
@@ -2207,7 +2207,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-medium text-base-content/60">UDP Flows</p>
+              <p class="text-sm font-medium text-sr-muted">UDP Flows</p>
               <p class="text-2xl font-bold">{@udp}</p>
             </div>
             <.ui_badge variant="info">UDP</.ui_badge>
@@ -2217,7 +2217,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-medium text-base-content/60">Other</p>
+              <p class="text-sm font-medium text-sr-muted">Other</p>
               <p class="text-2xl font-bold">{@other}</p>
             </div>
             <.ui_badge variant="ghost">Other</.ui_badge>
@@ -2227,10 +2227,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-medium text-base-content/60">Total Bytes</p>
+              <p class="text-sm font-medium text-sr-muted">Total Bytes</p>
               <p class="text-2xl font-bold">{format_netflow_bytes(@total_bytes)}</p>
             </div>
-            <.icon name="hero-circle-stack" class="h-8 w-8 text-base-content/40" />
+            <.icon name="hero-circle-stack" class="h-8 w-8 text-sr-muted" />
           </div>
         </.ui_panel>
       </div>
@@ -2238,7 +2238,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       <.ui_panel :if={@view == "overview"} class="p-3">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div class="min-w-0">
-            <div class="text-xs uppercase tracking-wider text-base-content/50">
+            <div class="text-xs uppercase tracking-wider text-sr-muted">
               Protocol Distribution
             </div>
             <div class="mt-2 flex flex-wrap items-center gap-2">
@@ -2293,13 +2293,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               >
                 UDP
               </.ui_button>
-              <span class="text-xs text-base-content/60">
+              <span class="text-xs text-sr-muted">
                 Other: {format_compact_int(@other)}
               </span>
             </div>
 
             <div class="mt-3">
-              <div class="text-xs uppercase tracking-wider text-base-content/50">
+              <div class="text-xs uppercase tracking-wider text-sr-muted">
                 Direction
               </div>
               <div class="mt-2 flex flex-wrap items-center gap-2">
@@ -2402,44 +2402,44 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-medium text-base-content/60">Avg Bandwidth</p>
+              <p class="text-sm font-medium text-sr-muted">Avg Bandwidth</p>
               <p class="text-xl font-bold">
                 {format_netflow_bps(Map.get(@summary, :avg_bps, 0.0))}
               </p>
             </div>
-            <.icon name="hero-bolt" class="h-8 w-8 text-base-content/40" />
+            <.icon name="hero-bolt" class="h-8 w-8 text-sr-muted" />
           </div>
         </.ui_panel>
 
         <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-medium text-base-content/60">Avg PPS</p>
+              <p class="text-sm font-medium text-sr-muted">Avg PPS</p>
               <p class="text-xl font-bold">
                 {format_netflow_pps(Map.get(@summary, :avg_pps, 0.0))}
               </p>
             </div>
-            <.icon name="hero-signal" class="h-8 w-8 text-base-content/40" />
+            <.icon name="hero-signal" class="h-8 w-8 text-sr-muted" />
           </div>
         </.ui_panel>
 
         <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-medium text-base-content/60">Total Packets</p>
+              <p class="text-sm font-medium text-sr-muted">Total Packets</p>
               <p class="text-xl font-bold">
                 {format_compact_int(Map.get(@summary, :total_packets, 0))}
               </p>
             </div>
-            <.icon name="hero-inbox-stack" class="h-8 w-8 text-base-content/40" />
+            <.icon name="hero-inbox-stack" class="h-8 w-8 text-sr-muted" />
           </div>
         </.ui_panel>
       </div>
 
       <div :if={@view == "talkers"} class="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <.ui_panel class="p-0" body_class="p-0">
-          <div class="p-4 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
-            <div class="text-xs uppercase tracking-wider text-base-content/50">Top Talkers</div>
+          <div class="p-4 border-b border-sr-line bg-sr-subtle/30 flex items-center justify-between">
+            <div class="text-xs uppercase tracking-wider text-sr-muted">Top Talkers</div>
             <div class="flex items-center gap-2">
               <div class="flex items-center gap-1">
                 <.ui_button
@@ -2492,12 +2492,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             </div>
           </div>
           <div class="p-2">
-            <div :if={@top_talkers == []} class="px-2 py-6 text-center text-sm text-base-content/60">
+            <div :if={@top_talkers == []} class="px-2 py-6 text-center text-sm text-sr-muted">
               No talker stats for this window.
             </div>
             <div :if={@top_talkers != []} class="space-y-1">
               <%= for row <- @top_talkers do %>
-                <div class="flex items-center justify-between gap-3 rounded-lg px-3 py-2 hover:bg-base-200/40">
+                <div class="flex items-center justify-between gap-3 rounded-lg px-3 py-2 hover:bg-sr-subtle/40">
                   <div class="min-w-0">
                     <% ip = Map.get(row, :ip) || "—" %>
                     <.link
@@ -2520,18 +2520,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     </.link>
                     <div
                       :if={hostname = Map.get(@rdns_map, ip)}
-                      class="mt-0.5 text-[11px] text-base-content/60 max-w-60 truncate font-mono"
+                      class="mt-0.5 text-[11px] text-sr-muted max-w-60 truncate font-mono"
                       title={hostname}
                     >
                       {hostname}
                     </div>
-                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                    <div class="text-[10px] uppercase tracking-wider text-sr-muted">
                       Source
                     </div>
                   </div>
                   <div class="shrink-0 text-right">
                     <div class="text-sm font-mono">{format_netflow_bytes(Map.get(row, :bytes))}</div>
-                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">Bytes</div>
+                    <div class="text-[10px] uppercase tracking-wider text-sr-muted">Bytes</div>
                   </div>
                 </div>
               <% end %>
@@ -2540,17 +2540,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </.ui_panel>
 
         <.ui_panel class="p-0" body_class="p-0">
-          <div class="p-4 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
-            <div class="text-xs uppercase tracking-wider text-base-content/50">Top Ports</div>
+          <div class="p-4 border-b border-sr-line bg-sr-subtle/30 flex items-center justify-between">
+            <div class="text-xs uppercase tracking-wider text-sr-muted">Top Ports</div>
             <.ui_badge variant="ghost" size="xs">{length(@top_ports)}</.ui_badge>
           </div>
           <div class="p-2">
-            <div :if={@top_ports == []} class="px-2 py-6 text-center text-sm text-base-content/60">
+            <div :if={@top_ports == []} class="px-2 py-6 text-center text-sm text-sr-muted">
               No port stats for this window.
             </div>
             <div :if={@top_ports != []} class="space-y-1">
               <%= for row <- @top_ports do %>
-                <div class="flex items-center justify-between gap-3 rounded-lg px-3 py-2 hover:bg-base-200/40">
+                <div class="flex items-center justify-between gap-3 rounded-lg px-3 py-2 hover:bg-sr-subtle/40">
                   <div class="min-w-0">
                     <div class="flex items-center gap-2">
                       <% service = netflow_service_label(Map.get(row, :port)) %>
@@ -2578,13 +2578,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                         {service}
                       </.ui_badge>
                     </div>
-                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                    <div class="text-[10px] uppercase tracking-wider text-sr-muted">
                       Destination port{if(service, do: " · #{service}", else: "")}
                     </div>
                   </div>
                   <div class="shrink-0 text-right">
                     <div class="text-sm font-mono">{format_netflow_bytes(Map.get(row, :bytes))}</div>
-                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">Bytes</div>
+                    <div class="text-[10px] uppercase tracking-wider text-sr-muted">Bytes</div>
                   </div>
                 </div>
               <% end %>
@@ -2594,7 +2594,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       </div>
       <.ui_panel :if={@view == "explorer"} class="p-4">
         <div class="text-sm font-medium">Flow Explorer</div>
-        <div class="text-xs text-base-content/60 mt-1">
+        <div class="text-xs text-sr-muted mt-1">
           Detailed flow rows are shown below in the table. Use SRQL and presets to refine the dataset.
         </div>
       </.ui_panel>
@@ -2621,7 +2621,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:max_bytes, max_bytes)
 
     ~H"""
-    <div :if={@rows == []} class="py-6 text-center text-sm text-base-content/60">
+    <div :if={@rows == []} class="py-6 text-center text-sm text-sr-muted">
       No GeoIP samples in this window.
     </div>
 
@@ -2632,11 +2632,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           type="button"
           phx-click="netflow_geo_click"
           phx-value-country={Map.get(row, :country)}
-          class="rounded-lg border border-base-200 p-2 text-left hover:border-primary/50 transition-colors"
+          class="rounded-lg border border-sr-line p-2 text-left hover:border-primary/50 transition-colors"
           style={"background-color: rgba(59, 130, 246, #{alpha})"}
         >
           <div class="text-xs font-mono">{Map.get(row, :country)}</div>
-          <div class="text-[10px] text-base-content/60 font-mono">
+          <div class="text-[10px] text-sr-muted font-mono">
             {format_netflow_bytes(Map.get(row, :bytes))}
           </div>
         </button>
@@ -2696,7 +2696,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             r="14"
             fill="none"
             stroke-width="6"
-            class="stroke-base-200"
+            class="stroke-sr-line"
           />
           <circle
             cx="20"
@@ -2727,14 +2727,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             fill="none"
             stroke-width="6"
             stroke-linecap="butt"
-            class="stroke-base-content/30"
+            class="stroke-sr-muted/30"
             stroke-dasharray={"#{@other_len} #{@circumference}"}
             stroke-dashoffset={@other_off}
           />
         </g>
       </svg>
 
-      <div class="text-xs font-mono text-base-content/70 leading-tight">
+      <div class="text-xs font-mono text-sr-muted leading-tight">
         <div class="flex items-center gap-2">
           <span class="inline-block size-2 rounded-full bg-success"></span>
           <span>TCP {format_compact_int(@tcp)}</span>
@@ -2774,7 +2774,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:bucket_seconds, bucket_seconds)
 
     ~H"""
-    <div :if={@points == []} class="py-8 text-center text-sm text-base-content/60">
+    <div :if={@points == []} class="py-8 text-center text-sm text-sr-muted">
       No traffic samples in this window.
     </div>
 
@@ -2806,7 +2806,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             y1={y}
             x2="1000"
             y2={y}
-            class="stroke-base-content/10"
+            class="stroke-sr-line"
             stroke-width="1"
           />
         <% end %>
@@ -2817,26 +2817,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             y1="10"
             x2={x}
             y2="150"
-            class="stroke-base-content/5"
+            class="stroke-sr-line/60"
             stroke-width="1"
           />
         <% end %>
 
-        <text x="4" y="16" class="fill-base-content/60 text-[10px] font-mono">
+        <text x="4" y="16" class="fill-sr-muted text-[10px] font-mono">
           {format_netflow_bytes(@max_bytes)}
         </text>
-        <text x="4" y="82" class="fill-base-content/60 text-[10px] font-mono">
+        <text x="4" y="82" class="fill-sr-muted text-[10px] font-mono">
           {format_netflow_bytes(trunc(@max_bytes / 2))}
         </text>
-        <text x="4" y="150" class="fill-base-content/60 text-[10px] font-mono">0 B</text>
-        <text x="0" y="158" class="fill-base-content/60 text-[10px] font-mono">
+        <text x="4" y="150" class="fill-sr-muted text-[10px] font-mono">0 B</text>
+        <text x="0" y="158" class="fill-sr-muted text-[10px] font-mono">
           {format_netflow_timestamp(%{"time" => DateTime.to_iso8601(hd(@points).bucket_start)})}
         </text>
         <text
           x="500"
           y="158"
           text-anchor="middle"
-          class="fill-base-content/60 text-[10px] font-mono"
+          class="fill-sr-muted text-[10px] font-mono"
         >
           {format_netflow_timestamp(%{
             "time" =>
@@ -2845,7 +2845,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               )
           })}
         </text>
-        <text x="1000" y="158" text-anchor="end" class="fill-base-content/60 text-[10px] font-mono">
+        <text x="1000" y="158" text-anchor="end" class="fill-sr-muted text-[10px] font-mono">
           {format_netflow_timestamp(%{"time" => DateTime.to_iso8601(List.last(@points).bucket_end)})}
         </text>
 
@@ -2880,7 +2880,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           :if={@compare_points != [] and @compare_mode in ["previous", "yesterday"]}
           points={netflow_timeseries_polyline(@compare_points, @max_bytes, 1000, 140)}
           fill="none"
-          class="stroke-base-content/50"
+          class="stroke-sr-muted/50"
           stroke-dasharray="4 4"
           stroke-width="2"
         />
@@ -2894,7 +2894,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             cx={cx}
             cy={cy}
             r="2.6"
-            class="fill-primary/80 stroke-base-100 cursor-pointer"
+            class="fill-primary/80 stroke-sr-surface cursor-pointer"
             stroke-width="1"
             phx-click="netflow_bucket"
             phx-value-start={DateTime.to_iso8601(Map.get(point, :bucket_start))}
@@ -2905,7 +2905,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <% end %>
       </svg>
 
-      <div class="mt-2 flex items-center justify-between text-[10px] text-base-content/60 font-mono">
+      <div class="mt-2 flex items-center justify-between text-[10px] text-sr-muted font-mono">
         <div>
           {format_netflow_timestamp(%{"time" => DateTime.to_iso8601(hd(@points).bucket_start)})}
         </div>
@@ -2939,7 +2939,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:keys, Enum.filter(assigns.keys || [], &is_binary/1))
 
     ~H"""
-    <div :if={@points == [] or @keys == []} class="py-6 text-center text-sm text-base-content/60">
+    <div :if={@points == [] or @keys == []} class="py-6 text-center text-sm text-sr-muted">
       No {@mode} samples in this window.
     </div>
 
@@ -3037,8 +3037,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     assigns = assign(assigns, :tone, tone_class(assigns.tone))
 
     ~H"""
-    <div class="rounded-lg border border-base-200 bg-base-200/40 p-3">
-      <div class="text-xs text-base-content/60">{@label}</div>
+    <div class="rounded-lg border border-sr-line bg-sr-subtle/40 p-3">
+      <div class="text-xs text-sr-muted">{@label}</div>
       <div class={["text-xl font-bold", @tone]}>{@count}</div>
     </div>
     """
@@ -3048,7 +3048,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp tone_class("info"), do: "text-info"
   defp tone_class("success"), do: "text-success"
   defp tone_class("error"), do: "text-error"
-  defp tone_class(_), do: "text-base-content"
+  defp tone_class(_), do: "text-sr-ink"
 
   attr(:srql, :map, required: true)
   attr(:limit, :integer, required: true)
@@ -3076,7 +3076,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     ~H"""
     <div class="flex items-center gap-2">
       <div class="hidden sm:flex items-center gap-2">
-        <span class="text-[10px] uppercase tracking-wider text-base-content/50">Source</span>
+        <span class="text-[10px] uppercase tracking-wider text-sr-muted">Source</span>
         <div class="flex flex-wrap gap-1">
           <%= for source <- @sources do %>
             <.log_source_chip
@@ -3233,7 +3233,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             {if @live?, do: "On", else: "Off"}
           </.ui_badge>
         </.ui_button>
-        <span class="text-[10px] uppercase tracking-wider text-base-content/50">Presets</span>
+        <span class="text-[10px] uppercase tracking-wider text-sr-muted">Presets</span>
         <div class="flex flex-wrap gap-1">
           <%= for preset <- @presets do %>
             <.ui_button
@@ -3267,7 +3267,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       </div>
 
       <form phx-submit="netflow_prefix_tag_filter" class="flex items-center gap-2">
-        <label class="text-[10px] uppercase tracking-wider text-base-content/50 whitespace-nowrap">
+        <label class="text-[10px] uppercase tracking-wider text-sr-muted whitespace-nowrap">
           Prefix tag
         </label>
         <input
@@ -3440,14 +3440,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp color_class("info"), do: "text-info"
   defp color_class("primary"), do: "text-primary"
   defp color_class("success"), do: "text-success"
-  defp color_class(_), do: "text-base-content"
+  defp color_class(_), do: "text-sr-ink"
 
   defp color_bg("error"), do: "bg-error"
   defp color_bg("warning"), do: "bg-warning"
   defp color_bg("info"), do: "bg-info"
   defp color_bg("primary"), do: "bg-primary"
   defp color_bg("success"), do: "bg-success"
-  defp color_bg(_), do: "bg-base-content"
+  defp color_bg(_), do: "bg-sr-ink"
 
   attr(:stats, :map, required: true)
   attr(:latency, :map, required: true)
@@ -3605,7 +3605,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         "warning" -> {"bg-warning/10", "text-warning"}
         "error" -> {"bg-error/10", "text-error"}
         "info" -> {"bg-info/10", "text-info"}
-        _ -> {"bg-base-200/50", "text-base-content/60"}
+        _ -> {"bg-sr-subtle/50", "text-sr-muted"}
       end
 
     assigns = assigns |> assign(:bg, bg) |> assign(:fg, fg)
@@ -3614,7 +3614,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     <.link
       :if={is_binary(@href)}
       patch={@href}
-      class="block rounded-xl border border-base-200 bg-base-100 p-3 hover:bg-base-200/40 transition-colors cursor-pointer"
+      class="block rounded-xl border border-sr-line bg-sr-surface p-3 hover:bg-sr-subtle/40 transition-colors cursor-pointer"
     >
       <.obs_stat_body
         title={@title}
@@ -3625,7 +3625,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         fg={@fg}
       />
     </.link>
-    <div :if={not is_binary(@href)} class="rounded-xl border border-base-200 bg-base-100 p-3">
+    <div :if={not is_binary(@href)} class="rounded-xl border border-sr-line bg-sr-surface p-3">
       <.obs_stat_body
         title={@title}
         value={@value}
@@ -3652,9 +3652,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <.icon name={@icon} class={["size-4", @fg]} />
       </div>
       <div class="min-w-0">
-        <div class="text-xs text-base-content/60 truncate">{@title}</div>
+        <div class="text-xs text-sr-muted truncate">{@title}</div>
         <div class="text-lg font-bold tabular-nums truncate">{@value}</div>
-        <div :if={is_binary(@subtitle)} class="text-[10px] text-base-content/50 truncate">
+        <div :if={is_binary(@subtitle)} class="text-[10px] text-sr-muted truncate">
           {@subtitle}
         </div>
       </div>
@@ -3672,23 +3672,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-40">
               Time
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-20">
               Level
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-32">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-32">
               Service
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60">
               Message
             </th>
           </tr>
         </thead>
         <tbody id={"#{@id}-rows"} phx-update="stream">
           <tr :if={@count == 0}>
-            <td colspan="4" class="text-sm text-base-content/60 py-8 text-center">
+            <td colspan="4" class="text-sm text-sr-muted py-8 text-center">
               No log entries found.
             </td>
           </tr>
@@ -3696,7 +3696,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <%= for {dom_id, log} <- @logs do %>
             <tr
               id={dom_id}
-              class="hover:bg-base-200/40 cursor-pointer transition-colors"
+              class="hover:bg-sr-subtle/40 cursor-pointer transition-colors"
               phx-click={JS.navigate(~p"/logs/#{log_id(log)}")}
             >
               <td class="whitespace-nowrap text-xs font-mono">
@@ -3777,16 +3777,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-40">
               Time
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-40">
               Service
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60">
               Operation
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24 text-right">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-24 text-right">
               <.link
                 id={"#{@id}-sort-duration"}
                 patch={traces_sort_href(@query, "duration_ms", @limit)}
@@ -3801,7 +3801,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 />
               </.link>
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20 text-right">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-20 text-right">
               <.link
                 id={"#{@id}-sort-spans"}
                 patch={traces_sort_href(@query, "span_count", @limit)}
@@ -3816,14 +3816,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 />
               </.link>
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24 text-right">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-24 text-right">
               Errors
             </th>
           </tr>
         </thead>
         <tbody>
           <tr :if={@traces == []}>
-            <td colspan="6" class="text-sm text-base-content/60 py-8 text-center">
+            <td colspan="6" class="text-sm text-sr-muted py-8 text-center">
               No traces found.
             </td>
           </tr>
@@ -3832,7 +3832,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             <% trace_path = trace_detail_path(trace) %>
             <tr
               id={"#{@id}-row-#{idx}"}
-              class={["hover:bg-base-200/40 transition-colors", trace_path && "cursor-pointer"]}
+              class={["hover:bg-sr-subtle/40 transition-colors", trace_path && "cursor-pointer"]}
               phx-click={trace_path && JS.navigate(trace_path)}
             >
               <td class="whitespace-nowrap text-xs font-mono">{format_timestamp(trace)}</td>
@@ -3880,7 +3880,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <div class="flex items-center gap-2">
-      <span class="text-[10px] uppercase tracking-wider text-base-content/50">Filter</span>
+      <span class="text-[10px] uppercase tracking-wider text-sr-muted">Filter</span>
       <.ui_button
         id="traces-multi-span-toggle"
         patch={@href}
@@ -3971,38 +3971,38 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-40">
               Time
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-40">
               Service
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-36">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-36">
               Type
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60">
               Operation
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24 text-right">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-24 text-right">
               Value
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-32">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-32">
               Trend
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20 text-right">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-20 text-right">
               Logs
             </th>
           </tr>
         </thead>
         <tbody>
           <tr :if={@metrics == []}>
-            <td colspan="7" class="text-sm text-base-content/60 py-8 text-center">
+            <td colspan="7" class="text-sm text-sr-muted py-8 text-center">
               No metrics found.
             </td>
           </tr>
 
           <%= for {metric, idx} <- Enum.with_index(@metrics) do %>
-            <tr id={"#{@id}-row-#{idx}"} class="hover:bg-base-200/40 transition-colors">
+            <tr id={"#{@id}-row-#{idx}"} class="hover:bg-sr-subtle/40 transition-colors">
               <td class="whitespace-nowrap text-xs font-mono">{format_timestamp(metric)}</td>
               <td
                 class="whitespace-nowrap text-xs truncate max-w-[14rem]"
@@ -4024,7 +4024,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 <.link
                   :if={is_binary(Map.get(metric, "span_id")) and Map.get(metric, "span_id") != ""}
                   navigate={~p"/observability/metrics/#{Map.get(metric, "span_id")}"}
-                  class="link link-hover"
+                  class="text-sr-brand hover:underline"
                 >
                   {metric_operation(metric)}
                 </.link>
@@ -4038,7 +4038,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 {format_metric_value(metric)}
                 <span
                   :if={cumulative_metric?(metric)}
-                  class="ml-1 font-sans text-[10px] text-base-content/50"
+                  class="ml-1 font-sans text-[10px] text-sr-muted"
                   title="Raw cumulative counter value; rate rendering arrives with OTLP metric points"
                 >
                   cumulative
@@ -4062,7 +4062,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                   :if={
                     not (is_binary(Map.get(metric, "trace_id")) and Map.get(metric, "trace_id") != "")
                   }
-                  class="text-base-content/40"
+                  class="text-sr-muted"
                 >
                   —
                 </span>
@@ -4116,23 +4116,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <table id="otlp-metric-names" class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
           <thead>
             <tr>
-              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+              <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60">
                 Metric
               </th>
-              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
+              <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-24">
                 Type
               </th>
-              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-16">
+              <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-16">
                 Unit
               </th>
-              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20 text-right">
+              <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-20 text-right">
                 Points
               </th>
             </tr>
           </thead>
           <tbody>
             <tr :if={@names == []}>
-              <td colspan="4" class="text-sm text-base-content/60 py-8 text-center">
+              <td colspan="4" class="text-sm text-sr-muted py-8 text-center">
                 No OTLP metric points found in the active window.
               </td>
             </tr>
@@ -4140,14 +4140,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <tr
                 id={"otlp-metric-name-#{idx}"}
                 class={[
-                  "hover:bg-base-200/40 transition-colors",
-                  @selected == entry.name && "bg-base-200/60"
+                  "hover:bg-sr-subtle/40 transition-colors",
+                  @selected == entry.name && "bg-sr-subtle/60"
                 ]}
               >
                 <td class="text-xs max-w-[16rem]">
                   <.link
                     patch={otlp_metric_href(@srql, @limit, entry.name)}
-                    class="link link-hover font-mono break-all"
+                    class="text-sr-brand hover:underline font-mono break-all"
                   >
                     {entry.name}
                   </.link>
@@ -4168,7 +4168,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       </div>
 
       <div class="lg:col-span-2">
-        <div :if={is_nil(@selected)} class="text-sm text-base-content/60 py-8 text-center">
+        <div :if={is_nil(@selected)} class="text-sm text-sr-muted py-8 text-center">
           Select a metric to load its recent points.
         </div>
         <div :if={is_binary(@selected)}>
@@ -4177,11 +4177,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             <.ui_badge :if={@series != []} size="sm" variant="ghost">
               temporality: {otlp_temporality_label(List.first(@series))}
             </.ui_badge>
-            <span class="text-xs text-base-content/60">
+            <span class="text-xs text-sr-muted">
               {length(@series)} series · grouped by attributes
             </span>
           </div>
-          <div :if={@series == []} class="text-sm text-base-content/60 py-8 text-center">
+          <div :if={@series == []} class="text-sm text-sr-muted py-8 text-center">
             No points found for this metric.
           </div>
           <div class="space-y-2">
@@ -4202,16 +4202,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     ~H"""
     <div
       id={"otlp-series-#{@idx}"}
-      class="rounded-xl border border-base-200 bg-base-100 p-3 flex flex-wrap items-center gap-3"
+      class="rounded-xl border border-sr-line bg-sr-surface p-3 flex flex-wrap items-center gap-3"
     >
       <div class="min-w-0 flex-1">
         <div
-          class="text-xs font-mono text-base-content/70 truncate max-w-[28rem]"
+          class="text-xs font-mono text-sr-muted truncate max-w-[28rem]"
           title={@series.attributes || @series.attributes_hash}
         >
           {@series.attributes || "(no attributes)"}
         </div>
-        <div class="mt-1 flex items-center gap-2 text-[10px] text-base-content/50">
+        <div class="mt-1 flex items-center gap-2 text-[10px] text-sr-muted">
           <.ui_badge size="sm" variant={otlp_type_badge_variant(@series.metric_type)}>
             {@series.metric_type || "—"}
           </.ui_badge>
@@ -4224,32 +4224,32 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       <div class="flex items-center gap-3">
         <%= case @series.kind do %>
           <% :rate -> %>
-            <span class="text-xs text-base-content/60">current rate</span>
+            <span class="text-xs text-sr-muted">current rate</span>
             <span class="text-sm font-mono font-semibold">
               {format_otlp_rate(@series.current_rate)}
             </span>
             <.sparkline :if={length(@series.rates) >= 3} data={@series.rates} />
           <% :delta_sum -> %>
-            <span class="text-xs text-base-content/60">sum over window</span>
+            <span class="text-xs text-sr-muted">sum over window</span>
             <span class="text-sm font-mono font-semibold">
               {format_series_number(@series.window_sum)}{otlp_unit_suffix(@series.unit)}
             </span>
             <.sparkline :if={length(@series.values) >= 3} data={@series.values} />
           <% :gauge -> %>
-            <span class="text-xs text-base-content/60">last value</span>
+            <span class="text-xs text-sr-muted">last value</span>
             <span class="text-sm font-mono font-semibold">
               {format_series_number(@series.last_value)}{otlp_unit_suffix(@series.unit)}
             </span>
             <.sparkline :if={length(@series.values) >= 3} data={@series.values} />
           <% :histogram -> %>
-            <span class="text-xs text-base-content/60">histogram</span>
+            <span class="text-xs text-sr-muted">histogram</span>
             <span class="text-sm font-mono font-semibold">
               count {format_series_number(@series.histogram_count)} · sum {format_series_number(
                 @series.histogram_sum
               )}
             </span>
           <% _ -> %>
-            <span class="text-base-content/30">—</span>
+            <span class="text-sr-ink/30">—</span>
         <% end %>
       </div>
     </div>
@@ -4266,23 +4266,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-40">
               Time
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-24">
               Severity
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-40">
               Source
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60">
               Message
             </th>
           </tr>
         </thead>
         <tbody id={"#{@id}-rows"} phx-update="stream">
           <tr :if={@count == 0}>
-            <td colspan="4" class="text-sm text-base-content/60 py-8 text-center">
+            <td colspan="4" class="text-sm text-sr-muted py-8 text-center">
               No events found.
             </td>
           </tr>
@@ -4290,7 +4290,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <%= for {dom_id, event} <- @events do %>
             <tr
               id={dom_id}
-              class="hover:bg-base-200/40 cursor-pointer transition-colors"
+              class="hover:bg-sr-subtle/40 cursor-pointer transition-colors"
               phx-click={JS.navigate(~p"/events/#{event_id(event)}")}
             >
               <td class="whitespace-nowrap text-xs font-mono">
@@ -4411,23 +4411,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-40">
               Time
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-24">
               Severity
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-28">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-28">
               Status
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60">
               Title
             </th>
           </tr>
         </thead>
         <tbody>
           <tr :if={@alerts == []}>
-            <td colspan="4" class="text-sm text-base-content/60 py-8 text-center">
+            <td colspan="4" class="text-sm text-sr-muted py-8 text-center">
               No alerts found.
             </td>
           </tr>
@@ -4435,7 +4435,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <%= for {alert, idx} <- Enum.with_index(@alerts) do %>
             <tr
               id={"#{@id}-row-#{idx}"}
-              class="hover:bg-base-200/40 cursor-pointer transition-colors"
+              class="hover:bg-sr-subtle/40 cursor-pointer transition-colors"
               phx-click={JS.navigate(~p"/alerts/#{alert_id(alert)}")}
             >
               <td class="whitespace-nowrap text-xs font-mono">{format_alert_timestamp(alert)}</td>
@@ -4623,14 +4623,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 </div>
                 <div
                   :if={hostname = Map.get(@rdns_map, src_ip)}
-                  class="mt-0.5 text-[11px] text-base-content/60 max-w-60 truncate font-mono"
+                  class="mt-0.5 text-[11px] text-sr-muted max-w-60 truncate font-mono"
                   title={hostname}
                 >
                   {hostname}
                 </div>
                 <div
                   :if={asn = netflow_asn(flow, :src)}
-                  class="mt-0.5 text-[11px] text-base-content/50 font-mono"
+                  class="mt-0.5 text-[11px] text-sr-muted font-mono"
                 >
                   AS{asn}
                 </div>
@@ -4688,7 +4688,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                   </div>
                   <div
                     :if={hostname = Map.get(@rdns_map, dst_ip)}
-                    class="text-[11px] text-base-content/60 max-w-60 truncate font-mono"
+                    class="text-[11px] text-sr-muted max-w-60 truncate font-mono"
                     title={hostname}
                   >
                     {hostname}
@@ -4704,7 +4704,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                   } />
                   <div
                     :if={asn = netflow_asn(flow, :dst)}
-                    class="text-[11px] text-base-content/50 font-mono"
+                    class="text-[11px] text-sr-muted font-mono"
                   >
                     AS{asn}
                   </div>
@@ -4721,7 +4721,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               </td>
               <td class="whitespace-nowrap text-xs text-right font-mono">
                 <div>{format_netflow_number(netflow_packets(flow))}</div>
-                <div class="text-[10px] text-base-content/60">
+                <div class="text-[10px] text-sr-muted">
                   {format_netflow_bytes(netflow_bytes(flow))}
                 </div>
               </td>
@@ -4798,7 +4798,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </tbody>
       </table>
 
-      <div :if={@flows == []} class="py-12 text-center text-base-content/60">
+      <div :if={@flows == []} class="py-12 text-center text-sr-muted">
         No network flows found. Generate some NetFlow data to see it here!
       </div>
     </div>
@@ -4870,7 +4870,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:as_org, if(geo, do: geo.as_org))
 
     ~H"""
-    <div class="mt-1 text-base-content/70">
+    <div class="mt-1 text-sr-muted">
       {@side}:
       <%= if @geo do %>
         <span class="font-mono">
@@ -4888,11 +4888,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <% end %>
 
           <%= if is_binary(@as_org) and @as_org != "" do %>
-            <span class="ml-2 text-base-content/60">{@as_org}</span>
+            <span class="ml-2 text-sr-muted">{@as_org}</span>
           <% end %>
         </span>
       <% else %>
-        <span class="text-base-content/50">n/a</span>
+        <span class="text-sr-muted">n/a</span>
       <% end %>
     </div>
     """
@@ -5103,10 +5103,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     ~H"""
     <dialog class="modal modal-open" phx-window-keydown="netflow_close" phx-key="escape">
       <div class="modal-box max-w-[96rem] w-[96vw] h-[92vh] p-0 overflow-hidden">
-        <div class="flex items-start justify-between gap-4 border-b border-base-200 px-5 py-4">
+        <div class="flex items-start justify-between gap-4 border-b border-sr-line px-5 py-4">
           <div class="min-w-0">
             <div class="text-sm font-semibold">Flow details</div>
-            <div class="text-xs text-base-content/70 font-mono">
+            <div class="text-xs text-sr-muted font-mono">
               {format_netflow_timestamp(@flow)}
             </div>
           </div>
@@ -5117,18 +5117,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
         <div class="grid h-[calc(92vh-5rem)] grid-cols-1 gap-3 p-3 lg:grid-cols-3">
           <.ui_panel class="lg:col-span-2 max-h-full overflow-y-auto" body_class="p-0">
-            <div class="divide-y divide-base-200">
+            <div class="divide-y divide-sr-line">
               <div class="p-4">
-                <div class="text-xs uppercase tracking-wider text-base-content/50">Endpoints</div>
+                <div class="text-xs uppercase tracking-wider text-sr-muted">Endpoints</div>
                 <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                  <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+                    <div class="text-[10px] uppercase tracking-wider text-sr-muted">
                       Source
                     </div>
                     <div class="mt-1 font-mono text-sm">
                       {@src_ip}{if @src_port, do: ":#{@src_port}", else: ""}
                     </div>
-                    <div :if={@src_cc} class="mt-1 text-xs text-base-content/60">
+                    <div :if={@src_cc} class="mt-1 text-xs text-sr-muted">
                       <span class="mr-1">{country_flag_emoji(@src_cc)}</span>
                       <span class="font-mono">{@src_cc}</span>
                       <span :if={geo = Map.get(@context, :src_geo)} class="ml-2">
@@ -5139,7 +5139,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     </div>
                     <div
                       :if={is_binary(@src_provider) and @src_provider != ""}
-                      class="mt-1 text-xs text-base-content/60"
+                      class="mt-1 text-xs text-sr-muted"
                     >
                       Provider: <span class="font-mono">{@src_provider}</span>
                     </div>
@@ -5160,14 +5160,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     </div>
                   </div>
 
-                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                  <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+                    <div class="text-[10px] uppercase tracking-wider text-sr-muted">
                       Destination
                     </div>
                     <div class="mt-1 font-mono text-sm">
                       {@dst_ip}{if @dst_port, do: ":#{@dst_port}", else: ""}
                     </div>
-                    <div :if={@dst_cc} class="mt-1 text-xs text-base-content/60">
+                    <div :if={@dst_cc} class="mt-1 text-xs text-sr-muted">
                       <span class="mr-1">{country_flag_emoji(@dst_cc)}</span>
                       <span class="font-mono">{@dst_cc}</span>
                       <span :if={geo = Map.get(@context, :dst_geo)} class="ml-2">
@@ -5176,12 +5176,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                         <% end %>
                       </span>
                     </div>
-                    <div :if={@service_label} class="mt-1 text-xs text-base-content/60">
+                    <div :if={@service_label} class="mt-1 text-xs text-sr-muted">
                       Service: <span class="font-mono">{@service_label}</span>
                     </div>
                     <div
                       :if={is_binary(@dst_provider) and @dst_provider != ""}
-                      class="mt-1 text-xs text-base-content/60"
+                      class="mt-1 text-xs text-sr-muted"
                     >
                       Provider: <span class="font-mono">{@dst_provider}</span>
                     </div>
@@ -5215,10 +5215,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               </div>
 
               <div class="p-4">
-                <div class="text-xs uppercase tracking-wider text-base-content/50">Traffic</div>
+                <div class="text-xs uppercase tracking-wider text-sr-muted">Traffic</div>
                 <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">Flow</div>
+                  <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+                    <div class="text-[10px] uppercase tracking-wider text-sr-muted">Flow</div>
                     <div class="mt-1 flex flex-wrap items-center gap-2">
                       <.netflow_protocol_badge
                         protocol={netflow_protocol_num(@flow)}
@@ -5228,24 +5228,24 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     </div>
                     <div
                       :if={is_binary(@direction_label) and @direction_label != ""}
-                      class="mt-1 text-[11px] text-base-content/60"
+                      class="mt-1 text-[11px] text-sr-muted"
                     >
                       direction: <span class="font-mono">{@direction_label}</span>
                     </div>
                   </div>
-                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                  <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+                    <div class="text-[10px] uppercase tracking-wider text-sr-muted">
                       Volume
                     </div>
                     <div class="mt-1 flex items-center gap-4">
                       <div>
-                        <div class="text-[10px] text-base-content/60">Packets</div>
+                        <div class="text-[10px] text-sr-muted">Packets</div>
                         <div class="font-mono text-sm">
                           {format_netflow_number(netflow_packets(@flow))}
                         </div>
                       </div>
                       <div>
-                        <div class="text-[10px] text-base-content/60">Bytes</div>
+                        <div class="text-[10px] text-sr-muted">Bytes</div>
                         <div class="font-mono text-sm">
                           {format_netflow_bytes(netflow_bytes(@flow))}
                         </div>
@@ -5256,10 +5256,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
                 <div
                   :if={netflow_protocol_num(@flow) |> to_int() == 6}
-                  class="mt-3 rounded border border-base-300 bg-base-100/60 p-2"
+                  class="mt-3 rounded border border-sr-line bg-sr-surface/60 p-2"
                 >
                   <% flag_set = MapSet.new(Enum.map(@tcp_flags_labels, &String.upcase(to_string(&1)))) %>
-                  <div class="text-[10px] uppercase tracking-wide text-base-content/50">
+                  <div class="text-[10px] uppercase tracking-wide text-sr-muted">
                     TCP Flags
                   </div>
                   <div class="mt-1 flex flex-wrap gap-1">
@@ -5270,7 +5270,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                           "inline-flex h-5 min-w-6 items-center justify-center rounded border px-1 text-[10px] font-mono cursor-help",
                           if(active,
                             do: "border-primary bg-primary/15 text-primary",
-                            else: "border-base-300 text-base-content/50"
+                            else: "border-sr-line text-sr-muted"
                           )
                         ]}>
                           {flag}
@@ -5280,7 +5280,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                   </div>
                   <div
                     :if={not is_nil(@tcp_flags_raw) and @tcp_flags_labels == []}
-                    class="mt-1 text-[10px] text-base-content/60"
+                    class="mt-1 text-[10px] text-sr-muted"
                   >
                     raw mask: <span class="font-mono">{@tcp_flags_raw}</span>
                   </div>
@@ -5288,11 +5288,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               </div>
 
               <div class="p-4">
-                <div class="text-xs uppercase tracking-wider text-base-content/50">Map</div>
+                <div class="text-xs uppercase tracking-wider text-sr-muted">Map</div>
                 <%= if @mapbox && @mapbox.enabled &&
                       is_binary(Map.get(@mapbox, :access_token)) &&
                       String.trim(Map.get(@mapbox, :access_token)) != "" do %>
-                  <div class="mt-2 rounded-lg overflow-hidden border border-base-200 bg-base-200/30">
+                  <div class="mt-2 rounded-lg overflow-hidden border border-sr-line bg-sr-subtle/30">
                     <div
                       id={netflow_map_dom_id(@flow)}
                       class="h-64 w-full"
@@ -5310,7 +5310,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     >
                     </div>
                   </div>
-                  <div class="mt-1 text-xs text-base-content/60">
+                  <div class="mt-1 text-xs text-sr-muted">
                     <%= if @map_markers != [] do %>
                       Tip: click markers for details.
                     <% else %>
@@ -5318,7 +5318,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     <% end %>
                   </div>
                 <% else %>
-                  <div class="mt-2 text-sm text-base-content/60">
+                  <div class="mt-2 text-sm text-sr-muted">
                     Mapbox is disabled or missing an access token.
                   </div>
                 <% end %>
@@ -5328,7 +5328,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
           <.ui_panel class="lg:col-span-1">
             <div>
-              <div class="text-xs uppercase tracking-wider text-base-content/50">
+              <div class="text-xs uppercase tracking-wider text-sr-muted">
                 Security and Enrichment
               </div>
 
@@ -5336,19 +5336,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 <div>
                   <div class="font-semibold">Process attribution</div>
                   <%= if is_map(@attribution) do %>
-                    <div class="mt-1 text-base-content/70">
+                    <div class="mt-1 text-sr-muted">
                       Process:
                       <span class="font-mono">
                         {netflow_attribution_process_label(@attribution)}
                       </span>
                     </div>
-                    <div class="mt-1 text-base-content/70">
+                    <div class="mt-1 text-sr-muted">
                       Agent:
                       <span class="font-mono">
                         {display_text(netflow_attribution_agent_id(@flow))}
                       </span>
                     </div>
-                    <div class="mt-1 text-base-content/70">
+                    <div class="mt-1 text-sr-muted">
                       Workload:
                       <span class="font-mono">
                         {display_text(netflow_attribution_workload_label(@attribution))}
@@ -5360,7 +5360,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       </.ui_button>
                     </div>
                   <% else %>
-                    <div class="mt-1 text-base-content/70">
+                    <div class="mt-1 text-sr-muted">
                       <.ui_badge size="xs" variant="ghost">no match</.ui_badge>
                       <span class="ml-2">No process context is attached to this flow row.</span>
                     </div>
@@ -5375,7 +5375,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
                 <div>
                   <div class="font-semibold">Threat intel</div>
-                  <div class="mt-1 text-base-content/70">
+                  <div class="mt-1 text-sr-muted">
                     Source: <span class="font-mono">{@src_ip}</span>
                     <%= if match = Map.get(@context, :src_threat) do %>
                       <.ui_badge size="xs" variant="warning" class="ml-2">match</.ui_badge>
@@ -5386,7 +5386,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       <.ui_badge size="xs" variant="ghost" class="ml-2">none</.ui_badge>
                     <% end %>
                   </div>
-                  <div class="mt-1 text-base-content/70">
+                  <div class="mt-1 text-sr-muted">
                     Dest: <span class="font-mono">{@dst_ip}</span>
                     <%= if match = Map.get(@context, :dst_threat) do %>
                       <.ui_badge size="xs" variant="warning" class="ml-2">match</.ui_badge>
@@ -5402,12 +5402,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 <div>
                   <div class="font-semibold">Port scan</div>
                   <%= if scan = Map.get(@context, :src_port_scan) do %>
-                    <div class="mt-1 text-base-content/70">
+                    <div class="mt-1 text-sr-muted">
                       <.ui_badge size="xs" variant="error">flagged</.ui_badge>
                       <span class="ml-2 font-mono">{scan.unique_ports} unique ports</span>
                     </div>
                   <% else %>
-                    <div class="mt-1 text-base-content/70">
+                    <div class="mt-1 text-sr-muted">
                       <.ui_badge size="xs" variant="ghost">not flagged</.ui_badge>
                     </div>
                   <% end %>
@@ -5415,7 +5415,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
                 <div :if={anomaly = Map.get(@context, :dst_port_anomaly)}>
                   <div class="font-semibold">Port anomaly</div>
-                  <div class="mt-1 text-base-content/70">
+                  <div class="mt-1 text-sr-muted">
                     <.ui_badge size="xs" variant="error">anomalous</.ui_badge>
                     <span class="ml-2 font-mono">
                       {format_netflow_bytes(anomaly.current_bytes)} vs baseline {format_netflow_bytes(
@@ -5428,7 +5428,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 <div>
                   <div class="font-semibold">ipinfo.io/lite</div>
                   <%= if info = Map.get(@context, :src_ipinfo) do %>
-                    <div class="mt-1 text-base-content/70">
+                    <div class="mt-1 text-sr-muted">
                       Source:
                       <span class="font-mono">
                         {Enum.join(
@@ -5449,18 +5449,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                           </button>
                         <% end %>
                         <%= if is_binary(info.as_name) and info.as_name != "" do %>
-                          <span class="ml-2 text-base-content/60">{info.as_name}</span>
+                          <span class="ml-2 text-sr-muted">{info.as_name}</span>
                         <% end %>
                       </span>
                     </div>
                   <% else %>
-                    <div class="mt-1 text-base-content/70">
-                      Source: <span class="text-base-content/50">n/a</span>
+                    <div class="mt-1 text-sr-muted">
+                      Source: <span class="text-sr-muted">n/a</span>
                     </div>
                   <% end %>
 
                   <%= if info = Map.get(@context, :dst_ipinfo) do %>
-                    <div class="mt-1 text-base-content/70">
+                    <div class="mt-1 text-sr-muted">
                       Dest:
                       <span class="font-mono">
                         {Enum.join(
@@ -5481,27 +5481,27 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                           </button>
                         <% end %>
                         <%= if is_binary(info.as_name) and info.as_name != "" do %>
-                          <span class="ml-2 text-base-content/60">{info.as_name}</span>
+                          <span class="ml-2 text-sr-muted">{info.as_name}</span>
                         <% end %>
                       </span>
                     </div>
                   <% else %>
-                    <div class="mt-1 text-base-content/70">
-                      Dest: <span class="text-base-content/50">n/a</span>
+                    <div class="mt-1 text-sr-muted">
+                      Dest: <span class="text-sr-muted">n/a</span>
                     </div>
                   <% end %>
                 </div>
 
                 <div>
                   <div class="font-semibold">ARIN ASN lookup</div>
-                  <div class="mt-1 text-base-content/70">
+                  <div class="mt-1 text-sr-muted">
                     Click any AS number above to load ARIN details.
                   </div>
                   <%= if is_binary(Map.get(@arin_lookup || %{}, :error)) and Map.get(@arin_lookup || %{}, :error) != "" do %>
                     <div class="mt-1 text-error">{Map.get(@arin_lookup, :error)}</div>
                   <% end %>
                   <%= if data = Map.get(@arin_lookup || %{}, :data) do %>
-                    <div class="mt-2 rounded-lg border border-base-200 bg-base-200/30 p-2 text-[11px] font-mono space-y-1">
+                    <div class="mt-2 rounded-lg border border-sr-line bg-sr-subtle/30 p-2 text-[11px] font-mono space-y-1">
                       <div>
                         {data.handle} {if is_binary(data.name), do: "- #{data.name}", else: ""}
                       </div>
@@ -5521,7 +5521,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                           href={data.ref}
                           target="_blank"
                           rel="noopener noreferrer"
-                          class="link link-hover"
+                          class="text-sr-brand hover:underline"
                         >
                           {data.ref}
                         </a>
@@ -5533,36 +5533,36 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 <div>
                   <div class="font-semibold">rDNS</div>
                   <%= if rdns = Map.get(@context, :src_rdns) do %>
-                    <div class="mt-1 text-base-content/70">
+                    <div class="mt-1 text-sr-muted">
                       Source:
                       <span class="font-mono">
                         <%= if rdns.status == "ok" and is_binary(rdns.hostname) and rdns.hostname != "" do %>
                           {rdns.hostname}
                         <% else %>
-                          <span class="text-base-content/50">n/a</span>
+                          <span class="text-sr-muted">n/a</span>
                         <% end %>
                       </span>
                     </div>
                   <% else %>
-                    <div class="mt-1 text-base-content/70">
-                      Source: <span class="text-base-content/50">n/a</span>
+                    <div class="mt-1 text-sr-muted">
+                      Source: <span class="text-sr-muted">n/a</span>
                     </div>
                   <% end %>
 
                   <%= if rdns = Map.get(@context, :dst_rdns) do %>
-                    <div class="mt-1 text-base-content/70">
+                    <div class="mt-1 text-sr-muted">
                       Dest:
                       <span class="font-mono">
                         <%= if rdns.status == "ok" and is_binary(rdns.hostname) and rdns.hostname != "" do %>
                           {rdns.hostname}
                         <% else %>
-                          <span class="text-base-content/50">n/a</span>
+                          <span class="text-sr-muted">n/a</span>
                         <% end %>
                       </span>
                     </div>
                   <% else %>
-                    <div class="mt-1 text-base-content/70">
-                      Dest: <span class="text-base-content/50">n/a</span>
+                    <div class="mt-1 text-sr-muted">
+                      Dest: <span class="text-sr-muted">n/a</span>
                     </div>
                   <% end %>
                 </div>
@@ -5570,15 +5570,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 <% as_path = netflow_bgp_as_path(@flow) %>
                 <% bgp_communities = netflow_bgp_communities(@flow) %>
                 <%= if as_path || bgp_communities do %>
-                  <div class="pt-3 border-t border-base-200 mt-3">
+                  <div class="pt-3 border-t border-sr-line mt-3">
                     <div class="font-semibold">BGP Routing</div>
 
                     <%= if as_path do %>
                       <div class="mt-2">
-                        <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                        <div class="text-[10px] uppercase tracking-wider text-sr-muted">
                           AS Path ({length(as_path)} hops)
                         </div>
-                        <div class="mt-1 font-mono text-xs text-base-content/80 break-all">
+                        <div class="mt-1 font-mono text-xs text-sr-ink/90 break-all">
                           {format_bgp_as_path(as_path)}
                         </div>
                       </div>
@@ -5586,7 +5586,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
                     <%= if bgp_communities do %>
                       <div class="mt-2">
-                        <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                        <div class="text-[10px] uppercase tracking-wider text-sr-muted">
                           BGP Communities
                         </div>
                         <div class="mt-1 flex flex-wrap gap-1">
@@ -6287,12 +6287,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <%= if length(@sparkline_data) >= 3 do %>
           <.sparkline data={@sparkline_data} />
         <% else %>
-          <span class="text-base-content/30">—</span>
+          <span class="text-sr-ink/30">—</span>
         <% end %>
       <% "span" -> %>
         <.span_duration_viz metric={@metric} />
       <% _ -> %>
-        <span class="text-base-content/30">—</span>
+        <span class="text-sr-ink/30">—</span>
     <% end %>
     """
   end
@@ -6349,7 +6349,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     # If no duration, show dash
     if is_nil(duration_ms) or duration_ms <= 0 do
       ~H"""
-      <span class="text-base-content/30">—</span>
+      <span class="text-sr-ink/30">—</span>
       """
     else
       # Scale 0-1500ms to 0-100% (threshold at 500ms = 33%)
@@ -6381,10 +6381,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         class="flex items-center gap-2 min-w-[5rem]"
         title={"#{Float.round(@duration_ms * 1.0, 1)}ms"}
       >
-        <div class="relative h-2 w-16 bg-base-200/60 rounded-sm overflow-visible">
+        <div class="relative h-2 w-16 bg-sr-subtle/60 rounded-sm overflow-visible">
           <div class={"h-full rounded-sm #{@bar_color}"} style={"width: #{@pct}%"} />
           <div
-            class="absolute top-0 h-full w-px bg-base-content/40"
+            class="absolute top-0 h-full w-px bg-sr-muted/40"
             style={"left: #{@threshold_pct}%"}
             title="500ms threshold"
           />
@@ -6420,7 +6420,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       class="flex items-center gap-2 w-20"
       title={@title}
     >
-      <div class="flex-1 h-1.5 bg-base-200 rounded-full overflow-hidden">
+      <div class="flex-1 h-1.5 bg-sr-subtle rounded-full overflow-hidden">
         <div class={[@bar_color, "h-full rounded-full transition-all"]} style={"width: #{@pct}%"}>
         </div>
       </div>
@@ -6438,7 +6438,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp histogram_bar_color(duration_ms) do
     cond do
-      not is_number(duration_ms) or duration_ms <= 0 -> "bg-base-content/20"
+      not is_number(duration_ms) or duration_ms <= 0 -> "bg-sr-muted/20"
       duration_ms >= 500 -> "bg-error"
       duration_ms >= 100 -> "bg-warning"
       true -> "bg-success"
@@ -9099,7 +9099,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp format_compact_int(_), do: "0"
 
   defp error_count_class(count) when is_integer(count) and count > 0, do: "text-error font-bold"
-  defp error_count_class(_), do: "text-base-content/60"
+  defp error_count_class(_), do: "text-sr-muted"
 
   defp trace_service_name(trace) do
     normalize_string(Map.get(trace, "root_service_name")) ||

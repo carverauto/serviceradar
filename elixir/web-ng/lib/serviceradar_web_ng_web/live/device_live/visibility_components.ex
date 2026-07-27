@@ -47,8 +47,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
       |> assign(:has_metadata_summary, groups != [])
 
     ~H"""
-    <div :if={@has_metadata_summary} class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
+    <div :if={@has_metadata_summary} class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line">
         <div class="flex items-center gap-2">
           <.icon name="hero-circle-stack" class="size-4 text-secondary" />
           <span class="text-sm font-semibold">Metadata</span>
@@ -62,11 +62,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
         >
           <div
             :for={group <- @metadata_groups}
-            class="min-w-0 rounded-lg border border-base-200 bg-base-200/20 p-3"
+            class="min-w-0 rounded-lg border border-sr-line bg-sr-subtle/20 p-3"
           >
             <div class="mb-2 flex items-center gap-2">
-              <.icon name={group.icon} class="size-4 text-base-content/60" />
-              <span class="text-xs font-semibold text-base-content/60">
+              <.icon name={group.icon} class="size-4 text-sr-muted" />
+              <span class="text-xs font-semibold text-sr-muted">
                 {group.title}
               </span>
             </div>
@@ -97,12 +97,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
   def metadata_kv(assigns) do
     ~H"""
     <div class="flex items-start justify-between gap-3">
-      <span class="shrink-0 text-xs text-base-content/50">{@label}</span>
+      <span class="shrink-0 text-xs text-sr-muted">{@label}</span>
       <.link
         :if={@href}
         navigate={@href}
         class={[
-          "min-w-0 text-right text-sm font-medium link link-hover break-words",
+          "min-w-0 text-right text-sm font-medium text-sr-brand hover:underline break-words",
           @mono && "font-mono text-xs"
         ]}
         title={@value}
@@ -115,7 +115,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
         target="_blank"
         rel="noopener noreferrer"
         class={[
-          "min-w-0 text-right text-sm font-medium link link-hover break-words",
+          "min-w-0 text-right text-sm font-medium text-sr-brand hover:underline break-words",
           @mono && "font-mono text-xs"
         ]}
         title={@value}
@@ -125,7 +125,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
       <span
         :if={is_nil(@href) and is_nil(@external_href)}
         class={[
-          "min-w-0 text-right text-sm font-medium text-base-content break-words",
+          "min-w-0 text-right text-sm font-medium text-sr-ink break-words",
           @mono && "font-mono text-xs"
         ]}
         title={@value}
@@ -150,8 +150,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
       |> assign(:has_dpi, dpi_rows != [])
 
     ~H"""
-    <div :if={@has_fingerprints or @has_dpi} class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
+    <div :if={@has_fingerprints or @has_dpi} class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line">
         <div class="flex items-center gap-2">
           <.icon name="hero-eye" class="size-4 text-primary" />
           <span class="text-sm font-semibold">Network Visibility</span>
@@ -165,10 +165,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
       <div class="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
         <div
           :for={fingerprint <- @fingerprints}
-          class="rounded-lg border border-base-200 bg-base-200/20 p-3"
+          class="rounded-lg border border-sr-line bg-sr-subtle/20 p-3"
         >
           <div class="mb-2 flex items-center justify-between gap-2">
-            <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+            <span class="text-xs font-semibold uppercase tracking-wide text-sr-muted">
               {fingerprint.protocol}
             </span>
             <.ui_badge :if={fingerprint.source} size="xs" variant="ghost">
@@ -185,9 +185,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
           </div>
         </div>
 
-        <div :for={dpi <- @dpi_rows} class="rounded-lg border border-base-200 bg-base-200/20 p-3">
+        <div :for={dpi <- @dpi_rows} class="rounded-lg border border-sr-line bg-sr-subtle/20 p-3">
           <div class="mb-2 flex items-center justify-between gap-2">
-            <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+            <span class="text-xs font-semibold uppercase tracking-wide text-sr-muted">
               DPI {dpi.protocol}
             </span>
             <.ui_badge :if={dpi.source} size="xs" variant="info">
@@ -223,8 +223,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
 
     ~H"""
     <div class="space-y-4">
-      <div :if={@has_summary} class="rounded-xl border border-base-200 bg-base-100">
-        <div class="px-4 py-3 border-b border-base-200">
+      <div :if={@has_summary} class="rounded-xl border border-sr-line bg-sr-surface">
+        <div class="px-4 py-3 border-b border-sr-line">
           <div class="flex flex-wrap items-center gap-2">
             <.icon name="hero-finger-print" class="size-4 text-primary" />
             <span class="text-sm font-semibold">Active OS fingerprint</span>
@@ -243,8 +243,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
         </div>
       </div>
 
-      <div class="rounded-xl border border-base-200 bg-base-100">
-        <div class="px-4 py-3 border-b border-base-200">
+      <div class="rounded-xl border border-sr-line bg-sr-surface">
+        <div class="px-4 py-3 border-b border-sr-line">
           <div class="flex flex-wrap items-center gap-2">
             <.icon name="hero-server-stack" class="size-4 text-primary" />
             <span class="text-sm font-semibold">Banner-grab matches</span>
@@ -252,14 +252,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
           </div>
         </div>
 
-        <div :if={!@has_rows} class="p-6 text-sm text-base-content/60">
+        <div :if={!@has_rows} class="p-6 text-sm text-sr-muted">
           No active banner fingerprint evidence has been recorded for this device.
         </div>
 
         <div :if={@has_rows} class="overflow-x-auto">
           <table class={ui_table_class(size: "sm")}>
             <thead>
-              <tr class="text-xs uppercase tracking-wide text-base-content/60">
+              <tr class="text-xs uppercase tracking-wide text-sr-muted">
                 <th>Protocol</th>
                 <th>Port</th>
                 <th>Product</th>
@@ -309,8 +309,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
       |> assign(:agent_host, agent_device?(assigns.device_row))
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="border-b border-base-200 px-4 py-3">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="border-b border-sr-line px-4 py-3">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div class="flex items-center gap-2">
             <.icon name="hero-command-line" class="size-4 text-primary" />
@@ -321,7 +321,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
           </div>
           <div
             :if={metadata_present?(@snapshot.fingerprint) or metadata_present?(@snapshot.observed_at)}
-            class="flex flex-wrap items-center gap-2 text-xs text-base-content/60"
+            class="flex flex-wrap items-center gap-2 text-xs text-sr-muted"
           >
             <span :if={metadata_present?(@snapshot.fingerprint)} class="font-mono">
               {@snapshot.fingerprint}
@@ -346,17 +346,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
         </div>
       </div>
 
-      <div :if={not @agent_host and @row_count == 0} class="px-4 py-8 text-sm text-base-content/70">
+      <div :if={not @agent_host and @row_count == 0} class="px-4 py-8 text-sm text-sr-muted">
         Process listener snapshots are available on devices linked to a ServiceRadar agent.
       </div>
 
-      <div :if={@agent_host and @row_count == 0} class="px-4 py-8 text-sm text-base-content/70">
+      <div :if={@agent_host and @row_count == 0} class="px-4 py-8 text-sm text-sr-muted">
         No local process listener snapshot has been reported for this agent host yet.
       </div>
 
       <div
         :if={@row_count > 0 and @pagination.filtered_total == 0}
-        class="px-4 py-8 text-sm text-base-content/70"
+        class="px-4 py-8 text-sm text-sr-muted"
       >
         No process listeners match the current search.
       </div>
@@ -385,7 +385,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
               <td class="font-medium">{default_display(row.comm)}</td>
               <td class="font-mono text-xs">
                 {default_display(row.pid)}
-                <span :if={row.tgid != nil and row.tgid != row.pid} class="text-base-content/50">
+                <span :if={row.tgid != nil and row.tgid != row.pid} class="text-sr-muted">
                   / {row.tgid}
                 </span>
               </td>

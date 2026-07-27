@@ -73,8 +73,8 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
           Some observability health queries did not complete. Showing the data that is currently available.
         </div>
 
-        <div :if={@loading?} class="rounded-lg border border-base-200 bg-base-100 p-4">
-          <div class="flex items-center gap-3 text-sm text-base-content/70">
+        <div :if={@loading?} class="rounded-lg border border-sr-line bg-sr-surface p-4">
+          <div class="flex items-center gap-3 text-sm text-sr-muted">
             <.ui_spinner size="sm" />
             <span>Loading observability health...</span>
           </div>
@@ -105,11 +105,11 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
         </section>
 
         <section class="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
-          <div class="rounded-lg border border-base-200 bg-base-100">
-            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 px-5 py-4">
+          <div class="rounded-lg border border-sr-line bg-sr-surface">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-sr-line px-5 py-4">
               <div>
                 <h2 class="text-base font-semibold">Capacity Runway</h2>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   Forecast rows ordered by projected exhaustion.
                 </p>
               </div>
@@ -132,7 +132,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
                 </thead>
                 <tbody>
                   <tr :if={@overview.capacity_rows == []}>
-                    <td colspan="6" class="py-8 text-center text-base-content/60">
+                    <td colspan="6" class="py-8 text-center text-sr-muted">
                       No projected capacity risks found.
                     </td>
                   </tr>
@@ -156,16 +156,16 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
 
             <div
               :if={show_capacity_skipped?(@overview)}
-              class="border-t border-base-200 px-5 py-3 text-xs text-base-content/60"
+              class="border-t border-sr-line px-5 py-3 text-xs text-sr-muted"
             >
               {capacity_skipped_summary(@overview.capacity_skipped)}
             </div>
           </div>
 
           <div class="space-y-3">
-            <div class="rounded-lg border border-base-200 bg-base-100 px-5 py-4">
+            <div class="rounded-lg border border-sr-line bg-sr-surface px-5 py-4">
               <h2 class="text-base font-semibold">Worst Forecasts</h2>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Current to projected movement for the nearest-risk resources.
               </p>
             </div>
@@ -173,18 +173,18 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
             <.forecast_card :for={row <- Enum.take(@overview.capacity_rows, 4)} row={row} />
             <div
               :if={@overview.capacity_rows == []}
-              class="rounded-lg border border-base-200 bg-base-100 p-5 text-sm text-base-content/60"
+              class="rounded-lg border border-sr-line bg-sr-surface p-5 text-sm text-sr-muted"
             >
               No forecast rows to visualize yet.
             </div>
           </div>
         </section>
 
-        <section class="rounded-lg border border-base-200 bg-base-100">
-          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 px-5 py-4">
+        <section class="rounded-lg border border-sr-line bg-sr-surface">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-sr-line px-5 py-4">
             <div>
               <h2 class="text-base font-semibold">Recent Anomaly Findings</h2>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Detection findings from the causal anomaly spine.
               </p>
             </div>
@@ -193,8 +193,8 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
             </.ui_button>
           </div>
 
-          <div class="divide-y divide-base-200">
-            <div :if={@overview.anomaly_rows == []} class="p-6 text-sm text-base-content/60">
+          <div class="divide-y divide-sr-line">
+            <div :if={@overview.anomaly_rows == []} class="p-6 text-sm text-sr-muted">
               No anomaly findings found in the last 24 hours.
             </div>
             <article :for={row <- @overview.anomaly_rows} class="px-5 py-4">
@@ -203,7 +203,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
                   <div class="truncate text-sm font-semibold">
                     {finding_title(row)}
                   </div>
-                  <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-base-content/60">
+                  <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-sr-muted">
                     <span>
                       {value(row, "source_type") || value(row, "log_provider") || "anomaly"}
                     </span>
@@ -233,11 +233,11 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
     ~H"""
     <.link
       navigate={@href}
-      class="block rounded-lg border border-base-200 bg-base-100 p-4 hover:border-primary/40"
+      class="block rounded-lg border border-sr-line bg-sr-surface p-4 hover:border-primary/40"
     >
-      <div class="text-xs font-semibold uppercase tracking-normal text-base-content/60">{@label}</div>
+      <div class="text-xs font-semibold uppercase tracking-normal text-sr-muted">{@label}</div>
       <div class={["mt-2 text-3xl font-semibold", stat_tone_class(@tone)]}>{@value}</div>
-      <div class="mt-1 text-xs text-base-content/60">{@detail}</div>
+      <div class="mt-1 text-xs text-sr-muted">{@detail}</div>
     </.link>
     """
   end
@@ -260,11 +260,11 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
       |> assign(:threshold_width, percent_width(threshold, scale))
 
     ~H"""
-    <article class="rounded-lg border border-base-200 bg-base-100 p-4">
+    <article class="rounded-lg border border-sr-line bg-sr-surface p-4">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
           <div class="truncate text-sm font-semibold">{resource_label(@row)}</div>
-          <div class="mt-1 text-xs text-base-content/60">
+          <div class="mt-1 text-xs text-sr-muted">
             {value(@row, "metric_name") || "metric"}
           </div>
         </div>
@@ -284,7 +284,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
         <.forecast_bar label="Threshold" value={@threshold} width={@threshold_width} class="bg-error" />
       </div>
 
-      <div class="mt-3 text-xs text-base-content/60">
+      <div class="mt-3 text-xs text-sr-muted">
         Exhaustion {format_timestamp(value(@row, "projected_exhaustion_at"))}
       </div>
     </article>
@@ -300,10 +300,10 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
     ~H"""
     <div>
       <div class="mb-1 flex items-center justify-between gap-3 text-xs">
-        <span class="text-base-content/60">{@label}</span>
+        <span class="text-sr-muted">{@label}</span>
         <span class="font-mono">{format_number(@value)}</span>
       </div>
-      <div class="h-2 rounded-full bg-base-200">
+      <div class="h-2 rounded-full bg-sr-subtle">
         <div class={["h-2 rounded-full", @class]} style={"width: #{@width};"} />
       </div>
     </div>
@@ -651,7 +651,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   defp stat_tone_class("warning"), do: "text-warning"
   defp stat_tone_class("error"), do: "text-error"
   defp stat_tone_class("info"), do: "text-info"
-  defp stat_tone_class(_tone), do: "text-base-content"
+  defp stat_tone_class(_tone), do: "text-sr-ink"
 
   defp status_badge_variant(status) when status in ["at_risk", "exhaustion_projected"], do: "error"
   defp status_badge_variant("projected"), do: "warning"

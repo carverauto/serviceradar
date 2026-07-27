@@ -232,10 +232,10 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       <div class="mx-auto max-w-7xl p-6 space-y-6">
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">
+            <h1 class="text-2xl font-semibold text-sr-ink">
               {if @is_admin, do: "Infrastructure", else: "Connected Agents"}
             </h1>
-            <p class="text-sm text-base-content/60">
+            <p class="text-sm text-sr-muted">
               <%= if @is_admin do %>
                 Cluster nodes and agent gateways
               <% else %>
@@ -256,19 +256,19 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     <!-- Debug Panel (admin only) -->
         <div
           :if={@is_admin && @show_debug}
-          class="bg-base-200 rounded-lg p-4 space-y-3 border border-base-300"
+          class="bg-sr-subtle rounded-lg p-4 space-y-3 border border-sr-line"
         >
           <div class="text-sm font-semibold">Cluster Debug Info</div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
             <div>
-              <div class="text-base-content/60 mb-1">Current Node</div>
-              <div class="bg-base-100 p-2 rounded">{@cluster_info.current_node}</div>
+              <div class="text-sr-muted mb-1">Current Node</div>
+              <div class="bg-sr-surface p-2 rounded">{@cluster_info.current_node}</div>
             </div>
             <div>
-              <div class="text-base-content/60 mb-1">
+              <div class="text-sr-muted mb-1">
                 Connected Nodes ({length(@cluster_info.connected_nodes)})
               </div>
-              <div class="bg-base-100 p-2 rounded max-h-20 overflow-auto">
+              <div class="bg-sr-surface p-2 rounded max-h-20 overflow-auto">
                 <%= if @cluster_info.connected_nodes == [] do %>
                   <span class="text-warning">No other nodes connected</span>
                 <% else %>
@@ -420,7 +420,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
         "error" -> "bg-error/10 border-error/20"
         "info" -> "bg-info/10 border-info/20"
         "primary" -> "bg-primary/10 border-primary/20"
-        _ -> "bg-base-200/50 border-base-300"
+        _ -> "bg-sr-subtle/50 border-sr-line"
       end
 
     icon_class =
@@ -430,7 +430,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
         "error" -> "text-error"
         "info" -> "text-info"
         "primary" -> "text-primary"
-        _ -> "text-base-content/50"
+        _ -> "text-sr-muted"
       end
 
     assigns = assign(assigns, bg_class: bg_class, icon_class: icon_class)
@@ -442,23 +442,23 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       class={"rounded-xl border p-4 #{@bg_class} cursor-pointer hover:brightness-95 transition-all"}
     >
       <div class="flex items-center gap-3">
-        <div class={"rounded-lg bg-base-100 p-2 #{@icon_class}"}>
+        <div class={"rounded-lg bg-sr-surface p-2 #{@icon_class}"}>
           <.icon name={@icon} class="size-5" />
         </div>
         <div>
-          <div class="text-xs text-base-content/60">{@title}</div>
-          <div class="text-xl font-bold text-base-content">{@value}</div>
+          <div class="text-xs text-sr-muted">{@title}</div>
+          <div class="text-xl font-bold text-sr-ink">{@value}</div>
         </div>
       </div>
     </.link>
     <div :if={!@href} class={"rounded-xl border p-4 #{@bg_class}"}>
       <div class="flex items-center gap-3">
-        <div class={"rounded-lg bg-base-100 p-2 #{@icon_class}"}>
+        <div class={"rounded-lg bg-sr-surface p-2 #{@icon_class}"}>
           <.icon name={@icon} class="size-5" />
         </div>
         <div>
-          <div class="text-xs text-base-content/60">{@title}</div>
-          <div class="text-xl font-bold text-base-content">{@value}</div>
+          <div class="text-xs text-sr-muted">{@title}</div>
+          <div class="text-xl font-bold text-sr-ink">{@value}</div>
         </div>
       </div>
     </div>
@@ -517,7 +517,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
               <td :if={@expanded}>
                 <.link
                   navigate={~p"/infrastructure/nodes/#{node_param(gateway.node)}"}
-                  class="font-mono text-xs text-base-content/60 block"
+                  class="font-mono text-xs text-sr-muted block"
                 >
                   {gateway.short_name}
                 </.link>
@@ -617,12 +617,12 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
         </thead>
         <tbody>
           <tr :if={@nodes == []}>
-            <td colspan="3" class="text-center text-base-content/60 py-6">
+            <td colspan="3" class="text-center text-sr-muted py-6">
               No cluster nodes
             </td>
           </tr>
           <%= for node <- @nodes do %>
-            <tr class={["hover:bg-base-200/40 cursor-pointer", node.is_current && "bg-primary/5"]}>
+            <tr class={["hover:bg-sr-subtle/40 cursor-pointer", node.is_current && "bg-primary/5"]}>
               <td>
                 <.link
                   navigate={~p"/infrastructure/nodes/#{node_param(node.node)}"}

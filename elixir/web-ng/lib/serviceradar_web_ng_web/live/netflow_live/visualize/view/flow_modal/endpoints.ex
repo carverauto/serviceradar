@@ -33,22 +33,22 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.Endpoints do
     >
       <div class="flex flex-wrap items-center gap-2">
         <.ui_badge size="sm" variant="success">Attributed</.ui_badge>
-        <span class="text-xs text-base-content/60">Agent</span>
+        <span class="text-xs text-sr-muted">Agent</span>
         <span class="font-mono text-xs">{display_value(Map.get(@attribution, :agent_id))}</span>
-        <span class="text-xs text-base-content/60">Process</span>
+        <span class="text-xs text-sr-muted">Process</span>
         <span class="font-mono text-xs">{display_value(Map.get(@attribution, :process_label))}</span>
-        <span class="text-xs text-base-content/60">UID</span>
+        <span class="text-xs text-sr-muted">UID</span>
         <span class="font-mono text-xs">{display_value(Map.get(@attribution, :uid))}</span>
       </div>
       <div class="mt-2 grid gap-2 md:grid-cols-2">
         <div>
-          <div class="text-[10px] uppercase tracking-wider text-base-content/50">Command</div>
+          <div class="text-[10px] uppercase tracking-wider text-sr-muted">Command</div>
           <div class="truncate font-mono text-xs" title={Map.get(@attribution, :cmdline)}>
             {display_value(Map.get(@attribution, :cmdline))}
           </div>
         </div>
         <div>
-          <div class="text-[10px] uppercase tracking-wider text-base-content/50">Container</div>
+          <div class="text-[10px] uppercase tracking-wider text-sr-muted">Container</div>
           <div class="truncate font-mono text-xs" title={Map.get(@attribution, :container_id)}>
             {display_value(Map.get(@attribution, :container_id))}
           </div>
@@ -117,8 +117,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.Endpoints do
       |> assign(:hostname, hostname)
 
     ~H"""
-    <div class="p-3 rounded-lg border border-base-200 bg-base-200/30">
-      <div class="text-xs uppercase tracking-wider text-base-content/50">{@label}</div>
+    <div class="p-3 rounded-lg border border-sr-line bg-sr-subtle/30">
+      <div class="text-xs uppercase tracking-wider text-sr-muted">{@label}</div>
       <div class="mt-1 font-mono text-sm flex items-baseline gap-1 min-w-0">
         <span :if={is_binary(@cc) and String.length(@cc) == 2} class="text-sm leading-none">
           {iso2_flag_emoji(@cc)}
@@ -137,18 +137,18 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.Endpoints do
         >
           {@ip || "—"}
         </span>
-        <span class="shrink-0 text-base-content/60">
+        <span class="shrink-0 text-sr-muted">
           {if @port, do: ":#{@port}", else: ""}
         </span>
       </div>
       <div
         :if={@hostname}
-        class="mt-0.5 text-[11px] text-base-content/60 font-mono truncate"
+        class="mt-0.5 text-[11px] text-sr-muted font-mono truncate"
         title={@hostname}
       >
         {@hostname}
       </div>
-      <div class="mt-1 text-[11px] text-base-content/60 space-y-0.5">
+      <div class="mt-1 text-[11px] text-sr-muted space-y-0.5">
         <div :if={is_binary(@if_uid) and @if_uid != ""}>
           if_uid: <span class="font-mono">{@if_uid}</span>
         </div>
@@ -170,7 +170,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.Endpoints do
               {@mac}
             </span>
           <% else %>
-            <span class="font-mono text-base-content/50">n/a</span>
+            <span class="font-mono text-sr-muted">n/a</span>
           <% end %>
         </div>
         <div :if={is_binary(@mac_vendor) and @mac_vendor != ""}>

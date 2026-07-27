@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="DashboardBuilderCanvas"
       data-props={Jason.encode!(@props)}
     >
-      <div class="flex min-h-[520px] items-center justify-center rounded-lg border border-dashed border-base-300 text-sm text-base-content/60">
+      <div class="flex min-h-[520px] items-center justify-center rounded-lg border border-dashed border-sr-line text-sm text-sr-muted">
         <.ui_spinner size="sm" />
         <span class="ml-3">Loading dashboard canvas...</span>
       </div>
@@ -98,7 +98,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="DashboardPanelChart"
       data-props={Jason.encode!(@props)}
     >
-      <div class="flex h-full min-h-24 items-center justify-center rounded-lg border border-dashed border-base-300 text-sm text-base-content/60">
+      <div class="flex h-full min-h-24 items-center justify-center rounded-lg border border-dashed border-sr-line text-sm text-sr-muted">
         <.ui_spinner size="sm" />
         <span class="ml-3">Loading chart...</span>
       </div>
@@ -138,7 +138,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="JdmEditorHook"
       data-props={Jason.encode!(@props)}
     >
-      <div class="flex items-center justify-center h-full text-base-content/50">
+      <div class="flex items-center justify-center h-full text-sr-muted">
         <.ui_spinner size="lg" />
         <span class="ml-3">Loading decision editor...</span>
       </div>
@@ -178,7 +178,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="RemoteAccessSSHConsole"
       data-props={Jason.encode!(@props)}
     >
-      <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-base-content/60">
+      <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-sr-muted">
         <.ui_spinner size="sm" />
         <span class="ml-3">Loading SSH console...</span>
       </div>
@@ -214,7 +214,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="RemoteAccessDesktopSession"
       data-props={Jason.encode!(@props)}
     >
-      <div class="flex h-full min-h-[420px] items-center justify-center text-sm text-base-content/60">
+      <div class="flex h-full min-h-[420px] items-center justify-center text-sm text-sr-muted">
         <.ui_spinner size="sm" />
         <span class="ml-3">Loading RDP session...</span>
       </div>
@@ -244,7 +244,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="RemoteAccessApplication"
       data-props={Jason.encode!(@props)}
     >
-      <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-base-content/60">
+      <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-sr-muted">
         <.ui_spinner size="sm" />
         <span class="ml-3">Loading application access...</span>
       </div>
@@ -276,7 +276,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="RemoteAccessTCPText"
       data-props={Jason.encode!(@props)}
     >
-      <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-base-content/60">
+      <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-sr-muted">
         <.ui_spinner size="sm" />
         <span class="ml-3">Loading TCP access...</span>
       </div>

@@ -140,11 +140,11 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
         stats={@settings_stats}
       >
         <div class="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-          <section class="flex flex-col gap-3 border-b border-base-300 pb-5 lg:flex-row lg:items-end lg:justify-between">
+          <section class="flex flex-col gap-3 border-b border-sr-line pb-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p class="text-sm font-medium text-primary">Settings</p>
               <h1 class="mt-1 text-2xl font-semibold tracking-normal">User Groups</h1>
-              <p class="mt-2 max-w-3xl text-sm text-base-content/65">
+              <p class="mt-2 max-w-3xl text-sm text-sr-ink/65">
                 Manage reusable groups for dashboard sharing and future access-controlled workflows.
               </p>
             </div>
@@ -153,12 +153,12 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
             </.ui_button>
           </section>
 
-          <section class="rounded-lg border border-base-300 bg-base-100">
-            <div class="border-b border-base-300 px-4 py-3">
+          <section class="rounded-lg border border-sr-line bg-sr-surface">
+            <div class="border-b border-sr-line px-4 py-3">
               <h2 class="text-sm font-semibold">Groups</h2>
             </div>
 
-            <div :if={@loading?} class="p-4 text-sm text-base-content/60">
+            <div :if={@loading?} class="p-4 text-sm text-sr-muted">
               Loading groups...
             </div>
 
@@ -166,16 +166,16 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
               <div class="space-y-3">
                 <div
                   :if={@user_groups == []}
-                  class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60"
+                  class="rounded-lg border border-dashed border-sr-line p-4 text-sm text-sr-muted"
                 >
                   No user groups have been created yet.
                 </div>
 
-                <article :for={group <- @user_groups} class="rounded-lg border border-base-300 p-4">
+                <article :for={group <- @user_groups} class="rounded-lg border border-sr-line p-4">
                   <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <h3 class="text-sm font-semibold">{group.name}</h3>
-                      <p class="mt-1 text-xs text-base-content/55">
+                      <p class="mt-1 text-xs text-sr-ink/55">
                         {group.description || "No description"}
                       </p>
                     </div>
@@ -214,7 +214,7 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
                   as={:membership}
                   phx-change="validate_membership"
                   phx-submit="add_group_member"
-                  class="space-y-3 border-t border-base-300 pt-4"
+                  class="space-y-3 border-t border-sr-line pt-4"
                 >
                   <.input
                     field={@membership_form[:group_id]}

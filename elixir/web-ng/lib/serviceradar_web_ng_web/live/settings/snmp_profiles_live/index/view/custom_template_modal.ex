@@ -104,7 +104,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
 
             <div
               :if={@oids == []}
-              class="text-center py-6 text-base-content/60 bg-base-200/30 rounded-lg"
+              class="text-center py-6 text-sr-muted bg-sr-subtle/30 rounded-lg"
             >
               <.icon name="hero-variable" class="size-8 mx-auto mb-2 opacity-50" />
               <p class="text-sm">No OIDs defined</p>
@@ -113,7 +113,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
 
             <div :if={@oids != []} class="space-y-3 max-h-[30vh] overflow-y-auto">
               <%= for {oid, idx} <- Enum.with_index(@oids) do %>
-                <div class="flex items-start gap-2 p-3 bg-base-200/30 rounded-lg">
+                <div class="flex items-start gap-2 p-3 bg-sr-subtle/30 rounded-lg">
                   <div class="flex-1 grid grid-cols-2 gap-2">
                     <!-- OID -->
                     <div>
@@ -196,7 +196,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                         phx-value-delta={if oid["delta"], do: "false", else: "true"}
                         name="delta"
                       />
-                      <span class="text-xs text-base-content/70">
+                      <span class="text-xs text-sr-muted">
                         Calculate delta (rate of change)
                       </span>
                     </div>

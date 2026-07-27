@@ -214,7 +214,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
           </tbody>
         </table>
       </div>
-      <div class="flex items-center justify-between gap-3 border-t border-base-200 pt-4">
+      <div class="flex items-center justify-between gap-3 border-t border-sr-line pt-4">
         <div class="sr-mtr-muted text-sm">
           {mtr_device_page_label(@page, @total_count)}
         </div>

@@ -90,7 +90,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
             <h1 class="text-2xl font-semibold">Secure Ansible operations</h1>
             <.ui_badge size="sm" variant="success">ServiceRadar secured</.ui_badge>
           </div>
-          <p class="text-sm text-base-content/70">
+          <p class="text-sm text-sr-muted">
             {@operation_count} operation{if @operation_count == 1, do: "", else: "s"} shown
             (capped at {@page_limit}).
           </p>
@@ -120,7 +120,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
       </div>
 
       <div class="flex flex-wrap items-center gap-2" aria-label="Operation state filter">
-        <span class="mr-1 text-sm text-base-content/60">Filter:</span>
+        <span class="mr-1 text-sm text-sr-muted">Filter:</span>
         <.ui_button
           :for={{label, state} <- @state_filters}
           type="button"
@@ -143,7 +143,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
         :if={not @history_loaded}
         id="secure-operations-loading"
         role="status"
-        class="flex items-center gap-2 p-4 text-sm text-base-content/60"
+        class="flex items-center gap-2 p-4 text-sm text-sr-muted"
       >
         <.ui_spinner size="sm" /> Loading secure operation history…
       </div>
@@ -152,12 +152,12 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
         :if={@history_loaded and @operation_count == 0 and is_nil(@history_error)}
         id="secure-operations-empty"
         role="status"
-        class="rounded-box border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70"
+        class="rounded-box border border-dashed border-sr-line p-8 text-center text-sm text-sr-muted"
       >
         No secure operations match the current filter.
       </div>
 
-      <div :if={@operation_count > 0} class="overflow-x-auto border border-base-300 bg-base-100">
+      <div :if={@operation_count > 0} class="overflow-x-auto border border-sr-line bg-sr-surface">
         <table class={ui_table_class(zebra: true)}>
           <thead>
             <tr>

@@ -192,7 +192,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
           <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h1 class="text-xl font-semibold">Availability Sources</h1>
-              <p class="max-w-3xl text-sm text-base-content/60">
+              <p class="max-w-3xl text-sm text-sr-muted">
                 Assign canonical availability agents to SRQL-scoped device sets. Per-device overrides remain authoritative until cleared.
               </p>
             </div>
@@ -208,30 +208,30 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
 
           <div
             :if={@materialize_summary}
-            class="rounded-lg border border-base-300 bg-base-100 p-4 text-sm"
+            class="rounded-lg border border-sr-line bg-sr-surface p-4 text-sm"
           >
             <div class="grid gap-3 sm:grid-cols-4">
               <div>
-                <div class="text-xs uppercase tracking-wide text-base-content/50">Profiles</div>
+                <div class="text-xs uppercase tracking-wide text-sr-muted">Profiles</div>
                 <div class="font-semibold">{@materialize_summary.profiles}</div>
               </div>
               <div>
-                <div class="text-xs uppercase tracking-wide text-base-content/50">Matched</div>
+                <div class="text-xs uppercase tracking-wide text-sr-muted">Matched</div>
                 <div class="font-semibold">{@materialize_summary.matched_devices}</div>
               </div>
               <div>
-                <div class="text-xs uppercase tracking-wide text-base-content/50">Applied</div>
+                <div class="text-xs uppercase tracking-wide text-sr-muted">Applied</div>
                 <div class="font-semibold">{@materialize_summary.applied_devices}</div>
               </div>
               <div>
-                <div class="text-xs uppercase tracking-wide text-base-content/50">Cleared</div>
+                <div class="text-xs uppercase tracking-wide text-sr-muted">Cleared</div>
                 <div class="font-semibold">{@materialize_summary.cleared_devices}</div>
               </div>
             </div>
           </div>
 
           <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-            <section class="overflow-hidden rounded-lg border border-base-300 bg-base-100">
+            <section class="overflow-hidden rounded-lg border border-sr-line bg-sr-surface">
               <div class="sr-ui-table-shell">
                 <table class={ui_table_class(size: "sm")}>
                   <thead>
@@ -247,14 +247,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
                   </thead>
                   <tbody>
                     <tr :if={@profiles == []}>
-                      <td colspan="7" class="py-8 text-center text-sm text-base-content/60">
+                      <td colspan="7" class="py-8 text-center text-sm text-sr-muted">
                         No availability source profiles have been configured.
                       </td>
                     </tr>
                     <tr :for={profile <- @profiles}>
                       <td class="min-w-56">
                         <div class="font-medium">{profile.name}</div>
-                        <div class="max-w-sm truncate font-mono text-xs text-base-content/50">
+                        <div class="max-w-sm truncate font-mono text-xs text-sr-muted">
                           {profile.srql_query}
                         </div>
                       </td>
@@ -293,7 +293,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
             </section>
 
             <aside class="space-y-4">
-              <section class="rounded-lg border border-base-300 bg-base-100 p-4">
+              <section class="rounded-lg border border-sr-line bg-sr-surface p-4">
                 <h2 class="text-base font-semibold">
                   {if @editing_id, do: "Edit Profile", else: "New Profile"}
                 </h2>
@@ -344,30 +344,30 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
 
               <section
                 :if={@preview}
-                class="rounded-lg border border-base-300 bg-base-100 p-4 text-sm"
+                class="rounded-lg border border-sr-line bg-sr-surface p-4 text-sm"
               >
                 <%= if @preview.status == :ok do %>
                   <div class="font-medium">Preview</div>
-                  <div class="mt-1 font-mono text-xs text-base-content/60">
+                  <div class="mt-1 font-mono text-xs text-sr-muted">
                     {@preview.result.query}
                   </div>
-                  <div class="mt-3 text-base-content/70">
+                  <div class="mt-3 text-sr-muted">
                     Showing {Enum.count(@preview.result.rows)} of up to 25 matching rows.
                   </div>
                   <ul class="mt-3 max-h-72 space-y-2 overflow-auto">
                     <li
                       :for={row <- @preview.result.rows}
-                      class="rounded border border-base-200 px-3 py-2"
+                      class="rounded border border-sr-line px-3 py-2"
                     >
                       <div class="font-mono text-xs">{preview_uid(row)}</div>
-                      <div class="truncate text-xs text-base-content/50">
+                      <div class="truncate text-xs text-sr-muted">
                         {preview_label(row)}
                       </div>
                     </li>
                   </ul>
                 <% else %>
                   <div class="font-medium text-error">Preview failed</div>
-                  <div class="mt-1 text-base-content/70">{@preview.reason}</div>
+                  <div class="mt-1 text-sr-muted">{@preview.reason}</div>
                 <% end %>
               </section>
             </aside>

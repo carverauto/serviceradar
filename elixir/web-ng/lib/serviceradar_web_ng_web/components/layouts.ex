@@ -141,7 +141,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
         <div
           :if={Map.get(@srql, :builder_open, false) or Map.get(@srql, :error)}
-          class="border-b border-base-200 bg-base-100"
+          class="border-b border-sr-line bg-sr-surface"
         >
           <div class="px-4 sm:px-6 lg:px-8 py-4">
             <div :if={Map.get(@srql, :error)} class="mb-3 text-xs text-error">
@@ -272,33 +272,33 @@ defmodule ServiceRadarWebNGWeb.Layouts do
             </ul>
           </div>
 
-          <div class="mt-auto p-3 border-t border-base-200">
+          <div class="mt-auto p-3 border-t border-sr-line">
             <div class="dropdown dropdown-top w-full">
               <div
                 tabindex="0"
                 role="button"
-                class="flex items-center gap-2 p-2 rounded-lg hover:bg-base-200 cursor-pointer w-full"
+                class="flex items-center gap-2 p-2 rounded-lg hover:bg-sr-subtle cursor-pointer w-full"
               >
                 <div class="avatar avatar-placeholder">
                   <div class="bg-neutral text-neutral-content w-8 rounded-full">
                     <span class="text-xs">{user_initials(@current_scope.user.email)}</span>
                   </div>
                 </div>
-                <.icon name="hero-chevron-up" class="size-3 text-base-content/50 ml-auto" />
+                <.icon name="hero-chevron-up" class="size-3 text-sr-muted ml-auto" />
               </div>
               <ul
                 tabindex="0"
-                class="dropdown-content menu bg-base-200 rounded-box z-10 w-56 p-2 shadow-lg mb-2"
+                class="dropdown-content menu bg-sr-subtle rounded-box z-10 w-56 p-2 shadow-lg mb-2"
               >
                 <li :if={@current_scope && @current_scope.user}>
                   <div class="flex flex-col gap-1">
-                    <span class="text-[10px] uppercase tracking-wider text-base-content/60">
+                    <span class="text-[10px] uppercase tracking-wider text-sr-muted">
                       Signed in as
                     </span>
                     <span class="text-sm font-medium truncate max-w-[180px]">
                       {@current_scope.user.email}
                     </span>
-                    <span class="text-[10px] uppercase tracking-wider text-base-content/50 mt-1">
+                    <span class="text-[10px] uppercase tracking-wider text-sr-muted mt-1">
                       Role
                     </span>
                     <span class="text-xs font-medium">
@@ -309,7 +309,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                 <%!-- Theme toggle hidden; app defaults to dark.
                 <li>
                   <div class="flex flex-col gap-2">
-                    <span class="text-[10px] uppercase tracking-wider text-base-content/60">
+                    <span class="text-[10px] uppercase tracking-wider text-sr-muted">
                       Theme
                     </span>
                     <.theme_toggle />

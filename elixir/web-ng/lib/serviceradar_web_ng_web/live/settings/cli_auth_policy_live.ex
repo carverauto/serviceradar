@@ -91,8 +91,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
       >
         <div class="mx-auto w-full max-w-2xl p-6 space-y-6">
           <header>
-            <h1 class="text-2xl font-semibold text-base-content">CLI authentication</h1>
-            <p class="text-sm text-base-content/70">
+            <h1 class="text-2xl font-semibold text-sr-ink">CLI authentication</h1>
+            <p class="text-sm text-sr-muted">
               Controls the RFC 8628 device-code flow that powers <code class="font-mono">serviceradar-cli auth login</code>. Disabling the
               flow does not revoke tokens already issued — use Settings → CLI sessions
               to revoke individual sessions.
@@ -113,7 +113,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
                   Allow new CLI device-code authorizations on this instance
                 </span>
               </label>
-              <p class="text-xs text-base-content/60 mt-1">
+              <p class="text-xs text-sr-muted mt-1">
                 When off, both <code class="font-mono">/api/v1/cli/auth/device</code>
                 and <code class="font-mono">/api/v1/cli/auth/token</code>
                 respond with 503 <code class="font-mono">cli_auth_disabled</code>; the
@@ -133,7 +133,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
                 max="365"
                 class={ui_field_class(class: "w-32")}
               />
-              <p class="text-xs text-base-content/60 mt-1">
+              <p class="text-xs text-sr-muted mt-1">
                 Default 30 days. Existing tokens keep their original TTL — only
                 freshly-issued sessions use the new value.
               </p>
@@ -149,7 +149,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
                 class={ui_field_class(mono: true, class: "min-h-24 py-2.5 text-sm")}
                 placeholder="dashboard.publish&#10;dashboard.import"
               ><%= @form_values.cli_allowed_scopes %></textarea>
-              <p class="text-xs text-base-content/60 mt-1">
+              <p class="text-xs text-sr-muted mt-1">
                 One scope per line (or whitespace/comma separated). Requests for
                 scopes outside the list are rejected with 400 <code class="font-mono">invalid_scope</code>.
               </p>

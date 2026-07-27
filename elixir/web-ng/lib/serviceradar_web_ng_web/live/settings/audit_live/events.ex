@@ -191,7 +191,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
       >
         <header class="space-y-1">
           <h1 class="text-2xl font-semibold">Audit · Events</h1>
-          <p class="text-sm text-base-content/60">
+          <p class="text-sm text-sr-muted">
             Stateless security events: rate-limit denials, signature failures, policy denials,
             CSP violations, lockout triggers and clears. Live-tailed via Phoenix.PubSub.
           </p>
@@ -200,7 +200,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
         <%= if @can_view? do %>
           <form phx-change="filter" class="flex flex-wrap items-end gap-3">
             <label class="text-sm">
-              <span class="mb-1 block text-base-content/70">Kind</span>
+              <span class="mb-1 block text-sr-muted">Kind</span>
               <select name="kind" class="ui-select">
                 <option value="">All</option>
                 <%= for kind <- @kinds do %>
@@ -212,7 +212,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
             </label>
 
             <label class="text-sm">
-              <span class="mb-1 block text-base-content/70">Severity</span>
+              <span class="mb-1 block text-sr-muted">Severity</span>
               <select name="severity" class="ui-select">
                 <option value="">All</option>
                 <%= for severity <- @severities do %>
@@ -238,8 +238,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
           <%!-- table-fixed + per-cell truncation keeps the whole table inside the
                 container with NO horizontal scroll even for long IPv6 addresses;
                 the full value is available on hover (title) and in the row modal. --%>
-          <div class="rounded-lg border border-base-200 bg-base-100">
-            <table class="w-full table-fixed text-sm text-base-content">
+          <div class="rounded-lg border border-sr-line bg-sr-surface">
+            <table class="w-full table-fixed text-sm text-sr-ink">
               <colgroup>
                 <col class="w-[11rem]" />
                 <col class="w-[9rem]" />
@@ -248,7 +248,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
                 <col />
                 <col />
               </colgroup>
-              <thead class="bg-base-200/70 text-base-content/70">
+              <thead class="bg-sr-subtle/70 text-sr-muted">
                 <tr>
                   <th class="px-4 py-2 text-left">When</th>
                   <th class="px-4 py-2 text-left">Kind</th>
@@ -258,10 +258,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
                   <th class="px-4 py-2 text-left">Route</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-base-200">
+              <tbody class="divide-y divide-sr-line">
                 <%= for e <- @events do %>
                   <tr
-                    class="cursor-pointer hover:bg-base-200/50 focus:bg-base-200/60 focus:outline-none"
+                    class="cursor-pointer hover:bg-sr-subtle/50 focus:bg-sr-subtle/60 focus:outline-none"
                     tabindex="0"
                     role="button"
                     aria-label={"View audit event #{e.kind} at #{format_dt(e.occurred_at)}"}
@@ -288,7 +288,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
                 <% end %>
                 <%= if Enum.empty?(@events) do %>
                   <tr>
-                    <td colspan="6" class="px-4 py-8 text-center text-base-content/60">
+                    <td colspan="6" class="px-4 py-8 text-center text-sr-muted">
                       No security events yet.
                     </td>
                   </tr>
@@ -335,38 +335,38 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
 
         <dl class="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
           <div class="sm:col-span-2">
-            <dt class="text-xs uppercase text-base-content/50">When</dt>
+            <dt class="text-xs uppercase text-sr-muted">When</dt>
             <dd class="font-mono text-xs">{format_dt(@event.occurred_at)}</dd>
           </div>
           <div>
-            <dt class="text-xs uppercase text-base-content/50">Kind</dt>
+            <dt class="text-xs uppercase text-sr-muted">Kind</dt>
             <dd>{@event.kind}</dd>
           </div>
           <div>
-            <dt class="text-xs uppercase text-base-content/50">Severity</dt>
+            <dt class="text-xs uppercase text-sr-muted">Severity</dt>
             <dd>{@event.severity}</dd>
           </div>
           <div>
-            <dt class="text-xs uppercase text-base-content/50">Actor</dt>
+            <dt class="text-xs uppercase text-sr-muted">Actor</dt>
             <dd class="font-mono text-xs break-all">{@event.actor_id || "—"}</dd>
           </div>
           <div>
-            <dt class="text-xs uppercase text-base-content/50">IP</dt>
+            <dt class="text-xs uppercase text-sr-muted">IP</dt>
             <dd class="font-mono text-xs break-all">{@event.ip || "—"}</dd>
           </div>
           <div class="sm:col-span-2">
-            <dt class="text-xs uppercase text-base-content/50">Route</dt>
+            <dt class="text-xs uppercase text-sr-muted">Route</dt>
             <dd class="font-mono text-xs break-all">{@event.route || "—"}</dd>
           </div>
           <div :if={@event.correlation_id} class="sm:col-span-2">
-            <dt class="text-xs uppercase text-base-content/50">Correlation ID</dt>
+            <dt class="text-xs uppercase text-sr-muted">Correlation ID</dt>
             <dd class="font-mono text-xs break-all">{@event.correlation_id}</dd>
           </div>
         </dl>
 
         <div :if={has_details?(@event)} class="mt-4">
-          <h3 class="text-xs uppercase text-base-content/50">Details</h3>
-          <pre class="mt-1 max-h-64 overflow-auto rounded bg-base-200/60 p-3 text-xs leading-relaxed"><%= pretty_details(@event.details) %></pre>
+          <h3 class="text-xs uppercase text-sr-muted">Details</h3>
+          <pre class="mt-1 max-h-64 overflow-auto rounded bg-sr-subtle/60 p-3 text-xs leading-relaxed"><%= pretty_details(@event.details) %></pre>
         </div>
 
         <div class="modal-action">

@@ -38,17 +38,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessMetricsComponents do
       |> assign(:last_sampled, last_sampled)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line">
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-2">
             <.icon name="hero-command-line" class="size-4 text-accent" />
             <span class="text-sm font-semibold">Processes</span>
-            <span class="text-xs text-base-content/50">
+            <span class="text-xs text-sr-muted">
               last 15m{if @row_count > 0, do: " · top #{@row_count} by CPU", else: ""}
             </span>
           </div>
-          <div class="text-xs text-base-content/50">
+          <div class="text-xs text-sr-muted">
             <span :if={@row_count > 0} class="font-mono">{format_timestamp(@last_sampled)}</span>
           </div>
         </div>
@@ -67,16 +67,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessMetricsComponents do
       </div>
 
       <div :if={@row_count == 0} class="p-6 text-center">
-        <.icon name="hero-command-line" class="size-10 text-base-content/20 mx-auto" />
-        <p class="text-sm text-base-content/70 mt-2">No process metrics collected.</p>
-        <p class="text-xs text-base-content/50 mt-1">
+        <.icon name="hero-command-line" class="size-10 text-sr-ink/20 mx-auto" />
+        <p class="text-sm text-sr-muted mt-2">No process metrics collected.</p>
+        <p class="text-xs text-sr-muted mt-1">
           Enable process collection in the sysmon profile and wait for samples.
         </p>
       </div>
 
       <div
         :if={@row_count > 0 and @pagination.filtered_total == 0}
-        class="p-6 text-center text-sm text-base-content/70"
+        class="p-6 text-center text-sm text-sr-muted"
       >
         No processes match the current search.
       </div>

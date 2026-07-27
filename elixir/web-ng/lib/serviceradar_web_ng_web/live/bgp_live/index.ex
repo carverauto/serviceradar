@@ -169,10 +169,10 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
     <!-- Header -->
         <div class="flex justify-between items-center">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">
+            <h1 class="text-2xl font-semibold text-sr-ink">
               BGP Routing
             </h1>
-            <p class="text-sm text-base-content/60 mt-1">
+            <p class="text-sm text-sr-muted mt-1">
               BGP routing information from NetFlow, sFlow, and BMP sources
             </p>
           </div>
@@ -277,7 +277,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
           <!-- Empty State -->
           <div class="text-center py-16">
             <svg
-              class="mx-auto h-12 w-12 text-base-content/40"
+              class="mx-auto h-12 w-12 text-sr-muted"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -289,13 +289,13 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
                 d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
               />
             </svg>
-            <h3 class="mt-2 text-sm font-medium text-base-content">
+            <h3 class="mt-2 text-sm font-medium text-sr-ink">
               No BGP Routing Data
             </h3>
-            <p class="mt-1 text-sm text-base-content/60">
+            <p class="mt-1 text-sm text-sr-muted">
               No BGP observations found for the selected time range and filters.
             </p>
-            <p class="mt-1 text-xs text-base-content/40">
+            <p class="mt-1 text-xs text-sr-muted">
               BGP data is populated from NetFlow, sFlow, or BMP sources.
             </p>
           </div>

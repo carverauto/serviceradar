@@ -168,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
           >
             <span class="size-2.5 rounded-full bg-success animate-pulse"></span>
             <span class="text-sm text-success font-medium">Live Gateway</span>
-            <span class="text-xs text-base-content/60">Connected to cluster via Horde registry</span>
+            <span class="text-xs text-sr-muted">Connected to cluster via Horde registry</span>
           </div>
           <div
             :if={!@live_gateway && Map.get(@gateway, "_source") == "database"}
@@ -176,7 +176,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
           >
             <span class="size-2.5 rounded-full bg-warning"></span>
             <span class="text-sm text-warning font-medium">Database Record</span>
-            <span class="text-xs text-base-content/60">
+            <span class="text-xs text-sr-muted">
               Gateway not currently connected to cluster
             </span>
           </div>
@@ -195,30 +195,30 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
 
   defp gateway_summary(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-6">
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-6">
       <div class="flex flex-wrap gap-x-8 gap-y-4">
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Status</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Status</span>
           <.status_badge status={Map.get(@gateway, "status")} />
         </div>
 
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Node</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Node</span>
           <span class="text-sm font-mono">{Map.get(@gateway, "node") || "—"}</span>
         </div>
 
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Partition</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Partition</span>
           <span class="text-sm font-mono">{Map.get(@gateway, "partition_id") || "default"}</span>
         </div>
 
         <div :if={has_value?(@gateway, "domain")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Domain</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Domain</span>
           <span class="text-sm">{Map.get(@gateway, "domain")}</span>
         </div>
 
         <div :if={has_value?(@gateway, "pid")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Process ID</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Process ID</span>
           <span class="text-sm font-mono text-xs">{Map.get(@gateway, "pid")}</span>
         </div>
       </div>
@@ -237,19 +237,19 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
       |> assign(:role_steps, role_steps)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line">
         <span class="text-sm font-semibold">Gateway Role</span>
       </div>
       <div class="p-4">
-        <p class="text-sm text-base-content/70 mb-3">
+        <p class="text-sm text-sr-muted mb-3">
           {@role_description}
         </p>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <%= for {step, index} <- Enum.with_index(@role_steps) do %>
-            <div class="flex items-center gap-2 p-2 rounded-lg bg-base-200/50">
+            <div class="flex items-center gap-2 p-2 rounded-lg bg-sr-subtle/50">
               <.ui_badge size="sm" variant={step_badge_variant(index)}>{step.label}</.ui_badge>
-              <span class="text-xs text-base-content/60">{step.description}</span>
+              <span class="text-xs text-sr-muted">{step.description}</span>
             </div>
           <% end %>
         </div>
@@ -268,32 +268,32 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
 
   defp node_system_info(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between">
         <span class="text-sm font-semibold">Node System Information</span>
         <.ui_badge size="sm" variant="ghost" class="font-mono">{@node}</.ui_badge>
       </div>
       <div class="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
         <!-- Uptime -->
-        <div class="stat bg-base-200/30 rounded-lg p-3">
+        <div class="stat bg-sr-subtle/30 rounded-lg p-3">
           <div class="stat-title text-xs">Uptime</div>
           <div class="stat-value text-lg">{format_uptime(@node_info.uptime_ms)}</div>
         </div>
         
     <!-- Processes -->
-        <div class="stat bg-base-200/30 rounded-lg p-3">
+        <div class="stat bg-sr-subtle/30 rounded-lg p-3">
           <div class="stat-title text-xs">Processes</div>
           <div class="stat-value text-lg">{@node_info.process_count}</div>
         </div>
         
     <!-- Schedulers -->
-        <div class="stat bg-base-200/30 rounded-lg p-3">
+        <div class="stat bg-sr-subtle/30 rounded-lg p-3">
           <div class="stat-title text-xs">Schedulers</div>
           <div class="stat-value text-lg">{@node_info.schedulers_online}/{@node_info.schedulers}</div>
         </div>
         
     <!-- OTP Release -->
-        <div class="stat bg-base-200/30 rounded-lg p-3">
+        <div class="stat bg-sr-subtle/30 rounded-lg p-3">
           <div class="stat-title text-xs">OTP Release</div>
           <div class="stat-value text-lg">OTP {@node_info.otp_release}</div>
         </div>
@@ -301,7 +301,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
       
     <!-- Memory breakdown -->
       <div class="px-4 pb-4">
-        <div class="text-xs text-base-content/60 mb-2">Memory Usage</div>
+        <div class="text-xs text-sr-muted mb-2">Memory Usage</div>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
           <.memory_stat label="Total" bytes={@node_info.memory_total} />
           <.memory_stat label="Processes" bytes={@node_info.memory_processes} />
@@ -323,8 +323,8 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
 
   defp memory_stat(assigns) do
     ~H"""
-    <div class="bg-base-200/30 rounded px-2 py-1">
-      <div class="text-xs text-base-content/50">{@label}</div>
+    <div class="bg-sr-subtle/30 rounded px-2 py-1">
+      <div class="text-xs text-sr-muted">{@label}</div>
       <div class="font-mono text-sm">
         <%= if @bytes do %>
           {format_bytes(@bytes)}
@@ -340,26 +340,26 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
 
   defp registration_info(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line">
         <span class="text-sm font-semibold">Registration Timeline</span>
       </div>
       <div class="p-4">
         <div class="flex flex-col gap-3">
           <div :if={has_value?(@gateway, "registered_at")} class="flex items-center gap-3">
             <span class="size-2 rounded-full bg-success"></span>
-            <span class="text-xs text-base-content/60 w-24">Registered</span>
+            <span class="text-xs text-sr-muted w-24">Registered</span>
             <span class="font-mono text-sm">
               {format_timestamp(Map.get(@gateway, "registered_at"))}
             </span>
           </div>
           <div :if={has_value?(@gateway, "last_heartbeat")} class="flex items-center gap-3">
             <span class="size-2 rounded-full bg-info animate-pulse"></span>
-            <span class="text-xs text-base-content/60 w-24">Last Heartbeat</span>
+            <span class="text-xs text-sr-muted w-24">Last Heartbeat</span>
             <span class="font-mono text-sm">
               {format_timestamp(Map.get(@gateway, "last_heartbeat"))}
             </span>
-            <span class="text-xs text-base-content/40">
+            <span class="text-xs text-sr-muted">
               ({time_ago(Map.get(@gateway, "last_heartbeat"))})
             </span>
           </div>

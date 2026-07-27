@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls.Dimensions do
   def render(assigns) do
     ~H"""
     <div class="col-span-2">
-      <div class="text-xs font-semibold text-base-content/70 mb-1">Dimensions</div>
+      <div class="text-xs font-semibold text-sr-muted mb-1">Dimensions</div>
       <form phx-change="nf_state_change" class="space-y-2">
         <% graph = Map.get(@netflow_viz_state, "graph", "stacked") %>
         <%= if graph == "sankey" do %>
@@ -36,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls.Dimensions do
           </select>
         <% end %>
 
-        <div class="text-[11px] text-base-content/60">
+        <div class="text-[11px] text-sr-muted">
           Time-series charts group by the selected dimension; Sankey uses source -> middle -> destination.
           Exporter/interface dimensions may appear as <span class="font-mono">Unknown</span>
           until the NetFlow cache refresh job populates metadata.
@@ -55,7 +55,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls.Dimensions do
   def sankey_select(assigns) do
     ~H"""
     <div class="space-y-1">
-      <div class="text-[11px] text-base-content/60">{@label}</div>
+      <div class="text-[11px] text-sr-muted">{@label}</div>
       <select name="state[dims][]" class={ui_field_class(size: "sm", mono: true, class: "w-full text-xs")}>
         <%= for {label, value} <- @dims do %>
           <option value={value} selected={@selected == value}>{label}</option>
@@ -71,7 +71,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls.Dimensions do
   def dimension_order(assigns) do
     ~H"""
     <div :if={@graph != "sankey" and length(@dims) > 1} class="mt-2 space-y-1">
-      <div class="text-[11px] text-base-content/60">Order</div>
+      <div class="text-[11px] text-sr-muted">Order</div>
       <div class="space-y-1">
         <%= for dim <- @dims do %>
           <div class="flex items-center gap-2">

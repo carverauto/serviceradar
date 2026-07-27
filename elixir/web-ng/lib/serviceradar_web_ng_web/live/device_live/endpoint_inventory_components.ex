@@ -62,12 +62,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
     ~H"""
     <section
       :if={@has_inventory or @show_controls or is_binary(@error) or field(@software_state, :show)}
-      class="rounded-lg border border-base-300 bg-base-100 shadow-sm"
+      class="rounded-lg border border-sr-line bg-sr-surface shadow-sm"
     >
-      <div class="flex flex-col gap-3 border-b border-base-300 px-4 py-3 md:flex-row md:items-center md:justify-between">
+      <div class="flex flex-col gap-3 border-b border-sr-line px-4 py-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 class="text-sm font-semibold text-base-content">Endpoint Software</h2>
-          <p class="text-xs text-base-content/60">
+          <h2 class="text-sm font-semibold text-sr-ink">Endpoint Software</h2>
+          <p class="text-xs text-sr-muted">
             {@stored_package_count} current package rows | {@scan_count} scans
           </p>
         </div>
@@ -149,9 +149,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
             </table>
           </div>
 
-          <div class="rounded border border-base-300 p-3">
+          <div class="rounded border border-sr-line p-3">
             <div class="flex flex-wrap items-center justify-between gap-2">
-              <h3 class="text-xs font-semibold uppercase text-base-content/60">Source Diagnostics</h3>
+              <h3 class="text-xs font-semibold uppercase text-sr-muted">Source Diagnostics</h3>
               <div :if={enabled_sources(@scan) != []} class="flex flex-wrap gap-1">
                 <.ui_badge
                   :for={source <- enabled_sources(@scan)}
@@ -165,14 +165,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
             <div
               :if={source_summaries(@scan) == []}
-              class="mt-3 rounded bg-base-200/40 px-3 py-2 text-xs text-base-content/60"
+              class="mt-3 rounded bg-sr-subtle/40 px-3 py-2 text-xs text-sr-muted"
             >
               No source diagnostics were reported with this scan.
             </div>
 
             <div
               :if={source_summaries(@scan) != []}
-              class="mt-3 overflow-hidden rounded border border-base-300"
+              class="mt-3 overflow-hidden rounded border border-sr-line"
             >
               <table class={ui_table_class(size: "xs")}>
                 <thead>
@@ -192,7 +192,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                       </.ui_badge>
                     </td>
                     <td class="font-mono">{field(source, :package_count) || 0}</td>
-                    <td class="max-w-52 truncate text-base-content/70">
+                    <td class="max-w-52 truncate text-sr-muted">
                       {field(source, :reason) || field(source, :error) ||
                         field(source, :skipped_reason) || "-"}
                     </td>
@@ -202,8 +202,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
             </div>
           </div>
 
-          <div :if={manager_counts(@scan) != %{}} class="rounded border border-base-300 p-3">
-            <h3 class="text-xs font-semibold uppercase text-base-content/60">Package Managers</h3>
+          <div :if={manager_counts(@scan) != %{}} class="rounded border border-sr-line p-3">
+            <h3 class="text-xs font-semibold uppercase text-sr-muted">Package Managers</h3>
             <div class="mt-3 flex flex-wrap gap-2">
               <.ui_badge
                 :for={{manager, count} <- manager_count_entries(@scan)}
@@ -217,9 +217,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
             </div>
           </div>
 
-          <div class="rounded border border-base-300 p-3">
+          <div class="rounded border border-sr-line p-3">
             <div class="mb-3 flex items-center justify-between gap-2">
-              <h3 class="text-xs font-semibold uppercase text-base-content/60">Live Query</h3>
+              <h3 class="text-xs font-semibold uppercase text-sr-muted">Live Query</h3>
               <span :if={@command_notice} class="text-xs text-success">{@command_notice}</span>
             </div>
 
@@ -262,8 +262,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
             <.live_query_result result={@live_query_result} />
           </div>
 
-          <div class="rounded border border-base-300 p-3">
-            <h3 class="mb-3 text-xs font-semibold uppercase text-base-content/60">Cohort Query</h3>
+          <div class="rounded border border-sr-line p-3">
+            <h3 class="mb-3 text-xs font-semibold uppercase text-sr-muted">Cohort Query</h3>
             <.form for={@cohort_form} phx-submit="endpoint_inventory_cohort_query" class="grid gap-2">
               <div class="grid gap-2 md:grid-cols-2">
                 <.input field={@cohort_form[:name]} label="Package" placeholder="nginx" />
@@ -299,7 +299,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
             <.cohort_query_result result={@cohort_query_result} />
           </div>
 
-          <div :if={@artifacts != []} class="overflow-hidden rounded border border-base-300">
+          <div :if={@artifacts != []} class="overflow-hidden rounded border border-sr-line">
             <table class={ui_table_class(size: "sm")}>
               <thead>
                 <tr>
@@ -322,14 +322,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
         <div class="space-y-4">
           <.vulnerability_matches_section matches={@vulnerability_matches} />
 
-          <div class="overflow-hidden rounded border border-base-300">
-            <div class="border-b border-base-300 bg-base-200/30 p-3">
+          <div class="overflow-hidden rounded border border-sr-line">
+            <div class="border-b border-sr-line bg-sr-subtle/30 p-3">
               <div class="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h3 class="text-xs font-semibold uppercase text-base-content/60">
+                  <h3 class="text-xs font-semibold uppercase text-sr-muted">
                     Current Packages
                   </h3>
-                  <p class="text-xs text-base-content/60">
+                  <p class="text-xs text-sr-muted">
                     {package_range_label(@first_row, @last_row, @package_total)}
                     <span :if={package_filters_active?(@package_filter_params)}>
                       (of {@stored_package_count} total)
@@ -392,12 +392,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
               </thead>
               <tbody>
                 <tr :if={@package_total == 0 and @stored_package_count == 0}>
-                  <td colspan="4" class="py-6 text-center text-sm text-base-content/60">
+                  <td colspan="4" class="py-6 text-center text-sm text-sr-muted">
                     {field(@software_state, :empty_message)}
                   </td>
                 </tr>
                 <tr :if={@package_total == 0 and @stored_package_count > 0}>
-                  <td colspan="4" class="py-6 text-center text-sm text-base-content/60">
+                  <td colspan="4" class="py-6 text-center text-sm text-sr-muted">
                     No package rows match the current filters.
                   </td>
                 </tr>
@@ -425,9 +425,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
             <div
               :if={@total_pages > 1}
-              class="flex items-center justify-between gap-2 border-t border-base-300 bg-base-200/30 px-3 py-2"
+              class="flex items-center justify-between gap-2 border-t border-sr-line bg-sr-subtle/30 px-3 py-2"
             >
-              <span class="text-xs text-base-content/60">
+              <span class="text-xs text-sr-muted">
                 Page {@current_page} of {@total_pages}
               </span>
               <div class="join">
@@ -463,7 +463,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
         <div class="mb-3 flex items-start justify-between gap-3">
           <div>
             <h3 class="text-lg font-bold">{field(@package, :name) || "Package"}</h3>
-            <p class="font-mono text-xs text-base-content/60">
+            <p class="font-mono text-xs text-sr-muted">
               {empty_dash(field(@package, :version))}
             </p>
           </div>
@@ -501,7 +501,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
         <div class="mt-4">
           <div class="mb-2 flex items-center justify-between gap-2">
-            <h4 class="text-xs font-semibold uppercase text-base-content/60">
+            <h4 class="text-xs font-semibold uppercase text-sr-muted">
               Vulnerability Details
             </h4>
             <.ui_badge :if={@match_count > 0} size="sm" variant="error">
@@ -511,7 +511,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
           <div
             :if={@match_count == 0}
-            class="rounded border border-base-300 bg-base-200/40 px-3 py-4 text-center text-sm text-base-content/60"
+            class="rounded border border-sr-line bg-sr-subtle/40 px-3 py-4 text-center text-sm text-sr-muted"
           >
             No known vulnerabilities for this package.
           </div>
@@ -519,7 +519,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           <div :if={@match_count > 0} class="space-y-3">
             <div
               :for={match <- @matches}
-              class="rounded border border-base-300 p-3"
+              class="rounded border border-sr-line p-3"
             >
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <div class="flex flex-wrap items-center gap-1">
@@ -537,7 +537,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                     {String.capitalize(to_string(field(match, :status) || "unknown"))}
                   </.ui_badge>
                 </div>
-                <span class="font-mono text-xs text-base-content/60">
+                <span class="font-mono text-xs text-sr-muted">
                   CVSS {empty_dash(field(match, :cvss_score))}
                 </span>
               </div>
@@ -549,7 +549,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                     field(match, :cve_id) && field(match, :advisory_id) &&
                       field(match, :cve_id) != field(match, :advisory_id)
                   }
-                  class="ml-1 font-mono text-xs text-base-content/60"
+                  class="ml-1 font-mono text-xs text-sr-muted"
                 >
                   ({field(match, :advisory_id)})
                 </span>
@@ -557,21 +557,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
               <div class="mt-2 grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
                 <div>
-                  <span class="text-base-content/50">Fixed Version:</span>
+                  <span class="text-sr-muted">Fixed Version:</span>
                   <span class="font-mono">{empty_dash(field(match, :fixed_version))}</span>
                 </div>
                 <div>
-                  <span class="text-base-content/50">Coordinate:</span>
+                  <span class="text-sr-muted">Coordinate:</span>
                   <span class="font-mono">{match_coordinate(match)}</span>
                 </div>
                 <div>
-                  <span class="text-base-content/50">Source:</span>
+                  <span class="text-sr-muted">Source:</span>
                   <span class="font-mono">
                     {field(match, :provider)}{feed_suffix(field(match, :feed_key))}
                   </span>
                 </div>
                 <div>
-                  <span class="text-base-content/50">Confidence:</span>
+                  <span class="text-sr-muted">Confidence:</span>
                   <span>{String.capitalize(to_string(field(match, :confidence) || "unknown"))}</span>
                 </div>
               </div>
@@ -602,7 +602,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   defp detail_row(assigns) do
     ~H"""
     <tr>
-      <th class="w-36 text-xs text-base-content/60">{@label}</th>
+      <th class="w-36 text-xs text-sr-muted">{@label}</th>
       <td class={["break-all text-xs", @mono && "font-mono"]}>{empty_dash(@value)}</td>
     </tr>
     """
@@ -613,8 +613,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   defp summary_stat(assigns) do
     ~H"""
-    <div class="rounded border border-base-300 bg-base-200/30 px-3 py-2">
-      <div class="text-[0.65rem] font-semibold uppercase text-base-content/50">{@label}</div>
+    <div class="rounded border border-sr-line bg-sr-subtle/30 px-3 py-2">
+      <div class="text-[0.65rem] font-semibold uppercase text-sr-muted">{@label}</div>
       <div class="mt-1 truncate text-sm font-semibold">{empty_dash(@value)}</div>
     </div>
     """
@@ -626,14 +626,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
     assigns = assign(assigns, :match_count, length(assigns.matches || []))
 
     ~H"""
-    <div class="overflow-hidden rounded border border-base-300">
-      <div class="border-b border-base-300 bg-base-200/30 p-3">
+    <div class="overflow-hidden rounded border border-sr-line">
+      <div class="border-b border-sr-line bg-sr-subtle/30 p-3">
         <div class="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
           <div>
-            <h3 class="text-xs font-semibold uppercase text-base-content/60">
+            <h3 class="text-xs font-semibold uppercase text-sr-muted">
               Vulnerability Matches
             </h3>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               {@match_count} active package matches from central feeds
             </p>
           </div>
@@ -653,7 +653,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
         </thead>
         <tbody>
           <tr :if={@match_count == 0}>
-            <td colspan="5" class="py-6 text-center text-sm text-base-content/60">
+            <td colspan="5" class="py-6 text-center text-sm text-sr-muted">
               No active vulnerability matches have been produced for this device.
             </td>
           </tr>
@@ -666,26 +666,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                 <.ui_badge :if={field(match, :kev)} size="xs" variant="error">KEV</.ui_badge>
                 <.ui_badge :if={field(match, :exploit_available)} size="xs" variant="warning">Exploit</.ui_badge>
               </div>
-              <div class="mt-1 font-mono text-[0.65rem] text-base-content/60">
+              <div class="mt-1 font-mono text-[0.65rem] text-sr-muted">
                 CVSS {empty_dash(field(match, :cvss_score))}
               </div>
             </td>
             <td>
               <div class="font-medium">{field(match, :cve_id) || field(match, :advisory_id)}</div>
-              <div class="mt-1 text-xs text-base-content/60">
+              <div class="mt-1 text-xs text-sr-muted">
                 {String.capitalize(to_string(field(match, :confidence) || "unknown"))} confidence
               </div>
             </td>
             <td class="max-w-56">
               <div class="truncate font-medium">{vulnerability_package_name(match)}</div>
-              <div class="truncate font-mono text-xs text-base-content/60">
+              <div class="truncate font-mono text-xs text-sr-muted">
                 {vulnerability_installed_version(match)}
               </div>
             </td>
             <td class="font-mono text-xs">{empty_dash(field(match, :fixed_version))}</td>
             <td>
               <div class="font-mono text-xs">{field(match, :provider)}</div>
-              <div class="font-mono text-[0.65rem] text-base-content/60">
+              <div class="font-mono text-[0.65rem] text-sr-muted">
                 {field(match, :feed_key)}
               </div>
             </td>
@@ -703,7 +703,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   defp scan_row(assigns) do
     ~H"""
     <tr>
-      <th class="w-32 text-xs text-base-content/60">{@label}</th>
+      <th class="w-32 text-xs text-sr-muted">{@label}</th>
       <td class={["text-xs", @mono && "font-mono"]}>{empty_dash(@value)}</td>
     </tr>
     """
@@ -713,7 +713,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   defp live_query_result(assigns) do
     ~H"""
-    <div :if={is_map(@result)} class="mt-3 rounded bg-base-200/40 p-3">
+    <div :if={is_map(@result)} class="mt-3 rounded bg-sr-subtle/40 p-3">
       <div class="grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
         <.result_stat label="Matched" value={bool_display(field(@result, :matched))} />
         <.result_stat label="Matches" value={field(@result, :match_count) || 0} />
@@ -722,7 +722,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
       </div>
       <div
         :if={result_packages(@result) != []}
-        class="mt-3 overflow-hidden rounded border border-base-300"
+        class="mt-3 overflow-hidden rounded border border-sr-line"
       >
         <table class={ui_table_class(size: "xs")}>
           <thead>
@@ -749,7 +749,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   defp cohort_query_result(assigns) do
     ~H"""
-    <div :if={is_map(@result)} class="mt-3 rounded bg-base-200/40 p-3">
+    <div :if={is_map(@result)} class="mt-3 rounded bg-sr-subtle/40 p-3">
       <% coverage = field(@result, :coverage) || %{} %>
       <div class="grid grid-cols-2 gap-2 text-xs md:grid-cols-5">
         <.result_stat label="Targeted" value={field(coverage, :targeted) || 0} />
@@ -760,7 +760,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
       </div>
       <div
         :if={cohort_results(@result) != []}
-        class="mt-3 overflow-hidden rounded border border-base-300"
+        class="mt-3 overflow-hidden rounded border border-sr-line"
       >
         <table class={ui_table_class(size: "xs")}>
           <thead>
@@ -791,8 +791,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   defp result_stat(assigns) do
     ~H"""
-    <div class="rounded border border-base-300 bg-base-100 px-2 py-1">
-      <div class="text-[0.62rem] font-semibold uppercase text-base-content/50">{@label}</div>
+    <div class="rounded border border-sr-line bg-sr-surface px-2 py-1">
+      <div class="text-[0.62rem] font-semibold uppercase text-sr-muted">{@label}</div>
       <div class={["truncate font-semibold", @mono && "font-mono"]}>{empty_dash(@value)}</div>
     </div>
     """

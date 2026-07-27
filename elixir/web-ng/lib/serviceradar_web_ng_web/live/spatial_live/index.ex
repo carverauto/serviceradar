@@ -61,7 +61,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.Index do
                 <span>RoomPlan walls</span>
               </div>
               <div class="flex items-center gap-1 ml-4">
-                <span class="text-base-content/50">
+                <span class="text-sr-muted">
                   Drag to Pan | Scroll to Zoom | Option+Drag to Orbit
                 </span>
               </div>

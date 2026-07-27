@@ -11,8 +11,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Controls do
     <%!-- Header with controls --%>
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
       <div>
-        <h1 class="text-lg font-bold text-base-content">Flow Statistics</h1>
-        <p class="text-xs text-base-content/60">Network traffic overview</p>
+        <h1 class="text-lg font-bold text-sr-ink">Flow Statistics</h1>
+        <p class="text-xs text-sr-muted">Network traffic overview</p>
       </div>
 
       <div class="flex items-center gap-2">

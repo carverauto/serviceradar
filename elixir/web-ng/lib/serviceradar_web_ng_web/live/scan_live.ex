@@ -458,7 +458,7 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
         </.ui_button>
       </.form>
 
-      <div :if={@scan_run} class="card bg-base-200">
+      <div :if={@scan_run} class="card bg-sr-subtle">
         <div class="card-body p-4">
           <h2 class="card-title text-base">
             Run {String.slice(to_string(@scan_run.id), 0, 8)}

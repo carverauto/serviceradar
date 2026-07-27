@@ -1234,8 +1234,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">Plugins</h1>
-            <p class="text-sm text-base-content/60">
+            <h1 class="text-2xl font-semibold text-sr-ink">Plugins</h1>
+            <p class="text-sm text-sr-muted">
               Review and publish Wasm plugin packages before they are distributed to agents.
             </p>
           </div>
@@ -1266,7 +1266,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Plugin catalog</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Signed Wasm plugins discovered from {@first_party_repo_url}, plus imported packages.
               </p>
             </div>
@@ -1332,18 +1332,18 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           <% end %>
 
           <%= if @first_party_catalog_status do %>
-            <div class="rounded-xl border border-warning/30 bg-warning/5 p-3 text-xs text-base-content/70">
+            <div class="rounded-xl border border-warning/30 bg-warning/5 p-3 text-xs text-sr-muted">
               {@first_party_catalog_status}
             </div>
           <% end %>
 
           <%= cond do %>
             <% catalog_rows == [] and is_nil(@first_party_catalog_error) -> %>
-              <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-6 text-center">
-                <div class="text-sm font-semibold text-base-content">
+              <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-6 text-center">
+                <div class="text-sm font-semibold text-sr-ink">
                   No plugins found for this release
                 </div>
-                <p class="mt-1 text-xs text-base-content/60">
+                <p class="mt-1 text-xs text-sr-muted">
                   Choose another release or sync the first-party catalog.
                 </p>
               </div>
@@ -1351,7 +1351,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <div class="sr-ui-table-shell">
                 <table class={ui_table_class(size: "sm")}>
                   <thead>
-                    <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                    <tr class="text-xs uppercase tracking-wide text-sr-muted">
                       <th>Plugin</th>
                       <th>Version</th>
                       <th>Release</th>
@@ -1366,10 +1366,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                           @first_party_catalog_page,
                           @first_party_catalog_page_size
                         ) do %>
-                      <tr class="hover:bg-base-200/30">
+                      <tr class="hover:bg-sr-subtle/30">
                         <td>
                           <div class="font-medium">{row.name}</div>
-                          <div class="text-xs text-base-content/60 font-mono">{row.plugin_id}</div>
+                          <div class="text-xs text-sr-muted font-mono">{row.plugin_id}</div>
                         </td>
                         <td class="text-xs">{row.version}</td>
                         <td class="text-xs font-mono">{row.release_tag || "-"}</td>
@@ -1378,7 +1378,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                             {catalog_row_status(row)}
                           </.ui_badge>
                         </td>
-                        <td class="text-xs text-base-content/70">
+                        <td class="text-xs text-sr-muted">
                           {format_datetime(catalog_row_updated_at(row))}
                         </td>
                         <td>
@@ -1425,16 +1425,16 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Capacity Snapshot</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Aggregate resource requests per agent based on current assignments.
               </p>
             </div>
           </:header>
 
           <%= if @capacity_rows == [] do %>
-            <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-8 text-center">
-              <div class="text-sm font-semibold text-base-content">No agents available</div>
-              <p class="mt-1 text-xs text-base-content/60">
+            <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-8 text-center">
+              <div class="text-sm font-semibold text-sr-ink">No agents available</div>
+              <p class="mt-1 text-xs text-sr-muted">
                 Agents will appear here once they have registered with the platform.
               </p>
             </div>
@@ -1442,7 +1442,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             <div class="sr-ui-table-shell">
               <table class={ui_table_class(size: "sm")}>
                 <thead>
-                  <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                  <tr class="text-xs uppercase tracking-wide text-sr-muted">
                     <th>Agent</th>
                     <th>Assignments</th>
                     <th>CPU (ms)</th>
@@ -1452,15 +1452,15 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 </thead>
                 <tbody>
                   <%= for row <- @capacity_rows do %>
-                    <tr class="hover:bg-base-200/30">
+                    <tr class="hover:bg-sr-subtle/30">
                       <td>
                         <div class="font-medium">{row.name}</div>
-                        <div class="text-xs text-base-content/60 font-mono">{row.agent_uid}</div>
+                        <div class="text-xs text-sr-muted font-mono">{row.agent_uid}</div>
                       </td>
                       <td class="text-xs">
                         <.link
                           href={agent_plugins_path(row.agent_uid)}
-                          class="link link-primary font-semibold"
+                          class="text-sr-brand hover:underline font-semibold"
                           title={assigned_plugins_title(row)}
                         >
                           {row.assignments}
@@ -1473,7 +1473,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   <% end %>
                 </tbody>
                 <tfoot>
-                  <tr class="text-xs font-semibold text-base-content/70">
+                  <tr class="text-xs font-semibold text-sr-muted">
                     <td>Total</td>
                     <td>{@capacity_totals.assignments}</td>
                     <td>{@capacity_totals.cpu_ms}</td>
@@ -1490,15 +1490,15 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Verification Policy</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Controls how GitHub and uploaded packages are treated before execution.
               </p>
             </div>
           </:header>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-            <div class="rounded-xl border border-base-200 p-4 space-y-1">
-              <div class="text-xs text-base-content/60">GitHub packages</div>
+            <div class="rounded-xl border border-sr-line p-4 space-y-1">
+              <div class="text-xs text-sr-muted">GitHub packages</div>
               <div class="font-semibold">
                 <%= if @verification_policy.require_gpg_for_github do %>
                   Require GPG verification
@@ -1507,8 +1507,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 <% end %>
               </div>
             </div>
-            <div class="rounded-xl border border-base-200 p-4 space-y-1">
-              <div class="text-xs text-base-content/60">Uploaded packages</div>
+            <div class="rounded-xl border border-sr-line p-4 space-y-1">
+              <div class="text-xs text-sr-muted">Uploaded packages</div>
               <div class="font-semibold">
                 <%= if @verification_policy.allow_unsigned_uploads do %>
                   Allow unsigned uploads
@@ -1518,7 +1518,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               </div>
             </div>
           </div>
-          <p class="mt-3 text-xs text-base-content/60">
+          <p class="mt-3 text-xs text-sr-muted">
             Adjust with environment variables and restart web-ng to apply changes.
           </p>
         </.ui_panel>
@@ -1572,7 +1572,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         </form>
 
         <h3 class="text-lg font-semibold">Stage a Plugin Package</h3>
-        <p class="text-xs text-base-content/60 mt-1">
+        <p class="text-xs text-sr-muted mt-1">
           Paste the plugin manifest and optional config schema to start the review.
         </p>
 
@@ -1690,8 +1690,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         <div class="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h3 class="text-lg font-semibold">{@package.name}</h3>
-            <p class="text-xs text-base-content/60 font-mono">{@package.plugin_id}</p>
-            <p class="text-xs text-base-content/60">Version {@package.version}</p>
+            <p class="text-xs text-sr-muted font-mono">{@package.plugin_id}</p>
+            <p class="text-xs text-sr-muted">Version {@package.version}</p>
           </div>
           <div class="flex items-center gap-2">
             <.status_badge status={@package.status} />
@@ -1707,7 +1707,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
         <div class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div class="space-y-4">
-            <div class="rounded-xl border border-base-200 p-4">
+            <div class="rounded-xl border border-sr-line p-4">
               <div class="text-sm font-semibold">Requested Capabilities</div>
               <div class="mt-2 flex flex-wrap gap-2">
                 <%= for cap <- requested_capabilities(@package) do %>
@@ -1724,7 +1724,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   </.ui_badge>
                 <% end %>
                 <%= if requested_capabilities(@package) == [] do %>
-                  <span class="text-xs text-base-content/50">None</span>
+                  <span class="text-xs text-sr-muted">None</span>
                 <% end %>
               </div>
               <p
@@ -1737,31 +1737,31 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               </p>
             </div>
 
-            <div class="rounded-xl border border-base-200 p-4">
+            <div class="rounded-xl border border-sr-line p-4">
               <div class="text-sm font-semibold">Requested Permissions</div>
-              <pre class="mt-2 bg-base-200/50 p-3 rounded-lg text-xs font-mono overflow-x-auto max-h-48">
+              <pre class="mt-2 bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto max-h-48">
     <%= format_json_value(requested_permissions(@package)) %>
     </pre>
             </div>
 
-            <div class="rounded-xl border border-base-200 p-4">
+            <div class="rounded-xl border border-sr-line p-4">
               <div class="text-sm font-semibold">Requested Resources</div>
-              <pre class="mt-2 bg-base-200/50 p-3 rounded-lg text-xs font-mono overflow-x-auto max-h-48">
+              <pre class="mt-2 bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto max-h-48">
     <%= format_json_value(requested_resources(@package)) %>
     </pre>
             </div>
 
-            <div class="rounded-xl border border-base-200 p-4">
+            <div class="rounded-xl border border-sr-line p-4">
               <div class="text-sm font-semibold">Northbound Actions</div>
               <div class="mt-3 space-y-3">
                 <%= for action <- requested_actions(@package) do %>
-                  <div class="rounded-lg border border-base-200/70 bg-base-100/60 p-3">
+                  <div class="rounded-lg border border-sr-line/70 bg-sr-surface/60 p-3">
                     <div class="flex flex-wrap items-start justify-between gap-2">
                       <div>
                         <div class="text-sm font-medium">
                           {action_label(action)}
                         </div>
-                        <div class="font-mono text-[11px] text-base-content/60">
+                        <div class="font-mono text-[11px] text-sr-muted">
                           {action_id(action)} · v{action_version(action)}
                         </div>
                       </div>
@@ -1771,10 +1771,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                         <% end %>
                       </div>
                     </div>
-                    <p :if={action_description(action)} class="mt-2 text-xs text-base-content/70">
+                    <p :if={action_description(action)} class="mt-2 text-xs text-sr-muted">
                       {action_description(action)}
                     </p>
-                    <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-base-content/60">
+                    <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-sr-muted">
                       <span>Safety: {action_safety(action)}</span>
                       <span>Timeout: {action_timeout(action)}s</span>
                       <span>
@@ -1786,66 +1786,66 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   </div>
                 <% end %>
                 <%= if requested_actions(@package) == [] do %>
-                  <span class="text-xs text-base-content/50">None</span>
+                  <span class="text-xs text-sr-muted">None</span>
                 <% end %>
               </div>
             </div>
           </div>
 
           <div class="space-y-4">
-            <div class="rounded-xl border border-base-200 p-4">
+            <div class="rounded-xl border border-sr-line p-4">
               <div class="text-sm font-semibold">Manifest</div>
-              <pre class="mt-2 bg-base-200/50 p-3 rounded-lg text-xs font-mono overflow-x-auto max-h-64">
+              <pre class="mt-2 bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto max-h-64">
     <%= format_json_value(@package.manifest) %>
     </pre>
             </div>
 
-            <div class="rounded-xl border border-base-200 p-4">
+            <div class="rounded-xl border border-sr-line p-4">
               <div class="text-sm font-semibold">Config Schema</div>
-              <pre class="mt-2 bg-base-200/50 p-3 rounded-lg text-xs font-mono overflow-x-auto max-h-48">
+              <pre class="mt-2 bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto max-h-48">
     <%= format_json_value(@package.config_schema) %>
     </pre>
             </div>
 
-            <div class="rounded-xl border border-base-200 p-4">
+            <div class="rounded-xl border border-sr-line p-4">
               <div class="text-sm font-semibold">Display Contract</div>
-              <pre class="mt-2 bg-base-200/50 p-3 rounded-lg text-xs font-mono overflow-x-auto max-h-48">
+              <pre class="mt-2 bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto max-h-48">
     <%= format_json_value(@package.display_contract) %>
     </pre>
             </div>
 
-            <div class="rounded-xl border border-base-200 p-4 space-y-2">
+            <div class="rounded-xl border border-sr-line p-4 space-y-2">
               <div class="text-sm font-semibold">Integrity & Verification</div>
-              <div class="text-xs text-base-content/60">Content hash</div>
+              <div class="text-xs text-sr-muted">Content hash</div>
               <div class="text-xs font-mono">{format_hash(@package.content_hash)}</div>
-              <div class="text-xs text-base-content/60 mt-2">Blob stored</div>
+              <div class="text-xs text-sr-muted mt-2">Blob stored</div>
               <div class="text-xs">{blob_status(@blob_present)}</div>
-              <div class="text-xs text-base-content/60 mt-2">GPG verification</div>
+              <div class="text-xs text-sr-muted mt-2">GPG verification</div>
               <div class="text-xs">{gpg_status(@package.gpg_verified_at, @package.gpg_key_id)}</div>
-              <div class="text-xs text-base-content/60 mt-2">Signature metadata</div>
+              <div class="text-xs text-sr-muted mt-2">Signature metadata</div>
               <div class="text-xs font-mono">{signature_status(@package.signature)}</div>
             </div>
 
             <div
               :if={@package.source_type == :first_party}
-              class="rounded-xl border border-base-200 p-4 space-y-2"
+              class="rounded-xl border border-sr-line p-4 space-y-2"
             >
               <div class="text-sm font-semibold">First-party Provenance</div>
-              <div class="text-xs text-base-content/60">Release</div>
+              <div class="text-xs text-sr-muted">Release</div>
               <div class="text-xs font-mono">{@package.source_release_tag}</div>
-              <div class="text-xs text-base-content/60 mt-2">OCI reference</div>
+              <div class="text-xs text-sr-muted mt-2">OCI reference</div>
               <div class="text-xs font-mono break-all">{@package.source_oci_ref}</div>
-              <div class="text-xs text-base-content/60 mt-2">OCI digest</div>
+              <div class="text-xs text-sr-muted mt-2">OCI digest</div>
               <div class="text-xs font-mono break-all">{@package.source_oci_digest}</div>
-              <div class="text-xs text-base-content/60 mt-2">Bundle digest</div>
+              <div class="text-xs text-sr-muted mt-2">Bundle digest</div>
               <div class="text-xs font-mono break-all">{@package.source_bundle_digest}</div>
-              <div class="text-xs text-base-content/60 mt-2">Verification</div>
+              <div class="text-xs text-sr-muted mt-2">Verification</div>
               <div class="text-xs">{@package.verification_status || "unknown"}</div>
             </div>
 
-            <div class="rounded-xl border border-base-200 p-4 space-y-3">
+            <div class="rounded-xl border border-sr-line p-4 space-y-3">
               <div class="text-sm font-semibold">Upload Wasm Blob</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Upload the compiled `.wasm` binary to complete this package.
               </p>
 
@@ -1865,7 +1865,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   <div class="flex items-center gap-2 text-xs">
                     <.icon name="hero-document-text" class="size-4 text-primary" />
                     <span>{entry.client_name}</span>
-                    <span class="text-base-content/50">
+                    <span class="text-sr-muted">
                       ({Float.round(entry.client_size / 1024, 1)} KB)
                     </span>
                     <%= for err <- upload_errors(@uploads.wasm_blob, entry) do %>
@@ -1890,58 +1890,58 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <% end %>
             </div>
 
-            <div class="rounded-xl border border-base-200 p-4 space-y-2">
+            <div class="rounded-xl border border-sr-line p-4 space-y-2">
               <div class="text-sm font-semibold">Wasm Package Requests</div>
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 Upload endpoint expires {format_datetime(@upload_expires_at)}
               </div>
-              <pre class="bg-base-200/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
+              <pre class="bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
     <%= @upload_url %>
     </pre>
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 Upload token
               </div>
-              <pre class="bg-base-200/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
+              <pre class="bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
     <%= @upload_token %>
     </pre>
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 Download endpoint expires {format_datetime(@download_expires_at)}
               </div>
-              <pre class="bg-base-200/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
+              <pre class="bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
     <%= @download_url %>
     </pre>
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 Download token
               </div>
-              <pre class="bg-base-200/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
+              <pre class="bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
     <%= @download_token %>
     </pre>
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 Example download
               </div>
-              <pre class="bg-base-200/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
+              <pre class="bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
     <%= if @download_url && @download_token do %>curl -fsSL -X POST -H "x-serviceradar-plugin-token: <%= @download_token %>" "<%= @download_url %>" -o plugin.wasm<% end %>
     </pre>
             </div>
 
-            <div class="rounded-xl border border-base-200 p-4">
+            <div class="rounded-xl border border-sr-line p-4">
               <div class="text-sm font-semibold">Version History</div>
               <%= if @versions == [] do %>
-                <p class="mt-2 text-xs text-base-content/60">No other versions found.</p>
+                <p class="mt-2 text-xs text-sr-muted">No other versions found.</p>
               <% else %>
                 <div class="mt-2 space-y-2">
                   <%= for version <- @versions do %>
                     <div class="flex items-center justify-between text-xs">
                       <div>
                         <span class="font-medium">{version.version}</span>
-                        <span class="text-base-content/60">• {version.status}</span>
+                        <span class="text-sr-muted">• {version.status}</span>
                         <%= if version.id == @package.id do %>
                           <.ui_badge size="xs" variant="ghost" class="ml-2">current</.ui_badge>
                         <% end %>
                       </div>
                       <.link
                         navigate={plugins_show_path(@plugins_base_path, version.id)}
-                        class="link link-primary"
+                        class="text-sr-brand hover:underline"
                       >
                         View
                       </.link>
@@ -1954,7 +1954,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         </div>
 
         <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div class="rounded-xl border border-base-200 p-4 space-y-3">
+          <div class="rounded-xl border border-sr-line p-4 space-y-3">
             <div class="text-sm font-semibold">Assignments</div>
             <%= if @recovery_confirmation do %>
               <div
@@ -1979,7 +1979,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               </div>
             <% end %>
             <%= if @assignments == [] do %>
-              <p class="text-xs text-base-content/60">No agents assigned yet.</p>
+              <p class="text-xs text-sr-muted">No agents assigned yet.</p>
             <% else %>
               <div class="space-y-2">
                 <%= for assignment <- @assignments do %>
@@ -1997,7 +1997,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   <% credential_rule_recovery? = legacy_credential_rule_recovery?(assignment) %>
                   <div
                     id={"assignment-#{assignment.id}"}
-                    class="rounded-lg border border-base-200/70 bg-base-100/60 p-3 text-xs"
+                    class="rounded-lg border border-sr-line/70 bg-sr-surface/60 p-3 text-xs"
                   >
                     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
@@ -2026,12 +2026,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                             </.ui_badge>
                           <% end %>
                         </div>
-                        <div class="text-base-content/60">
+                        <div class="text-sr-muted">
                           every {assignment.interval_seconds}s, timeout {assignment.timeout_seconds}s
                         </div>
                         <div
                           id={"assignment-version-#{assignment.id}"}
-                          class="text-base-content/60"
+                          class="text-sr-muted"
                         >
                           version {package_version(current_package)}
                           <%= if upgrade_target do %>
@@ -2059,7 +2059,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                           </.ui_button>
                         <% end %>
                         <%= if is_nil(legacy_kind) and assignment.source == :policy do %>
-                          <span class="text-[11px] text-base-content/50">managed by policy</span>
+                          <span class="text-[11px] text-sr-muted">managed by policy</span>
                         <% end %>
                         <%= if is_nil(legacy_kind) and assignment.source != :policy do %>
                           <%= if upgrade_target do %>
@@ -2108,9 +2108,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                         class={[
                           "mt-3 rounded-md border px-3 py-2 text-xs",
                           manual_legacy_state == :completed &&
-                            "border-success/30 bg-success/5 text-base-content/70",
+                            "border-success/30 bg-success/5 text-sr-muted",
                           manual_legacy_state != :completed &&
-                            "border-base-200 bg-base-200/30 text-base-content/70"
+                            "border-sr-line bg-sr-subtle/30 text-sr-muted"
                         ]}
                       >
                         <div class="font-medium">
@@ -2179,7 +2179,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             <% end %>
           </div>
 
-          <div class="rounded-xl border border-base-200 p-4 space-y-3">
+          <div class="rounded-xl border border-sr-line p-4 space-y-3">
             <div class="text-sm font-semibold">Assign to Agent</div>
             <form phx-submit="create_assignment" phx-change="assignment_change" class="space-y-3">
               <div>
@@ -2257,8 +2257,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 </div>
               </div>
               <%= if config_schema_present?(@package.config_schema) do %>
-                <div class="rounded-lg border border-base-200/70 bg-base-100/60 p-3 space-y-3">
-                  <div class="text-xs font-semibold text-base-content/70">Configuration</div>
+                <div class="rounded-lg border border-sr-line/70 bg-sr-surface/60 p-3 space-y-3">
+                  <div class="text-xs font-semibold text-sr-muted">Configuration</div>
                   <.plugin_config_fields
                     schema={@package.config_schema}
                     params={assignment_params_map(@assignment_form)}
@@ -2267,8 +2267,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   />
                 </div>
 
-                <details class="rounded-lg border border-base-200/70 bg-base-100/60 p-3">
-                  <summary class="cursor-pointer text-xs font-semibold text-base-content/70">
+                <details class="rounded-lg border border-sr-line/70 bg-sr-surface/60 p-3">
+                  <summary class="cursor-pointer text-xs font-semibold text-sr-muted">
                     Raw Params (JSON)
                   </summary>
                   <div class="mt-3">
@@ -2327,7 +2327,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               </div>
             </form>
             <%= if @package.status != :approved do %>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Approve the package before assigning it to agents.
               </p>
             <% end %>
@@ -2356,7 +2356,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 class={ui_field_class(class: "w-full")}
                 placeholder="Leave blank to accept requested capabilities"
               />
-              <p class="mt-1 text-xs text-base-content/60">
+              <p class="mt-1 text-xs text-sr-muted">
                 Blank grants every requested capability (including sensitive ones). If you list
                 capabilities explicitly, include each sensitive capability the plugin needs (for
                 example <code class="font-mono">http_request</code>) — anything omitted is denied.
@@ -2407,7 +2407,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <.ui_button type="button" phx-click="deny_package" phx-value-id={@package.id} disabled={!@can_approve_plugins} size="sm" variant="outline">
                 Deny
               </.ui_button>
-              <p :if={!@can_approve_plugins} class="w-full text-right text-xs text-base-content/60">
+              <p :if={!@can_approve_plugins} class="w-full text-right text-xs text-sr-muted">
                 You do not have permission to approve or deny plugin packages.
               </p>
             <% end %>
@@ -2942,7 +2942,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     ~H"""
     <div
       :if={@total_items > 0}
-      class="flex flex-wrap items-center justify-between gap-3 border-t border-base-300 px-4 py-3 text-xs text-base-content/60"
+      class="flex flex-wrap items-center justify-between gap-3 border-t border-sr-line px-4 py-3 text-xs text-sr-muted"
     >
       <span>
         Showing {@first_item}-{@last_item} of {@total_items}

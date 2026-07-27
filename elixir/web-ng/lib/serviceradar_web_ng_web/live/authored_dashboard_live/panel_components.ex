@@ -376,7 +376,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
 
   defp empty_rows(assigns) do
     ~H"""
-    <div class="flex min-h-24 items-center justify-center text-sm text-base-content/70">
+    <div class="flex min-h-24 items-center justify-center text-sm text-sr-muted">
       No rows returned.
     </div>
     """

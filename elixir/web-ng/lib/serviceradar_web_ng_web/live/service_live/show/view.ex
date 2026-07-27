@@ -17,7 +17,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show.View do
               <div class="flex items-start justify-between gap-3">
                 <div>
                   <div class="text-sm font-semibold">Service Check Details</div>
-                  <div class="text-xs text-base-content/70">
+                  <div class="text-xs text-sr-muted">
                     <span :if={@service}>
                       {Service.name(@service) || "Service"}
                     </span>
@@ -30,12 +30,12 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show.View do
               </div>
             </:header>
 
-            <div :if={!@service} class="text-sm text-base-content/60">
+            <div :if={!@service} class="text-sm text-sr-muted">
               We could not find a matching service check for the requested time.
             </div>
 
             <div :if={@service} class="space-y-4">
-              <div class="flex flex-wrap gap-4 text-xs text-base-content/70">
+              <div class="flex flex-wrap gap-4 text-xs text-sr-muted">
                 <div>
                   <span class="font-semibold">Status:</span> {format_status(
                     Service.status(@service, @details)
@@ -63,7 +63,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show.View do
 
               <div class="text-sm">{Service.summary(@service, @details) || "—"}</div>
 
-              <div :if={@schema_version} class="text-[11px] text-base-content/50">
+              <div :if={@schema_version} class="text-[11px] text-sr-muted">
                 UI schema version {@schema_version}
               </div>
 

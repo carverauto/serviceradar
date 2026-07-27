@@ -25,7 +25,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Discovery do
         <div class="flex items-center justify-between w-full">
           <div>
             <div class="text-sm font-semibold">Discovery Jobs</div>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               {length(@jobs)} job(s) configured
             </p>
           </div>
@@ -56,7 +56,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Discovery do
         <div class="sr-ui-table-shell">
           <table class={ui_table_class(size: "sm")}>
             <thead>
-              <tr class="text-xs uppercase tracking-wide text-base-content/60">
+              <tr class="text-xs uppercase tracking-wide text-sr-muted">
                 <th>Status</th>
                 <th>Name</th>
                 <th>Interval</th>
@@ -69,33 +69,33 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Discovery do
             </thead>
             <tbody>
               <tr :if={@jobs == []}>
-                <td colspan="8" class="text-center text-base-content/60 py-8">
+                <td colspan="8" class="text-center text-sr-muted py-8">
                   No discovery jobs configured. Create one to start mapper discovery.
                 </td>
               </tr>
               <%= for job <- @jobs do %>
-                <tr class="hover:bg-base-200/40">
+                <tr class="hover:bg-sr-subtle/40">
                   <td>
                     <button
                       phx-click="toggle_mapper_job"
                       phx-value-id={job.id}
                       class="flex items-center gap-1.5 cursor-pointer"
                     >
-                      <span class={"size-2 rounded-full #{if job.enabled, do: "bg-success", else: "bg-base-content/30"}"}>
+                      <span class={"size-2 rounded-full #{if job.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}>
                       </span>
                       <span class="text-xs">{if job.enabled, do: "Enabled", else: "Disabled"}</span>
                     </button>
                   </td>
                   <td>
                     <div class="font-medium">{job.name}</div>
-                    <p :if={job.description} class="text-xs text-base-content/60 truncate max-w-xs">
+                    <p :if={job.description} class="text-xs text-sr-muted truncate max-w-xs">
                       {job.description}
                     </p>
                   </td>
                   <td class="text-xs font-mono">Every {job.interval}</td>
                   <td class="text-xs capitalize">{job.discovery_type}</td>
                   <td class="text-xs">{job.partition}</td>
-                  <td class="text-xs text-base-content/60">{format_last_run(job.last_run_at)}</td>
+                  <td class="text-xs text-sr-muted">{format_last_run(job.last_run_at)}</td>
                   <td class="text-xs">
                     <%= if status = Map.get(@mapper_command_statuses, job.id) do %>
                       <.ui_badge variant={command_status_variant(status)} size="xs">
@@ -107,11 +107,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Discovery do
                           {mapper_run_status_label(job.last_run_status)}
                         </.ui_badge>
                       <% else %>
-                        <span class="text-xs text-base-content/40">—</span>
+                        <span class="text-xs text-sr-muted">—</span>
                       <% end %>
                       <p
                         :if={is_integer(job.last_run_interface_count)}
-                        class="text-[10px] text-base-content/50 mt-0.5"
+                        class="text-[10px] text-sr-muted mt-0.5"
                       >
                         {job.last_run_interface_count} interfaces
                       </p>

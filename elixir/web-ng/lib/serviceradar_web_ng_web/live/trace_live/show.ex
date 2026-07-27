@@ -223,7 +223,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
           <:header>
             <div class="min-w-0">
               <div class="text-sm font-semibold">Span Waterfall</div>
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 Click a span to inspect its attributes, events, and links.
               </div>
             </div>
@@ -233,17 +233,17 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
             <table id="trace-spans" class={ui_table_class(size: "sm", class: "w-full")}>
               <thead>
                 <tr>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Operation</th>
-                  <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-36">
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60">Operation</th>
+                  <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-36">
                     Service
                   </th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60 w-[30%] min-w-[12rem]">
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-[30%] min-w-[12rem]">
                     Timeline
                   </th>
-                  <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24 text-right">
+                  <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-24 text-right">
                     Duration
                   </th>
-                  <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20 text-right">
+                  <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-20 text-right">
                     Status
                   </th>
                 </tr>
@@ -253,7 +253,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                   <tr
                     id={"trace-spans-row-#{idx}"}
                     class={[
-                      "hover:bg-base-200/40 cursor-pointer transition-colors",
+                      "hover:bg-sr-subtle/40 cursor-pointer transition-colors",
                       @highlight_idx == idx && "ring-2 ring-inset ring-primary/60 bg-primary/5"
                     ]}
                     phx-click="toggle_span"
@@ -264,7 +264,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                         class="flex items-center gap-1 text-xs min-w-0"
                         style={"padding-left: #{row.depth * 16}px"}
                       >
-                        <span :if={row.depth > 0} class="text-base-content/40 shrink-0">└</span>
+                        <span :if={row.depth > 0} class="text-sr-muted shrink-0">└</span>
                         <span class="truncate max-w-[24rem]" title={row.name}>{row.name}</span>
                       </div>
                     </td>
@@ -274,7 +274,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                       </.ui_badge>
                     </td>
                     <td>
-                      <div class="relative h-3 w-full rounded bg-base-200/60 overflow-hidden">
+                      <div class="relative h-3 w-full rounded bg-sr-subtle/60 overflow-hidden">
                         <div
                           class={[
                             "absolute inset-y-0 rounded",
@@ -295,7 +295,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                     </td>
                   </tr>
                   <tr :if={@expanded_idx == idx} id={"trace-spans-detail-#{idx}"}>
-                    <td colspan="5" class="bg-base-200/30">
+                    <td colspan="5" class="bg-sr-subtle/30">
                       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 py-2">
                         <.kv label="Span ID" value={row.span_id} mono />
                         <.kv label="Parent Span ID" value={row.parent_span_id} mono />
@@ -346,7 +346,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
           <:header>
             <div class="min-w-0">
               <div class="text-sm font-semibold">Correlated Logs</div>
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 Logs sharing this trace id within the trace's own time window (±5 minutes).
               </div>
             </div>
@@ -359,7 +359,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
 
           <div
             :if={@logs == [] and is_nil(@logs_error)}
-            class="text-sm text-base-content/60"
+            class="text-sm text-sr-muted"
             id="trace-logs-empty"
           >
             No correlated logs found in the trace window.
@@ -369,16 +369,16 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
             <table id="trace-logs" class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
               <thead>
                 <tr>
-                  <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+                  <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-40">
                     Time
                   </th>
-                  <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
+                  <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-24">
                     Severity
                   </th>
-                  <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+                  <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-40">
                     Service
                   </th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Message</th>
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60">Message</th>
                 </tr>
               </thead>
               <tbody>
@@ -386,7 +386,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                   <% log_path = log_detail_path(log) %>
                   <tr
                     id={"trace-logs-row-#{idx}"}
-                    class={["transition-colors", log_path && "hover:bg-base-200/40 cursor-pointer"]}
+                    class={["transition-colors", log_path && "hover:bg-sr-subtle/40 cursor-pointer"]}
                     phx-click={log_path && JS.navigate(log_path)}
                   >
                     <td class="whitespace-nowrap text-xs font-mono">{log_timestamp(log)}</td>
@@ -437,8 +437,8 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
 
   defp kv(assigns) do
     ~H"""
-    <div class="rounded-lg border border-base-200 bg-base-100 p-3">
-      <div class="text-[11px] uppercase tracking-wider text-base-content/50 mb-1">{@label}</div>
+    <div class="rounded-lg border border-sr-line bg-sr-surface p-3">
+      <div class="text-[11px] uppercase tracking-wider text-sr-muted mb-1">{@label}</div>
       <div class={["text-sm break-all", @mono && "font-mono text-xs"]}>{format_value(@value)}</div>
     </div>
     """
@@ -450,8 +450,8 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   defp json_block(assigns) do
     ~H"""
     <div :if={is_binary(@content)} class="mt-3 pb-2">
-      <div class="text-[11px] uppercase tracking-wider text-base-content/50 mb-1">{@label}</div>
-      <pre class="text-xs font-mono bg-base-100 rounded-lg border border-base-200 p-3 overflow-x-auto max-h-64">{@content}</pre>
+      <div class="text-[11px] uppercase tracking-wider text-sr-muted mb-1">{@label}</div>
+      <pre class="text-xs font-mono bg-sr-surface rounded-lg border border-sr-line p-3 overflow-x-auto max-h-64">{@content}</pre>
     </div>
     """
   end

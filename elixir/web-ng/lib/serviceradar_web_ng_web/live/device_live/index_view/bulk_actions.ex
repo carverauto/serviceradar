@@ -35,7 +35,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkActions do
 
         <button
           phx-click="clear_selection"
-          class="text-xs text-base-content/60 hover:text-base-content"
+          class="text-xs text-sr-muted hover:text-sr-ink"
         >
           Clear selection
         </button>

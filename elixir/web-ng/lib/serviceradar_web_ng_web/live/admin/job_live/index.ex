@@ -188,13 +188,13 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
       >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">Job Scheduler</h1>
-            <p class="text-sm text-base-content/60">
+            <h1 class="text-2xl font-semibold text-sr-ink">Job Scheduler</h1>
+            <p class="text-sm text-sr-muted">
               View configured background jobs and their execution status.
             </p>
           </div>
           <div class="flex items-center gap-2">
-            <div class="flex items-center gap-1 text-xs text-base-content/60">
+            <div class="flex items-center gap-1 text-xs text-sr-muted">
               <.icon
                 name="hero-arrow-path"
                 class={["size-3", @refresh_interval > 0 && "animate-spin"]}
@@ -229,7 +229,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                     Scheduler Overview
                   <% end %>
                 </div>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   <%= if @show_leader_info do %>
                     Leader and configuration overview.
                   <% else %>
@@ -241,44 +241,44 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
             <div class="grid gap-3 sm:grid-cols-4">
               <div
                 :if={@show_leader_info}
-                class="min-w-0 rounded-lg border border-base-200/60 bg-base-200/30 p-3"
+                class="min-w-0 rounded-lg border border-sr-line/60 bg-sr-subtle/30 p-3"
               >
-                <div class="text-[11px] uppercase tracking-wide text-base-content/60">
+                <div class="text-[11px] uppercase tracking-wide text-sr-muted">
                   Leader Node
                 </div>
-                <div class="mt-1 text-sm font-semibold text-base-content break-all">
+                <div class="mt-1 text-sm font-semibold text-sr-ink break-all">
                   {@leader_node || "Unknown"}
                 </div>
               </div>
-              <div class="rounded-lg border border-base-200/60 bg-base-200/30 p-3">
-                <div class="text-[11px] uppercase tracking-wide text-base-content/60">
+              <div class="rounded-lg border border-sr-line/60 bg-sr-subtle/30 p-3">
+                <div class="text-[11px] uppercase tracking-wide text-sr-muted">
                   Cron Jobs
                 </div>
-                <div class="mt-1 text-sm font-semibold text-base-content">
+                <div class="mt-1 text-sm font-semibold text-sr-ink">
                   {@cron_job_count}
                 </div>
               </div>
-              <div class="rounded-lg border border-base-200/60 bg-base-200/30 p-3">
-                <div class="text-[11px] uppercase tracking-wide text-base-content/60">
+              <div class="rounded-lg border border-sr-line/60 bg-sr-subtle/30 p-3">
+                <div class="text-[11px] uppercase tracking-wide text-sr-muted">
                   AshOban Triggers
                 </div>
-                <div class="mt-1 text-sm font-semibold text-base-content">
+                <div class="mt-1 text-sm font-semibold text-sr-ink">
                   {@ash_oban_count}
                 </div>
               </div>
-              <div class="rounded-lg border border-base-200/60 bg-base-200/30 p-3">
-                <div class="text-[11px] uppercase tracking-wide text-base-content/60">
+              <div class="rounded-lg border border-sr-line/60 bg-sr-subtle/30 p-3">
+                <div class="text-[11px] uppercase tracking-wide text-sr-muted">
                   Self-scheduling
                 </div>
-                <div class="mt-1 text-sm font-semibold text-base-content">
+                <div class="mt-1 text-sm font-semibold text-sr-ink">
                   {@self_scheduling_count}
                 </div>
               </div>
-              <div class="rounded-lg border border-base-200/60 bg-base-200/30 p-3">
-                <div class="text-[11px] uppercase tracking-wide text-base-content/60">
+              <div class="rounded-lg border border-sr-line/60 bg-sr-subtle/30 p-3">
+                <div class="text-[11px] uppercase tracking-wide text-sr-muted">
                   Manual Jobs
                 </div>
-                <div class="mt-1 text-sm font-semibold text-base-content">
+                <div class="mt-1 text-sm font-semibold text-sr-ink">
                   {@manual_count}
                 </div>
               </div>
@@ -289,7 +289,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
             <:header>
               <div class="text-sm font-semibold">Configuration</div>
             </:header>
-            <div class="space-y-2 text-xs text-base-content/70">
+            <div class="space-y-2 text-xs text-sr-muted">
               <p>
                 <strong>Cron jobs</strong> are defined in config and run on a fixed schedule.
               </p>
@@ -305,7 +305,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Scheduled Jobs</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 {@total_count} job(s) configured
               </p>
             </div>
@@ -342,15 +342,15 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
 
           <div class="overflow-x-auto">
             <%= if @jobs == [] do %>
-              <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-8 text-center">
-                <div class="text-sm font-semibold text-base-content">
+              <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-8 text-center">
+                <div class="text-sm font-semibold text-sr-ink">
                   <%= if @search != "" or @filter_source do %>
                     No jobs match your filters
                   <% else %>
                     No jobs configured
                   <% end %>
                 </div>
-                <p class="mt-1 text-xs text-base-content/60">
+                <p class="mt-1 text-xs text-sr-muted">
                   <%= if @search != "" or @filter_source do %>
                     Try adjusting your search or filter criteria.
                   <% else %>
@@ -361,9 +361,9 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
             <% else %>
               <table class={ui_table_class(size: "sm")}>
                 <thead>
-                  <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                  <tr class="text-xs uppercase tracking-wide text-sr-muted">
                     <th
-                      class="cursor-pointer hover:text-base-content"
+                      class="cursor-pointer hover:text-sr-ink"
                       phx-click="sort"
                       phx-value-field="name"
                     >
@@ -372,7 +372,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                       </div>
                     </th>
                     <th
-                      class="cursor-pointer hover:text-base-content"
+                      class="cursor-pointer hover:text-sr-ink"
                       phx-click="sort"
                       phx-value-field="source"
                     >
@@ -383,7 +383,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                     </th>
                     <th>Status</th>
                     <th
-                      class="cursor-pointer hover:text-base-content"
+                      class="cursor-pointer hover:text-sr-ink"
                       phx-click="sort"
                       phx-value-field="cron"
                     >
@@ -393,7 +393,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                       </div>
                     </th>
                     <th
-                      class="cursor-pointer hover:text-base-content"
+                      class="cursor-pointer hover:text-sr-ink"
                       phx-click="sort"
                       phx-value-field="last_run_at"
                     >
@@ -403,7 +403,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                       </div>
                     </th>
                     <th
-                      class="cursor-pointer hover:text-base-content"
+                      class="cursor-pointer hover:text-sr-ink"
                       phx-click="sort"
                       phx-value-field="next_run_at"
                     >
@@ -417,13 +417,13 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                 </thead>
                 <tbody>
                   <%= for job <- @jobs do %>
-                    <tr class="hover:bg-base-200/30">
+                    <tr class="hover:bg-sr-subtle/30">
                       <td
                         class="cursor-pointer"
                         phx-click={JS.navigate(~p"/admin/jobs/#{encode_job_id(job.id)}")}
                       >
-                        <div class="font-medium text-base-content">{job.name}</div>
-                        <div class="text-xs text-base-content/60 max-w-[250px] truncate">
+                        <div class="font-medium text-sr-ink">{job.name}</div>
+                        <div class="text-xs text-sr-muted max-w-[250px] truncate">
                           {job.description}
                         </div>
                       </td>
@@ -437,13 +437,13 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                           {if job.enabled, do: "Enabled", else: "Paused"}
                         </.ui_badge>
                       </td>
-                      <td class="font-mono text-xs text-base-content/70">
+                      <td class="font-mono text-xs text-sr-muted">
                         {job.cron || "—"}
                       </td>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         {format_datetime_short(job.last_run_at)}
                       </td>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         {format_datetime_short(job.next_run_at)}
                       </td>
                       <td>
@@ -501,8 +501,8 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
 
   defp pagination(assigns) do
     ~H"""
-    <div class="flex items-center justify-between border-t border-base-200/60 pt-4 mt-4">
-      <div class="text-xs text-base-content/60">
+    <div class="flex items-center justify-between border-t border-sr-line/60 pt-4 mt-4">
+      <div class="text-xs text-sr-muted">
         Showing page {@page} of {@total_pages} ({@total_count} total)
       </div>
       <div class="flex items-center gap-1">
@@ -518,7 +518,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
 
         <%= for page_num <- visible_pages(@page, @total_pages) do %>
           <%= if page_num == :ellipsis do %>
-            <span class="px-2 text-base-content/40">...</span>
+            <span class="px-2 text-sr-muted">...</span>
           <% else %>
             <.ui_button
               variant={if page_num == @page, do: "primary", else: "ghost"}

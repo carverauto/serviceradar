@@ -259,7 +259,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.BulkPanel do
             <%= if Bulk.job_profile_id(job) != "" do %>
               <.link
                 navigate={~p"/settings/networks/mtr/#{Bulk.job_profile_id(job)}/edit"}
-                class="link link-primary"
+                class="text-sr-brand hover:underline"
               >
                 {job.id}
               </.link>

@@ -76,15 +76,15 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
       <div class="mx-auto max-w-7xl p-6">
         <!-- Header -->
         <div class="mb-6">
-          <h1 class="text-2xl font-semibold text-base-content">Interfaces</h1>
-          <p class="text-sm text-base-content/60">
+          <h1 class="text-2xl font-semibold text-sr-ink">Interfaces</h1>
+          <p class="text-sm text-sr-muted">
             Search and browse network interfaces across all devices
           </p>
         </div>
         
     <!-- Quick Filters -->
         <div class="mb-4 flex flex-wrap items-center gap-2">
-          <span class="text-xs font-medium text-base-content/60 mr-1">Quick filters:</span>
+          <span class="text-xs font-medium text-sr-muted mr-1">Quick filters:</span>
           <.ui_button
             navigate={~p"/interfaces?q=in:interfaces oper_status:1 latest:true"}
             size="xs"
@@ -123,23 +123,23 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
             <table class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
               <thead>
                 <tr>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Device</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Interface</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60">Device</th>
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60">Interface</th>
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60">
                     MAC Address
                   </th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60">
                     IP Addresses
                   </th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Type</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Speed</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Status</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Last Seen</th>
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60">Type</th>
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60">Speed</th>
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60">Status</th>
+                  <th class="text-xs font-semibold text-sr-muted bg-sr-subtle/60">Last Seen</th>
                 </tr>
               </thead>
               <tbody>
                 <tr :if={@interfaces == []}>
-                  <td colspan="8" class="py-8 text-center text-sm text-base-content/60">
+                  <td colspan="8" class="py-8 text-center text-sm text-sr-muted">
                     No interfaces found. Try adjusting your search criteria.
                   </td>
                 </tr>
@@ -147,17 +147,17 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
                 <%= for row <- Enum.filter(@interfaces, &is_map/1) do %>
                   <% device_id = Map.get(row, "device_id") %>
                   <% interface_uid = Map.get(row, "interface_uid") %>
-                  <tr class="hover:bg-base-200/40">
+                  <tr class="hover:bg-sr-subtle/40">
                     <td class="text-sm max-w-[12rem] truncate">
                       <.link
                         :if={is_binary(device_id)}
                         navigate={~p"/devices/#{device_id}"}
-                        class="link link-hover truncate"
+                        class="text-sr-brand hover:underline truncate"
                         title={device_id}
                       >
                         {Map.get(row, "device_ip") || device_id}
                       </.link>
-                      <span :if={not is_binary(device_id)} class="text-base-content/40">
+                      <span :if={not is_binary(device_id)} class="text-sr-muted">
                         —
                       </span>
                     </td>
@@ -171,7 +171,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
                         <.link
                           :if={is_binary(device_id) and is_binary(interface_uid)}
                           navigate={~p"/devices/#{device_id}/interfaces/#{interface_uid}"}
-                          class="link link-hover truncate"
+                          class="text-sr-brand hover:underline truncate"
                           title={interface_uid}
                         >
                           {interface_name(row)}
@@ -208,7 +208,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
             </table>
           </div>
 
-          <div class="mt-4 pt-4 border-t border-base-200">
+          <div class="mt-4 pt-4 border-t border-sr-line">
             <.ui_pagination
               prev_cursor={Map.get(@pagination, "prev_cursor")}
               next_cursor={Map.get(@pagination, "next_cursor")}

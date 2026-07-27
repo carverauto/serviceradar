@@ -100,7 +100,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
       <header class="flex items-center justify-between">
         <div>
           <h1 class="text-2xl font-semibold">Ansible playbook catalog</h1>
-          <p class="text-sm text-base-content/70">
+          <p class="text-sm text-sr-muted">
             {@playbook_count} playbook{if @playbook_count == 1, do: "", else: "s"} shown
             (capped at {@page_limit}).
           </p>
@@ -110,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
 
       <div class="flex flex-wrap items-end gap-3">
         <div>
-          <p class="text-xs text-base-content/60 mb-1">Source</p>
+          <p class="text-xs text-sr-muted mb-1">Source</p>
           <div class="flex flex-wrap gap-1">
             <.ui_button
               :for={src <- @source_filters}
@@ -127,7 +127,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
         </div>
 
         <div>
-          <p class="text-xs text-base-content/60 mb-1">Binding</p>
+          <p class="text-xs text-sr-muted mb-1">Binding</p>
           <div class="flex flex-wrap gap-1">
             <.ui_button
               :for={state <- @binding_filters}
@@ -157,7 +157,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
 
       <div
         :if={@playbook_count == 0}
-        class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70"
+        class="rounded-lg border border-dashed border-sr-line p-8 text-center text-sm text-sr-muted"
       >
         No playbooks match the current filters.
         <p class="mt-2">
@@ -168,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
 
       <div
         :if={@playbook_count > 0}
-        class="overflow-x-auto rounded-lg border border-base-300 bg-base-100"
+        class="overflow-x-auto rounded-lg border border-sr-line bg-sr-surface"
       >
         <table class={ui_table_class(size: "sm", zebra: true)}>
           <thead>
@@ -185,8 +185,8 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
             <tr :for={{id, pb} <- @playbooks} id={id}>
               <td>
                 <div class="font-medium">{pb.name}</div>
-                <div :if={pb.description} class="text-xs text-base-content/60">{pb.description}</div>
-                <div :if={pb.path} class="text-xs text-base-content/60 font-mono mt-1">{pb.path}</div>
+                <div :if={pb.description} class="text-xs text-sr-muted">{pb.description}</div>
+                <div :if={pb.path} class="text-xs text-sr-muted font-mono mt-1">{pb.path}</div>
               </td>
               <td>
                 <.ui_badge size="sm" variant={source_badge_variant(pb.source_type)}>
@@ -207,7 +207,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
               <td>
                 <div class="flex flex-wrap gap-1">
                   <.ui_badge :for={tag <- pb.tags || []} size="xs" variant="ghost">{tag}</.ui_badge>
-                  <span :if={pb.tags == []} class="text-xs text-base-content/60">—</span>
+                  <span :if={pb.tags == []} class="text-xs text-sr-muted">—</span>
                 </div>
               </td>
               <td>

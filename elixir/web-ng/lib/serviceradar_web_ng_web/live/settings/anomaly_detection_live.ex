@@ -228,10 +228,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
           </div>
 
           <div class="grid gap-5 xl:grid-cols-2">
-            <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+            <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
               <div class="mb-4">
                 <h2 class="text-base font-semibold">Streaming Detector</h2>
-                <p class="mt-1 text-sm text-base-content/70">
+                <p class="mt-1 text-sm text-sr-muted">
                   These defaults are projected into anomaly add-on profiles under managed
                   params. Explicit profile or assignment params still take precedence.
                 </p>
@@ -283,7 +283,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                   />
                 </div>
 
-                <div class="mt-5 border-t border-base-200 pt-4">
+                <div class="mt-5 border-t border-sr-line pt-4">
                   <h3 class="text-sm font-semibold">Emission Governance</h3>
                   <div class="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <.input
@@ -328,9 +328,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                   />
                 </div>
 
-                <div class="mt-5 border-t border-base-200 pt-4">
+                <div class="mt-5 border-t border-sr-line pt-4">
                   <h3 class="text-sm font-semibold">Metric Classes</h3>
-                  <div class="mt-3 divide-y divide-base-200">
+                  <div class="mt-3 divide-y divide-sr-line">
                     <div
                       :for={{class_key, class_label} <- @edge_metric_classes}
                       class="py-4 first:pt-0 last:pb-0"
@@ -339,7 +339,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <div class="text-sm font-semibold">{class_label}</div>
-                          <div class="text-xs text-base-content/60">{class_key}</div>
+                          <div class="text-xs text-sr-muted">{class_key}</div>
                         </div>
                         <label class="label cursor-pointer justify-start gap-3 sm:justify-end">
                           <span class="label-text text-xs">Enabled</span>
@@ -509,7 +509,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
               </.form>
             </div>
 
-            <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+            <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
               <div class="mb-4">
                 <h2 class="text-base font-semibold">Capacity Forecast</h2>
               </div>
@@ -563,9 +563,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                   />
                 </div>
 
-                <fieldset class="mt-4 rounded-lg border border-base-300 p-3">
+                <fieldset class="mt-4 rounded-lg border border-sr-line p-3">
                   <legend class="px-1 text-sm font-medium">Additional forecast sources</legend>
-                  <p class="mb-2 text-xs text-base-content/60">
+                  <p class="mb-2 text-xs text-sr-muted">
                     These daily-aggregate targets are statistically weaker than the default
                     memory and disk exhaustion sources and are off by design.
                   </p>
@@ -573,7 +573,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                   <div class="grid gap-2 sm:grid-cols-2">
                     <label
                       :for={{source_key, source_label} <- @forecast_source_opt_ins}
-                      class="flex items-center gap-2 rounded-md border border-base-300 bg-base-100 px-3 py-2 text-sm"
+                      class="flex items-center gap-2 rounded-md border border-sr-line bg-sr-surface px-3 py-2 text-sm"
                     >
                       <input
                         type="checkbox"

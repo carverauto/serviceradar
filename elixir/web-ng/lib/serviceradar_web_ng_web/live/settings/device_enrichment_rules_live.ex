@@ -576,7 +576,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div class="card bg-base-100 border border-base-300">
+          <div class="card bg-sr-surface border border-sr-line">
             <div class="card-body">
               <div class="flex items-center justify-between">
                 <h2 class="card-title text-base">Rule Files</h2>
@@ -638,7 +638,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
             </div>
           </div>
 
-          <div class="card bg-base-100 border border-base-300 lg:col-span-2">
+          <div class="card bg-sr-surface border border-sr-line lg:col-span-2">
             <div class="card-body gap-4">
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <h2 class="card-title text-base">
@@ -733,7 +733,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
           </div>
         </div>
 
-        <div class="card bg-base-100 border border-base-300">
+        <div class="card bg-sr-surface border border-sr-line">
           <div class="card-body">
             <h2 class="card-title text-base">Simulation</h2>
             <p class="text-sm opacity-70">
@@ -748,7 +748,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
               <.ui_button type="submit" size="sm" variant="primary">Run Simulation</.ui_button>
             </.form>
 
-            <div :if={@simulation_result} class="bg-base-200 rounded-box p-3 text-sm space-y-2">
+            <div :if={@simulation_result} class="bg-sr-subtle rounded-box p-3 text-sm space-y-2">
               <div>
                 <span class="font-semibold">Rule:</span> {@simulation_result.classification.rule_id ||
                   "none"}

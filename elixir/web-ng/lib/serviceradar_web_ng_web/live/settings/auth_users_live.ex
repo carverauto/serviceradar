@@ -194,7 +194,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
           </div>
 
           <section class="min-w-0">
-            <div class="card bg-base-100 border border-base-200">
+            <div class="card bg-sr-surface border border-sr-line">
               <div class="overflow-x-auto">
                 <table :if={@user_count > 0} class={ui_table_class(zebra: true, class: "w-full")}>
                   <thead>
@@ -267,7 +267,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                             </.ui_icon_button>
                             <ul
                               tabindex="0"
-                              class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-40 border border-base-200"
+                              class="dropdown-content z-[1] menu p-2 shadow bg-sr-surface rounded-box w-40 border border-sr-line"
                             >
                               <%= if user.status == :active do %>
                                 <li :if={can_deactivate?(user, @active_admin_count)}>

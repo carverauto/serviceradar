@@ -144,12 +144,12 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
           <h1 class="text-2xl font-semibold">Launch reviewed Ansible playbook</h1>
           <.ui_badge size="sm" variant="success">ServiceRadar secured</.ui_badge>
         </div>
-        <p class="text-sm text-base-content/70">
+        <p class="text-sm text-sr-muted">
           Targets and approval are resolved from durable ServiceRadar records, then checked again on submit.
         </p>
       </header>
 
-      <section class="card card-border bg-base-100" aria-labelledby="ansible-launch-targets-title">
+      <section class="card card-border bg-sr-surface" aria-labelledby="ansible-launch-targets-title">
         <div class="card-body gap-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <h2 id="ansible-launch-targets-title" class="card-title text-base">Canonical targets</h2>
@@ -189,13 +189,13 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
         </div>
       </section>
 
-      <section class="card card-border bg-base-100" aria-labelledby="ansible-launch-binding-title">
+      <section class="card card-border bg-sr-surface" aria-labelledby="ansible-launch-binding-title">
         <div class="card-body gap-4">
           <div>
             <h2 id="ansible-launch-binding-title" class="card-title text-base">
               Reviewed launch contract
             </h2>
-            <p class="text-sm text-base-content/60">
+            <p class="text-sm text-sr-muted">
               Credentials and execution environment are pre-bound in AWX and are never collected here.
             </p>
           </div>
@@ -263,7 +263,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
             <div :if={@vars != []} class="space-y-3">
               <div>
                 <h3 class="text-sm font-medium">Reviewed inputs</h3>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   Only typed, non-secret fields declared by the approved binding are accepted.
                 </p>
               </div>
@@ -284,7 +284,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
             </div>
 
             <div class="card-actions items-center justify-between pt-2">
-              <.link navigate={~p"/ansible/operations"} class="link link-hover text-sm">
+              <.link navigate={~p"/ansible/operations"} class="text-sr-brand hover:underline text-sm">
                 Secure operation history
               </.link>
               <.ui_button id="secure-ansible-launch-submit" type="submit" disabled={not @launch_ready or @launch_in_progress} size="sm" variant="primary">

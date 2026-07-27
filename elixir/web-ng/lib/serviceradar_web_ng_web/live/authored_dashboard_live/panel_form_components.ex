@@ -29,11 +29,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
       |> assign(:visual_locked?, is_nil(assigns.preview) and is_nil(assigns.panel))
 
     ~H"""
-    <section class="space-y-4 rounded-lg border border-base-300 bg-base-100 p-4">
+    <section class="space-y-4 rounded-lg border border-sr-line bg-sr-surface p-4">
       <div>
         <p class="text-xs font-semibold uppercase tracking-normal text-primary">Step 1</p>
         <h3 class="mt-1 text-sm font-semibold">SRQL source</h3>
-        <p class="text-xs text-base-content/70">
+        <p class="text-xs text-sr-muted">
           Define the dataset query this panel owns. Previewing the query drives the available visuals and field bindings.
         </p>
       </div>
@@ -53,17 +53,17 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
         <.ui_button type="submit" name="intent" value="preview" size="sm" variant="neutral">
           <.icon name="hero-play" class="size-4" /> Preview Query
         </.ui_button>
-        <span :if={!@preview and is_nil(@panel)} class="text-xs text-base-content/70">
+        <span :if={!@preview and is_nil(@panel)} class="text-xs text-sr-muted">
           Preview first to unlock compatible visualizations.
         </span>
       </div>
     </section>
 
-    <section class="space-y-4 rounded-lg border border-base-300 bg-base-100 p-4">
+    <section class="space-y-4 rounded-lg border border-sr-line bg-sr-surface p-4">
       <div>
         <p class="text-xs font-semibold uppercase tracking-normal text-primary">Step 2</p>
         <h3 class="mt-1 text-sm font-semibold">Visualization and bindings</h3>
-        <p class="text-xs text-base-content/70">
+        <p class="text-xs text-sr-muted">
           Choose a supported visual and map fields from the preview output into labels, values, status, and layout.
         </p>
       </div>
@@ -93,7 +93,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
         locked?={@visual_locked?}
       />
 
-      <div class="flex flex-wrap gap-2 border-t border-base-300 pt-4">
+      <div class="flex flex-wrap gap-2 border-t border-sr-line pt-4">
         <.ui_button type="submit" name="intent" value="save" disabled={!@preview and is_nil(@panel)} size="sm" variant="primary">
           <.icon name="hero-check" class="size-4" /> Save Panel
         </.ui_button>
@@ -130,9 +130,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
     ~H"""
     <section
       :if={@locked?}
-      class="rounded-lg border border-dashed border-base-300 bg-base-100 p-4 text-sm text-base-content/70 lg:col-span-2"
+      class="rounded-lg border border-dashed border-sr-line bg-sr-surface p-4 text-sm text-sr-muted lg:col-span-2"
     >
-      <div class="font-medium text-base-content">Preview the SRQL query first</div>
+      <div class="font-medium text-sr-ink">Preview the SRQL query first</div>
       <p class="mt-1 text-xs">
         The builder will inspect the returned fields and then unlock only the visualization and binding controls that fit this query.
       </p>
@@ -140,10 +140,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
 
     <section
       :if={!@locked?}
-      class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-100 p-3 lg:col-span-2 lg:grid-cols-2"
+      class="grid grid-cols-1 gap-3 rounded-lg border border-sr-line bg-sr-surface p-3 lg:col-span-2 lg:grid-cols-2"
     >
       <div class="lg:col-span-2">
-        <h4 class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
+        <h4 class="text-xs font-semibold uppercase tracking-normal text-sr-muted">
           Data bindings
         </h4>
       </div>
@@ -245,13 +245,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
 
     <section
       :if={!@locked? and @visual in ["stat", "count", "gauge", "availability"]}
-      class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-100 p-3 lg:col-span-2 lg:grid-cols-2"
+      class="grid grid-cols-1 gap-3 rounded-lg border border-sr-line bg-sr-surface p-3 lg:col-span-2 lg:grid-cols-2"
     >
       <div class="lg:col-span-2">
-        <h4 class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
+        <h4 class="text-xs font-semibold uppercase tracking-normal text-sr-muted">
           Trend comparison
         </h4>
-        <p class="mt-1 text-xs text-base-content/60">
+        <p class="mt-1 text-xs text-sr-muted">
           Compare this metric with a prior SRQL result, such as a bucketed or stats query for the previous period.
         </p>
       </div>
@@ -277,10 +277,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
 
     <section
       :if={!@locked?}
-      class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-100 p-3 lg:col-span-2 lg:grid-cols-2"
+      class="grid grid-cols-1 gap-3 rounded-lg border border-sr-line bg-sr-surface p-3 lg:col-span-2 lg:grid-cols-2"
     >
       <div class="lg:col-span-2">
-        <h4 class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
+        <h4 class="text-xs font-semibold uppercase tracking-normal text-sr-muted">
           Display
         </h4>
       </div>
@@ -297,10 +297,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
 
     <section
       :if={!@locked?}
-      class="grid grid-cols-2 gap-3 rounded-lg border border-base-300 bg-base-100 p-3 lg:col-span-2 lg:grid-cols-4"
+      class="grid grid-cols-2 gap-3 rounded-lg border border-sr-line bg-sr-surface p-3 lg:col-span-2 lg:grid-cols-4"
     >
       <div class="col-span-2 lg:col-span-4">
-        <h4 class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
+        <h4 class="text-xs font-semibold uppercase tracking-normal text-sr-muted">
           Layout
         </h4>
       </div>

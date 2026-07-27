@@ -75,8 +75,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         stats={@settings_stats}
       >
         <div>
-          <h1 class="text-2xl font-semibold text-base-content">Authentication Settings</h1>
-          <p class="text-sm text-base-content/60">
+          <h1 class="text-2xl font-semibold text-sr-ink">Authentication Settings</h1>
+          <p class="text-sm text-sr-muted">
             Configure how users authenticate to ServiceRadar.
           </p>
         </div>
@@ -99,7 +99,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                 <div class="flex items-center justify-between w-full">
                   <div>
                     <div class="text-sm font-semibold">Status</div>
-                    <p class="text-xs text-base-content/60">
+                    <p class="text-xs text-sr-muted">
                       Enable or disable SSO authentication.
                     </p>
                   </div>
@@ -174,7 +174,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               <:header>
                 <div>
                   <div class="text-sm font-semibold">Authentication Mode</div>
-                  <p class="text-xs text-base-content/60">
+                  <p class="text-xs text-sr-muted">
                     Select how users should authenticate.
                   </p>
                 </div>
@@ -182,7 +182,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
               <div class="space-y-3">
                 <%= for {label, value, description} <- @modes do %>
-                  <label class={"flex items-start gap-3 p-4 border rounded-lg cursor-pointer transition-colors #{if to_string(@form[:mode].value) == to_string(value), do: "border-primary bg-primary/5", else: "border-base-300 hover:border-primary/50"}"}>
+                  <label class={"flex items-start gap-3 p-4 border rounded-lg cursor-pointer transition-colors #{if to_string(@form[:mode].value) == to_string(value), do: "border-primary bg-primary/5", else: "border-sr-line hover:border-primary/50"}"}>
                     <input
                       type="radio"
                       name="settings[mode]"
@@ -192,7 +192,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                     />
                     <div>
                       <div class="font-medium">{label}</div>
-                      <div class="text-sm text-base-content/60">{description}</div>
+                      <div class="text-sm text-sr-muted">{description}</div>
                     </div>
                   </label>
                 <% end %>
@@ -204,7 +204,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                 <:header>
                   <div>
                     <div class="text-sm font-semibold">Identity Provider Type</div>
-                    <p class="text-xs text-base-content/60">
+                    <p class="text-xs text-sr-muted">
                       Select your SSO provider protocol.
                     </p>
                   </div>
@@ -212,7 +212,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
                 <div class="flex gap-4">
                   <%= for {label, value} <- @provider_types do %>
-                    <label class={"flex items-center gap-2 p-3 border rounded-lg cursor-pointer transition-colors flex-1 #{if to_string(@form[:provider_type].value) == to_string(value), do: "border-primary bg-primary/5", else: "border-base-300 hover:border-primary/50"}"}>
+                    <label class={"flex items-center gap-2 p-3 border rounded-lg cursor-pointer transition-colors flex-1 #{if to_string(@form[:provider_type].value) == to_string(value), do: "border-primary bg-primary/5", else: "border-sr-line hover:border-primary/50"}"}>
                       <input
                         type="radio"
                         name="settings[provider_type]"
@@ -238,7 +238,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                 <:header>
                   <div>
                     <div class="text-sm font-semibold">Local Password Login</div>
-                    <p class="text-xs text-base-content/60">
+                    <p class="text-xs text-sr-muted">
                       Who may sign in with a password while SSO is enforced.
                     </p>
                   </div>
@@ -264,9 +264,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                     enforced on the server. Regular accounts are SSO-only; enable
                     <span class="font-medium">Local password login</span>
                     on an account in
-                    <.link navigate={~p"/settings/auth/users"} class="link link-primary">Users</.link>
+                    <.link navigate={~p"/settings/auth/users"} class="text-sr-brand hover:underline">Users</.link>
                     to let it keep password access. The
-                    <code class="bg-base-300 px-1 rounded">SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN</code>
+                    <code class="bg-sr-control px-1 rounded">SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN</code>
                     environment switch is the break-glass recovery path.
                   </div>
                 </div>
@@ -277,7 +277,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                   <div class="flex items-center justify-between w-full">
                     <div>
                       <div class="text-sm font-semibold">Auto-provision Accounts (JIT)</div>
-                      <p class="text-xs text-base-content/60">
+                      <p class="text-xs text-sr-muted">
                         Auto-create a local account on first SSO login when none exists.
                       </p>
                     </div>
@@ -334,7 +334,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                       SSO identities without a pre-existing local account are denied login.
                       Provision accounts ahead of time in <.link
                         navigate={~p"/settings/auth/users"}
-                        class="link link-primary"
+                        class="text-sr-brand hover:underline"
                       >Users</.link>.
                     </span>
                   </div>
@@ -369,7 +369,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       <:header>
         <div>
           <div class="text-sm font-semibold">OIDC Configuration</div>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs text-sr-muted">
             Configure your OpenID Connect identity provider.
           </p>
         </div>
@@ -454,12 +454,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                 </div>
                 <div class="mt-1">
                   Use
-                  <code class="bg-base-300 px-1 rounded">
+                  <code class="bg-sr-control px-1 rounded">
                     https://login.microsoftonline.com/{"{tenant-id}"}/v2.0/.well-known/openid-configuration
                   </code>
-                  (replace <code class="bg-base-300 px-1 rounded">{"{tenant-id}"}</code>
+                  (replace <code class="bg-sr-control px-1 rounded">{"{tenant-id}"}</code>
                   with your directory/tenant ID). The
-                  <code class="bg-base-300 px-1 rounded">/common</code>
+                  <code class="bg-sr-control px-1 rounded">/common</code>
                   endpoint accepts any tenant and should not be used.
                 </div>
               </div>
@@ -554,7 +554,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             </svg>
             Test Configuration
           </.ui_button>
-          <span class="text-xs text-base-content/60">Verify the discovery URL is accessible</span>
+          <span class="text-xs text-sr-muted">Verify the discovery URL is accessible</span>
         </div>
       </div>
     </.ui_panel>
@@ -567,7 +567,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       <:header>
         <div>
           <div class="text-sm font-semibold">SAML Configuration</div>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs text-sr-muted">
             Configure your SAML 2.0 identity provider.
           </p>
         </div>
@@ -595,13 +595,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             <div class="grid grid-cols-1 gap-2">
               <div>
                 <span class="font-medium">Entity ID (SP): </span>
-                <code class="bg-base-300 px-1 rounded text-xs">
+                <code class="bg-sr-control px-1 rounded text-xs">
                   {ServiceRadarWebNGWeb.Endpoint.url()}
                 </code>
               </div>
               <div>
                 <span class="font-medium">ACS URL: </span>
-                <code class="bg-base-300 px-1 rounded text-xs">
+                <code class="bg-sr-control px-1 rounded text-xs">
                   {ServiceRadarWebNGWeb.Endpoint.url()}/auth/saml/consume
                 </code>
               </div>
@@ -610,7 +610,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                 <a
                   href={ServiceRadarWebNGWeb.Endpoint.url() <> "/auth/saml/metadata"}
                   target="_blank"
-                  class="link link-primary text-xs"
+                  class="text-sr-brand hover:underline text-xs"
                 >
                   {ServiceRadarWebNGWeb.Endpoint.url()}/auth/saml/metadata
                 </a>
@@ -651,7 +651,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
           </label>
         </div>
 
-        <div class="divider text-xs text-base-content/60">OR</div>
+        <div class="divider text-xs text-sr-muted">OR</div>
 
         <div class="form-control">
           <label class="label">
@@ -685,8 +685,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
           <div class="text-sm">
             <div class="font-medium">Expected SAML Response Format:</div>
             <ul class="list-disc list-inside text-xs mt-1 space-y-1">
-              <li>NameID format: <code class="bg-base-300 px-1 rounded">emailAddress</code></li>
-              <li>Binding: <code class="bg-base-300 px-1 rounded">HTTP-POST</code></li>
+              <li>NameID format: <code class="bg-sr-control px-1 rounded">emailAddress</code></li>
+              <li>Binding: <code class="bg-sr-control px-1 rounded">HTTP-POST</code></li>
               <li>Signed assertions required</li>
             </ul>
           </div>
@@ -710,7 +710,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             </svg>
             Test Configuration
           </.ui_button>
-          <span class="text-xs text-base-content/60">Verify the IdP metadata is valid</span>
+          <span class="text-xs text-sr-muted">Verify the IdP metadata is valid</span>
         </div>
       </div>
     </.ui_panel>
@@ -723,7 +723,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       <:header>
         <div>
           <div class="text-sm font-semibold">Gateway/Proxy JWT Configuration</div>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs text-sr-muted">
             Configure JWT validation for API gateway authentication.
           </p>
         </div>
@@ -766,7 +766,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
           </label>
         </div>
 
-        <div class="divider text-xs text-base-content/60">OR</div>
+        <div class="divider text-xs text-sr-muted">OR</div>
 
         <div class="form-control">
           <label class="label">
@@ -820,7 +820,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       <:header>
         <div>
           <div class="text-sm font-semibold">Claim Mappings</div>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs text-sr-muted">
             Map JWT/SAML claims to user attributes.
           </p>
         </div>

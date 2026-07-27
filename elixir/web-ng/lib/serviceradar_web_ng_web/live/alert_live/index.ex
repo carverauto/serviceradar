@@ -85,7 +85,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
             <:header>
               <div class="min-w-0">
                 <div class="text-sm font-semibold">Alert Stream</div>
-                <div class="text-xs text-base-content/70">
+                <div class="text-xs text-sr-muted">
                   Click any alert to view full details.
                 </div>
               </div>
@@ -93,7 +93,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
 
             <.alerts_table id="alerts" alerts={@alerts} />
 
-            <div class="mt-4 pt-4 border-t border-base-200">
+            <div class="mt-4 pt-4 border-t border-sr-line">
               <.ui_pagination
                 prev_cursor={Map.get(@pagination, "prev_cursor")}
                 next_cursor={Map.get(@pagination, "next_cursor")}
@@ -123,9 +123,9 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
       |> assign(:suppressed, assigns.summary.suppressed)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
       <div class="flex items-center justify-between mb-3">
-        <div class="text-xs text-base-content/50 uppercase tracking-wider">
+        <div class="text-xs text-sr-muted uppercase tracking-wider">
           Alert Status Overview
         </div>
         <div class="flex items-center gap-1">
@@ -155,8 +155,8 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
     assigns = assign(assigns, :tone, tone_class(assigns.tone))
 
     ~H"""
-    <div class="rounded-lg border border-base-200 bg-base-200/40 p-3">
-      <div class="text-xs text-base-content/60">{@label}</div>
+    <div class="rounded-lg border border-sr-line bg-sr-subtle/40 p-3">
+      <div class="text-xs text-sr-muted">{@label}</div>
       <div class={["text-xl font-bold", @tone]}>{@count}</div>
     </div>
     """
@@ -166,7 +166,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
   defp tone_class("info"), do: "text-info"
   defp tone_class("success"), do: "text-success"
   defp tone_class("error"), do: "text-error"
-  defp tone_class(_), do: "text-base-content"
+  defp tone_class(_), do: "text-sr-ink"
 
   attr :id, :string, required: true
   attr :alerts, :list, default: []
@@ -177,23 +177,23 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
       <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-40">
               Time
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-24">
               Severity
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-28">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-28">
               Status
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60">
               Title
             </th>
           </tr>
         </thead>
         <tbody>
           <tr :if={@alerts == []}>
-            <td colspan="4" class="text-sm text-base-content/60 py-8 text-center">
+            <td colspan="4" class="text-sm text-sr-muted py-8 text-center">
               No alerts found.
             </td>
           </tr>
@@ -201,7 +201,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
           <%= for {alert, idx} <- Enum.with_index(@alerts) do %>
             <tr
               id={"#{@id}-row-#{idx}"}
-              class="hover:bg-base-200/40 cursor-pointer transition-colors"
+              class="hover:bg-sr-subtle/40 cursor-pointer transition-colors"
               phx-click={JS.navigate(~p"/alerts/#{alert_id(alert)}")}
             >
               <td class="whitespace-nowrap text-xs font-mono">{format_timestamp(alert)}</td>

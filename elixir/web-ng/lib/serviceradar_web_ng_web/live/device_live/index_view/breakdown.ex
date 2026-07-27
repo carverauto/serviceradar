@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Breakdown do
       |> assign(:top_item_link, top_item_link)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-4 hover:shadow-md transition-shadow">
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-4 hover:shadow-md transition-shadow">
       <div class="flex items-center gap-3">
         <div class="p-2.5 rounded-lg bg-info/10">
           <.icon name={@icon} class="size-5 text-info" />
@@ -40,21 +40,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Breakdown do
           >
             <div class="flex items-baseline gap-1">
               <span
-                class="text-lg font-bold text-base-content truncate max-w-[8rem] group-hover:text-primary transition-colors"
+                class="text-lg font-bold text-sr-ink truncate max-w-[8rem] group-hover:text-primary transition-colors"
                 title={@top_item.name}
               >
                 {@top_item.name}
               </span>
-              <span class="text-sm text-base-content/60">({@top_item.count})</span>
+              <span class="text-sm text-sr-muted">({@top_item.count})</span>
             </div>
-            <div class="text-xs text-base-content/60">
+            <div class="text-xs text-sr-muted">
               {@title}
-              <span :if={@other_count > 0} class="text-base-content/40">
+              <span :if={@other_count > 0} class="text-sr-muted">
                 · +{@item_count - 1} more
               </span>
             </div>
           </.link>
-          <div :if={@top_item == nil} class="text-sm text-base-content/40">{@empty_text}</div>
+          <div :if={@top_item == nil} class="text-sm text-sr-muted">{@empty_text}</div>
         </div>
         <.ui_icon_button :if={@items != []} type="button" phx-click="open_breakdown_modal" phx-value-kind={@kind} title={"Browse #{@title}"} size="xs" variant="ghost" class="shrink-0">
           <.icon name="hero-chevron-down" class="size-3" />

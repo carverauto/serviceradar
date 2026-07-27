@@ -76,7 +76,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
         </form>
 
         <h3 class="font-bold text-lg mb-4">OID Templates</h3>
-        <p class="text-sm text-base-content/60 mb-4">
+        <p class="text-sm text-sr-muted mb-4">
           Select a template to add pre-configured OIDs for common device types.
         </p>
         
@@ -121,22 +121,22 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
         
     <!-- Templates List -->
         <div class="overflow-y-auto max-h-[40vh] space-y-2">
-          <div :if={@templates == [] && !@is_custom_tab} class="text-center py-8 text-base-content/60">
+          <div :if={@templates == [] && !@is_custom_tab} class="text-center py-8 text-sr-muted">
             <.icon name="hero-document-magnifying-glass" class="size-10 mx-auto mb-2 opacity-50" />
             <p>No templates found</p>
           </div>
 
-          <div :if={@templates == [] && @is_custom_tab} class="text-center py-8 text-base-content/60">
+          <div :if={@templates == [] && @is_custom_tab} class="text-center py-8 text-sr-muted">
             <.icon name="hero-document-plus" class="size-10 mx-auto mb-2 opacity-50" />
             <p>No custom templates yet</p>
             <p class="text-xs mt-1">Create your own template or copy from a built-in template</p>
           </div>
 
           <%= for template <- @templates do %>
-            <div class="flex items-center justify-between p-3 bg-base-200/30 rounded-lg hover:bg-base-200/50">
+            <div class="flex items-center justify-between p-3 bg-sr-subtle/30 rounded-lg hover:bg-sr-subtle/50">
               <div class="flex-1">
                 <div class="font-medium text-sm">{template.name}</div>
-                <p :if={template.description} class="text-xs text-base-content/60 mt-0.5">
+                <p :if={template.description} class="text-xs text-sr-muted mt-0.5">
                   {template.description}
                 </p>
                 <div class="flex items-center gap-2 mt-1">

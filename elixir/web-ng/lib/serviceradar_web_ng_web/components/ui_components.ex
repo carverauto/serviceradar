@@ -306,7 +306,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   end
 
   defp ui_button_base do
-    "inline-flex items-center justify-center gap-1.5 whitespace-nowrap font-semibold outline-none transition-[transform,background-color,border-color,color,box-shadow] duration-200 ease-sr-out focus-visible:ring-2 focus-visible:ring-sr-focus focus-visible:ring-offset-2 focus-visible:ring-offset-sr-canvas disabled:pointer-events-none disabled:opacity-50 active:translate-y-px"
+    "inline-flex items-center justify-center gap-1.5 whitespace-nowrap font-sans font-semibold tracking-tight outline-none transition-[transform,background-color,border-color,color,box-shadow] duration-200 ease-sr-out focus-visible:ring-2 focus-visible:ring-sr-focus focus-visible:ring-offset-2 focus-visible:ring-offset-sr-canvas disabled:pointer-events-none disabled:opacity-50 active:translate-y-px"
   end
 
   defp ui_button_variant_class("primary") do
@@ -393,7 +393,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   defp ui_badge_class(assigns) do
     [
-      "inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-full border font-semibold",
+      "inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-full border font-sans font-semibold tracking-wide",
       ui_badge_variant_class(assigns.variant),
       ui_badge_size_class(assigns.size),
       assigns.class

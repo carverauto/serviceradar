@@ -837,7 +837,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
               <td class="font-mono text-xs">
                 <.link
                   navigate={compare_agent_path(@state, row["agent_id"])}
-                  class="link link-hover sr-mtr-title"
+                  class="text-sr-brand hover:underline sr-mtr-title"
                   title={"Compare only #{row["agent_id"]}"}
                 >
                   {row["agent_id"]}
@@ -846,7 +846,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
               <td class="text-right">
                 <.link
                   navigate={diagnostics_agent_window_path(@state, :a, row["agent_id"])}
-                  class="link link-hover sr-mtr-title"
+                  class="text-sr-brand hover:underline sr-mtr-title"
                   title={"View Window A traces for #{row["agent_id"]}"}
                 >
                   {format_percent(row["a_success_rate"])} ({row["a_trace_count"]})
@@ -855,7 +855,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
               <td class="text-right">
                 <.link
                   navigate={diagnostics_agent_window_path(@state, :b, row["agent_id"])}
-                  class="link link-hover sr-mtr-title"
+                  class="text-sr-brand hover:underline sr-mtr-title"
                   title={"View Window B traces for #{row["agent_id"]}"}
                 >
                   {format_percent(row["b_success_rate"])} ({row["b_trace_count"]})

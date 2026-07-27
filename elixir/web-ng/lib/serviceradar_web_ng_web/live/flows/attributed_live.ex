@@ -582,7 +582,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
             </div>
           </:header>
 
-          <div class="hidden border-b border-base-200 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-sr-muted lg:grid lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1.35fr)_minmax(0,1.05fr)_minmax(0,.9fr)_minmax(0,.75fr)] lg:gap-4">
+          <div class="hidden border-b border-sr-line px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-sr-muted lg:grid lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1.35fr)_minmax(0,1.05fr)_minmax(0,.9fr)_minmax(0,.75fr)] lg:gap-4">
             <div>Source</div>
             <div>Destination</div>
             <div>Process / Agent</div>
@@ -593,7 +593,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           <div
             id="attributed-flows"
             phx-update="stream"
-            class="divide-y divide-base-200"
+            class="divide-y divide-sr-line"
           >
             <%= for {dom_id, row} <- @streams.attributed_flows do %>
               <button
@@ -601,7 +601,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
                 id={dom_id}
                 phx-click="open_flow"
                 phx-value-id={row.id}
-                class="grid w-full gap-3 px-4 py-3 text-left transition hover:bg-base-200/55 focus:bg-base-200/70 focus:outline-none lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1.35fr)_minmax(0,1.05fr)_minmax(0,.9fr)_minmax(0,.75fr)] lg:gap-4"
+                class="grid w-full gap-3 px-4 py-3 text-left transition hover:bg-sr-subtle/55 focus:bg-sr-subtle/70 focus:outline-none lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1.35fr)_minmax(0,1.05fr)_minmax(0,.9fr)_minmax(0,.75fr)] lg:gap-4"
               >
                 <.endpoint_summary
                   label="Source"
@@ -658,12 +658,12 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
             <div class="text-sm font-medium">
               No {filter_empty_label(@filter)} flows in the last {@time_window_hours} hours.
             </div>
-            <div class="mt-1 text-xs text-base-content/60">
+            <div class="mt-1 text-xs text-sr-muted">
               Toggle to all rows or wait for the next flow-correlation cycle.
             </div>
           </div>
 
-          <div class="border-t border-base-200 px-4 py-3">
+          <div class="border-t border-sr-line px-4 py-3">
             <.pagination_controls
               page={@page}
               page_count={@page_count}
@@ -693,7 +693,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       phx-click="set_filter"
       phx-value-filter={@filter}
       class={[
-        "rounded-sr-control border bg-base-100 p-3 text-left font-sans transition hover:-translate-y-px hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-sr-focus",
+        "rounded-sr-control border bg-sr-surface p-3 text-left font-sans transition hover:-translate-y-px hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-sr-focus",
         tile_tone_class(@tone),
         @active && "ring-2 ring-primary/35"
       ]}
@@ -729,7 +729,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       <.ui_button type="button" phx-click="goto_page" phx-value-page={@previous_page} disabled={@page <= 1} size="xs" variant="ghost">
         <.icon name="hero-chevron-left" class="size-3.5" /> Previous
       </.ui_button>
-      <span class="min-w-20 text-center text-xs text-base-content/60 tabular-nums">
+      <span class="min-w-20 text-center text-xs text-sr-muted tabular-nums">
         {@page} / {@page_count}
       </span>
       <.ui_button type="button" phx-click="goto_page" phx-value-page={@next_page} disabled={@page >= @page_count} size="xs" variant="ghost">
@@ -795,7 +795,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">
             <h2 class="truncate text-lg font-semibold">Flow Details</h2>
-            <div class="mt-1 text-xs text-base-content/60">{@flow.timestamp}</div>
+            <div class="mt-1 text-xs text-sr-muted">{@flow.timestamp}</div>
           </div>
           <.ui_icon_button type="button" phx-click="close_flow" aria-label="Close details" title="Close details" size="sm" variant="ghost">
             <.icon name="hero-x-mark" class="size-5" />
@@ -861,10 +861,10 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
   defp detail_item(assigns) do
     ~H"""
-    <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-      <div class="text-xs uppercase tracking-wide text-base-content/50">{@label}</div>
+    <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+      <div class="text-xs uppercase tracking-wide text-sr-muted">{@label}</div>
       <div class="mt-1 break-words font-mono text-sm">{display(@value)}</div>
-      <div :if={present?(@subvalue)} class="mt-1 break-words text-xs text-base-content/60">
+      <div :if={present?(@subvalue)} class="mt-1 break-words text-xs text-sr-muted">
         {display(@subvalue)}
       </div>
     </div>

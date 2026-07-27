@@ -53,8 +53,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
         <div class="space-y-6">
           <div class="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h1 class="text-2xl font-semibold text-base-content">Deploy Agent</h1>
-              <p class="text-sm text-base-content/60">
+              <h1 class="text-2xl font-semibold text-sr-ink">Deploy Agent</h1>
+              <p class="text-sm text-sr-muted">
                 Enroll new monitoring agents with an edge onboarding token.
               </p>
             </div>
@@ -65,17 +65,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
               <div class="text-sm font-semibold">Enroll Agent</div>
             </:header>
             <div class="p-6 space-y-6">
-              <p class="text-base-content/70">
+              <p class="text-sr-muted">
                 Agents connect directly to the agent-gateway over gRPC with mTLS. Use an
                 onboarding package to enroll the agent and write its bootstrap config.
               </p>
 
-              <div class="card bg-base-200/50 p-4 space-y-3">
+              <div class="card bg-sr-subtle/50 p-4 space-y-3">
                 <div class="flex items-center gap-2">
                   <.icon name="hero-server" class="size-5 text-primary" />
                   <h3 class="font-semibold">Agent Package</h3>
                 </div>
-                <p class="text-sm text-base-content/70">
+                <p class="text-sm text-sr-muted">
                   Generate an onboarding package for a new agent. The token installs mTLS
                   credentials and points the agent at the gateway endpoint.
                 </p>
@@ -98,13 +98,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
 
               <div class="divider"></div>
 
-              <h3 class="font-medium text-base-content">Deployment Steps</h3>
-              <ol class="list-decimal list-inside space-y-2 text-sm text-base-content/70">
+              <h3 class="font-medium text-sr-ink">Deployment Steps</h3>
+              <ol class="list-decimal list-inside space-y-2 text-sm text-sr-muted">
                 <li>Create an agent onboarding package</li>
                 <li>Copy the edgepkg token from the success modal</li>
                 <li>
                   Run
-                  <code class="rounded bg-base-200 px-2 py-1 text-xs font-mono">
+                  <code class="rounded bg-sr-subtle px-2 py-1 text-xs font-mono">
                     /usr/local/bin/serviceradar-cli enroll --core-url &lt;your-serviceradar-url&gt; --token &lt;token&gt;
                   </code>
                   on the target host
@@ -112,22 +112,22 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
                 <li>Confirm the agent appears in the Agents inventory</li>
               </ol>
 
-              <p class="text-xs text-base-content/50">
+              <p class="text-xs text-sr-muted">
                 The gateway address is derived from your deployment configuration by default. In Helm
                 installs, set
-                <code class="rounded bg-base-200 px-1 py-0.5 text-xs font-mono">
+                <code class="rounded bg-sr-subtle px-1 py-0.5 text-xs font-mono">
                   webNg.gatewayAddress
                 </code>
                 when agents should use a dedicated gateway host.
               </p>
 
-              <div class="flex items-center gap-2 text-xs text-base-content/50">
+              <div class="flex items-center gap-2 text-xs text-sr-muted">
                 <.icon name="hero-document-arrow-down" class="size-4" />
                 <.link
                   href="https://code.carverauto.dev/carverauto/serviceradar/releases"
                   target="_blank"
                   rel="noopener"
-                  class="link link-hover"
+                  class="text-sr-brand hover:underline"
                 >
                   Download releases from Forgejo
                 </.link>

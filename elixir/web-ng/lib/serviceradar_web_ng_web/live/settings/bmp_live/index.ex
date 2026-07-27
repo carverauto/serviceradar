@@ -92,12 +92,12 @@ defmodule ServiceRadarWebNGWeb.Settings.BmpLive.Index do
         <section class="space-y-4 max-w-3xl">
           <div>
             <h1 class="text-xl font-semibold">BMP</h1>
-            <p class="text-sm text-base-content/60">
+            <p class="text-sm text-sr-muted">
               Tune high-volume BMP ingestion, routing retention, and God-View routing causal overlay bounds.
             </p>
           </div>
 
-          <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+          <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
             <.form
               :if={@settings_form}
               for={@settings_form}

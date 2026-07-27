@@ -196,8 +196,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
       >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">Add-on Fleet</h1>
-            <p class="text-sm text-base-content/60">
+            <h1 class="text-2xl font-semibold text-sr-ink">Add-on Fleet</h1>
+            <p class="text-sm text-sr-muted">
               Each agent is grouped once with its assigned and observed add-ons,
               versions, approval state, and runtime health.
             </p>
@@ -278,7 +278,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Automatic rollouts</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Signed and approved updates advance through canaries and health-gated batches.
               </p>
             </div>
@@ -287,7 +287,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
           <div class="sr-ui-table-shell">
             <table class={ui_table_class(size: "sm")}>
               <thead>
-                <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                <tr class="text-xs uppercase tracking-wide text-sr-muted">
                   <th>Add-on</th>
                   <th>Version</th>
                   <th>Progress</th>
@@ -301,7 +301,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                   <tr data-role="addon-rollout-row">
                     <td>
                       <div class="font-medium">{rollout.addon_id}</div>
-                      <div class="font-mono text-[11px] text-base-content/50">
+                      <div class="font-mono text-[11px] text-sr-muted">
                         {rollout.source_type} · {rollout.source_id}
                       </div>
                     </td>
@@ -342,7 +342,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                       </div>
                     </td>
                   </tr>
-                  <tr :if={expanded?} data-role="addon-rollout-detail" class="bg-base-200/20">
+                  <tr :if={expanded?} data-role="addon-rollout-detail" class="bg-sr-subtle/20">
                     <td colspan="5" class="p-0">
                       <.rollout_details rollout={rollout} />
                     </td>
@@ -358,22 +358,22 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div class="text-sm font-semibold">Agent add-on inventory</div>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   Agent identity and aggregate health appear once; expand an add-on for diagnostics.
                 </p>
               </div>
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 {length(@agent_groups)} agent(s) · {length(@rows)} add-on(s)
               </div>
             </div>
           </:header>
 
           <%= if @agent_groups == [] do %>
-            <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-6 text-center">
-              <div class="text-sm font-semibold text-base-content">
+            <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-6 text-center">
+              <div class="text-sm font-semibold text-sr-ink">
                 No matching add-on deployments
               </div>
-              <p class="mt-1 text-xs text-base-content/60">Adjust the filters above.</p>
+              <p class="mt-1 text-xs text-sr-muted">Adjust the filters above.</p>
             </div>
           <% else %>
             <div id="addon-fleet-table" class="space-y-4">
@@ -381,18 +381,18 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                 :for={group <- @agent_groups}
                 data-role="agent-addon-card"
                 data-agent-uid={group.agent_uid}
-                class="overflow-hidden rounded-xl border border-base-200 bg-base-100"
+                class="overflow-hidden rounded-xl border border-sr-line bg-sr-surface"
               >
-                <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 bg-base-200/30 px-4 py-3">
+                <header class="flex flex-wrap items-center justify-between gap-3 border-b border-sr-line bg-sr-subtle/30 px-4 py-3">
                   <div class="min-w-0">
                     <h2
                       data-role="agent-card-label"
-                      class="truncate text-base font-semibold text-base-content"
+                      class="truncate text-base font-semibold text-sr-ink"
                       title={group.agent_label}
                     >
                       {group.agent_label}
                     </h2>
-                    <div class="font-mono text-[11px] text-base-content/50">{group.agent_uid}</div>
+                    <div class="font-mono text-[11px] text-sr-muted">{group.agent_uid}</div>
                   </div>
                   <div class="flex flex-wrap items-center justify-end gap-2 text-xs">
                     <.ui_badge size="sm" variant="ghost">{length(group.rows)} add-ons</.ui_badge>
@@ -416,7 +416,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                 <div class="sr-ui-table-shell">
                   <table class={ui_table_class(size: "sm")}>
                     <thead>
-                      <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                      <tr class="text-xs uppercase tracking-wide text-sr-muted">
                         <th class="w-8"></th>
                         <th>Add-on</th>
                         <th>Version</th>
@@ -431,7 +431,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                         <% expanded? = MapSet.member?(@expanded_rows, row_key(row)) %>
                         <tr
                           data-role="fleet-row"
-                          class={["hover:bg-base-200/30", row.attention? && "bg-error/5"]}
+                          class={["hover:bg-sr-subtle/30", row.attention? && "bg-error/5"]}
                         >
                           <td class="align-top">
                             <.ui_icon_button type="button" phx-click="toggle_details" phx-value-row={row_key(row)} aria-expanded={to_string(expanded?)} aria-label={"Toggle details for #{row.addon_id} on #{row.agent_label}"} size="xs" variant="ghost">
@@ -445,7 +445,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                           </td>
                           <td class="min-w-[13rem] align-top">
                             <div class="font-medium">{row.addon_name}</div>
-                            <div class="text-xs font-mono text-base-content/60">{row.addon_id}</div>
+                            <div class="text-xs font-mono text-sr-muted">{row.addon_id}</div>
                             <.ui_badge :if={row.collector?} size="xs" variant="ghost">
                               collector
                             </.ui_badge>
@@ -485,11 +485,11 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                               diagnostics
                             </button>
                           </td>
-                          <td class="align-top text-xs text-base-content/70">
+                          <td class="align-top text-xs text-sr-muted">
                             <div>{format_time(row.reported_at)}</div>
                             <div
                               :if={row.collector? and row.last_scan_at}
-                              class="text-base-content/50"
+                              class="text-sr-muted"
                             >
                               scan {format_time(row.last_scan_at)}
                             </div>
@@ -503,7 +503,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                               >
                                 {category_label(row.category)}
                               </.ui_badge>
-                              <span class="basis-full text-xs text-base-content/50">
+                              <span class="basis-full text-xs text-sr-muted">
                                 {reason_label(row.reason_code)}
                                 <span :if={row.evidence_age_seconds}>
                                   · evidence {format_age(row.evidence_age_seconds)} old
@@ -512,7 +512,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                             </div>
                           </td>
                         </tr>
-                        <tr :if={expanded?} class="bg-base-200/20">
+                        <tr :if={expanded?} class="bg-sr-subtle/20">
                           <td></td>
                           <td colspan="6" class="py-3"><.row_details row={row} /></td>
                         </tr>
@@ -530,7 +530,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div class="text-sm font-semibold">Catalog inventory</div>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   Imported add-ons not assigned to and not reported by any agent.
                 </p>
               </div>
@@ -543,7 +543,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
           <div class="sr-ui-table-shell">
             <table class={ui_table_class(size: "sm")}>
               <thead>
-                <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                <tr class="text-xs uppercase tracking-wide text-sr-muted">
                   <th>Add-on</th>
                   <th>Latest version</th>
                   <th>Status</th>
@@ -553,14 +553,14 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
               </thead>
               <tbody>
                 <%= for entry <- @catalog_only do %>
-                  <tr data-role="catalog-only-row" class="hover:bg-base-200/30">
+                  <tr data-role="catalog-only-row" class="hover:bg-sr-subtle/30">
                     <td>
                       <div class="font-medium">{entry.addon_name}</div>
-                      <div class="text-xs font-mono text-base-content/60">{entry.addon_id}</div>
+                      <div class="text-xs font-mono text-sr-muted">{entry.addon_id}</div>
                     </td>
                     <td class="text-xs font-mono">
                       {entry.version || "—"}
-                      <span :if={entry.versions > 1} class="text-base-content/50">
+                      <span :if={entry.versions > 1} class="text-sr-muted">
                         (+{entry.versions - 1} older)
                       </span>
                     </td>
@@ -610,12 +610,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
       <% {:up_to_date, version, true} -> %>
         <div data-role="version-up-to-date">
           <.ui_badge size="sm" variant="success">up to date</.ui_badge>
-          <div class="mt-1 text-xs font-mono text-base-content/70">{version}</div>
+          <div class="mt-1 text-xs font-mono text-sr-muted">{version}</div>
         </div>
       <% {:up_to_date, version, false} -> %>
         <div data-role="version-in-sync">
           <div class="text-xs font-mono">{version}</div>
-          <div class="text-xs text-base-content/60">in sync with assignment</div>
+          <div class="text-xs text-sr-muted">in sync with assignment</div>
           <div :if={@row.latest_approved_version} class="text-xs text-info">
             newer approved: {@row.latest_approved_version}
           </div>
@@ -628,18 +628,18 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
       <% {:required_runtime, version} -> %>
         <div data-role="version-required-runtime" class="text-xs">
           running <span :if={version} class="font-mono">{version}</span>
-          <div class="text-base-content/60">required runtime</div>
+          <div class="text-sr-muted">required runtime</div>
         </div>
       <% {:running_unassigned, version} -> %>
         <div data-role="version-running-unassigned" class="text-xs">
           running <span :if={version} class="font-mono">{version}</span> (unassigned)
         </div>
       <% {:not_reported, version} -> %>
-        <div data-role="version-not-reported" class="text-xs text-base-content/60">
+        <div data-role="version-not-reported" class="text-xs text-sr-muted">
           <span :if={version}>assigned <span class="font-mono">{version}</span> ·</span> not reported
         </div>
       <% _ -> %>
-        <span class="text-xs text-base-content/40">—</span>
+        <span class="text-xs text-sr-muted">—</span>
     <% end %>
     """
   end
@@ -655,21 +655,21 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div>
           <div class="text-sm font-semibold">Per-target rollout evidence</div>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs text-sr-muted">
             Fresh health evidence is required after the candidate override is applied.
           </p>
         </div>
         <.ui_badge size="sm" variant="ghost">{length(@targets)} target(s)</.ui_badge>
       </div>
 
-      <div :if={@targets == []} class="mt-3 text-sm text-base-content/60">
+      <div :if={@targets == []} class="mt-3 text-sm text-sr-muted">
         No agent targets were created. This candidate was blocked before delivery.
       </div>
 
       <div :if={@targets != []} class="mt-3 overflow-x-auto">
         <table class={ui_table_class(size: "xs")}>
           <thead>
-            <tr class="text-xs uppercase tracking-wide text-base-content/60">
+            <tr class="text-xs uppercase tracking-wide text-sr-muted">
               <th>Agent</th>
               <th>Batch</th>
               <th>Classification</th>
@@ -692,7 +692,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                 <div>{reason_label(target.reason_code || "no_reason_recorded")}</div>
                 <div :if={target.error} class="mt-1 text-error">{target.error}</div>
               </td>
-              <td class="whitespace-nowrap text-xs text-base-content/70">
+              <td class="whitespace-nowrap text-xs text-sr-muted">
                 {format_time(target_evidence_at(target))}
               </td>
             </tr>
@@ -710,13 +710,13 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     <div class="grid gap-3 text-xs md:grid-cols-2">
       <div class="space-y-2">
         <div>
-          <div class="text-base-content/50 uppercase tracking-wide">Agent UID</div>
+          <div class="text-sr-muted uppercase tracking-wide">Agent UID</div>
           <div class="font-mono break-all">{@row.agent_uid || "—"}</div>
         </div>
         <div>
-          <div class="text-base-content/50 uppercase tracking-wide">Assigned package</div>
+          <div class="text-sr-muted uppercase tracking-wide">Assigned package</div>
           <div :if={@row.content_hash} class="font-mono break-all">{@row.content_hash}</div>
-          <div :if={is_nil(@row.content_hash)} class="text-base-content/50">no package</div>
+          <div :if={is_nil(@row.content_hash)} class="text-sr-muted">no package</div>
           <.ui_badge
             size="xs"
             variant={verification_badge_variant(@row.verification_status)}
@@ -734,13 +734,13 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
           </.ui_button>
         </div>
         <div :if={@row.stale_assignments != []}>
-          <div class="text-base-content/50 uppercase tracking-wide">
+          <div class="text-sr-muted uppercase tracking-wide">
             Other assignments on this agent
           </div>
           <ul class="mt-1 space-y-1">
             <li :for={stale <- @row.stale_assignments} class="font-mono">
               {stale.version || "unknown version"}
-              <span class="font-sans text-base-content/50">
+              <span class="font-sans text-sr-muted">
                 ({if stale.enabled, do: "enabled", else: "disabled"}{if stale.source,
                   do: ", #{stale.source}"})
               </span>
@@ -750,7 +750,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
       </div>
       <div class="space-y-2">
         <div>
-          <div class="text-base-content/50 uppercase tracking-wide">Runtime diagnostics</div>
+          <div class="text-sr-muted uppercase tracking-wide">Runtime diagnostics</div>
           <div
             :if={@row.degradation_reason}
             class={[
@@ -760,12 +760,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
           >
             {@row.degradation_reason}
           </div>
-          <div :if={is_nil(@row.degradation_reason)} class="text-base-content/50">
+          <div :if={is_nil(@row.degradation_reason)} class="text-sr-muted">
             no diagnostics reported
           </div>
         </div>
         <div :if={@row.running_version}>
-          <div class="text-base-content/50 uppercase tracking-wide">Reported version</div>
+          <div class="text-sr-muted uppercase tracking-wide">Reported version</div>
           <div class="font-mono">{@row.running_version}</div>
         </div>
       </div>
@@ -779,8 +779,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
 
   defp stat_card(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-4">
-      <div class="text-xs uppercase tracking-wide text-base-content/60">{@label}</div>
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
+      <div class="text-xs uppercase tracking-wide text-sr-muted">{@label}</div>
       <div class={["mt-1 text-2xl font-semibold", stat_tone_class(@tone, @value)]}>{@value}</div>
     </div>
     """
@@ -790,7 +790,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   defp stat_tone_class("warning", value) when value > 0, do: "text-warning"
   defp stat_tone_class("success", value) when value > 0, do: "text-success"
   defp stat_tone_class("info", value) when value > 0, do: "text-info"
-  defp stat_tone_class(_tone, _value), do: "text-base-content"
+  defp stat_tone_class(_tone, _value), do: "text-sr-ink"
 
   defp verification_badge_variant("verified"), do: "success"
   defp verification_badge_variant("seeded"), do: "warning"

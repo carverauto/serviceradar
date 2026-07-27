@@ -122,9 +122,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     ~H"""
     <div
       :if={is_binary(@log_id) or is_struct(@alert)}
-      class="rounded-xl border border-base-200 bg-base-100 p-6"
+      class="rounded-xl border border-sr-line bg-sr-surface p-6"
     >
-      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-3">
+      <span class="text-xs text-sr-muted uppercase tracking-wider block mb-3">
         Related Records
       </span>
       <div class="flex flex-wrap gap-2">
@@ -152,10 +152,10 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
             Affected Device
           </span>
           <div class="text-sm font-medium truncate">{@label}</div>
-          <div :if={@device_ref.guest} class="mt-0.5 text-xs font-mono text-base-content/60">
+          <div :if={@device_ref.guest} class="mt-0.5 text-xs font-mono text-sr-muted">
             Guest {@device_ref.guest}
           </div>
-          <div class="mt-0.5 text-xs font-mono text-base-content/40 break-all">
+          <div class="mt-0.5 text-xs font-mono text-sr-muted break-all">
             {@device_ref.uid}
           </div>
         </div>
@@ -185,31 +185,31 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     assigns = assign(assigns, :source, source)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-6">
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-6">
       <div class="flex flex-wrap gap-x-8 gap-y-4">
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Severity</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Severity</span>
           <.severity_badge value={Map.get(@event, "severity")} />
         </div>
 
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Time</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Time</span>
           <span class="text-sm font-mono">{format_timestamp(@event)}</span>
         </div>
 
         <div :if={has_value?(@event, "host")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Host</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Host</span>
           <span class="text-sm font-mono">{Map.get(@event, "host")}</span>
         </div>
 
         <div :if={@source != "—"} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Source</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Source</span>
           <span class="text-sm">{@source}</span>
         </div>
       </div>
 
-      <div :if={has_value?(@event, "short_message")} class="mt-6 pt-6 border-t border-base-200">
-        <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-2">Message</span>
+      <div :if={has_value?(@event, "short_message")} class="mt-6 pt-6 border-t border-sr-line">
+        <span class="text-xs text-sr-muted uppercase tracking-wider block mb-2">Message</span>
         <p class="text-sm whitespace-pre-wrap">{Map.get(@event, "short_message")}</p>
       </div>
 
@@ -220,10 +220,10 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
         }
         class="mt-4"
       >
-        <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-2">
+        <span class="text-xs text-sr-muted uppercase tracking-wider block mb-2">
           Full Message
         </span>
-        <p class="text-sm whitespace-pre-wrap font-mono text-base-content/80 bg-base-200/30 p-3 rounded-lg">
+        <p class="text-sm whitespace-pre-wrap font-mono text-sr-ink/90 bg-sr-subtle/30 p-3 rounded-lg">
           {Map.get(@event, "message")}
         </p>
       </div>
@@ -324,14 +324,14 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
     ~H"""
     <div class="min-w-0">
-      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-1">
+      <span class="text-xs text-sr-muted uppercase tracking-wider block mb-1">
         {@label}
       </span>
       <span
         class={[
           "text-sm break-words",
           if(@mono, do: "font-mono break-all", else: nil),
-          if(blank?(@value), do: "text-base-content/40", else: nil)
+          if(blank?(@value), do: "text-sr-muted", else: nil)
         ]}
         title={@title_value}
       >
@@ -409,13 +409,13 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp diagnostic_fact(assigns) do
     ~H"""
     <div class="min-w-0">
-      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-1">
+      <span class="text-xs text-sr-muted uppercase tracking-wider block mb-1">
         {@label}
       </span>
       <span class={[
         "text-sm break-words",
         if(@mono, do: "font-mono", else: nil),
-        if(blank?(@value), do: "text-base-content/40", else: nil)
+        if(blank?(@value), do: "text-sr-muted", else: nil)
       ]}>
         {display_diagnostic_value(@value)}
       </span>
@@ -464,13 +464,13 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp waf_fact(assigns) do
     ~H"""
     <div class="min-w-0">
-      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-1">
+      <span class="text-xs text-sr-muted uppercase tracking-wider block mb-1">
         {@label}
       </span>
       <span class={[
         "text-sm break-words",
         if(@mono, do: "font-mono", else: nil),
-        if(blank?(@value), do: "text-base-content/40", else: nil)
+        if(blank?(@value), do: "text-sr-muted", else: nil)
       ]}>
         {display_value(@value)}
       </span>
@@ -498,15 +498,15 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     <%!-- Event Details --%>
     <div
       :if={@other_fields != []}
-      class="rounded-xl border border-base-200 bg-base-100 p-6"
+      class="rounded-xl border border-sr-line bg-sr-surface p-6"
     >
-      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-4">
+      <span class="text-xs text-sr-muted uppercase tracking-wider block mb-4">
         Event Details
       </span>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
         <%= for field <- @other_fields do %>
           <div class="flex flex-col gap-0.5 min-w-0">
-            <span class="text-xs text-base-content/50">{field_label(field)}</span>
+            <span class="text-xs text-sr-muted">{field_label(field)}</span>
             <.format_value value={Map.get(@event, field)} />
           </div>
         <% end %>
@@ -519,11 +519,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   attr(:value, :any, default: nil)
 
   defp format_value(%{value: nil} = assigns) do
-    ~H|<span class="text-base-content/40">—</span>|
+    ~H|<span class="text-sr-muted">—</span>|
   end
 
   defp format_value(%{value: ""} = assigns) do
-    ~H|<span class="text-base-content/40">—</span>|
+    ~H|<span class="text-sr-muted">—</span>|
   end
 
   defp format_value(%{value: value} = assigns) when is_boolean(value) do
@@ -539,7 +539,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     assigns = assign(assigns, :formatted, formatted)
 
     ~H"""
-    <pre class="text-xs font-mono bg-base-200/30 p-2 rounded overflow-x-auto max-h-48">{@formatted}</pre>
+    <pre class="text-xs font-mono bg-sr-subtle/30 p-2 rounded overflow-x-auto max-h-48">{@formatted}</pre>
     """
   end
 
@@ -552,7 +552,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           assigns = assign(assigns, :formatted, formatted)
 
           ~H"""
-          <pre class="text-xs font-mono bg-base-200/30 p-2 rounded overflow-x-auto max-h-48">{@formatted}</pre>
+          <pre class="text-xs font-mono bg-sr-subtle/30 p-2 rounded overflow-x-auto max-h-48">{@formatted}</pre>
           """
 
         {:error, _} ->

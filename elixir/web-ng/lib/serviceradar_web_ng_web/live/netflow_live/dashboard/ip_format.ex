@@ -29,7 +29,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.IpFormat do
     if hostname do
       Phoenix.HTML.raw(
         "<span>#{parts |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()}" <>
-          "<br/><span class=\"text-xs text-base-content/50\">#{hostname |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()}</span></span>"
+          "<br/><span class=\"text-xs text-sr-muted\">#{hostname |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()}</span></span>"
       )
     else
       parts

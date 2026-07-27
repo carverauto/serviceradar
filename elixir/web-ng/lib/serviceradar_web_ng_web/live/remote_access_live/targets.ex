@@ -45,7 +45,7 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.Targets do
         <nav class="mb-4 text-sm breadcrumbs">
           <ul>
             <li><.link navigate={~p"/devices"}>Devices</.link></li>
-            <li class="text-base-content/70">Remote access targets</li>
+            <li class="text-sr-muted">Remote access targets</li>
           </ul>
         </nav>
 
@@ -76,14 +76,14 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.Targets do
                 </thead>
                 <tbody>
                   <tr :if={@application_targets == []}>
-                    <td colspan="3" class="text-base-content/60">
+                    <td colspan="3" class="text-sr-muted">
                       No registered application targets are visible.
                     </td>
                   </tr>
                   <tr :for={target <- @application_targets}>
                     <td>
                       <div class="font-medium">{target.name}</div>
-                      <div class="font-mono text-xs text-base-content/60">{target.device_uid}</div>
+                      <div class="font-mono text-xs text-sr-muted">{target.device_uid}</div>
                     </td>
                     <td class="font-mono text-xs">
                       {target.upstream_scheme}://{target.upstream_host}:{target.upstream_port}
@@ -123,14 +123,14 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.Targets do
                 </thead>
                 <tbody>
                   <tr :if={@tcp_targets == []}>
-                    <td colspan="3" class="text-base-content/60">
+                    <td colspan="3" class="text-sr-muted">
                       No registered TCP targets are visible.
                     </td>
                   </tr>
                   <tr :for={target <- @tcp_targets}>
                     <td>
                       <div class="font-medium">{target.name}</div>
-                      <div class="font-mono text-xs text-base-content/60">{target.protocol_name}</div>
+                      <div class="font-mono text-xs text-sr-muted">{target.protocol_name}</div>
                     </td>
                     <td class="font-mono text-xs">{target.upstream_host}:{target.upstream_port}</td>
                     <td class="text-right">

@@ -46,8 +46,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Overview do
       </div>
 
       <%!-- Traffic over time sparkline --%>
-      <div class="rounded-xl border border-base-200 bg-base-100 p-4">
-        <h3 class="text-sm font-semibold text-base-content mb-2">Traffic Over Time</h3>
+      <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
+        <h3 class="text-sm font-semibold text-sr-ink mb-2">Traffic Over Time</h3>
         <div :if={@loading} class="flex items-center justify-center py-8">
           <.ui_spinner size="md" />
         </div>

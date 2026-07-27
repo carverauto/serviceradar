@@ -53,14 +53,14 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="flex h-[calc(100vh-4rem)] min-h-[560px] flex-col bg-base-100">
-        <div class="flex min-h-14 items-center gap-3 border-b border-base-300 px-4">
+      <div class="flex h-[calc(100vh-4rem)] min-h-[560px] flex-col bg-sr-surface">
+        <div class="flex min-h-14 items-center gap-3 border-b border-sr-line px-4">
           <.ui_button navigate={~p"/devices/#{@device_uid}"} size="sm" variant="ghost">
             <.icon name="hero-arrow-left" class="size-4" /> Device
           </.ui_button>
           <div class="min-w-0 flex-1">
             <h1 class="truncate text-sm font-semibold">Remote console</h1>
-            <p class="truncate text-xs text-base-content/60">{@device_uid}</p>
+            <p class="truncate text-xs text-sr-muted">{@device_uid}</p>
           </div>
           <.ui_button :if={@session} type="button" phx-click="close_console" size="sm" variant="outline">
             <.icon name="hero-x-mark" class="size-4" /> Close
@@ -69,7 +69,7 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show do
 
         <div
           :if={@loading}
-          class="flex min-h-0 flex-1 items-center justify-center text-sm text-base-content/60"
+          class="flex min-h-0 flex-1 items-center justify-center text-sm text-sr-muted"
         >
           Preparing console session...
         </div>

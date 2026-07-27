@@ -488,7 +488,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             <li>
               <.link navigate={~p"/devices/#{@device_uid}?tab=interfaces"}>Interfaces</.link>
             </li>
-            <li class="text-base-content/70">{@interface_uid}</li>
+            <li class="text-sr-muted">{@interface_uid}</li>
           </ul>
         </nav>
 
@@ -506,12 +506,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         <%!-- Interface Details --%>
         <div :if={@interface && !@loading} class="space-y-6">
           <%!-- Header Card --%>
-          <div class="card bg-base-100 border border-base-200">
+          <div class="card bg-sr-surface border border-sr-line">
             <div class="card-body">
               <div class="flex items-start justify-between">
                 <div>
                   <h1 class="text-2xl font-bold">{interface_name(@interface)}</h1>
-                  <p :if={interface_description(@interface)} class="text-base-content/70 mt-1">
+                  <p :if={interface_description(@interface)} class="text-sr-muted mt-1">
                     {interface_description(@interface)}
                   </p>
                 </div>
@@ -543,7 +543,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           <%!-- Metrics Graphs Section (positioned at top, below header) --%>
           <div
             :if={@metrics.panels != [] || @metrics.error || @metrics.message}
-            class="card bg-base-100 border border-base-200"
+            class="card bg-sr-surface border border-sr-line"
           >
             <div class="card-body">
               <h2 class="card-title text-lg">
@@ -592,13 +592,13 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           <%!-- Properties Grid --%>
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <%!-- Basic Information --%>
-            <div class="card bg-base-100 border border-base-200">
+            <div class="card bg-sr-surface border border-sr-line">
               <div class="card-body">
                 <h2 class="card-title text-lg">
                   <.icon name="hero-information-circle" class="size-5 text-primary" />
                   Basic Information
                 </h2>
-                <div class="divide-y divide-base-200">
+                <div class="divide-y divide-sr-line">
                   <.property_row label="Interface ID" value={format_interface_id(@interface)} />
                   <.property_row label="Name" value={Map.get(@interface, "if_name")} />
                   <.property_row label="Description" value={Map.get(@interface, "if_descr")} />
@@ -615,12 +615,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
 
             <%!-- Network Information --%>
-            <div class="card bg-base-100 border border-base-200">
+            <div class="card bg-sr-surface border border-sr-line">
               <div class="card-body">
                 <h2 class="card-title text-lg">
                   <.icon name="hero-globe-alt" class="size-5 text-primary" /> Network Information
                 </h2>
-                <div class="divide-y divide-base-200">
+                <div class="divide-y divide-sr-line">
                   <.property_row
                     label="MAC Address"
                     value={Map.get(@interface, "if_phys_address")}
@@ -635,12 +635,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
 
             <%!-- Metrics Collection --%>
-            <div class="card bg-base-100 border border-base-200 lg:col-span-2">
+            <div class="card bg-sr-surface border border-sr-line lg:col-span-2">
               <div class="card-body">
                 <h2 class="card-title text-lg">
                   <.icon name="hero-chart-bar" class="size-5 text-primary" /> Metrics Collection
                 </h2>
-                <div class="divide-y divide-base-200">
+                <div class="divide-y divide-sr-line">
                   <% selected_metrics = settings_list_value(@settings, :metrics_selected) %>
                   <% metrics_enabled =
                     settings_value(@settings, :metrics_enabled) and selected_metrics != [] %>
@@ -649,7 +649,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                     <div class="flex items-start justify-between gap-4">
                       <div>
                         <span class="text-sm font-medium">Metrics Collection</span>
-                        <p class="text-xs text-base-content/50 mt-0.5">
+                        <p class="text-xs text-sr-muted mt-0.5">
                           Enable collection per metric and configure event/alert settings.
                         </p>
                       </div>
@@ -684,7 +684,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                     </div>
                   </div>
                   <div :if={normalized_metrics == []} class="py-3">
-                    <div class="flex items-start gap-2 text-base-content/50">
+                    <div class="flex items-start gap-2 text-sr-muted">
                       <.icon name="hero-question-mark-circle" class="size-4 mt-0.5" />
                       <div>
                         <span class="text-sm">Available metrics unknown</span>
@@ -696,11 +696,11 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   </div>
                   <%!-- Chart Groups Section --%>
                   <% metric_groups = settings_list_value(@settings, :metric_groups) %>
-                  <div class="py-3 space-y-3 border-t border-base-200">
+                  <div class="py-3 space-y-3 border-t border-sr-line">
                     <div class="flex items-center justify-between">
                       <div>
                         <h3 class="text-sm font-medium">Composite Charts</h3>
-                        <p class="text-xs text-base-content/50">
+                        <p class="text-xs text-sr-muted">
                           Group metrics together to display on a single chart.
                         </p>
                       </div>
@@ -715,7 +715,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                         available_metrics={normalized_metrics}
                       />
                     </div>
-                    <div :if={metric_groups == []} class="text-xs text-base-content/50">
+                    <div :if={metric_groups == []} class="text-xs text-sr-muted">
                       No chart groups configured. Create a group to combine multiple metrics on a single chart.
                     </div>
                   </div>
@@ -742,9 +742,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
         <%!-- Not Found State --%>
         <div :if={!@interface && !@loading && !@error} class="text-center py-12">
-          <.icon name="hero-question-mark-circle" class="size-16 text-base-content/30 mx-auto" />
+          <.icon name="hero-question-mark-circle" class="size-16 text-sr-ink/30 mx-auto" />
           <h3 class="text-lg font-semibold mt-4">Interface Not Found</h3>
-          <p class="text-base-content/70 mt-2">
+          <p class="text-sr-muted mt-2">
             The requested interface could not be found.
           </p>
           <.ui_button navigate={~p"/devices/#{@device_uid}"} size="sm" variant="primary" class="mt-4">
@@ -768,12 +768,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp property_row(assigns) do
     ~H"""
     <div class="py-3 flex justify-between gap-4">
-      <span class="text-sm text-base-content/70 shrink-0">{@label}</span>
+      <span class="text-sm text-sr-muted shrink-0">{@label}</span>
       <span
         class={[
           "text-sm text-right",
           @monospace && "font-mono",
-          is_nil(@value) || (@value == "" && "text-base-content/40")
+          is_nil(@value) || (@value == "" && "text-sr-muted")
         ]}
         title={@value_title}
       >
@@ -793,7 +793,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     <div class={[
       "p-3 rounded-lg border transition",
       @enabled && "border-success bg-success/5",
-      !@enabled && "bg-base-200/50 border-base-300 hover:border-primary/50"
+      !@enabled && "bg-sr-subtle/50 border-sr-line hover:border-primary/50"
     ]}>
       <div class="flex items-start justify-between gap-3">
         <div
@@ -842,7 +842,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             <.icon name="hero-bell-alert" class="size-3" /> Alert
           </.ui_badge>
         </div>
-        <span class="text-xs text-base-content/50">
+        <span class="text-xs text-sr-muted">
           {metric_category_label(@metric)}
         </span>
       </div>
@@ -877,14 +877,14 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       |> assign(:remaining, remaining)
 
     ~H"""
-    <div class="flex items-center justify-between p-3 rounded-lg bg-base-200/50 border border-base-300">
+    <div class="flex items-center justify-between p-3 rounded-lg bg-sr-subtle/50 border border-sr-line">
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
           <.icon name="hero-chart-bar-square" class="size-4 text-primary" />
           <span class="text-sm font-medium">{@group["name"]}</span>
           <.ui_badge size="xs" variant="ghost">{@metric_count} metrics</.ui_badge>
         </div>
-        <div :if={@metric_labels != []} class="text-xs text-base-content/50 mt-1 truncate">
+        <div :if={@metric_labels != []} class="text-xs text-sr-muted mt-1 truncate">
           {Enum.join(@metric_labels, ", ")}<span :if={@remaining > 0}> +{@remaining} more</span>
         </div>
         <div :if={@metric_labels == []} class="text-xs text-warning mt-1">
@@ -974,7 +974,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         <h3 class="text-lg font-bold">
           {if @is_editing, do: "Edit Chart Group", else: "Create Chart Group"}
         </h3>
-        <p class="text-sm text-base-content/60 mt-1">
+        <p class="text-sm text-sr-muted mt-1">
           Select metrics to display together on a single chart.
         </p>
 
@@ -1004,21 +1004,21 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           <div class="form-control">
             <label class="label">
               <span class="label-text font-medium">Metrics</span>
-              <span class="label-text-alt text-base-content/50">
+              <span class="label-text-alt text-sr-muted">
                 Select compatible metrics to combine
               </span>
             </label>
-            <div class="border border-base-300 rounded-lg p-3 max-h-64 overflow-y-auto space-y-1">
+            <div class="border border-sr-line rounded-lg p-3 max-h-64 overflow-y-auto space-y-1">
               <div
                 :if={@available_metrics == []}
-                class="text-sm text-base-content/50 py-2 text-center"
+                class="text-sm text-sr-muted py-2 text-center"
               >
                 No metrics available. Enable metric discovery first.
               </div>
               <label
                 :for={metric <- @available_metrics}
                 class={[
-                  "flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-base-200 transition",
+                  "flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-sr-subtle transition",
                   metric.name in @group_metrics && "bg-primary/10"
                 ]}
               >
@@ -1031,13 +1031,13 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                 />
                 <div class="flex-1 min-w-0">
                   <span class="text-sm font-medium">{metric.display}</span>
-                  <span class="text-xs text-base-content/50 ml-2">({metric.name})</span>
+                  <span class="text-xs text-sr-muted ml-2">({metric.name})</span>
                 </div>
                 <.ui_badge size="xs" variant="ghost">{metric.category}</.ui_badge>
               </label>
             </div>
             <div class="label">
-              <span class="label-text-alt text-base-content/50">
+              <span class="label-text-alt text-sr-muted">
                 Tip: Combine metrics with the same unit (e.g., inbound + outbound traffic)
               </span>
             </div>
@@ -1084,7 +1084,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         </form>
 
         <h3 class="text-lg font-bold">Configure {@metric_name} metric</h3>
-        <p class="text-sm text-base-content/60 mt-1">
+        <p class="text-sm text-sr-muted mt-1">
           Tune event creation and alert promotion for this metric.
         </p>
 
@@ -1101,7 +1101,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             <div class="flex items-center justify-between">
               <div>
                 <span class="text-sm font-semibold">Event Threshold</span>
-                <p class="text-xs text-base-content/50">
+                <p class="text-xs text-sr-muted">
                   Create an event when this metric crosses the threshold.
                 </p>
               </div>
@@ -1160,7 +1160,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                 </label>
               </div>
               <div :if={@has_speed_data} class="label">
-                <span class="label-text-alt text-xs text-base-content/50">
+                <span class="label-text-alt text-xs text-sr-muted">
                   Interface speed: {format_bps(@interface_speed_bps) || "Unknown"}
                 </span>
               </div>
@@ -1262,13 +1262,13 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
           </div>
 
-          <div class="divider text-xs text-base-content/50">Alert Promotion</div>
+          <div class="divider text-xs text-sr-muted">Alert Promotion</div>
 
           <div class="space-y-3">
             <div class="flex items-center justify-between">
               <div>
                 <span class="text-sm font-semibold">Enable Alerts</span>
-                <p class="text-xs text-base-content/50">
+                <p class="text-xs text-sr-muted">
                   Promote metric events into alerts when thresholds are met.
                 </p>
               </div>

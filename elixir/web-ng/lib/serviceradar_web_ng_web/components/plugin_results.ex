@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
 
     ~H"""
     <div class="space-y-4">
-      <div :if={@display == []} class="text-xs text-base-content/60">
+      <div :if={@display == []} class="text-xs text-sr-muted">
         No custom display instructions found for this result.
       </div>
 
@@ -65,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
   defp widget_container_class(instruction) do
     layout = Map.get(instruction, "layout") || Map.get(instruction, :layout)
 
-    base = "rounded-xl border border-base-200 bg-base-100 p-4"
+    base = "rounded-xl border border-sr-line bg-sr-surface p-4"
 
     case layout do
       "full" -> [base, "lg:col-span-2"]
@@ -84,12 +84,12 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
     ~H"""
     <div class="flex items-center justify-between">
       <div>
-        <div class="text-xs text-base-content/60">{@label}</div>
+        <div class="text-xs text-sr-muted">{@label}</div>
         <div class="text-sm font-semibold">{@status}</div>
       </div>
       <div class="flex items-center gap-2">
         <.ui_badge variant={status_variant(@status)} size="xs">{@status}</.ui_badge>
-        <span :if={@uptime} class="text-xs text-base-content/60">{@uptime}</span>
+        <span :if={@uptime} class="text-xs text-sr-muted">{@uptime}</span>
       </div>
     </div>
     """
@@ -104,7 +104,7 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
 
     ~H"""
     <div>
-      <div class="text-xs text-base-content/60">{@label}</div>
+      <div class="text-xs text-sr-muted">{@label}</div>
       <div class={stat_value_class(@tone)}>{@value}</div>
     </div>
     """
@@ -121,7 +121,7 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
         <tbody>
           <%= for {key, value} <- @rows do %>
             <tr>
-              <td class="text-xs font-semibold text-base-content/60">{key}</td>
+              <td class="text-xs font-semibold text-sr-muted">{key}</td>
               <td class="text-xs">{value}</td>
             </tr>
           <% end %>
@@ -150,7 +150,7 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
 
     ~H"""
     <div>
-      <div class="text-xs text-base-content/60 mb-2">{@label}</div>
+      <div class="text-xs text-sr-muted mb-2">{@label}</div>
       <svg viewBox="0 0 100 32" class="w-full h-8">
         <polyline
           fill="none"
@@ -338,7 +338,7 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
       "warning" -> [base, "text-warning"]
       "error" -> [base, "text-error"]
       "info" -> [base, "text-info"]
-      _ -> [base, "text-base-content"]
+      _ -> [base, "text-sr-ink"]
     end
   end
 

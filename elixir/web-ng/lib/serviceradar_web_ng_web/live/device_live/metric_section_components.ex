@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
   def metric_sections_content(assigns) do
     ~H"""
     <div :if={@sections != []} class="flex items-center justify-end gap-2">
-      <span class="text-[11px] uppercase tracking-wide text-base-content/50">Window</span>
+      <span class="text-[11px] uppercase tracking-wide text-sr-muted">Window</span>
       <div class="flex flex-wrap gap-1">
         <.ui_button
           :for={{label, value} <- sysmon_range_options()}
@@ -30,16 +30,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
     </div>
 
     <%= for section <- @sections do %>
-      <div class="rounded-xl border border-base-200 bg-base-100">
-        <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+      <div class="rounded-xl border border-sr-line bg-sr-surface">
+        <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between gap-3">
           <div class="flex items-center gap-3">
             <span class="text-sm font-semibold">{section.title}</span>
-            <span class="text-xs text-base-content/50">{section.subtitle}</span>
+            <span class="text-xs text-sr-muted">{section.subtitle}</span>
           </div>
           <div class="flex items-center gap-3">
             <div
               :if={is_map(Map.get(section, :header_stats))}
-              class="flex items-center gap-2 text-[11px] text-base-content/60"
+              class="flex items-center gap-2 text-[11px] text-sr-muted"
             >
               <% stats = Map.get(section, :header_stats) %>
               <span class="font-mono">min {format_metric_value(Map.get(stats, :min), section)}</span>
@@ -53,7 +53,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
               <% header_value = Map.get(section, :header_value) %>
               <div
                 :if={percent_metric?(section)}
-                class="h-1.5 w-20 rounded-full bg-base-200 overflow-hidden"
+                class="h-1.5 w-20 rounded-full bg-sr-subtle overflow-hidden"
               >
                 <div
                   class="h-full bg-accent"
@@ -65,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
           </div>
         </div>
 
-        <div :if={is_binary(section.error)} class="px-4 py-3 text-sm text-base-content/70">
+        <div :if={is_binary(section.error)} class="px-4 py-3 text-sm text-sr-muted">
           {section.error}
         </div>
 

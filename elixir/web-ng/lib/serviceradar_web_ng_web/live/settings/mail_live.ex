@@ -102,7 +102,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
         <section class="space-y-2">
           <p class="text-sm font-medium text-primary">Settings</p>
           <h1 class="text-2xl font-semibold tracking-normal">Outbound Mail</h1>
-          <p class="max-w-3xl text-sm text-base-content/65">
+          <p class="max-w-3xl text-sm text-sr-ink/65">
             Configure the deployment mail provider used by dashboard reports and other system email.
           </p>
         </section>
@@ -113,7 +113,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
             as={:mail}
             phx-change="validate"
             phx-submit="save"
-            class="space-y-6 rounded-lg border border-base-300 bg-base-100 p-4"
+            class="space-y-6 rounded-lg border border-sr-line bg-sr-surface p-4"
           >
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <.input field={@mail_form[:enabled]} type="checkbox" label="Enable outbound mail" />
@@ -185,15 +185,15 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
             </div>
           </.form>
 
-          <aside class="space-y-4 rounded-lg border border-base-300 bg-base-100 p-4">
+          <aside class="space-y-4 rounded-lg border border-sr-line bg-sr-surface p-4">
             <div>
               <h2 class="text-sm font-semibold">Secret Sources</h2>
-              <p class="mt-1 text-xs text-base-content/60">
+              <p class="mt-1 text-xs text-sr-muted">
                 Use local encrypted values for simple SMTP credentials, or select a reusable credential secret backed by the secret server.
               </p>
             </div>
-            <div class="rounded-lg border border-base-300 p-3 text-xs text-base-content/65">
-              <div class="font-medium text-base-content">Configured adapter</div>
+            <div class="rounded-lg border border-sr-line p-3 text-xs text-sr-ink/65">
+              <div class="font-medium text-sr-ink">Configured adapter</div>
               <div class="mt-1">{adapter_display(@mail_form[:adapter].value)}</div>
             </div>
             <div

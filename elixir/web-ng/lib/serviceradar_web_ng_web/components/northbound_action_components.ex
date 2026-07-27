@@ -82,10 +82,10 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
               ]}
             />
             <div class="min-w-0">
-              <p class="font-medium text-base-content">{applicable_summary_text(@applicability)}</p>
+              <p class="font-medium text-sr-ink">{applicable_summary_text(@applicability)}</p>
               <p
                 :if={applicability_blocked?(@applicability)}
-                class="mt-1 text-xs text-base-content/70"
+                class="mt-1 text-xs text-sr-muted"
               >
                 Only AWX-managed devices can run Ansible tasks. Select at least one device that is in an AWX inventory.
               </p>
@@ -100,7 +100,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
             <div class="flex items-start gap-3">
               <.icon name="hero-exclamation-triangle" class="mt-0.5 size-5 shrink-0 text-warning" />
               <div class="min-w-0">
-                <p class="font-medium text-base-content">
+                <p class="font-medium text-sr-ink">
                   Not in an AWX inventory (will be skipped):
                 </p>
                 <div class="mt-2 flex flex-wrap gap-1.5">
@@ -265,14 +265,14 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
 
   def northbound_action_history(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="flex items-start justify-between gap-3 border-b border-base-200 px-4 py-3">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="flex items-start justify-between gap-3 border-b border-sr-line px-4 py-3">
         <div class="min-w-0">
           <div class="flex items-center gap-2">
             <.icon name="hero-clock" class="size-4 text-primary" />
             <span class="text-sm font-semibold">{@title}</span>
           </div>
-          <p :if={ActionForm.present_text?(@subtitle)} class="mt-1 text-xs text-base-content/60">
+          <p :if={ActionForm.present_text?(@subtitle)} class="mt-1 text-xs text-sr-muted">
             {@subtitle}
           </p>
         </div>
@@ -281,13 +281,13 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
 
       <div
         :if={is_map(@notice)}
-        class="mx-4 mt-4 rounded-lg border border-info/20 bg-info/10 px-4 py-3 text-sm text-base-content"
+        class="mx-4 mt-4 rounded-lg border border-info/20 bg-info/10 px-4 py-3 text-sm text-sr-ink"
       >
         <div class="flex gap-3">
           <.icon name="hero-play-circle" class="mt-0.5 size-5 shrink-0 text-info" />
           <div class="min-w-0 space-y-1">
             <p class="font-semibold">{Map.get(@notice, :title, "Task dispatched")}</p>
-            <p class="text-xs text-base-content/70">
+            <p class="text-xs text-sr-muted">
               Results update in Task History as the integration reports progress.
               <span
                 :if={ActionForm.present_text?(Map.get(@notice, :invocation_id))}
@@ -306,15 +306,15 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
 
       <div
         :if={@entries == [] and not ActionForm.present_text?(@error)}
-        class="px-4 py-6 text-sm text-base-content/60"
+        class="px-4 py-6 text-sm text-sr-muted"
       >
         <p>{@empty_message}</p>
-        <p class="mt-2 text-xs text-base-content/50">
+        <p class="mt-2 text-xs text-sr-muted">
           Newly launched tasks appear here with queued, running, succeeded, or failed status.
         </p>
       </div>
 
-      <div :if={@entries != []} class="divide-y divide-base-200">
+      <div :if={@entries != []} class="divide-y divide-sr-line">
         <div :for={entry <- @entries} class="px-4 py-3">
           <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div class="min-w-0 space-y-1">
@@ -338,7 +338,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
                 </.ui_badge>
               </div>
 
-              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-base-content/60">
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-sr-muted">
                 <span class="font-mono">{ActionForm.short_id(Map.get(entry, :invocation_id))}</span>
                 <span>{format_history_timestamp(Map.get(entry, :inserted_at))}</span>
                 <span>{history_target_label(entry)}</span>
@@ -346,7 +346,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
 
               <p
                 :if={ActionForm.present_text?(history_summary(entry))}
-                class="text-sm text-base-content/70"
+                class="text-sm text-sr-muted"
               >
                 {history_summary(entry)}
               </p>
@@ -401,7 +401,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
           {@label}
           <span :if={@required} class="text-error">*</span>
         </span>
-        <span :if={ActionForm.present_text?(@description)} class="label-text-alt text-base-content/50">
+        <span :if={ActionForm.present_text?(@description)} class="label-text-alt text-sr-muted">
           {@description}
         </span>
       </label>

@@ -25,7 +25,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Pagination do
       |> assign(:next_path, page_path(assigns, min(assigns.page + 1, total_pages)))
 
     ~H"""
-    <div class="flex items-center justify-between gap-3 border-t border-base-200 pt-4">
+    <div class="flex items-center justify-between gap-3 border-t border-sr-line pt-4">
       <div class="sr-mtr-muted text-sm">
         {if @total_count > 0,
           do: "Showing page #{@page} of #{@total_pages} (#{@total_count} total)",

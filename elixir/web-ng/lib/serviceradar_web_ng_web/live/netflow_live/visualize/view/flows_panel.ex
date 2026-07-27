@@ -12,20 +12,20 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsPanel do
     assigns = Map.merge(assigns, visualize)
 
     ~H"""
-    <div class="card bg-base-100 border border-base-200">
+    <div class="card bg-sr-surface border border-sr-line">
       <div class="card-body gap-3">
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-baseline gap-2 min-w-0">
             <div class="text-sm font-semibold">Flows</div>
             <div
               :if={is_binary(@flows_window_label) and String.trim(@flows_window_label) != ""}
-              class="text-[11px] text-base-content/50 font-mono truncate"
+              class="text-[11px] text-sr-muted font-mono truncate"
               title={@flows_window_label}
             >
               {@flows_window_label}
             </div>
           </div>
-          <div class="text-[11px] text-base-content/50 font-mono">
+          <div class="text-[11px] text-sr-muted font-mono">
             limit:{@limit}
           </div>
         </div>
@@ -41,7 +41,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsPanel do
           unit_mode={Map.get(@netflow_viz_state, "units", "Bps")}
         />
 
-        <div class="pt-3 border-t border-base-200">
+        <div class="pt-3 border-t border-sr-line">
           <.ui_pagination
             prev_cursor={Map.get(@flows_pagination, "prev_cursor")}
             next_cursor={Map.get(@flows_pagination, "next_cursor")}

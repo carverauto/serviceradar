@@ -98,7 +98,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
         </div>
 
         <div :if={@trace} class="space-y-6">
-          <div class="stats shadow bg-base-200">
+          <div class="stats shadow bg-sr-subtle">
             <div class="stat">
               <div class="stat-title">Target</div>
               <div class="stat-value text-lg font-mono">{@trace["target"]}</div>
@@ -166,7 +166,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                       </span>
                     </div>
                     <div
-                      class="text-sm text-base-content/80 max-w-[220px] truncate"
+                      class="text-sm text-sr-ink/90 max-w-[220px] truncate"
                       title={hop["hostname"]}
                     >
                       {hop["hostname"] || "-"}
@@ -177,7 +177,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                       </.ui_badge>
                       <span
                         :if={hop["asn_org"]}
-                        class="text-base-content/50 truncate inline-block max-w-[180px] align-middle"
+                        class="text-sr-muted truncate inline-block max-w-[180px] align-middle"
                         title={hop["asn_org"]}
                       >
                         {hop["asn_org"]}
@@ -201,7 +201,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                   </td>
                 </tr>
                 <tr :if={@hops == []}>
-                  <td colspan="11" class="text-center py-4 text-base-content/50">
+                  <td colspan="11" class="text-center py-4 text-sr-muted">
                     No hop data available
                   </td>
                 </tr>

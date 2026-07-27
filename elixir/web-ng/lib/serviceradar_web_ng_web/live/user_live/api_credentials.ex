@@ -38,8 +38,8 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
         <div class="mx-auto w-full max-w-4xl p-6 space-y-6">
           <div class="flex justify-between items-center">
             <div>
-              <h1 class="text-2xl font-semibold text-base-content">API Credentials</h1>
-              <p class="text-sm text-base-content/60">
+              <h1 class="text-2xl font-semibold text-sr-ink">API Credentials</h1>
+              <p class="text-sm text-sr-muted">
                 Create and manage OAuth2 client credentials for programmatic API access.
               </p>
             </div>
@@ -74,14 +74,14 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
             <:header>
               <div>
                 <div class="text-sm font-semibold">Your API Clients</div>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   These clients can be used to access the ServiceRadar API programmatically.
                 </p>
               </div>
             </:header>
 
             <%= if Enum.empty?(@clients) do %>
-              <div class="text-center py-8 text-base-content/60">
+              <div class="text-center py-8 text-sr-muted">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
@@ -119,11 +119,11 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                         <td>
                           <div class="font-medium">{client.name}</div>
                           <%= if client.description do %>
-                            <div class="text-xs text-base-content/60">{client.description}</div>
+                            <div class="text-xs text-sr-muted">{client.description}</div>
                           <% end %>
                         </td>
                         <td>
-                          <code class="text-xs bg-base-200 px-2 py-1 rounded">
+                          <code class="text-xs bg-sr-subtle px-2 py-1 rounded">
                             {client.id |> to_string() |> String.slice(0..7)}...
                           </code>
                           <.ui_button type="button" phx-click="copy_client_id" phx-value-id={client.id} title="Copy full Client ID" size="xs" variant="ghost" class="ml-1">
@@ -159,7 +159,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                               {format_relative_time(client.last_used_at)}
                             </span>
                           <% else %>
-                            <span class="text-base-content/40">Never</span>
+                            <span class="text-sr-muted">Never</span>
                           <% end %>
                         </td>
                         <td class="text-sm">{client.use_count}</td>
@@ -188,7 +188,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                               </div>
                               <ul
                                 tabindex="0"
-                                class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-40"
+                                class="dropdown-content z-[1] menu p-2 shadow bg-sr-surface rounded-box w-40"
                               >
                                 <li>
                                   <button
@@ -228,7 +228,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
             <:header>
               <div>
                 <div class="text-sm font-semibold">How to Use</div>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   Use the OAuth2 client credentials flow to get access tokens.
                 </p>
               </div>

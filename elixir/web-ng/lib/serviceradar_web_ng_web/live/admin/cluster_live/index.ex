@@ -151,8 +151,8 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
       >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">Cluster Dashboard</h1>
-            <p class="text-sm text-base-content/60">
+            <h1 class="text-2xl font-semibold text-sr-ink">Cluster Dashboard</h1>
+            <p class="text-sm text-sr-muted">
               Distributed ERTS cluster with standalone Elixir gateways and agents connected via mTLS.
             </p>
           </div>
@@ -194,7 +194,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Cluster Nodes</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 ERTS nodes connected via mTLS (web-ng, gateways, agents)
               </p>
             </div>
@@ -203,14 +203,14 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
           <div class="sr-ui-table-shell">
             <table class={ui_table_class(size: "sm")}>
               <thead>
-                <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                <tr class="text-xs uppercase tracking-wide text-sr-muted">
                   <th>Node</th>
                   <th>Type</th>
                   <th>Status</th>
                 </tr>
               </thead>
               <tbody>
-                <tr class="bg-base-200/30">
+                <tr class="bg-sr-subtle/30">
                   <td class="font-mono text-sm">{to_string(@cluster_status.self)}</td>
                   <td>
                     <.ui_badge variant="info" size="xs">Self</.ui_badge>
@@ -231,7 +231,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
                   </tr>
                 <% end %>
                 <tr :if={@cluster_status.connected_nodes == []}>
-                  <td colspan="3" class="text-center text-base-content/60 py-4">
+                  <td colspan="3" class="text-center text-sr-muted py-4">
                     No remote nodes connected
                   </td>
                 </tr>
@@ -245,7 +245,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Gateways</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 {@cluster_health.gateway_count} standalone Elixir gateway(s) in the distributed cluster
               </p>
             </div>
@@ -253,16 +253,16 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
 
           <div class="overflow-x-auto">
             <%= if @gateways == [] do %>
-              <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-8 text-center">
-                <div class="text-sm font-semibold text-base-content">No gateways registered</div>
-                <p class="mt-1 text-xs text-base-content/60">
+              <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-8 text-center">
+                <div class="text-sm font-semibold text-sr-ink">No gateways registered</div>
+                <p class="mt-1 text-xs text-sr-muted">
                   Deploy standalone gateway releases to edge/bare metal/Docker/K8s to join the cluster.
                 </p>
               </div>
             <% else %>
               <table class={ui_table_class(size: "sm")}>
                 <thead>
-                  <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                  <tr class="text-xs uppercase tracking-wide text-sr-muted">
                     <th>Partition</th>
                     <th>Node</th>
                     <th>Capabilities</th>
@@ -283,7 +283,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
                         </div>
                       </td>
                       <td><.status_badge status={Map.get(gateway, :status)} /></td>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         {format_timestamp(Map.get(gateway, :last_heartbeat))}
                       </td>
                     </tr>
@@ -299,7 +299,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Agents</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 {@cluster_health.agent_count} standalone Elixir agent(s) in the distributed cluster
               </p>
             </div>
@@ -307,16 +307,16 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
 
           <div class="overflow-x-auto">
             <%= if @agents == [] do %>
-              <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-8 text-center">
-                <div class="text-sm font-semibold text-base-content">No agents registered</div>
-                <p class="mt-1 text-xs text-base-content/60">
+              <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-8 text-center">
+                <div class="text-sm font-semibold text-sr-ink">No agents registered</div>
+                <p class="mt-1 text-xs text-sr-muted">
                   Deploy standalone agent releases to monitored hosts to join the cluster.
                 </p>
               </div>
             <% else %>
               <table class={ui_table_class(size: "sm")}>
                 <thead>
-                  <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                  <tr class="text-xs uppercase tracking-wide text-sr-muted">
                     <th>Agent ID</th>
                     <th>Gateway Node</th>
                     <th>Capabilities</th>
@@ -339,7 +339,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
                         </div>
                       </td>
                       <td><.status_badge status={Map.get(agent, :status)} /></td>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         {format_timestamp(Map.get(agent, :connected_at))}
                       </td>
                     </tr>
@@ -355,7 +355,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Recent Events</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Last {length(@events)} cluster events
               </p>
             </div>
@@ -364,7 +364,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
           <div class="sr-ui-table-shell">
             <table class={ui_table_class(size: "xs")}>
               <thead>
-                <tr class="text-[11px] uppercase tracking-wide text-base-content/50">
+                <tr class="text-[11px] uppercase tracking-wide text-sr-muted">
                   <th>Event</th>
                   <th>Details</th>
                   <th>Time</th>
@@ -421,12 +421,12 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
     ~H"""
     <div class={"rounded-xl border p-4 #{@bg_class}"}>
       <div class="flex items-center gap-3">
-        <div class={"rounded-lg bg-base-100 p-2 #{@icon_class}"}>
+        <div class={"rounded-lg bg-sr-surface p-2 #{@icon_class}"}>
           <.icon name={@icon} class="size-5" />
         </div>
         <div>
-          <div class="text-xs text-base-content/60">{@title}</div>
-          <div class="text-xl font-bold text-base-content">{@value}</div>
+          <div class="text-xs text-sr-muted">{@title}</div>
+          <div class="text-xl font-bold text-sr-ink">{@value}</div>
         </div>
       </div>
     </div>

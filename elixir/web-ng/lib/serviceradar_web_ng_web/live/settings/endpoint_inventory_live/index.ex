@@ -95,7 +95,7 @@ defmodule ServiceRadarWebNGWeb.Settings.EndpointInventoryLive.Index do
             <h1 class="text-xl font-semibold">Endpoint Inventory</h1>
           </div>
 
-          <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+          <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
             <.form
               :if={@settings_form}
               for={@settings_form}

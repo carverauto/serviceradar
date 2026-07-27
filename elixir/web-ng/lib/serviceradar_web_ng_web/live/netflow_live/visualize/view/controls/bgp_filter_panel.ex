@@ -8,9 +8,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls.BgpFilterPane
 
   def render(assigns) do
     ~H"""
-    <div class="col-span-full mt-4 pt-4 border-t border-base-200">
-      <details class="collapse collapse-arrow bg-base-200/30 rounded-lg">
-        <summary class="collapse-title text-xs font-semibold text-base-content/70 min-h-0 py-2 px-3">
+    <div class="col-span-full mt-4 pt-4 border-t border-sr-line">
+      <details class="collapse collapse-arrow bg-sr-subtle/30 rounded-lg">
+        <summary class="collapse-title text-xs font-semibold text-sr-muted min-h-0 py-2 px-3">
           BGP Routing Filters
         </summary>
         <div class="collapse-content px-3 pb-3">

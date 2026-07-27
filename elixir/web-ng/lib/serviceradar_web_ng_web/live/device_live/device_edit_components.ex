@@ -12,8 +12,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
 
   def device_edit_section(assigns) do
     ~H"""
-    <div class="rounded-xl border border-primary/30 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 bg-primary/5 flex items-center justify-between">
+    <div class="rounded-xl border border-primary/30 bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line bg-primary/5 flex items-center justify-between">
         <div class="flex items-center gap-2">
           <.icon name="hero-pencil-square" class="size-4 text-primary" />
           <span class="text-sm font-semibold">Edit Device Details</span>
@@ -125,11 +125,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
             <input
               type="text"
               value={Map.get(@device_row, "gateway_id", "")}
-              class={ui_field_class(size: "sm", mono: true, class: "bg-base-200")}
+              class={ui_field_class(size: "sm", mono: true, class: "bg-sr-subtle")}
               disabled
             />
             <label class="label py-0">
-              <span class="label-text-alt text-xs text-base-content/50">Read-only</span>
+              <span class="label-text-alt text-xs text-sr-muted">Read-only</span>
             </label>
           </div>
 
@@ -154,7 +154,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
               <span>Mark as managed</span>
             </label>
             <label :if={agent_device?(@device_row)} class="label py-0">
-              <span class="label-text-alt text-xs text-base-content/50">
+              <span class="label-text-alt text-xs text-sr-muted">
                 Agent devices are always managed.
               </span>
             </label>
@@ -181,7 +181,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
         <div class="form-control mt-4">
           <label class="label py-1">
             <span class="label-text text-xs font-medium">Tags</span>
-            <span class="label-text-alt text-xs text-base-content/50">
+            <span class="label-text-alt text-xs text-sr-muted">
               One per line (key or key=value)
             </span>
           </label>
@@ -193,10 +193,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
         </div>
       </.form>
 
-      <div class="border-t border-base-200 px-4 py-4">
+      <div class="border-t border-sr-line px-4 py-4">
         <div class="flex items-center justify-between mb-4">
           <div class="flex items-center gap-2">
-            <.icon name="hero-lock-closed" class="size-4 text-base-content/60" />
+            <.icon name="hero-lock-closed" class="size-4 text-sr-muted" />
             <span class="text-sm font-semibold">SNMP Credentials Override</span>
             <span
               :if={@device_snmp_credential}
@@ -262,7 +262,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                 autocomplete="off"
               />
               <label class="label py-0">
-                <span class="label-text-alt text-xs text-base-content/50">
+                <span class="label-text-alt text-xs text-sr-muted">
                   Credentials are encrypted at rest.
                 </span>
               </label>
@@ -375,7 +375,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
             <.ui_button type="submit" variant="outline" size="xs">
               Save SNMP Credentials
             </.ui_button>
-            <span class="text-xs text-base-content/50">
+            <span class="text-xs text-sr-muted">
               Overrides take precedence over profile credentials.
             </span>
           </div>

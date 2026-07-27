@@ -387,8 +387,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">Edge Onboarding</h1>
-            <p class="text-sm text-base-content/60">
+            <h1 class="text-2xl font-semibold text-sr-ink">Edge Onboarding</h1>
+            <p class="text-sm text-sr-muted">
               Manage edge component onboarding packages for agents.
             </p>
           </div>
@@ -403,7 +403,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Packages</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 {@packages |> length()} package(s)
               </p>
             </div>
@@ -424,16 +424,16 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
           <div class="overflow-x-auto">
             <%= if @packages == [] do %>
-              <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-8 text-center">
-                <div class="text-sm font-semibold text-base-content">No packages found</div>
-                <p class="mt-1 text-xs text-base-content/60">
+              <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-8 text-center">
+                <div class="text-sm font-semibold text-sr-ink">No packages found</div>
+                <p class="mt-1 text-xs text-sr-muted">
                   Create a new package to onboard edge components.
                 </p>
               </div>
             <% else %>
               <table class={ui_table_class(size: "sm")}>
                 <thead>
-                  <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                  <tr class="text-xs uppercase tracking-wide text-sr-muted">
                     <th>Label</th>
                     <th>Type</th>
                     <th>Status</th>
@@ -444,13 +444,13 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 </thead>
                 <tbody>
                   <%= for package <- @packages do %>
-                    <tr class="hover:bg-base-200/30">
+                    <tr class="hover:bg-sr-subtle/30">
                       <td>
                         <div class="font-medium">{package.label}</div>
-                        <div class="text-xs text-base-content/60 font-mono">
+                        <div class="text-xs text-sr-muted font-mono">
                           {package.component_id}
                         </div>
-                        <div class="text-xs text-base-content/60 font-mono">
+                        <div class="text-xs text-sr-muted font-mono">
                           {String.slice(package.id, 0, 8)}...
                         </div>
                       </td>
@@ -462,10 +462,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                       <td>
                         <.status_badge status={package.status} />
                       </td>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         {format_datetime(package.created_at)}
                       </td>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         {format_datetime(package.download_token_expires_at)}
                       </td>
                       <td>
@@ -535,10 +535,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           <div class="text-center py-8">
             <.ui_spinner size="lg" />
             <h3 class="text-lg font-bold mt-4">Creating Package</h3>
-            <p class="text-sm text-base-content/70 mt-2">
+            <p class="text-sm text-sr-muted mt-2">
               Generating certificates and preparing your onboarding package...
             </p>
-            <p class="text-xs text-base-content/50 mt-1">
+            <p class="text-xs text-sr-muted mt-1">
               This may take a moment if this is your first edge package.
             </p>
           </div>
@@ -547,7 +547,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
             <.success_content created_tokens={@created_tokens} />
           <% else %>
             <h3 class="text-lg font-bold">Create Edge Package</h3>
-            <p class="py-2 text-sm text-base-content/70">
+            <p class="py-2 text-sm text-sr-muted">
               Create an onboarding package to deploy an edge component.
             </p>
 
@@ -576,14 +576,14 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 placeholder="e.g., production-gateway-01"
                 required
               />
-              <p class="text-xs text-base-content/60 -mt-2 ml-1">
+              <p class="text-xs text-sr-muted -mt-2 ml-1">
                 A descriptive name for this component. Used to generate the component ID.
               </p>
 
               <.input field={@form[:component_type]} type="hidden" value={@selected_component_type} />
-              <div class="text-sm text-base-content/70">
-                <span class="font-medium text-base-content">Component Type:</span>
-                <span class="ml-1 text-base-content">Agent</span>
+              <div class="text-sm text-sr-muted">
+                <span class="font-medium text-sr-ink">Component Type:</span>
+                <span class="ml-1 text-sr-ink">Agent</span>
               </div>
 
               <%= if @selected_component_type == "agent" do %>
@@ -596,7 +596,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                   disabled={@gateway_options == []}
                   value={@default_gateway_id}
                 />
-                <p class="text-xs text-base-content/60 -mt-2 ml-1">
+                <p class="text-xs text-sr-muted -mt-2 ml-1">
                   The gateway that will manage this agent.
                 </p>
                 <%= if @gateway_options == [] do %>
@@ -606,7 +606,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 <% end %>
               <% end %>
 
-              <div class="collapse collapse-arrow bg-base-200 rounded-lg">
+              <div class="collapse collapse-arrow bg-sr-subtle rounded-lg">
                 <input type="checkbox" />
                 <div class="collapse-title text-sm font-medium py-2">
                   Advanced options
@@ -619,7 +619,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                       value={@partition_value}
                       placeholder="default"
                     />
-                    <p class="text-xs text-base-content/60 -mt-2 ml-1">
+                    <p class="text-xs text-sr-muted -mt-2 ml-1">
                       Partition identifier for the agent (default: default).
                     </p>
 
@@ -629,7 +629,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                       value={@host_ip_value}
                       placeholder="Leave blank to auto-detect during enrollment"
                     />
-                    <p class="text-xs text-base-content/60 -mt-2 ml-1">
+                    <p class="text-xs text-sr-muted -mt-2 ml-1">
                       Optional static host IP for the agent. If blank, enrollment auto-detects.
                     </p>
                   <% end %>
@@ -657,7 +657,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                         </option>
                       <% end %>
                     </select>
-                    <p class="mt-1 text-xs text-base-content/60">
+                    <p class="mt-1 text-xs text-sr-muted">
                       Selected add-ons are assigned to the generated agent identity when the package is created.
                     </p>
                     <p :if={@approved_addons == []} class="mt-1 text-xs text-warning">
@@ -673,7 +673,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                       <.ui_badge variant="ghost" size="xs">
                         {String.upcase(to_string(@security_mode))}
                       </.ui_badge>
-                      <span class="text-xs text-base-content/50">
+                      <span class="text-xs text-sr-muted">
                         (Set by deployment)
                       </span>
                     </div>
@@ -747,7 +747,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           <.icon name="hero-check-circle" class="size-10 text-success" />
         </div>
         <h3 class="text-xl font-bold">Package Created Successfully</h3>
-        <p class="text-sm text-base-content/70 mt-1">
+        <p class="text-sm text-sr-muted mt-1">
           Your edge component package is ready for deployment.
         </p>
       </div>
@@ -755,17 +755,17 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       <%= if @component_type == "agent" do %>
         <div class="divider">Enroll Agent</div>
         <div class="space-y-3">
-          <p class="text-sm text-base-content/70">
+          <p class="text-sm text-sr-muted">
             Run this command on the target host to enroll the agent. Uses sudo to write
-            <code class="bg-base-200 px-1 rounded text-xs">/etc/serviceradar</code>
+            <code class="bg-sr-subtle px-1 rounded text-xs">/etc/serviceradar</code>
             and restart the agent.
           </p>
-          <p class="text-xs text-base-content/50">
+          <p class="text-xs text-sr-muted">
             The gateway address is derived from your deployment configuration by default.
           </p>
           <%= if is_binary(@enroll_cmd) and @enroll_cmd != "" do %>
             <div class="relative">
-              <pre class="bg-base-200 p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@enroll_cmd}</code></pre>
+              <pre class="bg-sr-subtle p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@enroll_cmd}</code></pre>
               <.ui_button type="button" phx-click="copy_token" phx-value-token={@enroll_cmd} title="Copy enroll command" size="sm" variant="ghost" class="absolute top-2 right-2">
                 <.icon name="hero-clipboard" class="size-4" />
               </.ui_button>
@@ -782,12 +782,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
         <div class="tabs tabs-boxed">
           <input type="radio" name="install_tabs" class="tab" aria-label="Docker" checked />
-          <div class="tab-content bg-base-100 border-base-300 rounded-box p-4 mt-2">
-            <p class="text-sm text-base-content/70 mb-3">
+          <div class="tab-content bg-sr-surface border-sr-line rounded-box p-4 mt-2">
+            <p class="text-sm text-sr-muted mb-3">
               Run this command on your target server to install via Docker:
             </p>
             <div class="relative">
-              <pre class="bg-base-200 p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@docker_cmd}</code></pre>
+              <pre class="bg-sr-subtle p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@docker_cmd}</code></pre>
               <.ui_button type="button" phx-click="copy_token" phx-value-token={@docker_cmd} size="sm" variant="ghost" class="absolute top-2 right-2">
                 <.icon name="hero-clipboard" class="size-4" />
               </.ui_button>
@@ -795,12 +795,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           </div>
 
           <input type="radio" name="install_tabs" class="tab" aria-label="systemd" />
-          <div class="tab-content bg-base-100 border-base-300 rounded-box p-4 mt-2">
-            <p class="text-sm text-base-content/70 mb-3">
+          <div class="tab-content bg-sr-surface border-sr-line rounded-box p-4 mt-2">
+            <p class="text-sm text-sr-muted mb-3">
               Run this command on your target server to install via systemd:
             </p>
             <div class="relative">
-              <pre class="bg-base-200 p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@systemd_cmd}</code></pre>
+              <pre class="bg-sr-subtle p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@systemd_cmd}</code></pre>
               <.ui_button type="button" phx-click="copy_token" phx-value-token={@systemd_cmd} size="sm" variant="ghost" class="absolute top-2 right-2">
                 <.icon name="hero-clipboard" class="size-4" />
               </.ui_button>
@@ -813,38 +813,38 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
       <div class="grid grid-cols-2 gap-4 text-sm">
         <div>
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Component ID</div>
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Component ID</div>
           <code class="font-mono text-xs break-all">{@package.component_id}</code>
         </div>
         <div>
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Package ID</div>
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Package ID</div>
           <code class="font-mono text-xs">{String.slice(@package.id, 0, 8)}...</code>
         </div>
         <div>
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Component Type</div>
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Component Type</div>
           <span>{@package.component_type}</span>
         </div>
         <div>
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Token Expires</div>
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Token Expires</div>
           <span>{format_expiry(@package.download_token_expires_at)}</span>
         </div>
         <%= if @certificate_data do %>
           <div>
-            <div class="text-xs uppercase tracking-wide text-base-content/60">Certificate CN</div>
+            <div class="text-xs uppercase tracking-wide text-sr-muted">Certificate CN</div>
             <code class="font-mono text-xs break-all">{cert_cn(@certificate_data)}</code>
           </div>
         <% end %>
       </div>
 
       <%= if is_binary(@onboarding_token) do %>
-        <div class="collapse collapse-arrow bg-base-200">
+        <div class="collapse collapse-arrow bg-sr-subtle">
           <input type="checkbox" />
           <div class="collapse-title text-sm font-medium">
             Show onboarding token (edgepkg-v3)
           </div>
           <div class="collapse-content">
             <div class="flex items-center gap-2">
-              <code class="flex-1 text-xs font-mono break-all bg-base-100 p-2 rounded">
+              <code class="flex-1 text-xs font-mono break-all bg-sr-surface p-2 rounded">
                 {@onboarding_token}
               </code>
               <.ui_button type="button" phx-click="copy_token" phx-value-token={@onboarding_token} size="sm" variant="ghost">
@@ -859,7 +859,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         <.icon name="hero-information-circle" class="size-5" />
         <div>
           <div class="font-semibold">What's included in the bundle?</div>
-          <ul class="list-disc list-inside text-xs mt-1 text-base-content/80">
+          <ul class="list-disc list-inside text-xs mt-1 text-sr-ink/90">
             <li>Component TLS certificate and private key</li>
             <li>CA certificate chain for verification</li>
             <li>Pre-configured config.yaml</li>
@@ -950,44 +950,44 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         <div class="mt-4 space-y-4">
           <div class="grid grid-cols-2 gap-4">
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Label</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Label</div>
               <div class="font-medium">{@package.label}</div>
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Status</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Status</div>
               <.status_badge status={@package.status} />
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Component Type</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Component Type</div>
               <div>{@package.component_type}</div>
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Component ID</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Component ID</div>
               <code class="text-sm font-mono break-all">{@package.component_id}</code>
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Security Mode</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Security Mode</div>
               <div>{@package.security_mode}</div>
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Created</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Created</div>
               <div class="text-sm">{format_datetime(@package.created_at)}</div>
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Token Expires</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Token Expires</div>
               <div class="text-sm">{format_datetime(@package.download_token_expires_at)}</div>
             </div>
           </div>
 
           <div>
-            <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Package ID</div>
-            <code class="text-sm font-mono bg-base-200 p-2 rounded block">{@package.id}</code>
+            <div class="text-xs uppercase tracking-wide text-sr-muted mb-1">Package ID</div>
+            <code class="text-sm font-mono bg-sr-subtle p-2 rounded block">{@package.id}</code>
           </div>
 
           <%= if @package.gateway_id do %>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Gateway ID</div>
-              <code class="text-sm font-mono bg-base-200 p-2 rounded block">
+              <div class="text-xs uppercase tracking-wide text-sr-muted mb-1">Gateway ID</div>
+              <code class="text-sm font-mono bg-sr-subtle p-2 rounded block">
                 {@package.gateway_id}
               </code>
             </div>
@@ -995,8 +995,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
           <%= if @package.parent_id do %>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Parent ID</div>
-              <code class="text-sm font-mono bg-base-200 p-2 rounded block">
+              <div class="text-xs uppercase tracking-wide text-sr-muted mb-1">Parent ID</div>
+              <code class="text-sm font-mono bg-sr-subtle p-2 rounded block">
                 {@package.parent_id}
               </code>
             </div>
@@ -1006,7 +1006,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
           <%= if @package.notes do %>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Notes</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted mb-1">Notes</div>
               <div class="text-sm">{@package.notes}</div>
             </div>
           <% end %>
@@ -1014,12 +1014,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           <div class="divider">Events</div>
 
           <%= if @events == [] do %>
-            <p class="text-sm text-base-content/60">No events recorded yet.</p>
+            <p class="text-sm text-sr-muted">No events recorded yet.</p>
           <% else %>
             <div class="sr-ui-table-shell">
               <table class={ui_table_class(size: "xs")}>
                 <thead>
-                  <tr class="text-[11px] uppercase tracking-wide text-base-content/50">
+                  <tr class="text-[11px] uppercase tracking-wide text-sr-muted">
                     <th>Event</th>
                     <th>Actor</th>
                     <th>Time</th>

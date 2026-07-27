@@ -17,7 +17,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
         <div class="flex items-center justify-between w-full">
           <div>
             <div class="text-sm font-semibold">Sweep Groups</div>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               {length(@groups)} group(s) configured
             </p>
           </div>
@@ -32,7 +32,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
       <div class="sr-ui-table-shell">
         <table class={ui_table_class(size: "sm")}>
           <thead>
-            <tr class="text-xs uppercase tracking-wide text-base-content/60">
+            <tr class="text-xs uppercase tracking-wide text-sr-muted">
               <th>Status</th>
               <th>Name</th>
               <th>Schedule</th>
@@ -45,19 +45,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
           </thead>
           <tbody>
             <tr :if={@groups == []}>
-              <td colspan="8" class="text-center text-base-content/60 py-8">
+              <td colspan="8" class="text-center text-sr-muted py-8">
                 No sweep groups configured. Create one to start scanning your network.
               </td>
             </tr>
             <%= for group <- @groups do %>
-              <tr class="hover:bg-base-200/40">
+              <tr class="hover:bg-sr-subtle/40">
                 <td>
                   <button
                     phx-click="toggle_group"
                     phx-value-id={group.id}
                     class="flex items-center gap-1.5 cursor-pointer"
                   >
-                    <span class={"size-2 rounded-full #{if group.enabled, do: "bg-success", else: "bg-base-content/30"}"}>
+                    <span class={"size-2 rounded-full #{if group.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}>
                     </span>
                     <span class="text-xs">{if group.enabled, do: "Enabled", else: "Disabled"}</span>
                   </button>
@@ -69,7 +69,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
                   >
                     {group.name}
                   </.link>
-                  <p :if={group.description} class="text-xs text-base-content/60 truncate max-w-xs">
+                  <p :if={group.description} class="text-xs text-sr-muted truncate max-w-xs">
                     {group.description}
                   </p>
                 </td>
@@ -79,10 +79,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
                 <td class="text-xs">
                   {group.partition}
                 </td>
-                <td class="text-xs text-base-content/60">
+                <td class="text-xs text-sr-muted">
                   {group.agent_id || "All"}
                 </td>
-                <td class="text-xs text-base-content/60">
+                <td class="text-xs text-sr-muted">
                   {format_last_run(group.last_run_at)}
                 </td>
                 <td class="text-xs">
@@ -91,7 +91,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
                       {command_status_label(status)}
                     </.ui_badge>
                   <% else %>
-                    <span class="text-xs text-base-content/40">—</span>
+                    <span class="text-xs text-sr-muted">—</span>
                   <% end %>
                 </td>
                 <td>

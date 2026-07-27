@@ -149,7 +149,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
         <section class="space-y-2">
           <p class="text-sm font-medium text-primary">Edge Ops</p>
           <h1 class="text-2xl font-semibold tracking-normal">Send your telemetry</h1>
-          <p class="max-w-3xl text-sm text-base-content/65">
+          <p class="max-w-3xl text-sm text-sr-ink/65">
             Point an OpenTelemetry SDK or collector at this deployment, issue an ingestion key,
             and confirm the first data arrived.
           </p>
@@ -157,11 +157,11 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
 
         <section
           id="otlp-endpoints"
-          class="space-y-4 rounded-lg border border-base-300 bg-base-100 p-4"
+          class="space-y-4 rounded-lg border border-sr-line bg-sr-surface p-4"
         >
           <div>
             <h2 class="text-lg font-semibold">1. OTLP endpoints</h2>
-            <p class="text-sm text-base-content/65">
+            <p class="text-sm text-sr-ink/65">
               The collector accepts OTLP over gRPC and HTTP (binary protobuf only; OTLP/JSON is rejected).
             </p>
           </div>
@@ -197,7 +197,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
             />
           </div>
 
-          <div :if={@grpc_requires_private_ca} class="space-y-2 text-sm text-base-content/65">
+          <div :if={@grpc_requires_private_ca} class="space-y-2 text-sm text-sr-ink/65">
             <p>
               The gRPC listener presents a certificate from the ServiceRadar private CA, so exporters
               must trust the root bundle:
@@ -208,11 +208,11 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
 
         <section
           id="ingestion-key"
-          class="space-y-4 rounded-lg border border-base-300 bg-base-100 p-4"
+          class="space-y-4 rounded-lg border border-sr-line bg-sr-surface p-4"
         >
           <div>
             <h2 class="text-lg font-semibold">2. Ingestion key</h2>
-            <p class="max-w-3xl text-sm text-base-content/65">
+            <p class="max-w-3xl text-sm text-sr-ink/65">
               External producers authenticate every export with
               <code class="font-mono text-xs">x-serviceradar-ingestion-key: &lt;key&gt;</code>
               (or <code class="font-mono text-xs">authorization: Bearer &lt;key&gt;</code>).
@@ -263,13 +263,13 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
             data-ingestion-key={@generated_key}
             class="space-y-4"
           >
-            <div class="flex flex-wrap items-center gap-2 rounded-lg border border-base-300 bg-base-200/40 p-3">
+            <div class="flex flex-wrap items-center gap-2 rounded-lg border border-sr-line bg-sr-subtle/40 p-3">
               <span class="font-mono text-sm break-all">{@generated_key}</span>
               <.ui_button type="button" id="copy-ingestion-key" phx-hook=".CopyText" data-copy={@generated_key} title="Copy ingestion key" size="xs" variant="ghost">
                 Copy
               </.ui_button>
             </div>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               This key is shown once and is not stored anywhere by ServiceRadar. Copy it now. The
               sender identity (<span class="font-mono">{@identity}</span>) is stamped on every
               ingested message for attribution.
@@ -289,7 +289,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
                 id="helm-values-snippet"
                 content={helm_values_snippet(@secret_name, @identity)}
               />
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Then roll out: <span class="font-mono">helm upgrade &lt;release&gt; ... -f values.yaml</span>.
                 Until auth is enabled, the listeners accept anonymous exports.
               </p>
@@ -299,11 +299,11 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
 
         <section
           id="telemetry-snippets"
-          class="space-y-4 rounded-lg border border-base-300 bg-base-100 p-4"
+          class="space-y-4 rounded-lg border border-sr-line bg-sr-surface p-4"
         >
           <div>
             <h2 class="text-lg font-semibold">3. Configure your exporter</h2>
-            <p class="text-sm text-base-content/65">
+            <p class="text-sm text-sr-ink/65">
               Quickstarts use the endpoints above {if @generated_key,
                 do: "and your generated ingestion key",
                 else: "and an <ingestion-key> placeholder"}.
@@ -339,11 +339,11 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
 
         <section
           id="first-data-checker"
-          class="space-y-4 rounded-lg border border-base-300 bg-base-100 p-4"
+          class="space-y-4 rounded-lg border border-sr-line bg-sr-surface p-4"
         >
           <div>
             <h2 class="text-lg font-semibold">4. Confirm first data</h2>
-            <p class="text-sm text-base-content/65">
+            <p class="text-sm text-sr-ink/65">
               Checks the last 15 minutes of traces, logs, and metric points for your <code class="font-mono text-xs">service.name</code>. Re-checks every 10 seconds until
               all three signals arrive.
             </p>
@@ -366,7 +366,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
             <.ui_button :if={@checking?} type="button" id="first-data-stop" phx-click="stop_check" size="sm" variant="neutral">
               Stop
             </.ui_button>
-            <span :if={@checking?} id="first-data-polling" class="text-xs text-base-content/60">
+            <span :if={@checking?} id="first-data-polling" class="text-xs text-sr-muted">
               <.ui_spinner size="xs" /> watching for data&hellip;
             </span>
           </form>
@@ -380,14 +380,14 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
             <div
               :for={{signal, label} <- @signals}
               id={"first-data-#{signal}"}
-              class="space-y-2 rounded-lg border border-base-300 p-3"
+              class="space-y-2 rounded-lg border border-sr-line p-3"
             >
               <div class="flex items-center justify-between">
                 <span class="text-sm font-medium">{label}</span>
                 <.signal_status result={@check_results[signal]} />
               </div>
               <div :if={signal == :traces && trace_link(@check_results[signal])} class="text-xs">
-                <.link navigate={trace_link(@check_results[signal])} class="link link-primary">
+                <.link navigate={trace_link(@check_results[signal])} class="text-sr-brand hover:underline">
                   Open first trace
                 </.link>
               </div>
@@ -422,7 +422,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
 
   defp endpoint_card(assigns) do
     ~H"""
-    <div id={@id} class="space-y-1 rounded-lg border border-base-300 p-3">
+    <div id={@id} class="space-y-1 rounded-lg border border-sr-line p-3">
       <div class="flex items-center justify-between">
         <span class="text-sm font-medium">{@label}</span>
         <.ui_button :if={@value != ""} type="button" id={"#{@id}-copy"} phx-hook=".CopyText" data-copy={@value} title={"Copy #{@label} endpoint"} size="xs" variant="ghost">
@@ -432,7 +432,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
       <div class="font-mono text-sm break-all">
         {if @value == "", do: "Not configured", else: @value}
       </div>
-      <p :if={@hint} class="text-xs text-base-content/60">{@hint}</p>
+      <p :if={@hint} class="text-xs text-sr-muted">{@hint}</p>
     </div>
     """
   end
@@ -446,7 +446,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
       <.ui_button type="button" id={"#{@id}-copy"} phx-hook=".CopyText" data-copy={@content} title="Copy snippet" size="xs" variant="ghost" class="absolute right-2 top-2">
         Copy
       </.ui_button>
-      <pre class="overflow-x-auto rounded-lg bg-base-200/60 p-3 pr-16 font-mono text-xs leading-relaxed"><code>{@content}</code></pre>
+      <pre class="overflow-x-auto rounded-lg bg-sr-subtle/60 p-3 pr-16 font-mono text-xs leading-relaxed"><code>{@content}</code></pre>
     </div>
     """
   end

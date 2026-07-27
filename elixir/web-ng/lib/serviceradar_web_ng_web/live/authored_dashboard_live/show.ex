@@ -789,14 +789,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
         <div
           :if={@loading?}
-          class="rounded-lg border border-base-300 bg-base-100 p-6 text-sm text-base-content/60"
+          class="rounded-lg border border-sr-line bg-sr-surface p-6 text-sm text-sr-muted"
         >
           Loading dashboard panels...
         </div>
 
         <div
           :if={(!@loading? and @dashboard) && Enum.empty?(@dashboard.panels || [])}
-          class="rounded-lg border border-base-300 bg-base-100 p-6 text-sm text-base-content/60"
+          class="rounded-lg border border-sr-line bg-sr-surface p-6 text-sm text-sr-muted"
         >
           This dashboard does not have any panels yet.
         </div>
@@ -819,7 +819,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
         <footer
           :if={!@loading? and @dashboard}
-          class="flex flex-wrap items-center justify-between gap-3 border-t border-base-300 pt-4 text-xs text-base-content/55"
+          class="flex flex-wrap items-center justify-between gap-3 border-t border-sr-line pt-4 text-xs text-sr-ink/55"
         >
           <span class="truncate">
             {@dashboard.description || "SRQL-authored dashboard"}

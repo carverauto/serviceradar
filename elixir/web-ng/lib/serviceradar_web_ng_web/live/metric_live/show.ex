@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
             <:header>
               <div class="min-w-0">
                 <div class="text-sm font-semibold">Details</div>
-                <div class="text-xs text-base-content/60 truncate">
+                <div class="text-xs text-sr-muted truncate">
                   {Map.get(@metric, "service_name") || "—"} · {metric_operation(@metric)}
                 </div>
               </div>
@@ -114,22 +114,22 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
             <:header>
               <div class="min-w-0">
                 <div class="text-sm font-semibold">Visualization</div>
-                <div class="text-xs text-base-content/60">
+                <div class="text-xs text-sr-muted">
                   Sample from {@recent_window} ({length(@recent)} points)
                 </div>
               </div>
             </:header>
 
-            <div :if={@recent == []} class="text-sm text-base-content/60">
+            <div :if={@recent == []} class="text-sm text-sr-muted">
               No recent samples found for this metric.
             </div>
 
             <div :if={is_map(@histogram)} class="space-y-3">
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 Histogram of recent values (sample-based)
               </div>
               <.histogram bins={Map.get(@histogram, :bins, [])} />
-              <div class="text-xs text-base-content/50 font-mono">
+              <div class="text-xs text-sr-muted font-mono">
                 min={format_ms_number(Map.get(@histogram, :min, 0.0))}ms · p50={format_ms_number(
                   Map.get(@histogram, :p50, 0.0)
                 )}ms · p95={format_ms_number(Map.get(@histogram, :p95, 0.0))}ms · max={format_ms_number(
@@ -139,7 +139,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
             </div>
 
             <div :if={is_list(@recent) and @recent != [] and is_nil(@histogram)} class="space-y-3">
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 Recent values (sample-based)
               </div>
               <.sparkline values={Enum.map(@recent, &metric_value_ms/1)} />
@@ -158,10 +158,10 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
 
   defp kv(assigns) do
     ~H"""
-    <div class="rounded-lg border border-base-200 bg-base-100 p-3">
-      <div class="text-[11px] uppercase tracking-wider text-base-content/50 mb-1">{@label}</div>
+    <div class="rounded-lg border border-sr-line bg-sr-surface p-3">
+      <div class="text-[11px] uppercase tracking-wider text-sr-muted mb-1">{@label}</div>
       <div class={["text-sm break-all", @mono && "font-mono text-xs"]}>
-        <.link :if={is_binary(@href)} navigate={@href} class="link">
+        <.link :if={is_binary(@href)} navigate={@href} class="text-sr-brand hover:underline">
           {format_value(@value)}
         </.link>
         <span :if={is_nil(@href)}>{format_value(@value)}</span>

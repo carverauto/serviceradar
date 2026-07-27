@@ -19,12 +19,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
 
   def flow_table(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
           <.icon name="hero-arrows-right-left" class="size-4 text-primary" />
           <span class="text-sm font-semibold">Recent Flows</span>
-          <span class="text-xs text-base-content/50">({length(@flows)} rows)</span>
+          <span class="text-xs text-sr-muted">({length(@flows)} rows)</span>
         </div>
         <.link
           navigate={~p"/observability?#{%{"tab" => "netflows", "view" => "explorer", "q" => @query}}"}
@@ -43,7 +43,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
         </div>
 
         <%= if @flows == [] and is_nil(@error) do %>
-          <div class="text-sm text-base-content/60">No flows found for this device.</div>
+          <div class="text-sm text-sr-muted">No flows found for this device.</div>
         <% else %>
           <div class="sr-ui-table-shell">
             <table class={ui_table_class(size: "xs", class: "w-full")}>
@@ -75,14 +75,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
                       </div>
                       <div
                         :if={src_host}
-                        class="text-[10px] text-base-content/50 truncate max-w-[180px]"
+                        class="text-[10px] text-sr-muted truncate max-w-[180px]"
                         title={src_host}
                       >
                         {src_host}
                       </div>
                       <div
                         :if={!src_host && flow_exporter_name(flow)}
-                        class="text-[10px] text-base-content/50 truncate max-w-[140px]"
+                        class="text-[10px] text-sr-muted truncate max-w-[140px]"
                       >
                         {flow_exporter_name(flow)}
                       </div>
@@ -99,14 +99,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
                       </div>
                       <div
                         :if={dst_host}
-                        class="text-[10px] text-base-content/50 truncate max-w-[180px]"
+                        class="text-[10px] text-sr-muted truncate max-w-[180px]"
                         title={dst_host}
                       >
                         {dst_host}
                       </div>
                       <div
                         :if={!dst_host && flow_service_label(flow)}
-                        class="text-[10px] text-base-content/50 truncate max-w-[140px]"
+                        class="text-[10px] text-sr-muted truncate max-w-[140px]"
                       >
                         {flow_service_label(flow)}
                       </div>
@@ -142,7 +142,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
             </table>
           </div>
 
-          <div class="pt-3 border-t border-base-200 mt-3">
+          <div class="pt-3 border-t border-sr-line mt-3">
             <.ui_pagination
               prev_cursor={Map.get(@pagination, "prev_cursor")}
               next_cursor={Map.get(@pagination, "next_cursor")}

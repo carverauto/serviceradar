@@ -107,8 +107,8 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
     <div class="mx-auto w-full max-w-7xl p-6 space-y-6">
       <header class="flex items-center justify-between gap-4">
         <div class="space-y-1">
-          <p class="text-xs text-base-content/60">
-            <.link navigate={~p"/ansible/runs"} class="link link-hover">
+          <p class="text-xs text-sr-muted">
+            <.link navigate={~p"/ansible/runs"} class="text-sr-brand hover:underline">
               ← Legacy Ansible runs
             </.link>
           </p>
@@ -116,7 +116,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
             <h1 class="text-2xl font-semibold">Run {shorten(@bundle.run.id)}</h1>
             <.ui_badge size="sm" variant="outline">Legacy PlaybookRun</.ui_badge>
           </div>
-          <p class="text-sm text-base-content/70 flex gap-3 flex-wrap">
+          <p class="text-sm text-sr-muted flex gap-3 flex-wrap">
             <.ui_badge size="sm" variant={state_badge_variant(@bundle.run.state)}>
               {@bundle.run.state}
             </.ui_badge>
@@ -153,14 +153,14 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
 
         <div
           :if={@bundle.targets == []}
-          class="rounded-lg border border-dashed border-base-300 p-6 text-sm text-base-content/70"
+          class="rounded-lg border border-dashed border-sr-line p-6 text-sm text-sr-muted"
         >
           No targets recorded for this run yet.
         </div>
 
         <div
           :if={@bundle.targets != []}
-          class="overflow-x-auto rounded-lg border border-base-300 bg-base-100"
+          class="overflow-x-auto rounded-lg border border-sr-line bg-sr-surface"
         >
           <table class={ui_table_class(size: "sm", zebra: true)}>
             <thead>
@@ -200,12 +200,12 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
 
         <div
           :if={@bundle.plays == []}
-          class="rounded-lg border border-dashed border-base-300 p-6 text-sm text-base-content/70"
+          class="rounded-lg border border-dashed border-sr-line p-6 text-sm text-sr-muted"
         >
           No plays recorded yet. Events stream in as RunPulseWorker drains AWX events.
         </div>
 
-        <div :for={play <- @bundle.plays} class="rounded-lg border border-base-300 bg-base-100">
+        <div :for={play <- @bundle.plays} class="rounded-lg border border-sr-line bg-sr-surface">
           <button
             type="button"
             phx-click="toggle_play"
@@ -216,14 +216,14 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
               <span class="text-sm font-medium">{play.name || "(unnamed play)"}</span>
               <.ui_badge size="sm" variant={play_badge_variant(play.status)}>{play.status}</.ui_badge>
             </div>
-            <div class="text-xs text-base-content/60">
+            <div class="text-xs text-sr-muted">
               {Map.get(@bundle.tasks_by_play, play.id, []) |> length()} tasks
             </div>
           </button>
 
           <div
             :if={MapSet.member?(@expanded_plays, play.id)}
-            class="border-t border-base-300 p-3 space-y-1"
+            class="border-t border-sr-line p-3 space-y-1"
           >
             <div
               :for={task <- Map.get(@bundle.tasks_by_play, play.id, [])}
@@ -232,14 +232,14 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
               <div class="flex items-center gap-2">
                 <code>{task.awx_task_uuid |> String.slice(0, 8)}</code>
                 <span class="font-medium">{task.name || "(unnamed task)"}</span>
-                <code :if={task.action} class="text-base-content/60">{task.action}</code>
+                <code :if={task.action} class="text-sr-muted">{task.action}</code>
                 <.ui_badge :if={task.is_handler} size="xs" variant="ghost">handler</.ui_badge>
               </div>
-              <span class="text-base-content/60">{fmt_ts(task.started_at)}</span>
+              <span class="text-sr-muted">{fmt_ts(task.started_at)}</span>
             </div>
             <div
               :if={Map.get(@bundle.tasks_by_play, play.id, []) == []}
-              class="text-xs text-base-content/60"
+              class="text-xs text-sr-muted"
             >
               No tasks recorded in this play yet.
             </div>
@@ -258,8 +258,8 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
 
   defp stat(assigns) do
     ~H"""
-    <div class="rounded-lg border border-base-300 bg-base-100 p-3">
-      <div class="text-xs uppercase tracking-wide text-base-content/60">{@label}</div>
+    <div class="rounded-lg border border-sr-line bg-sr-surface p-3">
+      <div class="text-xs uppercase tracking-wide text-sr-muted">{@label}</div>
       <div class={["mt-1 text-sm", @mono && "font-mono"]}>{@value}</div>
     </div>
     """

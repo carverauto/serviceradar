@@ -17,12 +17,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
     ~H"""
     <section
       :if={@has_exposure or is_binary(@error)}
-      class="rounded-lg border border-base-300 bg-base-100 shadow-sm"
+      class="rounded-lg border border-sr-line bg-sr-surface shadow-sm"
     >
-      <div class="flex flex-col gap-3 border-b border-base-300 px-4 py-3 md:flex-row md:items-center md:justify-between">
+      <div class="flex flex-col gap-3 border-b border-sr-line px-4 py-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 class="text-sm font-semibold text-base-content">Bumblebee Exposure</h2>
-          <p class="text-xs text-base-content/60">
+          <h2 class="text-sm font-semibold text-sr-ink">Bumblebee Exposure</h2>
+          <p class="text-xs text-sr-muted">
             {@finding_count} active finding rows | {length(@postures || [])} scanner postures
           </p>
         </div>
@@ -78,12 +78,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
             </table>
           </div>
 
-          <div :if={skipped_roots(@latest_posture) != []} class="rounded border border-base-300 p-3">
-            <h3 class="mb-2 text-xs font-semibold uppercase text-base-content/60">Skipped Roots</h3>
+          <div :if={skipped_roots(@latest_posture) != []} class="rounded border border-sr-line p-3">
+            <h3 class="mb-2 text-xs font-semibold uppercase text-sr-muted">Skipped Roots</h3>
             <div class="space-y-1">
               <div :for={root <- skipped_roots(@latest_posture)} class="text-xs">
                 <span class="font-mono">{field(root, :path)}</span>
-                <span class="text-base-content/60">{field(root, :reason)}</span>
+                <span class="text-sr-muted">{field(root, :reason)}</span>
               </div>
             </div>
           </div>
@@ -101,7 +101,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
             </thead>
             <tbody>
               <tr :if={@findings == []}>
-                <td colspan="4" class="py-6 text-center text-sm text-base-content/60">
+                <td colspan="4" class="py-6 text-center text-sm text-sr-muted">
                   No active Bumblebee findings.
                 </td>
               </tr>
@@ -111,7 +111,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
                 </td>
                 <td>
                   <div class="font-medium">{empty_dash(field(finding, :package_name))}</div>
-                  <div class="font-mono text-xs text-base-content/60">
+                  <div class="font-mono text-xs text-sr-muted">
                     {empty_dash(field(finding, :package_version))}
                   </div>
                 </td>
@@ -135,8 +135,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
 
   defp summary_stat(assigns) do
     ~H"""
-    <div class="rounded border border-base-300 bg-base-200/30 px-3 py-2">
-      <div class="text-[0.65rem] font-semibold uppercase text-base-content/50">{@label}</div>
+    <div class="rounded border border-sr-line bg-sr-subtle/30 px-3 py-2">
+      <div class="text-[0.65rem] font-semibold uppercase text-sr-muted">{@label}</div>
       <div class="mt-1 truncate text-sm font-semibold">{empty_dash(@value)}</div>
     </div>
     """
@@ -149,7 +149,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
   defp posture_row(assigns) do
     ~H"""
     <tr>
-      <th class="w-32 text-xs text-base-content/60">{@label}</th>
+      <th class="w-32 text-xs text-sr-muted">{@label}</th>
       <td class={["text-xs", @mono && "font-mono"]}>{empty_dash(@value)}</td>
     </tr>
     """

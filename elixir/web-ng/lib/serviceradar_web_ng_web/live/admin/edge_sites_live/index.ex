@@ -107,8 +107,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
       >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">Edge Sites & NATS</h1>
-            <p class="text-sm text-base-content/60">
+            <h1 class="text-2xl font-semibold text-sr-ink">Edge Sites & NATS</h1>
+            <p class="text-sm text-sr-muted">
               Manage edge sites and NATS leaf deployments.
             </p>
           </div>
@@ -128,7 +128,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Edge Sites</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 {@sites |> length()} site(s)
               </p>
             </div>
@@ -148,12 +148,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
 
           <div class="overflow-x-auto">
             <%= if @sites == [] do %>
-              <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-8 text-center">
+              <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-8 text-center">
                 <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary/10 mb-4">
                   <.icon name="hero-building-office-2" class="size-6 text-primary" />
                 </div>
-                <div class="text-sm font-semibold text-base-content">No edge sites</div>
-                <p class="mt-1 text-xs text-base-content/60">
+                <div class="text-sm font-semibold text-sr-ink">No edge sites</div>
+                <p class="mt-1 text-xs text-sr-muted">
                   Create an edge site to deploy a NATS leaf server in your network.
                 </p>
                 <div class="mt-4">
@@ -165,7 +165,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
             <% else %>
               <table class={ui_table_class(size: "sm")}>
                 <thead>
-                  <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                  <tr class="text-xs uppercase tracking-wide text-sr-muted">
                     <th>Site</th>
                     <th>Status</th>
                     <th>NATS Leaf</th>
@@ -176,10 +176,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
                 </thead>
                 <tbody>
                   <%= for site <- @sites do %>
-                    <tr class="hover:bg-base-200/30">
+                    <tr class="hover:bg-sr-subtle/30">
                       <td>
                         <div class="font-medium">{site.name}</div>
-                        <div class="text-xs text-base-content/60 font-mono">{site.slug}</div>
+                        <div class="text-xs text-sr-muted font-mono">{site.slug}</div>
                       </td>
                       <td>
                         <.site_status_badge status={site.status} />
@@ -187,10 +187,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
                       <td>
                         <.leaf_status site={site} />
                       </td>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         {format_relative_time(site.last_seen_at)}
                       </td>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         {format_datetime(site.inserted_at)}
                       </td>
                       <td>
@@ -222,7 +222,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
       <.icon name="hero-information-circle" class="size-5" />
       <div>
         <div class="font-semibold">Edge NATS Leaf Deployment</div>
-        <div class="text-xs text-base-content/70">
+        <div class="text-xs text-sr-muted">
           Edge sites deploy NATS leaf servers in your network. Collectors connect to the local
           leaf server for low latency and WAN resilience. The leaf forwards messages to the
           SaaS cluster.
@@ -345,7 +345,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
         <% end %>
       </div>
     <% else %>
-      <span class="text-xs text-base-content/50">-</span>
+      <span class="text-xs text-sr-muted">-</span>
     <% end %>
     """
   end

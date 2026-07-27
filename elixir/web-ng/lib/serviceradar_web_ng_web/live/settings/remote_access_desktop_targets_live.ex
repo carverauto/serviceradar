@@ -150,7 +150,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 class="text-xl font-semibold">RDP Access</h1>
-              <p class="mt-1 text-sm text-base-content/70">
+              <p class="mt-1 text-sm text-sr-muted">
                 Make Windows desktops available through trusted edge agents.
               </p>
             </div>
@@ -159,7 +159,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
             </.ui_button>
           </div>
 
-          <div class="overflow-hidden rounded-lg border border-base-200 bg-base-100">
+          <div class="overflow-hidden rounded-lg border border-sr-line bg-sr-surface">
             <div class="sr-ui-table-shell">
               <table class={ui_table_class(size: "sm")}>
                 <thead>
@@ -175,12 +175,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
                 </thead>
                 <tbody>
                   <tr :if={@loading?}>
-                    <td colspan="7" class="py-8 text-center text-sm text-base-content/60">
+                    <td colspan="7" class="py-8 text-center text-sm text-sr-muted">
                       Loading RDP hosts.
                     </td>
                   </tr>
                   <tr :if={!@loading? and @targets == []}>
-                    <td colspan="7" class="py-8 text-center text-sm text-base-content/60">
+                    <td colspan="7" class="py-8 text-center text-sm text-sr-muted">
                       No RDP hosts are configured yet. Open a device and choose Enable RDP, or add
                       one here.
                     </td>
@@ -188,17 +188,17 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
                   <tr :for={target <- @targets}>
                     <td>
                       <div class="font-medium">{target.name}</div>
-                      <div :if={target.description} class="text-xs text-base-content/60">
+                      <div :if={target.description} class="text-xs text-sr-muted">
                         {target.description}
                       </div>
                     </td>
                     <td>
                       <div>{target.target_host}:{target.target_port}</div>
-                      <div class="text-xs text-base-content/60">{target.device_uid}</div>
+                      <div class="text-xs text-sr-muted">{target.device_uid}</div>
                     </td>
                     <td>
                       <div>{target.agent_id || "-"}</div>
-                      <div :if={target.gateway_id} class="text-xs text-base-content/60">
+                      <div :if={target.gateway_id} class="text-xs text-sr-muted">
                         {target.gateway_id}
                       </div>
                     </td>
@@ -306,7 +306,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
               <div class="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm md:col-span-2">
                 No inventory devices are available to select. <.link
                   navigate={~p"/devices"}
-                  class="link link-primary"
+                  class="text-sr-brand hover:underline"
                 >Open device inventory</.link>.
               </div>
             <% else %>
@@ -364,7 +364,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
             <%= if @credential_rule_options == [] do %>
               <div class="rounded-lg border border-info/40 bg-info/10 p-3 text-sm">
                 No credential rules exist yet.
-                <.link navigate={~p"/settings/networks/credentials/new"} class="link link-primary">
+                <.link navigate={~p"/settings/networks/credentials/new"} class="text-sr-brand hover:underline">
                   Create a credential rule
                 </.link>
                 if you want stored/brokered credentials. Users can still connect by entering
@@ -383,7 +383,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
           </div>
 
           <div class="grid gap-4 lg:grid-cols-3">
-            <fieldset class="rounded-lg border border-base-300 p-4">
+            <fieldset class="rounded-lg border border-sr-line p-4">
               <legend class="px-1 text-sm font-medium">RDP Security</legend>
               <div class="space-y-3">
                 <.input
@@ -412,7 +412,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
               </div>
             </fieldset>
 
-            <fieldset class="rounded-lg border border-base-300 p-4">
+            <fieldset class="rounded-lg border border-sr-line p-4">
               <legend class="px-1 text-sm font-medium">Kerberos Routing</legend>
               <div class="space-y-3">
                 <.input field={@form[:kdc_proxy_url]} label="KDC Proxy URL" />
@@ -420,7 +420,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
               </div>
             </fieldset>
 
-            <fieldset class="rounded-lg border border-base-300 p-4">
+            <fieldset class="rounded-lg border border-sr-line p-4">
               <legend class="px-1 text-sm font-medium">Screen Policy</legend>
               <div class="grid gap-3 sm:grid-cols-2">
                 <.input field={@form[:max_width]} type="number" label="Max Width" min="1" />
@@ -430,7 +430,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
               </div>
             </fieldset>
 
-            <fieldset class="rounded-lg border border-base-300 p-4">
+            <fieldset class="rounded-lg border border-sr-line p-4">
               <legend class="px-1 text-sm font-medium">Redirection</legend>
               <.input
                 field={@form[:clipboard]}

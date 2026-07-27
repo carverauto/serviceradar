@@ -12,11 +12,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
 
     ~H"""
     <aside class="w-full lg:w-80 shrink-0">
-      <div class="card bg-base-100 border border-base-200">
+      <div class="card bg-sr-surface border border-sr-line">
         <div class="card-body gap-3">
           <div class="min-w-0">
             <div class="text-base font-semibold">Network Flows</div>
-            <div class="text-xs text-base-content/60">
+            <div class="text-xs text-sr-muted">
               SRQL-driven analytics (preview). Charts and dimensions will expand in follow-up changes.
             </div>
           </div>
@@ -30,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
 
           <div class="grid grid-cols-2 gap-2">
             <div class="col-span-2">
-              <div class="text-xs font-semibold text-base-content/70 mb-1">Graph</div>
+              <div class="text-xs font-semibold text-sr-muted mb-1">Graph</div>
               <form phx-change="nf_state_change">
                 <select
                   name="state[graph]"
@@ -57,7 +57,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
             />
 
             <div class="col-span-2">
-              <div class="text-xs font-semibold text-base-content/70 mb-1">Units</div>
+              <div class="text-xs font-semibold text-sr-muted mb-1">Units</div>
               <form phx-change="nf_state_change">
                 <select
                   name="state[units]"
@@ -76,7 +76,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
             </div>
 
             <div class="col-span-2">
-              <div class="text-xs font-semibold text-base-content/70 mb-1">Top-N</div>
+              <div class="text-xs font-semibold text-sr-muted mb-1">Top-N</div>
               <form phx-change="nf_state_change" class="grid grid-cols-2 gap-2">
                 <input
                   type="number"
@@ -104,7 +104,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
             </div>
 
             <div class="col-span-2">
-              <div class="text-xs font-semibold text-base-content/70 mb-1">Prefix tag</div>
+              <div class="text-xs font-semibold text-sr-muted mb-1">Prefix tag</div>
               <form phx-submit="nf_prefix_tag_filter" class="flex gap-2">
                 <input
                   type="text"
@@ -122,16 +122,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
                 />
                 <.ui_button type="submit" size="sm" variant="ghost">Filter</.ui_button>
               </form>
-              <div class="mt-1 text-[11px] text-base-content/50">
+              <div class="mt-1 text-[11px] text-sr-muted">
                 Adds <span class="font-mono">tag:…</span> to the SRQL query (either side).
               </div>
             </div>
 
             <div class="col-span-2">
-              <div class="text-xs font-semibold text-base-content/70 mb-1">Truncate</div>
+              <div class="text-xs font-semibold text-sr-muted mb-1">Truncate</div>
               <form phx-change="nf_state_change" class="grid grid-cols-2 gap-2">
                 <div class="space-y-1">
-                  <div class="text-[11px] text-base-content/60">IPv4 prefix bits</div>
+                  <div class="text-[11px] text-sr-muted">IPv4 prefix bits</div>
                   <input
                     type="number"
                     min="0"
@@ -143,7 +143,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
                 </div>
 
                 <div class="space-y-1">
-                  <div class="text-[11px] text-base-content/60">IPv6 prefix bits</div>
+                  <div class="text-[11px] text-sr-muted">IPv6 prefix bits</div>
                   <input
                     type="number"
                     min="0"
@@ -157,7 +157,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
             </div>
 
             <div class="col-span-2">
-              <div class="text-xs font-semibold text-base-content/70 mb-1">Time</div>
+              <div class="text-xs font-semibold text-sr-muted mb-1">Time</div>
               <form phx-change="nf_state_change">
                 <select
                   name="state[time]"
@@ -176,7 +176,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
             </div>
 
             <div class="col-span-2">
-              <div class="text-xs font-semibold text-base-content/70 mb-1">Overlays</div>
+              <div class="text-xs font-semibold text-sr-muted mb-1">Overlays</div>
               <form phx-change="nf_state_change" class="space-y-2">
                 <input type="hidden" name="state[bidirectional]" value="false" />
                 <label class="flex items-center gap-2 cursor-pointer">
@@ -202,7 +202,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
                   <span class="text-xs">Previous period</span>
                 </label>
 
-                <div class="text-[11px] text-base-content/60">
+                <div class="text-[11px] text-sr-muted">
                   Overlays are currently supported on <span class="font-mono">lines</span>
                   and <span class="font-mono">stacked</span>
                   and <span class="font-mono">stacked100</span>.
@@ -218,7 +218,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
               Reset view state
             </.ui_button>
 
-            <div class="text-[11px] text-base-content/50">
+            <div class="text-[11px] text-sr-muted">
               URL param: <span class="font-mono">nf</span>
             </div>
           </div>

@@ -16,8 +16,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.DeviceType do
 
     ~H"""
     <div class="flex items-center gap-1.5" title={"Type ID: #{@type_id}"}>
-      <.icon :if={@icon} name={@icon} class="size-3.5 text-base-content/60" />
-      <span class="text-base-content/80">{@label}</span>
+      <.icon :if={@icon} name={@icon} class="size-3.5 text-sr-muted" />
+      <span class="text-sr-ink/90">{@label}</span>
     </div>
     """
   end

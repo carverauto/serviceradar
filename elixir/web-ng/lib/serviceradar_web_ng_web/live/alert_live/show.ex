@@ -79,31 +79,31 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
 
   defp alert_summary(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-6">
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-6">
       <div class="flex flex-wrap gap-x-8 gap-y-4 items-start">
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Severity</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Severity</span>
           <.severity_badge value={Map.get(@alert, "severity")} />
         </div>
 
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Status</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Status</span>
           <.status_badge value={Map.get(@alert, "status")} />
         </div>
 
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Triggered</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Triggered</span>
           <span class="text-sm font-mono">{format_timestamp(@alert)}</span>
         </div>
       </div>
 
-      <div class="mt-6 pt-6 border-t border-base-200 space-y-3">
+      <div class="mt-6 pt-6 border-t border-sr-line space-y-3">
         <div>
-          <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-1">Title</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider block mb-1">Title</span>
           <p class="text-sm font-semibold">{EventTitle.alert_title(@alert)}</p>
         </div>
         <div :if={has_value?(@alert, "description")}>
-          <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-1">
+          <span class="text-xs text-sr-muted uppercase tracking-wider block mb-1">
             Description
           </span>
           <p class="text-sm whitespace-pre-wrap">{Map.get(@alert, "description")}</p>
@@ -186,13 +186,13 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   defp diagnostic_fact(assigns) do
     ~H"""
     <div class="min-w-0">
-      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-1">
+      <span class="text-xs text-sr-muted uppercase tracking-wider block mb-1">
         {@label}
       </span>
       <span class={[
         "text-sm break-words",
         if(@mono, do: "font-mono", else: nil),
-        if(blank?(@value), do: "text-base-content/40", else: nil)
+        if(blank?(@value), do: "text-sr-muted", else: nil)
       ]}>
         {display_diagnostic_value(@value)}
       </span>
@@ -210,9 +210,9 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     ~H"""
     <div
       :if={is_binary(@event_id)}
-      class="rounded-xl border border-base-200 bg-base-100 p-6"
+      class="rounded-xl border border-sr-line bg-sr-surface p-6"
     >
-      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-3">
+      <span class="text-xs text-sr-muted uppercase tracking-wider block mb-3">
         Related Records
       </span>
       <div class="flex flex-wrap gap-2">
@@ -238,15 +238,15 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
       |> assign(:metadata, metadata)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-6 space-y-6">
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-6 space-y-6">
       <div>
-        <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-3">
+        <span class="text-xs text-sr-muted uppercase tracking-wider block mb-3">
           Alert Fields
         </span>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
           <%= for field <- @detail_fields do %>
             <div class="flex flex-col gap-0.5 min-w-0">
-              <span class="text-xs text-base-content/50">{field_label(field)}</span>
+              <span class="text-xs text-sr-muted">{field_label(field)}</span>
               <.inline_value value={Map.get(@alert, field)} />
             </div>
           <% end %>
@@ -254,13 +254,13 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
       </div>
 
       <div :if={is_map(@metadata) and map_size(@metadata) > 0}>
-        <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-3">
+        <span class="text-xs text-sr-muted uppercase tracking-wider block mb-3">
           Metadata
         </span>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
           <%= for {field, value} <- Enum.sort(@metadata) do %>
             <div class="flex flex-col gap-0.5 min-w-0">
-              <span class="text-xs text-base-content/50">{field_label(field)}</span>
+              <span class="text-xs text-sr-muted">{field_label(field)}</span>
               <.inline_value value={value} />
             </div>
           <% end %>
@@ -273,11 +273,11 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   attr :value, :any, default: nil
 
   defp inline_value(%{value: nil} = assigns) do
-    ~H|<span class="text-base-content/40 text-sm">—</span>|
+    ~H|<span class="text-sr-muted text-sm">—</span>|
   end
 
   defp inline_value(%{value: ""} = assigns) do
-    ~H|<span class="text-base-content/40 text-sm">—</span>|
+    ~H|<span class="text-sr-muted text-sm">—</span>|
   end
 
   defp inline_value(%{value: value} = assigns) when is_boolean(value) do

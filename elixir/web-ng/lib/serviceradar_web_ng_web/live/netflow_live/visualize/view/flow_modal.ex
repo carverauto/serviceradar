@@ -17,7 +17,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <div class="text-sm font-semibold">Flow details</div>
-            <div class="mt-1 text-[11px] text-base-content/60 font-mono truncate">
+            <div class="mt-1 text-[11px] text-sr-muted font-mono truncate">
               {flow_get(@flow, ["time", "timestamp"]) || "—"}
             </div>
           </div>
@@ -57,8 +57,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
             <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
               <Endpoints.render flow={@flow} context={@context} rdns_map={@rdns_map} />
 
-              <div class="p-2 rounded-lg border border-base-200 bg-base-200/30">
-                <div class="text-xs uppercase tracking-wider text-base-content/50">Protocol</div>
+              <div class="p-2 rounded-lg border border-sr-line bg-sr-subtle/30">
+                <div class="text-xs uppercase tracking-wider text-sr-muted">Protocol</div>
                 <% src_port = flow_get(@flow, ["src_endpoint_port", "src_port"]) %>
                 <% dst_port = flow_get(@flow, ["dst_endpoint_port", "dst_port"]) %>
                 <% flag_set = MapSet.new(Enum.map(tcp_flags_labels, &String.upcase(to_string(&1)))) %>
@@ -67,13 +67,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
                     protocol_num == 6 %>
                 <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs">
                   <.ui_badge size="xs" variant="outline">{protocol_label || "Unknown"}</.ui_badge>
-                  <span :if={not is_nil(protocol_num)} class="text-base-content/60">
+                  <span :if={not is_nil(protocol_num)} class="text-sr-muted">
                     proto {protocol_num}
                   </span>
-                  <span class="text-base-content/60">{src_port || "—"} → {dst_port || "—"}</span>
+                  <span class="text-sr-muted">{src_port || "—"} → {dst_port || "—"}</span>
                 </div>
-                <div :if={is_tcp} class="mt-1 rounded border border-base-300 bg-base-100/60 p-1.5">
-                  <div class="text-[10px] uppercase tracking-wide text-base-content/50">
+                <div :if={is_tcp} class="mt-1 rounded border border-sr-line bg-sr-surface/60 p-1.5">
+                  <div class="text-[10px] uppercase tracking-wide text-sr-muted">
                     TCP Flags
                   </div>
                   <div class="mt-1 flex flex-wrap gap-1">
@@ -84,7 +84,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
                           "inline-flex h-5 min-w-6 items-center justify-center rounded border px-1 text-[10px] font-mono cursor-help",
                           if(active,
                             do: "border-primary bg-primary/15 text-primary",
-                            else: "border-base-300 text-base-content/50"
+                            else: "border-sr-line text-sr-muted"
                           )
                         ]}>
                           {flag}
@@ -94,12 +94,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
                   </div>
                   <div
                     :if={not is_nil(tcp_flags_raw) and tcp_flags_labels == []}
-                    class="mt-1 text-[10px] text-base-content/60"
+                    class="mt-1 text-[10px] text-sr-muted"
                   >
                     raw mask: <span class="font-mono">{tcp_flags_raw}</span>
                   </div>
                 </div>
-                <div class="mt-1 text-[10px] text-base-content/60 space-y-0.5">
+                <div class="mt-1 text-[10px] text-sr-muted space-y-0.5">
                   <div :if={is_binary(direction_label) and direction_label != ""}>
                     direction: <span class="font-mono">{direction_label}</span>
                   </div>
@@ -115,8 +115,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
                 </div>
               </div>
 
-              <div class="p-3 rounded-lg border border-base-200 bg-base-200/30">
-                <div class="text-xs uppercase tracking-wider text-base-content/50">Volume</div>
+              <div class="p-3 rounded-lg border border-sr-line bg-sr-subtle/30">
+                <div class="text-xs uppercase tracking-wider text-sr-muted">Volume</div>
                 <div class="mt-1 font-mono text-sm">
                   packets:{flow_get(@flow, ["packets_total", "packets"]) || "—"} bytes:{flow_get(
                     @flow,
@@ -126,7 +126,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
                     ]
                   ) || "—"}
                 </div>
-                <div class="mt-1 text-[11px] text-base-content/60 space-y-0.5">
+                <div class="mt-1 text-[11px] text-sr-muted space-y-0.5">
                   <div :if={bytes_in = flow_get(@flow, ["bytes_in"])}>
                     bytes_in: <span class="font-mono">{bytes_in}</span>
                   </div>
@@ -141,17 +141,17 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
               </div>
               
     <!-- BGP Information Section -->
-              <div class="p-3 rounded-lg border border-base-200 bg-base-200/30 md:col-span-2">
+              <div class="p-3 rounded-lg border border-sr-line bg-sr-subtle/30 md:col-span-2">
                 <BgpSection.render flow={@flow} />
               </div>
 
-              <div class="p-3 rounded-lg border border-base-200 bg-base-200/30 md:col-span-2">
-                <div class="text-xs uppercase tracking-wider text-base-content/50">Map</div>
+              <div class="p-3 rounded-lg border border-sr-line bg-sr-subtle/30 md:col-span-2">
+                <div class="text-xs uppercase tracking-wider text-sr-muted">Map</div>
 
                 <%= if mapbox && mapbox.enabled &&
                       is_binary(Map.get(mapbox, :access_token)) &&
                       String.trim(Map.get(mapbox, :access_token)) != "" do %>
-                  <div class="mt-2 rounded-lg overflow-hidden border border-base-200 bg-base-200/30">
+                  <div class="mt-2 rounded-lg overflow-hidden border border-sr-line bg-sr-subtle/30">
                     <div
                       id="netflow-flow-map"
                       class="relative h-72 w-full"
@@ -170,7 +170,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
                     >
                     </div>
                   </div>
-                  <div class="mt-1 text-xs text-base-content/60">
+                  <div class="mt-1 text-xs text-sr-muted">
                     <%= if map_markers != [] do %>
                       Tip: click markers for details.
                     <% else %>
@@ -178,7 +178,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
                     <% end %>
                   </div>
                 <% else %>
-                  <div class="mt-2 text-sm text-base-content/60">
+                  <div class="mt-2 text-sm text-sr-muted">
                     Mapbox is disabled or no GeoIP coordinates are available for this flow.
                   </div>
                 <% end %>
@@ -186,8 +186,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
             </div>
 
             <details class="mt-1">
-              <summary class="cursor-pointer text-xs text-base-content/60">Raw fields</summary>
-              <pre class="mt-2 text-[11px] leading-snug whitespace-pre-wrap bg-base-200/30 border border-base-200 rounded-lg p-3 font-mono"><%= inspect(@flow, pretty: true, limit: :infinity) %></pre>
+              <summary class="cursor-pointer text-xs text-sr-muted">Raw fields</summary>
+              <pre class="mt-2 text-[11px] leading-snug whitespace-pre-wrap bg-sr-subtle/30 border border-sr-line rounded-lg p-3 font-mono"><%= inspect(@flow, pretty: true, limit: :infinity) %></pre>
             </details>
           </div>
 

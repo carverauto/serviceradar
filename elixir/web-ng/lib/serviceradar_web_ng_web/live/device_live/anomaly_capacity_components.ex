@@ -28,11 +28,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
     ~H"""
     <div>
-      <section class="rounded-lg border border-base-200 bg-base-100">
-        <div class="flex flex-wrap items-start justify-between gap-3 border-b border-base-200 px-5 py-4">
+      <section class="rounded-lg border border-sr-line bg-sr-surface">
+        <div class="flex flex-wrap items-start justify-between gap-3 border-b border-sr-line px-5 py-4">
           <div>
             <h2 class="text-base font-semibold">Anomaly &amp; Capacity</h2>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               Device-scoped anomaly status, recent findings, and forecast runway.
             </p>
           </div>
@@ -61,22 +61,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
           </div>
 
           <div class="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
-            <div class="rounded-lg border border-base-200">
-              <div class="flex items-center justify-between gap-3 border-b border-base-200 px-4 py-3">
+            <div class="rounded-lg border border-sr-line">
+              <div class="flex items-center justify-between gap-3 border-b border-sr-line px-4 py-3">
                 <div>
                   <h3 class="text-sm font-semibold">Recent Anomaly Findings</h3>
-                  <p class="text-xs text-base-content/60">{filter_label(@overview.anomaly_filter)}</p>
+                  <p class="text-xs text-sr-muted">{filter_label(@overview.anomaly_filter)}</p>
                 </div>
                 <.ui_badge size="sm" variant="ghost">{@anomaly_pagination.filtered_total}</.ui_badge>
               </div>
 
               <form
                 id="anomaly-findings-controls"
-                class="grid gap-2 border-b border-base-200 px-4 py-3 sm:grid-cols-3"
+                class="grid gap-2 border-b border-sr-line px-4 py-3 sm:grid-cols-3"
                 phx-change="anomaly_findings_filter"
               >
                 <label class="form-control">
-                  <span class="label py-0 text-xs text-base-content/60">Severity</span>
+                  <span class="label py-0 text-xs text-sr-muted">Severity</span>
                   <select name="anomaly_filters[severity]" class={ui_field_class(size: "sm", class: "w-full")}>
                     <option value="all" selected={filter_value(@anomaly_filters, "severity") == "all"}>
                       All
@@ -105,7 +105,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                   </select>
                 </label>
                 <label class="form-control">
-                  <span class="label py-0 text-xs text-base-content/60">Status</span>
+                  <span class="label py-0 text-xs text-sr-muted">Status</span>
                   <select name="anomaly_filters[status]" class={ui_field_class(size: "sm", class: "w-full")}>
                     <option value="all" selected={filter_value(@anomaly_filters, "status") == "all"}>
                       All
@@ -128,7 +128,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                   </select>
                 </label>
                 <label class="form-control">
-                  <span class="label py-0 text-xs text-base-content/60">Sort</span>
+                  <span class="label py-0 text-xs text-sr-muted">Sort</span>
                   <select name="anomaly_filters[sort]" class={ui_field_class(size: "sm", class: "w-full")}>
                     <option
                       value="newest"
@@ -152,17 +152,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                 </label>
               </form>
 
-              <div class="divide-y divide-base-200">
+              <div class="divide-y divide-sr-line">
                 <div
                   :if={@anomaly_pagination.filtered_total == 0}
-                  class="p-4 text-sm text-base-content/60"
+                  class="p-4 text-sm text-sr-muted"
                 >
                   No anomaly findings found for this device in the last 7 days.
                 </div>
                 <button
                   :for={{row, index} <- @anomaly_pagination.rows}
                   type="button"
-                  class="block w-full min-w-0 px-4 py-3 text-left hover:bg-base-200/60 focus:bg-base-200/60 focus:outline-none"
+                  class="block w-full min-w-0 px-4 py-3 text-left hover:bg-sr-subtle/60 focus:bg-sr-subtle/60 focus:outline-none"
                   phx-click="open_anomaly_capacity_detail"
                   phx-value-kind={detail_kind_for_row(row)}
                   phx-value-index={index}
@@ -174,12 +174,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                       </div>
                       <div
                         :if={finding_reason(row)}
-                        class="mt-1 line-clamp-2 text-xs text-base-content/60"
+                        class="mt-1 line-clamp-2 text-xs text-sr-muted"
                         title={finding_reason(row)}
                       >
                         {finding_reason(row)}
                       </div>
-                      <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-base-content/60">
+                      <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-sr-muted">
                         <span title={finding_identity_title(row)}>
                           {finding_metric_name(row) || metric_class_label(row)}
                         </span>
@@ -217,11 +217,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
               />
             </div>
 
-            <div class="rounded-lg border border-base-200">
-              <div class="flex items-center justify-between gap-3 border-b border-base-200 px-4 py-3">
+            <div class="rounded-lg border border-sr-line">
+              <div class="flex items-center justify-between gap-3 border-b border-sr-line px-4 py-3">
                 <div>
                   <h3 class="text-sm font-semibold">Capacity Runway</h3>
-                  <p class="text-xs text-base-content/60">
+                  <p class="text-xs text-sr-muted">
                     {filter_label(@overview.capacity_filter)}
                   </p>
                 </div>
@@ -243,13 +243,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                   </thead>
                   <tbody>
                     <tr :if={projected_capacity_rows(@overview.capacity_rows) == []}>
-                      <td colspan="5" class="py-8 text-center text-base-content/60">
+                      <td colspan="5" class="py-8 text-center text-sr-muted">
                         No projected capacity forecasts found for this device yet.
                       </td>
                     </tr>
                     <tr
                       :for={{row, index} <- projected_capacity_rows(@overview.capacity_rows)}
-                      class="cursor-pointer hover:bg-base-200/60"
+                      class="cursor-pointer hover:bg-sr-subtle/60"
                       phx-click="open_anomaly_capacity_detail"
                       phx-value-kind="capacity"
                       phx-value-index={index}
@@ -262,7 +262,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                       </td>
                       <td title={capacity_metric_title(row)}>
                         <div class="whitespace-nowrap">{capacity_metric_label(row)}</div>
-                        <div :if={capacity_threshold_label(row)} class="text-xs text-base-content/50">
+                        <div :if={capacity_threshold_label(row)} class="text-xs text-sr-muted">
                           threshold {capacity_threshold_label(row)}
                         </div>
                       </td>
@@ -275,19 +275,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                         <div class="whitespace-nowrap">
                           {format_metric_value(value(row, "projected_value"), row)}
                         </div>
-                        <div class="text-xs text-base-content/50">
+                        <div class="text-xs text-sr-muted">
                           now {format_metric_value(value(row, "current_value"), row)}
                         </div>
-                        <div :if={capacity_headroom_label(row)} class="text-xs text-base-content/50">
+                        <div :if={capacity_headroom_label(row)} class="text-xs text-sr-muted">
                           headroom {capacity_headroom_label(row)}
                         </div>
                       </td>
                       <td class="whitespace-nowrap">
                         {format_timestamp(value(row, "projected_exhaustion_at"))}
-                        <div :if={capacity_horizon_label(row)} class="text-xs text-base-content/50">
+                        <div :if={capacity_horizon_label(row)} class="text-xs text-sr-muted">
                           horizon {capacity_horizon_label(row)}
                         </div>
-                        <div :if={value(row, "confidence")} class="text-xs text-base-content/50">
+                        <div :if={value(row, "confidence")} class="text-xs text-sr-muted">
                           confidence {format_percent(value(row, "confidence"))}
                         </div>
                       </td>
@@ -314,15 +314,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp metric_status_card(assigns) do
     ~H"""
-    <div class="rounded-lg border border-base-200 bg-base-100 p-3">
-      <div class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
+    <div class="rounded-lg border border-sr-line bg-sr-surface p-3">
+      <div class="text-xs font-semibold uppercase tracking-normal text-sr-muted">
         {@status.label}
       </div>
       <div class="mt-2 flex items-center justify-between gap-2">
         <.ui_badge size="sm" variant={anomaly_badge_variant(@status.status)}>
           {@status.status}
         </.ui_badge>
-        <span class="text-xs text-base-content/60">{@status.count}</span>
+        <span class="text-xs text-sr-muted">{@status.count}</span>
       </div>
     </div>
     """
@@ -343,9 +343,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     ~H"""
     <div
       :if={@has_prev or @has_next or @range_end > 0}
-      class="flex flex-col gap-2 border-t border-base-200 px-4 py-3 text-xs sm:flex-row sm:items-center sm:justify-between"
+      class="flex flex-col gap-2 border-t border-sr-line px-4 py-3 text-xs sm:flex-row sm:items-center sm:justify-between"
     >
-      <span class="text-base-content/60">
+      <span class="text-sr-muted">
         Showing {@range_start}–{@range_end} on this episode page
       </span>
       <div class="join">
@@ -391,7 +391,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       <div class="modal-box max-w-5xl">
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">
-            <div class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
+            <div class="text-xs font-semibold uppercase tracking-normal text-sr-muted">
               {detail_kind_label(@detail.kind)}
             </div>
             <h3 class="mt-1 break-words text-lg font-semibold [overflow-wrap:anywhere]">
@@ -432,7 +432,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
             <.icon name="hero-check-circle" class="mt-0.5 size-5 shrink-0 text-success" />
             <div class="min-w-0">
               <p class="text-sm font-semibold">{@lifecycle_notice.title}</p>
-              <p class="mt-1 text-sm text-base-content/75">{@lifecycle_notice.body}</p>
+              <p class="mt-1 text-sm text-sr-ink/75">{@lifecycle_notice.body}</p>
               <.link
                 href="https://docs.serviceradar.cloud/docs/anomaly-detection#episode-lifecycle"
                 target="_blank"
@@ -446,8 +446,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
           </div>
         </div>
 
-        <div :if={detail_related_query(@detail)} class="mt-3 rounded-lg border border-base-200 p-3">
-          <div class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
+        <div :if={detail_related_query(@detail)} class="mt-3 rounded-lg border border-sr-line p-3">
+          <div class="text-xs font-semibold uppercase tracking-normal text-sr-muted">
             Related finding
           </div>
           <div class="mt-1 flex flex-wrap items-center gap-2 text-sm">
@@ -458,8 +458,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
           </div>
         </div>
 
-        <div :if={detail_reason(@detail)} class="mt-5 rounded-lg bg-base-200 p-3">
-          <div class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
+        <div :if={detail_reason(@detail)} class="mt-5 rounded-lg bg-sr-subtle p-3">
+          <div class="text-xs font-semibold uppercase tracking-normal text-sr-muted">
             {detail_reason_label(@detail)}
           </div>
           <p class="mt-1 whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">
@@ -467,8 +467,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
           </p>
         </div>
 
-        <div :if={detail_opening_reason(@detail)} class="mt-3 rounded-lg border border-base-200 p-3">
-          <div class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
+        <div :if={detail_opening_reason(@detail)} class="mt-3 rounded-lg border border-sr-line p-3">
+          <div class="text-xs font-semibold uppercase tracking-normal text-sr-muted">
             Original detection trigger
           </div>
           <p class="mt-1 whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">
@@ -478,17 +478,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
         <div :if={@detail_chart_sections != []} class="mt-5 space-y-3">
           <div>
-            <div class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
+            <div class="text-xs font-semibold uppercase tracking-normal text-sr-muted">
               Metric context
             </div>
-            <p :if={@detail_chart_focus} class="text-xs text-base-content/60">
+            <p :if={@detail_chart_focus} class="text-xs text-sr-muted">
               {detail_marker_description(@detail)}
             </p>
           </div>
-          <div :for={section <- @detail_chart_sections} class="rounded-lg border border-base-200 p-3">
+          <div :for={section <- @detail_chart_sections} class="rounded-lg border border-sr-line p-3">
             <div class="mb-2 flex items-center gap-2">
               <span class="text-sm font-semibold">{section.title}</span>
-              <span class="text-xs text-base-content/50">{section.subtitle}</span>
+              <span class="text-xs text-sr-muted">{section.subtitle}</span>
             </div>
             <%= for {panel, idx} <- Enum.with_index(section.panels) do %>
               <.live_component
@@ -519,8 +519,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       |> assign(:title_value, display_detail_value(assigns.title || assigns.value))
 
     ~H"""
-    <div class="rounded-lg border border-base-200 p-3">
-      <div class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
+    <div class="rounded-lg border border-sr-line p-3">
+      <div class="text-xs font-semibold uppercase tracking-normal text-sr-muted">
         {@label}
       </div>
       <div class="mt-1 break-words text-sm [overflow-wrap:anywhere]" title={@title_value}>

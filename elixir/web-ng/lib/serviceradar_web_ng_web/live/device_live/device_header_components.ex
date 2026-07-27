@@ -31,24 +31,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents do
       <ul>
         <li><.link navigate={~p"/devices"}>Devices</.link></li>
         <li :if={@active_tab == "details"}>
-          <span class="text-base-content/70">{@device_display_name}</span>
+          <span class="text-sr-muted">{@device_display_name}</span>
         </li>
         <li :if={@active_tab != "details"}>
           <.link navigate={~p"/devices/#{@device_uid}"}>{@device_display_name}</.link>
         </li>
-        <li :if={@active_tab == "interfaces"} class="text-base-content/70">Interfaces</li>
-        <li :if={@active_tab == "software"} class="text-base-content/70">Software</li>
-        <li :if={@active_tab == "flows"} class="text-base-content/70">Flows</li>
-        <li :if={@active_tab == "logs"} class="text-base-content/70">Logs</li>
-        <li :if={@active_tab == "profiles"} class="text-base-content/70">Profiles</li>
-        <li :if={@active_tab == "active-fingerprint"} class="text-base-content/70">
+        <li :if={@active_tab == "interfaces"} class="text-sr-muted">Interfaces</li>
+        <li :if={@active_tab == "software"} class="text-sr-muted">Software</li>
+        <li :if={@active_tab == "flows"} class="text-sr-muted">Flows</li>
+        <li :if={@active_tab == "logs"} class="text-sr-muted">Logs</li>
+        <li :if={@active_tab == "profiles"} class="text-sr-muted">Profiles</li>
+        <li :if={@active_tab == "active-fingerprint"} class="text-sr-muted">
           Active Fingerprint
         </li>
-        <li :if={@active_tab == "process-listeners"} class="text-base-content/70">
+        <li :if={@active_tab == "process-listeners"} class="text-sr-muted">
           Process Listeners
         </li>
-        <li :if={@active_tab == "sysmon"} class="text-base-content/70">System Monitor</li>
-        <li :if={@active_tab == "mtr"} class="text-base-content/70">MTR Diagnostics</li>
+        <li :if={@active_tab == "sysmon"} class="text-sr-muted">System Monitor</li>
+        <li :if={@active_tab == "mtr"} class="text-sr-muted">MTR Diagnostics</li>
       </ul>
     </nav>
 
@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents do
           </span>
           <span
             :if={@device_deleted}
-            class="inline-flex items-center gap-1 rounded-full bg-base-200 px-2 py-0.5 text-[11px] font-semibold text-base-content/70"
+            class="inline-flex items-center gap-1 rounded-full bg-sr-subtle px-2 py-0.5 text-[11px] font-semibold text-sr-muted"
           >
             <.icon name="hero-archive-box" class="size-3" /> Deleted
           </span>

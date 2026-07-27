@@ -345,37 +345,37 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
         stats={@settings_stats}
       >
         <div>
-          <h1 class="text-2xl font-semibold text-base-content">Events</h1>
-          <p class="text-sm text-base-content/60">
+          <h1 class="text-2xl font-semibold text-sr-ink">Events</h1>
+          <p class="text-sm text-sr-muted">
             Build a pipeline from logs to events to alerts.
           </p>
         </div>
 
-        <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+        <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
           <div class="flex flex-wrap items-center gap-4">
             <div class="flex items-center gap-3">
               <.ui_badge variant="info" size="xs">1</.ui_badge>
               <div>
                 <div class="text-sm font-semibold">Logs</div>
-                <div class="text-xs text-base-content/60">Normalize and enrich raw inputs.</div>
+                <div class="text-xs text-sr-muted">Normalize and enrich raw inputs.</div>
               </div>
             </div>
-            <.icon name="hero-arrow-right-mini" class="w-4 h-4 text-base-content/40" />
+            <.icon name="hero-arrow-right-mini" class="w-4 h-4 text-sr-muted" />
             <div class="flex items-center gap-3">
               <.ui_badge variant="warning" size="xs">2</.ui_badge>
               <div>
                 <div class="text-sm font-semibold">Events</div>
-                <div class="text-xs text-base-content/60">
+                <div class="text-xs text-sr-muted">
                   Create events from logs or metric thresholds.
                 </div>
               </div>
             </div>
-            <.icon name="hero-arrow-right-mini" class="w-4 h-4 text-base-content/40" />
+            <.icon name="hero-arrow-right-mini" class="w-4 h-4 text-sr-muted" />
             <div class="flex items-center gap-3">
               <.ui_badge variant="success" size="xs">3</.ui_badge>
               <div>
                 <div class="text-sm font-semibold">Alerts</div>
-                <div class="text-xs text-base-content/60">Escalate events with thresholds.</div>
+                <div class="text-xs text-sr-muted">Escalate events with thresholds.</div>
               </div>
             </div>
           </div>
@@ -388,7 +388,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
             <:header>
               <div>
                 <div class="text-sm font-semibold">Log Normalization Rules</div>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   Rules processed by the Zen engine to normalize and enrich logs.
                 </p>
               </div>
@@ -400,7 +400,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
             <div class="sr-ui-table-shell">
               <table class={ui_table_class()}>
                 <thead>
-                  <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                  <tr class="text-xs uppercase tracking-wide text-sr-muted">
                     <th>Rule</th>
                     <th>Subject</th>
                     <th>Description</th>
@@ -417,7 +417,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                           <.link
                             :if={not kv_only_rule?(rule)}
                             navigate={~p"/settings/rules/zen/#{rule.id}"}
-                            class="font-mono text-sm link link-primary"
+                            class="font-mono text-sm text-sr-brand hover:underline"
                           >
                             {rule.name}
                           </.link>
@@ -434,7 +434,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                           {rule.subject}
                         </.ui_badge>
                       </td>
-                      <td class="text-sm text-base-content/70 max-w-xs truncate">
+                      <td class="text-sm text-sr-muted max-w-xs truncate">
                         {rule.description}
                       </td>
                       <td class="text-sm">{rule.order}</td>
@@ -471,7 +471,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                     </tr>
                   <% end %>
                   <tr :if={@zen_rules == []}>
-                    <td colspan="6" class="text-center text-base-content/60 py-8">
+                    <td colspan="6" class="text-center text-sr-muted py-8">
                       <div class="flex flex-col items-center gap-2">
                         <.icon name="hero-inbox" class="w-8 h-8 opacity-40" />
                         <p>No rules configured yet.</p>
@@ -492,7 +492,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
             <:header>
               <div>
                 <div class="text-sm font-semibold">Event Rules</div>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   Create events from logs or metrics for downstream alerting.
                 </p>
               </div>
@@ -504,7 +504,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
             <div class="sr-ui-table-shell">
               <table class={ui_table_class()}>
                 <thead>
-                  <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                  <tr class="text-xs uppercase tracking-wide text-sr-muted">
                     <th>Rule</th>
                     <th>Source</th>
                     <th>Match Conditions</th>
@@ -571,7 +571,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                     </tr>
                   <% end %>
                   <tr :if={@event_rules == []}>
-                    <td colspan="6" class="text-center text-base-content/60 py-8">
+                    <td colspan="6" class="text-center text-sr-muted py-8">
                       <div class="flex flex-col items-center gap-2">
                         <.icon name="hero-inbox" class="w-8 h-8 opacity-40" />
                         <p>No event rules configured.</p>
@@ -592,7 +592,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
             <:header>
               <div>
                 <div class="text-sm font-semibold">Alert Rules (Stateful)</div>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   Escalate event patterns into alerts with thresholds and cooldowns.
                 </p>
               </div>
@@ -604,7 +604,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
             <div class="sr-ui-table-shell">
               <table class={ui_table_class()}>
                 <thead>
-                  <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                  <tr class="text-xs uppercase tracking-wide text-sr-muted">
                     <th>Rule</th>
                     <th>Signal</th>
                     <th>Threshold</th>
@@ -618,7 +618,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                       <td>
                         <div class="flex flex-col gap-1">
                           <span class="font-mono text-sm">{rule.name}</span>
-                          <span class="text-xs text-base-content/60">{rule.description}</span>
+                          <span class="text-xs text-sr-muted">{rule.description}</span>
                         </div>
                       </td>
                       <td class="text-sm">{to_string(rule.signal)}</td>
@@ -643,7 +643,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                     </tr>
                   <% end %>
                   <tr :if={@stateful_rules == []}>
-                    <td colspan="5" class="text-center text-base-content/60 py-8">
+                    <td colspan="5" class="text-center text-sr-muted py-8">
                       <div class="flex flex-col items-center gap-2">
                         <.icon name="hero-inbox" class="w-8 h-8 opacity-40" />
                         <p>No alert rules configured.</p>
@@ -660,13 +660,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
       <div
         :if={@show_stateful_rule_editor}
         id="stateful_rule_modal"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-base-content/35 p-4"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-sr-ink/35 p-4"
       >
-        <div class="w-full max-w-2xl rounded-xl border border-base-300 bg-base-100 shadow-xl">
-          <div class="flex items-center justify-between border-b border-base-200 px-6 py-4">
+        <div class="w-full max-w-2xl rounded-xl border border-sr-line bg-sr-surface shadow-xl">
+          <div class="flex items-center justify-between border-b border-sr-line px-6 py-4">
             <div>
               <h3 class="text-lg font-semibold">Edit Alert Rule</h3>
-              <p class="text-sm text-base-content/60">
+              <p class="text-sm text-sr-muted">
                 Tune incident grouping, cooldown, and renotify behavior.
               </p>
             </div>
@@ -722,7 +722,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                 class={ui_field_class(size: "sm", class: "w-full")}
                 placeholder="rule, hostname"
               />
-              <span class="label-text-alt text-base-content/60">
+              <span class="label-text-alt text-sr-muted">
                 Comma-separated event fields used to decide whether a new event updates the current incident.
               </span>
             </label>
@@ -992,7 +992,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
       <.ui_badge size="xs" variant={if(@label == "Metric", do: "info", else: "ghost")}>
         {@label}
       </.ui_badge>
-      <span class="text-xs text-base-content/60">{@details}</span>
+      <span class="text-xs text-sr-muted">{@details}</span>
     </div>
     """
   end
@@ -1015,7 +1015,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
     ~H"""
     <div class="flex flex-wrap gap-1">
       <%= if @conditions == [] do %>
-        <span class="text-base-content/50">No conditions</span>
+        <span class="text-sr-muted">No conditions</span>
       <% else %>
         <%= for {icon, label} <- @conditions do %>
           <.ui_badge size="xs" variant="ghost">

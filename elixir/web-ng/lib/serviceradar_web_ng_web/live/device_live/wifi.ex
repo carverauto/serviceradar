@@ -172,11 +172,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Wifi do
       srql={@srql}
     >
       <div class="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
-        <section class="flex flex-col gap-3 border-b border-base-300 pb-5 lg:flex-row lg:items-end lg:justify-between">
+        <section class="flex flex-col gap-3 border-b border-sr-line pb-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p class="text-sm font-medium text-primary">Devices</p>
             <h1 class="mt-1 text-2xl font-semibold tracking-normal">WiFi Inventory</h1>
-            <p class="mt-2 max-w-3xl text-sm text-base-content/65">
+            <p class="mt-2 max-w-3xl text-sm text-sr-ink/65">
               Site, access point, controller, RADIUS, and fleet records from imported WiFi map data.
             </p>
           </div>
@@ -201,7 +201,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Wifi do
           <:header>
             <div>
               <div class="text-sm font-semibold">{Catalog.entity(@active_entity).label}</div>
-              <div class="text-xs text-base-content/60">{Map.get(@srql, :query, "")}</div>
+              <div class="text-xs text-sr-muted">{Map.get(@srql, :query, "")}</div>
             </div>
           </:header>
 
@@ -214,7 +214,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Wifi do
               </thead>
               <tbody id="wifi-rows" phx-update="stream">
                 <tr :if={length(@wifi_rows) == 0} id="wifi-rows-empty">
-                  <td colspan={@column_count} class="py-8 text-center text-base-content/60">
+                  <td colspan={@column_count} class="py-8 text-center text-sr-muted">
                     No WiFi inventory rows found.
                   </td>
                 </tr>
@@ -229,7 +229,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Wifi do
             </table>
           </div>
 
-          <div class="mt-4 border-t border-base-200 pt-4">
+          <div class="mt-4 border-t border-sr-line pt-4">
             <.ui_pagination
               prev_cursor={Map.get(@pagination, "prev_cursor")}
               next_cursor={Map.get(@pagination, "next_cursor")}

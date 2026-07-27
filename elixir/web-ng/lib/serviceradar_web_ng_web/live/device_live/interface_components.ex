@@ -61,19 +61,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
       |> assign(:run_task_title, run_task_title)
 
     ~H"""
-    <div :if={@loading} class="rounded-xl border border-base-200 bg-base-100 p-8 text-center">
+    <div :if={@loading} class="rounded-xl border border-sr-line bg-sr-surface p-8 text-center">
       <.ui_spinner size="md" />
       <p class="mt-3 text-sm font-semibold">Loading network interfaces</p>
-      <p class="mt-1 text-xs text-base-content/60">
+      <p class="mt-1 text-xs text-sr-muted">
         You can keep using the rest of this device page.
       </p>
     </div>
 
     <div
       :if={!@loading && @metrics_loading}
-      class="mb-4 rounded-xl border border-base-200 bg-base-100 p-5"
+      class="mb-4 rounded-xl border border-sr-line bg-sr-surface p-5"
     >
-      <div class="flex items-center gap-3 text-sm text-base-content/70">
+      <div class="flex items-center gap-3 text-sm text-sr-muted">
         <.ui_spinner size="sm" />
         Loading favorited interface metrics&hellip;
       </div>
@@ -87,12 +87,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
     />
 
     <%= if !@loading && @interfaces == [] and is_nil(@error) do %>
-      <div class="rounded-xl border border-base-200 bg-base-100 p-6 text-center">
-        <.icon name="hero-arrows-right-left" class="size-8 text-base-content/30 mx-auto" />
-        <p class="text-sm font-semibold text-base-content/80 mt-3">
+      <div class="rounded-xl border border-sr-line bg-sr-surface p-6 text-center">
+        <.icon name="hero-arrows-right-left" class="size-8 text-sr-ink/30 mx-auto" />
+        <p class="text-sm font-semibold text-sr-ink/90 mt-3">
           No interface data yet.
         </p>
-        <p class="text-xs text-base-content/60 mt-1">
+        <p class="text-xs text-sr-muted mt-1">
           Discovery is configured for this device, but no interface observations were returned.
         </p>
         <div :if={@discovery_job} class="mt-4 inline-flex flex-col gap-2 text-xs">
@@ -102,12 +102,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
               {mapper_run_status_label(@discovery_job)}
             </.ui_badge>
           </div>
-          <div class="text-base-content/60">
+          <div class="text-sr-muted">
             Last run: {format_timestamp(Map.get(@discovery_job, :last_run_at))}
           </div>
           <div
             :if={is_integer(@discovery_job.last_run_interface_count)}
-            class="text-base-content/60"
+            class="text-sr-muted"
           >
             Interfaces observed: {@discovery_job.last_run_interface_count}
           </div>
@@ -124,17 +124,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
         </div>
       </div>
     <% else %>
-      <div :if={!@loading} class="rounded-xl border border-base-200 bg-base-100">
-        <div class="px-4 py-3 border-b border-base-200">
+      <div :if={!@loading} class="rounded-xl border border-sr-line bg-sr-surface">
+        <div class="px-4 py-3 border-b border-sr-line">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <.icon name="hero-signal" class="size-4 text-primary" />
               <span class="text-sm font-semibold">Network Interfaces</span>
-              <span class="text-xs text-base-content/50">({length(@interfaces)} interfaces)</span>
+              <span class="text-xs text-sr-muted">({length(@interfaces)} interfaces)</span>
             </div>
             <%!-- Bulk action toolbar --%>
             <div :if={@selected_count > 0} class="flex items-center gap-2">
-              <span class="text-xs text-base-content/70">
+              <span class="text-xs text-sr-muted">
                 {@selected_count} selected
               </span>
               <.ui_button type="button" phx-click="clear_interface_selection" size="xs" variant="ghost">
@@ -159,7 +159,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
           </div>
           <div class="sr-ui-table-shell">
             <table class={ui_table_class(size: "xs", class: "w-full")}>
-              <thead class="sticky top-0 bg-base-100">
+              <thead class="sticky top-0 bg-sr-surface">
                 <tr>
                   <th class="w-8">
                     <input
@@ -170,10 +170,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
                     />
                   </th>
                   <th class="w-8 text-center" title="Favorite">
-                    <.icon name="hero-star" class="size-3 text-base-content/50" />
+                    <.icon name="hero-star" class="size-3 text-sr-muted" />
                   </th>
                   <th class="w-8 text-center" title="Metrics Collection">
-                    <.icon name="hero-chart-bar" class="size-3 text-base-content/50" />
+                    <.icon name="hero-chart-bar" class="size-3 text-sr-muted" />
                   </th>
                   <th class="text-xs">Interface</th>
                   <th class="text-xs">ID</th>
@@ -191,7 +191,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
                     is_binary(iface_uid) and MapSet.member?(@selected_interfaces, iface_uid) %>
                   <% is_favorited =
                     is_binary(iface_uid) and MapSet.member?(@favorited_interfaces, iface_uid) %>
-                  <tr class={["hover:bg-base-200/50", is_selected && "bg-primary/5"]}>
+                  <tr class={["hover:bg-sr-subtle/50", is_selected && "bg-primary/5"]}>
                     <td class="w-8">
                       <input
                         :if={iface_uid}
@@ -210,7 +210,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
                             "size-4",
                             if(is_favorited,
                               do: "text-warning",
-                              else: "text-base-content/30 hover:text-warning/70"
+                              else: "text-sr-ink/30 hover:text-warning/70"
                             )
                           ]}
                         />
@@ -237,7 +237,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
                       <.icon
                         :if={!metrics_enabled}
                         name="hero-chart-bar"
-                        class="size-4 text-base-content/20"
+                        class="size-4 text-sr-ink/20"
                         title="Metrics collection disabled"
                       />
                     </td>
@@ -245,7 +245,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
                       <.link
                         :if={iface_uid}
                         navigate={~p"/devices/#{@device_uid}/interfaces/#{iface_uid}"}
-                        class="font-mono link link-hover link-primary"
+                        class="font-mono text-sr-brand hover:underline"
                         title={iface_uid}
                       >
                         {interface_label(iface)}
@@ -253,11 +253,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
                       <div :if={!iface_uid} class="font-mono" title="">
                         {interface_label(iface)}
                       </div>
-                      <div :if={interface_secondary(iface)} class="text-[11px] text-base-content/60">
+                      <div :if={interface_secondary(iface)} class="text-[11px] text-sr-muted">
                         {interface_secondary(iface)}
                       </div>
                     </td>
-                    <td class="text-xs font-mono text-base-content/60">
+                    <td class="text-xs font-mono text-sr-muted">
                       {format_interface_id(iface)}
                     </td>
                     <td class="text-xs font-mono">{format_ip_addresses(iface)}</td>
@@ -287,12 +287,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
 
   defp interface_metrics_section(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 mb-4">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+    <div class="rounded-xl border border-sr-line bg-sr-surface mb-4">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between">
         <div class="flex items-center gap-2">
           <.icon name="hero-chart-bar" class="size-4 text-primary" />
           <span class="text-sm font-semibold">Favorited Interface Metrics</span>
-          <span :if={@metrics.favorited_count > 0} class="text-xs text-base-content/50">
+          <span :if={@metrics.favorited_count > 0} class="text-xs text-sr-muted">
             ({@metrics.favorited_count} favorited)
           </span>
         </div>
@@ -300,11 +300,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
 
       <%!-- No favorited interfaces --%>
       <div :if={!@metrics.has_favorited} class="p-6 text-center">
-        <.icon name="hero-star" class="size-10 text-base-content/20 mx-auto" />
-        <p class="text-sm text-base-content/70 mt-2">
+        <.icon name="hero-star" class="size-10 text-sr-ink/20 mx-auto" />
+        <p class="text-sm text-sr-muted mt-2">
           No favorited interfaces yet.
         </p>
-        <p class="text-xs text-base-content/50 mt-1">
+        <p class="text-xs text-sr-muted mt-1">
           Star interfaces in the table below to see their metrics here.
         </p>
       </div>
@@ -322,11 +322,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
         :if={@metrics.has_favorited && @metrics.panels == [] && !@metrics.error}
         class="p-6 text-center"
       >
-        <.icon name="hero-chart-bar" class="size-10 text-base-content/20 mx-auto" />
-        <p class="text-sm text-base-content/70 mt-2">
+        <.icon name="hero-chart-bar" class="size-10 text-sr-ink/20 mx-auto" />
+        <p class="text-sm text-sr-muted mt-2">
           {Map.get(@metrics, :message, "No metrics data available for favorited interfaces.")}
         </p>
-        <p class="text-xs text-base-content/50 mt-1">
+        <p class="text-xs text-sr-muted mt-1">
           Metrics will appear once SNMP polling collects data for these interfaces.
         </p>
       </div>

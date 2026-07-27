@@ -84,18 +84,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.GraphResult do
         <:header>
           <div class="min-w-0">
             <div class="text-sm font-semibold">Graph</div>
-            <div class="text-xs text-base-content/70">
+            <div class="text-xs text-sr-muted">
               Nodes: <span class="font-mono">{@summary.nodes}</span>
               <span class="opacity-60">·</span> Edges: <span class="font-mono">{@summary.edges}</span>
             </div>
           </div>
         </:header>
 
-        <div class="text-xs text-base-content/70 mb-3">
+        <div class="text-xs text-sr-muted mb-3">
           Preview of the first {@max_preview} graph result rows.
         </div>
 
-        <div class="rounded-xl border border-base-200 bg-base-100 p-3 overflow-x-auto">
+        <div class="rounded-xl border border-sr-line bg-sr-surface p-3 overflow-x-auto">
           <pre class="text-xs leading-relaxed"><%= Jason.encode!(@items, pretty: true) %></pre>
         </div>
       </.ui_panel>

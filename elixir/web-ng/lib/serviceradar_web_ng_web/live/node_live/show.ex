@@ -184,7 +184,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
               <span class="size-2.5 rounded-full bg-success animate-pulse"></span>
               <span class="text-sm text-success font-medium">Connected</span>
               <.ui_badge :if={@is_current} size="sm" variant="primary">Current Node</.ui_badge>
-              <span class="text-xs text-base-content/60">Node is connected to the cluster</span>
+              <span class="text-xs text-sr-muted">Node is connected to the cluster</span>
             </div>
             <div
               :if={!@is_connected}
@@ -192,7 +192,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
             >
               <span class="size-2.5 rounded-full bg-error"></span>
               <span class="text-sm text-error font-medium">Disconnected</span>
-              <span class="text-xs text-base-content/60">Node is not reachable</span>
+              <span class="text-xs text-sr-muted">Node is not reachable</span>
             </div>
 
             <.node_summary node_name={@node_name} node_type={@node_type} is_connected={@is_connected} />
@@ -219,32 +219,32 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
 
   defp node_summary(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-6">
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-6">
       <div class="flex flex-wrap gap-x-8 gap-y-4">
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Status</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Status</span>
           <.ui_badge variant={if @is_connected, do: "success", else: "error"} size="sm">
             {if @is_connected, do: "Connected", else: "Disconnected"}
           </.ui_badge>
         </div>
 
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Node Type</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Node Type</span>
           <.node_type_badge type={@node_type} />
         </div>
 
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Full Name</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Full Name</span>
           <span class="text-sm font-mono">{@node_name}</span>
         </div>
 
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Short Name</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Short Name</span>
           <span class="text-sm font-mono">{String.split(@node_name, "@") |> List.first()}</span>
         </div>
 
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Host</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Host</span>
           <span class="text-sm font-mono">{String.split(@node_name, "@") |> List.last()}</span>
         </div>
       </div>
@@ -275,35 +275,35 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
 
   defp node_system_info(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between">
         <span class="text-sm font-semibold">System Information</span>
         <.ui_badge size="sm" variant="ghost" class="font-mono">{@node}</.ui_badge>
       </div>
       <div class="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div class="stat bg-base-200/30 rounded-lg p-3">
+        <div class="stat bg-sr-subtle/30 rounded-lg p-3">
           <div class="stat-title text-xs">Uptime</div>
           <div class="stat-value text-lg">{format_uptime(@node_info.uptime_ms)}</div>
         </div>
 
-        <div class="stat bg-base-200/30 rounded-lg p-3">
+        <div class="stat bg-sr-subtle/30 rounded-lg p-3">
           <div class="stat-title text-xs">Processes</div>
           <div class="stat-value text-lg">{@node_info.process_count}</div>
         </div>
 
-        <div class="stat bg-base-200/30 rounded-lg p-3">
+        <div class="stat bg-sr-subtle/30 rounded-lg p-3">
           <div class="stat-title text-xs">Schedulers</div>
           <div class="stat-value text-lg">{@node_info.schedulers_online}/{@node_info.schedulers}</div>
         </div>
 
-        <div class="stat bg-base-200/30 rounded-lg p-3">
+        <div class="stat bg-sr-subtle/30 rounded-lg p-3">
           <div class="stat-title text-xs">OTP Release</div>
           <div class="stat-value text-lg">OTP {@node_info.otp_release}</div>
         </div>
       </div>
 
       <div class="px-4 pb-4">
-        <div class="text-xs text-base-content/60 mb-2">Memory Usage</div>
+        <div class="text-xs text-sr-muted mb-2">Memory Usage</div>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
           <.memory_stat label="Total" bytes={@node_info.memory_total} />
           <.memory_stat label="Processes" bytes={@node_info.memory_processes} />
@@ -325,8 +325,8 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
 
   defp memory_stat(assigns) do
     ~H"""
-    <div class="bg-base-200/30 rounded px-2 py-1">
-      <div class="text-xs text-base-content/50">{@label}</div>
+    <div class="bg-sr-subtle/30 rounded px-2 py-1">
+      <div class="text-xs text-sr-muted">{@label}</div>
       <div class="font-mono text-sm">
         <%= if @bytes do %>
           {format_bytes(@bytes)}
@@ -342,12 +342,12 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
 
   defp gateways_on_node(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line">
         <span class="text-sm font-semibold">Gateways on this Node</span>
         <.ui_badge size="sm" variant="info" class="ml-2">{length(@gateways)}</.ui_badge>
       </div>
-      <div class="divide-y divide-base-200">
+      <div class="divide-y divide-sr-line">
         <%= for gateway <- @gateways do %>
           <div class="px-4 py-3 flex items-center gap-4">
             <.ui_badge variant="info" size="xs">{Map.get(gateway, :status, :unknown)}</.ui_badge>
@@ -368,12 +368,12 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
 
   defp agents_on_node(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line">
         <span class="text-sm font-semibold">Agents on this Node</span>
         <.ui_badge size="sm" variant="success" class="ml-2">{length(@agents)}</.ui_badge>
       </div>
-      <div class="divide-y divide-base-200">
+      <div class="divide-y divide-sr-line">
         <%= for agent <- @agents do %>
           <div class="px-4 py-3 flex items-center gap-4">
             <.ui_badge variant="success" size="xs">{Map.get(agent, :status, :unknown)}</.ui_badge>
@@ -448,19 +448,19 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
     assigns = assign(assigns, :role_info, role_info)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line">
         <span class="text-sm font-semibold">Node Role</span>
       </div>
       <div class="p-4">
-        <p class="text-sm text-base-content/70 mb-3">
+        <p class="text-sm text-sr-muted mb-3">
           {@role_info.description}
         </p>
         <div :if={@role_info.steps != []} class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <%= for {step, index} <- Enum.with_index(@role_info.steps) do %>
-            <div class="flex items-center gap-2 p-2 rounded-lg bg-base-200/50">
+            <div class="flex items-center gap-2 p-2 rounded-lg bg-sr-subtle/50">
               <.ui_badge size="sm" variant={step_badge_variant(index)}>{step.label}</.ui_badge>
-              <span class="text-xs text-base-content/60">{step.description}</span>
+              <span class="text-xs text-sr-muted">{step.description}</span>
             </div>
           <% end %>
         </div>

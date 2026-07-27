@@ -187,7 +187,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
             />
           </div>
 
-          <div class="divider text-xs text-base-content/50">Match Conditions</div>
+          <div class="divider text-xs text-sr-muted">Match Conditions</div>
           
     <!-- Message Body Contains -->
           <div class="form-control">
@@ -213,7 +213,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
               disabled={not @form[:body_contains_enabled].value}
             />
             <label class="label">
-              <span class="label-text-alt text-base-content/50">
+              <span class="label-text-alt text-sr-muted">
                 Case-insensitive substring match
               </span>
             </label>
@@ -311,7 +311,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
               :if={@form[:parsed_attributes].value && map_size(@form[:parsed_attributes].value) > 0}
               class="mt-2"
             >
-              <span class="text-xs text-base-content/50">Available attributes:</span>
+              <span class="text-xs text-sr-muted">Available attributes:</span>
               <div class="flex flex-wrap gap-1 mt-1">
                 <%= for {key, value} <- flatten_for_suggestions(@form[:parsed_attributes].value) do %>
                   <button
@@ -329,7 +329,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
             </div>
           </div>
 
-          <div class="divider text-xs text-base-content/50">Event Options</div>
+          <div class="divider text-xs text-sr-muted">Event Options</div>
           
     <!-- Auto-create Alert -->
           <div class="form-control">
@@ -343,7 +343,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
               />
               <div>
                 <span class="label-text font-medium">Auto-create alert for matching events</span>
-                <p class="text-xs text-base-content/50">
+                <p class="text-xs text-sr-muted">
                   If disabled, alerts are only created for high/critical severity events
                 </p>
               </div>
@@ -351,7 +351,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
           </div>
           
     <!-- Rule Preview Section -->
-          <div class="bg-base-200/50 rounded-lg p-4 mt-4">
+          <div class="bg-sr-subtle/50 rounded-lg p-4 mt-4">
             <div class="flex items-center justify-between mb-2">
               <span class="text-sm font-medium">Rule Preview</span>
               <.ui_button type="button" phx-click="test_rule" phx-target={@myself} disabled={@preview_state == :loading} size="xs" variant="ghost">
@@ -362,11 +362,11 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
               </.ui_button>
             </div>
 
-            <div :if={@preview_state == :idle} class="text-sm text-base-content/60">
+            <div :if={@preview_state == :idle} class="text-sm text-sr-muted">
               Click "Test Rule" to see how many logs from the last hour would match.
             </div>
 
-            <div :if={@preview_state == :loading} class="text-sm text-base-content/60">
+            <div :if={@preview_state == :loading} class="text-sm text-sr-muted">
               Testing rule against recent logs...
             </div>
 
@@ -379,11 +379,11 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
               </div>
 
               <div :if={@preview_result.sample_logs != []} class="mt-2">
-                <span class="text-xs text-base-content/50">Sample matches:</span>
+                <span class="text-xs text-sr-muted">Sample matches:</span>
                 <div class="mt-1 space-y-1 max-h-32 overflow-y-auto">
                   <%= for log <- @preview_result.sample_logs do %>
-                    <div class="text-xs font-mono bg-base-300/50 px-2 py-1 rounded flex gap-2">
-                      <span class="text-base-content/50">
+                    <div class="text-xs font-mono bg-sr-control/50 px-2 py-1 rounded flex gap-2">
+                      <span class="text-sr-muted">
                         {format_preview_time(log["timestamp"])}
                       </span>
                       <span class={severity_class(log["severity_text"])}>{log["severity_text"]}</span>
@@ -870,11 +870,11 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
     case String.downcase(severity) do
       s when s in ["error", "critical", "fatal"] -> "text-error"
       s when s in ["warn", "warning"] -> "text-warning"
-      _ -> "text-base-content/70"
+      _ -> "text-sr-muted"
     end
   end
 
-  defp severity_class(_), do: "text-base-content/70"
+  defp severity_class(_), do: "text-sr-muted"
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(reason) when is_binary(reason), do: reason

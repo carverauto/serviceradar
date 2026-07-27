@@ -89,7 +89,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
         <:header>
           <div class="min-w-0">
             <div class="text-sm font-semibold">Topology</div>
-            <div class="text-xs text-base-content/70">
+            <div class="text-xs text-sr-muted">
               Nodes: <span class="font-mono">{length(@nodes)}</span>
               <span :if={truncated_node_count(@truncated_node_count) > 0}>
                 of <span class="font-mono">{@total_node_count}</span>
@@ -117,14 +117,14 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
           </div>
         </:header>
 
-        <div :if={@nodes == []} class="text-sm text-base-content/70">
+        <div :if={@nodes == []} class="text-sm text-sr-muted">
           No graph results detected. Return a JSON object with <span class="font-mono">nodes</span>
           and <span class="font-mono">edges</span>.
         </div>
 
         <div :if={@nodes != []} class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div class="lg:col-span-2 rounded-xl border border-base-200 bg-base-100 overflow-hidden">
-            <svg viewBox="0 0 1000 600" class="w-full h-[420px] bg-base-100">
+          <div class="lg:col-span-2 rounded-xl border border-sr-line bg-sr-surface overflow-hidden">
+            <svg viewBox="0 0 1000 600" class="w-full h-[420px] bg-sr-surface">
               <defs>
                 <marker
                   id="arrow"
@@ -134,7 +134,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
                   refY="3"
                   orient="auto"
                 >
-                  <path d="M0,0 L0,6 L9,3 z" class="fill-base-content/40" />
+                  <path d="M0,0 L0,6 L9,3 z" class="fill-sr-muted" />
                 </marker>
               </defs>
 
@@ -155,7 +155,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
                   class={
                     if selected?,
                       do: "stroke-primary/80",
-                      else: "stroke-base-content/25"
+                      else: "stroke-sr-muted/25"
                   }
                   marker-end="url(#arrow)"
                 />
@@ -179,7 +179,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
                     class={
                       if selected?,
                         do: "fill-primary stroke-primary/40",
-                        else: "fill-base-200 stroke-base-300"
+                        else: "fill-sr-subtle stroke-sr-line"
                     }
                     stroke-width="2"
                   />
@@ -188,8 +188,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
                     y={pos.y + 4}
                     class={
                       if selected?,
-                        do: "fill-base-content text-xs font-semibold",
-                        else: "fill-base-content/80 text-xs"
+                        do: "fill-sr-ink text-xs font-semibold",
+                        else: "fill-sr-ink/80 text-xs"
                     }
                   >
                     {node.label}
@@ -199,20 +199,20 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
             </svg>
           </div>
 
-          <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+          <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
             <div class="text-xs font-semibold mb-2">Selected Node</div>
 
-            <div :if={is_nil(@selected_node)} class="text-sm text-base-content/70">
+            <div :if={is_nil(@selected_node)} class="text-sm text-sr-muted">
               Click a node to inspect details.
             </div>
 
             <div :if={not is_nil(@selected_node)} class="flex flex-col gap-3">
               <div class="text-sm font-semibold truncate">{@selected_node.label}</div>
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 <span class="font-mono">{@selected_node.id}</span>
               </div>
 
-              <div class="rounded-lg border border-base-200 bg-base-200/30 p-3 overflow-x-auto">
+              <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3 overflow-x-auto">
                 <pre class="text-xs leading-relaxed"><%= Jason.encode!(@selected_node.raw, pretty: true) %></pre>
               </div>
             </div>

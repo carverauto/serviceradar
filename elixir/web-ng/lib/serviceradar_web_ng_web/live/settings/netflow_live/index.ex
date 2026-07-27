@@ -332,15 +332,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
           <section class="space-y-4">
             <div>
               <h1 class="text-xl font-semibold">Network Flows</h1>
-              <p class="text-sm text-base-content/60">
+              <p class="text-sm text-sr-muted">
                 Configure directionality tagging based on local networks. These CIDRs are used by SRQL
                 queries and enrichment pipelines to label flows as inbound/outbound/internal/external.
               </p>
             </div>
 
-            <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+            <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
               <h2 class="text-sm font-semibold">Optional Enrichment and Security</h2>
-              <p class="text-xs text-base-content/60 mt-1">
+              <p class="text-xs text-sr-muted mt-1">
                 These settings are deployment-scoped. External providers are only used by background jobs,
                 never at query time.
               </p>
@@ -369,11 +369,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                 />
 
                 <div class="mt-4 grid grid-cols-1 gap-4">
-                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+                  <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
                     <div class="flex items-center justify-between gap-3">
                       <div>
                         <div class="text-xs font-semibold">GeoIP (MMDB)</div>
-                        <div class="text-xs text-base-content/60 mt-1">
+                        <div class="text-xs text-sr-muted mt-1">
                           GeoIP is populated by background jobs and stored in `ip_geo_enrichment_cache`.
                         </div>
                       </div>
@@ -394,9 +394,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                         label="Enable GeoIP enrichment (background only)"
                       />
 
-                      <div class="grid gap-2 text-xs text-base-content/70">
+                      <div class="grid gap-2 text-xs text-sr-muted">
                         <div class="grid grid-cols-1 gap-1 sm:grid-cols-3 sm:gap-4">
-                          <div class="font-semibold text-base-content/80">MMDB refresh</div>
+                          <div class="font-semibold text-sr-ink/90">MMDB refresh</div>
                           <div>
                             Last success:
                             <span class="font-mono">
@@ -412,7 +412,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                         </div>
 
                         <div class="grid grid-cols-1 gap-1 sm:grid-cols-3 sm:gap-4">
-                          <div class="font-semibold text-base-content/80">IP enrichment</div>
+                          <div class="font-semibold text-sr-ink/90">IP enrichment</div>
                           <div>
                             Last success:
                             <span class="font-mono">
@@ -430,7 +430,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                     </div>
                   </div>
 
-                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+                  <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
                     <div class="text-xs font-semibold">ipinfo.io/lite</div>
                     <div class="mt-2 grid grid-cols-1 gap-3">
                       <.input
@@ -459,7 +459,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                             if ipinfo_token_present?(@settings), do: "(set)", else: "(not set)"
                           }
                         />
-                        <div class="text-xs text-base-content/60">
+                        <div class="text-xs text-sr-muted">
                           Leave blank to keep existing. Check "clear" to remove.
                         </div>
                       </div>
@@ -482,7 +482,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                     </div>
                   </div>
 
-                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+                  <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
                     <div class="text-xs font-semibold">Threat Intel (Feature Flag)</div>
                     <div class="mt-2 grid grid-cols-1 gap-3">
                       <.input
@@ -505,7 +505,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
                   <div
                     :if={@can_manage_anomaly?}
-                    class="rounded-lg border border-base-200 bg-base-200/30 p-3"
+                    class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3"
                   >
                     <div class="flex items-center justify-between gap-3">
                       <div class="text-xs font-semibold">Anomaly Detection</div>
@@ -515,7 +515,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                     </div>
                   </div>
 
-                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+                  <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
                     <div class="text-xs font-semibold">Port Scan Detection (Feature Flag)</div>
                     <div class="mt-2 grid grid-cols-1 gap-3">
                       <.input
@@ -573,11 +573,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                           <div class="font-medium">
                             {cidr.location_label || cidr.label || "Pinned site"}
                           </div>
-                          <div class="font-mono text-base-content/60">
+                          <div class="font-mono text-sr-muted">
                             {format_coordinate(cidr.latitude)}, {format_coordinate(cidr.longitude)}
                           </div>
                         <% else %>
-                          <span class="text-base-content/50">not anchored</span>
+                          <span class="text-sr-muted">not anchored</span>
                         <% end %>
                       </td>
                       <td>
@@ -600,7 +600,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                   <% end %>
                   <%= if Enum.empty?(@cidrs) do %>
                     <tr>
-                      <td colspan="6" class="text-sm text-base-content/60">
+                      <td colspan="6" class="text-sm text-sr-muted">
                         No CIDRs configured yet.
                       </td>
                     </tr>
@@ -667,7 +667,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                   <% end %>
                   <%= if Enum.empty?(@app_rules) do %>
                     <tr>
-                      <td colspan="9" class="text-sm text-base-content/60">
+                      <td colspan="9" class="text-sm text-sr-muted">
                         No app rules configured yet.
                       </td>
                     </tr>
@@ -678,25 +678,25 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
           </section>
 
           <section class="space-y-4">
-            <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+            <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
               <h2 class="text-sm font-semibold">Directionality</h2>
-              <p class="text-xs text-base-content/60 mt-1">
+              <p class="text-xs text-sr-muted mt-1">
                 Flows are labeled using the configured CIDRs:
               </p>
-              <ul class="mt-3 text-xs text-base-content/80 list-disc pl-5 space-y-1">
+              <ul class="mt-3 text-xs text-sr-ink/90 list-disc pl-5 space-y-1">
                 <li><span class="font-semibold">internal</span>: src and dst are local</li>
                 <li><span class="font-semibold">outbound</span>: src is local, dst is not</li>
                 <li><span class="font-semibold">inbound</span>: src is not local, dst is local</li>
                 <li><span class="font-semibold">external</span>: neither is local</li>
               </ul>
-              <div class="mt-4 rounded-lg bg-base-200/60 p-3 text-xs">
+              <div class="mt-4 rounded-lg bg-sr-subtle/60 p-3 text-xs">
                 Partition scope: set <span class="font-mono">partition</span> to apply only to that
                 partition; leave blank to apply globally.
               </div>
             </div>
 
             <%= if @form do %>
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <h2 class="text-sm font-semibold">
                   <%= case @form_kind do %>
                     <% :app_rule -> %>
@@ -770,9 +770,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                       <.input field={@form[:partition]} type="text" label="Partition (optional)" />
                       <.input field={@form[:label]} type="text" label="Label (optional)" />
                       <.input field={@form[:cidr]} type="text" label="CIDR" placeholder="10.0.0.0/8" />
-                      <div class="rounded-lg border border-base-200 bg-base-200/40 p-3">
+                      <div class="rounded-lg border border-sr-line bg-sr-subtle/40 p-3">
                         <div class="text-xs font-semibold">Map Anchor (optional)</div>
-                        <div class="mt-1 text-xs text-base-content/60">
+                        <div class="mt-1 text-xs text-sr-muted">
                           Pin private/local flow endpoints to a real site on the NetFlow map.
                         </div>
                         <div class="mt-3 grid grid-cols-1 gap-3">
@@ -817,9 +817,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                 </.form>
               </div>
             <% else %>
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <h2 class="text-sm font-semibold">Add CIDRs</h2>
-                <p class="text-xs text-base-content/60 mt-1">
+                <p class="text-xs text-sr-muted mt-1">
                   Use the button on the left to add local networks for directionality tagging and
                   optional NetFlow map anchors.
                 </p>

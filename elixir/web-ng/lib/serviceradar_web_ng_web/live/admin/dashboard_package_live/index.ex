@@ -333,8 +333,8 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
       >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">Dashboard Packages</h1>
-            <p class="text-sm text-base-content/60">
+            <h1 class="text-2xl font-semibold text-sr-ink">Dashboard Packages</h1>
+            <p class="text-sm text-sr-muted">
               Import browser dashboard packages and expose them as ServiceRadar dashboard routes.
             </p>
           </div>
@@ -357,14 +357,14 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Imported Packages</div>
-              <p class="text-xs text-base-content/60">{length(@packages)} package(s)</p>
+              <p class="text-xs text-sr-muted">{length(@packages)} package(s)</p>
             </div>
           </:header>
 
           <%= if @packages == [] do %>
-            <div class="rounded-box border border-dashed border-base-300 bg-base-100 p-8 text-center">
+            <div class="rounded-box border border-dashed border-sr-line bg-sr-surface p-8 text-center">
               <div class="text-sm font-semibold">No dashboard packages imported</div>
-              <p class="mt-1 text-xs text-base-content/60">
+              <p class="mt-1 text-xs text-sr-muted">
                 Import a manifest JSON file and matching renderer artifact to create the first package.
               </p>
             </div>
@@ -382,16 +382,16 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                   </tr>
                 </thead>
                 <tbody>
-                  <tr :for={package <- @packages} class="hover:bg-base-200/40">
+                  <tr :for={package <- @packages} class="hover:bg-sr-subtle/40">
                     <td>
                       <div class="font-medium">{package.name}</div>
-                      <div class="font-mono text-xs text-base-content/60">
+                      <div class="font-mono text-xs text-sr-muted">
                         {package.dashboard_id} · {package.version}
                       </div>
                     </td>
                     <td>
                       <div class="text-xs">{package.renderer["interface_version"] || "unknown"}</div>
-                      <div class="font-mono text-xs text-base-content/60">
+                      <div class="font-mono text-xs text-sr-muted">
                         {short_hash(package.content_hash)}
                       </div>
                     </td>
@@ -416,7 +416,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                       >
                         <.link
                           navigate={~p"/dashboards/#{instance.route_slug}"}
-                          class="link link-primary"
+                          class="text-sr-brand hover:underline"
                         >
                           /dashboards/{instance.route_slug}
                         </.link>
@@ -473,7 +473,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
         <div class="flex items-start justify-between gap-4">
           <div>
             <h2 class="text-lg font-semibold">Import Dashboard Package</h2>
-            <p class="text-sm text-base-content/60">
+            <p class="text-sm text-sr-muted">
               Import a browser dashboard package from an upload or trusted GitHub source.
             </p>
           </div>
@@ -578,7 +578,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
             </div>
           <% end %>
 
-          <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
+          <div class="rounded-box border border-sr-line bg-sr-subtle/40 p-3">
             <label class="label cursor-pointer justify-start gap-3 p-0">
               <input
                 type="checkbox"
@@ -627,7 +627,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
         <div class="flex items-start justify-between gap-4">
           <div>
             <h2 class="text-lg font-semibold">{@package.name}</h2>
-            <p class="font-mono text-xs text-base-content/60">
+            <p class="font-mono text-xs text-sr-muted">
               {@package.dashboard_id} · {@package.version}
             </p>
           </div>
@@ -640,19 +640,19 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
         <div class="mt-5 grid gap-4 lg:grid-cols-[1fr_18rem]">
           <div class="space-y-4">
-            <div class="rounded-box border border-base-300 p-4">
+            <div class="rounded-box border border-sr-line p-4">
               <div class="text-sm font-semibold">Renderer</div>
               <dl class="mt-3 grid gap-2 text-xs sm:grid-cols-2">
                 <div>
-                  <dt class="text-base-content/60">Interface</dt>
+                  <dt class="text-sr-muted">Interface</dt>
                   <dd class="font-mono">{@package.renderer["interface_version"] || "unknown"}</dd>
                 </div>
                 <div>
-                  <dt class="text-base-content/60">Artifact</dt>
+                  <dt class="text-sr-muted">Artifact</dt>
                   <dd class="font-mono">{@package.renderer["artifact"]}</dd>
                 </div>
                 <div class="sm:col-span-2">
-                  <dt class="text-base-content/60">SHA256</dt>
+                  <dt class="text-sr-muted">SHA256</dt>
                   <dd class="break-all font-mono">
                     {@package.content_hash || @package.renderer["sha256"]}
                   </dd>
@@ -660,10 +660,10 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               </dl>
             </div>
 
-            <div class="rounded-box border border-base-300 p-4">
+            <div class="rounded-box border border-sr-line p-4">
               <div class="text-sm font-semibold">Data Frames</div>
               <div class="mt-3 space-y-3">
-                <div :for={frame <- @package.data_frames || []} class="rounded-lg bg-base-200/60 p-3">
+                <div :for={frame <- @package.data_frames || []} class="rounded-lg bg-sr-subtle/60 p-3">
                   <div class="flex flex-wrap items-center gap-2">
                     <.ui_badge size="sm" variant="outline">{frame["id"]}</.ui_badge>
                     <.ui_badge size="sm" variant="ghost">{frame["encoding"]}</.ui_badge>
@@ -671,14 +671,14 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                       limit {frame["limit"]}
                     </.ui_badge>
                   </div>
-                  <div class="mt-2 font-mono text-xs text-base-content/70">{frame["query"]}</div>
+                  <div class="mt-2 font-mono text-xs text-sr-muted">{frame["query"]}</div>
                 </div>
               </div>
             </div>
           </div>
 
           <aside class="space-y-4">
-            <div class="rounded-box border border-base-300 p-4">
+            <div class="rounded-box border border-sr-line p-4">
               <div class="text-sm font-semibold">Status</div>
               <div class="mt-3 flex flex-wrap gap-2">
                 <.ui_badge size="sm" variant={status_badge_variant(@package.status)}>
@@ -698,18 +698,18 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               </div>
             </div>
 
-            <div class="rounded-box border border-base-300 p-4">
+            <div class="rounded-box border border-sr-line p-4">
               <div class="text-sm font-semibold">Routes</div>
-              <div :if={@instances == []} class="mt-2 text-xs text-base-content/60">
+              <div :if={@instances == []} class="mt-2 text-xs text-sr-muted">
                 No enabled routes.
               </div>
-              <div :for={instance <- @instances} class="mt-3 rounded-lg bg-base-200/50 p-3 text-xs">
+              <div :for={instance <- @instances} class="mt-3 rounded-lg bg-sr-subtle/50 p-3 text-xs">
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-2">
                       <.link
                         navigate={~p"/dashboards/#{instance.route_slug}"}
-                        class="link link-primary"
+                        class="text-sr-brand hover:underline"
                       >
                         /dashboards/{instance.route_slug}
                       </.link>
@@ -718,7 +718,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                         {placement_label(instance.placement)}
                       </.ui_badge>
                     </div>
-                    <div class="mt-1 truncate text-base-content/60">{instance.name}</div>
+                    <div class="mt-1 truncate text-sr-muted">{instance.name}</div>
                   </div>
                   <div :if={@can_manage_packages} class="flex shrink-0 items-center gap-1">
                     <.ui_icon_button :if={!instance.is_default} type="button" phx-click="set_default_instance" phx-value-id={instance.id} title="Set as default" size="xs" variant="ghost">
@@ -740,7 +740,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               phx-submit={
                 if editing_instance?(@instance_form), do: "update_instance", else: "create_instance"
               }
-              class="rounded-box border border-base-300 p-4 space-y-3"
+              class="rounded-box border border-sr-line p-4 space-y-3"
             >
               <input
                 :if={editing_instance?(@instance_form)}

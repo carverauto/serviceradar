@@ -276,12 +276,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 class="text-xl font-semibold">Credential Rules</h1>
-              <p class="mt-1 text-sm text-base-content/70">
+              <p class="mt-1 text-sm text-sr-muted">
                 Scoped rules bind a provider secret to SRQL-matched targets and materialize plugin
                 inputs — Proxmox VE inventory and console, UniFi Protect and Axis camera inventory
                 and streams — without baking hosts or secrets into plugin configs.
                 <a
-                  class="link link-primary"
+                  class="text-sr-brand hover:underline"
                   href="https://docs.serviceradar.cloud/docs/proxmox#console-access"
                   target="_blank"
                   rel="noopener noreferrer"
@@ -301,7 +301,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                 </div>
                 <ul
                   tabindex="0"
-                  class="dropdown-content menu bg-base-100 rounded-box z-[1] w-60 p-2 shadow border border-base-200"
+                  class="dropdown-content menu bg-sr-surface rounded-box z-[1] w-60 p-2 shadow border border-sr-line"
                 >
                   <li>
                     <button type="button" phx-click="new_proxmox_secret">Proxmox API Token</button>
@@ -332,7 +332,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                 </div>
                 <ul
                   tabindex="0"
-                  class="dropdown-content menu bg-base-100 rounded-box z-[1] w-60 p-2 shadow border border-base-200"
+                  class="dropdown-content menu bg-sr-surface rounded-box z-[1] w-60 p-2 shadow border border-sr-line"
                 >
                   <li>
                     <.link navigate={~p"/settings/networks/credentials/new"}>Proxmox VE</.link>
@@ -359,7 +359,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             </div>
           </div>
 
-          <div class="overflow-hidden rounded-lg border border-base-200 bg-base-100">
+          <div class="overflow-hidden rounded-lg border border-sr-line bg-sr-surface">
             <div class="sr-ui-table-shell">
               <table class={ui_table_class(size: "sm")}>
                 <thead>
@@ -378,12 +378,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                 </thead>
                 <tbody>
                   <tr :if={@loading?}>
-                    <td colspan="10" class="py-8 text-center text-sm text-base-content/60">
+                    <td colspan="10" class="py-8 text-center text-sm text-sr-muted">
                       Loading credential rules.
                     </td>
                   </tr>
                   <tr :if={!@loading? and @rules == []}>
-                    <td colspan="10" class="py-8 text-center text-sm text-base-content/60">
+                    <td colspan="10" class="py-8 text-center text-sm text-sr-muted">
                       No credential rules found.
                     </td>
                   </tr>
@@ -456,7 +456,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                         </div>
                       </td>
                     </tr>
-                    <tr :if={@expanded_rule_id == to_string(rule.id)} class="bg-base-200/40">
+                    <tr :if={@expanded_rule_id == to_string(rule.id)} class="bg-sr-subtle/40">
                       <td colspan="10">
                         <.rule_consumers_panel consumers={@rule_consumers} />
                       </td>
@@ -532,7 +532,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           </div>
 
           <div :if={@secret_kind == "api_key"} class="space-y-4">
-            <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
+            <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-sr-ink/90">
               Store a provider API key (for example a UniFi Protect API key). The key is
               encrypted at rest; credential rules deliver it to matching plugins as a secret
               reference, never inline.
@@ -547,7 +547,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           </div>
 
           <div :if={@secret_kind == "awx_api_token"} class="space-y-4">
-            <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
+            <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-sr-ink/90">
               Store an AWX/AAP OAuth2 bearer token under the <span class="font-mono">awx</span>
               provider. The token is encrypted at rest; the credential broker injects it as an
               <span class="font-mono">Authorization: Bearer</span>
@@ -563,7 +563,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           </div>
 
           <div :if={@secret_kind == "username_password"} class="space-y-4">
-            <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
+            <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-sr-ink/90">
               Store a provider username and password (for example an Axis VAPIX or UniFi Protect
               local account). The password is encrypted at rest; only the username is delivered
               in plain text to matching plugins.
@@ -579,7 +579,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           </div>
 
           <div :if={@secret_kind == "ssh_private_key"} class="space-y-4">
-            <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
+            <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-sr-ink/90">
               Store the PVE host SSH key used by console access rules. The private key is encrypted
               with AshCloak and only injected into the scoped agent config for matching console
               sessions.
@@ -616,20 +616,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     <div class="space-y-2 p-2 text-xs">
       <%= cond do %>
         <% is_nil(@consumers) -> %>
-          <p class="text-base-content/60">Loading consumers.</p>
+          <p class="text-sr-muted">Loading consumers.</p>
         <% @consumers.total == 0 -> %>
-          <p class="text-base-content/60">
+          <p class="text-sr-muted">
             No materialized plugin assignments yet — the reconciler has not produced assignments
             for this rule. Check that the rule is enabled and that its scope, purposes, and
             target query match connected agents.
           </p>
         <% true -> %>
-          <p class="text-base-content/70">
+          <p class="text-sr-muted">
             Materializes {@consumers.total} assignment(s)
             ({@consumers.enabled_count} enabled) across {length(@consumers.agent_uids)} agent(s).
             Last materialized {format_timestamp(@consumers.last_materialized_at)}.
           </p>
-          <div class="overflow-hidden rounded-lg border border-base-200 bg-base-100">
+          <div class="overflow-hidden rounded-lg border border-sr-line bg-sr-surface">
             <table class={ui_table_class(size: "xs")}>
               <thead>
                 <tr>
@@ -678,20 +678,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
         <div class="space-y-4">
           <div class="grid gap-3 md:grid-cols-4">
-            <div class="rounded-lg border border-base-200 p-3">
-              <div class="text-xs text-base-content/60">Matched</div>
+            <div class="rounded-lg border border-sr-line p-3">
+              <div class="text-xs text-sr-muted">Matched</div>
               <div class="text-xl font-semibold">{@rule_preview.preview.matched_devices}</div>
             </div>
-            <div class="rounded-lg border border-base-200 p-3">
-              <div class="text-xs text-base-content/60">In Scope</div>
+            <div class="rounded-lg border border-sr-line p-3">
+              <div class="text-xs text-sr-muted">In Scope</div>
               <div class="text-xl font-semibold">{@rule_preview.preview.scoped_devices}</div>
             </div>
-            <div class="rounded-lg border border-base-200 p-3">
-              <div class="text-xs text-base-content/60">Agents</div>
+            <div class="rounded-lg border border-sr-line p-3">
+              <div class="text-xs text-sr-muted">Agents</div>
               <div class="text-xl font-semibold">{length(@rule_preview.preview.agents)}</div>
             </div>
-            <div class="rounded-lg border border-base-200 p-3">
-              <div class="text-xs text-base-content/60">Conflicts</div>
+            <div class="rounded-lg border border-sr-line p-3">
+              <div class="text-xs text-sr-muted">Conflicts</div>
               <div class="text-xl font-semibold">{length(@rule_preview.preview.conflicts)}</div>
             </div>
           </div>
@@ -699,7 +699,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           <div class="grid gap-4 lg:grid-cols-2">
             <section class="space-y-2">
               <h3 class="text-sm font-semibold">Agent Distribution</h3>
-              <div class="overflow-hidden rounded-lg border border-base-200">
+              <div class="overflow-hidden rounded-lg border border-sr-line">
                 <table class={ui_table_class(size: "sm")}>
                   <thead>
                     <tr>
@@ -709,7 +709,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                   </thead>
                   <tbody>
                     <tr :if={@rule_preview.preview.agents == []}>
-                      <td colspan="2" class="py-4 text-center text-sm text-base-content/60">
+                      <td colspan="2" class="py-4 text-center text-sm text-sr-muted">
                         No in-scope agents.
                       </td>
                     </tr>
@@ -724,7 +724,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
             <section class="space-y-2">
               <h3 class="text-sm font-semibold">Sample Devices</h3>
-              <div class="overflow-hidden rounded-lg border border-base-200">
+              <div class="overflow-hidden rounded-lg border border-sr-line">
                 <table class={ui_table_class(size: "sm")}>
                   <thead>
                     <tr>
@@ -735,7 +735,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                   </thead>
                   <tbody>
                     <tr :if={@rule_preview.preview.sample_devices == []}>
-                      <td colspan="3" class="py-4 text-center text-sm text-base-content/60">
+                      <td colspan="3" class="py-4 text-center text-sm text-sr-muted">
                         No in-scope devices.
                       </td>
                     </tr>
@@ -776,7 +776,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             <h3 class="text-sm font-semibold">Effective Inputs (dry run)</h3>
             <%= case Map.get(@rule_preview, :effective) do %>
               <% {:ok, effective} -> %>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   {effective.targets.total} target(s) resolved from the rule's SRQL query
                   <span :if={effective.targets.truncated?}>
                     (showing first {length(effective.targets.sample)})
@@ -785,24 +785,24 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                 </p>
                 <div
                   :for={entry <- effective.purposes}
-                  class="rounded-lg border border-base-200 p-3 space-y-2"
+                  class="rounded-lg border border-sr-line p-3 space-y-2"
                 >
                   <div class="flex flex-wrap items-center gap-2 text-xs">
                     <.ui_badge size="sm" variant="ghost">{entry.purpose}</.ui_badge>
                     <span class="font-mono">{entry.plugin_id}</span>
-                    <span class="font-mono text-base-content/60">{entry.policy_id}</span>
+                    <span class="font-mono text-sr-muted">{entry.policy_id}</span>
                     <.ui_badge :if={!entry.package_found?} size="sm" variant="warning">
                       no approved package
                     </.ui_badge>
-                    <span class="text-base-content/60">
+                    <span class="text-sr-muted">
                       every {entry.interval_seconds}s, timeout {entry.timeout_seconds}s
                     </span>
                   </div>
-                  <pre class="max-h-64 overflow-auto rounded bg-base-200/60 p-2 text-[11px] font-mono"><%= encode_json(entry.params_template) %></pre>
+                  <pre class="max-h-64 overflow-auto rounded bg-sr-subtle/60 p-2 text-[11px] font-mono"><%= encode_json(entry.params_template) %></pre>
                 </div>
                 <div
                   :if={effective.targets.sample != []}
-                  class="overflow-hidden rounded-lg border border-base-200"
+                  class="overflow-hidden rounded-lg border border-sr-line"
                 >
                   <table class={ui_table_class(size: "xs")}>
                     <thead>
@@ -824,7 +824,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               <% {:error, reason} -> %>
                 <p class="text-xs text-error">Dry run failed: {format_error(reason)}</p>
               <% _ -> %>
-                <p class="text-xs text-base-content/60">Dry run unavailable.</p>
+                <p class="text-xs text-sr-muted">Dry run unavailable.</p>
             <% end %>
           </section>
         </div>
@@ -905,7 +905,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           phx-submit="save_rule"
           class="space-y-4"
         >
-          <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
+          <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-sr-ink/90">
             <span :if={@provider_value == "proxmox"}>
               Inventory and console access are separate credential purposes. Select console access
               explicitly, then restrict which users may invoke the credential below. A Proxmox API
@@ -914,7 +914,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               <span class="font-mono">console</span>
               are generated by ServiceRadar when a console session starts.
               <a
-                class="link link-primary"
+                class="text-sr-brand hover:underline"
                 href="https://docs.serviceradar.cloud/docs/proxmox#console-access"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -976,13 +976,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               options={enum_options(@provider_auth_methods)}
               required
             />
-            <fieldset class="rounded-lg border border-base-300 p-3 md:col-span-2">
+            <fieldset class="rounded-lg border border-sr-line p-3 md:col-span-2">
               <legend class="px-1 text-sm font-medium">Purpose</legend>
               <input type="hidden" name="credential_rule[purposes][]" value="" />
               <div class="grid gap-2 sm:grid-cols-2">
                 <label
                   :for={purpose <- @provider_purposes}
-                  class="flex items-center gap-2 rounded-md border border-base-300 bg-base-100 px-3 py-2 text-sm"
+                  class="flex items-center gap-2 rounded-md border border-sr-line bg-sr-surface px-3 py-2 text-sm"
                 >
                   <input
                     type="checkbox"
@@ -997,7 +997,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             </fieldset>
             <fieldset
               :if={"console_access" in form_purposes(@form)}
-              class="fieldset rounded-lg border border-base-300 p-3 md:col-span-2"
+              class="fieldset rounded-lg border border-sr-line p-3 md:col-span-2"
             >
               <legend class="fieldset-legend px-1">Console credential users</legend>
               <p class="label mb-2">
@@ -1096,7 +1096,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             label="Target Query"
             required
           />
-          <fieldset :if={@plugin_integration?} class="space-y-4 border-t border-base-200 pt-4">
+          <fieldset :if={@plugin_integration?} class="space-y-4 border-t border-sr-line pt-4">
             <legend class="text-sm font-semibold">{@integration_profile["label"]}</legend>
             <PluginConfigForm.plugin_config_fields
               schema={@integration_profile["config_schema"]}

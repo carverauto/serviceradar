@@ -178,7 +178,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
           <:header>
             <div>
               <div class="text-sm font-semibold">Survey Selection</div>
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 Recent sessions, saved review defaults, and SRQL candidates.
               </div>
             </div>
@@ -189,7 +189,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
               <form phx-change="select_session">
                 <label class="form-control">
                   <span class="label">
-                    <span class="label-text text-xs font-semibold uppercase text-base-content/60">
+                    <span class="label-text text-xs font-semibold uppercase text-sr-muted">
                       Recent survey
                     </span>
                   </span>
@@ -264,7 +264,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <div class="font-semibold">{candidate.label}</div>
-                    <div class="text-xs text-base-content/60">{candidate.session_id}</div>
+                    <div class="text-xs text-sr-muted">{candidate.session_id}</div>
                   </div>
                   <.ui_button type="button" phx-click="load_selector_candidate" phx-value-session-id={candidate.session_id} size="xs" variant="primary">
                     Load Survey
@@ -288,12 +288,12 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
             <:header>
               <div>
                 <div class="text-sm font-semibold">Survey Sessions</div>
-                <div class="text-xs text-base-content/60">{length(@sessions)} recent sessions</div>
+                <div class="text-xs text-sr-muted">{length(@sessions)} recent sessions</div>
               </div>
             </:header>
 
-            <div :if={length(@floor_options) > 1} class="border-b border-base-200 p-3">
-              <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content/50">
+            <div :if={length(@floor_options) > 1} class="border-b border-sr-line p-3">
+              <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-sr-muted">
                 Floor
               </div>
               <div class="flex flex-wrap gap-1.5">
@@ -311,12 +311,12 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
               </div>
             </div>
 
-            <div class="divide-y divide-base-200">
+            <div class="divide-y divide-sr-line">
               <.link
                 :for={session <- @sessions}
                 navigate={field_survey_review_path(session.id, @selected_floor_key)}
                 class={[
-                  "block px-4 py-3 transition hover:bg-base-200/60",
+                  "block px-4 py-3 transition hover:bg-sr-subtle/60",
                   session.id == @selected_session_id && "bg-primary/10"
                 ]}
               >
@@ -327,16 +327,16 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                 >
                   {session.metadata.label}
                 </div>
-                <div class="mt-1 flex items-center justify-between text-xs text-base-content/60">
+                <div class="mt-1 flex items-center justify-between text-xs text-sr-muted">
                   <span>{format_time(session.last_seen)}</span>
                   <span>{session.rf_count} RF</span>
                 </div>
-                <div class="mt-1 text-xs text-base-content/50">
+                <div class="mt-1 text-xs text-sr-muted">
                   {session.ap_count} APs · {session.spectrum_count} spectrum
                 </div>
               </.link>
 
-              <div :if={@sessions == []} class="px-4 py-8 text-sm text-base-content/60">
+              <div :if={@sessions == []} class="px-4 py-8 text-sm text-sr-muted">
                 No FieldSurvey rows have been ingested yet.
               </div>
             </div>
@@ -354,7 +354,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
               <:header>
                 <div>
                   <div class="text-sm font-semibold">Live Signal Map Review</div>
-                  <div class="text-xs text-base-content/60">
+                  <div class="text-xs text-sr-muted">
                     2D top-down projection from fused pose and RF timestamps.
                   </div>
                 </div>
@@ -455,11 +455,11 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                 <div class="space-y-2">
                   <div
                     :for={artifact <- @review.room_artifacts}
-                    class="flex items-center justify-between gap-3 rounded border border-base-200 px-3 py-2"
+                    class="flex items-center justify-between gap-3 rounded border border-sr-line px-3 py-2"
                   >
                     <div class="min-w-0">
                       <div class="truncate text-sm font-semibold">{artifact_label(artifact)}</div>
-                      <div class="truncate text-xs text-base-content/60">
+                      <div class="truncate text-xs text-sr-muted">
                         {format_bytes(artifact.byte_size)} · {format_time(artifact.uploaded_at)}
                       </div>
                     </div>
@@ -467,7 +467,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                       Download
                     </.ui_button>
                   </div>
-                  <div :if={@review.room_artifacts == []} class="text-sm text-base-content/60">
+                  <div :if={@review.room_artifacts == []} class="text-sm text-sr-muted">
                     No room artifacts uploaded for this session.
                   </div>
                   <div
@@ -486,39 +486,39 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                 <div class="space-y-2">
                   <div
                     :for={ap <- observed_ap_summaries(@review)}
-                    class="rounded border border-base-200 px-3 py-2"
+                    class="rounded border border-sr-line px-3 py-2"
                   >
                     <div class="flex items-start justify-between gap-3">
                       <div class="min-w-0">
                         <div class="truncate text-sm font-semibold">{ap.ssid}</div>
-                        <div class="truncate text-xs text-base-content/60">{ap.bssid}</div>
+                        <div class="truncate text-xs text-sr-muted">{ap.bssid}</div>
                       </div>
                       <div class="text-right text-xs">
                         <div class="font-semibold">{ap.strongest_rssi} dBm</div>
-                        <div class="text-base-content/60">ch {ap.channel || "?"}</div>
+                        <div class="text-sr-muted">ch {ap.channel || "?"}</div>
                       </div>
                     </div>
 
-                    <div class="mt-2 grid grid-cols-3 gap-2 text-[0.68rem] text-base-content/65">
+                    <div class="mt-2 grid grid-cols-3 gap-2 text-[0.68rem] text-sr-ink/65">
                       <div>
-                        <div class="uppercase text-base-content/40">Confidence</div>
+                        <div class="uppercase text-sr-muted">Confidence</div>
                         <div class={["font-semibold", ap_confidence_class(ap.confidence)]}>
                           {confidence_percent(ap.confidence)}
                         </div>
                       </div>
                       <div>
-                        <div class="uppercase text-base-content/40">Positioned</div>
+                        <div class="uppercase text-sr-muted">Positioned</div>
                         <div class="font-semibold">
                           {ap.positioned_count}/{ap.count}
                         </div>
                       </div>
                       <div>
-                        <div class="uppercase text-base-content/40">Spread</div>
+                        <div class="uppercase text-sr-muted">Spread</div>
                         <div class="font-semibold">{format_number(ap.path_spread_m)} m</div>
                       </div>
                     </div>
                   </div>
-                  <div :if={@review.ap_summaries == []} class="text-sm text-base-content/60">
+                  <div :if={@review.ap_summaries == []} class="text-sm text-sr-muted">
                     No AP observations for this session.
                   </div>
                 </div>
@@ -554,7 +554,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
               class="sr-spatial-panel"
               header_class="sr-spatial-panel-header"
             >
-              <div class="py-10 text-center text-sm text-base-content/60">
+              <div class="py-10 text-center text-sm text-sr-muted">
                 Select a survey session to review captured Wi-Fi and spectrum data.
               </div>
             </.ui_panel>
@@ -594,7 +594,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   defp summary_cell(assigns) do
     ~H"""
     <div class="sr-fieldsurvey-review-summary-cell rounded border px-3 py-2">
-      <div class="text-xs uppercase text-base-content/50">{@label}</div>
+      <div class="text-xs uppercase text-sr-muted">{@label}</div>
       <div class="mt-1 text-xl font-semibold">{@value}</div>
     </div>
     """
@@ -632,15 +632,15 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
           class="grid grid-cols-[3.5rem_1fr_3rem_1.5rem] items-center gap-2 text-xs"
         >
           <div>{score.band} {score.channel}</div>
-          <div class="h-2 overflow-hidden rounded bg-base-200">
+          <div class="h-2 overflow-hidden rounded bg-sr-subtle">
             <div class="h-full rounded" style={bar_style(score.score)}></div>
           </div>
-          <div class="text-right text-base-content/60">{round(score.score)}%</div>
+          <div class="text-right text-sr-muted">{round(score.score)}%</div>
           <div class="text-right" title={channel_conflict_title(score)}>
             <.icon :if={score.conflict} name="hero-exclamation-triangle" class="size-3 text-warning" />
           </div>
         </div>
-        <div :if={@scores == []} class="text-xs text-base-content/60">
+        <div :if={@scores == []} class="text-xs text-sr-muted">
           No spectrum channel summaries yet.
         </div>
       </div>
@@ -654,12 +654,12 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
     assigns = assign(assigns, :classifications, Enum.take(assigns.classifications, 4))
 
     ~H"""
-    <div class="mt-4 border-t border-base-200 pt-3">
+    <div class="mt-4 border-t border-sr-line pt-3">
       <div class="text-sm font-semibold">Interferer Classification</div>
       <div class="mt-3 space-y-2">
         <div
           :for={classification <- @classifications}
-          class="rounded border border-base-200 px-3 py-2 text-xs"
+          class="rounded border border-sr-line px-3 py-2 text-xs"
           title={classification.description}
         >
           <div class="flex items-center justify-between gap-3">
@@ -668,13 +668,13 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
               {classification.severity}%
             </div>
           </div>
-          <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-base-content/60">
+          <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sr-muted">
             <span>{classification.event_count} events</span>
             <span>peak {format_number(classification.peak_power_dbm)} dBm</span>
             <span>@ {format_number(classification.peak_frequency_mhz)} MHz</span>
           </div>
         </div>
-        <div :if={@classifications == []} class="text-xs text-base-content/60">
+        <div :if={@classifications == []} class="text-xs text-sr-muted">
           No coarse interferers classified yet.
         </div>
       </div>
@@ -1143,14 +1143,14 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
       <:header>
         <div>
           <div class="text-sm font-semibold">Spectrum Waterfall</div>
-          <div class="text-xs text-base-content/60">
+          <div class="text-xs text-sr-muted">
             HackRF sweep bins over time. Frequency runs left to right, newest rows are at the bottom.
           </div>
         </div>
       </:header>
 
       <div :if={@waterfall.rows != []} class="space-y-2">
-        <div class="overflow-hidden rounded border border-base-200 bg-base-300/40 p-2">
+        <div class="overflow-hidden rounded border border-sr-line bg-sr-control/40 p-2">
           <div
             class="grid gap-px"
             style={"grid-template-columns: repeat(#{@waterfall.bin_count}, minmax(2px, 1fr));"}
@@ -1164,7 +1164,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
             </span>
           </div>
         </div>
-        <div class="flex items-center justify-between text-xs text-base-content/60">
+        <div class="flex items-center justify-between text-xs text-sr-muted">
           <span>{format_frequency(waterfall_start(@waterfall))}</span>
           <span>
             {format_number(@waterfall.min_power_dbm)} to {format_number(@waterfall.max_power_dbm)} dBm
@@ -1173,7 +1173,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
         </div>
       </div>
 
-      <div :if={@waterfall.rows == []} class="text-sm text-base-content/60">
+      <div :if={@waterfall.rows == []} class="text-sm text-sr-muted">
         No spectrum waterfall rows yet.
       </div>
     </.ui_panel>

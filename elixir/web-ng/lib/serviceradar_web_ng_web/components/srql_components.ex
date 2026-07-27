@@ -76,7 +76,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           spellcheck="false"
           class={[
             "input input-sm w-full font-mono text-xs",
-            "rounded-lg border-base-300 bg-base-100",
+            "rounded-lg border-sr-line bg-sr-surface",
             "focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30",
             "srql-input",
             @editor_class
@@ -104,7 +104,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         phx-debounce="300"
         class={[
           ui_field_class(mono: true, class: "min-h-28 w-full text-xs leading-relaxed py-2.5"),
-          "rounded-lg border-base-300 bg-base-100",
+          "rounded-lg border-sr-line bg-sr-surface",
           "focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30",
           @editor_class
         ]}
@@ -135,7 +135,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         class={[
           @compact && "h-9",
           !@compact && "min-h-28",
-          "overflow-hidden rounded-lg border border-base-300 bg-base-100",
+          "overflow-hidden rounded-lg border border-sr-line bg-sr-surface",
           @editor_class
         ]}
       />
@@ -239,7 +239,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     ~H"""
     <div class={[
       "overflow-x-auto",
-      @container && "rounded-xl border border-base-200 bg-base-100",
+      @container && "rounded-xl border border-sr-line bg-sr-surface",
       @class
     ]}>
       <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
@@ -247,13 +247,13 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           <tr>
             <%= for col <- @columns do %>
               <th
-                class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60"
+                class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60"
                 aria-sort={sort_aria(col, @sort_field, @sort_dir)}
               >
                 <button
                   :if={(@sortable and @sort_target) && col != "_sparkline"}
                   type="button"
-                  class="group inline-flex items-center gap-1 text-left hover:text-base-content"
+                  class="group inline-flex items-center gap-1 text-left hover:text-sr-ink"
                   phx-click="table_sort"
                   phx-target={@sort_target}
                   phx-value-field={col}
@@ -280,14 +280,14 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           <tr :if={@rows == []}>
             <td
               colspan={max(length(@columns), 1)}
-              class="text-sm text-base-content/60 py-8 text-center"
+              class="text-sm text-sr-muted py-8 text-center"
             >
               {@empty_message}
             </td>
           </tr>
 
           <%= for {row, idx} <- Enum.with_index(@rows) do %>
-            <tr id={"#{@id}-row-#{idx}"} class="hover:bg-base-200/40">
+            <tr id={"#{@id}-row-#{idx}"} class="hover:bg-sr-subtle/40">
               <%= for col <- @columns do %>
                 <td class="whitespace-nowrap text-xs max-w-[24rem] truncate">
                   <%= if col == "_sparkline" do %>
@@ -321,7 +321,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           {display}
         </time>
       <% {:link, %{href: href, label: label}} -> %>
-        <a href={href} target="_blank" rel="noreferrer" class="link link-hover font-mono text-[11px]">
+        <a href={href} target="_blank" rel="noreferrer" class="text-sr-brand hover:underline font-mono text-[11px]">
           {label}
         </a>
       <% {:severity, %{label: label, variant: variant}} -> %>
@@ -344,13 +344,13 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       <:header>
         <div class="min-w-0">
           <div class="text-sm font-semibold">Auto Visualization</div>
-          <div class="text-xs text-base-content/70">
+          <div class="text-xs text-sr-muted">
             A best-effort visualization inferred from the SRQL result set (beta).
           </div>
         </div>
       </:header>
 
-      <div :if={@viz == :none} class="text-sm text-base-content/70">
+      <div :if={@viz == :none} class="text-sm text-sr-muted">
         No visualization detected yet. Try a timeseries query (timestamp + numeric value) or a grouped count.
       </div>
 
@@ -372,11 +372,11 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
     ~H"""
     <div class="flex flex-col gap-3">
-      <div class="text-xs text-base-content/60">
+      <div class="text-xs text-sr-muted">
         Timeseries: <span class="font-mono">{@y}</span> over <span class="font-mono">{@x}</span>
       </div>
 
-      <div class="rounded-lg border border-base-200 bg-base-100 p-3">
+      <div class="rounded-lg border border-sr-line bg-sr-surface p-3">
         <svg viewBox="0 0 400 120" class="w-full h-28">
           <polyline
             fill="none"
@@ -411,7 +411,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
     ~H"""
     <div class="flex flex-col gap-3">
-      <div class="text-xs text-base-content/60">
+      <div class="text-xs text-sr-muted">
         Categories: <span class="font-mono">{@value}</span> by <span class="font-mono">{@label}</span>
       </div>
 
@@ -421,7 +421,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           <div class="flex items-center gap-3">
             <div class="w-48 truncate text-sm" title={to_string(k)}>{format_category_label(k)}</div>
             <div class="flex-1">
-              <div class="h-2 rounded-full bg-base-200 overflow-hidden">
+              <div class="h-2 rounded-full bg-sr-subtle overflow-hidden">
                 <div
                   class="h-2 bg-primary/70"
                   style={"width: #{max(round((v_num / @max_v) * 100), 0)}%"}
@@ -960,7 +960,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       <:header>
         <div class="min-w-0">
           <div class="text-sm font-semibold">Query Builder</div>
-          <div class="text-xs text-base-content/70">
+          <div class="text-xs text-sr-muted">
             Compose a query visually.
           </div>
         </div>
@@ -1033,7 +1033,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                 </.query_builder_pill>
 
                 <div :if={@supports_downsample} class="flex flex-wrap items-center gap-4">
-                  <div class="text-xs text-base-content/60 font-medium">Downsample</div>
+                  <div class="text-xs text-sr-muted font-medium">Downsample</div>
 
                   <.query_builder_pill label="Bucket">
                     <.ui_inline_select name="builder[bucket]" disabled={not @supported}>
@@ -1077,7 +1077,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                         name="builder[series]"
                         value={@builder["series"] || ""}
                         placeholder="field"
-                        class="w-40 placeholder:text-base-content/40"
+                        class="w-40 placeholder:text-sr-muted"
                         disabled={not @supported}
                       />
                     <% else %>
@@ -1096,7 +1096,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                 </div>
 
                 <div class="flex flex-col gap-3">
-                  <div class="text-xs text-base-content/60 font-medium">Filters</div>
+                  <div class="text-xs text-sr-muted font-medium">Filters</div>
 
                   <div class="flex flex-col gap-3">
                     <%= for {filter, idx} <- Enum.with_index(Map.get(@builder, "filters", [])) do %>
@@ -1110,7 +1110,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                               name={"builder[filters][#{idx}][field]"}
                               value={filter["field"] || ""}
                               placeholder="field"
-                              class="w-40 placeholder:text-base-content/40"
+                              class="w-40 placeholder:text-sr-muted"
                               disabled={not @supported}
                             />
                           <% else %>
@@ -1131,7 +1131,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                             <.ui_inline_select
                               name={"builder[filters][#{idx}][op]"}
                               disabled={not @supported}
-                              class="text-xs text-base-content/70"
+                              class="text-xs text-sr-muted"
                             >
                               <option
                                 value="equals"
@@ -1148,7 +1148,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                               <.ui_inline_select
                                 name={"builder[filters][#{idx}][op]"}
                                 disabled={not @supported}
-                                class="text-xs text-base-content/70"
+                                class="text-xs text-sr-muted"
                               >
                                 <option
                                   value="equals"
@@ -1176,7 +1176,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                               <.ui_inline_select
                                 name={"builder[filters][#{idx}][op]"}
                                 disabled={not @supported}
-                                class="text-xs text-base-content/70"
+                                class="text-xs text-sr-muted"
                               >
                                 <option
                                   value="contains"
@@ -1217,7 +1217,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                               name={"builder[filters][#{idx}][value]"}
                               value={filter["value"] || ""}
                               placeholder="value"
-                              class="placeholder:text-base-content/40 w-56"
+                              class="placeholder:text-sr-muted w-56"
                               disabled={not @supported}
                             />
                           <% end %>
@@ -1248,7 +1248,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                 </div>
 
                 <div class="flex items-center gap-4 pt-2">
-                  <div class="text-xs text-base-content/60 font-medium">Sort</div>
+                  <div class="text-xs text-sr-muted font-medium">Sort</div>
                   <.query_builder_pill label="Sort">
                     <.ui_inline_input
                       type="text"
@@ -1265,7 +1265,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                     </.ui_inline_select>
                   </.query_builder_pill>
 
-                  <div class="text-xs text-base-content/60 font-medium">Limit</div>
+                  <div class="text-xs text-sr-muted font-medium">Limit</div>
                   <.query_builder_pill label="Limit">
                     <.ui_inline_input
                       type="number"
@@ -1279,7 +1279,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                   </.query_builder_pill>
                 </div>
 
-                <div class="flex items-center gap-3 pt-4 mt-4 border-t border-base-200">
+                <div class="flex items-center gap-3 pt-4 mt-4 border-t border-sr-line">
                   <.ui_button variant="primary" size="sm" type="button" phx-click="srql_builder_run">
                     Run Query
                   </.ui_button>

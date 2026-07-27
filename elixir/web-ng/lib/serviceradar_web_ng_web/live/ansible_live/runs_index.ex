@@ -107,7 +107,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsIndex do
             <h1 class="text-2xl font-semibold">Legacy Ansible runs</h1>
             <.ui_badge size="sm" variant="outline">PlaybookRun</.ui_badge>
           </div>
-          <p class="text-sm text-base-content/70">
+          <p class="text-sm text-sr-muted">
             {@run_count} run{if @run_count == 1, do: "", else: "s"} shown
             (filter: {@state_filter}, capped at {@page_limit}).
           </p>
@@ -130,7 +130,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsIndex do
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
-        <span class="text-sm text-base-content/60 mr-1">Filter:</span>
+        <span class="text-sm text-sr-muted mr-1">Filter:</span>
         <.ui_button
           :for={state <- @state_filters}
           type="button"
@@ -146,12 +146,12 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsIndex do
 
       <div
         :if={@run_count == 0}
-        class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70"
+        class="rounded-lg border border-dashed border-sr-line p-8 text-center text-sm text-sr-muted"
       >
         No runs match the current filter.
       </div>
 
-      <div :if={@run_count > 0} class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+      <div :if={@run_count > 0} class="overflow-x-auto rounded-lg border border-sr-line bg-sr-surface">
         <table class={ui_table_class(zebra: true)}>
           <thead>
             <tr>

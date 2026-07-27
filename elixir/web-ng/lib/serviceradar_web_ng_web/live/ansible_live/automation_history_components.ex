@@ -30,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
             </span>
           </div>
           <h1 class="text-2xl font-semibold">Ansible operation {short_id(@bundle.operation.id)}</h1>
-          <p class="font-mono text-xs text-base-content/60 break-all">{@bundle.operation.id}</p>
+          <p class="font-mono text-xs text-sr-muted break-all">{@bundle.operation.id}</p>
         </div>
         <div class="flex items-center gap-2">
           <.ui_button navigate={~p"/ansible/runs"} size="sm" variant="ghost">
@@ -44,18 +44,18 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
 
       <.state_alert state={@bundle.operation.state} subject="Operation" />
 
-      <section class="card card-border bg-base-100" aria-labelledby="operation-evidence-heading">
+      <section class="card card-border bg-sr-surface" aria-labelledby="operation-evidence-heading">
         <div class="card-body gap-4">
           <div>
             <h2 id="operation-evidence-heading" class="card-title text-base">
               Immutable operation evidence
             </h2>
-            <p class="text-sm text-base-content/60">
+            <p class="text-sm text-sr-muted">
               Human authority and target evidence captured before controller dispatch.
             </p>
           </div>
 
-          <div class="stats stats-vertical border border-base-300 lg:stats-horizontal">
+          <div class="stats stats-vertical border border-sr-line lg:stats-horizontal">
             <.evidence_stat label="Action" value={@bundle.operation.action} mono />
             <.evidence_stat
               label="Human initiator"
@@ -83,7 +83,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
             <h2 id="operation-executions-heading" class="text-lg font-semibold">
               Controller executions
             </h2>
-            <p class="text-sm text-base-content/60">
+            <p class="text-sm text-sr-muted">
               {length(@bundle.executions)} inventory-bound child execution{plural(@bundle.executions)}.
             </p>
           </div>
@@ -112,7 +112,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
     ~H"""
     <article
       id={"secure-execution-#{@execution.id}"}
-      class="card card-border bg-base-100"
+      class="card card-border bg-sr-surface"
       data-testid="secure-ansible-execution"
     >
       <div class="card-body gap-5">
@@ -122,11 +122,11 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
               <h3 class="card-title text-base">Execution {short_id(@execution.id)}</h3>
               <span class={state_badge_classes(@execution.state)}>{@execution.state}</span>
             </div>
-            <p class="mt-1 font-mono text-xs text-base-content/60 break-all">{@execution.id}</p>
+            <p class="mt-1 font-mono text-xs text-sr-muted break-all">{@execution.id}</p>
           </div>
           <div class="text-right text-sm">
             <p class="font-medium">{controller_name(@execution.controller)}</p>
-            <p class="font-mono text-xs text-base-content/60 break-all">
+            <p class="font-mono text-xs text-sr-muted break-all">
               {@execution.controller.id}
             </p>
           </div>
@@ -197,7 +197,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
           <div class="flex flex-wrap items-end justify-between gap-2">
             <div>
               <h4 class="font-semibold">Exact target tuples</h4>
-              <p class="text-sm text-base-content/60">
+              <p class="text-sm text-sr-muted">
                 Controller + inventory + AWX host ID distinguish duplicate hostnames.
               </p>
             </div>
@@ -215,7 +215,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
             <span>No immutable target tuple is recorded for this execution.</span>
           </div>
 
-          <div :if={@execution.targets != []} class="overflow-x-auto border border-base-300">
+          <div :if={@execution.targets != []} class="overflow-x-auto border border-sr-line">
             <table class={ui_table_class(size: "sm")} data-testid="secure-target-tuples">
               <thead>
                 <tr>
@@ -241,7 +241,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
                   <td>
                     <.link
                       navigate={~p"/devices/#{target.canonical_device_uid}"}
-                      class="link link-hover font-mono text-xs break-all"
+                      class="text-sr-brand hover:underline font-mono text-xs break-all"
                     >
                       {target.canonical_device_uid}
                     </.link>
@@ -309,12 +309,12 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
 
   defp diagnostics(assigns) do
     ~H"""
-    <section class="rounded-box border border-base-300 p-3" aria-label={"#{@subject} diagnostics"}>
-      <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+    <section class="rounded-box border border-sr-line p-3" aria-label={"#{@subject} diagnostics"}>
+      <h3 class="text-xs font-semibold uppercase tracking-wide text-sr-muted">
         Safe diagnostics
       </h3>
       <.diagnostic_list entries={@entries} />
-      <p :if={@entries == []} class="mt-1 text-sm text-base-content/60">
+      <p :if={@entries == []} class="mt-1 text-sm text-sr-muted">
         No allowlisted diagnostic fields are recorded. Sensitive and free-form values are withheld.
       </p>
     </section>
@@ -327,11 +327,11 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
     ~H"""
     <ul :if={@entries != []} class="mt-1 space-y-1 text-xs">
       <li :for={entry <- @entries}>
-        <span class="text-base-content/60">{entry.label}:</span>
+        <span class="text-sr-muted">{entry.label}:</span>
         <code class="break-all">{entry.value}</code>
       </li>
     </ul>
-    <span :if={@entries == []} class="text-xs text-base-content/50">—</span>
+    <span :if={@entries == []} class="text-xs text-sr-muted">—</span>
     """
   end
 
@@ -354,8 +354,8 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
 
   defp evidence_card(assigns) do
     ~H"""
-    <div class="rounded-box border border-base-300 p-3 min-w-0">
-      <p class="text-xs uppercase tracking-wide text-base-content/60">{@label}</p>
+    <div class="rounded-box border border-sr-line p-3 min-w-0">
+      <p class="text-xs uppercase tracking-wide text-sr-muted">{@label}</p>
       <p class={["mt-1 text-sm break-all", @mono && "font-mono"]}>{display(@value)}</p>
     </div>
     """

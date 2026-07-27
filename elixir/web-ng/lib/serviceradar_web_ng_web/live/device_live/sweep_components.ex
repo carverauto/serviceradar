@@ -20,8 +20,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
       |> assign(:total, length(results))
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line">
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-2">
             <.icon name="hero-signal" class="size-4 text-info" />
@@ -36,8 +36,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
       <div class="p-4">
         <%= if @latest do %>
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-            <div class="p-3 bg-base-200/50 rounded-lg">
-              <div class="text-xs text-base-content/60 uppercase">Status</div>
+            <div class="p-3 bg-sr-subtle/50 rounded-lg">
+              <div class="text-xs text-sr-muted uppercase">Status</div>
               <div class="mt-1 flex items-center gap-2">
                 <span class={[
                   "size-2 rounded-full",
@@ -49,14 +49,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
                 <span class="font-medium">{status_label(@latest.status)}</span>
               </div>
             </div>
-            <div class="p-3 bg-base-200/50 rounded-lg">
-              <div class="text-xs text-base-content/60 uppercase">Response Time</div>
+            <div class="p-3 bg-sr-subtle/50 rounded-lg">
+              <div class="text-xs text-sr-muted uppercase">Response Time</div>
               <div class="mt-1 font-mono">
                 {format_response_time(@latest.response_time_ms)}
               </div>
             </div>
-            <div class="p-3 bg-base-200/50 rounded-lg">
-              <div class="text-xs text-base-content/60 uppercase">Last Sweep</div>
+            <div class="p-3 bg-sr-subtle/50 rounded-lg">
+              <div class="text-xs text-sr-muted uppercase">Last Sweep</div>
               <div class="mt-1 text-sm">
                 {format_sweep_time(@latest.inserted_at)}
               </div>
@@ -65,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
 
           <%= if @latest.open_ports != [] do %>
             <div class="mt-4">
-              <div class="text-xs text-base-content/60 uppercase mb-2">Open Ports</div>
+              <div class="text-xs text-sr-muted uppercase mb-2">Open Ports</div>
               <div class="flex flex-wrap gap-2">
                 <%= for port <- @latest.open_ports do %>
                   <.ui_badge variant="ghost" size="sm" class="font-mono">{port}</.ui_badge>
@@ -75,14 +75,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
           <% end %>
 
           <%= if @total > 1 do %>
-            <div class="mt-4 pt-4 border-t border-base-200">
-              <div class="text-xs text-base-content/60 mb-2">
+            <div class="mt-4 pt-4 border-t border-sr-line">
+              <div class="text-xs text-sr-muted mb-2">
                 Recent Sweep History ({@total} results)
               </div>
               <div class="sr-ui-table-shell">
                 <table class={ui_table_class(size: "xs")}>
                   <thead>
-                    <tr class="text-xs text-base-content/60">
+                    <tr class="text-xs text-sr-muted">
                       <th>Time</th>
                       <th>Agent</th>
                       <th>Status</th>
@@ -93,7 +93,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
                   </thead>
                   <tbody>
                     <%= for result <- Enum.take(@results, 5) do %>
-                      <tr class="hover:bg-base-200/40">
+                      <tr class="hover:bg-sr-subtle/40">
                         <td class="font-mono text-xs">{format_sweep_time(result.inserted_at)}</td>
                         <td
                           class="font-mono text-xs truncate max-w-[8rem]"
@@ -127,7 +127,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
             </div>
           <% end %>
         <% else %>
-          <div class="text-center py-4 text-base-content/60">
+          <div class="text-center py-4 text-sr-muted">
             <.icon name="hero-signal-slash" class="size-8 mx-auto mb-2 opacity-50" />
             <p class="text-sm">No sweep results for this device yet.</p>
             <p class="text-xs mt-1">Add this device to a sweep group to start monitoring.</p>
@@ -153,12 +153,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
       |> assign(:toggle_label, if(assigns.show_stale, do: "Hide stale", else: "Show stale"))
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
           <.icon name="hero-arrow-path-rounded-square" class="size-4 text-primary" />
           <span class="text-sm font-semibold">IP Aliases</span>
-          <span class="text-xs text-base-content/50">({@alias_count})</span>
+          <span class="text-xs text-sr-muted">({@alias_count})</span>
         </div>
         <.ui_button type="button" phx-click="toggle_aliases" aria-pressed={@show_stale} size="xs" variant="ghost">
           {@toggle_label}
@@ -170,14 +170,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
           {@error}
         </div>
 
-        <div :if={!is_binary(@error) and @aliases == []} class="text-sm text-base-content/60">
+        <div :if={!is_binary(@error) and @aliases == []} class="text-sm text-sr-muted">
           No IP aliases recorded yet.
         </div>
 
         <div :if={!is_binary(@error) and @aliases != []} class="overflow-x-auto">
           <table class={ui_table_class(size: "xs")}>
             <thead>
-              <tr class="text-xs text-base-content/60">
+              <tr class="text-xs text-sr-muted">
                 <th>IP Address</th>
                 <th>State</th>
                 <th>Sightings</th>
@@ -186,7 +186,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
             </thead>
             <tbody>
               <%= for alias_state <- @aliases do %>
-                <tr class="hover:bg-base-200/40">
+                <tr class="hover:bg-sr-subtle/40">
                   <td class="font-mono text-xs">{alias_state.alias_value}</td>
                   <td>
                     <.ui_badge size="sm" variant={alias_state_variant(alias_state.state)}>

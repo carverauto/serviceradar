@@ -128,7 +128,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
             <:header>
               <div class="min-w-0">
                 <div class="text-sm font-semibold">Event Stream</div>
-                <div class="text-xs text-base-content/70">
+                <div class="text-xs text-sr-muted">
                   Click any event to view full details.
                 </div>
               </div>
@@ -136,7 +136,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
 
             <.events_table id="events" events={@streams.events} count={length(@events)} />
 
-            <div class="mt-4 pt-4 border-t border-base-200">
+            <div class="mt-4 pt-4 border-t border-sr-line">
               <.ui_pagination
                 prev_cursor={Map.get(@pagination, "prev_cursor")}
                 next_cursor={Map.get(@pagination, "next_cursor")}
@@ -176,9 +176,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
       |> assign(:informational, informational)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
       <div class="flex items-center justify-between mb-3">
-        <div class="text-xs text-base-content/50 uppercase tracking-wider">
+        <div class="text-xs text-sr-muted uppercase tracking-wider">
           Event Severity Breakdown
         </div>
         <div class="flex items-center gap-1">
@@ -297,14 +297,14 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     ~H"""
     <.link
       patch={~p"/events?#{%{q: @query}}"}
-      class="rounded-xl border border-base-200 bg-base-100 p-4 hover:bg-base-200/40 transition-colors group"
+      class="rounded-xl border border-sr-line bg-sr-surface p-4 hover:bg-sr-subtle/40 transition-colors group"
     >
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
           <div class={["text-xs font-medium uppercase tracking-wider", color_class(@color)]}>
             {@label}
           </div>
-          <div class="mt-1 text-xs text-base-content/60 truncate">{@detail}</div>
+          <div class="mt-1 text-xs text-sr-muted truncate">{@detail}</div>
         </div>
         <div class="text-2xl font-semibold group-hover:text-primary">{@count}</div>
       </div>
@@ -331,14 +331,14 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     ~H"""
     <.link
       patch={~p"/events?#{%{q: @query}}"}
-      class="rounded-lg bg-base-200/50 p-3 hover:bg-base-200 transition-colors cursor-pointer group"
+      class="rounded-lg bg-sr-subtle/50 p-3 hover:bg-sr-subtle transition-colors cursor-pointer group"
     >
       <div class="flex items-center justify-between mb-1">
         <span class={["text-xs font-medium", color_class(@color)]}>{@label}</span>
-        <span class="text-xs text-base-content/50">{@pct}%</span>
+        <span class="text-xs text-sr-muted">{@pct}%</span>
       </div>
       <div class="text-xl font-bold group-hover:text-primary">{@count}</div>
-      <div class="h-1 bg-base-300 rounded-full mt-2 overflow-hidden">
+      <div class="h-1 bg-sr-control rounded-full mt-2 overflow-hidden">
         <div class={["h-full rounded-full", color_bg(@color)]} style={"width: #{@pct}%"} />
       </div>
     </.link>
@@ -349,13 +349,13 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   defp color_class("warning"), do: "text-warning"
   defp color_class("info"), do: "text-info"
   defp color_class("success"), do: "text-success"
-  defp color_class(_), do: "text-base-content"
+  defp color_class(_), do: "text-sr-ink"
 
   defp color_bg("error"), do: "bg-error"
   defp color_bg("warning"), do: "bg-warning"
   defp color_bg("info"), do: "bg-info"
   defp color_bg("success"), do: "bg-success"
-  defp color_bg(_), do: "bg-base-content"
+  defp color_bg(_), do: "bg-sr-ink"
 
   attr :id, :string, required: true
   attr :events, :any, required: true
@@ -367,23 +367,23 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
       <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-40">
               Time
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-24">
               Severity
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-40">
               Source
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60">
               Message
             </th>
           </tr>
         </thead>
         <tbody id={"#{@id}-rows"} phx-update="stream">
           <tr :if={@count == 0}>
-            <td colspan="4" class="text-sm text-base-content/60 py-8 text-center">
+            <td colspan="4" class="text-sm text-sr-muted py-8 text-center">
               No events found.
             </td>
           </tr>
@@ -391,7 +391,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
           <%= for {dom_id, event} <- @events do %>
             <tr
               id={dom_id}
-              class="hover:bg-base-200/40 cursor-pointer transition-colors"
+              class="hover:bg-sr-subtle/40 cursor-pointer transition-colors"
               phx-click={JS.navigate(~p"/events/#{event_id(event)}")}
             >
               <td class="whitespace-nowrap text-xs font-mono">

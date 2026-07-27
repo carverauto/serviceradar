@@ -267,11 +267,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
       shell={:operations}
     >
       <div class="mx-auto flex w-full max-w-none flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-        <section class="flex flex-col gap-3 border-b border-base-300 pb-5 lg:flex-row lg:items-end lg:justify-between">
+        <section class="flex flex-col gap-3 border-b border-sr-line pb-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p class="text-sm font-medium text-primary">Analytics</p>
             <h1 class="mt-1 text-2xl font-semibold tracking-normal">Dashboard Creator</h1>
-            <p class="mt-2 max-w-3xl text-sm text-base-content/65">
+            <p class="mt-2 max-w-3xl text-sm text-sr-ink/65">
               Build saved dashboards from bounded SRQL queries and render them at stable dashboard URLs.
             </p>
           </div>
@@ -281,20 +281,20 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
         </section>
 
         <div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(440px,1.05fr)]">
-          <section class="rounded-lg border border-base-300 bg-base-100">
-            <div class="border-b border-base-300 px-4 py-3">
+          <section class="rounded-lg border border-sr-line bg-sr-surface">
+            <div class="border-b border-sr-line px-4 py-3">
               <h2 class="text-sm font-semibold">Saved Dashboards</h2>
-              <p class="text-xs text-base-content/55">
+              <p class="text-xs text-sr-ink/55">
                 Opened by ID through /dashboard/:dashboard_id.
               </p>
             </div>
-            <div class="divide-y divide-base-200">
-              <div :if={@loading_dashboards?} class="p-4 text-sm text-base-content/60">
+            <div class="divide-y divide-sr-line">
+              <div :if={@loading_dashboards?} class="p-4 text-sm text-sr-muted">
                 Loading dashboards...
               </div>
               <div
                 :if={!@loading_dashboards? and @dashboards == []}
-                class="p-4 text-sm text-base-content/60"
+                class="p-4 text-sm text-sr-muted"
               >
                 No authored dashboards yet.
               </div>
@@ -313,10 +313,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
                     <.ui_badge size="sm" variant="outline">{dashboard.status}</.ui_badge>
                     <.ui_badge size="sm" variant="ghost">{dashboard.visibility}</.ui_badge>
                   </div>
-                  <p class="mt-1 truncate text-xs text-base-content/55">
+                  <p class="mt-1 truncate text-xs text-sr-ink/55">
                     {dashboard.description || "No description"}
                   </p>
-                  <p class="mt-1 font-mono text-xs text-base-content/45">
+                  <p class="mt-1 font-mono text-xs text-sr-ink/45">
                     /dashboard/{Dashboards.authored_dashboard_route_ref(dashboard)}
                   </p>
                 </div>
@@ -332,10 +332,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
             </div>
           </section>
 
-          <section class="rounded-lg border border-base-300 bg-base-100">
-            <div class="border-b border-base-300 px-4 py-3">
+          <section class="rounded-lg border border-sr-line bg-sr-surface">
+            <div class="border-b border-sr-line px-4 py-3">
               <h2 class="text-sm font-semibold">New Dashboard</h2>
-              <p class="text-xs text-base-content/55">
+              <p class="text-xs text-sr-ink/55">
                 Create the dashboard first, then add SRQL-backed panels from its settings.
               </p>
             </div>
@@ -361,7 +361,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
                 <.ui_button type="submit" disabled={!@can_manage?} size="sm" variant="primary">
                   <.icon name="hero-bookmark-square" class="size-4" /> Create Dashboard
                 </.ui_button>
-                <span class="text-xs text-base-content/55">
+                <span class="text-xs text-sr-ink/55">
                   Panels are added after save so they can be tied to this dashboard.
                 </span>
               </div>

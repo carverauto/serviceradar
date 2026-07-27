@@ -36,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Badges do
 
     ~H"""
     <.ui_badge :if={@label != "—"} variant={@variant} size="xs">{@label}</.ui_badge>
-    <span :if={@label == "—"} class="text-base-content/40">—</span>
+    <span :if={@label == "—"} class="text-sr-muted">—</span>
     """
   end
 
@@ -95,7 +95,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Badges do
         <.icon name="hero-cpu-chip" class="size-4 text-success" />
       </span>
     </div>
-    <span :if={not @has_snmp and not @has_sysmon} class="text-base-content/40">—</span>
+    <span :if={not @has_snmp and not @has_sysmon} class="text-sr-muted">—</span>
     """
   end
 
@@ -122,7 +122,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Badges do
         data-testid="sysmon-profile-label"
         class={[
           "text-xs truncate max-w-[8rem]",
-          if(@source == :direct, do: "font-medium text-base-content", else: "text-base-content/60")
+          if(@source == :direct, do: "font-medium text-sr-ink", else: "text-sr-muted")
         ]}
       >
         {@label}

@@ -260,8 +260,8 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
       >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">Collectors</h1>
-            <p class="text-sm text-base-content/60">
+            <h1 class="text-2xl font-semibold text-sr-ink">Collectors</h1>
+            <p class="text-sm text-sr-muted">
               Manage NATS-connected data collectors for your account.
             </p>
           </div>
@@ -295,7 +295,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Collector Packages</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 {@packages |> length()} package(s)
               </p>
             </div>
@@ -328,9 +328,9 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
           <div class="overflow-x-auto">
             <%= if @packages == [] do %>
-              <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-8 text-center">
-                <div class="text-sm font-semibold text-base-content">No collectors found</div>
-                <p class="mt-1 text-xs text-base-content/60">
+              <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-8 text-center">
+                <div class="text-sm font-semibold text-sr-ink">No collectors found</div>
+                <p class="mt-1 text-xs text-sr-muted">
                   <%= if @account_status != :ready do %>
                     Your NATS account is being provisioned. Please wait...
                   <% else %>
@@ -341,7 +341,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
             <% else %>
               <table class={ui_table_class(size: "sm")}>
                 <thead>
-                  <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                  <tr class="text-xs uppercase tracking-wide text-sr-muted">
                     <th>Collector</th>
                     <th>Type</th>
                     <th>Status</th>
@@ -353,10 +353,10 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                 </thead>
                 <tbody>
                   <%= for package <- @packages do %>
-                    <tr class="hover:bg-base-200/30">
+                    <tr class="hover:bg-sr-subtle/30">
                       <td>
                         <div class="font-medium font-mono text-xs">{package.user_name}</div>
-                        <div class="text-xs text-base-content/60">
+                        <div class="text-xs text-sr-muted">
                           {String.slice(package.id, 0, 8)}...
                         </div>
                       </td>
@@ -371,15 +371,15 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                         <%= if package.edge_site do %>
                           <.link
                             navigate={~p"/admin/edge-sites/#{package.edge_site.id}"}
-                            class="link link-primary"
+                            class="text-sr-brand hover:underline"
                           >
                             {package.edge_site.name}
                           </.link>
                         <% else %>
-                          <span class="text-base-content/50">SaaS</span>
+                          <span class="text-sr-muted">SaaS</span>
                         <% end %>
                       </td>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         {format_datetime(package.inserted_at)}
                       </td>
                       <td>
@@ -420,14 +420,14 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
           </:header>
 
           <%= if @credentials == [] do %>
-            <div class="text-center py-4 text-sm text-base-content/60">
+            <div class="text-center py-4 text-sm text-sr-muted">
               No credentials issued yet.
             </div>
           <% else %>
             <div class="sr-ui-table-shell">
               <table class={ui_table_class(size: "xs")}>
                 <thead>
-                  <tr class="text-[11px] uppercase tracking-wide text-base-content/50">
+                  <tr class="text-[11px] uppercase tracking-wide text-sr-muted">
                     <th>User</th>
                     <th>Type</th>
                     <th>Status</th>
@@ -482,7 +482,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
             <.icon name="hero-check-circle" class="size-6 text-success" />
             <div>
               <div class="font-semibold">NATS Account Ready</div>
-              <div class="text-xs text-base-content/60 font-mono">
+              <div class="text-xs text-sr-muted font-mono">
                 {String.slice(@account_public_key || "", 0, 20)}...
               </div>
             </div>
@@ -490,7 +490,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
             <.ui_spinner size="sm" />
             <div>
               <div class="font-semibold">Provisioning NATS Account</div>
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 Please wait while your account is being set up...
               </div>
             </div>
@@ -498,7 +498,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
             <.icon name="hero-exclamation-triangle" class="size-6 text-error" />
             <div>
               <div class="font-semibold">NATS Account Error</div>
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 There was an issue provisioning your account. Please contact support.
               </div>
             </div>
@@ -506,7 +506,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
             <.icon name="hero-clock" class="size-6 text-warning" />
             <div>
               <div class="font-semibold">NATS Account Not Configured</div>
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 Your account is being set up.
               </div>
             </div>
@@ -526,7 +526,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
               <.icon name="hero-check-circle" class="size-10 text-success" />
             </div>
             <h3 class="text-xl font-bold">Collector Created</h3>
-            <p class="text-sm text-base-content/70 mt-1">
+            <p class="text-sm text-sr-muted mt-1">
               Your collector package is being provisioned.
             </p>
           </div>
@@ -534,11 +534,11 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
           <div class="mt-6 space-y-4">
             <div class="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <div class="text-xs uppercase tracking-wide text-base-content/60">User Name</div>
+                <div class="text-xs uppercase tracking-wide text-sr-muted">User Name</div>
                 <code class="font-mono text-xs">{@created_package.user_name}</code>
               </div>
               <div>
-                <div class="text-xs uppercase tracking-wide text-base-content/60">Type</div>
+                <div class="text-xs uppercase tracking-wide text-sr-muted">Type</div>
                 <span>{@created_package.collector_type}</span>
               </div>
             </div>
@@ -547,8 +547,8 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
               <div class="space-y-3">
                 <div class="text-sm font-medium">Enrollment Instructions</div>
 
-                <div class="bg-base-200 rounded-lg p-3">
-                  <div class="text-xs uppercase tracking-wide text-base-content/60 mb-2">
+                <div class="bg-sr-subtle rounded-lg p-3">
+                  <div class="text-xs uppercase tracking-wide text-sr-muted mb-2">
                     <%= if @created_package.collector_type == :falcosidekick do %>
                       Step 1: Download and deploy the bundle
                     <% else %>
@@ -556,7 +556,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                     <% end %>
                   </div>
                   <%= if @created_package.collector_type == :falcosidekick do %>
-                    <div class="text-xs text-base-content/70">
+                    <div class="text-xs text-sr-muted">
                       This collector deploys through Helm and reuses the namespace's
                       `serviceradar-runtime-certs` secret.
                     </div>
@@ -570,9 +570,9 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                   <% end %>
                 </div>
 
-                <div class="bg-base-200 rounded-lg p-3">
+                <div class="bg-sr-subtle rounded-lg p-3">
                   <div class="flex items-center justify-between mb-2">
-                    <div class="text-xs uppercase tracking-wide text-base-content/60">
+                    <div class="text-xs uppercase tracking-wide text-sr-muted">
                       <%= if @created_package.collector_type == :falcosidekick do %>
                         Step 2: Run the bundle command
                       <% else %>
@@ -583,7 +583,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                       <.icon name="hero-clipboard-document" class="size-3" /> Copy
                     </.ui_button>
                   </div>
-                  <code class="font-mono text-xs break-all bg-base-300 p-2 rounded block">
+                  <code class="font-mono text-xs break-all bg-sr-control p-2 rounded block">
                     {@created_install_command}
                   </code>
                 </div>
@@ -613,7 +613,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
           </div>
         <% else %>
           <h3 class="text-lg font-bold">Create Collector Package</h3>
-          <p class="py-2 text-sm text-base-content/70">
+          <p class="py-2 text-sm text-sr-muted">
             Create a new NATS-connected collector for sending data to the platform.
           </p>
 
@@ -640,7 +640,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                 placeholder="e.g., datacenter-1, office-nyc"
               />
               <label class="label">
-                <span class="label-text-alt text-base-content/60">
+                <span class="label-text-alt text-sr-muted">
                   Deployment location for this collector
                 </span>
               </label>
@@ -669,7 +669,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                 <% end %>
               </select>
               <label class="label">
-                <span class="label-text-alt text-base-content/60">
+                <span class="label-text-alt text-sr-muted">
                   Connect to a local NATS leaf server for low latency
                 </span>
               </label>
@@ -693,34 +693,34 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
         <div class="mt-4 space-y-4">
           <div class="grid grid-cols-2 gap-4">
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">User Name</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">User Name</div>
               <code class="font-mono text-sm">{@package.user_name}</code>
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Status</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Status</div>
               <.status_badge status={@package.status} />
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Type</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Type</div>
               <.collector_type_badge type={@package.collector_type} />
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Site</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Site</div>
               <span class="text-sm">{@package.site || "-"}</span>
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Hostname</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Hostname</div>
               <span class="text-sm">{@package.hostname || "-"}</span>
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Created</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Created</div>
               <span class="text-sm">{format_datetime(@package.inserted_at)}</span>
             </div>
           </div>
 
           <div>
-            <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Package ID</div>
-            <code class="text-sm font-mono bg-base-200 p-2 rounded block">{@package.id}</code>
+            <div class="text-xs uppercase tracking-wide text-sr-muted mb-1">Package ID</div>
+            <code class="text-sm font-mono bg-sr-subtle p-2 rounded block">{@package.id}</code>
           </div>
 
           <%= if @package.error_message do %>

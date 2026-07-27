@@ -190,7 +190,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 class="text-xl font-semibold">Remote Access Host Keys</h1>
-              <p class="mt-1 text-sm text-base-content/70">
+              <p class="mt-1 text-sm text-sr-muted">
                 Review SSH host keys observed by routed agents before trusting console and SSH targets.
               </p>
             </div>
@@ -198,7 +198,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
 
           <form
             id="host-key-filters"
-            class="grid gap-3 rounded-lg border border-base-200 bg-base-100 p-4 md:grid-cols-[1fr_1fr_14rem_auto]"
+            class="grid gap-3 rounded-lg border border-sr-line bg-sr-surface p-4 md:grid-cols-[1fr_1fr_14rem_auto]"
             phx-submit="filter"
           >
             <label class="form-control">
@@ -240,7 +240,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
             </div>
           </form>
 
-          <div class="overflow-hidden rounded-lg border border-base-200 bg-base-100">
+          <div class="overflow-hidden rounded-lg border border-sr-line bg-sr-surface">
             <div class="sr-ui-table-shell">
               <table class={ui_table_class(size: "sm")}>
                 <thead>
@@ -257,31 +257,31 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
                 </thead>
                 <tbody>
                   <tr :if={@loading?}>
-                    <td colspan="8" class="py-8 text-center text-sm text-base-content/60">
+                    <td colspan="8" class="py-8 text-center text-sm text-sr-muted">
                       Loading host keys.
                     </td>
                   </tr>
                   <tr :if={!@loading? and @host_keys == []}>
-                    <td colspan="8" class="py-8 text-center text-sm text-base-content/60">
+                    <td colspan="8" class="py-8 text-center text-sm text-sr-muted">
                       No host keys found.
                     </td>
                   </tr>
                   <tr :for={host_key <- @host_keys}>
                     <td>
                       <div class="font-medium">{host_key.target_host}</div>
-                      <div class="text-xs text-base-content/60">
+                      <div class="text-xs text-sr-muted">
                         {host_key.protocol}:{host_key.target_port}
                       </div>
                     </td>
                     <td>
                       <div>{host_key.agent_id}</div>
-                      <div :if={host_key.gateway_id} class="text-xs text-base-content/60">
+                      <div :if={host_key.gateway_id} class="text-xs text-sr-muted">
                         {host_key.gateway_id}
                       </div>
                     </td>
                     <td>
                       <div class="font-mono text-xs">{host_key.fingerprint_sha256}</div>
-                      <div class="text-xs text-base-content/60">{host_key.key_type}</div>
+                      <div class="text-xs text-sr-muted">{host_key.key_type}</div>
                     </td>
                     <td>
                       <.ui_badge size="sm" variant={status_badge_variant(host_key.status)}>
@@ -332,7 +332,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
     <dialog class="modal modal-open">
       <div class="modal-box max-w-2xl">
         <h2 class="text-lg font-semibold">Rotate Host Key</h2>
-        <p class="mt-1 text-sm text-base-content/70">
+        <p class="mt-1 text-sm text-sr-muted">
           {@host_key.target_host}:{@host_key.target_port} via {@host_key.agent_id}
         </p>
 

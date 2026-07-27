@@ -130,7 +130,7 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
       <div class="mx-auto max-w-md p-6 space-y-6">
         <header class="text-center space-y-2">
           <h1 class="text-2xl font-semibold">Authorize CLI Session</h1>
-          <p class="text-sm text-base-content/70">
+          <p class="text-sm text-sr-muted">
             Confirm the CLI session ServiceRadar should issue for your account.
           </p>
         </header>
@@ -157,7 +157,7 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
               </.ui_button>
             </form>
           <% :pending -> %>
-            <div class="card bg-base-200 shadow">
+            <div class="card bg-sr-subtle shadow">
               <div class="card-body space-y-3">
                 <div>
                   <div class="label-text">Client</div>

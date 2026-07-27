@@ -65,10 +65,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
 
     ~H"""
     <div class="space-y-4">
-      <div :if={@loading} class="rounded-xl border border-base-200 bg-base-100 p-8 text-center">
+      <div :if={@loading} class="rounded-xl border border-sr-line bg-sr-surface p-8 text-center">
         <.ui_spinner size="md" />
         <p class="mt-3 text-sm font-semibold">Loading recent flows</p>
-        <p class="mt-1 text-xs text-base-content/60">
+        <p class="mt-1 text-xs text-sr-muted">
           Searching this device's last 24 hours of flow data.
         </p>
       </div>
@@ -108,12 +108,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
       <%!-- Traffic Profile chart --%>
       <div
         :if={@flow_chart_points_json != "[]"}
-        class="rounded-xl border border-base-200 bg-base-100 p-4"
+        class="rounded-xl border border-sr-line bg-sr-surface p-4"
       >
         <div class="flex items-center gap-2 mb-3">
           <.icon name="hero-chart-bar" class="size-4 text-primary" />
           <span class="text-sm font-semibold">Traffic Profile</span>
-          <span class="text-xs text-base-content/50">(last 24h · drag to zoom)</span>
+          <span class="text-xs text-sr-muted">(last 24h · drag to zoom)</span>
         </div>
         <div
           id="device-flow-traffic-profile"
@@ -165,12 +165,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
       <%!-- Protocol breakdown --%>
       <div
         :if={@proto_json != "[]"}
-        class="rounded-xl border border-base-200 bg-base-100 p-4"
+        class="rounded-xl border border-sr-line bg-sr-surface p-4"
       >
         <div class="flex items-center gap-2 mb-3">
           <.icon name="hero-chart-pie" class="size-4 text-primary" />
           <span class="text-sm font-semibold">Protocol Breakdown</span>
-          <span class="text-xs text-base-content/50">(last 24h)</span>
+          <span class="text-xs text-sr-muted">(last 24h)</span>
         </div>
         <.protocol_breakdown id="device-proto-donut" data_json={@proto_json} height={180} />
       </div>
@@ -178,7 +178,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
       <%!-- Quick filters / faceting --%>
       <div
         :if={@facets.protocols != [] or @facets.directions != [] or @facets.services != []}
-        class="rounded-xl border border-base-200 bg-base-100 p-4"
+        class="rounded-xl border border-sr-line bg-sr-surface p-4"
       >
         <div class="flex items-center gap-2 mb-3">
           <.icon name="hero-funnel" class="size-4 text-primary" />
@@ -222,11 +222,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
         class="flex items-center gap-2 px-3 py-2 rounded-lg bg-info/10 border border-info/20 text-sm"
       >
         <.icon name="hero-magnifying-glass-plus-solid" class="size-4 text-info" />
-        <span class="text-base-content/70">Zoomed to</span>
+        <span class="text-sr-muted">Zoomed to</span>
         <.ui_badge size="sm" variant="info" class="font-mono">
           {String.slice(@zoom_range.start, 0, 19)}
         </.ui_badge>
-        <span class="text-base-content/50">&rarr;</span>
+        <span class="text-sr-muted">&rarr;</span>
         <.ui_badge size="sm" variant="info" class="font-mono">
           {String.slice(@zoom_range.end, 0, 19)}
         </.ui_badge>
@@ -239,7 +239,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
         class="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20 text-sm"
       >
         <.icon name="hero-funnel-solid" class="size-4 text-primary" />
-        <span class="text-base-content/70">Filtered by</span>
+        <span class="text-sr-muted">Filtered by</span>
         <span class="font-semibold">{@active_topn.field}:</span>
         <.ui_badge size="sm" variant="primary">{@active_topn.value}</.ui_badge>
         <.ui_button phx-click="clear_topn_filter" size="xs" variant="ghost" class="ml-auto text-error">

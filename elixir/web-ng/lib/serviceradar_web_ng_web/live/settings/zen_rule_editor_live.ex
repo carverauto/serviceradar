@@ -243,8 +243,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
       >
         <div class="flex items-center justify-between">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">{@page_title}</h1>
-            <p class="text-sm text-base-content/60">
+            <h1 class="text-2xl font-semibold text-sr-ink">{@page_title}</h1>
+            <p class="text-sm text-sr-muted">
               Build decision logic for log normalization using the visual editor.
             </p>
           </div>
@@ -330,7 +330,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
                   </.ui_button>
                   <div>
                     <div class="text-sm font-semibold">Decision Logic</div>
-                    <div class="text-xs text-base-content/60">
+                    <div class="text-xs text-sr-muted">
                       Build your rule logic using the visual editor.
                     </div>
                   </div>

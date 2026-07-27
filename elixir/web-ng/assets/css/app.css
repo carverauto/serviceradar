@@ -1546,18 +1546,29 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   box-sizing: border-box;
   font-family: var(--sr-font-sans);
   color: var(--color-sr-ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .sr-log-viewer button,
 .sr-log-viewer input,
 .sr-log-viewer select,
-.sr-log-viewer textarea {
+.sr-log-viewer textarea,
+.sr-log-viewer a,
+.sr-log-viewer h1,
+.sr-log-viewer h2,
+.sr-log-viewer h3,
+.sr-log-viewer span:not(.font-mono),
+.sr-log-viewer p:not(.font-mono),
+.sr-log-viewer label {
   font-family: inherit;
 }
 
 .sr-log-viewer .font-mono,
 .sr-log-viewer code,
-.sr-log-viewer pre {
+.sr-log-viewer pre,
+.sr-log-viewer kbd,
+.sr-log-viewer samp {
   font-family: var(--sr-font-mono);
 }
 

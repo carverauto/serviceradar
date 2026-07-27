@@ -220,7 +220,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
           <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
               <h1 class="text-xl font-semibold">Threat Intel</h1>
-              <p class="text-sm text-base-content/60">
+              <p class="text-sm text-sr-muted">
                 Configure edge collection for AlienVault OTX indicators.
               </p>
             </div>
@@ -242,29 +242,29 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
 
           <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
             <div class="space-y-4">
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div class="text-sm font-semibold">AlienVault OTX Edge Collector</div>
-                    <div class="font-mono text-xs text-base-content/60">{@plugin_id}</div>
+                    <div class="font-mono text-xs text-sr-muted">{@plugin_id}</div>
                   </div>
                   <.package_status package={@latest_package} approved_package={@approved_package} />
                 </div>
               </div>
 
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="mb-3 text-sm font-semibold">Assignments</div>
                 <%= if @assignments == [] do %>
-                  <div class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+                  <div class="rounded-lg border border-dashed border-sr-line p-4 text-sm text-sr-muted">
                     No edge assignments.
                   </div>
                 <% else %>
-                  <div class="divide-y divide-base-200">
+                  <div class="divide-y divide-sr-line">
                     <%= for assignment <- @assignments do %>
                       <div class="flex flex-col gap-3 py-3 first:pt-0 last:pb-0 md:flex-row md:items-center md:justify-between">
                         <div>
                           <div class="font-mono text-sm">{assignment.agent_uid}</div>
-                          <div class="text-xs text-base-content/60">
+                          <div class="text-xs text-sr-muted">
                             every {assignment.interval_seconds}s, timeout {assignment.timeout_seconds}s
                           </div>
                         </div>
@@ -284,20 +284,20 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                 <% end %>
               </div>
 
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="mb-3 text-sm font-semibold">Sync Health</div>
                 <%= if @sync_statuses == [] do %>
-                  <div class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+                  <div class="rounded-lg border border-dashed border-sr-line p-4 text-sm text-sr-muted">
                     No sync runs recorded.
                   </div>
                 <% else %>
-                  <div class="divide-y divide-base-200">
+                  <div class="divide-y divide-sr-line">
                     <%= for status <- @sync_statuses do %>
                       <div class="py-3 first:pt-0 last:pb-0 space-y-2">
                         <div class="flex flex-wrap items-start justify-between gap-2">
                           <div>
                             <div class="font-mono text-sm">{status_agent_label(status)}</div>
-                            <div class="text-xs text-base-content/60">
+                            <div class="text-xs text-sr-muted">
                               {status.collection_id || "collection"} · {format_datetime(
                                 status.last_attempt_at
                               )}
@@ -315,7 +315,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                         </div>
                         <div
                           :if={skipped_by_type(status) != []}
-                          class="flex flex-wrap items-center gap-1 text-xs text-base-content/60"
+                          class="flex flex-wrap items-center gap-1 text-xs text-sr-muted"
                         >
                           <span>Skipped types:</span>
                           <.ui_badge
@@ -335,7 +335,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                 <% end %>
               </div>
 
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <div class="text-sm font-semibold">Current NetFlow IOC Matches</div>
                   <.ui_badge
@@ -365,7 +365,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   </.ui_badge>
                 </div>
                 <%= if @netflow_findings.recent == [] do %>
-                  <div class="mt-3 rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+                  <div class="mt-3 rounded-lg border border-dashed border-sr-line p-4 text-sm text-sr-muted">
                     No current NetFlow IOC matches in the refreshed cache.
                   </div>
                 <% else %>
@@ -392,20 +392,20 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                 <% end %>
               </div>
 
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="mb-3 text-sm font-semibold">Retrohunt Runs</div>
                 <%= if @retrohunt_runs == [] do %>
-                  <div class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+                  <div class="rounded-lg border border-dashed border-sr-line p-4 text-sm text-sr-muted">
                     No retrohunt runs recorded.
                   </div>
                 <% else %>
-                  <div class="divide-y divide-base-200">
+                  <div class="divide-y divide-sr-line">
                     <%= for run <- @retrohunt_runs do %>
                       <div class="py-3 first:pt-0 last:pb-0 space-y-2">
                         <div class="flex flex-wrap items-start justify-between gap-2">
                           <div>
                             <div class="font-mono text-sm">{run.source}</div>
-                            <div class="text-xs text-base-content/60">
+                            <div class="text-xs text-sr-muted">
                               {format_datetime(run.window_start)} - {format_datetime(run.window_end)}
                             </div>
                           </div>
@@ -449,13 +449,13 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                 </div>
               </div>
 
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="mb-1 text-sm font-semibold">Imported Indicators</div>
-                <div class="mb-3 text-xs text-base-content/60">
+                <div class="mb-3 text-xs text-sr-muted">
                   OTX inventory stored locally. NetFlow hits only appear after the match cache evaluates imported IOCs against recent flows.
                 </div>
                 <%= if @indicators == [] do %>
-                  <div class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+                  <div class="rounded-lg border border-dashed border-sr-line p-4 text-sm text-sr-muted">
                     No imported indicators.
                   </div>
                 <% else %>
@@ -486,30 +486,30 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                 <% end %>
               </div>
 
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="mb-3 text-sm font-semibold">Source Objects</div>
                 <%= if @source_objects == [] do %>
-                  <div class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+                  <div class="rounded-lg border border-dashed border-sr-line p-4 text-sm text-sr-muted">
                     No source object metadata.
                   </div>
                 <% else %>
-                  <div class="divide-y divide-base-200">
+                  <div class="divide-y divide-sr-line">
                     <%= for object <- @source_objects do %>
                       <div class="py-3 first:pt-0 last:pb-0">
                         <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                           <div class="min-w-0">
                             <div class="truncate font-mono text-sm">{object.object_id}</div>
-                            <div class="text-xs text-base-content/60">
+                            <div class="text-xs text-sr-muted">
                               {object.object_type} · {object.source} · {object.collection_id || "-"}
                             </div>
                           </div>
-                          <div class="shrink-0 text-xs text-base-content/60">
+                          <div class="shrink-0 text-xs text-sr-muted">
                             {format_datetime(object.modified_at)}
                           </div>
                         </div>
                         <div
                           :if={source_object_label(object)}
-                          class="mt-2 text-xs text-base-content/70"
+                          class="mt-2 text-xs text-sr-muted"
                         >
                           {source_object_label(object)}
                         </div>
@@ -521,7 +521,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
             </div>
 
             <div class="space-y-4">
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="mb-3 flex items-center justify-between gap-3">
                   <div class="text-sm font-semibold">OTX Settings</div>
                   <.ui_badge :if={otx_api_key_present?(@otx_settings)} size="xs" variant="success">
@@ -615,7 +615,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                     />
                     <label
                       :if={otx_api_key_present?(@otx_settings)}
-                      class="mt-2 flex items-center gap-2 text-xs text-base-content/70"
+                      class="mt-2 flex items-center gap-2 text-xs text-sr-muted"
                     >
                       <input type="hidden" name="settings[clear_otx_api_key]" value="false" />
                       <input
@@ -691,7 +691,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                 </form>
               </div>
 
-              <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="mb-3 text-sm font-semibold">OTX Assignment</div>
                 <form
                   id="otx-assignment-form"
@@ -865,8 +865,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
 
   defp status_count(assigns) do
     ~H"""
-    <div class="rounded-lg border border-base-200/70 bg-base-100/60 p-2">
-      <div class="text-base-content/50">{@label}</div>
+    <div class="rounded-lg border border-sr-line/70 bg-sr-surface/60 p-2">
+      <div class="text-sr-muted">{@label}</div>
       <div class="font-mono text-sm">{@value}</div>
     </div>
     """

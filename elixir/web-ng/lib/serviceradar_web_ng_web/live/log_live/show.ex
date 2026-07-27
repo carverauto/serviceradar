@@ -16,10 +16,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   @stream_page_size 10
   # Matches LogLive.Index / SRQL bar defaults when running a query from detail.
   @srql_default_limit 20
-  @sensitive_log_keys ~w(
-    authorization api_key apikey bearer cookie credential credentials jwt password
-    private_key secret secret_key seed signing_key token nkey_seed nkey
-  )
 
   @impl true
   def mount(_params, _session, socket) do
@@ -599,7 +595,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       |> assign(:short_id, String.slice(assigns.log_id, 0, 8))
 
     ~H"""
-    <header class="space-y-3 border-b border-sr-line px-4 pb-4 pt-5 sm:px-6 sm:pt-6">
+    <header class="space-y-3 border-b border-sr-line px-4 pb-4 pt-5 font-sans sm:px-6 sm:pt-6">
       <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-sr-muted">
         <.link navigate={~p"/observability?#{%{tab: "logs"}}"} class="hover:text-sr-ink">logs</.link>
         <span class="text-sr-line-strong">/</span>
@@ -612,7 +608,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
         <div class="min-w-0 space-y-2">
           <div class="flex min-w-0 flex-wrap items-center gap-2.5">
             <.severity_badge value={Map.get(@log, "severity_text")} />
-            <h1 class="min-w-0 truncate text-lg font-semibold tracking-tight text-sr-ink sm:text-xl">
+            <h1 class="min-w-0 truncate font-sans text-lg font-semibold tracking-tight text-sr-ink sm:text-xl">
               {@title}
             </h1>
           </div>
@@ -679,8 +675,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
         :for={{label, value, mono?} <- @facts}
         class="flex min-w-0 flex-col gap-1 bg-sr-surface px-4 py-3"
       >
-        <span class="text-xs font-medium uppercase tracking-wide text-sr-muted">{label}</span>
-        <span class={["truncate text-sm text-sr-ink", mono? && "font-mono text-[13px] tracking-tight"]}>
+        <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">{label}</span>
+        <span class={[
+          "truncate font-sans text-sm text-sr-ink",
+          mono? && "font-mono text-[13px] tracking-tight"
+        ]}>
           {value}
         </span>
       </div>
@@ -747,7 +746,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     <div :if={not @empty?} class="space-y-3">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="flex flex-wrap items-center gap-2">
-          <span class="text-xs font-medium uppercase tracking-wide text-sr-muted">Message</span>
+          <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+            Message
+          </span>
           <div
             :if={length(@modes) > 1}
             class="inline-flex gap-0.5 rounded-sr-control border border-sr-line bg-sr-subtle/40 p-0.5"
@@ -1193,70 +1194,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     if map_size(result) > 0, do: result
   end
 
-  defp flatten_attribute_values(values) when is_map(values) do
-    values
-    |> Enum.flat_map(fn
-      {k, v} when is_map(v) ->
-        Enum.map(v, fn {nested_k, nested_v} -> {"#{k}.#{nested_k}", nested_v} end)
-
-      {k, v} ->
-        [{k, v}]
-    end)
-    |> Enum.reject(fn {_k, v} -> blank_value?(v) end)
-    |> Enum.sort_by(fn {k, _} -> k end)
-  end
-
-  defp flatten_attribute_values(value) do
-    if blank_value?(value) do
-      []
-    else
-      [{"value", value}]
-    end
-  end
-
-  defp format_attribute_value(key, value) when is_binary(key) do
-    if sensitive_log_key?(key), do: @redacted, else: format_attribute_value(value)
-  end
-
-  defp format_attribute_value(_key, value), do: format_attribute_value(value)
-
-  defp format_attribute_value(value) when is_binary(value), do: redact_secret_text(value)
-  defp format_attribute_value(value) when is_number(value), do: to_string(value)
-  defp format_attribute_value(value) when is_boolean(value), do: to_string(value)
-
-  defp format_attribute_value(value) when is_map(value) do
-    value |> normalize_metadata_value() |> redact_secret_value() |> Jason.encode!()
-  end
-
-  defp format_attribute_value(value) when is_list(value) do
-    value
-    |> normalize_metadata_value()
-    |> redact_secret_value()
-    |> case do
-      normalized when is_binary(normalized) -> redact_secret_text(normalized)
-      normalized -> Jason.encode!(normalized)
-    end
-  end
-
-  defp format_attribute_value(nil), do: "—"
-  defp format_attribute_value(value), do: inspect(value)
-
-  defp redact_secret_value(nil), do: nil
-
-  defp redact_secret_value(value) when is_map(value) do
-    Map.new(value, fn {key, nested} ->
-      if sensitive_log_key?(key) do
-        {key, @redacted}
-      else
-        {key, redact_secret_value(nested)}
-      end
-    end)
-  end
-
-  defp redact_secret_value(value) when is_list(value), do: Enum.map(value, &redact_secret_value/1)
-  defp redact_secret_value(value) when is_binary(value), do: redact_secret_text(value)
-  defp redact_secret_value(value), do: value
-
   defp redact_secret_text(value) when is_binary(value) do
     value
     |> redact_erlang_secret("nkey_seed")
@@ -1288,93 +1225,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     Regex.replace(~r/(#{Regex.escape(key)}\s*[=:]\s*)[^\s,}\]]+/i, value, "\\1#{@redacted}")
   end
 
-  defp sensitive_log_key?(key) do
-    key
-    |> to_string()
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9_]+/, "_")
-    |> then(fn normalized ->
-      normalized in @sensitive_log_keys or
-        Enum.any?(@sensitive_log_keys, fn key -> String.ends_with?(normalized, "_#{key}") end)
-    end)
-  end
-
-  defp simple_attribute_map?(attributes) when is_map(attributes) do
-    Enum.all?(attributes, fn
-      {_k, v} -> not is_map(v)
-    end)
-  end
-
-  defp simple_attribute_map?(_), do: false
-
   defp blank_value?(nil), do: true
   defp blank_value?(""), do: true
   defp blank_value?(_), do: false
-
-  attr :value, :any, default: nil
-
-  defp format_value(%{value: nil} = assigns) do
-    ~H|<span class="text-sr-muted">—</span>|
-  end
-
-  defp format_value(%{value: ""} = assigns) do
-    ~H|<span class="text-sr-muted">—</span>|
-  end
-
-  defp format_value(%{value: value} = assigns) when is_boolean(value) do
-    ~H"""
-    <.ui_badge variant={if @value, do: "success", else: "error"} size="xs">
-      {to_string(@value)}
-    </.ui_badge>
-    """
-  end
-
-  defp format_value(%{value: value} = assigns) when is_integer(value) and value == 0 do
-    ~H|<span class="text-sr-muted">—</span>|
-  end
-
-  defp format_value(%{value: value} = assigns) when is_map(value) or is_list(value) do
-    formatted = value |> normalize_metadata_value() |> redact_secret_value() |> Jason.encode!(pretty: true)
-    assigns = assign(assigns, :formatted, formatted)
-
-    ~H"""
-    <pre class="max-h-48 overflow-x-auto rounded-sr-control border border-sr-line bg-sr-subtle/50 p-2 font-mono text-xs text-sr-ink">{@formatted}</pre>
-    """
-  end
-
-  defp format_value(%{value: value} = assigns) when is_binary(value) do
-    # Check if it looks like JSON
-    if String.starts_with?(value, "{") or String.starts_with?(value, "[") do
-      case Jason.decode(value) do
-        {:ok, decoded} ->
-          formatted = decoded |> redact_secret_value() |> Jason.encode!(pretty: true)
-          assigns = assign(assigns, :formatted, formatted)
-
-          ~H"""
-          <pre class="max-h-48 overflow-x-auto rounded-sr-control border border-sr-line bg-sr-subtle/50 p-2 font-mono text-xs text-sr-ink">{@formatted}</pre>
-          """
-
-        {:error, _} ->
-          assigns = assign(assigns, :value, redact_secret_text(value))
-
-          ~H"""
-          <span class="font-mono text-xs text-sr-ink">{@value}</span>
-          """
-      end
-    else
-      assigns = assign(assigns, :value, redact_secret_text(value))
-
-      ~H"""
-      <span class="text-sr-ink">{@value}</span>
-      """
-    end
-  end
-
-  defp format_value(assigns) do
-    ~H"""
-    <span class="text-sr-ink">{to_string(@value)}</span>
-    """
-  end
 
   defp printable_charlist?(value) when is_list(value) and value != [] do
     Enum.all?(value, &printable_codepoint?/1)
@@ -1471,34 +1324,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp parse_timestamp(_), do: :error
-
-  defp display_field?(log, field) do
-    value = Map.get(log, field)
-
-    cond do
-      field == "trace_flags" and value in [0, "0"] -> false
-      is_map(value) and map_size(value) == 0 -> false
-      value in [nil, ""] -> false
-      true -> true
-    end
-  end
-
-  defp has_value?(map, key) do
-    case Map.get(map, key) do
-      nil -> false
-      "" -> false
-      _ -> true
-    end
-  end
-
-  defp humanize_field(field) when is_binary(field) do
-    field
-    |> String.replace("_", " ")
-    |> String.split()
-    |> Enum.map_join(" ", &String.capitalize/1)
-  end
-
-  defp humanize_field(field), do: to_string(field)
 
   defp escape_value(value) when is_binary(value) do
     value

@@ -24,7 +24,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComposerComponents do
       phx-key="Escape"
     >
       <div class="modal-box flex max-h-[90vh] w-11/12 max-w-6xl flex-col overflow-hidden p-0">
-        <div class="flex flex-col gap-3 border-b border-base-300 bg-base-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex flex-col gap-3 border-b border-sr-line bg-sr-surface px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p class="text-xs font-semibold uppercase tracking-normal text-primary">
               SRQL panel composer
@@ -32,7 +32,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComposerComponents do
             <h2 class="mt-1 text-lg font-semibold tracking-normal">
               {if @editing_panel_id == "new", do: "Create New Panel", else: "Edit Panel"}
             </h2>
-            <p class="text-xs text-base-content/70">
+            <p class="text-xs text-sr-muted">
               Write the panel query, preview its output, then choose one of the compatible visualizations and bind fields.
             </p>
           </div>
@@ -41,7 +41,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComposerComponents do
           </.ui_button>
         </div>
 
-        <div class="overflow-y-auto bg-base-200/40 p-4">
+        <div class="overflow-y-auto bg-sr-subtle/40 p-4">
           <.form
             for={@panel_form}
             as={:panel}
@@ -59,7 +59,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComposerComponents do
 
           <div
             :if={@editing_panel_id != "new"}
-            class="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-base-300 bg-base-100 p-3"
+            class="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-sr-line bg-sr-surface p-3"
           >
             <.ui_button type="button" phx-click="duplicate_panel" phx-value-id={@editing_panel_id} size="sm" variant="neutral">
               <.icon name="hero-document-duplicate" class="size-4" /> Duplicate

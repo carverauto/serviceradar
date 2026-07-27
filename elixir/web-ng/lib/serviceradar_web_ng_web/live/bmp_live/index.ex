@@ -79,7 +79,7 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
         <div class="flex items-center justify-between">
           <div>
             <h1 class="text-xl font-semibold">BMP Routing Events</h1>
-            <p class="text-sm text-base-content/70">
+            <p class="text-sm text-sr-muted">
               Raw routing telemetry from <code>platform.bmp_routing_events</code>.
             </p>
           </div>
@@ -108,7 +108,7 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
               </thead>
               <tbody id="bmp-events" phx-update="stream">
                 <tr :if={length(@bmp_events) == 0}>
-                  <td colspan="7" class="text-center text-base-content/60 py-8">
+                  <td colspan="7" class="text-center text-sr-muted py-8">
                     No BMP events found.
                   </td>
                 </tr>
@@ -133,7 +133,7 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
             </table>
           </div>
 
-          <div class="mt-4 pt-4 border-t border-base-200">
+          <div class="mt-4 pt-4 border-t border-sr-line">
             <.ui_pagination
               prev_cursor={Map.get(@pagination, "prev_cursor")}
               next_cursor={Map.get(@pagination, "next_cursor")}
@@ -199,22 +199,22 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
     <.link
       patch={~p"/observability/bmp?#{%{q: @query}}"}
       class={[
-        "rounded-lg p-3 border transition-colors hover:bg-base-200/70",
+        "rounded-lg p-3 border transition-colors hover:bg-sr-subtle/70",
         summary_tone_class(@tone)
       ]}
     >
-      <div class="text-xs uppercase tracking-wider text-base-content/60">{@title}</div>
+      <div class="text-xs uppercase tracking-wider text-sr-muted">{@title}</div>
       <div class="text-2xl font-semibold mt-1">{@value}</div>
     </.link>
     """
   end
 
-  defp summary_tone_class("neutral"), do: "border-base-200 bg-base-100"
+  defp summary_tone_class("neutral"), do: "border-sr-line bg-sr-surface"
   defp summary_tone_class("info"), do: "border-info/30 bg-info/5"
   defp summary_tone_class("warning"), do: "border-warning/30 bg-warning/5"
   defp summary_tone_class("success"), do: "border-success/30 bg-success/5"
   defp summary_tone_class("error"), do: "border-error/30 bg-error/5"
-  defp summary_tone_class(_), do: "border-base-200 bg-base-100"
+  defp summary_tone_class(_), do: "border-sr-line bg-sr-surface"
 
   defp compute_summary(events) when is_list(events) do
     Enum.reduce(events, empty_summary(), fn event, acc ->

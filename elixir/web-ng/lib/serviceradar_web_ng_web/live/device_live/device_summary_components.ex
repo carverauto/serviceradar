@@ -13,10 +13,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
     ~H"""
     <div
       :if={is_map(@device_row) and not @editing}
-      class="rounded-xl border border-base-200 bg-base-100 p-4"
+      class="rounded-xl border border-sr-line bg-sr-surface p-4"
     >
       <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">
-        <div class="card bg-base-100 border border-base-300">
+        <div class="card bg-sr-surface border border-sr-line">
           <div class="card-body p-4 gap-2">
             <div class="flex items-center gap-2">
               <.icon name="hero-identification" class="size-4 text-primary" />
@@ -46,7 +46,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
           </div>
         </div>
 
-        <div class="card bg-base-100 border border-base-300">
+        <div class="card bg-sr-surface border border-sr-line">
           <div class="card-body p-4 gap-2">
             <div class="flex items-center gap-2">
               <.icon name="hero-signal" class="size-4 text-info" />
@@ -73,7 +73,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
           </div>
         </div>
 
-        <div class="card bg-base-100 border border-base-300">
+        <div class="card bg-sr-surface border border-sr-line">
           <div class="card-body p-4 gap-2">
             <div class="flex items-center gap-2">
               <.icon name="hero-clock" class="size-4 text-success" />
@@ -126,9 +126,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
   def kv_inline(assigns) do
     ~H"""
     <div class="flex items-start gap-2">
-      <span class="shrink-0 text-base-content/60">{@label}:</span>
+      <span class="shrink-0 text-sr-muted">{@label}:</span>
       <span class={[
-        "min-w-0 flex-1 break-words whitespace-normal text-base-content",
+        "min-w-0 flex-1 break-words whitespace-normal text-sr-ink",
         @mono && "font-mono text-xs"
       ]}>
         {format_value(@value)}

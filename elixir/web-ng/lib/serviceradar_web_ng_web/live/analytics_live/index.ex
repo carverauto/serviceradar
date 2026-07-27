@@ -833,12 +833,12 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           <.critical_events_widget summary={@events_summary} loading={@loading} />
         </div>
 
-        <div class="mt-3 text-xs text-base-content/40 flex items-center gap-2">
+        <div class="mt-3 text-xs text-sr-muted flex items-center gap-2">
           <span :if={@loading or @refreshing} class="sr-ui-spinner sr-ui-spinner-xs" />
           <span :if={is_struct(@refreshed_at, DateTime)} class="font-mono">
             Updated {Calendar.strftime(@refreshed_at, "%H:%M:%S")}
           </span>
-          <span class="text-base-content/30">·</span>
+          <span class="text-sr-ink/30">·</span>
           <span>Auto-refresh 30s</span>
         </div>
       </div>
@@ -857,7 +857,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     ~H"""
     <.link href={@href} class="block group">
       <div class={[
-        "rounded-xl border bg-base-100 p-4 flex items-center gap-4",
+        "rounded-xl border bg-sr-surface p-4 flex items-center gap-4",
         "hover:shadow-md transition-shadow cursor-pointer",
         tone_border(@tone)
       ]}>
@@ -868,9 +868,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           <div class={["text-2xl font-bold", tone_value(@tone)]}>
             {format_compact_number(@value)}
           </div>
-          <div class="text-sm text-base-content/60">
+          <div class="text-sm text-sr-muted">
             {@title}
-            <span :if={@subtitle} class="text-base-content/40">
+            <span :if={@subtitle} class="text-sr-muted">
               {" | "}
               {@subtitle}
             </span>
@@ -884,7 +884,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp tone_border("error"), do: "border-error/30"
   defp tone_border("warning"), do: "border-warning/30"
   defp tone_border("success"), do: "border-success/30"
-  defp tone_border(_), do: "border-base-200"
+  defp tone_border(_), do: "border-sr-line"
 
   defp tone_bg("error"), do: "bg-error/10"
   defp tone_bg("warning"), do: "bg-warning/10"
@@ -899,7 +899,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp tone_value("error"), do: "text-error"
   defp tone_value("warning"), do: "text-warning"
   defp tone_value("success"), do: "text-success"
-  defp tone_value(_), do: "text-base-content"
+  defp tone_value(_), do: "text-sr-ink"
 
   defp format_compact_number(n) when is_float(n), do: n |> trunc() |> format_compact_number()
 
@@ -969,7 +969,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         </.link>
         <.link
           href={~p"/devices?#{%{q: "in:devices is_available:false sort:last_seen:desc limit:100"}}"}
-          class="text-base-content/60 hover:text-primary"
+          class="text-sr-muted hover:text-primary"
           title="View offline devices"
         >
           <.icon name="hero-arrow-top-right-on-square" class="size-4" />
@@ -1006,7 +1006,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
             </svg>
             <div class="absolute inset-0 flex flex-col items-center justify-center">
               <span class="text-2xl font-bold">{@pct}%</span>
-              <span class="text-xs text-base-content/60">Availability</span>
+              <span class="text-xs text-sr-muted">Availability</span>
             </div>
           </div>
         </div>
@@ -1014,7 +1014,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         <div class="flex-1 space-y-3">
           <.link
             href={~p"/devices?#{%{q: "in:devices is_available:true sort:last_seen:desc limit:20"}}"}
-            class="flex items-center justify-between hover:bg-base-200/50 rounded-lg p-2 -m-2 transition-colors"
+            class="flex items-center justify-between hover:bg-sr-subtle/50 rounded-lg p-2 -m-2 transition-colors"
           >
             <div class="flex items-center gap-2">
               <span class="w-3 h-3 rounded-full bg-success" />
@@ -1024,7 +1024,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           </.link>
           <.link
             href={~p"/devices?#{%{q: "in:devices is_available:false sort:last_seen:desc limit:20"}}"}
-            class="flex items-center justify-between hover:bg-base-200/50 rounded-lg p-2 -m-2 transition-colors"
+            class="flex items-center justify-between hover:bg-sr-subtle/50 rounded-lg p-2 -m-2 transition-colors"
           >
             <div class="flex items-center gap-2">
               <span class="w-3 h-3 rounded-full bg-error" />
@@ -1054,8 +1054,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   def critical_events_widget(assigns) do
     ~H"""
-    <div class="h-80 rounded-xl border border-base-200 bg-base-100 flex flex-col overflow-hidden">
-      <header class="px-4 py-3 bg-base-200/40 flex items-start justify-between gap-3 shrink-0">
+    <div class="h-80 rounded-xl border border-sr-line bg-sr-surface flex flex-col overflow-hidden">
+      <header class="px-4 py-3 bg-sr-subtle/40 flex items-start justify-between gap-3 shrink-0">
         <.link href={~p"/events"} class="hover:text-primary transition-colors">
           <div class="text-sm font-semibold">Event Levels</div>
         </.link>
@@ -1063,7 +1063,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           href={
             ~p"/events?#{%{q: "in:events log_level:(FATAL,fatal,CRITICAL,critical,ERROR,error) time:last_24h sort:time:desc limit:100"}}"
           }
-          class="text-base-content/60 hover:text-primary"
+          class="text-sr-muted hover:text-primary"
           title="View high severity events"
         >
           <.icon name="hero-arrow-top-right-on-square" class="size-4" />
@@ -1077,10 +1077,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       <div :if={not @loading} class="flex-1 flex flex-col min-h-0 px-4 py-4">
         <table class={ui_table_class(size: "xs", class: "mb-3 shrink-0")}>
           <thead>
-            <tr class="border-b border-base-200">
-              <th class="text-xs font-medium text-base-content/60">Severity</th>
-              <th class="text-center text-xs font-medium text-base-content/60">Count</th>
-              <th class="text-center text-xs font-medium text-base-content/60">%</th>
+            <tr class="border-b border-sr-line">
+              <th class="text-xs font-medium text-sr-muted">Severity</th>
+              <th class="text-center text-xs font-medium text-sr-muted">Count</th>
+              <th class="text-center text-xs font-medium text-sr-muted">%</th>
             </tr>
           </thead>
           <tbody>
@@ -1129,8 +1129,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         >
           <div>
             <.icon name="hero-shield-check" class="size-8 mx-auto mb-2 text-success" />
-            <p class="text-sm text-base-content/60">No high-severity events</p>
-            <p class="text-xs text-base-content/40 mt-1">All systems reporting normally</p>
+            <p class="text-sm text-sr-muted">No high-severity events</p>
+            <p class="text-xs text-sr-muted mt-1">All systems reporting normally</p>
           </div>
         </div>
 
@@ -1152,8 +1152,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   def critical_logs_widget(assigns) do
     ~H"""
-    <div class="h-80 rounded-xl border border-base-200 bg-base-100 flex flex-col overflow-hidden">
-      <header class="px-4 py-3 bg-base-200/40 flex items-start justify-between gap-3 shrink-0">
+    <div class="h-80 rounded-xl border border-sr-line bg-sr-surface flex flex-col overflow-hidden">
+      <header class="px-4 py-3 bg-sr-subtle/40 flex items-start justify-between gap-3 shrink-0">
         <.link
           href={~p"/observability?#{%{tab: "logs"}}"}
           class="hover:text-primary transition-colors"
@@ -1164,7 +1164,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           href={
             ~p"/observability?#{%{tab: "logs", q: StatsQuery.logs_severity_data_query([:fatal, :error], limit: 100)}}"
           }
-          class="text-base-content/60 hover:text-primary"
+          class="text-sr-muted hover:text-primary"
           title="View critical logs"
         >
           <.icon name="hero-arrow-top-right-on-square" class="size-4" />
@@ -1178,10 +1178,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       <div :if={not @loading} class="flex-1 flex flex-col min-h-0 px-4 py-4">
         <table class={ui_table_class(size: "xs", class: "mb-3 shrink-0")}>
           <thead>
-            <tr class="border-b border-base-200">
-              <th class="text-xs font-medium text-base-content/60">Level</th>
-              <th class="text-center text-xs font-medium text-base-content/60">Count</th>
-              <th class="text-center text-xs font-medium text-base-content/60">%</th>
+            <tr class="border-b border-sr-line">
+              <th class="text-xs font-medium text-sr-muted">Level</th>
+              <th class="text-center text-xs font-medium text-sr-muted">Count</th>
+              <th class="text-center text-xs font-medium text-sr-muted">%</th>
             </tr>
           </thead>
           <tbody>
@@ -1239,8 +1239,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         >
           <div>
             <.icon name="hero-document-check" class="size-8 mx-auto mb-2 text-success" />
-            <p class="text-sm text-base-content/60">No critical, fatal, or error logs</p>
-            <p class="text-xs text-base-content/40 mt-1">All systems logging normally</p>
+            <p class="text-sm text-sr-muted">No critical, fatal, or error logs</p>
+            <p class="text-xs text-sr-muted mt-1">All systems logging normally</p>
           </div>
         </div>
 
@@ -1288,7 +1288,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           href={
             ~p"/observability?#{%{tab: "traces", q: "in:otel_trace_summaries time:last_24h sort:timestamp:desc limit:100"}}"
           }
-          class="text-base-content/60 hover:text-primary"
+          class="text-sr-muted hover:text-primary"
           title="View traces"
         >
           <.icon name="hero-arrow-top-right-on-square" class="size-4" />
@@ -1301,35 +1301,35 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
       <div :if={not @loading} class="flex flex-col h-full">
         <div class="grid grid-cols-2 gap-3 mb-4">
-          <div class="rounded-lg bg-base-200/50 p-3 text-center">
+          <div class="rounded-lg bg-sr-subtle/50 p-3 text-center">
             <div class="text-xl font-bold text-primary">{format_compact_number(@metrics_count)}</div>
-            <div class="text-xs text-base-content/60">Metrics</div>
+            <div class="text-xs text-sr-muted">Metrics</div>
           </div>
-          <div class="rounded-lg bg-base-200/50 p-3 text-center">
+          <div class="rounded-lg bg-sr-subtle/50 p-3 text-center">
             <div class="text-xl font-bold text-secondary">{format_compact_number(@traces_count)}</div>
-            <div class="text-xs text-base-content/60">Traces</div>
+            <div class="text-xs text-sr-muted">Traces</div>
           </div>
-          <div class="rounded-lg bg-base-200/50 p-3 text-center">
+          <div class="rounded-lg bg-sr-subtle/50 p-3 text-center">
             <div class="text-xl font-bold text-info">{format_duration(@avg_duration)}</div>
-            <div class="text-xs text-base-content/60">Avg Duration</div>
+            <div class="text-xs text-sr-muted">Avg Duration</div>
           </div>
           <div class={[
             "rounded-lg p-3 text-center",
-            (@error_rate > 5 && "bg-error/10") || "bg-base-200/50"
+            (@error_rate > 5 && "bg-error/10") || "bg-sr-subtle/50"
           ]}>
             <div class={["text-xl font-bold", (@error_rate > 5 && "text-error") || "text-success"]}>
               {@error_rate}%
             </div>
-            <div class="text-xs text-base-content/60">Error Rate</div>
+            <div class="text-xs text-sr-muted">Error Rate</div>
           </div>
         </div>
 
         <div class="flex-1 min-h-0">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-xs font-medium text-base-content/70">Slow Spans</span>
+            <span class="text-xs font-medium text-sr-muted">Slow Spans</span>
             <span class={[
               "text-xs font-bold",
-              (@slow_spans_count > 0 && "text-warning") || "text-base-content/50"
+              (@slow_spans_count > 0 && "text-warning") || "text-sr-muted"
             ]}>
               {format_compact_number(@slow_spans_count)}
             </span>
@@ -1338,7 +1338,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           <div :if={@slow_spans == []} class="flex items-center justify-center py-4">
             <div class="text-center">
               <.icon name="hero-bolt" class="size-6 mx-auto mb-1 text-success" />
-              <p class="text-xs text-base-content/60">No slow spans</p>
+              <p class="text-xs text-sr-muted">No slow spans</p>
             </div>
           </div>
 
@@ -1400,7 +1400,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         </.link>
         <.link
           href={~p"/dashboard?#{%{q: "in:cpu_metrics time:last_1h sort:timestamp:desc limit:100"}}"}
-          class="text-base-content/60 hover:text-primary"
+          class="text-sr-muted hover:text-primary"
           title="View metrics"
         >
           <.icon name="hero-arrow-top-right-on-square" class="size-4" />
@@ -1413,8 +1413,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
       <div :if={not @loading} class="flex flex-col h-full">
         <div class="grid grid-cols-3 gap-2 mb-3">
-          <div class="rounded-lg bg-base-200/50 p-2">
-            <div class="flex items-center gap-1 text-[10px] text-base-content/60 mb-1">
+          <div class="rounded-lg bg-sr-subtle/50 p-2">
+            <div class="flex items-center gap-1 text-[10px] text-sr-muted mb-1">
               <.icon name="hero-cpu-chip" class="size-3" /> CPU
             </div>
             <div class="flex flex-wrap items-center gap-1">
@@ -1429,8 +1429,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               </.ui_badge>
             </div>
           </div>
-          <div class="rounded-lg bg-base-200/50 p-2">
-            <div class="flex items-center gap-1 text-[10px] text-base-content/60 mb-1">
+          <div class="rounded-lg bg-sr-subtle/50 p-2">
+            <div class="flex items-center gap-1 text-[10px] text-sr-muted mb-1">
               <.icon name="hero-circle-stack" class="size-3" /> Memory
             </div>
             <div class="flex flex-wrap items-center gap-1">
@@ -1449,8 +1449,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               </.ui_badge>
             </div>
           </div>
-          <div class="rounded-lg bg-base-200/50 p-2">
-            <div class="flex items-center gap-1 text-[10px] text-base-content/60 mb-1">
+          <div class="rounded-lg bg-sr-subtle/50 p-2">
+            <div class="flex items-center gap-1 text-[10px] text-sr-muted mb-1">
               <.icon name="hero-server-stack" class="size-3" /> Disk
             </div>
             <div class="flex flex-wrap items-center gap-1">
@@ -1471,7 +1471,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           </div>
         </div>
 
-        <div class="text-[10px] text-base-content/50 mb-2">
+        <div class="text-[10px] text-sr-muted mb-2">
           {@total_cpu_hosts} CPU · {@total_memory_hosts} MEM · {@total_disk_mounts} disks
         </div>
 
@@ -1481,7 +1481,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         >
           <div class="text-center">
             <.icon name="hero-cpu-chip" class="size-6 mx-auto mb-1 text-success" />
-            <p class="text-xs text-base-content/60">No high utilization</p>
+            <p class="text-xs text-sr-muted">No high utilization</p>
           </div>
         </div>
 
@@ -1534,7 +1534,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         </.link>
         <.link
           href={~p"/dashboard?#{%{q: "in:rperf_targets time:last_1h sort:timestamp:desc limit:50"}}"}
-          class="text-base-content/60 hover:text-primary"
+          class="text-sr-muted hover:text-primary"
           title="View bandwidth data"
         >
           <.icon name="hero-arrow-top-right-on-square" class="size-4" />
@@ -1549,24 +1549,24 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         <div class="grid grid-cols-3 gap-2 mb-4">
           <div class="rounded-lg bg-success/10 p-2 text-center">
             <div class="text-lg font-bold text-success">{format_mbps(@total_download)}</div>
-            <div class="text-[10px] text-base-content/60">Download</div>
+            <div class="text-[10px] text-sr-muted">Download</div>
           </div>
           <div class="rounded-lg bg-primary/10 p-2 text-center">
             <div class="text-lg font-bold text-primary">{format_mbps(@total_upload)}</div>
-            <div class="text-[10px] text-base-content/60">Upload</div>
+            <div class="text-[10px] text-sr-muted">Upload</div>
           </div>
-          <div class="rounded-lg bg-base-200/50 p-2 text-center">
+          <div class="rounded-lg bg-sr-subtle/50 p-2 text-center">
             <div class="text-lg font-bold">{@avg_latency}ms</div>
-            <div class="text-[10px] text-base-content/60">Avg Latency</div>
+            <div class="text-[10px] text-sr-muted">Avg Latency</div>
           </div>
         </div>
 
-        <div class="text-xs text-base-content/50 mb-2">{@target_count} targets</div>
+        <div class="text-xs text-sr-muted mb-2">{@target_count} targets</div>
 
         <div :if={@targets == []} class="flex-1 flex items-center justify-center">
           <div class="text-center">
-            <.icon name="hero-signal" class="size-6 mx-auto mb-1 text-base-content/40" />
-            <p class="text-xs text-base-content/60">No bandwidth data</p>
+            <.icon name="hero-signal" class="size-6 mx-auto mb-1 text-sr-muted" />
+            <p class="text-xs text-sr-muted">No bandwidth data</p>
           </div>
         </div>
 
@@ -1574,15 +1574,15 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           <table class={ui_table_class(size: "xs", class: "w-full")}>
             <thead>
               <tr class="text-[10px]">
-                <th class="text-base-content/60">Target</th>
-                <th class="text-right text-base-content/60">DL</th>
-                <th class="text-right text-base-content/60">UL</th>
-                <th class="text-right text-base-content/60">Lat</th>
+                <th class="text-sr-muted">Target</th>
+                <th class="text-right text-sr-muted">DL</th>
+                <th class="text-right text-sr-muted">UL</th>
+                <th class="text-right text-sr-muted">Lat</th>
               </tr>
             </thead>
             <tbody>
               <%= for target <- @targets do %>
-                <tr class="hover:bg-base-200/50">
+                <tr class="hover:bg-sr-subtle/50">
                   <td class="truncate max-w-[100px] text-xs" title={target.name}>{target.name}</td>
                   <td class="text-right text-xs text-success">{format_mbps(target.download_mbps)}</td>
                   <td class="text-right text-xs text-primary">{format_mbps(target.upload_mbps)}</td>
@@ -1610,7 +1610,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       |> assign(:host, utilization_host(svc))
 
     ~H"""
-    <div class="flex items-center gap-2 p-1.5 rounded bg-base-200/50 text-xs">
+    <div class="flex items-center gap-2 p-1.5 rounded bg-sr-subtle/50 text-xs">
       <div class="truncate flex-1 font-medium" title={@host}>{@host}</div>
       <div class="flex items-center gap-2 shrink-0">
         <.ui_badge size="xs" variant={cpu_badge_variant(@cpu)}>CPU {@cpu |> round()}%</.ui_badge>
@@ -1638,7 +1638,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       |> assign(:host, host)
 
     ~H"""
-    <div class="flex items-center gap-2 p-1.5 rounded bg-base-200/50 text-xs">
+    <div class="flex items-center gap-2 p-1.5 rounded bg-sr-subtle/50 text-xs">
       <div class="truncate flex-1 font-medium" title={@host}>{@host}</div>
       <div class="shrink-0">
         <.ui_badge size="xs" variant={memory_badge_variant(@percent)}>
@@ -1664,10 +1664,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       |> assign(:mount, mount)
 
     ~H"""
-    <div class="flex items-center gap-2 p-1.5 rounded bg-base-200/50 text-xs">
+    <div class="flex items-center gap-2 p-1.5 rounded bg-sr-subtle/50 text-xs">
       <div class="truncate flex-1 min-w-0">
         <span class="font-medium" title={@host}>{@host}</span>
-        <span class="text-base-content/50 ml-1" title={@mount}>{@mount}</span>
+        <span class="text-sr-muted ml-1" title={@mount}>{@mount}</span>
       </div>
       <div class="shrink-0">
         <.ui_badge size="xs" variant={disk_badge_variant(@percent)}>
@@ -1765,7 +1765,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
     ~H"""
     <tr
-      class="hover:bg-base-200/50 cursor-pointer"
+      class="hover:bg-sr-subtle/50 cursor-pointer"
       tabindex="0"
       role="link"
       phx-click={JS.navigate(@href)}
@@ -1783,13 +1783,13 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp severity_text_class("warning"), do: "text-warning"
   defp severity_text_class("info"), do: "text-info"
   defp severity_text_class("primary"), do: "text-primary"
-  defp severity_text_class(_), do: "text-base-content/60"
+  defp severity_text_class(_), do: "text-sr-muted"
 
   attr :event, :map, required: true
 
   def event_entry(assigns) do
     ~H"""
-    <div class="p-2 rounded-lg bg-base-200/50 hover:bg-base-200 transition-colors">
+    <div class="p-2 rounded-lg bg-sr-subtle/50 hover:bg-sr-subtle transition-colors">
       <div class="flex items-start gap-2">
         <.icon
           name={severity_icon(event_entry_severity(@event))}
@@ -1800,7 +1800,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         />
         <div class="flex-1 min-w-0">
           <div class="text-sm font-medium truncate">{event_entry_host(@event)}</div>
-          <div class="text-xs text-base-content/60 truncate">
+          <div class="text-xs text-sr-muted truncate">
             {event_entry_message(@event)}
           </div>
           <div class={[
@@ -1819,7 +1819,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   def log_entry(assigns) do
     ~H"""
-    <div class="p-2 rounded-lg bg-base-200/50 hover:bg-base-200 transition-colors">
+    <div class="p-2 rounded-lg bg-sr-subtle/50 hover:bg-sr-subtle transition-colors">
       <div class="flex items-start gap-2">
         <.icon
           name={log_level_icon(@log["severity_text"])}
@@ -1827,7 +1827,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         />
         <div class="flex-1 min-w-0">
           <div class="text-sm font-medium truncate">{@log["service_name"] || "Unknown Service"}</div>
-          <div class="text-xs text-base-content/60 truncate">{truncate_message(@log["body"])}</div>
+          <div class="text-xs text-sr-muted truncate">{truncate_message(@log["body"])}</div>
           <div class={["text-xs", severity_text_class(log_level_color(@log["severity_text"]))]}>
             {normalize_log_level(@log["severity_text"])} · {format_relative_time(@log["timestamp"])}
           </div>

@@ -28,8 +28,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
       >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">{page_heading(@live_action)}</h1>
-            <p class="text-sm text-base-content/60">
+            <h1 class="text-2xl font-semibold text-sr-ink">{page_heading(@live_action)}</h1>
+            <p class="text-sm text-sr-muted">
               {page_subheading(@live_action)}
             </p>
           </div>

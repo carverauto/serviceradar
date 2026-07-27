@@ -41,17 +41,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
     ~H"""
     <section
       :if={@device_awx_managed and @can_view_ansible_runs}
-      class="rounded-xl border border-base-200 bg-base-100"
+      class="rounded-xl border border-sr-line bg-sr-surface"
       data-testid="device-ansible-panel"
     >
-      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-base-200 px-4 py-3">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-sr-line px-4 py-3">
         <div class="flex items-center gap-2">
           <span class="rounded-lg bg-primary/10 p-1.5">
             <.icon name="hero-command-line" class="size-4 text-primary" />
           </span>
           <div>
-            <h2 class="text-sm font-semibold text-base-content">Ansible</h2>
-            <p class="text-xs text-base-content/60">
+            <h2 class="text-sm font-semibold text-sr-ink">Ansible</h2>
+            <p class="text-xs text-sr-muted">
               AWX inventory member · secure operations and legacy run history
             </p>
           </div>
@@ -60,11 +60,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
         <div class="flex items-center gap-2">
           <.link
             navigate={~p"/ansible/operations"}
-            class="link link-hover text-xs text-base-content/60"
+            class="text-sr-brand hover:underline text-xs text-sr-muted"
           >
             Secure operations
           </.link>
-          <.link navigate={~p"/ansible/runs"} class="link link-hover text-xs text-base-content/60">
+          <.link navigate={~p"/ansible/runs"} class="text-sr-brand hover:underline text-xs text-sr-muted">
             Legacy runs
           </.link>
           <.ui_button :if={@can_run_ansible and not @device_deleted} type="button" phx-click="ansible_launch_open" disabled={not @launchable?} title={launch_disabled_reason(@launchable?, @ansible_controller_id)} size="sm" variant="primary">
@@ -73,18 +73,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
         </div>
       </div>
 
-      <div :if={not @has_history} class="px-4 py-6 text-sm text-base-content/60">
+      <div :if={not @has_history} class="px-4 py-6 text-sm text-sr-muted">
         No playbook runs have targeted this device yet.
         <span :if={@can_run_ansible and @playbooks == []} class="block text-xs mt-1">
           No launchable playbooks are bound to this device's AWX controller.
         </span>
       </div>
 
-      <div :if={@has_secure_history} class="border-b border-base-200">
+      <div :if={@has_secure_history} class="border-b border-sr-line">
         <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
           <div>
             <h3 class="text-sm font-semibold">Secure operation history</h3>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               Immutable controller, inventory, and AWX host identity.
             </p>
           </div>
@@ -141,13 +141,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
                   <code class="mt-1 block text-xs">
                     host {record.target.awx_host_id} · gen {record.target.membership_generation}
                   </code>
-                  <span class="block text-xs text-base-content/60">
+                  <span class="block text-xs text-sr-muted">
                     {record.target.host_name} · {record.target.ansible_host || "no address"}
                   </span>
                 </td>
                 <td>
                   <span class="text-xs">{controller_name(record.execution.controller)}</span>
-                  <code class="block max-w-56 break-all text-xs text-base-content/60">
+                  <code class="block max-w-56 break-all text-xs text-sr-muted">
                     {record.target.controller_id} / inventory {record.target.inventory_id}
                   </code>
                 </td>
@@ -155,7 +155,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
                   <code class="text-xs">
                     {record.execution.awx_job_id || "not bound"}
                   </code>
-                  <span class="block text-xs text-base-content/60">controller-local</span>
+                  <span class="block text-xs text-sr-muted">controller-local</span>
                 </td>
                 <td class="whitespace-nowrap text-xs">
                   {fmt_ts(record.execution.started_at || record.operation.started_at)}
@@ -175,7 +175,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
         <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
           <div>
             <h3 class="text-sm font-semibold">Legacy PlaybookRun history</h3>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               Pre-hardening task/event records; not secure operation evidence.
             </p>
           </div>
@@ -209,7 +209,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
                     {target.status}
                   </.ui_badge>
                 </td>
-                <td class="whitespace-nowrap text-xs text-base-content/70">
+                <td class="whitespace-nowrap text-xs text-sr-muted">
                   <span class="text-success">{target.ok_count} ok</span>
                   <span :if={target.changed_count > 0} class="text-warning">
                     · {target.changed_count} chg
@@ -278,8 +278,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
             <.icon name="hero-play" class="size-5 text-primary" />
           </div>
           <div class="min-w-0 flex-1">
-            <h3 class="text-lg font-semibold text-base-content">Launch a reviewed playbook</h3>
-            <p class="text-sm text-base-content/60">
+            <h3 class="text-lg font-semibold text-sr-ink">Launch a reviewed playbook</h3>
+            <p class="text-sm text-sr-muted">
               ServiceRadar resolves the exact AWX membership again on submit.
             </p>
           </div>
@@ -300,7 +300,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
           <div class="form-control">
             <label class="label">
               <span class="label-text font-medium">Playbook</span>
-              <span class="label-text-alt text-xs text-base-content/60">
+              <span class="label-text-alt text-xs text-sr-muted">
                 {length(@playbooks)} catalog candidate{if length(@playbooks) == 1, do: "", else: "s"}
               </span>
             </label>
@@ -316,7 +316,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
                 {playbook.name}
               </option>
             </select>
-            <p :if={@playbooks == []} class="text-xs text-base-content/60 mt-2">
+            <p :if={@playbooks == []} class="text-xs text-sr-muted mt-2">
               No launchable playbooks are bound to this device's AWX controller.
             </p>
           </div>
@@ -351,7 +351,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
 
           <div :if={@vars != []} class="space-y-3">
             <h4 class="text-sm font-medium">Reviewed inputs</h4>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               Only non-secret fields declared by the approved binding are accepted.
             </p>
             <.var_input
@@ -362,7 +362,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
             />
           </div>
 
-          <div :if={@vars == [] and @selected_playbook_id} class="text-xs text-base-content/60">
+          <div :if={@vars == [] and @selected_playbook_id} class="text-xs text-sr-muted">
             This reviewed binding declares no operator inputs. Credentials remain pre-bound in AWX.
           </div>
 
@@ -476,7 +476,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
     <div class="form-control">
       <label class="label">
         <span class="label-text">{@var.label}</span>
-        <span class="label-text-alt text-xs text-base-content/60">tick all that apply</span>
+        <span class="label-text-alt text-xs text-sr-muted">tick all that apply</span>
       </label>
       <div class="flex flex-wrap gap-3 px-1">
         <label :for={choice <- @var.choices} class="flex items-center gap-2 text-sm">

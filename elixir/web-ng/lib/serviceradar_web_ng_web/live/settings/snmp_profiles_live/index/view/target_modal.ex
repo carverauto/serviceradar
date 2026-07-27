@@ -30,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
         >
           <!-- Connection Settings -->
           <div class="space-y-4">
-            <h4 class="text-sm font-semibold text-base-content/70">Connection</h4>
+            <h4 class="text-sm font-semibold text-sr-muted">Connection</h4>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -85,7 +85,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
           
     <!-- Authentication based on version -->
           <div class="space-y-4">
-            <h4 class="text-sm font-semibold text-base-content/70">Authentication</h4>
+            <h4 class="text-sm font-semibold text-sr-muted">Authentication</h4>
 
             <%= if @version in ["v1", "v2c"] do %>
               <!-- SNMPv1/v2c: Community String -->
@@ -114,7 +114,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                   </.ui_icon_button>
                 </div>
                 <label class="label">
-                  <span class="label-text-alt text-base-content/50">
+                  <span class="label-text-alt text-sr-muted">
                     <%= if @editing_target do %>
                       Leave blank to keep existing value
                     <% else %>
@@ -220,7 +220,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                 </div>
               </div>
 
-              <p class="text-xs text-base-content/50">
+              <p class="text-xs text-sr-muted">
                 <%= if @editing_target do %>
                   Leave password fields blank to keep existing values. Credentials are encrypted at rest.
                 <% else %>
@@ -233,7 +233,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
     <!-- OIDs Section -->
           <div class="space-y-4">
             <div class="flex items-center justify-between">
-              <h4 class="text-sm font-semibold text-base-content/70">OIDs to Monitor</h4>
+              <h4 class="text-sm font-semibold text-sr-muted">OIDs to Monitor</h4>
               <div class="flex items-center gap-2">
                 <.ui_button
                   type="button"
@@ -256,7 +256,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
 
             <div
               :if={@target_oids == []}
-              class="text-center py-6 text-base-content/60 bg-base-200/30 rounded-lg"
+              class="text-center py-6 text-sr-muted bg-sr-subtle/30 rounded-lg"
             >
               <.icon name="hero-variable" class="size-8 mx-auto mb-2 opacity-50" />
               <p class="text-sm">No OIDs configured</p>
@@ -265,7 +265,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
 
             <div :if={@target_oids != []} class="space-y-3">
               <%= for {oid, idx} <- Enum.with_index(@target_oids) do %>
-                <div class="flex items-start gap-2 p-3 bg-base-200/30 rounded-lg">
+                <div class="flex items-start gap-2 p-3 bg-sr-subtle/30 rounded-lg">
                   <div class="flex-1 grid grid-cols-1 md:grid-cols-6 gap-2">
                     <div class="md:col-span-2">
                       <input
@@ -278,7 +278,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                         phx-value-field="oid"
                         name={"oid_#{idx}_oid"}
                       />
-                      <span class="text-[10px] text-base-content/50">OID</span>
+                      <span class="text-[10px] text-sr-muted">OID</span>
                     </div>
                     <div class="md:col-span-2">
                       <input
@@ -291,7 +291,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                         phx-value-field="name"
                         name={"oid_#{idx}_name"}
                       />
-                      <span class="text-[10px] text-base-content/50">Name</span>
+                      <span class="text-[10px] text-sr-muted">Name</span>
                     </div>
                     <div>
                       <select
@@ -310,7 +310,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                           Timeticks
                         </option>
                       </select>
-                      <span class="text-[10px] text-base-content/50">Type</span>
+                      <span class="text-[10px] text-sr-muted">Type</span>
                     </div>
                     <div class="flex items-center gap-2">
                       <label class="flex items-center gap-1 cursor-pointer">
@@ -342,7 +342,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
               <% end %>
             </div>
 
-            <p class="text-xs text-base-content/50">
+            <p class="text-xs text-sr-muted">
               Configure which SNMP OIDs to poll from this target. Use templates for common device types.
             </p>
           </div>
@@ -363,7 +363,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                   <.icon name="hero-signal" class="size-4 mr-2" /> Test Connection
                 <% end %>
               </.ui_button>
-              <span class="text-xs text-base-content/50">
+              <span class="text-xs text-sr-muted">
                 Verify connectivity to the SNMP agent
               </span>
             </div>

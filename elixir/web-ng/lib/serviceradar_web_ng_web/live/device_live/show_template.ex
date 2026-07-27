@@ -142,7 +142,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
         />
 
         <div class="grid grid-cols-1 gap-4">
-          <div :if={is_nil(@device_row)} class="text-sm text-base-content/70 p-4">
+          <div :if={is_nil(@device_row)} class="text-sm text-sr-muted p-4">
             No device row returned for this query.
           </div>
 
@@ -493,9 +493,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   def kv_inline(assigns) do
     ~H"""
     <div class="flex items-start gap-2">
-      <span class="shrink-0 text-base-content/60">{@label}:</span>
+      <span class="shrink-0 text-sr-muted">{@label}:</span>
       <span class={[
-        "min-w-0 flex-1 break-words whitespace-normal text-base-content",
+        "min-w-0 flex-1 break-words whitespace-normal text-sr-ink",
         @mono && "font-mono text-xs"
       ]}>
         {format_value(@value)}

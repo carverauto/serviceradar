@@ -17,12 +17,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.LogComponents do
 
   def device_logs_tab_content(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
           <.icon name="hero-clipboard-document-list" class="size-4 text-primary" />
           <span class="text-sm font-semibold">Device Logs</span>
-          <span class="text-xs text-base-content/50">({length(@logs)} rows)</span>
+          <span class="text-xs text-sr-muted">({length(@logs)} rows)</span>
         </div>
         <.link
           navigate={~p"/observability?#{%{"tab" => "logs", "q" => @query, "limit" => @limit}}"}
@@ -36,12 +36,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.LogComponents do
         <div :if={is_binary(@error)} class="mb-3 text-xs text-error">{@error}</div>
 
         <%= if @loading do %>
-          <div class="flex items-center gap-2 text-sm text-base-content/60">
+          <div class="flex items-center gap-2 text-sm text-sr-muted">
             <.ui_spinner size="sm" /> Loading device logs...
           </div>
         <% else %>
           <%= if @logs == [] and is_nil(@error) do %>
-            <div class="text-sm text-base-content/60">No logs found for this device.</div>
+            <div class="text-sm text-sr-muted">No logs found for this device.</div>
           <% else %>
             <div class="sr-ui-table-shell">
               <table class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
@@ -83,7 +83,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.LogComponents do
               </table>
             </div>
 
-            <div class="pt-3 border-t border-base-200 mt-3">
+            <div class="pt-3 border-t border-sr-line mt-3">
               <.ui_pagination
                 prev_cursor={Map.get(@pagination, "prev_cursor")}
                 next_cursor={Map.get(@pagination, "next_cursor")}

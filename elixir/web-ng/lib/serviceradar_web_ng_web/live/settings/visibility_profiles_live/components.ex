@@ -19,7 +19,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
         <div class="flex items-center justify-between w-full">
           <div>
             <div class="text-sm font-semibold">Visibility Profiles</div>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               {length(@profiles)} profile(s) configured
             </p>
           </div>
@@ -34,7 +34,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
       <div class="sr-ui-table-shell">
         <table class={ui_table_class(size: "sm")}>
           <thead>
-            <tr class="text-xs uppercase tracking-wide text-base-content/60">
+            <tr class="text-xs uppercase tracking-wide text-sr-muted">
               <th>Status</th>
               <th>Name</th>
               <th>Targeting</th>
@@ -47,12 +47,12 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
           </thead>
           <tbody>
             <tr :if={@profiles == []}>
-              <td colspan="8" class="text-center text-base-content/60 py-8">
+              <td colspan="8" class="text-center text-sr-muted py-8">
                 No visibility profiles configured.
               </td>
             </tr>
             <%= for profile <- @profiles do %>
-              <tr class="hover:bg-base-200/40">
+              <tr class="hover:bg-sr-subtle/40">
                 <td>
                   <button
                     :if={@can_write}
@@ -60,12 +60,12 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
                     phx-value-id={profile.id}
                     class="flex items-center gap-1.5 cursor-pointer"
                   >
-                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-base-content/30"}"}>
+                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}>
                     </span>
                     <span class="text-xs">{if profile.enabled, do: "Enabled", else: "Disabled"}</span>
                   </button>
                   <div :if={not @can_write} class="flex items-center gap-1.5">
-                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-base-content/30"}"}>
+                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}>
                     </span>
                     <span class="text-xs">{if profile.enabled, do: "Enabled", else: "Disabled"}</span>
                   </div>
@@ -79,17 +79,17 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
                     {profile.name}
                   </.link>
                   <span :if={not @can_write} class="font-medium">{profile.name}</span>
-                  <p :if={profile.description} class="text-xs text-base-content/60 truncate max-w-xs">
+                  <p :if={profile.description} class="text-xs text-sr-muted truncate max-w-xs">
                     {profile.description}
                   </p>
                 </td>
                 <td class="text-xs max-w-xs">
                   <%= if profile.target_query && profile.target_query != "" do %>
-                    <code class="font-mono text-[11px] bg-base-200/50 px-1.5 py-0.5 rounded truncate block max-w-[220px]">
+                    <code class="font-mono text-[11px] bg-sr-subtle/50 px-1.5 py-0.5 rounded truncate block max-w-[220px]">
                       {profile.target_query}
                     </code>
                   <% else %>
-                    <span class="text-base-content/40">in:devices</span>
+                    <span class="text-sr-muted">in:devices</span>
                   <% end %>
                 </td>
                 <td>
@@ -103,7 +103,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
                     </.ui_badge>
                     <span
                       :if={(profile.capture_interfaces || []) == []}
-                      class="text-xs text-base-content/40"
+                      class="text-xs text-sr-muted"
                     >
                       none
                     </span>
@@ -221,7 +221,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
                 do: "New Visibility Profile",
                 else: "Edit Visibility Profile"}
             </div>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               {target_count_label(@target_device_count)}
             </p>
           </div>
@@ -274,11 +274,11 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
           </label>
         </div>
 
-        <div class="rounded-lg border border-base-200 p-4 space-y-3">
+        <div class="rounded-lg border border-sr-line p-4 space-y-3">
           <div class="flex items-center justify-between">
             <div>
               <div class="text-sm font-semibold">Targeting</div>
-              <p class="text-xs text-base-content/60">{target_count_label(@target_device_count)}</p>
+              <p class="text-xs text-sr-muted">{target_count_label(@target_device_count)}</p>
             </div>
             <.ui_button
               type="button"
@@ -296,9 +296,9 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
             rows="3"
           >{@form["target_query"]}</textarea>
 
-          <div :if={@builder_open} class="rounded-lg bg-base-200/40 p-3 space-y-3">
+          <div :if={@builder_open} class="rounded-lg bg-sr-subtle/40 p-3 space-y-3">
             <div class="flex items-center justify-between">
-              <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+              <div class="text-xs font-semibold uppercase tracking-wide text-sr-muted">
                 Device filters
               </div>
               <.ui_button :if={not @builder_sync} type="button" size="xs" phx-click="builder_apply">
@@ -359,7 +359,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
           </div>
         </div>
 
-        <div class="rounded-lg border border-base-200 p-4 space-y-3">
+        <div class="rounded-lg border border-sr-line p-4 space-y-3">
           <div class="text-sm font-semibold">Passive Fingerprinting</div>
           <label class="form-control">
             <span class="label-text text-xs">Capture interfaces</span>
@@ -389,11 +389,11 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
           </div>
         </div>
 
-        <div class="rounded-lg border border-base-200 p-4 space-y-3">
+        <div class="rounded-lg border border-sr-line p-4 space-y-3">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div class="text-sm font-semibold">Deep Packet Inspection</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Protocol detection only; payloads, URIs, and DNS names are not stored.
               </p>
             </div>
@@ -420,12 +420,12 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
           </div>
         </div>
 
-        <div class="rounded-lg border border-base-200 p-4">
+        <div class="rounded-lg border border-sr-line p-4">
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div class="space-y-3">
               <div>
                 <div class="text-sm font-semibold">Flow Attribution</div>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   Attach local process identity to observed connections.
                 </p>
               </div>
@@ -442,7 +442,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
             <div class="space-y-3">
               <div>
                 <div class="text-sm font-semibold">Process Snapshots</div>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   Periodically record local listening sockets with redacted process context.
                 </p>
               </div>
@@ -476,7 +476,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
     <div class="modal modal-open">
       <div class="modal-box max-w-2xl">
         <h3 class="font-bold text-lg mb-4">Compiled Visibility Config</h3>
-        <pre class="bg-base-200/50 p-4 rounded-lg text-xs font-mono overflow-x-auto max-h-96">{@json_preview}</pre>
+        <pre class="bg-sr-subtle/50 p-4 rounded-lg text-xs font-mono overflow-x-auto max-h-96">{@json_preview}</pre>
         <div class="modal-action">
           <.ui_button phx-click="close_preview" size="sm" variant="neutral">Close</.ui_button>
         </div>
@@ -512,7 +512,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
 
   defp dpi_toggle(assigns) do
     ~H"""
-    <label class="label cursor-pointer justify-start gap-2 rounded-md border border-base-200 px-3 py-2 hover:bg-base-200/40">
+    <label class="label cursor-pointer justify-start gap-2 rounded-md border border-sr-line px-3 py-2 hover:bg-sr-subtle/40">
       <input type="hidden" name={"form[dpi][protocols][#{@name}]"} value="false" />
       <input
         type="checkbox"
@@ -532,7 +532,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
 
   defp flow_attribution_toggle(assigns) do
     ~H"""
-    <label class="label cursor-pointer justify-start gap-2 rounded-md border border-base-200 px-3 py-2 hover:bg-base-200/40">
+    <label class="label cursor-pointer justify-start gap-2 rounded-md border border-sr-line px-3 py-2 hover:bg-sr-subtle/40">
       <input type="hidden" name={"form[flow_attribution][#{@name}]"} value="false" />
       <input
         type="checkbox"
