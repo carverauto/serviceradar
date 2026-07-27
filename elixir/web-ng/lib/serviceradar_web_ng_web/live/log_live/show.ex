@@ -763,8 +763,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp log_message_hero(assigns) do
     body = redact_secret_text(log_message(assigns.log))
     is_json = message_is_json?(body)
-    pairs = extract_kv_pairs(body)
-    prefix = message_prefix(body)
+    pairs = extract_message_pairs(body)
+    prefix = message_prefix(body) || wevent_message_prefix(body)
     has_structure? = pairs != []
 
     pretty_json =
@@ -918,6 +918,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       nil
     else
       [
+        # UniFi/Ubiquiti: EVENT_STA_JOIN beats generic wevent.ubnt_custom_event()
+        extract_event_code(body),
         extract_function_event(body),
         extract_subject_after_syslog(body),
         extract_bracket_title(body),
@@ -934,31 +936,57 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
     title != "" and has_latin_letter?(title) and not pure_numeric_token?(title) and
       not mac_tail_headline?(title) and not metrics_only_headline?(title) and
-      not kernel_timestamp_headline?(title)
+      not kernel_timestamp_headline?(title) and not generic_wrapper_event?(title)
   end
 
   defp usable_headline?(_), do: false
 
+  # EVENT_STA_JOIN / EVENT_STA_LEAVE / … — the actionable event code.
+  defp extract_event_code(body) when is_binary(body) do
+    case Regex.run(~r/\b(EVENT_[A-Z][A-Z0-9_]{2,48})\b/, body) do
+      [_, code] -> code
+      _ -> nil
+    end
+  end
+
+  defp extract_event_code(_), do: nil
+
   # "… mcad[1977]: wireless_agg_stats.log_sta_anomalies(): BSSID=…"
   # Only accept empty-paren events with a dotted name (module.func()) so
   # metric crumbs like idle(60) never win — those aren't empty ().
+  # Skip generic Ubiquiti wrappers (wevent.ubnt_custom_event) when an EVENT_* exists.
   defp extract_function_event(body) when is_binary(body) do
-    case Regex.scan(~r"\b([A-Za-z_][\w.]*[A-Za-z0-9_]\(\))", body) do
-      [] ->
-        nil
+    if extract_event_code(body) do
+      nil
+    else
+      case Regex.scan(~r"\b([A-Za-z_][\w.]*[A-Za-z0-9_]\(\))", body) do
+        [] ->
+          nil
 
-      matches ->
-        matches
-        |> Enum.map(fn
-          [_, name] -> String.trim(name)
-          _ -> nil
-        end)
-        |> Enum.filter(&(is_binary(&1) and String.contains?(&1, ".")))
-        |> List.last()
+        matches ->
+          matches
+          |> Enum.map(fn
+            [_, name] -> String.trim(name)
+            _ -> nil
+          end)
+          |> Enum.filter(&(is_binary(&1) and String.contains?(&1, ".")))
+          |> Enum.reject(&generic_wrapper_event?/1)
+          |> List.last()
+      end
     end
   end
 
   defp extract_function_event(_), do: nil
+
+  # Generic dispatch wrappers are not useful as page titles.
+  defp generic_wrapper_event?(name) when is_binary(name) do
+    n = name |> String.trim() |> String.downcase() |> String.trim_trailing("()")
+
+    n in ["wevent.ubnt_custom_event", "ubnt_custom_event"] or
+      String.ends_with?(n, ".ubnt_custom_event")
+  end
+
+  defp generic_wrapper_event?(_), do: false
 
   # Peel host/kernel/iface prefixes; keep the human subject intact.
   # Do NOT split on ":" — that shatters MAC addresses into "b9 idle(60)…".
@@ -1036,14 +1064,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       body
       # d021f9b43279,UAP-nanoHD-6.7.54+15663:
       |> String.replace(~r/^[0-9a-fA-F]{6,},[^:]+:\s*/, "")
-      # mcad[1977]: / process[12345]:
+      # stray empty tag from "host: : wevent"
+      |> String.replace(~r/^:\s*/, "")
+      # mcad[1977]: / wevent[2066]: / process[12345]:
       |> String.replace(~r/\b[A-Za-z_][\w.-]*\[\d+\]:\s*/, "")
       # one or more short facility tags at the front: kernel: syslog: …
       |> String.replace(~r/^(?:[A-Za-z_][\w.-]{0,24}:\s*)+/, "")
       # [2652784.576992] kernel uptime stamp
       |> String.replace(~r/^\[\d+(?:\.\d+)?\]\s*/, "")
-      # iface / subsystem tag: ra0: eth0: wlan0:
+      # iface / subsystem tag: ra0: eth0: wlan0: (not MAC colons — only at start)
       |> String.replace(~r/^[A-Za-z][\w.-]{0,15}:\s*/, "")
+      # generic wrapper call left behind: wevent.ubnt_custom_event():
+      |> String.replace(~r/^(?:wevent\.)?ubnt_custom_event\(\)\s*:\s*/i, "")
+      |> String.replace(~r/^[A-Za-z_][\w.]*\.\w+\(\)\s*:\s*/, "")
       |> String.trim()
 
     if cleaned == "", do: body, else: cleaned
@@ -1064,6 +1097,58 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp message_prefix(_), do: nil
+
+  # Prefix shown above the parsed field grid for wevent lines (no KEY=).
+  defp wevent_message_prefix(body) when is_binary(body) do
+    if extract_event_code(body) do
+      peel_log_prefix(body)
+      |> String.replace(~r/\bEVENT_[A-Z][A-Z0-9_]{2,48}\b.*$/, "")
+      |> String.trim()
+      |> String.trim_trailing(":")
+      |> then(fn p -> if p == "", do: nil, else: p end)
+    end
+  end
+
+  defp wevent_message_prefix(_), do: nil
+
+  # Structured fields for the parsed message grid.
+  defp extract_message_pairs(body) when is_binary(body) do
+    (extract_event_pairs(body) ++ extract_kv_pairs(body))
+    |> Enum.uniq_by(fn {k, _} -> k end)
+    |> Enum.take(32)
+  end
+
+  defp extract_message_pairs(_), do: []
+
+  # UniFi wevent: "EVENT_STA_JOIN wifi0ap0: 7a:b4:e3:d1:93:5a / 2"
+  defp extract_event_pairs(body) when is_binary(body) do
+    event = extract_event_code(body)
+
+    if is_nil(event) do
+      []
+    else
+      base = [{"event", event}]
+
+      rest =
+        case Regex.run(
+               ~r"\bEVENT_[A-Z][A-Z0-9_]{2,48}\s+([A-Za-z][\w.-]{0,24}):\s*([0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})(?:\s*/\s*(\d+))?",
+               body
+             ) do
+          [_, iface, mac, count] when is_binary(count) and count != "" ->
+            [{"interface", iface}, {"sta", String.downcase(mac)}, {"index", count}]
+
+          [_, iface, mac | _] ->
+            [{"interface", iface}, {"sta", String.downcase(mac)}]
+
+          _ ->
+            []
+        end
+
+      base ++ rest
+    end
+  end
+
+  defp extract_event_pairs(_), do: []
 
   defp extract_kv_pairs(body) when is_binary(body) do
     ~r/\b([A-Za-z_][A-Za-z0-9_]{0,24})=(?:"([^"]*)"|([^\s]*))/
