@@ -5120,10 +5120,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <dialog class="sr-ui-modal sr-ui-modal-open" phx-window-keydown="netflow_close" phx-key="escape">
-      <div class="sr-ui-modal-box max-w-[96rem] w-[96vw] h-[92vh] p-0 overflow-hidden">
-        <div class="flex items-start justify-between gap-4 border-b border-sr-line px-5 py-4">
+      <div class="sr-ui-modal-box sr-ui-modal-box-wide">
+        <div class="flex shrink-0 items-start justify-between gap-4 border-b border-sr-line px-5 py-4">
           <div class="min-w-0">
-            <div class="text-sm font-semibold">Flow details</div>
+            <div class="text-sm font-semibold tracking-tight text-sr-ink">Flow details</div>
             <div class="text-xs text-sr-muted font-mono">
               {format_netflow_timestamp(@flow)}
             </div>
@@ -5133,17 +5133,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </.ui_icon_button>
         </div>
 
-        <div class="grid h-[calc(92vh-5rem)] grid-cols-1 gap-3 p-3 lg:grid-cols-3">
-          <.ui_panel class="lg:col-span-2 max-h-full overflow-y-auto" body_class="p-0">
+        <div class="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden p-3 lg:grid-cols-3">
+          <.ui_panel class="min-h-0 min-w-0 max-h-full overflow-y-auto lg:col-span-2" body_class="!p-0">
             <div class="divide-y divide-sr-line">
               <div class="p-4">
-                <div class="text-xs uppercase tracking-wider text-sr-muted">Endpoints</div>
-                <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+                <div class="text-xs font-medium uppercase tracking-wider text-sr-muted">Endpoints</div>
+                <div class="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div class="min-w-0 rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
                     <div class="text-[10px] uppercase tracking-wider text-sr-muted">
                       Source
                     </div>
-                    <div class="mt-1 font-mono text-sm">
+                    <div class="mt-1 break-all font-mono text-sm leading-snug text-sr-ink">
                       {@src_ip}{if @src_port, do: ":#{@src_port}", else: ""}
                     </div>
                     <div :if={@src_cc} class="mt-1 text-xs text-sr-muted">
@@ -5178,11 +5178,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     </div>
                   </div>
 
-                  <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+                  <div class="min-w-0 rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
                     <div class="text-[10px] uppercase tracking-wider text-sr-muted">
                       Destination
                     </div>
-                    <div class="mt-1 font-mono text-sm">
+                    <div class="mt-1 break-all font-mono text-sm leading-snug text-sr-ink">
                       {@dst_ip}{if @dst_port, do: ":#{@dst_port}", else: ""}
                     </div>
                     <div :if={@dst_cc} class="mt-1 text-xs text-sr-muted">
@@ -5344,13 +5344,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             </div>
           </.ui_panel>
 
-          <.ui_panel class="lg:col-span-1">
+          <.ui_panel class="min-h-0 min-w-0 max-h-full overflow-y-auto lg:col-span-1">
             <div>
-              <div class="text-xs uppercase tracking-wider text-sr-muted">
+              <div class="text-xs font-medium uppercase tracking-wider text-sr-muted">
                 Security and Enrichment
               </div>
 
-              <div class="mt-3 space-y-3 text-xs">
+              <div class="mt-3 space-y-4 text-xs leading-relaxed">
                 <div>
                   <div class="font-semibold">Process attribution</div>
                   <%= if is_map(@attribution) do %>

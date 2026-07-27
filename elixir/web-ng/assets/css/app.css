@@ -970,9 +970,10 @@ samp,
 .modal-box {
   grid-column-start: 1;
   grid-row-start: 1;
-  max-height: calc(100vh - 2.5rem);
-  width: calc(11 / 12 * 100%);
-  max-width: 32rem;
+  /* Defaults for small dialogs. Size utilities / sr-ui-modal-box-* variants override. */
+  width: min(calc(11 / 12 * 100%), 32rem);
+  max-width: min(calc(11 / 12 * 100%), 32rem);
+  max-height: calc(100dvh - 2.5rem);
   overflow-y: auto;
   overscroll-behavior: contain;
   border: 1px solid var(--color-sr-line);
@@ -981,6 +982,18 @@ samp,
   color: var(--color-sr-ink);
   box-shadow: var(--shadow-sr-raised);
   padding: 1.5rem;
+}
+
+/* Full-bleed / explorer modals (netflow flow details, etc.) */
+.sr-ui-modal-box-wide {
+  width: min(96vw, 96rem);
+  max-width: min(96vw, 96rem);
+  height: min(92dvh, 92vh);
+  max-height: min(92dvh, 92vh);
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .sr-ui-modal-backdrop,
