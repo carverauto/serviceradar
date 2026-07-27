@@ -748,7 +748,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "alerts",
       label: "Alerts",
-      route: "/alerts",
+      route: "/observability",
+      route_params: %{"tab" => "alerts"},
       default_time: "last_7d",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",

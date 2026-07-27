@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNGWeb.Observability.DetailStreamComponents do
     "all" => "All",
     "info" => "Info",
     "warn" => "Warn",
+    "warning" => "Warn",
     "error" => "Err",
     "debug" => "Dbg",
     "critical" => "Crit",
@@ -208,6 +209,21 @@ defmodule ServiceRadarWebNGWeb.Observability.DetailStreamComponents do
         target == "medium" -> s in ["medium"]
         target == "low" -> s in ["low"]
         target == "info" -> s in ["info", "informational", "debug", "ok"]
+        true -> s == target
+      end
+    end)
+  end
+
+  def filter_stream_entries(entries, severity, :alerts) when is_list(entries) do
+    target = normalize_severity(severity)
+
+    Enum.filter(entries, fn entry ->
+      s = normalize_severity(entry.severity)
+
+      cond do
+        target == "critical" -> s in ["critical", "emergency", "error", "fatal"]
+        target == "warning" -> s in ["warning", "warn", "high"]
+        target == "info" -> s in ["info", "informational", "medium", "low"]
         true -> s == target
       end
     end)
