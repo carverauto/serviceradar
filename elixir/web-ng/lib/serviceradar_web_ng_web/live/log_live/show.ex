@@ -920,9 +920,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       nil
     else
       [
-        # Compact UniFi wevent (EVENT + iface/MAC, not the whole host line)
+        # Compact UniFi wevent (EVENT + iface/MAC)
         extract_event_subject(body),
         extract_wevent_headline(body),
+        # Syslog: keep process context — "dnsmasq-dhcp[4129]: Updating leases"
+        extract_syslog_process_headline(body),
         extract_function_event(body),
         extract_subject_after_syslog(body),
         extract_bracket_title(body),
@@ -1065,6 +1067,27 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp extract_wevent_headline(_), do: nil
+
+  # "tonka01 dnsmasq-dhcp[4129]: Updating leases :: AGE=…"
+  # Keep process[pid] in the hero — it is the real context (not just hostname).
+  defp extract_syslog_process_headline(body) when is_binary(body) do
+    head =
+      body
+      |> peel_host_prefix()
+      # Drop KEY= tail (AGE=6sec FILE=…)
+      |> String.replace(~r/\s+[A-Za-z_][A-Za-z0-9_]{0,24}=.*$/, "")
+      # Drop trailing empty "::" markers
+      |> String.replace(~r/\s*::\s*$/, "")
+      |> String.trim()
+      |> String.trim_trailing(":")
+      |> String.trim()
+
+    if Regex.match?(~r/\b[A-Za-z_][\w.-]+\[\d+\]:/, head) and usable_headline?(head) do
+      head
+    end
+  end
+
+  defp extract_syslog_process_headline(_), do: nil
 
   # EVENT_STA_JOIN … (full tail including iface/MAC when present)
   defp extract_event_subject(body) when is_binary(body) do
@@ -1210,12 +1233,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp peel_host_prefix(body), do: body
 
-  # Aggressive peel for non-wevent subjects (kernel, mcad, …).
+  # Aggressive peel for fallback subjects only (after process/wevent extractors).
+  # Prefer extract_syslog_process_headline so dnsmasq-dhcp[pid] is not discarded.
   defp peel_log_prefix(body) when is_binary(body) do
     cleaned =
       body
       |> peel_host_prefix()
-      # mcad[1977]: / process[12345]: (not wevent — those stay in headline)
+      # optional short hostname token before process (tonka01 dnsmasq-dhcp[…])
+      # kept when process headline wins; here we only strip facility noise for fallbacks
+      # mcad[1977]: / process[12345]: (not wevent — wevent handled separately)
       |> String.replace(~r/\b(?!wevent)[A-Za-z_][\w.-]*\[\d+\]:\s*/i, "")
       # one or more short facility tags at the front: kernel: syslog: …
       |> String.replace(~r/^(?:[A-Za-z_][\w.-]{0,24}:\s*)+/, "")
