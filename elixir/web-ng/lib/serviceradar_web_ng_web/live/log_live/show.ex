@@ -596,7 +596,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp log_detail_header(assigns) do
     body = log_message(assigns.log)
-    title = extract_bracket_title(body) || message_preview(body, 64) || "Log entry"
+    # Full message line for the hero title — actions live on the breadcrumb row
+    # so we no longer need a hard 64-char ellipsis.
+    title = extract_bracket_title(body) || message_preview(body, 240) || "Log entry"
 
     assigns =
       assigns
@@ -606,43 +608,43 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
     ~H"""
     <header class="space-y-3 border-b border-sr-line px-4 pb-4 pt-5 font-sans sm:px-6 sm:pt-6">
-      <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-sr-muted">
-        <.link navigate={~p"/observability?#{%{tab: "logs"}}"} class="hover:text-sr-ink">logs</.link>
-        <span class="text-sr-line-strong">/</span>
-        <span class="text-sr-ink/80">{@source_kind}</span>
-        <span class="text-sr-line-strong">/</span>
-        <span class="font-mono text-sr-ink">{@short_id}</span>
-      </div>
-
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div class="min-w-0 space-y-2">
-          <div class="flex min-w-0 flex-wrap items-center gap-2.5">
-            <.severity_badge value={Map.get(@log, "severity_text")} />
-            <h1 class="min-w-0 truncate font-sans text-lg font-semibold tracking-tight text-sr-ink sm:text-xl">
-              {@title}
-            </h1>
-          </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <code class="break-all font-mono text-xs text-sr-muted">{@log_id}</code>
-            <.ui_button type="button" size="xs" variant="ghost" phx-click="copy_id">Copy ID</.ui_button>
-          </div>
+      <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-sr-muted">
+          <.link navigate={~p"/observability?#{%{tab: "logs"}}"} class="hover:text-sr-ink">logs</.link>
+          <span class="text-sr-line-strong">/</span>
+          <span class="text-sr-ink/80">{@source_kind}</span>
+          <span class="text-sr-line-strong">/</span>
+          <span class="font-mono text-sr-ink">{@short_id}</span>
         </div>
 
-        <div class="flex shrink-0 flex-wrap items-center gap-2">
-          <.ui_button href={~p"/observability?#{%{tab: "logs"}}"} variant="outline" size="sm">
+        <div class="flex shrink-0 flex-wrap items-center gap-1.5">
+          <.ui_button href={~p"/observability?#{%{tab: "logs"}}"} variant="outline" size="xs">
             Back to logs
           </.ui_button>
-          <.ui_button type="button" variant="outline" size="sm" phx-click="copy_json">
+          <.ui_button type="button" variant="outline" size="xs" phx-click="copy_json">
             Copy JSON
           </.ui_button>
           <.ui_button
             :if={@can_create_rules?}
             phx-click="open_rule_builder"
             variant="primary"
-            size="sm"
+            size="xs"
           >
-            <.icon name="hero-plus" class="size-4" /> Create event rule
+            <.icon name="hero-plus" class="size-3.5" /> Create event rule
           </.ui_button>
+        </div>
+      </div>
+
+      <div class="min-w-0 space-y-2">
+        <div class="flex min-w-0 items-start gap-2.5">
+          <.severity_badge value={Map.get(@log, "severity_text")} />
+          <h1 class="min-w-0 flex-1 font-sans text-lg font-semibold leading-snug tracking-tight text-sr-ink sm:text-xl">
+            {@title}
+          </h1>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <code class="break-all font-mono text-xs text-sr-muted">{@log_id}</code>
+          <.ui_button type="button" size="xs" variant="ghost" phx-click="copy_id">Copy ID</.ui_button>
         </div>
       </div>
     </header>
