@@ -9,7 +9,8 @@ normalization (Zen) and response rules without editing raw JSON.
 
 ## Where to Find It
 
-Navigate to **Settings → Events** in the web UI.
+Navigate to **Settings → Rules** (`/settings/rules`) in the web UI. The page title
+is **Events**, with tabs for log normalization (Zen), event promotion, and alerts.
 
 ## Log Normalization (Zen)
 
@@ -54,8 +55,8 @@ Response rules run after normalization and are split into two layers:
 Use the same UI section to define simple match criteria (subject prefix, service
 name, severity, message substring) and threshold windows.
 
-In **Settings → Events → Alerts**, operators can also edit incident controls on
-stateful alert rules:
+In **Settings → Rules → Alerts** (`/settings/rules?tab=alerts`), operators can also
+edit incident controls on stateful alert rules:
 
 - `group_by` decides which fields keep events inside one incident.
 - `cooldown_seconds` prevents repeated immediate notifications for duplicate bursts.

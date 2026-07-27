@@ -6,7 +6,7 @@ title: Edge Agent Onboarding
 
 Edge onboarding is intentionally simple:
 
-1. Install `serviceradar-agent` on the host (RPM/DEB from GitHub Releases).
+1. Install `serviceradar-agent` on the host (RPM/DEB from the [releases page](https://code.carverauto.dev/carverauto/serviceradar/releases)).
 2. In the UI, create an agent package.
 3. Copy/paste the enroll command on the host.
 
@@ -20,10 +20,14 @@ That is it. The agent enrolls, receives config, and starts streaming results.
 
 ## 1. Install The Agent (RPM/DEB)
 
-Download the latest `serviceradar-agent` package from the ServiceRadar GitHub Releases page and install it on the target host:
+Download the latest `serviceradar-agent` package from the ServiceRadar releases page and install it on the target host:
 
+- Releases: [code.carverauto.dev/carverauto/serviceradar/releases](https://code.carverauto.dev/carverauto/serviceradar/releases)
 - Debian/Ubuntu: install the `.deb`
 - RHEL/Alma/Rocky: install the `.rpm`
+
+For the full hosted onboarding path (SSO, collectors, RBAC, and day-2 ops), see the
+[Cloud Quickstart](./cloud-quickstart.md).
 
 After install, confirm the CLI exists:
 
@@ -35,12 +39,12 @@ After install, confirm the CLI exists:
 
 In the web UI:
 
-1. Go to **Settings -> Agents -> Deploy**
-2. Click **Create Agent Package**
-3. Fill in the required fields in the modal (gateway, agent ID/label, etc.)
-4. Submit
+1. Go to **Settings → Agent Deploy** (`/settings/agents/deploy`)
+2. Click **Create Agent Package** (opens edge package creation)
+3. Fill in the required fields (gateway, agent ID/label, etc.)
+4. Submit and copy the edgepkg token from the success modal
 
-The UI will show a one-liner enroll command that looks like:
+The enroll command looks like:
 
 ```bash
 sudo /usr/local/bin/serviceradar-cli enroll --core-url https://<SERVICERADAR_HOST> --token edgepkg-v2:<token>
@@ -57,6 +61,8 @@ sudo /usr/local/bin/serviceradar-cli enroll --core-url https://<SERVICERADAR_HOS
 Notes:
 
 - Treat the token as a secret (it grants enrollment).
+- Enrollment **automates agent identity and mTLS** — you do not generate or
+  distribute certificates by hand for standard Cloud or chart-managed installs.
 - Bundle/package download tokens are accepted only in explicit request headers or POST bodies, never in URL query strings.
 - Enrollment requires verified HTTPS. `serviceradar-cli enroll` no longer supports an insecure TLS bypass.
 - Only signed `edgepkg-v2` tokens are accepted for agent enrollment.
@@ -81,7 +87,7 @@ Onboarding just gets the agent connected. The next step is enabling the collecti
 
 Sysmon profiles control host metrics collection from enrolled agents.
 
-1. Go to **Settings -> Sysmon Profiles**
+1. Go to **Settings → Host Health** (`/settings/sysmon`)
 2. Create a baseline profile (example: “Default Host Metrics”)
 3. Set **Target Query** to apply broadly, for example:
    - `in:devices` (apply to all devices)

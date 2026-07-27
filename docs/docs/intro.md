@@ -48,25 +48,28 @@ page.
 
 ServiceRadar is designed with security in mind:
 
-1. **mTLS Authentication** - Secure communication between components using mutual TLS
+1. **Automated service and agent identity** - Platform TLS and agent enrollment
+   credentials are provisioned for you on Cloud and in standard Helm/Compose
+   installs; day-1 agent onboarding does not require hand-built CAs
 2. **User Authentication** - Password login, Direct SSO (OIDC/SAML), or gateway-proxied
    JWT auth
 3. **Session Management** - Secure, expirable sessions for the web UI and API access
 4. **Role-Based Access** - Instance-scoped roles and permissions for administrative actions
 
-For more details, see the [TLS & mTLS](./tls-security.md) and
-[Authentication](./auth-configuration.md) documentation.
+For operator SSO and RBAC, see [Authentication](./auth-configuration.md) and
+[Roles & Permissions](./rbac-and-roles.md). Advanced custom-CA scenarios remain in
+[TLS & mTLS](./tls-security.md).
 
 ## Getting Started
 
 Work through the documentation in roughly this order:
 
 ### Deploy
-1. **[Quickstart](./quickstart.md)** - The fastest path to a running instance
-2. **[Docker Compose](./docker-setup.md)** - Complete Docker deployment with automatic
+1. **[Cloud Quickstart](./cloud-quickstart.md)** - Hosted SaaS runbook (agents, SSO, collectors, RBAC)
+2. **[Self-hosted Quickstart](./quickstart.md)** - Docker/Helm path when you run the stack yourself
+3. **[Docker Compose](./docker-setup.md)** - Complete Docker deployment with automatic
    configuration
-3. **[Kubernetes (Helm)](./helm-configuration.md)** - Production-style deployments
-4. **[TLS & mTLS](./tls-security.md)** - Secure service-to-service and agent connectivity
+4. **[Kubernetes (Helm)](./helm-configuration.md)** - Production-style deployments
 5. **[Authentication](./auth-configuration.md)** - Users, sessions, and SSO integration
 
 ### Get data in
@@ -83,5 +86,5 @@ Work through the documentation in roughly this order:
 11. **[Edge Model](./edge-model.md)** - Agent lifecycle, config flow, and command bus
 12. **[Wasm Plugins](./wasm-plugins.md)** - Sandboxed plugin system and SDKs
 
-**Recommended**: Start with the [Quickstart](./quickstart.md) for the fastest path to a
-running instance.
+**Recommended**: Start with the [Cloud Quickstart](./cloud-quickstart.md) for hosted
+SaaS, or the [Self-hosted Quickstart](./quickstart.md) when you install the stack.

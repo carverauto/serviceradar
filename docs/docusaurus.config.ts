@@ -129,7 +129,11 @@ const config: Config = {
               to: '/docs/intro',
             },
             {
-              label: 'Quickstart',
+              label: 'Cloud Quickstart',
+              to: '/docs/cloud-quickstart',
+            },
+            {
+              label: 'Self-hosted Quickstart',
               to: '/docs/quickstart',
             },
             {
