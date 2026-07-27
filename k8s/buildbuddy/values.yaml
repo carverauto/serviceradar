@@ -56,7 +56,8 @@ config:
   executor:
     app_target: grpcs://remote.buildbuddy.io:443
     enable_oci: true
-    default_isolation_type: oci
+    default_isolation_type: "firecracker"
+    enable_firecracker: true
     image_pull_timeout: 15m
     startup_warmup_max_wait_secs: 300
     warmup_timeout_secs: 300
