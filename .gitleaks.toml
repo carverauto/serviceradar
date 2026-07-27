@@ -2,6 +2,19 @@
 useDefault = true
 
 [allowlist]
-description = "Allow deterministic test UUIDs and Cargo's checksum-indexed upstream vendor snapshot"
-regexes = ['''018f3f56-[0-9a-f]{4}-7[0-9a-f]{3}-8[0-9a-f]{3}-123456789abc''']
+description = "Allow deterministic test UUIDs, one synthetic OpenSSH test key, and Cargo's checksum-indexed upstream vendor snapshot"
+regexes = [
+  '''018f3f56-[0-9a-f]{4}-7[0-9a-f]{3}-8[0-9a-f]{3}-123456789abc''',
+  # Synthetic OpenSSH key body used by credential_secret_builder_test.exs. It is
+  # the marker string "openssh-test-key-material" -- not a key, and unusable as
+  # one -- but it must keep real PEM armor because the test exercises the builder's
+  # armor parsing and fingerprinting. Both forms appear in history: an earlier
+  # revision base64-encoded the marker, a later one inlined it.
+  #
+  # Allowlisted by its exact body, NOT by path: a blanket allowlist over test
+  # directories would hide a genuine key committed to a test fixture, which is one
+  # of the more common ways real credentials leak.
+  '''openssh-test-key-material''',
+  '''b3BlbnNzaC10ZXN0LWtleS1tYXRlcmlhbA==''',
+]
 paths = ['''^third_party/crates/''']
