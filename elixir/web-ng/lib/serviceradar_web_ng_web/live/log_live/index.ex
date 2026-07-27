@@ -2705,7 +2705,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             fill="none"
             stroke-width="6"
             stroke-linecap="butt"
-            class="stroke-success"
+            class="stroke-emerald-400"
             stroke-dasharray={"#{@tcp_len} #{@circumference}"}
             stroke-dashoffset={@tcp_off}
           />
@@ -2716,7 +2716,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             fill="none"
             stroke-width="6"
             stroke-linecap="butt"
-            class="stroke-info"
+            class="stroke-sky-400"
             stroke-dasharray={"#{@udp_len} #{@circumference}"}
             stroke-dashoffset={@udp_off}
           />
@@ -2736,11 +2736,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
       <div class="text-xs font-mono text-sr-muted leading-tight">
         <div class="flex items-center gap-2">
-          <span class="inline-block size-2 rounded-full bg-success"></span>
+          <span class="inline-block size-2 rounded-full bg-emerald-400"></span>
           <span>TCP {format_compact_int(@tcp)}</span>
         </div>
         <div class="flex items-center gap-2">
-          <span class="inline-block size-2 rounded-full bg-info"></span>
+          <span class="inline-block size-2 rounded-full bg-sky-400"></span>
           <span>UDP {format_compact_int(@udp)}</span>
         </div>
       </div>
@@ -3044,10 +3044,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
-  defp tone_class("warning"), do: "text-warning"
-  defp tone_class("info"), do: "text-info"
-  defp tone_class("success"), do: "text-success"
-  defp tone_class("error"), do: "text-error"
+  defp tone_class("warning"), do: "text-amber-400"
+  defp tone_class("info"), do: "text-sky-400"
+  defp tone_class("success"), do: "text-emerald-400"
+  defp tone_class("error"), do: "text-rose-400"
   defp tone_class(_), do: "text-sr-ink"
 
   attr(:srql, :map, required: true)
@@ -3435,18 +3435,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp color_class("error"), do: "text-error"
-  defp color_class("warning"), do: "text-warning"
-  defp color_class("info"), do: "text-info"
+  defp color_class("error"), do: "text-rose-400"
+  defp color_class("warning"), do: "text-amber-400"
+  defp color_class("info"), do: "text-sky-400"
   defp color_class("primary"), do: "text-sr-brand"
-  defp color_class("success"), do: "text-success"
+  defp color_class("success"), do: "text-emerald-400"
   defp color_class(_), do: "text-sr-ink"
 
-  defp color_bg("error"), do: "bg-error"
-  defp color_bg("warning"), do: "bg-warning"
-  defp color_bg("info"), do: "bg-info"
+  defp color_bg("error"), do: "bg-rose-500"
+  defp color_bg("warning"), do: "bg-amber-400"
+  defp color_bg("info"), do: "bg-sky-400"
   defp color_bg("primary"), do: "bg-sr-brand"
-  defp color_bg("success"), do: "bg-success"
+  defp color_bg("success"), do: "bg-emerald-400"
   defp color_bg(_), do: "bg-sr-ink"
 
   attr(:stats, :map, required: true)
@@ -3601,10 +3601,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp obs_stat(assigns) do
     {bg, fg} =
       case assigns.tone do
-        "success" -> {"bg-success/10", "text-success"}
-        "warning" -> {"bg-warning/10", "text-warning"}
-        "error" -> {"bg-error/10", "text-error"}
-        "info" -> {"bg-info/10", "text-info"}
+        "success" -> {"bg-emerald-400/10", "text-emerald-400"}
+        "warning" -> {"bg-amber-400/10", "text-amber-400"}
+        "error" -> {"bg-rose-500/10", "text-rose-400"}
+        "info" -> {"bg-sky-400/10", "text-sky-400"}
         _ -> {"bg-sr-subtle/50", "text-sr-muted"}
       end
 
@@ -5507,7 +5507,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     Click any AS number above to load ARIN details.
                   </div>
                   <%= if is_binary(Map.get(@arin_lookup || %{}, :error)) and Map.get(@arin_lookup || %{}, :error) != "" do %>
-                    <div class="mt-1 text-error">{Map.get(@arin_lookup, :error)}</div>
+                    <div class="mt-1 text-rose-400">{Map.get(@arin_lookup, :error)}</div>
                   <% end %>
                   <%= if data = Map.get(@arin_lookup || %{}, :data) do %>
                     <div class="mt-2 rounded-lg border border-sr-line bg-sr-subtle/30 p-2 text-[11px] font-mono space-y-1">
@@ -6327,7 +6327,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     # Determine trend color based on first vs last value
     first_val = List.first(data) || 0
     last_val = List.last(data) || 0
-    trend_color = if last_val > first_val * 1.1, do: "stroke-warning", else: "stroke-info"
+    # Explicit stroke colors — daisy stroke-warning/info no longer resolve.
+    trend_color = if last_val > first_val * 1.1, do: "stroke-amber-400", else: "stroke-sky-400"
 
     assigns =
       assigns
@@ -6367,14 +6368,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       pct = min(duration_ms / max_display_ms * 100, 100)
       threshold_pct = threshold_ms / max_display_ms * 100
 
-      # Color based on duration relative to threshold
+      # Color based on duration relative to threshold (no daisy tokens)
       bar_color =
         cond do
-          duration_ms <= threshold_ms * 0.5 -> "bg-success"
-          duration_ms <= threshold_ms -> "bg-success/70"
-          duration_ms <= threshold_ms * 1.5 -> "bg-warning"
-          duration_ms <= threshold_ms * 2 -> "bg-warning/80"
-          true -> "bg-error"
+          duration_ms <= threshold_ms * 0.5 -> "bg-emerald-400"
+          duration_ms <= threshold_ms -> "bg-emerald-400/80"
+          duration_ms <= threshold_ms * 1.5 -> "bg-amber-400"
+          duration_ms <= threshold_ms * 2 -> "bg-amber-500"
+          true -> "bg-rose-500"
         end
 
       assigns =
@@ -6390,15 +6391,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         class="flex items-center gap-2 min-w-[5rem]"
         title={"#{Float.round(@duration_ms * 1.0, 1)}ms"}
       >
-        <div class="relative h-2 w-16 bg-sr-subtle/60 rounded-sm overflow-visible">
-          <div class={"h-full rounded-sm #{@bar_color}"} style={"width: #{@pct}%"} />
+        <div class="relative h-2 w-16 overflow-visible rounded-sm bg-sr-subtle/60">
+          <div class={["h-full rounded-sm", @bar_color]} style={"width: #{@pct}%"}></div>
           <div
-            class="absolute top-0 h-full w-px bg-sr-muted/40"
+            class="absolute top-0 h-full w-px bg-sr-muted/50"
             style={"left: #{@threshold_pct}%"}
             title="500ms threshold"
-          />
+          >
+          </div>
         </div>
-        <span :if={@is_slow} class="text-[10px] text-warning font-semibold">SLOW</span>
+        <span :if={@is_slow} class="text-[10px] font-semibold text-amber-400">SLOW</span>
       </div>
       """
     end
@@ -6447,10 +6449,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp histogram_bar_color(duration_ms) do
     cond do
-      not is_number(duration_ms) or duration_ms <= 0 -> "bg-sr-muted/20"
-      duration_ms >= 500 -> "bg-error"
-      duration_ms >= 100 -> "bg-warning"
-      true -> "bg-success"
+      not is_number(duration_ms) or duration_ms <= 0 -> "bg-sr-muted/30"
+      duration_ms >= 500 -> "bg-rose-500"
+      duration_ms >= 100 -> "bg-amber-400"
+      true -> "bg-emerald-400"
     end
   end
 
