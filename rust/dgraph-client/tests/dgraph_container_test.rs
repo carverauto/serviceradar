@@ -37,7 +37,7 @@ use dgraph_client::{DgraphClient, Mutation};
 const CONTAINER_NAME: &str = "dgraph-standalone";
 const IMAGE: &str = "dgraph/standalone";
 const TAG: &str = "latest";
-const BIND_URL: &str = "0.0.0.0";
+const BIND_URL: &str =  "127.0.0.1";
 
 /// gRPC port. This is the one the client talks to.
 const GRPC_PORT: u16 = 9080;
