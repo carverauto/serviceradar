@@ -1060,12 +1060,54 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	rid := uuidv7(0x80)
 	page := &edgev1.EdgeLossManifestPageV1{
 		RecoveryId: rid, PageIndex: 0, PageCount: 1, Terminal: true, DigestVersion: edgerecord.RecoveryDigestVersion,
-		LostRanges: []*edgev1.EdgeLostRangeV1{{FromSequence: 10, ThroughSequence: 20}},
-		Affected: []*edgev1.EdgeAffectedScopeV1{{
-			FromSequence: 10, ThroughSequence: 20, ContractBundleSha256: digest32(0x40),
-			ProducerAssignmentId: uuidv7(0x72), RunId: uuidv7(0x73), RunShard: 3, AuthorityEpoch: 5,
-			ScopeSha256: digest32(0x84), RangeSha256: digest32(0x85),
-		}},
+		ClassificationSpans: []*edgev1.EdgeClassificationSpanV1{
+			// ATTRIBUTED_ACTIVE with a source identity PRESENT.
+			{
+				FromSequence: 10, ThroughSequence: 20,
+				Classification: &edgev1.EdgeClassificationSpanV1_AttributedActive{
+					AttributedActive: &edgev1.EdgeAttributedActiveV1{
+						Identity: &edgev1.EdgeAttributedSpanIdentityV1{
+							ProducerAssignmentId: uuidv7(0x72), RunId: uuidv7(0x73), RunShard: 3,
+							AuthorityEpoch: 5, ProductionScopeId: uuidv7(0x74),
+							ScopeSha256: digest32(0x84), ContractBundleSha256: digest32(0x40),
+							Source: &edgev1.EdgeSourceSpanIdentityV1{
+								Kind:              edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP,
+								ContextId:         uuidv7(0x76),
+								SourceScopeId:     uuidv7(0x77),
+								SourceScopeSha256: digest32(0x86),
+							},
+						},
+						RangeSha256: digest32(0x85),
+					},
+				},
+			},
+			// ATTRIBUTED_PASSIVE with the source identity ABSENT. Absence is part of
+			// the identity and is NOT the same as PASSIVE -- the two axes are
+			// independent, and this vector carries one of each so a cross-language
+			// fixture pins both framings.
+			{
+				FromSequence: 22, ThroughSequence: 22,
+				Classification: &edgev1.EdgeClassificationSpanV1_AttributedPassive{
+					AttributedPassive: &edgev1.EdgeAttributedPassiveV1{
+						Identity: &edgev1.EdgeAttributedSpanIdentityV1{
+							ProducerAssignmentId: uuidv7(0x78), RunId: uuidv7(0x79), RunShard: 3,
+							AuthorityEpoch: 5, ProductionScopeId: uuidv7(0x7a),
+							ScopeSha256: digest32(0x87), ContractBundleSha256: digest32(0x40),
+						},
+					},
+				},
+			},
+			// UNATTRIBUTABLE. Sequences 21 and 23-29 are deliberately omitted: a gap
+			// means NOT LOST, and gaps are legal within a page.
+			{
+				FromSequence: 30, ThroughSequence: 31,
+				Classification: &edgev1.EdgeClassificationSpanV1_Unattributable{
+					Unattributable: &edgev1.EdgeUnattributableV1{
+						Reason: edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_BINDING_CORRUPT,
+					},
+				},
+			},
+		},
 	}
 	page.PageSha256 = edgerecord.ManifestPageDigest(page)
 	pages := []*edgev1.EdgeLossManifestPageV1{page}
@@ -1074,7 +1116,7 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 
 	tomb := &edgev1.SpoolLossTombstoneV1{
 		RecoveryId: rid, PriorSpoolId: uuidv7(0x01), NewSpoolId: uuidv7(0x82),
-		LostFromSequence: 10, LostThroughSequence: 20, ManifestRootSha256: root, ManifestPageCount: 1,
+		ManifestRootSha256: root, ManifestPageCount: 1,
 		DetectedAtUnixNano: fixedNanos, Reason: "torn-tail", DigestVersion: edgerecord.RecoveryDigestVersion,
 	}
 	golden(t, "tombstone.bin", tomb)
