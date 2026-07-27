@@ -17,6 +17,7 @@
 package edgerecord
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"errors"
@@ -28,30 +29,69 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
-func rng(from, through uint64) *edgev1.EdgeLostRangeV1 {
-	return &edgev1.EdgeLostRangeV1{FromSequence: from, ThroughSequence: through}
+// activeSpan builds an ATTRIBUTED_ACTIVE span with a complete, valid identity.
+func activeSpan(t *testing.T, from, through uint64) *edgev1.EdgeClassificationSpanV1 {
+	t.Helper()
+	return &edgev1.EdgeClassificationSpanV1{
+		FromSequence: from, ThroughSequence: through,
+		Classification: &edgev1.EdgeClassificationSpanV1_AttributedActive{
+			AttributedActive: &edgev1.EdgeAttributedActiveV1{
+				Identity:    spanIdentity(t, nil),
+				RangeSha256: d32(0x03),
+			},
+		},
+	}
 }
 
-// buildManifest builds a valid single-recovery chained manifest with computed
-// page digests, prev-hash links, and an affected scope covering every lost range.
-func buildManifest(t *testing.T, recoveryID []byte, pageRanges [][]*edgev1.EdgeLostRangeV1) []*edgev1.EdgeLossManifestPageV1 {
+// passiveSpan builds an ATTRIBUTED_PASSIVE span. It still carries its lost DELIVERY
+// interval: omitting it would leave a hole indistinguishable from undetected loss.
+func passiveSpan(t *testing.T, from, through uint64) *edgev1.EdgeClassificationSpanV1 {
 	t.Helper()
-	count := len(pageRanges)
+	return &edgev1.EdgeClassificationSpanV1{
+		FromSequence: from, ThroughSequence: through,
+		Classification: &edgev1.EdgeClassificationSpanV1_AttributedPassive{
+			AttributedPassive: &edgev1.EdgeAttributedPassiveV1{Identity: spanIdentity(t, nil)},
+		},
+	}
+}
+
+func unattributableSpan(from, through uint64, r edgev1.EdgeUnattributableReason) *edgev1.EdgeClassificationSpanV1 {
+	return &edgev1.EdgeClassificationSpanV1{
+		FromSequence: from, ThroughSequence: through,
+		Classification: &edgev1.EdgeClassificationSpanV1_Unattributable{
+			Unattributable: &edgev1.EdgeUnattributableV1{Reason: r},
+		},
+	}
+}
+
+// spanIdentity builds a valid attributed identity. src is attached verbatim, so a
+// test can pin the source-present and source-absent cases -- which must NOT collide.
+func spanIdentity(t *testing.T, src *edgev1.EdgeSourceSpanIdentityV1) *edgev1.EdgeAttributedSpanIdentityV1 {
+	t.Helper()
+	return &edgev1.EdgeAttributedSpanIdentityV1{
+		ProducerAssignmentId: mustUUID(t),
+		RunId:                mustUUID(t),
+		RunShard:             2,
+		AuthorityEpoch:       5,
+		ProductionScopeId:    mustUUID(t),
+		ScopeSha256:          d32(0x02),
+		ContractBundleSha256: d32(0x01),
+		Source:               src,
+	}
+}
+
+// buildManifest builds a valid single-recovery chained manifest with computed page
+// digests and prev-hash links.
+func buildManifest(t *testing.T, recoveryID []byte, pageSpans [][]*edgev1.EdgeClassificationSpanV1) []*edgev1.EdgeLossManifestPageV1 {
+	t.Helper()
+	count := len(pageSpans)
 	pages := make([]*edgev1.EdgeLossManifestPageV1, count)
 	var prev []byte
-	for i, ranges := range pageRanges {
-		var affected []*edgev1.EdgeAffectedScopeV1
-		for _, r := range ranges {
-			affected = append(affected, &edgev1.EdgeAffectedScopeV1{
-				FromSequence: r.GetFromSequence(), ThroughSequence: r.GetThroughSequence(),
-				ContractBundleSha256: d32(0x01), ProducerAssignmentId: mustUUID(t), RunId: mustUUID(t),
-				RunShard: 2, AuthorityEpoch: 5, ScopeSha256: d32(0x02), RangeSha256: d32(0x03),
-			})
-		}
+	for i, spans := range pageSpans {
 		p := &edgev1.EdgeLossManifestPageV1{
 			RecoveryId: recoveryID, PageIndex: uint32(i), PageCount: uint32(count),
 			PrevPageSha256: prev, Terminal: i == count-1, DigestVersion: RecoveryDigestVersion,
-			LostRanges: ranges, Affected: affected,
+			ClassificationSpans: spans,
 		}
 		p.PageSha256 = ManifestPageDigest(p)
 		pages[i] = p
@@ -62,13 +102,15 @@ func buildManifest(t *testing.T, recoveryID []byte, pageRanges [][]*edgev1.EdgeL
 
 func TestManifestChainValid(t *testing.T) {
 	rid := mustUUID(t)
-	pages := buildManifest(t, rid, [][]*edgev1.EdgeLostRangeV1{{rng(10, 20), rng(30, 40)}, {rng(100, 110)}})
+	pages := buildManifest(t, rid, [][]*edgev1.EdgeClassificationSpanV1{
+		{activeSpan(t, 10, 20), activeSpan(t, 30, 40)},
+		{passiveSpan(t, 100, 110)},
+	})
 	if err := ValidateManifestChain(pages, ManifestRoot(pages)); err != nil {
 		t.Fatalf("valid manifest: %v", err)
 	}
 	tomb := &edgev1.SpoolLossTombstoneV1{
 		RecoveryId: rid, PriorSpoolId: mustUUID(t), NewSpoolId: mustUUID(t),
-		LostFromSequence: 10, LostThroughSequence: 110,
 		ManifestRootSha256: ManifestRoot(pages), ManifestPageCount: uint32(len(pages)), DigestVersion: RecoveryDigestVersion,
 	}
 	if err := ValidateTombstone(tomb, pages); err != nil {
@@ -78,7 +120,9 @@ func TestManifestChainValid(t *testing.T) {
 
 func TestManifestRejectsCrossRecoveryAndOverlap(t *testing.T) {
 	// Different recovery IDs across pages.
-	a := buildManifest(t, mustUUID(t), [][]*edgev1.EdgeLostRangeV1{{rng(1, 2)}, {rng(3, 4)}})
+	a := buildManifest(t, mustUUID(t), [][]*edgev1.EdgeClassificationSpanV1{
+		{activeSpan(t, 1, 2)}, {activeSpan(t, 3, 4)},
+	})
 	a[1].RecoveryId = mustUUID(t)
 	a[1].PrevPageSha256 = a[0].PageSha256
 	a[1].PageSha256 = ManifestPageDigest(a[1])
@@ -86,84 +130,408 @@ func TestManifestRejectsCrossRecoveryAndOverlap(t *testing.T) {
 		t.Fatalf("cross-recovery = %v, want ErrManifestRecoveryID", err)
 	}
 
-	// Ranges overlapping across the page boundary.
-	rid := mustUUID(t)
-	b := buildManifest(t, rid, [][]*edgev1.EdgeLostRangeV1{{rng(10, 20)}, {rng(15, 25)}})
-	if err := ValidateManifestChain(b, nil); !errors.Is(err, ErrManifestRange) {
-		t.Fatalf("cross-page overlap = %v, want ErrManifestRange", err)
+	// Spans overlapping across the page boundary.
+	b := buildManifest(t, mustUUID(t), [][]*edgev1.EdgeClassificationSpanV1{
+		{activeSpan(t, 10, 20)}, {activeSpan(t, 15, 25)},
+	})
+	if err := ValidateManifestChain(b, nil); !errors.Is(err, ErrManifestSpan) {
+		t.Fatalf("cross-page overlap = %v, want ErrManifestSpan", err)
 	}
 
 	// Lost sequence 0 (lane sequences start at 1) is rejected.
-	c := buildManifest(t, mustUUID(t), [][]*edgev1.EdgeLostRangeV1{{rng(0, 5)}})
-	if err := ValidateManifestChain(c, nil); !errors.Is(err, ErrManifestRange) {
-		t.Fatalf("lost sequence 0 = %v, want ErrManifestRange", err)
+	c := buildManifest(t, mustUUID(t), [][]*edgev1.EdgeClassificationSpanV1{{activeSpan(t, 0, 5)}})
+	if err := ValidateManifestChain(c, nil); !errors.Is(err, ErrManifestSpan) {
+		t.Fatalf("lost sequence 0 = %v, want ErrManifestSpan", err)
+	}
+
+	// Inverted interval: primitively invalid on its own, so ordering alone would
+	// not have excluded it.
+	d := buildManifest(t, mustUUID(t), [][]*edgev1.EdgeClassificationSpanV1{{activeSpan(t, 9, 5)}})
+	if err := ValidateManifestChain(d, nil); !errors.Is(err, ErrManifestSpan) {
+		t.Fatalf("inverted interval = %v, want ErrManifestSpan", err)
 	}
 }
 
-func TestManifestRejectsUncoveredAffected(t *testing.T) {
-	rid := mustUUID(t)
-	pages := buildManifest(t, rid, [][]*edgev1.EdgeLostRangeV1{{rng(10, 20)}})
-	// Add an affected entry entirely outside the lost range.
-	pages[0].Affected = append(pages[0].Affected, &edgev1.EdgeAffectedScopeV1{
-		FromSequence: 100, ThroughSequence: 200, ContractBundleSha256: d32(1),
-		ProducerAssignmentId: mustUUID(t), RunId: mustUUID(t), ScopeSha256: d32(2), RangeSha256: d32(3),
+// GAPS ARE LEGAL and mean "not lost" -- within a page and at a page boundary alike.
+// This replaces the retired "no gaps within coverage" rule, which existed only
+// because coverage was DECLARED; with the extent derived there is nothing to
+// contradict. ADJACENCY is legal too: two adjacent spans may differ in body.
+func TestManifestAcceptsGapsAndAdjacency(t *testing.T) {
+	cases := []struct {
+		name  string
+		pages [][]*edgev1.EdgeClassificationSpanV1
+	}{
+		{"gap within a page", [][]*edgev1.EdgeClassificationSpanV1{
+			{activeSpan(t, 1, 1), activeSpan(t, 100, 100)}}},
+		{"gap across a page boundary", [][]*edgev1.EdgeClassificationSpanV1{
+			{activeSpan(t, 1, 1)}, {activeSpan(t, 100, 100)}}},
+		{"adjacent spans", [][]*edgev1.EdgeClassificationSpanV1{
+			{activeSpan(t, 1, 1), passiveSpan(t, 2, 2)}}},
+		{"span bounded at MaxUint64", [][]*edgev1.EdgeClassificationSpanV1{
+			{activeSpan(t, 1, ^uint64(0))}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pages := buildManifest(t, mustUUID(t), tc.pages)
+			if err := ValidateManifestChain(pages, ManifestRoot(pages)); err != nil {
+				t.Fatalf("%s should be accepted: %v", tc.name, err)
+			}
+		})
+	}
+}
+
+// The oneof guarantees AT MOST ONE body; exactly-one and the field-level rules are
+// enforced here, because proto3 still permits a set body with a nil identity, empty
+// required bytes, or a wrong-width digest.
+func TestSpanBodyStructuralRules(t *testing.T) {
+	nilIdentityActive := &edgev1.EdgeClassificationSpanV1{
+		FromSequence: 1, ThroughSequence: 1,
+		Classification: &edgev1.EdgeClassificationSpanV1_AttributedActive{
+			AttributedActive: &edgev1.EdgeAttributedActiveV1{RangeSha256: d32(3)},
+		},
+	}
+	badID := spanIdentity(t, nil)
+	badID.ProductionScopeId = []byte("not-a-uuid")
+	shortDigest := spanIdentity(t, nil)
+	shortDigest.ScopeSha256 = []byte{1, 2, 3}
+
+	cases := []struct {
+		name string
+		span *edgev1.EdgeClassificationSpanV1
+	}{
+		{"unset oneof", &edgev1.EdgeClassificationSpanV1{FromSequence: 1, ThroughSequence: 1}},
+		{"active with nil identity", nilIdentityActive},
+		{"active missing range_sha256", &edgev1.EdgeClassificationSpanV1{
+			FromSequence: 1, ThroughSequence: 1,
+			Classification: &edgev1.EdgeClassificationSpanV1_AttributedActive{
+				AttributedActive: &edgev1.EdgeAttributedActiveV1{Identity: spanIdentity(t, nil)},
+			},
+		}},
+		{"non-canonical production scope id", &edgev1.EdgeClassificationSpanV1{
+			FromSequence: 1, ThroughSequence: 1,
+			Classification: &edgev1.EdgeClassificationSpanV1_AttributedPassive{
+				AttributedPassive: &edgev1.EdgeAttributedPassiveV1{Identity: badID},
+			},
+		}},
+		{"wrong-width scope digest", &edgev1.EdgeClassificationSpanV1{
+			FromSequence: 1, ThroughSequence: 1,
+			Classification: &edgev1.EdgeClassificationSpanV1_AttributedPassive{
+				AttributedPassive: &edgev1.EdgeAttributedPassiveV1{Identity: shortDigest},
+			},
+		}},
+		{"unattributable UNSPECIFIED", unattributableSpan(1, 1,
+			edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_UNSPECIFIED)},
+		// Closed accepted SET: a value outside 2,3,4,6,7 is rejected before it can be
+		// hashed, including the reserved numbers 1 and 5 and anything a later proto
+		// revision might declare.
+		{"unattributable reserved 1", unattributableSpan(1, 1, edgev1.EdgeUnattributableReason(1))},
+		{"unattributable reserved 5", unattributableSpan(1, 1, edgev1.EdgeUnattributableReason(5))},
+		{"unattributable unknown 8", unattributableSpan(1, 1, edgev1.EdgeUnattributableReason(8))},
+		{"unattributable 999", unattributableSpan(1, 1, edgev1.EdgeUnattributableReason(999))},
+		{"unattributable negative", unattributableSpan(1, 1, edgev1.EdgeUnattributableReason(-1))},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pages := buildManifest(t, mustUUID(t), [][]*edgev1.EdgeClassificationSpanV1{{tc.span}})
+			if err := ValidateManifestChain(pages, nil); !errors.Is(err, ErrManifestSpanBody) {
+				t.Fatalf("%s = %v, want ErrManifestSpanBody", tc.name, err)
+			}
+		})
+	}
+
+	// A partial source combination is rejected: all four members travel together.
+	partial := spanIdentity(t, &edgev1.EdgeSourceSpanIdentityV1{
+		Kind:      edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_AD_HOC,
+		ContextId: mustUUID(t),
+		// source_scope_id and source_scope_sha256 omitted
 	})
-	pages[0].PageSha256 = ManifestPageDigest(pages[0])
-	if err := ValidateManifestChain(pages, nil); !errors.Is(err, ErrManifestAffected) {
-		t.Fatalf("affected outside lost range = %v, want ErrManifestAffected", err)
+	pages := buildManifest(t, mustUUID(t), [][]*edgev1.EdgeClassificationSpanV1{{{
+		FromSequence: 1, ThroughSequence: 1,
+		Classification: &edgev1.EdgeClassificationSpanV1_AttributedPassive{
+			AttributedPassive: &edgev1.EdgeAttributedPassiveV1{Identity: partial},
+		},
+	}}})
+	if err := ValidateManifestChain(pages, nil); !errors.Is(err, ErrManifestSpanBody) {
+		t.Fatalf("partial source = %v, want ErrManifestSpanBody", err)
 	}
 }
 
-// Reviewer repro (r3-09): a coarsened manifest may not discard ALL identity; it
-// must still carry at least one conservative affected scope covering the loss.
-func TestCoarsenedManifestNeedsAffectedScope(t *testing.T) {
+// Source presence is part of the span identity, so source-present and source-absent
+// spans MUST NOT produce the same digest -- the collision the source identity was
+// added to prevent.
+//
+// BOTH pages share ONE recovery id. An earlier version built them with separate ids;
+// since recovery_id is itself hashed, the digests differed regardless of span
+// framing, and the test passed with the source framing deleted entirely.
+//
+// SCOPE, stated precisely because the name invites over-reading: this proves the
+// source MEMBERS reach the preimage. It does NOT prove the 1-byte presence MARKER is
+// framed -- absent emits nothing while present emits >=32 bytes of members, so the
+// digests differ either way. The marker's property is CROSS-LANGUAGE agreement (Go
+// omitting a byte Elixir emits), which only the shared golden fixture can pin. See
+// manifest_page.bin, which carries one source-present and one source-absent span.
+func TestSourceMembersReachTheDigest(t *testing.T) {
 	rid := mustUUID(t)
-	pages := buildManifest(t, rid, [][]*edgev1.EdgeLostRangeV1{{rng(1, 10)}})
-	pages[0].Coarsened = true
-	pages[0].Affected = nil // discard all identity
-	pages[0].PageSha256 = ManifestPageDigest(pages[0])
-	if err := ValidateManifestChain(pages, nil); !errors.Is(err, ErrManifestAffected) {
-		t.Fatalf("coarsened with zero affected = %v, want ErrManifestAffected", err)
+	id := spanIdentity(t, nil)
+
+	absent := &edgev1.EdgeClassificationSpanV1{
+		FromSequence: 1, ThroughSequence: 1,
+		Classification: &edgev1.EdgeClassificationSpanV1_AttributedPassive{
+			AttributedPassive: &edgev1.EdgeAttributedPassiveV1{Identity: id},
+		},
 	}
-	// Coarsening flags must reconcile: a coarsened page needs a coarsened entry.
-	pages2 := buildManifest(t, mustUUID(t), [][]*edgev1.EdgeLostRangeV1{{rng(1, 10)}})
-	pages2[0].Coarsened = true // page coarsened but its affected entry is not
-	pages2[0].PageSha256 = ManifestPageDigest(pages2[0])
-	if err := ValidateManifestChain(pages2, nil); !errors.Is(err, ErrManifestCoarsen) {
-		t.Fatalf("coarsen flag mismatch = %v, want ErrManifestCoarsen", err)
+	withSrc := proto.Clone(absent).(*edgev1.EdgeClassificationSpanV1)
+	withSrc.GetAttributedPassive().Identity.Source = &edgev1.EdgeSourceSpanIdentityV1{
+		Kind:              edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_AD_HOC,
+		ContextId:         mustUUID(t),
+		SourceScopeId:     mustUUID(t),
+		SourceScopeSha256: d32(0x44),
+	}
+	// A second source-present span differing ONLY in context_id. This is the case the
+	// round-K review found missing from the schema: two records sharing every other
+	// member while carrying DIFFERENT signed source contexts must not merge onto one
+	// wire identity.
+	otherCtx := proto.Clone(withSrc).(*edgev1.EdgeClassificationSpanV1)
+	otherCtx.GetAttributedPassive().Identity.Source.ContextId = mustUUID(t)
+
+	a := buildManifest(t, rid, [][]*edgev1.EdgeClassificationSpanV1{{absent}})
+	b := buildManifest(t, rid, [][]*edgev1.EdgeClassificationSpanV1{{withSrc}})
+	c := buildManifest(t, rid, [][]*edgev1.EdgeClassificationSpanV1{{otherCtx}})
+
+	if !bytes.Equal(a[0].GetRecoveryId(), b[0].GetRecoveryId()) ||
+		!bytes.Equal(b[0].GetRecoveryId(), c[0].GetRecoveryId()) {
+		t.Fatal("pages must share one recovery id or this test is vacuous")
+	}
+	for _, pair := range []struct {
+		name string
+		x, y []*edgev1.EdgeLossManifestPageV1
+	}{
+		{"absent vs present", a, b},
+		{"present vs different context_id", b, c},
+	} {
+		if bytes.Equal(pair.x[0].GetPageSha256(), pair.y[0].GetPageSha256()) {
+			t.Fatalf("%s produced the SAME page digest; distinct source identities collide", pair.name)
+		}
+	}
+	for _, pages := range [][]*edgev1.EdgeLossManifestPageV1{a, b, c} {
+		if err := ValidateManifestChain(pages, ManifestRoot(pages)); err != nil {
+			t.Fatalf("all three forms must be valid: %v", err)
+		}
+	}
+}
+
+// An unaccepted enum value must be REJECTED BEFORE the page is hashed, so the verdict
+// cannot depend on the supplied digest.
+//
+// The ordering is only observable when the digest does NOT match: with a matching
+// digest the hash check passes and the body error surfaces under either ordering.
+// These vectors therefore install an out-of-set value AND leave a stale page_sha256,
+// then assert the BODY error. Under hash-first they would report
+// ErrManifestPageDigest instead.
+//
+// BOTH frozen enums are covered. An earlier version tested only
+// EdgeUnattributableReason, which left the closed set on
+// EdgeSourceSpanIdentityV1.kind free to be widened by a later proto revision without
+// any regression noticing.
+func TestInvalidEnumRejectedBeforeHashing(t *testing.T) {
+	// reason: accepted set is 2,3,4,6,7 (1 and 5 reserved).
+	reasonSpan := func(v int32) *edgev1.EdgeClassificationSpanV1 {
+		return unattributableSpan(1, 1, edgev1.EdgeUnattributableReason(v))
+	}
+	// kind: accepted set is 1..7.
+	kindSpan := func(t *testing.T, v int32) *edgev1.EdgeClassificationSpanV1 {
+		t.Helper()
+		return &edgev1.EdgeClassificationSpanV1{
+			FromSequence: 1, ThroughSequence: 1,
+			Classification: &edgev1.EdgeClassificationSpanV1_AttributedPassive{
+				AttributedPassive: &edgev1.EdgeAttributedPassiveV1{
+					Identity: spanIdentity(t, &edgev1.EdgeSourceSpanIdentityV1{
+						Kind:              edgev1.EdgeSourceAuthorizationKind(v),
+						ContextId:         mustUUID(t),
+						SourceScopeId:     mustUUID(t),
+						SourceScopeSha256: d32(0x44),
+					}),
+				},
+			},
+		}
+	}
+
+	reject := []struct {
+		name string
+		span *edgev1.EdgeClassificationSpanV1
+	}{
+		{"reason 0 (UNSPECIFIED)", reasonSpan(0)},
+		{"reason -1", reasonSpan(-1)},
+		{"reason 1 (reserved)", reasonSpan(1)},
+		{"reason 5 (reserved)", reasonSpan(5)},
+		{"reason 8 (next unknown)", reasonSpan(8)},
+		{"reason 999", reasonSpan(999)},
+		{"kind 0 (UNSPECIFIED)", kindSpan(t, 0)},
+		{"kind -1", kindSpan(t, -1)},
+		{"kind 8 (next unknown)", kindSpan(t, 8)},
+		{"kind 999", kindSpan(t, 999)},
+	}
+	for _, tc := range reject {
+		t.Run(tc.name, func(t *testing.T) {
+			pages := buildManifest(t, mustUUID(t), [][]*edgev1.EdgeClassificationSpanV1{{activeSpan(t, 1, 1)}})
+			// Swap the span in WITHOUT recomputing page_sha256, so the digest is stale.
+			pages[0].ClassificationSpans = []*edgev1.EdgeClassificationSpanV1{tc.span}
+			if bytes.Equal(ManifestPageDigest(pages[0]), pages[0].GetPageSha256()) {
+				t.Fatal("digest unexpectedly still matches; this vector cannot distinguish the orderings")
+			}
+			if err := ValidateManifestChain(pages, nil); !errors.Is(err, ErrManifestSpanBody) {
+				t.Fatalf("%s = %v, want ErrManifestSpanBody (a digest error means the page "+
+					"was hashed before the value was rejected)", tc.name, err)
+			}
+		})
+	}
+
+	// ACCEPTED CONTROLS. Without these the rejections above would also pass an
+	// implementation that rejects every value, proving nothing about the SET.
+	accept := []struct {
+		name string
+		span *edgev1.EdgeClassificationSpanV1
+	}{
+		{"reason 2", reasonSpan(2)}, {"reason 3", reasonSpan(3)}, {"reason 4", reasonSpan(4)},
+		{"reason 6", reasonSpan(6)}, {"reason 7", reasonSpan(7)},
+		{"kind 1", kindSpan(t, 1)}, {"kind 4", kindSpan(t, 4)}, {"kind 7", kindSpan(t, 7)},
+	}
+	for _, tc := range accept {
+		t.Run("accepted/"+tc.name, func(t *testing.T) {
+			pages := buildManifest(t, mustUUID(t), [][]*edgev1.EdgeClassificationSpanV1{{tc.span}})
+			if err := ValidateManifestChain(pages, ManifestRoot(pages)); err != nil {
+				t.Fatalf("%s must be accepted: %v", tc.name, err)
+			}
+		})
+	}
+}
+
+// inflate pads an encoded page to exactly `target` bytes with DECODABLE filler:
+// repeated copies of the singular `digest_version` field (tag 8, varint), which
+// protobuf resolves last-one-wins to the same value it already had. One non-minimal
+// varint covers an odd byte count.
+//
+// Trailing zero bytes do NOT work: protobuf-Go rejects tag 0 rather than ignoring it,
+// so a zero-padded page fails to decode and never reaches the budget check.
+func inflate(t *testing.T, b []byte, target int) []byte {
+	t.Helper()
+	need := target - len(b)
+	if need < 0 {
+		t.Fatalf("page already %d bytes, over target %d", len(b), target)
+	}
+	out := append([]byte{}, b...)
+	if need%2 == 1 {
+		if need < 3 {
+			t.Fatalf("cannot pad %d bytes", need)
+		}
+		out = append(out, 0x40, 0x81, 0x00) // digest_version = 1, non-minimal varint
+		need -= 3
+	}
+	for ; need > 0; need -= 2 {
+		out = append(out, 0x40, 0x01) // digest_version = 1
+	}
+	return out
+}
+
+// The aggregate received-byte budget cannot be enforced from decoded messages: two
+// pages can each be under the cap in received bytes, exceed it together, and collapse
+// back under it when re-encoded. This is the exact bypass the pre-1.6a validator had,
+// which summed re-encoded sizes.
+func TestAggregateReceivedByteBound(t *testing.T) {
+	rid := mustUUID(t)
+	pages := buildManifest(t, rid, [][]*edgev1.EdgeClassificationSpanV1{
+		{activeSpan(t, 1, 1)}, {activeSpan(t, 3, 3)},
+	})
+	raw := make([][]byte, len(pages))
+	for i, p := range pages {
+		b, err := proto.Marshal(p)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		raw[i] = b
+	}
+	if err := ValidateManifestChainFromRaw(raw, ManifestRoot(pages)); err != nil {
+		t.Fatalf("in-budget manifest rejected: %v", err)
+	}
+
+	// Aggregate exactly MaxManifestBytes+1 while each page stays under the cap.
+	half := MaxManifestBytes / 2
+	fat := [][]byte{inflate(t, raw[0], half), inflate(t, raw[1], half+1)}
+	if got := len(fat[0]) + len(fat[1]); got != MaxManifestBytes+1 {
+		t.Fatalf("aggregate = %d, want exactly %d", got, MaxManifestBytes+1)
+	}
+	for i, b := range fat {
+		if len(b) > MaxManifestBytes {
+			t.Fatalf("page %d individually over cap; test does not isolate the aggregate", i)
+		}
+		// Each padded page must DECODE, and to the same page it started as -- so the
+		// only thing rejecting the manifest can be the aggregate received size.
+		var pg edgev1.EdgeLossManifestPageV1
+		if err := proto.Unmarshal(b, &pg); err != nil {
+			t.Fatalf("padded page %d does not decode: %v", i, err)
+		}
+		if !proto.Equal(&pg, pages[i]) {
+			t.Fatalf("padded page %d decoded to a different message; padding is not inert", i)
+		}
+		if re, err := proto.Marshal(&pg); err != nil || len(re) >= MaxManifestBytes/2 {
+			t.Fatalf("re-encoded page %d is %d bytes; it must collapse far below the cap "+
+				"so an implementation summing re-encoded sizes would accept this input",
+				i, len(re))
+		}
+	}
+	if err := ValidateManifestChainFromRaw(fat, nil); !errors.Is(err, ErrManifestBounds) {
+		t.Fatalf("aggregate over budget = %v, want ErrManifestBounds", err)
 	}
 }
 
 func TestTombstoneMustReconcile(t *testing.T) {
 	rid := mustUUID(t)
-	pages := buildManifest(t, rid, [][]*edgev1.EdgeLostRangeV1{{rng(10, 20)}})
+	pages := buildManifest(t, rid, [][]*edgev1.EdgeClassificationSpanV1{{activeSpan(t, 10, 20)}})
 	// Tombstone recovery id differs from the manifest's.
 	tomb := &edgev1.SpoolLossTombstoneV1{
 		RecoveryId: mustUUID(t), PriorSpoolId: mustUUID(t), NewSpoolId: mustUUID(t),
-		LostFromSequence: 10, LostThroughSequence: 20,
 		ManifestRootSha256: ManifestRoot(pages), ManifestPageCount: 1, DigestVersion: RecoveryDigestVersion,
 	}
 	if err := ValidateTombstone(tomb, pages); !errors.Is(err, ErrManifestRecoveryID) && !errors.Is(err, ErrTombstoneMismatch) {
 		t.Fatalf("cross-recovery tombstone = %v, want reconciliation error", err)
 	}
-	// Wrong loss interval.
+	// Wrong manifest root.
 	tomb2 := &edgev1.SpoolLossTombstoneV1{
 		RecoveryId: rid, PriorSpoolId: mustUUID(t), NewSpoolId: mustUUID(t),
-		LostFromSequence: 999, LostThroughSequence: 1000,
-		ManifestRootSha256: ManifestRoot(pages), ManifestPageCount: 1, DigestVersion: RecoveryDigestVersion,
+		ManifestRootSha256: d32(0x77), ManifestPageCount: 1, DigestVersion: RecoveryDigestVersion,
 	}
-	if err := ValidateTombstone(tomb2, pages); !errors.Is(err, ErrTombstoneMismatch) {
-		t.Fatalf("wrong loss interval = %v, want ErrTombstoneMismatch", err)
+	if err := ValidateTombstone(tomb2, pages); !errors.Is(err, ErrManifestRoot) {
+		t.Fatalf("wrong manifest root = %v, want ErrManifestRoot", err)
 	}
 	// prior_spool_id == new_spool_id is rejected.
 	spool := mustUUID(t)
 	tomb3 := &edgev1.SpoolLossTombstoneV1{
 		RecoveryId: rid, PriorSpoolId: spool, NewSpoolId: spool,
-		LostFromSequence: 10, LostThroughSequence: 20,
 		ManifestRootSha256: ManifestRoot(pages), ManifestPageCount: 1, DigestVersion: RecoveryDigestVersion,
 	}
 	if err := ValidateTombstone(tomb3, pages); !errors.Is(err, ErrTombstoneMismatch) {
 		t.Fatalf("prior==new spool = %v, want ErrTombstoneMismatch", err)
+	}
+}
+
+// A manifest whose spans are [1,1] and [100,100] says 2..99 were NOT lost. The
+// retired tombstone interval would have declared [1,100] lost -- and because the
+// tombstone scope is SIGNED, that would have been an AUTHENTICATED second source of
+// truth. The tombstone now carries no interval at all.
+func TestTombstoneCarriesNoLossInterval(t *testing.T) {
+	rid := mustUUID(t)
+	pages := buildManifest(t, rid, [][]*edgev1.EdgeClassificationSpanV1{
+		{activeSpan(t, 1, 1), activeSpan(t, 100, 100)},
+	})
+	tomb := &edgev1.SpoolLossTombstoneV1{
+		RecoveryId: rid, PriorSpoolId: mustUUID(t), NewSpoolId: mustUUID(t),
+		ManifestRootSha256: ManifestRoot(pages), ManifestPageCount: 1, DigestVersion: RecoveryDigestVersion,
+	}
+	if err := ValidateTombstone(tomb, pages); err != nil {
+		t.Fatalf("gapped manifest must validate: %v", err)
+	}
+	if d := TombstoneScopeDigest(tomb); len(d) != sha256Len {
+		t.Fatalf("tombstone scope digest = %d bytes, want %d", len(d), sha256Len)
 	}
 }
 
@@ -191,18 +559,20 @@ func TestValidateRecoveryControlBindsContext(t *testing.T) {
 
 // recoveryControlRecord builds a fully SIGNED RECOVERY_CONTROL record whose source
 // scope fixes the tombstone body, plus a policy accepting it. When mutateBody is
-// set, the tombstone loss interval is changed AFTER the scope was signed (the
-// r5-05 substitution repro).
+// set, a scope-covered member is changed AFTER the scope was signed (the r5-05
+// substitution repro). It mutates `manifest_page_count` -- the retired loss interval
+// this used to mutate is gone, but the property under test is unchanged: any member
+// inside the signed scope must not be swappable after signing.
 func recoveryControlRecord(t *testing.T, sourceCtxID, bodyRecoveryID []byte, mutateBody bool) (*edgev1.EdgeRecordV1, AuthorizationPolicy) {
 	t.Helper()
 	tomb := &edgev1.SpoolLossTombstoneV1{
 		RecoveryId: bodyRecoveryID, PriorSpoolId: mustUUID(t), NewSpoolId: mustUUID(t),
-		LostFromSequence: 10, LostThroughSequence: 20, ManifestRootSha256: d32(0x11),
-		ManifestPageCount: 1, DigestVersion: RecoveryDigestVersion, DetectedAtUnixNano: 1, Reason: "torn-tail",
+		ManifestRootSha256: d32(0x11),
+		ManifestPageCount:  1, DigestVersion: RecoveryDigestVersion, DetectedAtUnixNano: 1, Reason: "torn-tail",
 	}
 	scopeDigest := TombstoneScopeDigest(tomb)
 	if mutateBody {
-		tomb.LostFromSequence, tomb.LostThroughSequence = 1000, 2000
+		tomb.ManifestPageCount = 99
 	}
 	pl := &edgev1.EdgeRecoveryControlPayloadV1{Body: &edgev1.EdgeRecoveryControlPayloadV1_Tombstone{Tombstone: tomb}}
 	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(pl)
