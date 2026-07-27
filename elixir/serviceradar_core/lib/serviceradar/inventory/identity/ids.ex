@@ -56,7 +56,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
   @spec extract_strong_identifiers(device_update()) :: strong_identifiers()
   def extract_strong_identifiers(update) do
     metadata = update[:metadata] || %{}
-    partition = String.trim(update[:partition] || "default")
+    partition = identifier_partition(update, metadata)
     raw_mac = update[:mac]
     macs = extract_mac_values(update, metadata)
     integration_id = get_integration_id(metadata)
@@ -231,6 +231,18 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
   defp get_armis_id(metadata) when is_map(metadata), do: get_trimmed(metadata, "armis_device_id")
 
   defp get_armis_id(_metadata), do: nil
+
+  defp identifier_partition(update, metadata) do
+    partition = String.trim(update[:partition] || "default")
+    integration_type = metadata["integration_type"] |> to_string() |> String.downcase()
+    source_id = get_trimmed(metadata, "sync_service_id")
+
+    if integration_type == "armis" and source_id not in [nil, ""] do
+      "#{partition}:armis:#{source_id}"
+    else
+      partition
+    end
+  end
 
   defp get_trimmed(map, key) when is_map(map) do
     case map[key] do

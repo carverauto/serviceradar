@@ -5,7 +5,7 @@ It can also simulate FRR-like BGP activity and export BMP to an Arancini collect
 
 ## Features
 
-- Generates 25,000 fake devices with unique IPs and metadata
+- Generates 50,000 fake devices by default with unique IPs and metadata
 - Emulates Armis API endpoints (`/api/v1/access_token/` and `/api/v1/search/`)
 - Each device has:
   - Unique IP address from different ranges (10.0.x.x, 10.1.x.x, 172.16.x.x, 172.17.x.x, 192.168.x.x)
@@ -86,6 +86,34 @@ curl -X DELETE http://localhost:8080/debug/armis/northbound/updates
 
 The debug response includes total operations, successfully matched devices, missing device IDs, per-field counts, payload shape, and the submitted property values. Updated custom properties are also visible through normal search responses on each device's `customProperties` field.
 
+### Standalone Armis/DIRE E2E controls
+
+The hermetic Armis/DIRE E2E harness runs faker on loopback and does not need
+Kubernetes, NATS, an agent, or a real Armis tenant. It uses these debug
+endpoints to coordinate the fixture:
+
+```bash
+# Wait until the configured device set has been generated
+curl http://localhost:8080/debug/armis/ready
+
+# Deterministically swap primary IPs between device pairs
+curl -X POST http://localhost:8080/debug/armis/simulation/churn \
+  -H 'Content-Type: application/json' -d '{"swaps": 250}'
+```
+
+The churn endpoint preserves the total device and IP cardinality. Its random
+sequence is seeded from `simulation.ip_shuffle.seed`, so a run can reproduce
+the same DHCP-style churn. The full closed loop, including the real Armis Go
+driver and Core Oban worker, is run with:
+
+```bash
+scripts/test-armis-dire-e2e.sh --profile fast
+scripts/test-armis-dire-e2e.sh --profile scale
+```
+
+See [the Armis/DIRE E2E guide](../../../docs/docs/armis-dire-e2e.md) for
+database setup, CI variables, cardinality equations, and failure artifacts.
+
 ## BGP/BMP Simulation (Arancini Path)
 
 This mode is disabled by default and is intended for demo/test environments.
@@ -143,7 +171,7 @@ Configure an Armis integration source to point to the faker service:
 
 The faker service is designed to help reproduce issues with large datasets:
 
-1. **Memory Usage**: With 25,000 devices, the service uses approximately 20-30MB of memory
+1. **Memory Usage**: With 50,000 devices, the service uses approximately 20-30MB of memory
 2. **Pagination**: Test pagination with different page sizes (100, 500, 1000)
 3. **MAC Address Arrays**: Devices have varying numbers of MAC addresses to test array handling
 4. **Consistent Data**: Device data is generated deterministically at startup for consistent testing
@@ -154,13 +182,13 @@ To reproduce the sweep.json malformation issue:
 
 1. Start the faker service
 2. Configure the embedded sync runtime (via Integrations UI) to use faker as the Armis endpoint
-3. Ensure the agent is running so it can fetch all 25,000 devices
+3. Ensure the agent is running so it can fetch all 50,000 devices
 4. Monitor KV store writes for malformed sweep.json
 5. Check agent's ability to read the sweep configuration
 
 ## Performance Characteristics
 
-- Startup: ~1 second to generate 25,000 devices
-- Memory: ~30MB for 25,000 devices in memory
+- Startup: ~1 second to generate 50,000 devices
+- Memory: ~30MB for 50,000 devices in memory
 - Response time: < 10ms for paginated queries
 - Max page size: 1000 devices per request

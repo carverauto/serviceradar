@@ -168,9 +168,18 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
               id_type == :agent_id ->
                 if trusted_agent_match?(trusted, value, device_id), do: device_id
 
-              # A direct MAC match is self-consistent and never vetoed.
+              # A direct MAC match is self-consistent when it is the canonical
+              # device's current primary MAC. Armis also reports historical
+              # MACs; if a typed ID is new and only a historical MAC matches,
+              # the typed ID must win and resolve to its own deterministic UID.
               id_type == :mac ->
-                device_id
+                if ids.armis_id not in [nil, ""] and
+                     historical_mac_veto?(canonical_macs, device_id, incoming_macs) do
+                  emit_distinct_mac_veto(:mac, value, device_id, incoming_macs, canonical_macs)
+                  nil
+                else
+                  device_id
+                end
 
               # Non-MAC strong identifiers (armis/integration/netbox) are the
               # over-merge vector: refuse to attach an incoming record carrying
@@ -214,12 +223,32 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   # Same-device re-observation always shares >=1 MAC (or carries none / only
   # locally-administered) -> not disjoint or one side empty -> no veto.
   defp distinct_mac_veto?(canonical_macs, device_id, incoming_macs) do
-    existing = Map.get(canonical_macs, device_id, MapSet.new())
+    existing = canonical_mac_set(canonical_macs, device_id)
     Mac.distinct_hardware?(existing, incoming_macs)
   end
 
+  defp historical_mac_veto?(canonical_macs, device_id, incoming_macs) do
+    primary = canonical_primary_mac_set(canonical_macs, device_id)
+
+    MapSet.size(primary) > 0 and
+      MapSet.size(incoming_macs) > 0 and
+      MapSet.disjoint?(primary, incoming_macs)
+  end
+
+  defp canonical_mac_set(canonical_macs, device_id) do
+    canonical_macs
+    |> Map.get(device_id, %{})
+    |> Map.get(:all, MapSet.new())
+  end
+
+  defp canonical_primary_mac_set(canonical_macs, device_id) do
+    canonical_macs
+    |> Map.get(device_id, %{})
+    |> Map.get(:primary, MapSet.new())
+  end
+
   defp emit_distinct_mac_veto(id_type, value, device_id, incoming_macs, canonical_macs) do
-    existing = Map.get(canonical_macs, device_id, MapSet.new())
+    existing = canonical_mac_set(canonical_macs, device_id)
 
     Logger.info(
       "BatchResolver: distinct-MAC veto — refusing #{id_type}=#{value} attach onto " <>
@@ -302,18 +331,32 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   # Bulk-load the universally-administered MAC set already held by each
   # candidate canonical reachable via a NON-MAC strong identifier
   # (armis_device_id / integration_id / netbox_device_id) in this batch.
-  # Returns %{device_id => MapSet of universally-administered MACs}. One Ash
-  # query for the whole batch; mirrors `preload_agent_trust/3`.
+  # Armis updates also preload the current primary MAC for devices reachable
+  # through a MAC lookup. Armis carries historical MACs, so a newly-seen typed
+  # Armis ID must not attach to a different device merely because one of its
+  # historical MACs is present on that device.
   defp preload_canonical_macs(updates_with_ids, lookups, actor) do
     candidate_ids =
       updates_with_ids
       |> Enum.flat_map(fn {_update, ids} ->
-        for id_type <- @non_mac_strong_identifiers,
-            value <- Ids.get_identifier_values(id_type, ids),
-            device_id = Map.get(lookups.identifiers, {id_type, value, ids.partition}),
-            not is_nil(device_id) do
-          device_id
-        end
+        non_mac_matches =
+          for id_type <- @non_mac_strong_identifiers,
+              value <- Ids.get_identifier_values(id_type, ids),
+              device_id = Map.get(lookups.identifiers, {id_type, value, ids.partition}),
+              not is_nil(device_id),
+              do: device_id
+
+        mac_matches =
+          if ids.armis_id in [nil, ""] do
+            []
+          else
+            for value <- Ids.get_identifier_values(:mac, ids),
+                device_id = Map.get(lookups.identifiers, {:mac, value, ids.partition}),
+                not is_nil(device_id),
+                do: device_id
+          end
+
+        non_mac_matches ++ mac_matches
       end)
       |> Enum.uniq()
 
@@ -322,21 +365,50 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
     else
       query_opts = if actor, do: [actor: actor], else: []
 
-      DeviceIdentifier
-      |> Ash.Query.filter(device_id in ^candidate_ids and identifier_type == :mac)
-      |> Ash.Query.select([:device_id, :identifier_value])
-      |> Ash.read(query_opts)
-      |> Page.unwrap()
-      |> case do
-        {:ok, identifiers} ->
-          identifiers
-          |> Enum.group_by(& &1.device_id, & &1.identifier_value)
-          |> Map.new(fn {device_id, macs} -> {device_id, universal_macs(macs)} end)
+      identifier_macs =
+        DeviceIdentifier
+        |> Ash.Query.filter(device_id in ^candidate_ids and identifier_type == :mac)
+        |> Ash.Query.select([:device_id, :identifier_value])
+        |> Ash.read(query_opts)
+        |> Page.unwrap()
+        |> case do
+          {:ok, identifiers} ->
+            identifiers
+            |> Enum.group_by(& &1.device_id, & &1.identifier_value)
+            |> Map.new(fn {device_id, macs} -> {device_id, universal_macs(macs)} end)
 
-        {:error, error} ->
-          Logger.warning("BatchResolver: canonical MAC preload failed: #{inspect(error)}")
-          %{}
-      end
+          {:error, error} ->
+            Logger.warning("BatchResolver: canonical MAC preload failed: #{inspect(error)}")
+            %{}
+        end
+
+      primary_macs =
+        Device
+        |> Ash.Query.filter(uid in ^candidate_ids)
+        |> Ash.Query.select([:uid, :mac])
+        |> Ash.read(query_opts)
+        |> Page.unwrap()
+        |> case do
+          {:ok, devices} ->
+            Map.new(devices, fn device ->
+              {device.uid, universal_macs(List.wrap(device.mac))}
+            end)
+
+          {:error, error} ->
+            Logger.warning(
+              "BatchResolver: canonical primary MAC preload failed: #{inspect(error)}"
+            )
+
+            %{}
+        end
+
+      Map.new(candidate_ids, fn device_id ->
+        {device_id,
+         %{
+           all: Map.get(identifier_macs, device_id, MapSet.new()),
+           primary: Map.get(primary_macs, device_id, MapSet.new())
+         }}
+      end)
     end
   rescue
     e ->
