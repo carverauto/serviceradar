@@ -251,6 +251,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_sort_dir: "desc",
       default_filter_field: "message",
       filter_fields: [
+        "id",
+        "event_id",
         "activity_name",
         "activity_id",
         "class_uid",
@@ -274,6 +276,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "device_id",
         "source_device_uid",
         "service_radar_device_uid",
+        "host",
         "message",
         "short_message"
       ],
@@ -775,13 +778,15 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_sort_dir: "desc",
       default_filter_field: "title",
       filter_fields: [
+        "id",
         "title",
         "status",
         "severity",
         "source_type",
         "source_id",
         "device_uid",
-        "agent_uid"
+        "agent_uid",
+        "event_id"
       ],
       downsample: false
     },
