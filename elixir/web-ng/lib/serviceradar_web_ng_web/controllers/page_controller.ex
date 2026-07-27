@@ -30,10 +30,9 @@ defmodule ServiceRadarWebNGWeb.PageController do
   end
 
   def redirect_to_observability_flows(conn, params) do
-    params = Map.drop(params, ["_format", "_mounts"])
-    params = Map.put_new(params, "tab", "netflows")
-    query = URI.encode_query(params)
-    to = if query == "", do: "/observability?tab=netflows", else: "/observability?" <> query
+    params = Map.drop(params, ["_format", "_mounts", "tab"])
+
+    to = ServiceRadarWebNGWeb.ObservabilityPaths.path("netflows", params)
     redirect(conn, to: to)
   end
 end

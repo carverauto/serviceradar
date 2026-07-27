@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
           <span class="text-xs text-sr-muted">({length(@flows)} rows)</span>
         </div>
         <.link
-          navigate={~p"/observability?#{%{"tab" => "netflows", "view" => "explorer", "q" => @query}}"}
+          navigate={~p"/observability/netflows?#{%{"view" => "explorer", "q" => @query}}"}
           class="text-xs text-sr-brand hover:underline"
         >
           Open full flows view

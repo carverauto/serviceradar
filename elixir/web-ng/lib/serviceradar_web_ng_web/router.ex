@@ -846,7 +846,15 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/events/:event_id", EventLive.Show, :show)
       live("/alerts", AlertLive.Index, :index)
       live("/alerts/:alert_id", AlertLive.Show, :show)
+      # Unified observability list — path encodes tab intent (URL = intent).
+      # Detail routes for metrics/traces keep their :id segments below.
       live("/observability", LogLive.Index, :index)
+      live("/observability/logs", LogLive.Index, :logs)
+      live("/observability/traces", LogLive.Index, :traces)
+      live("/observability/metrics", LogLive.Index, :metrics)
+      live("/observability/events", LogLive.Index, :events)
+      live("/observability/alerts", LogLive.Index, :alerts)
+      live("/observability/netflows", LogLive.Index, :netflows)
       live("/observability/flows/attributed", Flows.AttributedLive, :index)
       live("/observability/bmp", BmpLive.Index, :index)
       live("/observability/bgp", BGPLive.Index, :index)
@@ -858,7 +866,8 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/cameras/:camera_source_id", CameraLive.Show, :show)
       live("/observability/metrics/:span_id", MetricLive.Show, :show)
       live("/observability/traces/:trace_id", TraceLive.Show, :show)
-      live("/logs", LogLive.Index, :index)
+      # Legacy alias — same LiveView as /observability/logs
+      live("/logs", LogLive.Index, :logs)
       live("/logs/:log_id", LogLive.Show, :show)
       live("/services", ServiceLive.Index, :index)
       live("/services/check", ServiceLive.Show, :show)

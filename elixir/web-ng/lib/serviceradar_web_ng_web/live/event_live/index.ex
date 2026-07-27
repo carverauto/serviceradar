@@ -16,12 +16,12 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   def handle_params(params, _uri, socket) do
     nav =
       params
-      |> Map.take(["q", "limit", "cursor"])
-      |> Map.put("tab", "events")
+      |> Map.take(["q"])
       |> Enum.reject(fn {_k, v} -> v in [nil, ""] end)
       |> Map.new()
 
-    {:noreply, push_navigate(socket, to: ~p"/observability?#{nav}")}
+    to = ServiceRadarWebNGWeb.ObservabilityPaths.path("events", nav)
+    {:noreply, push_navigate(socket, to: to)}
   end
 
   @impl true

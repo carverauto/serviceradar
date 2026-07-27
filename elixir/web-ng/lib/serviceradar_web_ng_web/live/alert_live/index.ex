@@ -16,12 +16,12 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
   def handle_params(params, _uri, socket) do
     nav =
       params
-      |> Map.take(["q", "limit", "cursor"])
-      |> Map.put("tab", "alerts")
+      |> Map.take(["q"])
       |> Enum.reject(fn {_k, v} -> v in [nil, ""] end)
       |> Map.new()
 
-    {:noreply, push_navigate(socket, to: ~p"/observability?#{nav}")}
+    to = ServiceRadarWebNGWeb.ObservabilityPaths.path("alerts", nav)
+    {:noreply, push_navigate(socket, to: to)}
   end
 
   @impl true

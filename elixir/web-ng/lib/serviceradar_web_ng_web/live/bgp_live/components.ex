@@ -48,7 +48,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                     AS {item.as_number}
                   </.ui_button>
                   <.ui_button
-                    navigate={"/observability?tab=netflows&q=#{URI.encode_www_form("as_path contains [#{item.as_number}]")}"}
+                    navigate={"/observability/netflows?q=#{URI.encode_www_form("as_path contains [#{item.as_number}]")}"}
                     title="View NetFlow flows"
                     size="xs"
                     variant="ghost"
@@ -501,7 +501,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                     <td class="text-right">{path.flow_count}</td>
                     <td>
                       <.ui_button
-                        navigate={"/observability?tab=netflows&q=#{build_as_path_filter(path.as_path)}"}
+                        navigate={"/observability/netflows?q=#{build_as_path_filter(path.as_path)}"}
                         size="xs"
                         variant="ghost"
                       >
@@ -550,7 +550,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                     <td class="font-mono text-sm">{prefix.prefix}</td>
                     <td>
                       <.ui_button
-                        navigate={"/observability?tab=netflows&q=as_path+contains+[#{prefix.as_number}]"}
+                        navigate={"/observability/netflows?q=as_path+contains+[#{prefix.as_number}]"}
                         size="xs"
                         variant="ghost"
                         class="font-mono"
@@ -562,7 +562,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                     <td class="text-right">{prefix.flow_count}</td>
                     <td>
                       <.ui_button
-                        navigate={"/observability?tab=netflows&q=dst_ip+in+subnet+#{URI.encode_www_form(prefix.prefix)}"}
+                        navigate={"/observability/netflows?q=dst_ip+in+subnet+#{URI.encode_www_form(prefix.prefix)}"}
                         size="xs"
                         variant="ghost"
                       >

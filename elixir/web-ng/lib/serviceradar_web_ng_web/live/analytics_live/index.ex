@@ -1057,7 +1057,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     <div class="h-80 rounded-xl border border-sr-line bg-sr-surface flex flex-col overflow-hidden">
       <header class="px-4 py-3 bg-sr-subtle/40 flex items-start justify-between gap-3 shrink-0">
         <.link
-          href={~p"/observability?#{%{tab: "events"}}"}
+          href={~p"/observability/events"}
           class="hover:text-sr-brand transition-colors"
         >
           <div class="text-sm font-semibold">Event Levels</div>
@@ -1158,14 +1158,14 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     <div class="h-80 rounded-xl border border-sr-line bg-sr-surface flex flex-col overflow-hidden">
       <header class="px-4 py-3 bg-sr-subtle/40 flex items-start justify-between gap-3 shrink-0">
         <.link
-          href={~p"/observability?#{%{tab: "logs"}}"}
+          href={~p"/observability/logs"}
           class="hover:text-sr-brand transition-colors"
         >
           <div class="text-sm font-semibold">Critical Logs</div>
         </.link>
         <.link
           href={
-            ~p"/observability?#{%{tab: "logs", q: StatsQuery.logs_severity_data_query([:fatal, :error], limit: 100)}}"
+            ~p"/observability/logs?#{%{q: StatsQuery.logs_severity_data_query([:fatal, :error], limit: 100)}}"
           }
           class="text-sr-muted hover:text-sr-brand"
           title="View critical logs"
@@ -1194,7 +1194,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="error"
               href={
-                ~p"/observability?#{%{tab: "logs", q: StatsQuery.logs_severity_data_query(:fatal, limit: 100)}}"
+                ~p"/observability/logs?#{%{q: StatsQuery.logs_severity_data_query(:fatal, limit: 100)}}"
               }
             />
             <.severity_row
@@ -1203,7 +1203,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="warning"
               href={
-                ~p"/observability?#{%{tab: "logs", q: StatsQuery.logs_severity_data_query(:error, limit: 100)}}"
+                ~p"/observability/logs?#{%{q: StatsQuery.logs_severity_data_query(:error, limit: 100)}}"
               }
             />
             <.severity_row
@@ -1212,7 +1212,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="info"
               href={
-                ~p"/observability?#{%{tab: "logs", q: StatsQuery.logs_severity_data_query(:warning, limit: 100)}}"
+                ~p"/observability/logs?#{%{q: StatsQuery.logs_severity_data_query(:warning, limit: 100)}}"
               }
             />
             <.severity_row
@@ -1221,7 +1221,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="primary"
               href={
-                ~p"/observability?#{%{tab: "logs", q: StatsQuery.logs_severity_data_query(:info, limit: 100)}}"
+                ~p"/observability/logs?#{%{q: StatsQuery.logs_severity_data_query(:info, limit: 100)}}"
               }
             />
             <.severity_row
@@ -1230,7 +1230,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="neutral"
               href={
-                ~p"/observability?#{%{tab: "logs", q: StatsQuery.logs_severity_data_query(:debug, limit: 100)}}"
+                ~p"/observability/logs?#{%{q: StatsQuery.logs_severity_data_query(:debug, limit: 100)}}"
               }
             />
           </tbody>
@@ -1289,7 +1289,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         </.link>
         <.link
           href={
-            ~p"/observability?#{%{tab: "traces", q: "in:otel_trace_summaries time:last_24h sort:timestamp:desc limit:100"}}"
+            ~p"/observability/traces?#{%{q: "in:otel_trace_summaries time:last_24h sort:timestamp:desc limit:100"}}"
           }
           class="text-sr-muted hover:text-sr-brand"
           title="View traces"

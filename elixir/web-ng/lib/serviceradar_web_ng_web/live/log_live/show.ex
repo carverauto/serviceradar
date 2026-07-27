@@ -158,7 +158,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_submit", params,
        fallback_path: "/observability",
-       extra_params: %{"tab" => "logs"}
+       extra_params: %{}
      )}
   end
 
@@ -179,7 +179,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_run", %{},
        fallback_path: "/observability",
-       extra_params: %{"tab" => "logs"}
+       extra_params: %{}
      )}
   end
 
@@ -497,7 +497,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     <header class="space-y-3 border-b border-sr-line px-4 pb-4 pt-5 font-sans sm:px-6 sm:pt-6">
       <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-sr-muted">
-          <.link navigate={~p"/observability?#{%{tab: "logs"}}"} class="hover:text-sr-ink">
+          <.link navigate={~p"/observability/logs"} class="hover:text-sr-ink">
             logs
           </.link>
           <span class="text-sr-line-strong">/</span>
@@ -507,7 +507,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
         </div>
 
         <div class="flex shrink-0 flex-wrap items-center gap-1.5">
-          <.ui_button href={~p"/observability?#{%{tab: "logs"}}"} variant="outline" size="xs">
+          <.ui_button href={~p"/observability/logs"} variant="outline" size="xs">
             Back to logs
           </.ui_button>
           <.ui_button type="button" variant="outline" size="xs" phx-click="copy_json">
@@ -638,7 +638,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       query =
         ~s|in:logs #{field}:"#{escape_value(value)}" time:last_24h sort:timestamp:desc|
 
-      ~p"/observability?#{%{tab: "logs", q: query}}"
+      ~p"/observability/logs?#{%{q: query}}"
     end
   end
 

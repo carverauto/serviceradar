@@ -180,7 +180,13 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
              {"/observability/bmp", %{}}
 
     assert Page.route_target_for_query("in:flows src_ip:192.0.2.10", "/devices") ==
-             {"/observability", %{"tab" => "netflows"}}
+             {"/observability/netflows", %{}}
+
+    assert Page.route_target_for_query("in:events severity:Critical", "/devices") ==
+             {"/observability/events", %{}}
+
+    assert Page.route_target_for_query("in:logs time:last_1h", "/devices") ==
+             {"/observability/logs", %{}}
 
     assert Page.route_target_for_query("in:wifi_sites site_code:ZZC", "/devices") ==
              {"/devices/wifi", %{}}

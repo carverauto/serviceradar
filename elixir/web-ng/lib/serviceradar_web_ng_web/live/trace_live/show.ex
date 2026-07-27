@@ -101,7 +101,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
         {:noreply,
          socket
          |> put_flash(:error, "Invalid trace id — expected 32 hexadecimal characters.")
-         |> push_navigate(to: "/observability?tab=traces")}
+         |> push_navigate(to: "/observability/traces")}
     end
   end
 
@@ -109,7 +109,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
     {:noreply,
      socket
      |> put_flash(:error, "Missing trace id.")
-     |> push_navigate(to: "/observability?tab=traces")}
+     |> push_navigate(to: "/observability/traces")}
   end
 
   @impl true
@@ -181,7 +181,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
             </span>
           </:subtitle>
           <:actions>
-            <.ui_button href={~p"/observability?#{%{tab: "traces"}}"} variant="ghost" size="sm">
+            <.ui_button href={~p"/observability/traces"} variant="ghost" size="sm">
               Back to Observability
             </.ui_button>
           </:actions>
@@ -815,7 +815,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   defp derive_log_window(_min_start, _max_end, _summary), do: :error
 
   defp logs_tab_href(query) do
-    "/observability?" <> URI.encode_query(%{tab: "logs", q: query})
+    "/observability/logs?" <> URI.encode_query(%{q: query})
   end
 
   defp log_detail_path(log) do
@@ -1012,7 +1012,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
 
   # Prefills the shared SRQL bar with a trace-summary query for the current
   # trace. Submitting the bar routes through the entity catalog, so trace
-  # summary queries land on /observability?tab=traces.
+  # summary queries land on /observability/traces.
   defp prefill_srql_bar(socket, params) do
     case normalize_trace_id(Map.get(params, "trace_id")) do
       {:ok, trace_id} ->

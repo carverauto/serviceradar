@@ -858,5 +858,5 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
 
-  defp observability_href(query), do: ~p"/observability?#{%{tab: "events", q: query}}"
+  defp observability_href(query), do: ~p"/observability/events?#{%{q: query}}"
 end

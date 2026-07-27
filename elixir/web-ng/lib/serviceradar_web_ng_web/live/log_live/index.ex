@@ -29,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.MapMarkers
   alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
   alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
+  alias ServiceRadarWebNGWeb.ObservabilityPaths
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNGWeb.Stats
   alias ServiceRadarWebNGWeb.Stats.Query, as: StatsQuery
@@ -139,7 +140,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @impl true
   def handle_params(params, uri, socket) do
     path = uri |> to_string() |> URI.parse() |> Map.get(:path)
-    tab = normalize_tab(Map.get(params, "tab"), path)
+
+    # Legacy /observability?tab=events → /observability/events?...
+    case ObservabilityPaths.legacy_tab_redirect(path, params) do
+      to when is_binary(to) ->
+        {:noreply, push_navigate(socket, to: to, replace: true)}
+
+      nil ->
+        handle_params_resolved(params, uri, path, socket)
+    end
+  end
+
+  defp handle_params_resolved(params, uri, path, socket) do
+    tab =
+      ObservabilityPaths.resolve_tab(
+        socket.assigns.live_action,
+        path,
+        params,
+        default_tab_for_path(path)
+      )
+
     params = maybe_apply_netflow_nf_state(params, tab)
     {entity, _list_key} = tab_entity(tab)
     {default_limit, max_limit} = tab_limits(tab)
@@ -749,8 +769,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp srql_submit_extra_params(socket) do
     if socket.assigns.active_tab == "netflows" do
+      # Tab is in the path (/observability/netflows); only pass view chrome extras.
       %{
-        "tab" => "netflows",
         "compact" => if(Map.get(socket.assigns, :netflow_compact?, false), do: "1"),
         "talker_cidr" =>
           if(is_integer(Map.get(socket.assigns, :netflow_talker_cidr)),
@@ -766,7 +786,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
       |> Map.new()
     else
-      %{"tab" => socket.assigns.active_tab}
+      # Tab is encoded in the route path; no extra intent params needed.
+      %{}
     end
   end
 
@@ -1323,12 +1344,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </div>
         </div>
         <div class="flex items-center gap-1">
-          <.ui_button patch={~p"/observability?#{%{tab: "logs"}}"} size="xs" variant="ghost">
+          <.ui_button patch={~p"/observability/logs"} size="xs" variant="ghost">
             All Logs
           </.ui_button>
           <.ui_button
             patch={
-              ~p"/observability?#{%{tab: "logs", q: StatsQuery.logs_severity_data_query([:fatal, :error])}}"
+              ~p"/observability/logs?#{%{q: StatsQuery.logs_severity_data_query([:fatal, :error])}}"
             }
             size="xs"
             variant="danger"
@@ -1395,7 +1416,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <.link
-      patch={~p"/observability?#{%{tab: "logs", q: @query}}"}
+      patch={~p"/observability/logs?#{%{q: @query}}"}
       class="group cursor-pointer rounded-lg bg-sr-subtle/50 p-3 transition-colors hover:bg-sr-subtle"
     >
       <div class="mb-1 flex items-center justify-between">
@@ -1436,12 +1457,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           Event Severity Breakdown
         </div>
         <div class="flex items-center gap-1">
-          <.ui_button patch={~p"/observability?#{%{tab: "events"}}"} size="xs" variant="ghost">
+          <.ui_button patch={~p"/observability/events"} size="xs" variant="ghost">
             All Events
           </.ui_button>
           <.ui_button
             patch={
-              ~p"/observability?#{%{tab: "events", q: "in:events severity:(Critical,High) time:last_24h sort:time:desc"}}"
+              ~p"/observability/events?#{%{q: "in:events severity:(Critical,High) time:last_24h sort:time:desc"}}"
             }
             size="xs"
             variant="danger"
@@ -1501,7 +1522,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <.link
-      patch={~p"/observability?#{%{tab: "events", q: @query}}"}
+      patch={~p"/observability/events?#{%{q: @query}}"}
       class="group cursor-pointer rounded-lg bg-sr-subtle/50 p-3 transition-colors hover:bg-sr-subtle"
     >
       <div class="mb-1 flex items-center justify-between">
@@ -1537,12 +1558,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           Alert Status Overview
         </div>
         <div class="flex items-center gap-1">
-          <.ui_button patch={~p"/observability?#{%{tab: "alerts"}}"} size="xs" variant="ghost">
+          <.ui_button patch={~p"/observability/alerts"} size="xs" variant="ghost">
             All Alerts
           </.ui_button>
           <.ui_button
             patch={
-              ~p"/observability?#{%{tab: "alerts", q: "in:alerts status:pending time:last_7d sort:timestamp:desc"}}"
+              ~p"/observability/alerts?#{%{q: "in:alerts status:pending time:last_7d sort:timestamp:desc"}}"
             }
             size="xs"
             variant="warning"
@@ -3362,10 +3383,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp log_source_patch(query, source, _limit) do
     new_query = log_source_query(query, source)
-
-    params = maybe_put_param(%{tab: "logs"}, :q, new_query)
-
-    "/observability?" <> URI.encode_query(params)
+    ObservabilityPaths.path("logs", maybe_put_param(%{}, :q, new_query))
   end
 
   defp log_source_query(query, source) do
@@ -3898,9 +3916,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         cleaned -> cleaned
       end
 
-    params = maybe_put_param(%{tab: "traces"}, :q, base <> " sort:#{field}:#{dir}")
-
-    "/observability?" <> URI.encode_query(params)
+    ObservabilityPaths.path(
+      "traces",
+      maybe_put_param(%{}, :q, base <> " sort:#{field}:#{dir}")
+    )
   end
 
   defp multi_span_active?(query) do
@@ -3923,9 +3942,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         end
       end
 
-    params = maybe_put_param(%{tab: "traces"}, :q, new_query)
-
-    "/observability?" <> URI.encode_query(params)
+    ObservabilityPaths.path("traces", maybe_put_param(%{}, :q, new_query))
   end
 
   attr(:id, :string, required: true)
@@ -6096,8 +6113,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp cidr_to_like_prefix(value, _cidr) when is_binary(value), do: value
 
-  defp netflow_talker_cidr_patch(base_path, query, limit, %{} = opts) do
-    base_path <> "?" <> URI.encode_query(netflow_params(query, limit, opts))
+  defp netflow_talker_cidr_patch(_base_path, query, limit, %{} = opts) do
+    ObservabilityPaths.path("netflows", netflow_params(query, limit, opts))
   end
 
   defp netflow_params(query, _limit, %{} = opts) do
@@ -6110,8 +6127,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     graph_mode = Map.get(opts, :graph_mode, "stacked")
     view = Map.get(opts, :view, "overview")
 
-    # Intent URL: tab + q (+ view chrome). Limit lives in SRQL, not the query string.
-    %{tab: "netflows"}
+    # Intent URL path encodes tab; query holds q + view chrome only.
+    %{}
     |> maybe_put_param(:q, query)
     |> maybe_put_param(:compact, if(compact?, do: "1"))
     |> maybe_put_param(
@@ -6147,11 +6164,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     )
   end
 
-  defp netflow_filter_patch(base_path, query, limit, field, value, opts) do
+  defp netflow_filter_patch(_base_path, query, limit, field, value, opts) do
     value = (value || "") |> to_string() |> String.trim()
     value = if value in ["—", "-"], do: "", else: value
     params = netflow_params(upsert_query_filter(query || "", field, value), limit, opts)
-    base_path <> "?" <> URI.encode_query(params)
+    ObservabilityPaths.path("netflows", params)
   end
 
   defp netflow_prefix_tags(flow, side) when side in [:src, :dst] do
@@ -7149,17 +7166,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp panel_result_count(_, logs, _traces, _metrics, _events, _alerts, _netflows), do: length(logs)
 
-  defp default_tab_for_path("/observability"), do: "logs"
-  defp default_tab_for_path("/flows"), do: "netflows"
-  defp default_tab_for_path(_), do: "logs"
+  defp default_tab_for_path(path) when is_binary(path) do
+    ObservabilityPaths.tab_from_path(path) ||
+      case path do
+        "/observability" -> "logs"
+        "/flows" -> "netflows"
+        _ -> "logs"
+      end
+  end
 
-  defp normalize_tab("logs", _path), do: "logs"
-  defp normalize_tab("traces", _path), do: "traces"
-  defp normalize_tab("metrics", _path), do: "metrics"
-  defp normalize_tab("events", _path), do: "events"
-  defp normalize_tab("alerts", _path), do: "alerts"
-  defp normalize_tab("netflows", _path), do: "netflows"
-  defp normalize_tab(_tab, path), do: default_tab_for_path(path)
+  defp default_tab_for_path(_), do: "logs"
 
   defp tab_entity("traces"), do: {"otel_trace_summaries", :traces}
   defp tab_entity("metrics"), do: {"otel_metrics", :metrics}
@@ -7664,13 +7680,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp presence(value), do: value
 
   defp metrics_view_href(srql, _limit, view) do
-    params = %{tab: "metrics", q: Map.get(srql, :query, "")}
+    params = %{q: Map.get(srql, :query, "")}
     params = if view == "points", do: Map.put(params, :mview, "points"), else: params
-    ~p"/observability?#{params}"
+    ObservabilityPaths.path("metrics", params)
   end
 
   defp otlp_metric_href(srql, _limit, name) do
-    ~p"/observability?#{%{tab: "metrics", q: Map.get(srql, :query, ""), mview: "points", metric: name}}"
+    ObservabilityPaths.path("metrics", %{
+      q: Map.get(srql, :query, ""),
+      mview: "points",
+      metric: name
+    })
   end
 
   defp otlp_type_badge_variant(type) do
@@ -9226,8 +9246,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   # Stat-card click-through targets (same patch pattern as the logs cards).
-  defp traces_card_href(q), do: ~p"/observability?#{%{tab: "traces", q: q}}"
-  defp metrics_card_href(q), do: ~p"/observability?#{%{tab: "metrics", q: q}}"
+  defp traces_card_href(q), do: ObservabilityPaths.path("traces", %{q: q})
+  defp metrics_card_href(q), do: ObservabilityPaths.path("metrics", %{q: q})
 
   defp correlate_metric_href(metric) do
     trace_id = Map.get(metric, "trace_id")
@@ -9236,9 +9256,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       q =
         "in:logs trace_id:\"#{escape_srql_value(trace_id)}\" #{correlated_logs_time_window(metric)} sort:timestamp:desc"
 
-      "/observability?" <> URI.encode_query(%{tab: "logs", q: q})
+      ObservabilityPaths.path("logs", %{q: q})
     else
-      "/observability?" <> URI.encode_query(%{tab: "logs"})
+      ObservabilityPaths.path("logs")
     end
   end
 

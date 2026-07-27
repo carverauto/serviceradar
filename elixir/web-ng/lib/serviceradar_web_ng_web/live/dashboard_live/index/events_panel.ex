@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
       </div>
       <.link
         :if={@security_trend != []}
-        href={~p"/observability?#{%{tab: "events"}}"}
+        href={~p"/observability/events"}
         class="sr-ops-security-chart sr-ops-clickable-panel"
         data-testid="security-events-chart"
         aria-label="Open event details"

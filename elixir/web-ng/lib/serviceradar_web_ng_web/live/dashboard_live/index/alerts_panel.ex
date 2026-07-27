@@ -12,13 +12,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.AlertsPanel do
     ~H"""
     <Common.panel title="Alerts Feed" class="lg:col-span-12">
       <:actions>
-        <.link href={~p"/observability?#{%{tab: "alerts"}}"} class="sr-ops-button">
+        <.link href={~p"/observability/alerts"} class="sr-ops-button">
           View All Alerts
         </.link>
       </:actions>
       <.link
         :if={@alert_feed == []}
-        href={~p"/observability?#{%{tab: "alerts"}}"}
+        href={~p"/observability/alerts"}
         class="sr-ops-feed-empty is-alert-feed"
         data-testid="alerts-feed-empty"
         aria-label="Open alerts"

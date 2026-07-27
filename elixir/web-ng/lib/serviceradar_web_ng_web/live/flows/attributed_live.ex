@@ -504,7 +504,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           <:actions>
             <div class="flex items-center gap-2">
               <.ui_button
-                href={~p"/observability?#{%{tab: "netflows", view: "explorer"}}"}
+                href={~p"/observability/netflows?#{%{view: "explorer"}}"}
                 variant="ghost"
                 size="sm"
               >
@@ -924,7 +924,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp workload_context_label(_), do: nil
 
   defp netflow_details_path(row) do
-    ~p"/observability?#{%{tab: "netflows", view: "explorer", q: netflow_query(row), open_flow: "1"}}"
+    ~p"/observability/netflows?#{%{view: "explorer", q: netflow_query(row), open_flow: "1"}}"
   end
 
   defp netflow_query(row) do

@@ -756,7 +756,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   end
 
   defp observability_href(query) do
-    "/observability?" <> URI.encode_query(%{tab: "events", q: query})
+    "/observability/events?" <> URI.encode_query(%{q: query})
   end
 
   defp value(%{} = row, key), do: Map.get(row, key) || Map.get(row, known_atom_key(key))

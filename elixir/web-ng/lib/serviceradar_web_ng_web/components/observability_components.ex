@@ -57,7 +57,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
           label="Logs"
           icon="hero-rectangle-stack"
           active_pane={@active_pane}
-          path={~p"/observability?#{%{tab: "logs"}}"}
+          path={~p"/observability/logs"}
           link_kind={@tab_link_kind}
         />
         <.query_tab_button
@@ -65,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
           label="Traces"
           icon="hero-clock"
           active_pane={@active_pane}
-          path={~p"/observability?#{%{tab: "traces"}}"}
+          path={~p"/observability/traces"}
           link_kind={@tab_link_kind}
         />
         <.query_tab_button
@@ -73,7 +73,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
           label="Metrics"
           icon="hero-chart-bar"
           active_pane={@active_pane}
-          path={~p"/observability?#{%{tab: "metrics"}}"}
+          path={~p"/observability/metrics"}
           link_kind={@tab_link_kind}
         />
         <.query_tab_button
@@ -81,7 +81,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
           label="Events"
           icon="hero-bell-alert"
           active_pane={@active_pane}
-          path={~p"/observability?#{%{tab: "events"}}"}
+          path={~p"/observability/events"}
           link_kind={@tab_link_kind}
         />
         <.query_tab_button
@@ -89,7 +89,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
           label="Alerts"
           icon="hero-exclamation-triangle"
           active_pane={@active_pane}
-          path={~p"/observability?#{%{tab: "alerts"}}"}
+          path={~p"/observability/alerts"}
           link_kind={@tab_link_kind}
         />
         <.navigate_tab_button
@@ -104,7 +104,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
           label="Flows"
           icon="hero-arrow-path"
           active_pane={@active_pane}
-          path={~p"/observability?#{%{tab: "netflows"}}"}
+          path={~p"/observability/netflows"}
           link_kind={@tab_link_kind}
         />
         <.navigate_tab_button

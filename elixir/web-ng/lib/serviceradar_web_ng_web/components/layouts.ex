@@ -407,7 +407,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
           <div class="sr-ops-topbar-actions">
             <%!-- Theme toggle hidden; app defaults to dark. Re-enable with <.theme_toggle /> --%>
             <.link
-              navigate={~p"/observability?#{%{tab: "alerts"}}"}
+              navigate={~p"/observability/alerts"}
               class="sr-ops-topbar-icon"
               aria-label="Alerts"
               title="Alerts"
@@ -519,9 +519,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
       href == "/observability" ->
         current_path in ["/observability", "/logs", "/events", "/alerts"] or
-          String.starts_with?(current_path, "/observability/flows") or
-          String.starts_with?(current_path, "/observability/bmp") or
-          String.starts_with?(current_path, "/observability/bgp") or
+          String.starts_with?(current_path, "/observability/") or
           String.starts_with?(current_path, "/logs/") or
           String.starts_with?(current_path, "/events/") or
           String.starts_with?(current_path, "/alerts/")
@@ -549,6 +547,12 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp operations_page_title("/events"), do: "Events"
   defp operations_page_title("/alerts"), do: "Alerts"
   defp operations_page_title("/observability"), do: "Observability"
+  defp operations_page_title("/observability/logs"), do: "Logs"
+  defp operations_page_title("/observability/traces"), do: "Traces"
+  defp operations_page_title("/observability/metrics"), do: "Metrics"
+  defp operations_page_title("/observability/events"), do: "Events"
+  defp operations_page_title("/observability/alerts"), do: "Alerts"
+  defp operations_page_title("/observability/netflows"), do: "Network Flows"
   defp operations_page_title("/observability/flows"), do: "Network Flows"
   defp operations_page_title("/observability/flows/attributed"), do: "Attributed Flows"
   defp operations_page_title("/security"), do: "Security"

@@ -118,7 +118,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_submit", params,
        fallback_path: "/observability",
-       extra_params: %{"tab" => "alerts"}
+       extra_params: %{}
      )}
   end
 
@@ -139,7 +139,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_run", %{},
        fallback_path: "/observability",
-       extra_params: %{"tab" => "alerts"}
+       extra_params: %{}
      )}
   end
 
@@ -436,7 +436,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     <header class="space-y-3 border-b border-sr-line px-4 pb-4 pt-5 font-sans sm:px-6 sm:pt-6">
       <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-sr-muted">
-          <.link navigate={~p"/observability?#{%{tab: "alerts"}}"} class="hover:text-sr-ink">
+          <.link navigate={~p"/observability/alerts"} class="hover:text-sr-ink">
             alerts
           </.link>
           <span class="text-sr-line-strong">/</span>
@@ -447,7 +447,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
 
         <div class="flex shrink-0 flex-wrap items-center gap-1.5">
           <.ui_button
-            navigate={~p"/observability?#{%{tab: "alerts"}}"}
+            navigate={~p"/observability/alerts"}
             variant="outline"
             size="xs"
           >
@@ -571,7 +571,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
       nil
     else
       query = ~s|in:alerts #{field}:"#{escape_value(value)}" time:last_7d sort:timestamp:desc|
-      ~p"/observability?#{%{tab: "alerts", q: query}}"
+      ~p"/observability/alerts?#{%{q: query}}"
     end
   end
 

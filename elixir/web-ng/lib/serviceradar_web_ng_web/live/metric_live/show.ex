@@ -55,7 +55,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_submit", params,
        fallback_path: "/observability",
-       extra_params: %{"tab" => "metrics"}
+       extra_params: %{}
      )}
   end
 
@@ -75,7 +75,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_run", %{},
        fallback_path: "/observability",
-       extra_params: %{"tab" => "metrics"}
+       extra_params: %{}
      )}
   end
 
@@ -98,7 +98,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
             <span class="font-mono text-xs">{@span_id || "—"}</span>
           </:subtitle>
           <:actions>
-            <.ui_button href={~p"/observability?#{%{tab: "metrics"}}"} variant="ghost" size="sm">
+            <.ui_button href={~p"/observability/metrics"} variant="ghost" size="sm">
               Back to Observability
             </.ui_button>
           </:actions>
@@ -612,7 +612,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
     q =
       "in:logs trace_id:\"#{escape_srql(trace_id)}\" #{correlated_logs_time_window(metric)} sort:timestamp:desc limit:50"
 
-    "/observability?" <> URI.encode_query(%{tab: "logs", q: q})
+    "/observability/logs?" <> URI.encode_query(%{q: q})
   end
 
   # Bound the correlated-logs query around the metric's own timestamp (±1h)
