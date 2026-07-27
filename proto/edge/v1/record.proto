@@ -81,9 +81,12 @@ enum EdgeOriginKind {
 
 // EdgeSourceAuthorizationKind names the kind of a source action whose authority
 // a record carries. It mirrors the producing SweepExecutionSource plus the
-// non-sweep integration/recovery actions. A passive producer-assignment record
-// has NO source authorization; its absence is explicit (the optional
-// source_authorization field is unset).
+// non-sweep integration/recovery actions. Its ABSENCE (the optional
+// source_authorization field unset) means only "no source authorization" -- it is
+// NOT the same as PASSIVE attribution, which asserts that a record claims no
+// produced target range. The two axes are INDEPENDENT: all four combinations of
+// {ACTIVE, PASSIVE} x {source present, source absent} are legal, and no component
+// may infer one from the other.
 enum EdgeSourceAuthorizationKind {
   EDGE_SOURCE_AUTHORIZATION_KIND_UNSPECIFIED = 0;
   EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP = 1;
@@ -233,8 +236,9 @@ message EdgeSignedCapabilityV1 {
 
 // EdgeSourceAuthorizationV1 is the explicit typed authority for a source action.
 // Its outer kind/context/scope MUST equal the values inside its signed source
-// claims, so no unsigned outer value can widen authority. A passive
-// producer-assignment record omits this entirely.
+// claims, so no unsigned outer value can widen authority. A record with no source
+// authorization omits it entirely; that says nothing about whether the record is
+// ACTIVE or PASSIVE.
 message EdgeSourceAuthorizationV1 {
   EdgeSourceAuthorizationKind kind = 1;
   EdgeSignedCapabilityV1 capability = 2;   // MUST carry EdgeSourceClaimsV1
@@ -297,7 +301,8 @@ message EdgeRecordV1 {
   EdgeRecordTrafficClass traffic_class = 10;
   bytes network_scope_id = 11;         // authoritative signed site/address namespace
   EdgeSignedCapabilityV1 production_capability = 12; // signed effective output grant
-  optional EdgeSourceAuthorizationV1 source_authorization = 13; // absent = passive output
+  optional EdgeSourceAuthorizationV1 source_authorization = 13; // absent = no source authorization
+                                                                // (NOT the same as PASSIVE)
   uint32 projected_row_count = 14;     // trusted conservative upper bound
   uint64 projected_write_bytes = 15;   // trusted SQL/index/WAL upper bound
   uint32 cost_model_version = 16;      // MUST be >= 1
@@ -398,38 +403,94 @@ message EdgeRecordLaneOpenAck {
 // Bounded recovery / spool-loss contracts
 // ---------------------------------------------------------------------------
 
-// EdgeLostRangeV1 is one contiguous run of lost spool sequences, inclusive
-// (from_sequence <= through_sequence). Ranges within a page are ordered and
-// non-overlapping.
-message EdgeLostRangeV1 {
-  uint64 from_sequence = 1;
-  uint64 through_sequence = 2;
+// EdgeClassificationSpanV1 is one contiguous run of lost spool sequences
+// (from_sequence <= through_sequence, from_sequence >= 1) carrying EXACTLY ONE
+// classification. It replaces the retired lost_ranges + affected pairing: those two
+// arrays described one fact from two angles and could disagree.
+//
+// A sequence covered by NO span was NOT lost. Gaps are legal within a page and at a
+// page boundary alike, so the page's first-to-last quantity is its EXTENT -- never
+// "coverage", which elsewhere is per-sequence evidence that can authorize reclaim.
+//
+// The oneof makes the CHOICE structural. It does not make every illegal state
+// unrepresentable -- proto3 still permits a set body with a nil identity -- so
+// ValidateManifestChain rejects those explicitly.
+enum EdgeUnattributableReason {
+  // Retired before first use. SEGMENT_CORRUPT is not a reason: record-byte
+  // corruption does not defeat attribution, because the binding is stored
+  // corruption-independently of record_bytes. COARSENED had no legal condition --
+  // relabelling known attribution because coarsening failed is forbidden.
+  reserved 1, 5;
+  reserved "EDGE_UNATTRIBUTABLE_REASON_SEGMENT_CORRUPT",
+           "EDGE_UNATTRIBUTABLE_REASON_COARSENED";
+
+  EDGE_UNATTRIBUTABLE_REASON_UNSPECIFIED = 0;  // rejected
+  EDGE_UNATTRIBUTABLE_REASON_BINDING_MISSING = 2;
+  EDGE_UNATTRIBUTABLE_REASON_BINDING_CORRUPT = 3;
+  EDGE_UNATTRIBUTABLE_REASON_TORN_TAIL = 4;
+  EDGE_UNATTRIBUTABLE_REASON_BINDING_VERSION_UNSUPPORTED = 6;
+  EDGE_UNATTRIBUTABLE_REASON_DISCRIMINATOR_UNREPRESENTABLE = 7;
 }
 
-// EdgeAffectedScopeV1 binds a covered lost sequence interval to the semantic
-// work it carried, so the recovery consumer can partialize/fence/reschedule the
-// exact assignments, runs, shards, and ranges -- a finite lane interleaves many
-// producers/executions, so a delivery interval alone is not enough. When exact
-// detail exceeds the hard manifest budget, coarsened=true marks a conservative
-// superset scope.
-message EdgeAffectedScopeV1 {
+// The record's SIGNED SOURCE IDENTITY. All four members travel together; a partial
+// combination is rejected. Its ABSENCE is itself part of the span identity, so the
+// digest transcript frames presence explicitly rather than defaulting to zeros --
+// otherwise a source-absent span would collide with a source-present one.
+message EdgeSourceSpanIdentityV1 {
+  EdgeSourceAuthorizationKind kind = 1;  // UNSPECIFIED rejected
+  bytes context_id = 2;                  // canonical 16-byte UUID
+  bytes source_scope_id = 3;             // canonical 16-byte UUID
+  bytes source_scope_sha256 = 4;         // exactly 32 bytes
+}
+
+// The PRODUCER's names for one assignment identity, authored from what it actually
+// wrote. run_id is INDEPENDENT of any execution identity; resolving a span to an
+// execution is a lookup against the durable assignment mapping.
+message EdgeAttributedSpanIdentityV1 {
+  bytes producer_assignment_id = 1;      // canonical 16-byte UUID
+  bytes run_id = 2;                      // canonical 16-byte UUID
+  uint32 run_shard = 3;
+  uint64 authority_epoch = 4;            // plain u64, REQUIRED, no presence marker
+  bytes production_scope_id = 5;         // canonical 16-byte UUID
+  bytes scope_sha256 = 6;                // exactly 32 bytes
+  bytes contract_bundle_sha256 = 7;      // exactly 32 bytes
+  EdgeSourceSpanIdentityV1 source = 8;   // present iff the record carried a source
+                                         // authorization; ABSENCE IS SIGNIFICANT
+}
+
+// Attributed, asserting a produced target range.
+message EdgeAttributedActiveV1 {
+  EdgeAttributedSpanIdentityV1 identity = 1;  // REQUIRED; unset identity rejected
+  bytes range_sha256 = 2;                     // REQUIRED, 32 bytes, ACTIVE only
+}
+
+// Attributed, asserting NO produced target range. Still carries its lost DELIVERY
+// interval: omitting it would leave a hole indistinguishable from undetected loss.
+message EdgeAttributedPassiveV1 {
+  EdgeAttributedSpanIdentityV1 identity = 1;  // REQUIRED; unset identity rejected
+}
+
+// Not attributable, carrying why. No assignment identity: a partial identity is
+// worse than none, because a consumer cannot tell a recovered fact from a guess.
+message EdgeUnattributableV1 {
+  EdgeUnattributableReason reason = 1;  // UNSPECIFIED and reserved values rejected
+}
+
+message EdgeClassificationSpanV1 {
   uint64 from_sequence = 1;
   uint64 through_sequence = 2;
-  bytes contract_bundle_sha256 = 3;
-  bytes producer_assignment_id = 4;
-  bytes run_id = 5;
-  uint32 run_shard = 6;
-  uint64 authority_epoch = 7;
-  bytes scope_sha256 = 8;
-  bytes range_sha256 = 9;
-  bool coarsened = 10;
+  oneof classification {
+    EdgeAttributedActiveV1 attributed_active = 3;
+    EdgeAttributedPassiveV1 attributed_passive = 4;
+    EdgeUnattributableV1 unattributable = 5;
+  }
 }
 
 // EdgeLossManifestPageV1 is one bounded, chained page of a spool-loss manifest.
 // page_sha256 is the canonical digest over EVERY field of this message except
-// page_sha256 itself (recovery id, index/count, predecessor hash, terminal +
-// coarsened state, digest version, lost ranges, and affected scopes), so a
-// contradictory page cannot masquerade as a valid one. Pages chain via
+// page_sha256 itself (recovery id, index/count, predecessor hash, terminal state,
+// digest version, and the ordered classification spans), so a contradictory page
+// cannot masquerade as a valid one. Pages chain via
 // prev_page_sha256 (empty on page 0) and compose into the ordered manifest root.
 message EdgeLossManifestPageV1 {
   bytes recovery_id = 1;             // UUIDv7, matches the tombstone
@@ -438,29 +499,48 @@ message EdgeLossManifestPageV1 {
   bytes prev_page_sha256 = 4;        // chain to the prior page; empty on page 0
   bytes page_sha256 = 5;             // canonical digest over all other fields
   bool terminal = 6;                 // MUST be true iff page_index == page_count-1
-  bool coarsened = 7;
   uint32 digest_version = 8;         // canonical page/root digest algorithm version
-  repeated EdgeLostRangeV1 lost_ranges = 9;   // bounded, ordered, non-overlapping
-  repeated EdgeAffectedScopeV1 affected = 10; // bounded affected semantic scope
+
+  // Retired by 1.6a, reserved by NUMBER and by NAME so stale candidate bytes cannot
+  // be reinterpreted as a future field and the names cannot be reused.
+  reserved 7, 9, 10;
+  reserved "coarsened", "lost_ranges", "affected";
+
+  // ONE ordered loss description, replacing both lost_ranges and affected: a second
+  // array would let two schemas describe the same fact and disagree.
+  repeated EdgeClassificationSpanV1 classification_spans = 11;
 }
 
-// SpoolLossTombstoneV1 is the signed, hard-size-bounded record that a contiguous
-// range of a prior spool generation was lost and re-enqueued under a new
-// generation. It carries the ordered manifest root and page count, never an
-// inline outage-sized tail. It is a RECOVERY_CONTROL payload on the reserved
+// SpoolLossTombstoneV1 is the hard-size-bounded record that part of a prior spool
+// generation was lost and re-enqueued under a new generation. The loss need NOT be
+// contiguous: it is exactly the union of the pages' classification spans, and gaps
+// within that union mean NOT LOST.
+//
+// The tombstone itself is NOT agent-signed -- no agent-signature ABI exists. What is
+// signed is the recovery-control record's SOURCE CAPABILITY, whose scope_sha256
+// equals TombstoneScopeDigest and therefore fixes this exact spool pair and manifest
+// root. That is why a loss interval must not live here: with gaps legal the manifest
+// min/max is not the loss, and the signed scope would make it an authenticated
+// second source of truth.
+//
+// It carries the ordered manifest ROOT and page count, never an inline
+// outage-sized tail. It is a RECOVERY_CONTROL payload on the reserved
 // recovery lane and MUST carry recovery source authorization.
 message SpoolLossTombstoneV1 {
   bytes recovery_id = 1;             // UUIDv7, immutably binds the rollover
   bytes prior_spool_id = 2;
-  uint64 lost_from_sequence = 3;
-  uint64 lost_through_sequence = 4;
   bytes new_spool_id = 5;
   bytes manifest_root_sha256 = 6;    // ordered root over the chained manifest pages
   uint32 manifest_page_count = 7;
-  bool coarsened = 8;                // manifest coarsened to a conservative scope
   int64 detected_at_unix_nano = 9;
   string reason = 10;                // corruption / torn-tail / enospc / etc.
   uint32 digest_version = 11;        // canonical page/root digest algorithm version
+
+  // Retired by 1.6a: with gaps legal the manifest min/max is not the loss, and a
+  // SIGNED interval would be an authenticated second source of truth. `coarsened`
+  // had no deterministic set/clear rule, so identical spans could hash differently.
+  reserved 3, 4, 8;
+  reserved "lost_from_sequence", "lost_through_sequence", "coarsened";
 }
 
 // EdgeRecoveryControlPayloadV1 is the canonical inner payload of a
